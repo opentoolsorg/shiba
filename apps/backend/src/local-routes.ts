@@ -19,7 +19,7 @@ import { LOCAL_ADAPTER_TOKEN_ENV, LOCAL_RUNTIME_FLAG } from "@shiba/shared";
 import { sha256Hex } from "./agent-tokens.js";
 import { pairingSecret, verifyPairingToken } from "./computers-routes.js";
 import type { Env } from "./env.js";
-import { localDispatchStub } from "./local-dispatch.js";
+import { LOCAL_MACHINE_HEADER, localDispatchStub } from "./local-dispatch.js";
 import { HeartbeatRequestSchema, PairRequestSchema, decodeOrNull } from "./local-fleet-schema.js";
 import { timingSafeEqualString } from "./security.js";
 
@@ -80,5 +80,8 @@ export async function handleLocalAdapter(request: Request, env: Env): Promise<Re
     }
     return forwardJson(stub, "heartbeat", heartbeat);
   }
-  return stub.fetch(new Request(new URL(`https://local-dispatch/${sub}${url.search}`), request));
+  const forwarded = new Request(new URL(`https://local-dispatch/${sub}${url.search}`), request);
+  forwarded.headers.delete(LOCAL_MACHINE_HEADER);
+  if (machineId !== undefined) forwarded.headers.set(LOCAL_MACHINE_HEADER, machineId);
+  return stub.fetch(forwarded);
 }

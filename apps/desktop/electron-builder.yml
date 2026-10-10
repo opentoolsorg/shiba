@@ -1,0 +1,44 @@
+# T65 packaging config — D8 hardening lives in electronFuses below.
+# Unsigned locally via pnpm --filter @shiba/desktop dist (CSC_IDENTITY_AUTO_DISCOVERY=false);
+# signed/notarized releases are tag-triggered in .github/workflows/desktop.yml.
+appId: dev.shiba.desktop
+productName: Shiba
+directories:
+  output: release
+files:
+  - dist/**
+  - assets/**
+# The file: loader can't see inside app.asar (Electron's asar-aware file
+# protocol is gone in recent versions), so the bundled setup page ships
+# unpacked; Node fs still resolves app.asar/dist/… to app.asar.unpacked/…
+asarUnpack:
+  - dist/setup.html
+  - dist/setup.js
+extraResources:
+  # Outside the asar so main can fork it, but sealed by the macOS signature.
+  - from: ../../scripts/shiba-local-daemon.mjs
+    to: daemon/shiba-local-daemon.mjs
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableCookieEncryption: true
+  onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
+  grantFileProtocolExtraPrivileges: false
+mac:
+  icon: assets/icon.icns
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  # Notarization creds come from env only: APPLE_API_KEY/APPLE_API_KEY_ID/
+  # APPLE_API_ISSUER or APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID.
+  notarize: true
+publish:
+  provider: github
+  owner: princepal9120
+  repo: ai-intern
+  releaseType: draft

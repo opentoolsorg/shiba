@@ -102,6 +102,8 @@ export interface PendingApproval {
    * hashed like the rest of the approved input.
    */
   runtime?: RuntimeSelection;
+  /** T51: the machine a local run is pinned to ("Run on: This computer"); hashed. */
+  targetMachineId?: string;
   /** The test command the human approved, as argv. */
   testCommand?: string[];
   /**
@@ -158,6 +160,7 @@ export interface CreateApprovalInput {
   harness?: string;
   authAccount?: string;
   runtime?: RuntimeSelection;
+  targetMachineId?: string;
   testCommand?: string[];
   forkedFrom?: ForkLineage;
   role?: AgentRole;
@@ -190,6 +193,7 @@ export function createPendingApproval(
       ...(input.harness !== undefined ? { harness: input.harness } : {}),
       ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
       ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
+      ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
       ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
       ...(input.forkedFrom !== undefined ? { forkedFrom: input.forkedFrom } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
@@ -323,6 +327,8 @@ export interface RunInputFields {
   authAccount?: string;
   /** T51: which runtime — part of what the human approved. */
   runtime?: RuntimeSelection;
+  /** T51: which machine a local run may be claimed by — part of what the human approved. */
+  targetMachineId?: string;
   /** The test command — part of what the human approved. */
   testCommand?: string[];
   /** Run-fork lineage — part of what the human approved. */
@@ -361,6 +367,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.route !== undefined ? { route: input.route as unknown as JsonValue } : {}),
     ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
     ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
+    ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
     ...(tc !== undefined && tc.length > 0 ? { testCommand: tc } : {}),
     ...(input.forkedFrom !== undefined
       ? { forkedFrom: input.forkedFrom as unknown as JsonValue }

@@ -70,6 +70,8 @@ const codingTaskInputSchema = z.object({
    * under SHIBA_LOCAL_RUNTIME=1; every chat surface refuses it at intake.
    */
   runtime: runtimeSelectionSchema.optional(),
+  /** Pins a local run to one paired machine (hashed into the approved run). */
+  targetMachineId: z.string().min(1).max(128).optional(),
 });
 
 const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input, ctx) => {

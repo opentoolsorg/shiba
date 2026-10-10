@@ -40,6 +40,8 @@ const RECORD_PREFIX = "run:";
 const COMPUTER_PREFIX = "computer:";
 /** `pair:<nonce>` → expiresAt; deleted on first use, so a pairing token mints once. */
 const PAIR_PREFIX = "pair:";
+/** Worker-vouched calling machine on /claim; local-routes strips any inbound copy. */
+export const LOCAL_MACHINE_HEADER = "X-Shiba-Machine-Id";
 
 /** Stored machine record: the adapter token lives only as its sha256 — never readable back. */
 type ComputerRecord = Omit<ConnectedComputer, "status"> & { tokenHash?: string };
@@ -117,7 +119,9 @@ export class LocalDispatch extends DurableObject {
       if (existing !== null && existing.status !== "settled" && existing.status !== "cancelled") {
         return Response.json({ error: `Run ${parsed.data.sandboxId} is already ${existing.status}.` }, { status: 409 });
       }
-      const record: LocalDispatchRecord = { envelope: parsed.data, status: "pending" };
+      const target = typeof body.targetMachineId === "string" ? body.targetMachineId.trim() : "";
+      if (target.length > 128) return Response.json({ error: "Invalid targetMachineId." }, { status: 400 });
+      const record: LocalDispatchRecord = { envelope: parsed.data, status: "pending", ...(target !== "" ? { targetMachineId: target } : {}) };
       await this.putRecord(record);
       return Response.json({ ok: true });
     }
@@ -126,9 +130,13 @@ export class LocalDispatch extends DurableObject {
       const body = await this.json(request);
       if (body instanceof Response) return body;
       const operator = typeof body.operator === "string" ? body.operator.slice(0, 200) : undefined;
+      // Shared-token callers carry no machine identity and keep claiming anything.
+      const machineId = request.headers.get(LOCAL_MACHINE_HEADER) ?? undefined;
       const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
       const pending = [...records.values()]
         .filter((record) => record.status === "pending")
+        // Pinned runs need a per-machine token: no vouched id means unpinned only.
+        .filter((record) => record.targetMachineId === undefined || record.targetMachineId === machineId)
         .sort((a, b) => a.envelope.createdAt - b.envelope.createdAt)[0];
       if (pending === undefined) {
         return Response.json({ envelope: null });

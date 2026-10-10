@@ -103,6 +103,8 @@ export interface DelegatedRun {
    * LocalDispatch mailbox to the operator's daemon; absent = sandbox.
    */
   runtime?: RuntimeSelection;
+  /** T51: the only machine whose daemon may claim this local run; approval-hashed. */
+  targetMachineId?: string;
   /** The test command this approval-gated run executes, as argv. */
   testCommand?: string[];
   /**

@@ -27,6 +27,7 @@ import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
 import { SettingsView } from "./components/SettingsView";
 import { TaskComposer } from "./components/TaskComposer";
+import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
 import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavRail";
 import { AuthScreen } from "./components/AuthScreen";
@@ -326,6 +327,19 @@ export function App(): React.JSX.Element {
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
+  // T63 — "Run on: This computer" is offered only while the desktop shell
+  // reports a paired, reachable daemon (idle or busy).
+  const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
+  const { status: desktopStatus } = useDesktopStatus();
+  const localRunAvailable = desktopStatus?.state === "idle" || desktopStatus?.state === "busy";
+  useEffect(() => {
+    if (runTarget === "local" && !localRunAvailable) setRunTarget("sandbox");
+  }, [runTarget, localRunAvailable]);
+  // Only these harnesses run locally; anything else would show as a
+  // deployment pin the backend then refuses.
+  useEffect(() => {
+    if (runTarget === "local" && !["opencode", "claude-code", "codex"].includes(harness)) setHarness("opencode");
+  }, [runTarget, harness]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [webSessions, setWebSessions] = useState<{ id: string; name: string; agentName: string; updatedAt: number }[]>([]);
 // Persistent workspace panel removed from tasks view; functionality promoted to standalone views.
@@ -764,6 +778,53 @@ export function App(): React.JSX.Element {
         setNotice("Repository URL must be a GitHub URL like https://github.com/owner/repo.");
         return;
       }
+      const branch = baseBranch.trim() || "main";
+      if (runTarget === "local") {
+        setNotice(null);
+        // GAP-3 (DESKTOP-PLAN §11.5): submit through POST /api/runs with
+        // runtime:"local" — handleRuns stamps the dashboard intake voucher
+        // and the approval card appears like any other run. HTTP-only, so the
+        // chat-socket identity guards below don't apply. Skills have no
+        // /api/runs field and are not sent for local runs.
+        submitInFlight.current = true;
+        setIsSubmitting(true);
+        try {
+          const res = await fetch(
+            sessionApiAvailable
+              ? `/api/runs?session=${encodeURIComponent(selectedSessionId)}`
+              : "/api/runs",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                repoUrl: repoUrl.trim(),
+                task: task.trim(),
+                baseBranch: branch,
+                ...(harness ? { harness } : {}),
+                ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
+                ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+                runtime: "local",
+                ...targetMachineFields(desktopStatus),
+                publishPullRequest,
+              }),
+            },
+          );
+          if (!res.ok) {
+            const detail = (await res.text().catch(() => "")).slice(0, 200);
+            throw new Error(`Run request failed with ${res.status}${detail ? `: ${detail}` : ""}`);
+          }
+          saveRepo(repoUrl.trim());
+          setTask((current) => (current === task ? "" : current));
+          setNotice("Queued — approve the run card to execute on this computer.");
+          refreshRuns();
+        } catch (error) {
+          setNotice(`Run could not be queued: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+        }
+        return;
+      }
       if (!orchestratorName) {
         setNotice(identityError
           ? `Task not sent: agent identity failed to resolve (${identityError}).`
@@ -783,7 +844,6 @@ export function App(): React.JSX.Element {
         return;
       }
       setNotice(null);
-      const branch = baseBranch.trim() || "main";
       const attachedSkills = savedSkills.filter((skill) => selectedSkillIds.includes(skill.id));
       const text = [
         `Repository: ${repoUrl.trim()}`,
@@ -815,7 +875,7 @@ export function App(): React.JSX.Element {
         setIsSubmitting(false);
       }
     },
-    [repoUrl, baseBranch, task, publishPullRequest, harness, codingModel, connectionId, chat, agent, orchestratorName, identityError, refreshRuns, savedSkills, selectedSkillIds],
+    [repoUrl, baseBranch, task, publishPullRequest, harness, codingModel, connectionId, chat, agent, orchestratorName, identityError, refreshRuns, savedSkills, selectedSkillIds, runTarget, sessionApiAvailable, selectedSessionId, desktopStatus],
   );
 
   const confirmClearAll = useCallback(async () => {
@@ -1686,6 +1746,9 @@ export function App(): React.JSX.Element {
               }
               isSubmitting={isSubmitting}
               clearing={clearing}
+              runTarget={runTarget}
+              onRunTargetChange={setRunTarget}
+              localRunAvailable={localRunAvailable}
               onRepoUrlChange={setRepoUrl}
               onTaskChange={setTask}
               onBaseBranchChange={setBaseBranch}

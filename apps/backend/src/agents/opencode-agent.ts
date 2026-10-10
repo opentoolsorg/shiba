@@ -202,11 +202,11 @@ function bytesToBase64(bytes: Uint8Array): string {
 function workerLocalDispatchClient(env: Env): LocalDispatchClient {
   const stub = () => localDispatchStub(env);
   return {
-    async dispatch(envelope) {
+    async dispatch(envelope, targetMachineId) {
       const res = await stub().fetch(new Request("https://local-dispatch/dispatch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ envelope }),
+        body: JSON.stringify({ envelope, ...(targetMachineId !== undefined ? { targetMachineId } : {}) }),
       }));
       if (!res.ok) throw new Error(`dispatch: ${res.status} ${await res.text()}`);
     },
