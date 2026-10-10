@@ -241,11 +241,32 @@ function matchesPrefix(argv, prefix) {
   return prefix.every((token, i) => argv[i] === token);
 }
 
+// Repository-controlled children must never inherit the daemon's adapter bearer,
+// GitHub token, cloud credentials, or arbitrary shell secrets. Provider keys
+// below are intentional local-harness credentials, not daemon control tokens.
+function childEnvironment(harness) {
+  const allowed = [
+    "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM",
+    "USER", "LOGNAME", "SHELL", "SystemRoot", "COMSPEC", "PATHEXT",
+  ];
+  const providerKeys = {
+    claude: ["ANTHROPIC_API_KEY"],
+    codex: ["OPENAI_API_KEY"],
+    opencode: ["OPENCODE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"],
+    agy: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  };
+  return Object.fromEntries(
+    [...allowed, ...(providerKeys[harness] ?? [])]
+      .filter((key) => process.env[key] !== undefined)
+      .map((key) => [key, process.env[key]]),
+  );
+}
+
 function runProcess(argv, opts = {}) {
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), {
       cwd: opts.cwd,
-      env: opts.env,
+      env: opts.env ?? childEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     opts.onChild?.(child);
@@ -365,8 +386,9 @@ async function execute(envelope) {
   const root = path.join(runRoot, "runs", envelope.sandboxId);
   const cloneDir = substitute(envelope.cloneDir, root);
   const homeDir = substitute(envelope.homeDir, root);
-  const env = { ...process.env };
+  const env = childEnvironment(envelope.harness);
   for (const [key, value] of Object.entries(envelope.env)) {
+    if (key === "LOCAL_ADAPTER_TOKEN" || key === "GITHUB_TOKEN" || key === "GH_TOKEN") continue;
     env[key] = substitute(value, root);
   }
   env.HOME = homeDir;
@@ -508,7 +530,7 @@ async function execute(envelope) {
 /** Names only — the fleet view shows pills, not version strings. */
 function probeHarnesses() {
   return PROBED_HARNESSES.filter(
-    (name) => spawnSync(name, ["--version"], { timeout: 5_000, stdio: "ignore" }).status === 0,
+    (name) => spawnSync(name, ["--version"], { timeout: 5_000, stdio: "ignore", env: childEnvironment() }).status === 0,
   );
 }
 
