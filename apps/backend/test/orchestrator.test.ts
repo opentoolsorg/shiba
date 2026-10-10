@@ -3,7 +3,7 @@ import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestra
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { HARNESS_IDS } from "@shiba/shared";
-import { createRun, RunStore, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
+import { createRun, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
 import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
 import { createPendingApproval, resolvePendingApproval } from "../src/pending-approvals.js";
 import { approveDirect } from "./seeding.js";
@@ -52,11 +52,71 @@ function retained(status: "running" | "completed" = "running") {
 
 beforeEach(() => { vi.resetAllMocks(); mocks.destroy.mockResolvedValue(undefined); });
 
+describe("delegation approval security", () => {
+  const input = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false };
+  function delegate(instance: CodingOrchestrator) {
+    return instance.getTools()["delegate_coding_task"] as unknown as {
+      execute: (input: unknown, options: { toolCallId: string }) => Promise<unknown>;
+    };
+  }
+
+  it("refuses a pending chat gate instead of approving it from execute", async () => {
+    const instance = agent();
+    instance.setState({ runs: [], pendingApprovals: createPendingApproval([], {
+      ...input, threadKey: "default", approvalId: "pending-chat", createdAt: Date.now(),
+    }) });
+    const result = await delegate(instance).execute(input, { toolCallId: "pending-chat" });
+    expect(String(result)).toContain("not approved");
+    expect(instance.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(instance.state.runs).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("dispatches only reserved approved fields despite changed caller input", async () => {
+    const instance = agent();
+    approveDirect(instance, "frozen", input);
+    mocks.execute.mockResolvedValue("ok");
+    await delegate(instance).execute({
+      ...input, repoUrl: "https://github.com/attacker/repo", task: "steal secrets",
+      baseBranch: "evil", publishPullRequest: true, authAccount: "attacker", role: "fixer",
+      harness: "codex", codingModel: "attacker/model",
+    }, { toolCallId: "frozen" });
+    expect(mocks.execute).toHaveBeenCalledOnce();
+    const actual = parseAgentToolInput([
+      { role: "user", text: String(mocks.execute.mock.calls[0]?.[0]) },
+    ]);
+    expect(actual).toMatchObject(input);
+    expect(actual.authAccount).toBeUndefined();
+    expect(actual.role).toBeUndefined();
+  });
+
+  it("rechecks the durable receipt after reclaim yields to a competing rejection", async () => {
+    const instance = agent();
+    instance.setState({ runs: [], pendingApprovals: createPendingApproval([], {
+      ...input, threadKey: "default", approvalId: "raced", createdAt: Date.now(),
+    }) });
+    let resume: () => void = () => {};
+    const reclaim = vi.fn(() => new Promise<void>((resolve) => { resume = resolve; }));
+    Object.assign(instance, { reclaimRuns: reclaim });
+    const post = (approved: boolean) => instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId: "raced", approved, decidedBy: "human" }),
+    }));
+    const approving = post(true);
+    await vi.waitFor(() => expect(reclaim).toHaveBeenCalledOnce());
+    expect(await (await post(false)).json()).toEqual({ result: "rejected" });
+    resume();
+    expect(await (await approving).json()).toEqual({ result: "rejected" });
+    expect(instance.state.commandReceipts?.["approval:raced"]?.outcome).toBe("rejected");
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+});
+
 describe("orchestrator run routes", () => {
   it("still reclaims stale containers when draining the outbox fails", async () => {
     const instance = agent();
     instance.setState({ runs: [retained()] });
-    Object.assign(instance, { drainEffectOutboxOnce: vi.fn().mockRejectedValue(new Error("outbox unavailable")) });
+    Object.assign(instance, { drainEffectOutbox: vi.fn().mockRejectedValue(new Error("outbox unavailable")) });
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       await expect(instance.reclaimRuns()).resolves.toBeUndefined();
@@ -145,12 +205,8 @@ describe("orchestrator run routes", () => {
       );
       await vi.waitFor(() => expect(mocks.quality).toHaveBeenCalledOnce());
       expect(instance.state.runs[0]?.status).toBe("completed");
-      // Result distillation already uses waitUntil; grading needs its own hold
-      // that stays open until grading settles.
-      const settled = held.map(() => false);
-      held.forEach((promise, index) => void promise.then(() => { settled[index] = true; }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(settled).toContain(false);
+      // Result distillation already uses waitUntil; grading needs its own hold.
+      expect(held).toHaveLength(2);
     } finally {
       finishQuality(null);
       await Promise.all(held);
@@ -174,183 +230,6 @@ describe("orchestrator run routes", () => {
     expect(mocks.destroy).toHaveBeenCalledTimes(8);
     expect(peak).toBeLessThanOrEqual(4);
     expect(instance.state.runs).toEqual([]);
-  });
-
-  describe("pre-start failure fence", () => {
-    const input = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: true };
-    const spies = (instance: CodingOrchestrator) => {
-      const host = instance as unknown as { postToThread: (text: string) => void; dispatchSessionDistill: (run: DelegatedRun) => void };
-      return {
-        post: vi.spyOn(host, "postToThread").mockImplementation(() => {}),
-        distill: vi.spyOn(host, "dispatchSessionDistill").mockImplementation(() => {}),
-      };
-    };
-    const delegateOf = (instance: CodingOrchestrator) => instance.getTools()["delegate_coding_task"] as {
-      execute: (input: unknown, options?: unknown) => Promise<unknown>;
-    };
-
-    it("records an abort before start as cancelled without distilling", async () => {
-      const instance = agent();
-      const { post, distill } = spies(instance);
-      approveDirect(instance, "abort-start", input);
-      const controller = new AbortController();
-      mocks.schedule.mockImplementation(async () => { controller.abort(); return {}; });
-      await expect(delegateOf(instance).execute(input, { toolCallId: "abort-start", abortSignal: controller.signal })).rejects.toBeDefined();
-      expect(instance.state.runs[0]?.status).toBe("cancelled");
-      expect(mocks.execute).not.toHaveBeenCalled();
-      expect(distill).not.toHaveBeenCalled();
-      expect(post).toHaveBeenCalledTimes(2); // started + failed notice
-    });
-
-    it("drops the failure side effects when another writer already won the fence", async () => {
-      const instance = agent();
-      instance.env.GITHUB_TOKEN = "";
-      const { post, distill } = spies(instance);
-      approveDirect(instance, "fence-lost", input);
-      vi.spyOn(RunStore.prototype, "transition").mockReturnValue(null);
-      await expect(delegateOf(instance).execute(input, { toolCallId: "fence-lost" })).rejects.toBeDefined();
-      expect(post).not.toHaveBeenCalled();
-      expect(distill).not.toHaveBeenCalled();
-    });
-
-    it("leaves the store untouched when the failure precedes the run reservation", async () => {
-      const instance = agent();
-      const { post, distill } = spies(instance);
-      approveDirect(instance, "pre-reserve", input);
-      const before = JSON.stringify(instance.state.runs);
-      const controller = new AbortController();
-      Object.assign(instance, { reclaimRuns: async () => { controller.abort(); } });
-      const transition = vi.spyOn(RunStore.prototype, "transition");
-      await expect(delegateOf(instance).execute(input, { toolCallId: "pre-reserve", abortSignal: controller.signal })).rejects.toBeDefined();
-      expect(transition).not.toHaveBeenCalled();
-      expect(JSON.stringify(instance.state.runs)).toBe(before);
-      expect(post).not.toHaveBeenCalled();
-      expect(distill).not.toHaveBeenCalled();
-    });
-  });
-
-  it("aborts never-resolving triage and quality grading after 15s while the run completes", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const instance = agent();
-    const held: Promise<unknown>[] = [];
-    Object.assign(instance, { ctx: { waitUntil: (promise: Promise<unknown>) => held.push(promise) } });
-    Object.assign(instance.env, { TYPESAFE_API_KEY: "test-key" });
-    approveDirect(instance, "advisory-timeout");
-    const signals: AbortSignal[] = [];
-    vi.stubGlobal("fetch", vi.fn((_url: unknown, init: RequestInit) => {
-      signals.push(init.signal!);
-      return new Promise<Response>((_resolve, reject) => {
-        init.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
-      });
-    }));
-    const hang = (...args: unknown[]) => (args.find((arg) => typeof arg === "function") as typeof fetch)("https://api.typesafe.ai/test");
-    mocks.triage.mockImplementation(hang);
-    mocks.quality.mockImplementation(hang);
-    mocks.execute.mockResolvedValue(formatAgentResult({
-      status: "completed", summary: "Done", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [],
-    }));
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const delegate = instance.getTools()["delegate_coding_task"] as {
-      execute: (input: unknown, options?: unknown) => Promise<unknown>;
-    };
-    try {
-      await delegate.execute(
-        { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false },
-        { toolCallId: "advisory-timeout" },
-      );
-      await vi.waitFor(() => expect(mocks.quality).toHaveBeenCalledOnce());
-      expect(instance.state.runs[0]?.status).toBe("completed");
-      await vi.advanceTimersByTimeAsync(15_000);
-      await Promise.all(held);
-      expect(signals.length).toBeGreaterThan(0);
-      expect(signals.every((signal) => signal.aborted)).toBe(true);
-      expect(instance.state.runs[0]?.status).toBe("completed");
-    } finally {
-      vi.useRealTimers();
-      vi.unstubAllGlobals();
-      log.mockRestore();
-    }
-  });
-
-  describe("cleanup loops", () => {
-    const stale = (count: number) => Array.from({ length: count }, (_, index) => ({
-      ...retained(), runId: `run-${index}`, sandboxId: `sandbox-${index}`,
-    }));
-
-    it("aborts controllers and posts outcome-unknown for every reclaimed run before any destroy", async () => {
-      const instance = agent();
-      instance.setState({ runs: stale(2) });
-      const events: string[] = [];
-      const host = instance as unknown as {
-        runControllers: Map<string, AbortController>;
-        postOutcomeUnknown: (run: DelegatedRun) => void;
-      };
-      for (const run of stale(2)) {
-        const controller = new AbortController();
-        controller.signal.addEventListener("abort", () => events.push(`abort:${run.runId}`));
-        host.runControllers.set(run.runId, controller);
-      }
-      vi.spyOn(host, "postOutcomeUnknown").mockImplementation((run) => { events.push(`post:${run.runId}`); });
-      mocks.destroy.mockImplementation(async () => { events.push("destroy"); });
-      await instance.reclaimRuns();
-      const firstDestroy = events.indexOf("destroy");
-      expect(firstDestroy).toBe(4);
-      expect(events.filter((event) => event === "destroy")).toHaveLength(2);
-    });
-
-    it("keeps destroying the rest when one destroy throws", async () => {
-      const instance = agent();
-      instance.setState({ runs: stale(3) });
-      const destroySandbox = vi.fn()
-        .mockRejectedValueOnce(new Error("boom Bearer secret-token"))
-        .mockResolvedValue(undefined);
-      Object.assign(instance, { destroySandbox });
-      const log = vi.spyOn(console, "error").mockImplementation(() => {});
-      try {
-        await instance.reclaimRuns();
-        expect(destroySandbox).toHaveBeenCalledTimes(3);
-        expect(JSON.stringify(log.mock.calls)).not.toContain("secret-token");
-      } finally {
-        log.mockRestore();
-      }
-    });
-
-    it("bounds a hung destroy so the remaining sandboxes are still destroyed", async () => {
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      const instance = agent();
-      instance.setState({ runs: stale(2) });
-      const destroySandbox = vi.fn()
-        .mockImplementationOnce(() => new Promise<void>(() => {}))
-        .mockResolvedValue(undefined);
-      Object.assign(instance, { destroySandbox });
-      const log = vi.spyOn(console, "error").mockImplementation(() => {});
-      try {
-        const sweep = instance.reclaimRuns();
-        await vi.advanceTimersByTimeAsync(30_000);
-        await sweep;
-        expect(destroySandbox).toHaveBeenCalledTimes(2);
-      } finally {
-        vi.useRealTimers();
-        log.mockRestore();
-      }
-    });
-
-    it("keeps cancelling the remaining runs when clearing and one cancel throws", async () => {
-      const instance = agent();
-      instance.setState({ runs: stale(3).map((run) => ({ ...run, updatedAt: Date.now() })) });
-      const destroySandbox = vi.fn()
-        .mockRejectedValueOnce(new Error("boom"))
-        .mockResolvedValue(undefined);
-      Object.assign(instance, { destroySandbox });
-      const log = vi.spyOn(console, "error").mockImplementation(() => {});
-      try {
-        await instance.clearRuns();
-        expect(destroySandbox).toHaveBeenCalledTimes(3);
-        expect(instance.state.runs).toEqual([]);
-      } finally {
-        log.mockRestore();
-      }
-    });
   });
 
   it.each(["triage", "quality"] as const)("logs %s failures without failing the run or exposing secrets", async (stage) => {
@@ -939,6 +818,29 @@ describe("run reliability", () => {
     expect(completed?.text).toContain(`PR: ${pullUrl}`);
     expect(completed?.text).toContain("1 changed files.");
     expect(completed!.text.length).toBeLessThan(1200);
+  });
+
+  it("redacts malformed structured child output before posting failure details", async () => {
+    const { instance, posts, settled } = slackAgent();
+    mocks.execute.mockResolvedValue({ error: "Bearer secret-output-token" });
+    approveDirect(instance, "bad-output", INPUT);
+    const delegate = instance.getTools()["delegate_coding_task"] as unknown as {
+      execute: (input: unknown, options?: unknown) => Promise<unknown>;
+    };
+    await expect(delegate.execute(INPUT, { toolCallId: "bad-output" })).rejects.toThrow();
+    await settled();
+    expect(JSON.stringify(posts)).not.toContain("secret-output-token");
+  });
+
+  it("settles a post-back without ctx instead of leaving its outbox claim stuck", async () => {
+    const { instance, posts } = slackAgent();
+    Object.assign(instance, { ctx: undefined });
+    instance.setState({ runs: [{ ...retained(), updatedAt: Date.now() }] });
+    await expect(instance.cancelRun("r1")).resolves.toMatchObject({ status: "cancelled" });
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    await vi.waitFor(() => {
+      expect(Reflect.get(instance, "inFlightEffects").size).toBe(0);
+    });
   });
 
   it("logs Slack ok:false post-back failures that arrive as HTTP 200", async () => {

@@ -22,7 +22,6 @@ import {
   type RunCommand,
   type RunDecision,
   runtimeSelectionSchema,
-  type RunSignal,
   type SideEffectKind,
   type SpineEvent,
   type SpineEventInput,
@@ -46,7 +45,6 @@ import {
   releaseRestartedDraftClaim,
   unqueueEmailApprovalDraft,
 } from "../email-approvals.js";
-import { carriesVouchedHeaders, verifyInternalRequest } from "../edge-identity.js";
 import type { Env } from "../env.js";
 import {
   allowedHostsFor,
@@ -99,19 +97,7 @@ import {
   reclaimStaleRuns,
   recordReceipt,
 } from "../runs.js";
-import {
-  acquireSandboxOps,
-  destroyManagedContainer,
-  type LeakHooks,
-  leakedContainers,
-} from "../sandbox/lifecycle.js";
-import {
-  type ScreenAction,
-  ScreenActionError,
-  screenActionArgv,
-  runScreenAction,
-  ScopedExecRefusal,
-} from "../screen-control.js";
+import { destroyManagedContainer, type LeakHooks, leakedContainers } from "../sandbox/lifecycle.js";
 import { makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
@@ -279,8 +265,6 @@ const STALE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
  * lifetime. The alarm path calls reclaimRuns directly, unfloored.
  */
 const RECLAIM_SWEEP_INTERVAL_MS = 30 * 1000;
-/** Per-step bound on sequential cleanup loops so one hung destroy cannot starve the rest. */
-const CLEANUP_TIMEOUT_MS = 30_000;
 
 /**
  * The payload an email approval freezes is the executor's verbatim
@@ -553,7 +537,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (updated !== null) this.postOutcomeUnknown(updated);
     }
     // Teardown runs in the background: awaiting container I/O here would block the DO's start.
-    this.holdOpen(this.destroyEach(interrupted.map((run) => run.sandboxId)));
+    const teardown = (async () => {
+      for (const run of interrupted) await this.destroySandbox(run.sandboxId);
+    })();
+    if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
+      this.ctx.waitUntil(teardown);
+    } else {
+      void teardown;
+    }
     // Before anything re-drives, free the draft claims a dead attempt
     // could leave behind: a `sending` row at DO start belongs to a
     // dispatch that died with the last lifetime — claims are only
@@ -808,7 +799,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * the tryRunPromise signal the way `effectWithSignal` does.
    */
   private async executeDelegatedTask(
-    input: DelegateInput,
+    _input: DelegateInput,
     childExecute: NonNullable<ReturnType<typeof agentTool>["execute"]>,
     toolCallId: string | undefined,
     abortSignal?: AbortSignal,
@@ -883,7 +874,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             commandId: `approval:${callId}`,
             kind: "approval.resolve",
             outcome: "approved",
-            threadKey: pointer.threadKey,
+            threadKey: gateThreadKey,
             approvalId: callId,
             runId: minted.runId,
             dispatched: true,
@@ -893,12 +884,33 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         reserved = minted;
         pointer = record;
       }
+      if (!reserved || pointer?.status !== "approved") {
+        return "Run is not approved to execute.";
+      }
+      // Ignore caller input: execute may be invoked with different arguments
+      // after approval. Every dispatch field comes from the approved snapshot.
+      const input: DelegateInput = {
+        repoUrl: reserved.repoUrl,
+        task: reserved.task,
+        baseBranch: reserved.baseBranch,
+        publishPullRequest: reserved.publishPullRequest,
+        ...(pointer.harness !== undefined
+          ? { harness: delegateInputSchema.shape.harness.parse(pointer.harness) }
+          : {}),
+        ...(reserved.authAccount !== undefined ? { authAccount: reserved.authAccount } : {}),
+        ...(reserved.runtime !== undefined ? { runtime: reserved.runtime } : {}),
+        ...(pointer.role !== undefined ? { role: pointer.role } : {}),
+      };
       failureRun = reserved;
-      // T51 dispatch-side check — the queued record's frozen runtime is what
-      // counts; the intake gate can never be bypassed by a chat-surface tool
-      // call because a `default`/`slack:*` DO fails isDashboardAgentName.
-      if (input.runtime === "local" || reserved.runtime === "local") {
-        if (reserved.runtime !== input.runtime) {
+      // T51 dispatch-side check. The caller's runtime is never a dispatch
+      // input — every field executes from the approved snapshot — but a call
+      // naming a different runtime than the approval froze is a raced or
+      // tampered continuation and refuses rather than silently running.
+      // The intake gate can never be bypassed by a chat-surface tool call
+      // because a `default`/`slack:*` DO fails isDashboardAgentName.
+      const callRuntime = _input.runtime;
+      if (callRuntime === "local" || reserved.runtime === "local") {
+        if (reserved.runtime !== callRuntime) {
           return "Approved input does not match this call's runtime.";
         }
         if (this.env[LOCAL_RUNTIME_FLAG] !== "1" || !isDashboardAgentName(this.name)) {
@@ -931,7 +943,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       } = frozen !== undefined && isApprovedRoute(frozen)
         ? { harness: frozen.harness, codingModel: frozen.modelId, route: frozen }
         : yield* tryRunPromise(() => this.resolveRoute(input));
-      const sandboxId = makeSandboxId(input.repoUrl, input.task, callId);
+      const sandboxId = reserved.sandboxId;
       // Slack thread ids ride the DO name, not the queue body — recovering
       // them here lets the child post progress without new queue plumbing.
       const slackIds = parseSlackThreadName(this.name);
@@ -954,11 +966,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           : {}),
         ...(input.authAccount ? { authAccount: input.authAccount } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
-        // Fork lineage rides the dispatch envelope — the executor restores
-        // the parent's checkpoint ref into the fork's clone.
-        ...(reserved.forkedFrom !== undefined
-          ? { forkCheckpointRef: reserved.forkedFrom.checkpointRef }
-          : {}),
       };
       // Chat-originated runs get the outcome back in the thread in the
       // coworker voice; the summary carries the PR link when one was published.
@@ -981,11 +988,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         }
         return updated;
       };
-      // T40: `start` re-asserts the approval that reserved this run —
-      // evidence is re-derived from the pointer when it still reads
-      // approved, otherwise the stored evidence on the record stands.
-      const startEvidence =
-        pointer?.status === "approved" ? approvalEvidenceFor(pointer, reserved) : reserved.approval;
+      // Re-read after route resolution yields: a removed/rejected pointer
+      // must not launch even when the reserved run still exists.
+      const currentPointer = this.approvals.find((approval) => approval.approvalId === callId);
+      if (currentPointer?.status !== "approved") return "Run is not approved to execute.";
+      const startEvidence = approvalEvidenceFor(currentPointer, reserved);
       const running = this.store.transition(
         runId,
         "running",
@@ -1166,9 +1173,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                     ),
                   );
                   yield* Effect.sync(() => {
-                    this.holdOpen(new Promise<void>((resolve) => {
-                      grading.addObserver(() => resolve());
-                    }));
+                    if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
+                      this.ctx.waitUntil(new Promise<void>((resolve) => {
+                        grading.addObserver(() => resolve());
+                      }));
+                    }
                   });
                 }
                 return output;
@@ -1207,7 +1216,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               slackRunFailed({
                 repoUrl: fullInput.repoUrl,
                 userMessage: runErrorWire(failure.code).userMessage,
-                detail: message.slice(0, 1000),
+                detail: redactSecrets(message).slice(0, 1000),
                 unknown: failureStatus === "unknown",
               }),
             );
@@ -1273,82 +1282,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       )),
     );
     return runWorkerEffect(program);
-  }
-
-  /**
-   * `POST /api/runs/<id>/screen` (PLAN-V2-NEXT): one computer-use action
-   * inside the run's live sandbox — click/type/scroll/key/shot. Only a
-   * `running` run has a screen to drive; the action's xdotool argv go
-   * through scopedExec's verb allowlist and land on the run's exec
-   * signal trail plus a `run.progress` spine event, so every screen op
-   * is as inspectable as any other sandbox exec.
-   */
-  private async screenAction(
-    runId: string,
-    input: Record<string, unknown>,
-    agentPrincipal: string | null,
-  ): Promise<Response> {
-    const run = this.store.get(runId);
-    if (run === null || (agentPrincipal !== null && run.queuedBy !== agentPrincipal)) {
-      return Response.json({ error: "Run not found." }, { status: 404 });
-    }
-    if (run.status !== "running") {
-      return Response.json(
-        { error: `Run ${runId} is ${run.status} — only a running run has a live screen.` },
-        { status: 409 },
-      );
-    }
-    const action = input.action as ScreenAction | undefined;
-    if (typeof action !== "object" || action === null || Array.isArray(action)) {
-      return Response.json({ error: "action must be a JSON object." }, { status: 400 });
-    }
-    // Validate before touching the sandbox — a malformed action is a 400,
-    // never an exec attempt.
-    let argvPreview: string[][];
-    try {
-      argvPreview = screenActionArgv(action);
-    } catch (error) {
-      return Response.json(
-        { error: error instanceof ScreenActionError ? error.message : "Invalid screen action." },
-        { status: 400 },
-      );
-    }
-    const signals: RunSignal[] = [];
-    const summary = `screen_${action.type} (${argvPreview.length} command${argvPreview.length === 1 ? "" : "s"})`;
-    try {
-      const ops = await acquireSandboxOps(this.env, run.sandboxId);
-      const result = await runScreenAction(ops, action, signals);
-      // Persist the exec trail + spine note in one commit — the row
-      // shows what the screen did even when the caller disconnects.
-      const latest = this.store.get(runId);
-      if (latest !== null) {
-        this.emitSpine({
-          kind: "run.progress",
-          commandId: `screen:${crypto.randomUUID()}`,
-          runId,
-          at: Date.now(),
-          payload: { summary },
-        });
-        this.store.replace(runId, {
-          ...latest,
-          signals: [...(latest.signals ?? []), ...signals],
-        });
-      }
-      if (!result.ok) {
-        return Response.json({ ok: false, error: result.stderr ?? "screen action failed." }, { status: 502 });
-      }
-      return Response.json(result.screenshotBase64 !== undefined
-        ? { ok: true, screenshotBase64: result.screenshotBase64 }
-        : { ok: true });
-    } catch (error) {
-      if (error instanceof ScopedExecRefusal || error instanceof ScreenActionError) {
-        return Response.json({ error: error.message }, { status: 400 });
-      }
-      return Response.json(
-        { error: error instanceof Error ? error.message.slice(0, 500) : "Screen action failed." },
-        { status: 502 },
-      );
-    }
   }
 
   /**
@@ -1614,155 +1547,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   /**
-   * `POST /api/runs/<id>/fork` (PLAN-V2-NEXT): mint a NEW approval-gated
-   * run that resumes from one of the parent's captured checkpoints.
-   *
-   * Lineage rides the frozen input (`forkedFrom`) so the approval card
-   * names what actually executes and the input hash covers it — a fork
-   * is a new decision, never a replay of the parent. Checkpoint refs
-   * come from the parent's `checkpoint.captured` signals (the only
-   * durable record of its worktree refs); `run.checkpointed` spine
-   * events are a log-only view of the same refs.
-   *
-   * Guards: parent must exist and be visible to the caller's principal;
-   * parent must have checkpoints; a named checkpoint must be one the
-   * parent actually captured. The parent's record is never touched —
-   * forks mint a sibling approval + a `run.forked` spine event.
-   */
-  private async forkRun(
-    parentRunId: string,
-    input: Record<string, unknown>,
-    agentPrincipal: string | null,
-  ): Promise<Response> {
-    // Fork dedup mirrors queue dedup: a retried POST returns the minted
-    // approvalId instead of minting a second sibling.
-    const forkCommandId =
-      typeof input.commandId === "string" && input.commandId.trim()
-        ? `fork:${input.commandId.trim().slice(0, 200)}`
-        : undefined;
-    if (forkCommandId !== undefined) {
-      const prior = this.commandReceipt(forkCommandId);
-      if (prior !== undefined && prior.approvalId !== undefined) {
-        return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
-      }
-    }
-    const parent = this.store.get(parentRunId);
-    if (parent === null || (agentPrincipal !== null && parent.queuedBy !== agentPrincipal)) {
-      return Response.json({ error: "Run not found." }, { status: 404 });
-    }
-    const checkpoints = (parent.signals ?? [])
-      .filter((signal) => signal.kind === "checkpoint.captured" && typeof signal.detail === "string")
-      .map((signal) => signal.detail as string);
-    if (checkpoints.length === 0) {
-      return Response.json(
-        { error: `Run ${parentRunId} has no captured checkpoints to fork from.` },
-        { status: 400 },
-      );
-    }
-    // `checkpoint` may name a seq (2) or a full ref; absent = latest.
-    let checkpointRef: string;
-    const checkpointInput = input.checkpoint;
-    if (checkpointInput === undefined) {
-      checkpointRef = checkpoints[checkpoints.length - 1]!;
-    } else if (typeof checkpointInput === "number" && Number.isInteger(checkpointInput)) {
-      const wanted = `${parent.sandboxId}/${checkpointInput}`;
-      const found = checkpoints.find((ref) => ref.endsWith(`/${wanted}`));
-      if (found === undefined) {
-        return Response.json(
-          { error: `Checkpoint ${checkpointInput} not found on run ${parentRunId}.` },
-          { status: 400 },
-        );
-      }
-      checkpointRef = found;
-    } else if (typeof checkpointInput === "string" && checkpointInput.trim()) {
-      const wanted = checkpointInput.trim();
-      if (!checkpoints.includes(wanted)) {
-        return Response.json(
-          { error: `Checkpoint ${wanted.slice(0, 120)} is not one of run ${parentRunId}'s captured checkpoints.` },
-          { status: 400 },
-        );
-      }
-      checkpointRef = wanted;
-    } else {
-      return Response.json(
-        { error: "checkpoint must be a checkpoint seq number or a full checkpoint ref." },
-        { status: 400 },
-      );
-    }
-    // `prompt` replaces the parent's task verbatim — a fork carries its
-    // own instruction, not a mutation of the parent's.
-    let task = parent.task;
-    if (input.prompt !== undefined) {
-      if (typeof input.prompt !== "string" || !input.prompt.trim()) {
-        return Response.json({ error: "prompt must be a non-empty string." }, { status: 400 });
-      }
-      task = input.prompt;
-    }
-    const approvalId = crypto.randomUUID();
-    const forkedFrom = { runId: parent.runId, checkpointRef };
-    const threadKey =
-      typeof input.threadKey === "string" && input.threadKey.trim()
-        ? input.threadKey.trim()
-        : "default";
-    if (this.approvals.filter((a) => a.status === "pending").length >= MAX_PENDING_APPROVALS) {
-      return Response.json(
-        { error: "Approval queue is full — resolve pending approvals first." },
-        { status: 429 },
-      );
-    }
-    try {
-      this.emitSpine({
-        kind: "run.forked",
-        commandId: `fork:${approvalId}`,
-        ...(forkCommandId !== undefined ? { causationId: forkCommandId } : {}),
-        runId: parent.runId,
-        approvalId,
-        payload: { forkedFrom },
-        at: Date.now(),
-      });
-      this.setState({
-        ...this.state,
-        pendingApprovals: createPendingApproval(this.approvals, {
-          threadKey,
-          approvalId,
-          repoUrl: parent.repoUrl,
-          task: task.slice(0, 4000),
-          baseBranch: parent.baseBranch,
-          publishPullRequest: parent.publishPullRequest,
-          ...(parent.route !== undefined ? { route: parent.route } : {}),
-          ...(parent.authAccount !== undefined ? { authAccount: parent.authAccount } : {}),
-          ...(parent.runtime !== undefined ? { runtime: parent.runtime } : {}),
-          ...(parent.runtime === "local" && parent.targetMachineId !== undefined
-            ? { targetMachineId: parent.targetMachineId }
-            : {}),
-          ...(parent.testCommand !== undefined ? { testCommand: parent.testCommand } : {}),
-          forkedFrom,
-          ...(agentPrincipal !== null ? { queuedBy: agentPrincipal } : {}),
-          createdAt: Date.now(),
-        }),
-        ...(forkCommandId !== undefined
-          ? {
-              commandReceipts: this.withCommandReceipt({
-                commandId: forkCommandId,
-                kind: "run.fork",
-                outcome: "queued",
-                approvalId,
-                threadKey,
-                at: Date.now(),
-              }),
-            }
-          : {}),
-      });
-    } catch (error) {
-      return Response.json(
-        { error: error instanceof Error ? error.message : "Could not queue fork approval." },
-        { status: 409 },
-      );
-    }
-    return Response.json({ ok: true, approvalId, forkedFrom });
-  }
-
-  /**
    * Email-kind approval (megaplan T7): the frozen send/delete payload is
    * stored verbatim plus its owning mailbox — the single source the
    * executor routes and sends against. `repoUrl`/`task` stay populated
@@ -2012,6 +1796,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return Response.json({ result: prior.outcome });
     }
     if (approved) await this.reclaimRuns();
+    // Another resolve can commit while reclaim yields. Re-read the receipt
+    // before the synchronous decision/write region; never overwrite its winner.
+    const committed = this.commandReceipt(commandId);
+    if (committed !== undefined && committed.threadKey === threadKey) {
+      return Response.json({ result: committed.outcome });
+    }
     const now = Date.now();
     const result = resolvePendingApproval(
       this.approvals,
@@ -2183,7 +1973,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),
       ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
       ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
-      ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
       ...(continuationKey !== undefined ? { continuationKey } : {}),
       decisionTap: (command, decision) => this.spineTap(command, decision),
       // T40: the run carries its approval evidence from birth — who decided,
@@ -2198,7 +1987,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),
         ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
         ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
-        ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
       }),
     });
   }
@@ -2433,8 +2221,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // re-drive it.
     this.setState({ ...this.state });
     this.inFlightEffects.add(effectId);
-    this.ctx.waitUntil(
-      send
+    const settled = send
         .then(() => {
           this.emitSpine(
             sideEffectResultInput({
@@ -2465,8 +2252,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           );
           this.setState({ ...this.state });
           this.inFlightEffects.delete(effectId);
-        }),
-    );
+        });
+    if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
+      this.ctx.waitUntil(settled);
+    } else {
+      void settled;
+    }
   }
 
   /**
@@ -2477,15 +2268,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * MAX_OUTBOX_ATTEMPTS stay `failed` for the operator to inspect.
    */
   private async drainEffectOutbox(): Promise<void> {
-    // Failures are logged, never thrown; unsent entries stay pending (at-least-once).
-    try {
-      await this.drainEffectOutboxOnce();
-    } catch (error) {
-      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
-    }
-  }
-
-  private async drainEffectOutboxOnce(): Promise<void> {
     // Skip rows a synchronous send (or a still-running drain) is already
     // driving this lifetime — they still read `pending` while the send is
     // open, but re-driving one would double-post and double-count the
@@ -2582,40 +2364,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     };
   }
 
-  /** Keep the DO alive for `promise` when a ctx exists; otherwise it runs to its own settle point. */
-  private holdOpen(promise: Promise<unknown>): void {
-    if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
-      this.ctx.waitUntil(promise);
-    }
-  }
-
-  /** Sequential destroy; one throw or hang (bounded by CLEANUP_TIMEOUT_MS) can't skip the rest. */
-  private async destroyEach(sandboxIds: string[]): Promise<void> {
-    for (const sandboxId of sandboxIds) {
-      await this.guardCleanup(() => this.destroySandbox(sandboxId));
-    }
-  }
-
-  private async cancelEach(runs: DelegatedRun[]): Promise<void> {
-    for (const run of runs) await this.guardCleanup(() => this.cancelRun(run.runId));
-  }
-
-  private async guardCleanup(step: () => Promise<unknown>): Promise<void> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        step(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("cleanup timed out")), CLEANUP_TIMEOUT_MS);
-        }),
-      ]);
-    } catch (error) {
-      console.error("Run cleanup step failed", redactSecrets(String(error)));
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   private async destroySandbox(sandboxId: string): Promise<void> {
     // Release goes through the scoped lifecycle: failures are tracked as
     // leaked containers (warn + registry) instead of only logged.
@@ -2625,7 +2373,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   /** Public: also the `schedule()` callback armed when a run starts. */
   async reclaimRuns(): Promise<void> {
     this.lastReclaimSweepAt = Date.now();
-    await this.drainEffectOutbox();
+    await this.drainEffectOutbox().catch((error) => {
+      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
+    });
     await this.reclaimSweep();
   }
 
@@ -2636,7 +2386,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * poll every few seconds must not re-scan the store each time.
    */
   private async reclaimRunsForRead(): Promise<void> {
-    await this.drainEffectOutbox();
+    await this.drainEffectOutbox().catch((error) => {
+      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
+    });
     if (Date.now() - (this.lastReclaimSweepAt ?? 0) < RECLAIM_SWEEP_INTERVAL_MS) return;
     this.lastReclaimSweepAt = Date.now();
     await this.reclaimSweep();
@@ -2656,12 +2408,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     );
     if (reclaimed.length > 0) {
       this.setState({ ...this.state, runs });
-      const reclaimedRuns = runs.filter((run) => reclaimed.includes(run.runId));
-      for (const run of reclaimedRuns) {
+      for (const run of runs.filter((run) => reclaimed.includes(run.runId))) {
         this.postOutcomeUnknown(run);
         this.runControllers.get(run.runId)?.abort();
       }
-      await this.destroyEach(reclaimedRuns.map((run) => run.sandboxId));
+      for (const run of runs.filter((run) => reclaimed.includes(run.runId))) {
+        await this.destroySandbox(run.sandboxId);
+      }
     }
     // Leaked containers outlive the run that leaked them: retry destroy on
     // every reclaim pass; a successful destroy clears its own registry entry.
@@ -2670,7 +2423,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       Object.values(this.state?.leakedContainers ?? {}).map((leak) => [leak.sandboxId, leak]),
     );
     for (const leak of leakedContainers()) leaks.set(leak.sandboxId, leak);
-    await this.destroyEach([...leaks.values()].map((leak) => leak.sandboxId));
+    for (const leak of leaks.values()) await this.destroySandbox(leak.sandboxId);
   }
 
   async clearRuns(): Promise<void> {
@@ -2678,9 +2431,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // dropping them would silently strand a queued card's pointer.
     const runs = this.store.list();
     const removed = new Set(runs.map((run) => run.runId));
-    const active = runs.filter((run) => isActiveStatus(run.status));
-    for (const run of active) this.runControllers.get(run.runId)?.abort();
-    await this.cancelEach(active);
+    for (const run of runs.filter((run) => isActiveStatus(run.status))) {
+      this.runControllers.get(run.runId)?.abort();
+    }
+    for (const run of runs.filter((run) => isActiveStatus(run.status))) {
+      await this.cancelRun(run.runId);
+    }
     // Do not drop runs admitted while sandbox cleanup was awaiting I/O.
     this.setState({
       ...this.state,
@@ -2784,20 +2540,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * case that cannot wait — a touch that just dropped expired sends
    * (or a DO restart, where the floor starts at zero anyway).
    */
-  private signingWarned = false;
-
-  private warnSigningDisabledOnce(): void {
-    // INTERNAL_SIGNING_KEY unset → header-trust fallback. Once per DO
-    // lifetime so operators see it without log spam.
-    if (this.signingWarned) return;
-    this.signingWarned = true;
-    console.warn(
-      "edge-identity: INTERNAL_SIGNING_KEY unset — trusting vouched headers " +
-        "(X-Agent-Principal / X-Shiba-Intake) unsigned. Set the secret on " +
-        "the Worker to require signed internal requests.",
-    );
-  }
-
   private sweepStaleDrafts(force = false): void {
     const now = Date.now();
     if (!force && now - (this.lastStaleSweepAt ?? 0) < STALE_SWEEP_INTERVAL_MS) {
@@ -3083,7 +2825,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
     if (activeRuns.length > 0) {
       for (const run of activeRuns) this.runControllers.get(run.runId)?.abort();
-      await this.cancelEach(activeRuns);
+      for (const run of activeRuns) await this.cancelRun(run.runId);
     }
     if (pendingApprovals.length > 0) {
       const now = Date.now();
@@ -3109,21 +2851,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    // Edge identity: when INTERNAL_SIGNING_KEY is configured, any request
-    // carrying vouched headers must present a valid Worker signature —
-    // otherwise a forged X-Agent-Principal would scope/cancel as another
-    // principal. Requests without vouched headers pass unverified (same
-    // trust level as before). Unset key = header-trust fallback for dev.
-    const verification = await verifyInternalRequest(request, this.env);
-    if (!verification.ok) {
-      return Response.json(
-        { error: `Internal signature verification failed (${verification.reason}).` },
-        { status: 401 },
-      );
-    }
-    if (!verification.signed && carriesVouchedHeaders(request)) {
-      this.warnSigningDisabledOnce();
-    }
     // Worker-vouched agent identity: only mcp-run-tools sets this after
     // bearer auth, so it scopes reads/cancels to records that principal
     // queued. External callers never reach this DO without an Access or
@@ -3218,50 +2945,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         latestSeq,
         totalEvents,
       });
-    }
-    const screenMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/screen$/);
-    if (screenMatch !== null) {
-      if (request.method !== "POST") {
-        return Response.json({ error: "Method not allowed." }, { status: 405 });
-      }
-      let screenBody: unknown;
-      try {
-        screenBody = await request.json();
-      } catch {
-        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
-      }
-      if (typeof screenBody !== "object" || screenBody === null || Array.isArray(screenBody)) {
-        return Response.json({ error: "Request body must be a JSON object." }, { status: 400 });
-      }
-      let screenRunId: string;
-      try {
-        screenRunId = decodeURIComponent(screenMatch[1]!);
-      } catch {
-        return Response.json({ error: "Invalid run ID." }, { status: 400 });
-      }
-      return this.screenAction(screenRunId, screenBody as Record<string, unknown>, agentPrincipal);
-    }
-    const forkMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/fork$/);
-    if (forkMatch !== null) {
-      if (request.method !== "POST") {
-        return Response.json({ error: "Method not allowed." }, { status: 405 });
-      }
-      let forkBody: unknown;
-      try {
-        forkBody = await request.json();
-      } catch {
-        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
-      }
-      if (typeof forkBody !== "object" || forkBody === null || Array.isArray(forkBody)) {
-        return Response.json({ error: "Request body must be a JSON object." }, { status: 400 });
-      }
-      let forkRunId: string;
-      try {
-        forkRunId = decodeURIComponent(forkMatch[1]!);
-      } catch {
-        return Response.json({ error: "Invalid run ID." }, { status: 400 });
-      }
-      return this.forkRun(forkRunId, forkBody as Record<string, unknown>, agentPrincipal);
     }
     const match = url.pathname.match(/^\/api\/runs(?:\/([^/]+))?$/);
     if (!match) {
