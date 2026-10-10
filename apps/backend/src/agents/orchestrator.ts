@@ -924,6 +924,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(slackIds ? { slackThread: { channelId: slackIds.channelId, threadTs: slackIds.threadTs } } : {}),
         // The reserved run's frozen command is what the human approved.
         ...(reserved.testCommand ? { testCommand: reserved.testCommand } : {}),
+        ...(reserved.runtime !== undefined ? { runtime: reserved.runtime } : {}),
+        // Read from the hashed run record, never the mutable pointer.
+        ...(reserved.runtime === "local" && reserved.targetMachineId !== undefined
+          ? { targetMachineId: reserved.targetMachineId }
+          : {}),
         ...(input.authAccount ? { authAccount: input.authAccount } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
         // Fork lineage rides the dispatch envelope — the executor restores
@@ -1287,6 +1292,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     connectionId?: unknown;
     authAccount?: unknown;
     runtime?: unknown;
+    targetMachineId?: unknown;
     testCommand?: unknown;
     role?: unknown;
     intake?: unknown;
@@ -1421,6 +1427,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
     }
     const runtime = runtimeRaw === "local" ? ("local" as const) : undefined;
+    const targetMachineId =
+      typeof input.targetMachineId === "string" ? input.targetMachineId.trim() : input.targetMachineId;
+    if (
+      targetMachineId !== undefined &&
+      (typeof targetMachineId !== "string" || targetMachineId.length < 1 || targetMachineId.length > 128)
+    ) {
+      return Response.json(
+        { error: "targetMachineId must be a string of 1-128 characters." },
+        { status: 400 },
+      );
+    }
     if (runtime === "local") {
       if (this.env[LOCAL_RUNTIME_FLAG] !== "1") {
         return Response.json(
@@ -1481,6 +1498,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             : {}),
           // T51: the approved runtime rides the hashed frozen input.
           ...(runtime !== undefined ? { runtime } : {}),
+          ...(runtime === "local" && targetMachineId !== undefined ? { targetMachineId } : {}),
           ...(testCommand !== undefined ? { testCommand } : {}),
           // T52: the approved role rides the frozen input — dispatch
           // threads it back into the run envelope.
@@ -2085,6 +2103,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.route ? { route: record.route } : {}),
       ...(record.authAccount ? { authAccount: record.authAccount } : {}),
       ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),
+      ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
       ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
       ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
       ...(continuationKey !== undefined ? { continuationKey } : {}),
@@ -2099,6 +2118,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.route ? { route: record.route } : {}),
         ...(record.authAccount ? { authAccount: record.authAccount } : {}),
         ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),
+        ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
         ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
         ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
       }),

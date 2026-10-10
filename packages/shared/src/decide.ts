@@ -53,6 +53,8 @@ export interface QueuedRunInput {
   authAccount?: string;
   /** T51: the approved runtime — part of the approval-hashed input. */
   runtime?: RuntimeSelection;
+  /** T51: the machine a local run is pinned to — part of the approval-hashed input. */
+  targetMachineId?: string;
   /** The test command — part of the approval-hashed input. */
   testCommand?: string[];
   /** Run-fork lineage — part of the approval-hashed input. */
@@ -132,6 +134,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.route !== undefined ? { route: run.route } : {}),
       ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
       ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
+      ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
       ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
       ...(run.forkedFrom !== undefined ? { forkedFrom: run.forkedFrom } : {}),
     })
@@ -178,6 +181,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.continuationKey !== undefined ? { continuationKey: command.input.continuationKey } : {}),
           ...(command.input.authAccount !== undefined ? { authAccount: command.input.authAccount } : {}),
           ...(command.input.runtime !== undefined ? { runtime: command.input.runtime } : {}),
+          ...(command.input.targetMachineId !== undefined ? { targetMachineId: command.input.targetMachineId } : {}),
           ...(command.input.testCommand !== undefined ? { testCommand: command.input.testCommand } : {}),
           ...(command.input.forkedFrom !== undefined ? { forkedFrom: command.input.forkedFrom } : {}),
           ...(approval !== undefined ? { approval } : {}),
@@ -219,6 +223,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
             command.input.continuesKey === run.continuationKey) &&
           run.authAccount === command.input.authAccount &&
           run.runtime === command.input.runtime &&
+          run.targetMachineId === command.input.targetMachineId &&
           JSON.stringify(run.testCommand ?? []) === JSON.stringify(command.input.testCommand ?? []) &&
           JSON.stringify(run.forkedFrom ?? null) === JSON.stringify(command.input.forkedFrom ?? null);
         if (sameInput) {

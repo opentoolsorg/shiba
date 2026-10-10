@@ -18,6 +18,7 @@ packages:
 onlyBuiltDependencies:
   - "@mongodb-js/zstd"
   - core-js-pure
+  - electron
   - esbuild
   - workerd
 

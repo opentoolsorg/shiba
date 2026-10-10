@@ -1,0 +1,30 @@
+{
+  "name": "@shiba/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').copyFileSync('src/setup.html','dist/setup.html');require('fs').copyFileSync('src/setup.js','dist/setup.js')\"",
+    "start": "pnpm build && electron .",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:e2e": "pnpm build && vitest run --config vitest.e2e.config.mts",
+    "dist": "pnpm build && electron-builder",
+    "dist:local": "pnpm dist && ./scripts/adhoc-sign.sh release/mac-arm64/Shiba.app"
+  },
+  "dependencies": {
+    "@shiba/shared": "workspace:*",
+    "electron-updater": "6.8.10"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.7",
+    "eslint": "^9.39.5",
+    "playwright-core": "1.64.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.1"
+  }
+}

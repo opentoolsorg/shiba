@@ -16,6 +16,10 @@ Remote Access is off by default. The `/api/local/*` and `/api/computers*` routes
 
 Pairing tokens are signed with `PAIRING_SECRET`. If that is unset, the Worker signs with `LOCAL_ADAPTER_TOKEN` instead. If neither is set, minting a pairing token returns `503`. With Remote Access off, the dashboard's Remote Access view says the local runtime is disabled.
 
+### Cloudflare Access
+
+Alchemy deploys create a second Access application (`MachineBypass`) that covers `/api/local/*` and the other machine-caller routes with a `bypass` policy, because a daemon cannot complete an interactive Access login — it authenticates inside the Worker with its adapter bearer. If you deploy with wrangler or front the Worker with your own Access configuration, create the equivalent yourself: an Access application on `<worker-host>/api/local/*` with a `bypass` / `everyone` policy. Without it the daemon's polls get the Access HTML login page instead of the API, and pairing fails. The bypass does not open the Worker — every `/api/local/*` route still requires a valid adapter bearer token; it only removes the IdP challenge.
+
 ## Pair a machine
 
 1. In the dashboard, open **Sandbox & Safety → Remote Access** and click **Add computer**.
@@ -71,6 +75,65 @@ Things revocation does not do:
 - The Worker can't cancel a run that is already in progress on the machine. The daemon only exits after its next heartbeat or claim gets a `401`, which can take up to about 30 seconds.
 - It can't revoke a daemon running in environment-variable mode. That daemon uses the deployment-wide `LOCAL_ADAPTER_TOKEN`, so you have to rotate that secret to cut it off.
 - It does not delete `~/.shiba-local/` on the machine. Remove the directory yourself if you are retiring the machine.
+
+## Desktop app
+
+Shiba Desktop (macOS only) wraps the same dashboard in an app and adds one-click pairing. It only makes outbound calls and adds no approval path: local runs still need the approval card in the dashboard.
+
+### Install
+
+Open the `.dmg`, then drag Shiba to Applications. Local builds are unsigned, so Gatekeeper blocks the first launch. Right-click the app, choose **Open**, then confirm. If macOS still refuses, clear the quarantine flag once:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Shiba.app
+```
+
+If you build locally with `pnpm --filter @shiba/desktop dist`, the unsigned app is killed at launch on Apple silicon (`Code Signature Invalid`) because the fused binary keeps an invalid signature — re-sign it ad-hoc once:
+
+```sh
+pnpm --filter @shiba/desktop dist:local   # builds, then ad-hoc signs the .app
+```
+
+### First run
+
+The app asks for your Shiba URL, then loads the dashboard. Sign in as usual. Only that origin and your sign-in providers load inside the app; other links open in your browser. **Change Shiba URL…** in the tray menu reopens the prompt.
+
+### Connect this computer
+
+Open **Sandbox & Safety → Remote Access** and click **Connect this computer**. The app pairs this machine to the Shiba URL you configured and starts the daemon, so you don't copy a command or token. The machine then appears in the fleet list as **This computer**. **Disconnect this computer** in the tray menu unpairs it.
+
+### Tray states
+
+| State | Tray label | What it means |
+| --- | --- | --- |
+| Signed out | Sign in to Shiba | You aren't signed in to the dashboard. |
+| Disabled | Local runs disabled on this Shiba | The Worker has the local runtime off. |
+| Not connected | Not connected | This computer isn't paired. |
+| Paired elsewhere | Paired to another Shiba | This computer is paired to a different URL. Reconnecting asks you to confirm. |
+| Connected, idle | Connected · idle | The daemon is polling. |
+| Busy | Running · owner/repo | A local run is in progress. |
+| Offline | Offline · retrying | Heartbeats are failing. The daemon retries by itself. |
+| Revoked | Revoked · reconnect | The machine was revoked. The app doesn't restart the daemon; connect again. |
+| Conflict | Another daemon is running | A CLI or other daemon holds this machine's lock. The app doesn't restart it. |
+| Crashed | Daemon crashed · View logs | Five abnormal exits within 10 minutes. The app stops restarting it. |
+
+Other abnormal exits restart the daemon after 1s, 2s, 4s and so on, up to 60s. The harness list can show `agy`. It is listed but can't run local tasks.
+
+### Logs
+
+The app writes `<userData>/logs/main.log` and `daemon.log`. On macOS `<userData>` is `~/Library/Application Support/Shiba`. Each file rotates at 5 MB and keeps one `.1` copy. **View logs** in the tray menu opens the folder.
+
+### Notifications
+
+The app notifies you when an approval is waiting and when a run finishes. Clicking either opens the dashboard. Notifications show only the title and `owner/repo`, and you can never approve or reject from one. Toggle them with **Notifications** in the tray menu.
+
+### Start at login and quitting
+
+**Start at login** in the tray menu launches the app hidden at login. Closing the window hides the app to the tray. Quit from the tray menu or with Cmd+Q. If a local run is in progress, the app asks first. Quitting stops the run and reports it failed.
+
+### Uninstall
+
+Quit the app, delete Shiba from Applications, and remove `~/.shiba-local` to drop the pairing and machine id. Revoke the machine from the dashboard if you want its token invalidated on the Worker.
 
 ## Security model
 

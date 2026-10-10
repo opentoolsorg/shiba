@@ -1,0 +1,66 @@
+name: Desktop
+on:
+  pull_request:
+    paths:
+      - apps/desktop/**
+      - scripts/shiba-local-daemon.mjs
+      - packages/shared/src/desktop-bridge.ts
+      - .github/workflows/desktop.yml
+  push:
+    tags:
+      - desktop-v*
+permissions:
+  contents: read
+jobs:
+  desktop-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @shiba/desktop typecheck
+      - run: pnpm --filter @shiba/desktop lint
+      - run: pnpm --filter @shiba/desktop test
+      # Electron smoke (T65/T66); the script builds dist/ first. macOS runners have a display.
+      - run: pnpm --filter @shiba/desktop test:e2e
+      # Unsigned build: signing secrets are never present on PRs.
+      # dist/ is gitignored — compile main.js before packaging (REVIEW3 F4).
+      - run: pnpm --filter @shiba/desktop build
+      - run: pnpm --filter @shiba/desktop exec electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shiba-desktop-unsigned
+          path: apps/desktop/release/*.dmg
+          if-no-files-found: warn
+  desktop-release:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @shiba/desktop typecheck
+      - run: pnpm --filter @shiba/desktop test
+      # Signing + notarization secrets are added by a human in repo settings.
+      - run: pnpm --filter @shiba/desktop build
+      - run: pnpm --filter @shiba/desktop exec electron-builder --publish always
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
