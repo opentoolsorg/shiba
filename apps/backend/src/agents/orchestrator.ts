@@ -823,67 +823,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (this.sessionDeleted) return yield* Effect.fail(toTaggedError("internal_error", "Session deleted."));
       const callId = toolCallId ?? crypto.randomUUID();
       const runId = `agent-tool:${callId}`;
-      let reserved = this.store.get(runId);
-      let pointer = this.approvals.find((approval) => approval.approvalId === callId);
+      const reserved = this.store.get(runId);
+      const pointer = this.approvals.find((approval) => approval.approvalId === callId);
       if (!reserved && pointer?.status === "approved") {
         return "Run was removed before execution.";
       }
       if (reserved && reserved.status !== "pending") {
         return reserved.summary ?? reserved.error ?? `Run is ${reserved.status}.`;
       }
-      // T40 gate: an execute with no approval trail stays refused. Two
-      // producers legally reach here: the /api/approvals resolve dispatch
-      // (pointer approved, run already reserved) and a chat-gate Approve —
-      // the AI-SDK continuation only calls execute after a human approves,
-      // so a pending pointer minted at gate emission resolves in place.
-      if (!reserved) {
-        if (pointer === undefined || pointer.status !== "pending") {
-          return "Run is not approved to execute.";
-        }
-        if (!canStartRun(this.store.list())) {
-          return "All coding runs are busy. Approve again when a slot frees.";
-        }
-        const gateThreadKey = pointer.threadKey;
-        const resolved = resolvePendingApproval(
-          this.approvals,
-          {
-            threadKey: gateThreadKey,
-            approvalId: callId,
-            approved: true,
-            decidedBy: `chat:${this.name ?? "unknown"}`,
-          },
-          Date.now(),
-        );
-        const record =
-          resolved.result === "approved"
-            ? resolved.approvals.find(
-                (a) => a.approvalId === callId && a.threadKey === gateThreadKey,
-              )
-            : undefined;
-        if (record === undefined) {
-          return "Run is not approved to execute.";
-        }
-        const minted = this.mintApprovedRun(record);
-        // Decision, reserved run, and resolve receipt commit in one write —
-        // the same atomic triple the /api/approvals resolve lands (T41).
-        this.setState({
-          ...this.state,
-          pendingApprovals: resolved.approvals,
-          runs: [...this.store.list(), minted],
-          commandReceipts: this.withCommandReceipt({
-            commandId: `approval:${callId}`,
-            kind: "approval.resolve",
-            outcome: "approved",
-            threadKey: gateThreadKey,
-            approvalId: callId,
-            runId: minted.runId,
-            dispatched: true,
-            at: Date.now(),
-          }),
-        });
-        reserved = minted;
-        pointer = record;
-      }
+      // Execution never decides an approval. Only the authenticated resolve
+      // path may reserve a run and mark its pointer approved.
       if (!reserved || pointer?.status !== "approved") {
         return "Run is not approved to execute.";
       }
