@@ -25,7 +25,7 @@ import { ApprovalsView } from "./components/ApprovalsView";
 import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
-import { SettingsView } from "./components/SettingsView";
+import { SettingsModal } from "./components/SettingsModal";
 import { TaskComposer } from "./components/TaskComposer";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
@@ -320,6 +320,13 @@ export function App(): React.JSX.Element {
   }, [notice]);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [mainView, setMainView] = useState<MainView>("tasks");
+  // Settings is a Kosuke-style popup, not a full view — every nav path that
+  // would land on "settings" opens the modal over the current view instead.
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const openView = useCallback((view: AppNavView) => {
+    if (view === "settings") setSettingsModalOpen(true);
+    else setMainView(view);
+  }, []);
   // Once visited, the mailbox stays mounted (hidden) — its local state
   // (search text, selected thread, drafts) survives nav switches.
   const [inboxMounted, setInboxMounted] = useState(mainView === "inbox");
@@ -423,7 +430,7 @@ export function App(): React.JSX.Element {
       } else if (tabParam === "remote") {
         setMainView("remote");
       } else if (tabParam === "settings") {
-        setMainView("settings");
+        setSettingsModalOpen(true);
       }
     }
   }, []);
@@ -1248,7 +1255,7 @@ export function App(): React.JSX.Element {
       id: `nav-${item.id}`,
       label: `Go to ${item.label}`,
       hint: item.description,
-      run: () => setMainView(item.id),
+      run: () => openView(item.id),
     })),
     { id: "new-task", label: "New task", run: handleNewTask },
     {
@@ -1335,7 +1342,7 @@ export function App(): React.JSX.Element {
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
         activeView={mainView}
-        onNavigate={(view) => setMainView(view)}
+        onNavigate={openView}
         pendingApprovalCount={pendingApprovals.length + visibleStoredApprovals.length}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -1361,7 +1368,7 @@ export function App(): React.JSX.Element {
               variant="sheet"
               activeView={mainView}
               onNavigate={(view) => {
-                setMainView(view);
+                openView(view);
                 setMobileNavOpen(false);
               }}
               pendingApprovalCount={pendingApprovals.length + visibleStoredApprovals.length}
@@ -1486,7 +1493,7 @@ export function App(): React.JSX.Element {
           connectionLabel={connectionState}
           connectionTone={identityError || agent.connectionError ? "error" : agent.identified ? "ok" : "pending"}
           runsError={runsError}
-          onNavigate={(view) => setMainView(view)}
+          onNavigate={openView}
           onNewTask={handleNewTask}
           onInspectRun={(runId) => {
             setSelectedRunId(runId);
@@ -1784,7 +1791,7 @@ export function App(): React.JSX.Element {
           error={runsError}
           sessionId={selectedSessionId}
           sessionApiAvailable={sessionApiAvailable}
-          onNavigate={(view) => setMainView(view)}
+          onNavigate={openView}
         />
       ) : mainView === "diff" ? (
         <DiffView
@@ -1832,14 +1839,25 @@ export function App(): React.JSX.Element {
       ) : mainView === "agents" ? (
         <AgentsView />
       ) : mainView === "integrations" ? (
-        <IntegrationsView onNavigate={(view) => setMainView(view)} />
+        <IntegrationsView onNavigate={openView} />
       ) : mainView === "remote" ? (
         <RemoteAccessView />
-      ) : mainView === "settings" ? (
-        <SettingsView onNavigate={(view) => setMainView(view)} />
       ) : (
         null
       )}
+
+      {/* SETTINGS — Kosuke-style popup over the current view */}
+      {settingsModalOpen ? (
+        <SettingsModal
+          isOpen
+          onClose={() => setSettingsModalOpen(false)}
+          onNavigate={(view) => {
+            setSettingsModalOpen(false);
+            openView(view);
+          }}
+          onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
+        />
+      ) : null}
 
       {/* CLEAR HISTORY CONFIRMATION MODAL */}
       {showClearModal ? (
@@ -1873,7 +1891,7 @@ export function App(): React.JSX.Element {
       <FirstRunWizard
         open={showFirstRun}
         onClose={() => setShowFirstRun(false)}
-        onNavigate={(view) => setMainView(view)}
+        onNavigate={openView}
         onOpenChecklist={() => setShowOnboardingModal(true)}
       />
 

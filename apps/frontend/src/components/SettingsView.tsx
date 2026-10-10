@@ -1,19 +1,20 @@
 /**
- * SettingsView — two-pane settings shell in the app's Retro Paper-OS style:
- * a left subnav (data-driven — new sections slot into SETTINGS_SECTIONS) and
- * a content pane that mounts the REAL surfaces (MemoryTab, /api/setup/status,
- * /api/agents, /api/auth/*) rather than duplicating their internals. Sections
- * with no real data source are omitted, not stubbed.
+ * SettingsView — the settings section bodies mounted by SettingsModal (the
+ * Kosuke-style popup) and any full-page embed. Every section mounts the REAL
+ * surface (MemoryTab, /api/setup/status, /api/agents, /api/whoami,
+ * /api/auth/*) rather than duplicating internals; sections with no real data
+ * source are omitted, not stubbed.
  */
 import { type JSX, type ReactNode, useMemo, useState } from "react";
 import { version as dashboardVersion } from "../../package.json";
+import { authClient } from "../auth-client";
 import {
   type AgentCliEntry,
   type RoleModelWire,
   type SetupStatus,
   useAgentsDirectory,
-  useModelConfig,
   useSetupStatus,
+  useWhoami,
 } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
@@ -28,9 +29,12 @@ import {
   subscriptionChip,
 } from "./SubscriptionConnect";
 import { ToneChip } from "./ToneChip";
+import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
 
-type SettingsSectionId =
+export type SettingsSectionId =
+  | "account"
+  | "appearance"
   | "repositories"
   | "providers"
   | "models"
@@ -40,20 +44,25 @@ type SettingsSectionId =
   | "experimental"
   | "deployment";
 
-const SETTINGS_SECTIONS: { id: SettingsSectionId; label: string; blurb: string }[] = [
-  { id: "repositories", label: "Repositories", blurb: "Saved GitHub targets" },
-  { id: "providers", label: "Providers", blurb: "Your AI agents" },
-  { id: "models", label: "Models", blurb: "Per-role agent routing" },
-  {
-    id: "environments",
+/** Single source for section labels — the modal nav groups render from this. */
+export const SETTINGS_SECTION_LABELS: Record<
+  SettingsSectionId,
+  { label: string; blurb: string }
+> = {
+  account: { label: "Account", blurb: "Identity, auth lane & sign out" },
+  appearance: { label: "Appearance", blurb: "Theme" },
+  repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
+  providers: { label: "AI Providers", blurb: "Your AI agents" },
+  models: { label: "Models", blurb: "Per-role agent routing" },
+  environments: {
     label: "Environments",
     blurb: "Deployment configuration the Worker proves",
   },
-  { id: "memory", label: "Memory", blurb: "Vectorize long-term semantic memory" },
-  { id: "guidance", label: "Agent guidance", blurb: "MCP principals & capability scopes" },
-  { id: "experimental", label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
-  { id: "deployment", label: "Deployment", blurb: "Serving host, models & harness" },
-];
+  memory: { label: "Memory", blurb: "Vectorize long-term semantic memory" },
+  guidance: { label: "API keys & MCP", blurb: "MCP principals & capability scopes" },
+  experimental: { label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
+  deployment: { label: "Deployment", blurb: "Serving host, models & harness" },
+};
 
 function SectionShell({
   title,
@@ -353,12 +362,190 @@ const KILL_SWITCHES: { flag: string; effect: string }[] = [
   },
 ];
 
-export function SettingsView({
-  onNavigate,
+/** Row used by the Account section: a label, a live value, and an optional chip. */
+function AccountRow({
+  label,
+  value,
+  chip,
 }: {
-  onNavigate?: (view: AppNavView) => void;
+  label: string;
+  value: string;
+  chip?: ReactNode;
 }): JSX.Element {
-  const [section, setSection] = useState<SettingsSectionId>("providers");
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0">
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-[#222320]">{label}</div>
+        <div className="font-mono text-[11px] text-[#6a6f63] truncate">{value}</div>
+      </div>
+      {chip}
+    </div>
+  );
+}
+
+const AUTH_LANE_LABEL: Record<string, string> = {
+  "better-auth": "Built-in dashboard login",
+  access: "Cloudflare Access",
+  none: "Open (no auth)",
+};
+
+/** Account — the identity the Worker proves via /api/whoami plus sign-out. */
+function AccountSection({
+  status,
+  onSignOut,
+}: {
+  status: SetupStatus | undefined;
+  onSignOut?: () => void;
+}): JSX.Element {
+  const whoami = useWhoami();
+  const [signingOut, setSigningOut] = useState(false);
+  const identity = whoami.state.kind === "data" ? whoami.state.data : undefined;
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+
+  const signOut = async () => {
+    setSigningOut(true);
+    try {
+      if (onSignOut) {
+        onSignOut();
+      } else {
+        await authClient.signOut().catch(() => {});
+        window.location.reload();
+      }
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  return (
+    <Card>
+      {whoami.state.kind === "error" ? (
+        <div className="px-4 py-5">
+          <LoadErrorState message={whoami.state.message} onRetry={whoami.reload} />
+        </div>
+      ) : !identity ? (
+        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+          Reading /api/whoami…
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 border-b border-[#e0ded5] px-4 py-3.5">
+            <span
+              aria-hidden="true"
+              className="flex size-10 shrink-0 items-center justify-center rounded-none border border-[#0000a8]/40 bg-[#0000a8]/10 text-sm font-bold uppercase text-[#1c1cc8]"
+            >
+              {identity.agent.slice(0, 2)}
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-semibold text-[#222320]">
+                {identity.agent}
+              </div>
+              <div className="font-mono text-[11px] text-[#6a6f63]">
+                {AUTH_LANE_LABEL[identity.auth ?? ""] ?? identity.auth ?? "Unknown lane"}
+              </div>
+            </div>
+          </div>
+          <AccountRow label="Serving host" value={hostname || "unknown"} />
+          <AccountRow
+            label="GitHub"
+            value="GITHUB_TOKEN — opens pull requests"
+            chip={
+              status ? (
+                <ToneChip
+                  tone={status.github.token ? "ok" : "neutral"}
+                  label={status.github.token ? "Configured" : "Not configured"}
+                />
+              ) : undefined
+            }
+          />
+          {identity.auth === "better-auth" ? (
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <div className="text-xs text-[#6a6f63]">
+                Signs out of this dashboard session only.
+              </div>
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                disabled={signingOut}
+                className="shrink-0 rounded-none border border-[#fb2c36]/50 bg-[#fb2c36]/10 px-3 py-1.5 text-[11px] font-semibold text-[#fb2c36] transition-colors hover:bg-[#fb2c36]/20 disabled:opacity-60"
+              >
+                {signingOut ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </Card>
+  );
+}
+
+const THEME_OPTIONS: { id: "dark" | "light" | "system"; label: string; hint: string; glyph: string }[] =
+  [
+    { id: "dark", label: "Dark", hint: "Paper-on-ink, low glare", glyph: "◐" },
+    { id: "light", label: "Light", hint: "Bright paper surface", glyph: "☀" },
+    { id: "system", label: "System", hint: "Follows OS appearance", glyph: "⌘" },
+  ];
+
+/** Appearance — the real next-themes picker the nav rail toggle shares. */
+function AppearanceSection(): JSX.Element {
+  const { theme, resolvedTheme, setTheme } = useTheme();
+  return (
+    <Card>
+      <div role="radiogroup" aria-label="Theme" className="grid grid-cols-1 gap-2 px-4 py-4 lg:grid-cols-3">
+        {THEME_OPTIONS.map((option) => {
+          const active = (theme ?? "system") === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setTheme(option.id)}
+              role="radio"
+              aria-checked={active}
+              className={
+                "flex flex-col items-start gap-1 rounded-none border px-3 py-3 text-left transition-colors " +
+                (active
+                  ? "border-[#0000a8]/50 bg-[#0000a8]/10 shadow-[2px_2px_0_var(--paper-shadow)]"
+                  : "border-[#e0ded5] bg-[#f6f4ed] hover:border-[#d3d2c8] hover:bg-[#f1efe6]")
+              }
+            >
+              <span className="flex w-full items-center justify-between">
+                <span aria-hidden="true" className="text-base text-[#222320]">
+                  {option.glyph}
+                </span>
+                {active ? (
+                  <span aria-hidden="true" className="text-xs font-bold text-[#1c1cc8]">
+                    ✓
+                  </span>
+                ) : null}
+              </span>
+              <span className="text-xs font-semibold text-[#222320]">{option.label}</span>
+              <span className="text-[10px] leading-snug text-[#6a6f63]">{option.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="border-t border-[#e0ded5] px-4 py-2.5 font-mono text-[11px] text-[#6a6f63]">
+        Active: {theme ?? "system"}
+        {theme === "system" && resolvedTheme ? " (resolved: " + resolvedTheme + ")" : ""} —
+        keyboard: press D anywhere
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The real settings content for one section — shared by the SettingsModal
+ * popup and any full-page embed. Owns its own data hooks, so each shell
+ * gets a fresh read of /api/setup/status, /api/agents, and /api/whoami.
+ */
+export function SettingsSectionBody({
+  section,
+  onNavigate,
+  onSignOut,
+}: {
+  section: SettingsSectionId;
+  onNavigate?: (view: AppNavView) => void;
+  onSignOut?: () => void;
+}): JSX.Element {
   const directory = useAgentsDirectory();
   const setup = useSetupStatus();
 
@@ -375,311 +562,286 @@ export function SettingsView({
 
   const hostname = typeof window !== "undefined" ? window.location.hostname : "";
 
-  return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-      <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
-            <span>Settings</span>
-          </h2>
-          <p className="text-xs text-[#6a6f63]">
-            Deployment configuration and operator surfaces — read-only mirrors of what the Worker
-            reports.
-          </p>
-        </div>
-      </div>
-      <div className="flex-1 flex min-h-0">
-        {/* Left subnav — data-driven; add a section object to slot a new pane in. */}
-        <nav
-          aria-label="Settings"
-          className="w-44 lg:w-52 shrink-0 overflow-y-auto border-r border-[#e0ded5] bg-[#f6f4ed] py-3 px-2.5"
-        >
-          <div className="flex flex-col gap-0.5">
-            {SETTINGS_SECTIONS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => setSection(entry.id)}
-                aria-current={section === entry.id ? "page" : undefined}
-                className={
-                  "w-full rounded-none px-2.5 py-2 text-left transition-colors duration-100 " +
-                  (section === entry.id
-                    ? "bg-[#0000a8] text-white shadow-[2px_2px_0_var(--paper-shadow)]"
-                    : "text-[#222320] hover:bg-[#e0ded5]")
-                }
-              >
-                <span className="block text-[13px] font-medium">{entry.label}</span>
-                <span
-                  className={
-                    "mt-0.5 block text-[10px] leading-snug " +
-                    (section === entry.id ? "text-white/80" : "text-[#6a6f63]")
-                  }
-                >
-                  {entry.blurb}
-                </span>
-              </button>
-            ))}
-          </div>
-        </nav>
+  if (section === "account") {
+    return (
+      <SectionShell
+        title="Account"
+        description="Who you are to this deployment — the identity GET /api/whoami proves, plus the auth lane and sign-out."
+      >
+        <AccountSection status={status} onSignOut={onSignOut} />
+      </SectionShell>
+    );
+  }
 
-        {/* Content pane */}
-        <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-          <div className="max-w-3xl mx-auto">
-            {section === "repositories" ? (
-              <SectionShell
-                title="Repositories"
-                description="GitHub repos you've saved — they show up as picks in the task composer and fill in automatically when you reuse one."
+  if (section === "appearance") {
+    return (
+      <SectionShell
+        title="Appearance"
+        description="Dashboard theme — stored per browser, shared with the nav rail toggle and the D shortcut."
+      >
+        <AppearanceSection />
+      </SectionShell>
+    );
+  }
+
+  if (section === "repositories") {
+    return (
+      <SectionShell
+        title="Repositories"
+        description="GitHub repos you've saved — they show up as picks in the task composer and fill in automatically when you reuse one."
+      >
+        <RepositoriesSection />
+      </SectionShell>
+    );
+  }
+
+  if (section === "providers") {
+    return (
+      <SectionShell
+        title="AI Providers"
+        description="Your AI agents. Connect a provider to let it run tasks for you — disconnect any time."
+      >
+        <Card>
+          {(Object.keys(SUBSCRIPTION_AUTH) as SubscriptionId[]).map((id) => (
+            <ProviderLaneRow key={id} id={id} agents={agents} />
+          ))}
+        </Card>
+        <Card>
+          <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+            Other credentials
+          </div>
+          {secretCredentials.length === 0 ? (
+            <div className="px-4 py-5 text-center text-xs text-[#6a6f63]">
+              {directory.state.kind === "loading"
+                ? "Loading catalog…"
+                : "No secret-backed credentials in this deployment's catalog."}
+            </div>
+          ) : (
+            secretCredentials.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0"
               >
-                <RepositoriesSection />
-              </SectionShell>
-            ) : section === "providers" ? (
-              <SectionShell
-                title="Providers"
-                description="Your AI agents. Connect a provider to let it run tasks for you — disconnect any time."
-              >
-                <Card>
-                  {(Object.keys(SUBSCRIPTION_AUTH) as SubscriptionId[]).map((id) => (
-                    <ProviderLaneRow key={id} id={id} agents={agents} />
-                  ))}
-                </Card>
-                <Card>
-                  <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
-                    Other credentials
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-[#222320]">{entry.label}</div>
+                  <div className="font-mono text-[11px] text-[#6a6f63]">
+                    {entry.credential.label}
                   </div>
-                  {secretCredentials.length === 0 ? (
-                    <div className="px-4 py-5 text-center text-xs text-[#6a6f63]">
-                      {directory.state.kind === "loading"
-                        ? "Loading catalog…"
-                        : "No secret-backed credentials in this deployment's catalog."}
+                  {entry.credential.configured === false && entry.credential.setupHint ? (
+                    <div className="mt-0.5 font-mono text-[11px] text-[#b45309]">
+                      {entry.credential.setupHint}
                     </div>
-                  ) : (
-                    secretCredentials.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0"
+                  ) : null}
+                </div>
+                <ToneChip
+                  tone={
+                    entry.credential.configured === true
+                      ? "ok"
+                      : entry.credential.configured === false
+                        ? "danger"
+                        : "neutral"
+                  }
+                  label={
+                    entry.credential.configured === true
+                      ? "Configured"
+                      : entry.credential.configured === false
+                        ? "Not set up"
+                        : "Not introspectable"
+                  }
+                />
+              </div>
+            ))
+          )}
+        </Card>
+        {onNavigate ? (
+          <button
+            type="button"
+            onClick={() => onNavigate("agents")}
+            className="self-start text-xs font-semibold text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
+          >
+            Manage agents & MCP →
+          </button>
+        ) : null}
+      </SectionShell>
+    );
+  }
+
+  if (section === "models") {
+    return (
+      <SectionShell
+        title="Models"
+        description="Which agent CLI + model each delegation role runs — resolved live from ROLE_MODEL_MAP / ROLE_MODEL__* env vars. Read-only: the Worker reports env state; set vars at deploy time."
+      >
+        {setup.state.kind === "error" ? (
+          <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
+        ) : (
+          <ModelsSection status={status} agents={agents} />
+        )}
+      </SectionShell>
+    );
+  }
+
+  if (section === "environments") {
+    return (
+      <SectionShell
+        title="Environments"
+        description="Configuration the deployment itself proves — every row is a boolean from GET /api/setup/status."
+      >
+        {setup.state.kind === "error" ? (
+          <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
+        ) : (
+          <EnvironmentsSection status={status} />
+        )}
+      </SectionShell>
+    );
+  }
+
+  if (section === "memory") {
+    return (
+      <SectionShell
+        title="Memory"
+        description="Long-term semantic memory — the same MemoryTab mounted in the Memory view."
+      >
+        <MemoryTab />
+      </SectionShell>
+    );
+  }
+
+  if (section === "guidance") {
+    return (
+      <SectionShell
+        title="API keys & MCP"
+        description="Registered MCP-token principals and their capability scopes (read-only — managed in Agents & MCP)."
+      >
+        <Card>
+          {principals === undefined ? (
+            <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+              {directory.state.kind === "error"
+                ? "Could not load /api/agents."
+                : "Loading principals…"}
+            </div>
+          ) : principals.length === 0 ? (
+            <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+              No MCP-token principals registered.
+            </div>
+          ) : (
+            principals.map((principal) => (
+              <div
+                key={principal.principal}
+                className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-[#222320]">{principal.principal}</div>
+                  <div className="mt-0.5 flex flex-wrap gap-1">
+                    {principal.scopes.map((scope) => (
+                      <span
+                        key={scope}
+                        className="rounded-none border border-[#e0ded5] bg-[#f6f4ed] px-1.5 py-px font-mono text-[10px] text-[#6a6f63]"
                       >
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium text-[#222320]">{entry.label}</div>
-                          <div className="font-mono text-[11px] text-[#6a6f63]">
-                            {entry.credential.label}
-                          </div>
-                          {entry.credential.configured === false && entry.credential.setupHint ? (
-                            <div className="mt-0.5 font-mono text-[11px] text-[#b45309]">
-                              {entry.credential.setupHint}
-                            </div>
-                          ) : null}
-                        </div>
-                        <ToneChip
-                          tone={
-                            entry.credential.configured === true
-                              ? "ok"
-                              : entry.credential.configured === false
-                                ? "danger"
-                                : "neutral"
-                          }
-                          label={
-                            entry.credential.configured === true
-                              ? "Configured"
-                              : entry.credential.configured === false
-                                ? "Not set up"
-                                : "Not introspectable"
-                          }
-                        />
-                      </div>
-                    ))
-                  )}
-                </Card>
-                {onNavigate ? (
-                  <button
-                    type="button"
-                    onClick={() => onNavigate("agents")}
-                    className="self-start text-xs font-semibold text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
-                  >
-                    Manage agents & MCP →
-                  </button>
-                ) : null}
-              </SectionShell>
-            ) : section === "models" ? (
-              <SectionShell
-                title="Models"
-                description="Which agent CLI + model each delegation role runs — resolved live from ROLE_MODEL_MAP / ROLE_MODEL__* env vars. Read-only: the Worker reports env state; set vars at deploy time."
-              >
-                {setup.state.kind === "error" ? (
-                  <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
-                ) : (
-                  <ModelsSection status={status} agents={agents} />
-                )}
-              </SectionShell>
-            ) : section === "environments" ? (
-              <SectionShell
-                title="Environments"
-                description="Configuration the deployment itself proves — every row is a boolean from GET /api/setup/status."
-              >
-                {setup.state.kind === "error" ? (
-                  <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
-                ) : (
-                  <EnvironmentsSection status={status} />
-                )}
-              </SectionShell>
-            ) : section === "memory" ? (
-              <SectionShell
-                title="Memory"
-                description="Long-term semantic memory — the same MemoryTab mounted in the Memory view."
-              >
-                <MemoryTab />
-              </SectionShell>
-            ) : section === "guidance" ? (
-              <SectionShell
-                title="Agent guidance"
-                description="Registered MCP-token principals and their capability scopes (read-only — managed in Agents & MCP)."
-              >
-                <Card>
-                  {principals === undefined ? (
-                    <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
-                      {directory.state.kind === "error"
-                        ? "Could not load /api/agents."
-                        : "Loading principals…"}
-                    </div>
-                  ) : principals.length === 0 ? (
-                    <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
-                      No MCP-token principals registered.
-                    </div>
-                  ) : (
-                    principals.map((principal) => (
-                      <div
-                        key={principal.principal}
-                        className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0"
-                      >
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium text-[#222320]">
-                            {principal.principal}
-                          </div>
-                          <div className="mt-0.5 flex flex-wrap gap-1">
-                            {principal.scopes.map((scope) => (
-                              <span
-                                key={scope}
-                                className="rounded-none border border-[#e0ded5] bg-[#f6f4ed] px-1.5 py-px font-mono text-[10px] text-[#6a6f63]"
-                              >
-                                {scope}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <ToneChip
-                          tone={principal.live ? "ok" : "neutral"}
-                          label={principal.live ? "Live" : "Revoked"}
-                        />
-                      </div>
-                    ))
-                  )}
-                </Card>
-                {onNavigate ? (
-                  <button
-                    type="button"
-                    onClick={() => onNavigate("agents")}
-                    className="self-start text-xs font-semibold text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
-                  >
-                    Open Agents & MCP →
-                  </button>
-                ) : null}
-              </SectionShell>
-            ) : section === "experimental" ? (
-              <SectionShell
-                title="Experimental"
-                description="Opt-in feature flags. These are set via wrangler vars/secrets at deploy time — this list mirrors wrangler.jsonc's vars comment block; it cannot read live values."
-              >
-                <Card>
-                  {EXPERIMENTAL_FLAGS.map((flag) => (
-                    <div
-                      key={flag.flag}
-                      className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0"
-                    >
-                      <div className="font-mono text-xs font-semibold text-[#1c1cc8]">
-                        {flag.flag}
-                      </div>
-                      <div className="mt-0.5 text-xs text-[#222320]">{flag.effect}</div>
-                      <div className="mt-0.5 font-mono text-[11px] text-[#6a6f63]">
-                        {flag.related}
-                      </div>
-                    </div>
-                  ))}
-                </Card>
-                <Card>
-                  <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
-                    Kill switches (env.ts)
+                        {scope}
+                      </span>
+                    ))}
                   </div>
-                  {KILL_SWITCHES.map((flag) => (
-                    <div
-                      key={flag.flag}
-                      className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0"
-                    >
-                      <div className="font-mono text-xs font-semibold text-[#1c1cc8]">
-                        {flag.flag}
-                      </div>
-                      <div className="mt-0.5 text-xs text-[#222320]">{flag.effect}</div>
-                    </div>
-                  ))}
-                </Card>
-              </SectionShell>
-            ) : (
-              <SectionShell
-                title="Deployment"
-                description="What this dashboard is served by — the Worker serving this page is the deployment."
-              >
-                <Card>
-                  <div className="border-b border-[#e0ded5] px-4 py-2.5">
-                    <div className="text-xs font-medium text-[#222320]">Serving host</div>
-                    <div className="font-mono text-[11px] text-[#6a6f63]">
-                      {hostname || "unknown"}
-                    </div>
-                  </div>
-                  <div className="border-b border-[#e0ded5] px-4 py-2.5">
-                    <div className="text-xs font-medium text-[#222320]">Dashboard package</div>
-                    <div className="font-mono text-[11px] text-[#6a6f63]">
-                      @shiba/frontend@{dashboardVersion}
-                    </div>
-                  </div>
-                  {status ? (
-                    <>
-                      <div className="border-b border-[#e0ded5] px-4 py-2.5">
-                        <div className="text-xs font-medium text-[#222320]">Orchestrator model</div>
-                        <div className="font-mono text-[11px] text-[#6a6f63]">
-                          {status.models.orchestrator}
-                        </div>
-                      </div>
-                      <div className="border-b border-[#e0ded5] px-4 py-2.5">
-                        <div className="text-xs font-medium text-[#222320]">Coding model</div>
-                        <div className="font-mono text-[11px] text-[#6a6f63]">
-                          {status.models.coding}
-                        </div>
-                      </div>
-                      <div className="border-b border-[#e0ded5] px-4 py-2.5">
-                        <div className="text-xs font-medium text-[#222320]">Default harness</div>
-                        <div className="font-mono text-[11px] text-[#6a6f63]">
-                          {status.models.harness}
-                        </div>
-                      </div>
-                      <div className="px-4 py-2.5">
-                        <div className="text-xs font-medium text-[#222320]">AI Gateway</div>
-                        <div className="font-mono text-[11px] text-[#6a6f63]">
-                          {status.gateway.id} · {status.gateway.reachable}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="px-4 py-2.5 text-xs text-[#6a6f63]">
-                      {setup.state.kind === "error"
-                        ? "Model details unavailable — /api/setup/status failed."
-                        : "Reading /api/setup/status…"}
-                    </div>
-                  )}
-                </Card>
-              </SectionShell>
-            )}
+                </div>
+                <ToneChip
+                  tone={principal.live ? "ok" : "neutral"}
+                  label={principal.live ? "Live" : "Revoked"}
+                />
+              </div>
+            ))
+          )}
+        </Card>
+        {onNavigate ? (
+          <button
+            type="button"
+            onClick={() => onNavigate("agents")}
+            className="self-start text-xs font-semibold text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
+          >
+            Open Agents & MCP →
+          </button>
+        ) : null}
+      </SectionShell>
+    );
+  }
+
+  if (section === "experimental") {
+    return (
+      <SectionShell
+        title="Experimental"
+        description="Opt-in feature flags. These are set via wrangler vars/secrets at deploy time — this list mirrors wrangler.jsonc's vars comment block; it cannot read live values."
+      >
+        <Card>
+          {EXPERIMENTAL_FLAGS.map((flag) => (
+            <div key={flag.flag} className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
+              <div className="font-mono text-xs font-semibold text-[#1c1cc8]">{flag.flag}</div>
+              <div className="mt-0.5 text-xs text-[#222320]">{flag.effect}</div>
+              <div className="mt-0.5 font-mono text-[11px] text-[#6a6f63]">{flag.related}</div>
+            </div>
+          ))}
+        </Card>
+        <Card>
+          <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+            Kill switches (env.ts)
+          </div>
+          {KILL_SWITCHES.map((flag) => (
+            <div key={flag.flag} className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
+              <div className="font-mono text-xs font-semibold text-[#1c1cc8]">{flag.flag}</div>
+              <div className="mt-0.5 text-xs text-[#222320]">{flag.effect}</div>
+            </div>
+          ))}
+        </Card>
+      </SectionShell>
+    );
+  }
+
+  return (
+    <SectionShell
+      title="Deployment"
+      description="What this dashboard is served by — the Worker serving this page is the deployment."
+    >
+      <Card>
+        <div className="border-b border-[#e0ded5] px-4 py-2.5">
+          <div className="text-xs font-medium text-[#222320]">Serving host</div>
+          <div className="font-mono text-[11px] text-[#6a6f63]">{hostname || "unknown"}</div>
+        </div>
+        <div className="border-b border-[#e0ded5] px-4 py-2.5">
+          <div className="text-xs font-medium text-[#222320]">Dashboard package</div>
+          <div className="font-mono text-[11px] text-[#6a6f63]">
+            @shiba/frontend@{dashboardVersion}
           </div>
         </div>
-      </div>
-    </div>
+        {status ? (
+          <>
+            <div className="border-b border-[#e0ded5] px-4 py-2.5">
+              <div className="text-xs font-medium text-[#222320]">Orchestrator model</div>
+              <div className="font-mono text-[11px] text-[#6a6f63]">
+                {status.models.orchestrator}
+              </div>
+            </div>
+            <div className="border-b border-[#e0ded5] px-4 py-2.5">
+              <div className="text-xs font-medium text-[#222320]">Coding model</div>
+              <div className="font-mono text-[11px] text-[#6a6f63]">{status.models.coding}</div>
+            </div>
+            <div className="border-b border-[#e0ded5] px-4 py-2.5">
+              <div className="text-xs font-medium text-[#222320]">Default harness</div>
+              <div className="font-mono text-[11px] text-[#6a6f63]">{status.models.harness}</div>
+            </div>
+            <div className="px-4 py-2.5">
+              <div className="text-xs font-medium text-[#222320]">AI Gateway</div>
+              <div className="font-mono text-[11px] text-[#6a6f63]">
+                {status.gateway.id} · {status.gateway.reachable}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="px-4 py-2.5 text-xs text-[#6a6f63]">
+            {setup.state.kind === "error"
+              ? "Model details unavailable — /api/setup/status failed."
+              : "Reading /api/setup/status…"}
+          </div>
+        )}
+      </Card>
+    </SectionShell>
   );
 }
 

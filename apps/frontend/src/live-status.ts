@@ -111,6 +111,16 @@ export function useAgentsDirectory(): { state: LoadState<AgentsDirectory>; reloa
   return useApiJson<AgentsDirectory>("/api/agents");
 }
 
+/** GET /api/whoami — the dashboard's signed-in identity and which auth lane proved it. */
+export interface WhoamiWire {
+  agent: string;
+  auth?: "better-auth" | "access" | "none";
+}
+
+export function useWhoami(): { state: LoadState<WhoamiWire>; reload: () => void; inFlight: boolean } {
+  return useApiJson<WhoamiWire>("/api/whoami");
+}
+
 export function useMailboxes(): {
   state: LoadState<{ mailboxes: InboxMailbox[] }>;
   reload: () => void;
