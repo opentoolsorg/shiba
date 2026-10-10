@@ -78,18 +78,13 @@ export const tryRunPromise = <A>(
   thunk: (signal: AbortSignal) => Promise<A>,
   codeHint?: RunErrorCode,
 ): Effect.Effect<A, RunError> =>
-  Effect.callback<A, RunError>((resume, signal) => {
-    Promise.resolve()
-      .then(() => thunk(signal))
-      .then(
-        (value) => resume(Effect.succeed(value)),
-        (error) => {
-          const classified = classifyRunError(error);
-          const code =
-            classified.code === "internal_error" && codeHint ? codeHint : classified.code;
-          resume(Effect.fail(toTaggedError(code, classified.message)));
-        },
-      );
+  Effect.tryPromise({
+    try: thunk,
+    catch: (error) => {
+      const classified = classifyRunError(error);
+      const code = classified.code === "internal_error" && codeHint ? codeHint : classified.code;
+      return toTaggedError(code, classified.message);
+    },
   });
 
 /**

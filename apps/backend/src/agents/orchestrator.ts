@@ -537,7 +537,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (updated !== null) this.postOutcomeUnknown(updated);
     }
     // Teardown runs in the background: awaiting container I/O here would block the DO's start.
-    const teardown = Promise.all(interrupted.map((run) => this.destroySandbox(run.sandboxId)));
+    const teardown = (async () => {
+      for (const run of interrupted) await this.destroySandbox(run.sandboxId);
+    })();
     if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
       this.ctx.waitUntil(teardown);
     } else {
@@ -808,12 +810,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // A chat turn or approval dispatch that raced session teardown must not
     // start a sandbox the deleted session can no longer show or cancel.
     if (this.sessionDeleted) throw new Error("Session deleted.");
+    let failureRun: DelegatedRun | undefined;
     const program = Effect.gen({ self: this }, function* () {
-      yield* Effect.promise(() => this.reclaimRuns());
-      yield* Effect.sync(() => {
-        abortSignal?.throwIfAborted();
-        if (this.sessionDeleted) throw new Error("Session deleted.");
+      yield* tryRunPromise(() => this.reclaimRuns());
+      yield* Effect.try({
+        try: () => abortSignal?.throwIfAborted(),
+        catch: (error) => {
+          const { code, message } = classifyRunError(error);
+          return toTaggedError(code, message);
+        },
       });
+      if (this.sessionDeleted) return yield* Effect.fail(toTaggedError("internal_error", "Session deleted."));
       const callId = toolCallId ?? crypto.randomUUID();
       const runId = `agent-tool:${callId}`;
       let reserved = this.store.get(runId);
@@ -877,6 +884,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         reserved = minted;
         pointer = record;
       }
+      failureRun = reserved;
       // T51 dispatch-side check — the queued record's frozen runtime is what
       // counts; the intake gate can never be bypassed by a chat-surface tool
       // call because a `default`/`slack:*` DO fails isDashboardAgentName.
@@ -888,12 +896,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           return 'runtime "local" requires SHIBA_LOCAL_RUNTIME=1 and a dashboard session.';
         }
       }
-      parseGitHubRepoUrl(input.repoUrl);
+      yield* Effect.try({
+        try: () => parseGitHubRepoUrl(input.repoUrl),
+        catch: (error) => {
+          const { code, message } = classifyRunError(error);
+          return toTaggedError(code, message);
+        },
+      });
       if (input.publishPullRequest && !this.env.GITHUB_TOKEN) {
-        throw new Error(
+        return yield* Effect.fail(toTaggedError("internal_error",
           "publishPullRequest was requested but GITHUB_TOKEN is not configured. " +
             "Set the GITHUB_TOKEN secret or retry without requesting a pull request.",
-        );
+        ));
       }
       // Resolve harness + model + connection HERE: the human approves the
       // exact route that will execute. An approval-dispatched run reuses the
@@ -907,7 +921,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         route,
       } = frozen !== undefined && isApprovedRoute(frozen)
         ? { harness: frozen.harness, codingModel: frozen.modelId, route: frozen }
-        : yield* Effect.promise(() => this.resolveRoute(input));
+        : yield* tryRunPromise(() => this.resolveRoute(input));
       const sandboxId = makeSandboxId(input.repoUrl, input.task, callId);
       // Slack thread ids ride the DO name, not the queue body — recovering
       // them here lets the child post progress without new queue plumbing.
@@ -969,6 +983,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return `Run ${runId} did not start — it is already ${this.store.get(runId)?.status ?? "missing"}.`;
       }
       const generation = running.generation;
+      failureRun = running;
       // Durable backstop: reclaim fires at the deadline even when no request ever arrives.
       yield* Effect.promise(async () => {
         try {
@@ -986,10 +1001,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
       const intakeTsKey = this.env.TYPESAFE_API_KEY?.trim() ?? "";
       if (intakeTsKey) {
-        yield* Effect.forkDetach(
-          tryRunPromise(() =>
-            evaluateSessionTriage(intakeTsKey, fullInput.task, fullInput.repoUrl),
+        yield* Effect.forkChild(
+          tryRunPromise((signal) =>
+            evaluateSessionTriage(intakeTsKey, fullInput.task, fullInput.repoUrl,
+              (url, init) => fetch(url, { ...init, signal }),
+            ),
           ).pipe(
+            Effect.timeout(15_000),
             Effect.flatMap((triage) =>
               Effect.sync(() => {
                 if (!triage) return;
@@ -1017,7 +1035,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                 }
               }),
             ),
-            Effect.catchCause(() => Effect.void),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Advisory triage failed", redactSecrets(toRunFailure(cause).message)).pipe(
+                Effect.annotateLogs({ runId, stage: "triage" }),
+              ),
+            ),
           ),
         );
       }
@@ -1031,13 +1053,21 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         }),
         (signal) =>
           Effect.gen({ self: this }, function* () {
-            yield* Effect.sync(() => signal.throwIfAborted());
+            yield* Effect.try({
+              try: () => signal.throwIfAborted(),
+              catch: (error) => {
+                const { code, message } = classifyRunError(error);
+                return toTaggedError(code, message);
+              },
+            });
             // Just before dispatch: the connection may have been disabled or
             // deleted since approval. Fail honestly — never substitute.
-            const snapshot = yield* Effect.promise(() => readModelConfig(this.env));
+            const snapshot = yield* tryRunPromise(() => readModelConfig(this.env));
             const routeProblem = revalidateCodingRoute(snapshot, route);
             if (routeProblem !== null) {
-              throw new Error(`Approved route is no longer available: ${routeProblem}`);
+              return yield* Effect.fail(toTaggedError(
+                "internal_error", `Approved route is no longer available: ${routeProblem}`,
+              ));
             }
             const output = yield* tryRunPromise((fiberSignal) =>
               childExecute(formatAgentToolInput(fullInput), {
@@ -1089,8 +1119,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                 // grade stale output onto a cancelled/reclaimed record.
                 const tsKey = this.env.TYPESAFE_API_KEY?.trim() ?? "";
                 if (finished !== null && tsKey) {
-                  yield* Effect.forkDetach(
-                    tryRunPromise(() => evaluateResultQuality(tsKey, output.slice(0, 2000))).pipe(
+                  const grading = yield* Effect.forkDetach(
+                    tryRunPromise((signal) => evaluateResultQuality(tsKey, output.slice(0, 2000),
+                      (url, init) => fetch(url, { ...init, signal }),
+                    )).pipe(
+                      Effect.timeout(15_000),
                       Effect.flatMap((quality) =>
                         Effect.sync(() => {
                           if (!quality) return;
@@ -1109,11 +1142,22 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                           }
                         }),
                       ),
-                      // Detached daemon: dies with no scope, never blocks the
-                      // pipeline, and stays fail-open like the old .catch.
-                      Effect.catchCause(() => Effect.void),
+                      // Independent grading is deadline-bounded and held by
+                      // the host below; it never blocks the run's result.
+                      Effect.catchCause((cause) =>
+                        Effect.logWarning("Advisory quality failed", redactSecrets(toRunFailure(cause).message)).pipe(
+                          Effect.annotateLogs({ runId, stage: "quality" }),
+                        ),
+                      ),
                     ),
                   );
+                  yield* Effect.sync(() => {
+                    if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
+                      this.ctx.waitUntil(new Promise<void>((resolve) => {
+                        grading.addObserver(() => resolve());
+                      }));
+                    }
+                  });
                 }
                 return output;
               }
@@ -1191,7 +1235,31 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             await this.destroySandbox(sandboxId);
           }),
       );
-    });
+    }).pipe(
+      // Pre-start validation/route failures precede the use-phase finish
+      // handler. Fence them too, or an approved run holds a slot until reclaim.
+      Effect.catchCause((cause) => Effect.andThen(
+        Effect.sync(() => {
+          if (failureRun === undefined) return;
+          const failure = toRunFailure(cause);
+          const status = terminalStatusFor(failure.code);
+          const updated = this.store.transition(failureRun.runId, status, {
+            error: redactSecrets(failure.message).slice(0, 4000),
+            errorCode: failure.code,
+          }, failureRun.generation);
+          // The inner finish or cancellation may already have won the fence.
+          if (updated === null) return;
+          this.postToThread(slackRunFailed({
+            repoUrl: failureRun.repoUrl,
+            userMessage: runErrorWire(failure.code).userMessage,
+            detail: redactSecrets(failure.message).slice(0, 1000),
+            unknown: status === "unknown",
+          }));
+          if (status === "error") this.dispatchSessionDistill(updated);
+        }),
+        Effect.failCause(cause),
+      )),
+    );
     return runWorkerEffect(program);
   }
 
@@ -2484,7 +2552,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   /** Public: also the `schedule()` callback armed when a run starts. */
   async reclaimRuns(): Promise<void> {
     this.lastReclaimSweepAt = Date.now();
-    await this.drainEffectOutbox();
+    await this.drainEffectOutbox().catch((error) => {
+      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
+    });
     await this.reclaimSweep();
   }
 
@@ -2495,7 +2565,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * poll every few seconds must not re-scan the store each time.
    */
   private async reclaimRunsForRead(): Promise<void> {
-    await this.drainEffectOutbox();
+    await this.drainEffectOutbox().catch((error) => {
+      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
+    });
     if (Date.now() - (this.lastReclaimSweepAt ?? 0) < RECLAIM_SWEEP_INTERVAL_MS) return;
     this.lastReclaimSweepAt = Date.now();
     await this.reclaimSweep();
@@ -2515,15 +2587,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     );
     if (reclaimed.length > 0) {
       this.setState({ ...this.state, runs });
-      await Promise.all(
-        runs
-          .filter((run) => reclaimed.includes(run.runId))
-          .map(async (run) => {
-            this.postOutcomeUnknown(run);
-            this.runControllers.get(run.runId)?.abort();
-            await this.destroySandbox(run.sandboxId);
-          }),
-      );
+      for (const run of runs.filter((run) => reclaimed.includes(run.runId))) {
+        this.postOutcomeUnknown(run);
+        this.runControllers.get(run.runId)?.abort();
+      }
+      for (const run of runs.filter((run) => reclaimed.includes(run.runId))) {
+        await this.destroySandbox(run.sandboxId);
+      }
     }
     // Leaked containers outlive the run that leaked them: retry destroy on
     // every reclaim pass; a successful destroy clears its own registry entry.
@@ -2532,7 +2602,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       Object.values(this.state?.leakedContainers ?? {}).map((leak) => [leak.sandboxId, leak]),
     );
     for (const leak of leakedContainers()) leaks.set(leak.sandboxId, leak);
-    await Promise.all([...leaks.values()].map((leak) => this.destroySandbox(leak.sandboxId)));
+    for (const leak of leaks.values()) await this.destroySandbox(leak.sandboxId);
   }
 
   async clearRuns(): Promise<void> {
@@ -2540,9 +2610,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // dropping them would silently strand a queued card's pointer.
     const runs = this.store.list();
     const removed = new Set(runs.map((run) => run.runId));
-    await Promise.all(
-      runs.filter((run) => isActiveStatus(run.status)).map((run) => this.cancelRun(run.runId)),
-    );
+    for (const run of runs.filter((run) => isActiveStatus(run.status))) {
+      this.runControllers.get(run.runId)?.abort();
+    }
+    for (const run of runs.filter((run) => isActiveStatus(run.status))) {
+      await this.cancelRun(run.runId);
+    }
     // Do not drop runs admitted while sandbox cleanup was awaiting I/O.
     this.setState({
       ...this.state,
@@ -2613,16 +2686,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return liveDrafts.get(ref.mailbox)?.has(ref.draftId) !== true;
     });
     if (releasable.length === 0) return;
-    const releases = Promise.all(
-      releasable.map((record) =>
-        unqueueEmailApprovalDraft(this.env, record).catch((error) => {
+    const releases = (async () => {
+      for (const record of releasable) {
+        await unqueueEmailApprovalDraft(this.env, record).catch((error) => {
           console.error(
             `Email approval ${record.approvalId} draft release failed`,
             redactSecrets(String(error)),
           );
-        }),
-      ),
-    );
+        });
+      }
+    })();
     if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
       this.ctx.waitUntil(releases);
     } else {
@@ -2681,8 +2754,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return;
       }
       const { mailboxes } = (await listing.json()) as { mailboxes?: MailboxRecord[] };
-      await Promise.all(
-        (mailboxes ?? []).map(async (record) => {
+      for (const record of mailboxes ?? []) {
           const exclude = liveDrafts.get(record.address.toLowerCase());
           try {
             const swept = await mailboxStub(this.env, record.address).fetch(
@@ -2705,8 +2777,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               redactSecrets(String(error)),
             );
           }
-        }),
-      );
+      }
     })().catch((error) => {
       console.error("Stale draft sweep failed", redactSecrets(String(error)));
     });
@@ -2942,7 +3013,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.closeLiveConnections();
 
     if (activeRuns.length > 0) {
-      await Promise.all(activeRuns.map((r) => this.cancelRun(r.runId)));
+      for (const run of activeRuns) this.runControllers.get(run.runId)?.abort();
+      for (const run of activeRuns) await this.cancelRun(run.runId);
     }
     if (pendingApprovals.length > 0) {
       const now = Date.now();
