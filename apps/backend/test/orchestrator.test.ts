@@ -3,7 +3,7 @@ import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestra
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { HARNESS_IDS } from "@shiba/shared";
-import { createRun, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
+import { createRun, RunStore, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
 import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
 import { createPendingApproval, resolvePendingApproval } from "../src/pending-approvals.js";
 import { approveDirect } from "./seeding.js";
@@ -18,7 +18,11 @@ const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
   schedule: vi.fn(async (..._args: unknown[]) => ({})),
+  triage: vi.fn(),
+  quality: vi.fn(),
 }));
+vi.mock("../src/session-triage.js", () => ({ evaluateSessionTriage: mocks.triage }));
+vi.mock("../src/result-quality.js", () => ({ evaluateResultQuality: mocks.quality }));
 vi.mock("@cloudflare/think", () => ({ Think: class {
   onStart() {}
   getTools() { return {}; }
@@ -49,6 +53,333 @@ function retained(status: "running" | "completed" = "running") {
 beforeEach(() => { vi.resetAllMocks(); mocks.destroy.mockResolvedValue(undefined); });
 
 describe("orchestrator run routes", () => {
+  it("still reclaims stale containers when draining the outbox fails", async () => {
+    const instance = agent();
+    instance.setState({ runs: [retained()] });
+    Object.assign(instance, { drainEffectOutboxOnce: vi.fn().mockRejectedValue(new Error("outbox unavailable")) });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(instance.reclaimRuns()).resolves.toBeUndefined();
+      expect(instance.state.runs[0]?.status).toBe("unknown");
+      expect(mocks.destroy).toHaveBeenCalledOnce();
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("records a pre-start failure on an approved run without starting a sandbox", async () => {
+    const instance = agent();
+    instance.env.GITHUB_TOKEN = "";
+    const input = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: true };
+    approveDirect(instance, "pre-start", input);
+    const delegate = instance.getTools()["delegate_coding_task"] as {
+      execute: (input: unknown, options?: unknown) => Promise<unknown>;
+    };
+    await expect(delegate.execute(input, { toolCallId: "pre-start" })).rejects.toMatchObject({
+      code: "internal_error",
+    });
+    expect(instance.state.runs[0]).toMatchObject({ status: "error", errorCode: "internal_error" });
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.destroy).not.toHaveBeenCalled();
+  });
+
+  it("aborts in-flight triage HTTP work when the parent run finishes", async () => {
+    const instance = agent();
+    const held: Promise<unknown>[] = [];
+    Object.assign(instance, { ctx: { waitUntil: (promise: Promise<unknown>) => held.push(promise) } });
+    Object.assign(instance.env, { TYPESAFE_API_KEY: "test-key" });
+    approveDirect(instance, "triage-lifetime");
+    let triageStarted!: (signal: AbortSignal) => void;
+    const started = new Promise<AbortSignal>((resolve) => { triageStarted = resolve; });
+    let finishRun!: (output: string) => void;
+    mocks.execute.mockReturnValue(new Promise<string>((resolve) => { finishRun = resolve; }));
+    mocks.triage.mockImplementation((_key, _task, _repo, fetchImpl: typeof fetch) => fetchImpl("https://api.typesafe.ai/test"));
+    vi.stubGlobal("fetch", vi.fn((_url: unknown, init: RequestInit) => {
+      const signal = init.signal!;
+      triageStarted(signal);
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    }));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const delegate = instance.getTools()["delegate_coding_task"] as {
+      execute: (input: unknown, options?: unknown) => Promise<unknown>;
+    };
+    try {
+      const execution = delegate.execute(
+        { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false },
+        { toolCallId: "triage-lifetime" },
+      );
+      const signal = await started;
+      finishRun(formatAgentResult({
+        status: "completed", summary: "Done", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [],
+      }));
+      await execution;
+      await Promise.all(held);
+      expect(signal.aborted).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      log.mockRestore();
+    }
+  });
+
+  it("registers independent quality grading with the host lifetime without blocking completion", async () => {
+    const instance = agent();
+    const held: Promise<unknown>[] = [];
+    Object.assign(instance, { ctx: { waitUntil: (promise: Promise<unknown>) => held.push(promise) } });
+    Object.assign(instance.env, { TYPESAFE_API_KEY: "test-key" });
+    approveDirect(instance, "quality-lifetime");
+    let finishQuality!: (value: null) => void;
+    mocks.quality.mockReturnValue(new Promise<null>((resolve) => { finishQuality = resolve; }));
+    mocks.execute.mockResolvedValue(formatAgentResult({
+      status: "completed", summary: "Done", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [],
+    }));
+    const delegate = instance.getTools()["delegate_coding_task"] as {
+      execute: (input: unknown, options?: unknown) => Promise<unknown>;
+    };
+    try {
+      await delegate.execute(
+        { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false },
+        { toolCallId: "quality-lifetime" },
+      );
+      await vi.waitFor(() => expect(mocks.quality).toHaveBeenCalledOnce());
+      expect(instance.state.runs[0]?.status).toBe("completed");
+      // Result distillation already uses waitUntil; grading needs its own hold
+      // that stays open until grading settles.
+      const settled = held.map(() => false);
+      held.forEach((promise, index) => void promise.then(() => { settled[index] = true; }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(settled).toContain(false);
+    } finally {
+      finishQuality(null);
+      await Promise.all(held);
+    }
+  });
+
+  it("bounds cleanup concurrency when clearing a batch of active runs", async () => {
+    const instance = agent();
+    instance.setState({ runs: Array.from({ length: 8 }, (_, index) => ({
+      ...retained(), runId: `run-${index}`, sandboxId: `sandbox-${index}`, updatedAt: Date.now(),
+    })) });
+    let active = 0;
+    let peak = 0;
+    mocks.destroy.mockImplementation(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await Promise.resolve();
+      active -= 1;
+    });
+    await instance.clearRuns();
+    expect(mocks.destroy).toHaveBeenCalledTimes(8);
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(instance.state.runs).toEqual([]);
+  });
+
+  describe("pre-start failure fence", () => {
+    const input = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: true };
+    const spies = (instance: CodingOrchestrator) => {
+      const host = instance as unknown as { postToThread: (text: string) => void; dispatchSessionDistill: (run: DelegatedRun) => void };
+      return {
+        post: vi.spyOn(host, "postToThread").mockImplementation(() => {}),
+        distill: vi.spyOn(host, "dispatchSessionDistill").mockImplementation(() => {}),
+      };
+    };
+    const delegateOf = (instance: CodingOrchestrator) => instance.getTools()["delegate_coding_task"] as {
+      execute: (input: unknown, options?: unknown) => Promise<unknown>;
+    };
+
+    it("records an abort before start as cancelled without distilling", async () => {
+      const instance = agent();
+      const { post, distill } = spies(instance);
+      approveDirect(instance, "abort-start", input);
+      const controller = new AbortController();
+      mocks.schedule.mockImplementation(async () => { controller.abort(); return {}; });
+      await expect(delegateOf(instance).execute(input, { toolCallId: "abort-start", abortSignal: controller.signal })).rejects.toBeDefined();
+      expect(instance.state.runs[0]?.status).toBe("cancelled");
+      expect(mocks.execute).not.toHaveBeenCalled();
+      expect(distill).not.toHaveBeenCalled();
+      expect(post).toHaveBeenCalledTimes(2); // started + failed notice
+    });
+
+    it("drops the failure side effects when another writer already won the fence", async () => {
+      const instance = agent();
+      instance.env.GITHUB_TOKEN = "";
+      const { post, distill } = spies(instance);
+      approveDirect(instance, "fence-lost", input);
+      vi.spyOn(RunStore.prototype, "transition").mockReturnValue(null);
+      await expect(delegateOf(instance).execute(input, { toolCallId: "fence-lost" })).rejects.toBeDefined();
+      expect(post).not.toHaveBeenCalled();
+      expect(distill).not.toHaveBeenCalled();
+    });
+
+    it("leaves the store untouched when the failure precedes the run reservation", async () => {
+      const instance = agent();
+      const { post, distill } = spies(instance);
+      approveDirect(instance, "pre-reserve", input);
+      const before = JSON.stringify(instance.state.runs);
+      const controller = new AbortController();
+      Object.assign(instance, { reclaimRuns: async () => { controller.abort(); } });
+      const transition = vi.spyOn(RunStore.prototype, "transition");
+      await expect(delegateOf(instance).execute(input, { toolCallId: "pre-reserve", abortSignal: controller.signal })).rejects.toBeDefined();
+      expect(transition).not.toHaveBeenCalled();
+      expect(JSON.stringify(instance.state.runs)).toBe(before);
+      expect(post).not.toHaveBeenCalled();
+      expect(distill).not.toHaveBeenCalled();
+    });
+  });
+
+  it("aborts never-resolving triage and quality grading after 15s while the run completes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const instance = agent();
+    const held: Promise<unknown>[] = [];
+    Object.assign(instance, { ctx: { waitUntil: (promise: Promise<unknown>) => held.push(promise) } });
+    Object.assign(instance.env, { TYPESAFE_API_KEY: "test-key" });
+    approveDirect(instance, "advisory-timeout");
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn((_url: unknown, init: RequestInit) => {
+      signals.push(init.signal!);
+      return new Promise<Response>((_resolve, reject) => {
+        init.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+    }));
+    const hang = (...args: unknown[]) => (args.find((arg) => typeof arg === "function") as typeof fetch)("https://api.typesafe.ai/test");
+    mocks.triage.mockImplementation(hang);
+    mocks.quality.mockImplementation(hang);
+    mocks.execute.mockResolvedValue(formatAgentResult({
+      status: "completed", summary: "Done", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [],
+    }));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const delegate = instance.getTools()["delegate_coding_task"] as {
+      execute: (input: unknown, options?: unknown) => Promise<unknown>;
+    };
+    try {
+      await delegate.execute(
+        { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false },
+        { toolCallId: "advisory-timeout" },
+      );
+      await vi.waitFor(() => expect(mocks.quality).toHaveBeenCalledOnce());
+      expect(instance.state.runs[0]?.status).toBe("completed");
+      await vi.advanceTimersByTimeAsync(15_000);
+      await Promise.all(held);
+      expect(signals.length).toBeGreaterThan(0);
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      expect(instance.state.runs[0]?.status).toBe("completed");
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      log.mockRestore();
+    }
+  });
+
+  describe("cleanup loops", () => {
+    const stale = (count: number) => Array.from({ length: count }, (_, index) => ({
+      ...retained(), runId: `run-${index}`, sandboxId: `sandbox-${index}`,
+    }));
+
+    it("aborts controllers and posts outcome-unknown for every reclaimed run before any destroy", async () => {
+      const instance = agent();
+      instance.setState({ runs: stale(2) });
+      const events: string[] = [];
+      const host = instance as unknown as {
+        runControllers: Map<string, AbortController>;
+        postOutcomeUnknown: (run: DelegatedRun) => void;
+      };
+      for (const run of stale(2)) {
+        const controller = new AbortController();
+        controller.signal.addEventListener("abort", () => events.push(`abort:${run.runId}`));
+        host.runControllers.set(run.runId, controller);
+      }
+      vi.spyOn(host, "postOutcomeUnknown").mockImplementation((run) => { events.push(`post:${run.runId}`); });
+      mocks.destroy.mockImplementation(async () => { events.push("destroy"); });
+      await instance.reclaimRuns();
+      const firstDestroy = events.indexOf("destroy");
+      expect(firstDestroy).toBe(4);
+      expect(events.filter((event) => event === "destroy")).toHaveLength(2);
+    });
+
+    it("keeps destroying the rest when one destroy throws", async () => {
+      const instance = agent();
+      instance.setState({ runs: stale(3) });
+      const destroySandbox = vi.fn()
+        .mockRejectedValueOnce(new Error("boom Bearer secret-token"))
+        .mockResolvedValue(undefined);
+      Object.assign(instance, { destroySandbox });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await instance.reclaimRuns();
+        expect(destroySandbox).toHaveBeenCalledTimes(3);
+        expect(JSON.stringify(log.mock.calls)).not.toContain("secret-token");
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it("bounds a hung destroy so the remaining sandboxes are still destroyed", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const instance = agent();
+      instance.setState({ runs: stale(2) });
+      const destroySandbox = vi.fn()
+        .mockImplementationOnce(() => new Promise<void>(() => {}))
+        .mockResolvedValue(undefined);
+      Object.assign(instance, { destroySandbox });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const sweep = instance.reclaimRuns();
+        await vi.advanceTimersByTimeAsync(30_000);
+        await sweep;
+        expect(destroySandbox).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+        log.mockRestore();
+      }
+    });
+
+    it("keeps cancelling the remaining runs when clearing and one cancel throws", async () => {
+      const instance = agent();
+      instance.setState({ runs: stale(3).map((run) => ({ ...run, updatedAt: Date.now() })) });
+      const destroySandbox = vi.fn()
+        .mockRejectedValueOnce(new Error("boom"))
+        .mockResolvedValue(undefined);
+      Object.assign(instance, { destroySandbox });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await instance.clearRuns();
+        expect(destroySandbox).toHaveBeenCalledTimes(3);
+        expect(instance.state.runs).toEqual([]);
+      } finally {
+        log.mockRestore();
+      }
+    });
+  });
+
+  it.each(["triage", "quality"] as const)("logs %s failures without failing the run or exposing secrets", async (stage) => {
+    const instance = agent();
+    Object.assign(instance.env, { TYPESAFE_API_KEY: "test-key" });
+    approveDirect(instance, `advisory-${stage}`);
+    mocks.execute.mockResolvedValue(formatAgentResult({
+      status: "completed", summary: "Done", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [],
+    }));
+    mocks[stage].mockRejectedValue(new Error("provider failed Bearer secret-token"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const delegate = instance.getTools()["delegate_coding_task"] as {
+        execute: (input: unknown, options?: unknown) => Promise<unknown>;
+      };
+      await delegate.execute(
+        { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false },
+        { toolCallId: `advisory-${stage}` },
+      );
+      await vi.waitFor(() => expect(log).toHaveBeenCalled());
+      const output = JSON.stringify(log.mock.calls);
+      expect(output).toContain(stage);
+      expect(output).not.toContain("secret-token");
+      expect(instance.state.runs[0]?.status).toBe("completed");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("reclaims stale runs on GET and destroys their sandbox", async () => {
     const instance = agent();
     instance.setState({ runs: [retained()] });

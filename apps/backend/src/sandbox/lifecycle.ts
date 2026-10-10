@@ -23,9 +23,11 @@
 import { Cause, Effect, Exit, Fiber } from "effect";
 import type { Scope } from "effect";
 
-import { effectWithSignal, runWorkerEffect } from "../effect/runtime.js";
+import { effectWithSignal, runWorkerEffect, tryRunPromise } from "../effect/runtime.js";
+import { classifyRunError, type RunError, toTaggedError } from "../run-errors.js";
 import type { Env } from "../env.js";
 import type { SandboxOps } from "../runtime.js";
+import type { EgressOverride } from "../harness/types.js";
 import { redactSecrets } from "../security.js";
 
 /** A sandbox ops call attempted after its container was released or leaked. */
@@ -134,10 +136,19 @@ export function leakedContainers(): readonly LeakedContainer[] {
   return [...leakedRegistry.values()];
 }
 
+/** Run a durable-mirror hook without ever throwing: callers rely on destroyManagedContainer's never-throw contract. */
+function safeHook(label: string, sandboxId: string, run: () => void): void {
+  try {
+    run();
+  } catch (hookError) {
+    console.warn(`${label} hook failed for sandbox ${sandboxId}: ${redactSecrets(String(hookError))}`);
+  }
+}
+
 /** Drop the registry entry after a retry-destroy succeeded. */
 export function forgetLeaked(sandboxId: string, hooks?: LeakHooks): void {
   leakedRegistry.delete(sandboxId);
-  hooks?.onForget?.(sandboxId);
+  safeHook("Leak-forget", sandboxId, () => hooks?.onForget?.(sandboxId));
 }
 
 function recordLeak(sandboxId: string, error: unknown, hooks?: LeakHooks): void {
@@ -145,7 +156,7 @@ function recordLeak(sandboxId: string, error: unknown, hooks?: LeakHooks): void 
   const message = redactSecrets(error instanceof Error ? error.message : String(error));
   const leak = { sandboxId, leakedAt: Date.now(), error: message.slice(0, 2000) };
   leakedRegistry.set(sandboxId, leak);
-  hooks?.onLeak?.(leak);
+  safeHook("Leak", sandboxId, () => hooks?.onLeak?.(leak));
 }
 
 /**
@@ -169,12 +180,12 @@ export const acquireContainer = (opts: {
   sandboxId: string;
   signal?: AbortSignal;
   hooks?: LeakHooks;
-}): Effect.Effect<ManagedContainer, never, Scope.Scope> =>
+}): Effect.Effect<ManagedContainer, RunError, Scope.Scope> =>
   Effect.acquireRelease(
-    Effect.promise(
+    tryRunPromise(
       async () => new ManagedContainerImpl(opts.sandboxId, await opts.acquire(), opts.signal),
     ),
-    (container) =>
+    (container, scopeExit) =>
       Effect.gen(function* () {
         const exit = yield* Effect.exit(Effect.promise(() => opts.release(opts.sandboxId)));
         if (Exit.isSuccess(exit)) {
@@ -184,7 +195,10 @@ export const acquireContainer = (opts: {
         container.markLeaked();
         recordLeak(opts.sandboxId, Cause.squash(exit.cause), opts.hooks);
         console.error(`Failed to release sandbox container ${opts.sandboxId}`);
-        yield* Effect.failCause(exit.cause);
+        // Keep the task's failure/interruption authoritative; cleanup has
+        // already been logged and recorded for retry. A successful task
+        // must still fail when its release fails.
+        if (Exit.isSuccess(scopeExit)) yield* Effect.failCause(exit.cause);
       }),
   );
 
@@ -224,10 +238,16 @@ export async function runWithContainer<T>(
     effectWithSignal((scopeSignal) =>
       Effect.gen(function* () {
         const container = yield* acquireContainer({ ...opts, signal: scopeSignal });
-        yield* Effect.sync(() => opts.signal?.throwIfAborted());
+        yield* Effect.try({
+          try: () => opts.signal?.throwIfAborted(),
+          catch: (error) => {
+            const { code, message } = classifyRunError(error);
+            return toTaggedError(code, message);
+          },
+        });
         taskInFlight = true;
         return yield* Effect.ensuring(
-          Effect.promise(() => Promise.resolve(task(container))),
+          tryRunPromise(() => Promise.resolve(task(container))),
           Effect.sync(() => {
             taskInFlight = false;
           }),
@@ -294,7 +314,12 @@ export async function destroyManagedContainer(
 }
 
 /** Factory the production acquire path delegates to (opencode-agent's createSandboxOps). */
-export type SandboxOpsFactory = (env: Env, sandboxId: string, egressHosts?: string[]) => SandboxOps;
+export type SandboxOpsFactory = (
+  env: Env,
+  sandboxId: string,
+  egressHosts?: string[],
+  egressOverrides?: EgressOverride[],
+) => SandboxOps;
 
 let sandboxOpsFactory: SandboxOpsFactory | undefined;
 
@@ -308,7 +333,8 @@ export async function acquireSandboxOps(
   env: Env,
   sandboxId: string,
   egressHosts?: string[],
+  egressOverrides?: EgressOverride[],
 ): Promise<SandboxOps> {
   const create = sandboxOpsFactory ?? (await import("../agents/opencode-agent.js")).createSandboxOps;
-  return create(env, sandboxId, egressHosts);
+  return create(env, sandboxId, egressHosts, egressOverrides);
 }

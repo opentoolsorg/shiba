@@ -3,7 +3,7 @@
  * Schema, not zod: the shared module stays plain interfaces (see
  * packages/shared/src/local-fleet.ts) and the asserts below pin the two together.
  */
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import type { ConnectedComputer, HeartbeatRequest, PairRequest } from "@shiba/shared";
 
 const Bounded = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max));
@@ -46,10 +46,7 @@ assertSame<Same<Mutable<typeof PairRequestSchema.Type>, PairRequest>>();
 assertSame<Same<Mutable<typeof ConnectedComputerSchema.Type>, ConnectedComputer>>();
 
 /** The decoded value or null — callers answer 400 on null. */
-export function decodeOrNull<S extends Schema.Top>(schema: S, input: unknown): S["Type"] | null {
-  try {
-    return Schema.decodeUnknownSync(schema as never)(input) as S["Type"];
-  } catch {
-    return null;
-  }
+export function decodeOrNull<S extends Schema.ConstraintDecoder<unknown>>(schema: S, input: unknown): S["Type"] | null {
+  const decoded = Schema.decodeUnknownResult(schema)(input);
+  return Result.isSuccess(decoded) ? decoded.success : null;
 }

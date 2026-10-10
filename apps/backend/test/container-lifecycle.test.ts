@@ -1,4 +1,6 @@
 import { Effect, Fiber } from "effect";
+import { runWorkerEffect } from "../src/effect/runtime.js";
+import { toTaggedError } from "../src/run-errors.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acquireContainer,
@@ -66,6 +68,27 @@ function fakeOps() {
 }
 
 describe("runWithContainer", () => {
+  it("preserves a typed task failure when the scope release also fails", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const program = Effect.scoped(Effect.gen(function* () {
+      yield* acquireContainer({
+        acquire: async () => fakeOps(),
+        release: async () => { throw new Error("secondary release failure"); },
+        sandboxId: "sbx-primary-failure",
+      });
+      return yield* Effect.fail(toTaggedError("egress_denied", "primary task failure"));
+    }));
+    try {
+      await expect(runWorkerEffect(program)).rejects.toMatchObject({
+        code: "egress_denied", message: "primary task failure",
+      });
+      expect(leakedContainers().some((leak) => leak.sandboxId === "sbx-primary-failure")).toBe(true);
+    } finally {
+      forgetLeaked("sbx-primary-failure");
+      log.mockRestore();
+    }
+  });
+
   it("acquires, runs the task, and releases exactly once after the task", async () => {
     const ops = fakeOps();
     const order: string[] = [];
@@ -208,6 +231,8 @@ describe("runWithContainer", () => {
       await expect(call()).rejects.toBeInstanceOf(ContainerReleasedError);
       await expect(call()).rejects.toMatchObject({ name: "ContainerReleasedError" });
     }
+    // The fencing error names the container — reclaim diagnostics grep on it.
+    await expect(released.ops.exec("ls")).rejects.toThrow("sbx-fenced");
     expect(ops.exec).not.toHaveBeenCalled();
     expect(ops.gitCheckout).not.toHaveBeenCalled();
     expect(ops.writeFile).not.toHaveBeenCalled();
@@ -343,9 +368,95 @@ describe("runWithContainer", () => {
     forgetLeaked("sbx-retry");
     expect(leakedContainers().some((entry) => entry.sandboxId === "sbx-retry")).toBe(false);
   });
+
+  it("stores a secret-redacted copy of the release error for reclaim diagnostics", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        runWithContainer(
+          {
+            acquire: async () => fakeOps(),
+            release: async () => {
+              throw new Error("destroy failed: sk-abc123def456ghi789");
+            },
+            sandboxId: "sbx-redacted",
+          },
+          async () => {},
+        ),
+      ).rejects.toThrow();
+    } finally {
+      vi.restoreAllMocks();
+    }
+    const entry = leakedContainers().find((leak) => leak.sandboxId === "sbx-redacted");
+    expect(entry).toBeDefined();
+    expect(entry!.error).toContain("[redacted]");
+    expect(entry!.error).not.toContain("sk-abc123def456ghi789");
+    forgetLeaked("sbx-redacted");
+  });
+
+  it("surfaces the release error even when the onLeak hook throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        runWithContainer(
+          {
+            acquire: async () => fakeOps(),
+            release: async () => {
+              throw new Error("destroy boom");
+            },
+            sandboxId: "sbx-hookmask",
+            // A DO setState failure must not replace the real release cause
+            // — the lifecycle outcome outranks a durable-mirror hiccup.
+            hooks: {
+              onLeak: () => {
+                throw new Error("setState boom");
+              },
+            },
+          },
+          async () => {},
+        ),
+      ).rejects.toThrow("destroy boom");
+    } finally {
+      vi.restoreAllMocks();
+    }
+    // The leak is still recorded in the isolate registry: hook failure is
+    // reported, never load-bearing.
+    expect(leakedContainers().some((entry) => entry.sandboxId === "sbx-hookmask")).toBe(true);
+    forgetLeaked("sbx-hookmask");
+  });
 });
 
 describe("interruption-safe release", () => {
+  it("skips the task and still releases when the signal aborts while acquire is in-flight", async () => {
+    const controller = new AbortController();
+    const release = vi.fn(async (_sandboxId: string) => {});
+    const task = vi.fn(async (_container: ManagedContainer) => "unreached");
+    const acquireStarted = latch();
+    const acquireReady = latch<ReturnType<typeof fakeOps>>();
+    const run = runWithContainer(
+      {
+        acquire: async () => {
+          acquireStarted.resolve();
+          return acquireReady.promise;
+        },
+        release,
+        sandboxId: "sbx-abort-acquire",
+        signal: controller.signal,
+      },
+      task,
+    );
+    await acquireStarted.promise;
+    controller.abort();
+    acquireReady.resolve(fakeOps());
+    // The abort listener ignores a not-yet-in-flight task, so the post-acquire
+    // throwIfAborted check is what skips the task; release still runs.
+    await expect(run).rejects.toMatchObject({ code: "cancelled" });
+    expect(task).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledWith("sbx-abort-acquire");
+  });
+
   it("rejects and releases when the caller's signal aborts an in-flight task that never settles", async () => {
     const controller = new AbortController();
     const release = vi.fn(async (_sandboxId: string) => {});
@@ -533,6 +644,62 @@ describe("destroyManagedContainer", () => {
     }
     forgetLeaked("sbx-soft");
   });
+
+  it("stays warn-and-track when the onLeak hook throws — the hook is not load-bearing", async () => {
+    const env = fakeEnv();
+    mocks.destroy.mockRejectedValueOnce(new Error("socket reset"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        destroyManagedContainer(env, "sbx-hook-throw", {
+          onLeak: () => {
+            throw new Error("setState boom");
+          },
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
+    // Registry write happens before the hook fires, so the leak survives a
+    // failed durable mirror.
+    expect(leakedContainers().some((entry) => entry.sandboxId === "sbx-hook-throw")).toBe(true);
+    forgetLeaked("sbx-hook-throw");
+  });
+
+  it("does not record a leak when destroy succeeded but the onForget hook throws", async () => {
+    const env = fakeEnv();
+    mocks.destroy.mockResolvedValueOnce(undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // A throwing onForget inside the try used to land in the catch and
+      // record a false leak for a container that was actually destroyed.
+      await expect(
+        destroyManagedContainer(env, "sbx-forget-throw", {
+          onForget: () => {
+            throw new Error("setState boom");
+          },
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
+    expect(leakedContainers().some((entry) => entry.sandboxId === "sbx-forget-throw")).toBe(false);
+  });
+
+  it("forgetLeaked does not propagate a throwing onForget hook", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(() =>
+        forgetLeaked("sbx-forget-hook", {
+          onForget: () => {
+            throw new Error("setState boom");
+          },
+        }),
+      ).not.toThrow();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });
 
 describe("acquireSandboxOps", () => {
@@ -545,7 +712,25 @@ describe("acquireSandboxOps", () => {
     const ops = fakeOps();
     mocks.createSandboxOps.mockReturnValueOnce(ops);
     const result = await acquireSandboxOps(env, "sbx-acq", ["api.anthropic.com"]);
-    expect(mocks.createSandboxOps).toHaveBeenCalledWith(env, "sbx-acq", ["api.anthropic.com"]);
+    expect(mocks.createSandboxOps).toHaveBeenCalledWith(env, "sbx-acq", ["api.anthropic.com"], undefined);
+    expect(result).toBe(ops);
+  });
+
+  it("passes egress handler overrides through to the factory", async () => {
+    // Regression: the seam used to drop `egressOverrides`, so a subscription
+    // harness's per-run handler swap could not survive a test-injected
+    // factory — the run would silently take the gateway's API-key path.
+    const env = fakeEnv();
+    const ops = fakeOps();
+    const overrides = [{ host: "api.anthropic.com", handler: "claudeSubscription" }];
+    mocks.createSandboxOps.mockReturnValueOnce(ops);
+    const result = await acquireSandboxOps(env, "sbx-acq", ["api.anthropic.com"], overrides);
+    expect(mocks.createSandboxOps).toHaveBeenCalledWith(
+      env,
+      "sbx-acq",
+      ["api.anthropic.com"],
+      overrides,
+    );
     expect(result).toBe(ops);
   });
 });

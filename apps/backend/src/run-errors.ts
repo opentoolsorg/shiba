@@ -3,14 +3,17 @@
  * closed RunErrorCode vocabulary, status mapping, and wire projection
  * live in @shiba/shared (re-exported below for existing imports).
  *
- * Effect bridge (spec B3): a single `RunError` Data.TaggedError carrying
+ * Effect bridge (spec B3): a single `RunError` Schema.TaggedError carrying
  * `code` — chosen over one tagged class per code as the smallest bridge
  * that lets Effect code `catchTag("RunError")` while keeping
- * `RunErrorCode` the only vocabulary.
+ * `RunErrorCode` the only vocabulary. The code field is validated against
+ * the RUN_ERROR_DEFS keys at construction, so the classifier's
+ * `instanceof RunError` fast path can never carry a non-vocabulary code
+ * into runErrorWire.
  */
-import { statusToRunCode } from "@shiba/shared";
+import { RUN_ERROR_DEFS, statusToRunCode } from "@shiba/shared";
 import type { RunErrorCode } from "@shiba/shared";
-import { Data } from "effect";
+import { Schema } from "effect";
 
 export { RUN_ERROR_DEFS, runErrorWire, statusToRunCode } from "@shiba/shared";
 export type { RunErrorCode, RunErrorWire } from "@shiba/shared";
@@ -129,11 +132,14 @@ export function classifyExecutorError(error: unknown): { code: RunErrorCode; mes
     : classified;
 }
 
+/** Runtime vocabulary: the same keys RUN_ERROR_DEFS and runErrorWire index. */
+const RUN_ERROR_CODES = Object.keys(RUN_ERROR_DEFS) as ReadonlyArray<RunErrorCode>;
+
 /** One tagged class for every run error — the code does the dispatching. */
-export class RunError extends Data.TaggedError("RunError")<{
-  code: RunErrorCode;
-  message: string;
-}> {}
+export class RunError extends Schema.TaggedError<RunError>()("RunError", {
+  code: Schema.Literals(RUN_ERROR_CODES),
+  message: Schema.String,
+}) {}
 
 /** Lift a classified run error into an Effect-typed failure. */
 export const toTaggedError = (code: RunErrorCode, message: string): RunError =>

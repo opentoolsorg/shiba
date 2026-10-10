@@ -64,6 +64,19 @@ describe("runWorkerEffect", () => {
 });
 
 describe("tryRunPromise", () => {
+  it("is lazy and gives each execution its own cancellation signal", async () => {
+    const signals: AbortSignal[] = [];
+    const effect = tryRunPromise(async (signal) => {
+      signals.push(signal);
+      return signals.length;
+    });
+    expect(signals).toHaveLength(0);
+    await expect(runWorkerEffect(effect)).resolves.toBe(1);
+    await expect(runWorkerEffect(effect)).resolves.toBe(2);
+    expect(signals[0]).not.toBe(signals[1]);
+    expect(signals.every((signal) => !signal.aborted)).toBe(true);
+  });
+
   it("wraps a resolved promise as a success", async () => {
     await expect(runWorkerEffect(tryRunPromise(() => Promise.resolve("ok")))).resolves.toBe(
       "ok",
