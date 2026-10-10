@@ -278,6 +278,8 @@ const STALE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
  * lifetime. The alarm path calls reclaimRuns directly, unfloored.
  */
 const RECLAIM_SWEEP_INTERVAL_MS = 30 * 1000;
+/** Per-step bound on sequential cleanup loops so one hung destroy cannot starve the rest. */
+const CLEANUP_TIMEOUT_MS = 30_000;
 
 /**
  * The payload an email approval freezes is the executor's verbatim
@@ -537,14 +539,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (updated !== null) this.postOutcomeUnknown(updated);
     }
     // Teardown runs in the background: awaiting container I/O here would block the DO's start.
-    const teardown = (async () => {
-      for (const run of interrupted) await this.destroySandbox(run.sandboxId);
-    })();
-    if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
-      this.ctx.waitUntil(teardown);
-    } else {
-      void teardown;
-    }
+    this.holdOpen(this.destroyEach(interrupted.map((run) => run.sandboxId)));
     // Before anything re-drives, free the draft claims a dead attempt
     // could leave behind: a `sending` row at DO start belongs to a
     // dispatch that died with the last lifetime — claims are only
@@ -1152,11 +1147,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                     ),
                   );
                   yield* Effect.sync(() => {
-                    if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
-                      this.ctx.waitUntil(new Promise<void>((resolve) => {
-                        grading.addObserver(() => resolve());
-                      }));
-                    }
+                    this.holdOpen(new Promise<void>((resolve) => {
+                      grading.addObserver(() => resolve());
+                    }));
                   });
                 }
                 return output;
@@ -2447,6 +2440,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * MAX_OUTBOX_ATTEMPTS stay `failed` for the operator to inspect.
    */
   private async drainEffectOutbox(): Promise<void> {
+    // Failures are logged, never thrown; unsent entries stay pending (at-least-once).
+    try {
+      await this.drainEffectOutboxOnce();
+    } catch (error) {
+      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
+    }
+  }
+
+  private async drainEffectOutboxOnce(): Promise<void> {
     // Skip rows a synchronous send (or a still-running drain) is already
     // driving this lifetime — they still read `pending` while the send is
     // open, but re-driving one would double-post and double-count the
@@ -2543,6 +2545,40 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     };
   }
 
+  /** Keep the DO alive for `promise` when a ctx exists; otherwise it runs to its own settle point. */
+  private holdOpen(promise: Promise<unknown>): void {
+    if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
+      this.ctx.waitUntil(promise);
+    }
+  }
+
+  /** Sequential destroy; one throw or hang (bounded by CLEANUP_TIMEOUT_MS) can't skip the rest. */
+  private async destroyEach(sandboxIds: string[]): Promise<void> {
+    for (const sandboxId of sandboxIds) {
+      await this.guardCleanup(() => this.destroySandbox(sandboxId));
+    }
+  }
+
+  private async cancelEach(runs: DelegatedRun[]): Promise<void> {
+    for (const run of runs) await this.guardCleanup(() => this.cancelRun(run.runId));
+  }
+
+  private async guardCleanup(step: () => Promise<unknown>): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        step(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("cleanup timed out")), CLEANUP_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (error) {
+      console.error("Run cleanup step failed", redactSecrets(String(error)));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async destroySandbox(sandboxId: string): Promise<void> {
     // Release goes through the scoped lifecycle: failures are tracked as
     // leaked containers (warn + registry) instead of only logged.
@@ -2552,9 +2588,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   /** Public: also the `schedule()` callback armed when a run starts. */
   async reclaimRuns(): Promise<void> {
     this.lastReclaimSweepAt = Date.now();
-    await this.drainEffectOutbox().catch((error) => {
-      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
-    });
+    await this.drainEffectOutbox();
     await this.reclaimSweep();
   }
 
@@ -2565,9 +2599,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * poll every few seconds must not re-scan the store each time.
    */
   private async reclaimRunsForRead(): Promise<void> {
-    await this.drainEffectOutbox().catch((error) => {
-      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
-    });
+    await this.drainEffectOutbox();
     if (Date.now() - (this.lastReclaimSweepAt ?? 0) < RECLAIM_SWEEP_INTERVAL_MS) return;
     this.lastReclaimSweepAt = Date.now();
     await this.reclaimSweep();
@@ -2587,13 +2619,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     );
     if (reclaimed.length > 0) {
       this.setState({ ...this.state, runs });
-      for (const run of runs.filter((run) => reclaimed.includes(run.runId))) {
+      const reclaimedRuns = runs.filter((run) => reclaimed.includes(run.runId));
+      for (const run of reclaimedRuns) {
         this.postOutcomeUnknown(run);
         this.runControllers.get(run.runId)?.abort();
       }
-      for (const run of runs.filter((run) => reclaimed.includes(run.runId))) {
-        await this.destroySandbox(run.sandboxId);
-      }
+      await this.destroyEach(reclaimedRuns.map((run) => run.sandboxId));
     }
     // Leaked containers outlive the run that leaked them: retry destroy on
     // every reclaim pass; a successful destroy clears its own registry entry.
@@ -2602,7 +2633,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       Object.values(this.state?.leakedContainers ?? {}).map((leak) => [leak.sandboxId, leak]),
     );
     for (const leak of leakedContainers()) leaks.set(leak.sandboxId, leak);
-    for (const leak of leaks.values()) await this.destroySandbox(leak.sandboxId);
+    await this.destroyEach([...leaks.values()].map((leak) => leak.sandboxId));
   }
 
   async clearRuns(): Promise<void> {
@@ -2610,12 +2641,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // dropping them would silently strand a queued card's pointer.
     const runs = this.store.list();
     const removed = new Set(runs.map((run) => run.runId));
-    for (const run of runs.filter((run) => isActiveStatus(run.status))) {
-      this.runControllers.get(run.runId)?.abort();
-    }
-    for (const run of runs.filter((run) => isActiveStatus(run.status))) {
-      await this.cancelRun(run.runId);
-    }
+    const active = runs.filter((run) => isActiveStatus(run.status));
+    for (const run of active) this.runControllers.get(run.runId)?.abort();
+    await this.cancelEach(active);
     // Do not drop runs admitted while sandbox cleanup was awaiting I/O.
     this.setState({
       ...this.state,
@@ -3014,7 +3042,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
     if (activeRuns.length > 0) {
       for (const run of activeRuns) this.runControllers.get(run.runId)?.abort();
-      for (const run of activeRuns) await this.cancelRun(run.runId);
+      await this.cancelEach(activeRuns);
     }
     if (pendingApprovals.length > 0) {
       const now = Date.now();

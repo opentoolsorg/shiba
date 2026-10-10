@@ -136,20 +136,19 @@ export function leakedContainers(): readonly LeakedContainer[] {
   return [...leakedRegistry.values()];
 }
 
+/** Run a durable-mirror hook without ever throwing: callers rely on destroyManagedContainer's never-throw contract. */
+function safeHook(label: string, sandboxId: string, run: () => void): void {
+  try {
+    run();
+  } catch (hookError) {
+    console.warn(`${label} hook failed for sandbox ${sandboxId}: ${redactSecrets(String(hookError))}`);
+  }
+}
+
 /** Drop the registry entry after a retry-destroy succeeded. */
 export function forgetLeaked(sandboxId: string, hooks?: LeakHooks): void {
   leakedRegistry.delete(sandboxId);
-  try {
-    hooks?.onForget?.(sandboxId);
-  } catch (hookError) {
-    // A durable-mirror write failing must not propagate: the registry entry
-    // is already gone, and callers of destroyManagedContainer rely on the
-    // never-throw contract — a hook throw here would otherwise surface as a
-    // release failure (or a false leak) for a destroy that succeeded.
-    console.warn(
-      `Leak-forget hook failed for sandbox ${sandboxId}: ${redactSecrets(String(hookError))}`,
-    );
-  }
+  safeHook("Leak-forget", sandboxId, () => hooks?.onForget?.(sandboxId));
 }
 
 function recordLeak(sandboxId: string, error: unknown, hooks?: LeakHooks): void {
@@ -157,16 +156,7 @@ function recordLeak(sandboxId: string, error: unknown, hooks?: LeakHooks): void 
   const message = redactSecrets(error instanceof Error ? error.message : String(error));
   const leak = { sandboxId, leakedAt: Date.now(), error: message.slice(0, 2000) };
   leakedRegistry.set(sandboxId, leak);
-  try {
-    hooks?.onLeak?.(leak);
-  } catch (hookError) {
-    // Registry write landed above; a throwing hook (e.g. DO setState) must
-    // not replace the real release cause in the scope-close finalizer or
-    // break destroyManagedContainer's never-throw contract.
-    console.warn(
-      `Leak hook failed for sandbox ${sandboxId}: ${redactSecrets(String(hookError))}`,
-    );
-  }
+  safeHook("Leak", sandboxId, () => hooks?.onLeak?.(leak));
 }
 
 /**
