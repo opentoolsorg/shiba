@@ -39,6 +39,7 @@ import {
 } from "../runtime.js";
 import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
 import { localDispatchStub } from "../local-dispatch.js";
+import { acquireSandboxOps } from "../sandbox/lifecycle.js";
 import { HARNESS_RETRY, withRetry } from "../harness/retry.js";
 import type { RunSignal } from "@shiba/shared";
 import { boundTail, parseGitHubRepoUrl, redactSecrets } from "../security.js";
@@ -302,7 +303,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           }
           const hosts = allowedHostsFor(harness, input.codingModel);
           const overrides = harness.egressOverrides?.(input);
-          const ops = createSandboxOps(this.env, input.sandboxId, hosts, overrides);
+          const ops = await acquireSandboxOps(this.env, input.sandboxId, hosts, overrides);
           const result = await adapter.runCodingTask(ops, input, emit, {
             signal,
             signals: runSignals,

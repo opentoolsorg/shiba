@@ -20,8 +20,8 @@
  * Deploy-time secrets (the `wrangler secret put` set): `secrets(NAMES)`
  * binds each present `NAME` as `secret_text`; unset names are skipped,
  * matching optional env entries.
- * `Redacted.make` is used instead of Config helpers — it exists on both
- * effect 3 (this repo) and effect 4 (alchemy's declared peer).
+ * `Redacted.make` is used instead of Config helpers — it exists on effect 4,
+ * satisfying both this repo and alchemy's declared peer.
  *
  * Worker + container names: pinned to the wrangler names on live stages so
  * the first deploy adopts the wrangler-managed resources in place; on any
@@ -121,6 +121,7 @@ export const ACCESS_BYPASS_PATHS = [
   "/api/sentry/webhook",
   "/mcp",
   "/mcp/*",
+  "/api/local/*",
   "/api/automations/*/trigger",
   "/api/waitlist",
   "/api/trigger",
@@ -296,6 +297,14 @@ export const Worker = Cloudflare.Worker("Worker", {
     ...(DashboardAccess
       ? { REQUIRE_ACCESS: "1", ACCESS_AUD: DashboardAccess.pipe(Effect.map((app) => app.aud)) }
       : {}),
+    // T56 (PLAN.md §20): the shipped role pin, as a LITERAL env member — the
+    // drift guard compares declared vars by value (scripts/check-alchemy-drift.mjs),
+    // so a configVars() spread would read as an absent var. Model ids verified
+    // against primary sources 2026-10-06; orchestrator moved to gpt-6-sol ahead
+    // of gpt-5.6-sol's 2026-10-14 Codex retirement (PLAN.md §20.2). The
+    // reviewer pin keeps #99's Sol review lane (opencode-go/gpt-6.1-sol).
+    ROLE_MODEL_MAP:
+      "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"devin\",\"model\":\"devin/swe-2-medium\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}",
     ...configVars([
       "REQUIRE_ACCESS",
       "AUTOMATIONS_ENABLED",
@@ -344,7 +353,6 @@ export const Worker = Cloudflare.Worker("Worker", {
       "DISCORD_APPROVERS",
       "DISCORD_CHANNEL_REPOS",
       "DISCORD_AGENT_HARNESS",
-      "AGENT_MAILBOX",
       "WORKER_HOSTNAME",
       // Built-in dashboard auth: canonical public URL for cookie scope and
       // origin checks; unset = each request's own origin.

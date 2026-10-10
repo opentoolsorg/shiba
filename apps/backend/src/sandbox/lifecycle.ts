@@ -180,6 +180,7 @@ export const acquireContainer = (opts: {
   sandboxId: string;
   signal?: AbortSignal;
   hooks?: LeakHooks;
+  releaseTimeoutMs?: number;
 }): Effect.Effect<ManagedContainer, RunError, Scope.Scope> =>
   Effect.acquireRelease(
     tryRunPromise(
@@ -187,7 +188,15 @@ export const acquireContainer = (opts: {
     ),
     (container, scopeExit) =>
       Effect.gen(function* () {
-        const exit = yield* Effect.exit(Effect.promise(() => opts.release(opts.sandboxId)));
+        // Only the SDK-wait child is interruptible; the finalizer still
+        // fences and records timeout failures under its cleanup mask.
+        const exit = yield* Effect.exit(tryRunPromise(() => opts.release(opts.sandboxId)).pipe(
+          Effect.interruptible,
+          Effect.timeoutOrElse({
+            duration: opts.releaseTimeoutMs ?? 30_000,
+            orElse: () => Effect.fail(toTaggedError("request_timeout", "Sandbox release timed out.")),
+          }),
+        ));
         if (Exit.isSuccess(exit)) {
           container.markReleased();
           return;
@@ -198,7 +207,8 @@ export const acquireContainer = (opts: {
         // Keep the task's failure/interruption authoritative; cleanup has
         // already been logged and recorded for retry. A successful task
         // must still fail when its release fails.
-        if (Exit.isSuccess(scopeExit)) yield* Effect.failCause(exit.cause);
+        // Finalizers can't fail typed; surface as a defect, as Effect.promise did.
+        if (Exit.isSuccess(scopeExit)) yield* Effect.die(Cause.squash(exit.cause));
       }),
   );
 
@@ -226,6 +236,7 @@ export async function runWithContainer<T>(
     sandboxId: string;
     signal?: AbortSignal;
     hooks?: LeakHooks;
+    releaseTimeoutMs?: number;
   },
   task: (container: ManagedContainer) => T | Promise<T>,
 ): Promise<T> {

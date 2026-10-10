@@ -270,6 +270,38 @@ describe("LocalDispatch DO", () => {
     expect(status.status).toBe("cancelled");
   });
 
+  it("a targeted record is skipped by other machines; untargeted is open to all; identity-less callers get unpinned only", async () => {
+    const { obj } = makeDispatch();
+    const claimAs = async (machineId?: string) => {
+      const req = post("/claim", {});
+      if (machineId !== undefined) req.headers.set(LOCAL_MACHINE_HEADER, machineId);
+      return ((await (await obj.fetch(req)).json()) as { envelope: LocalRunEnvelope | null }).envelope?.sandboxId ?? null;
+    };
+    await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: "m-a" }));
+    expect(await claimAs("m-b")).toBeNull();
+    expect(await claimAs("m-a")).toBe("sb-d1");
+
+    // Untargeted: any machine claims it.
+    const untargeted = { ...ENVELOPE, sandboxId: "sb-any", createdAt: ENVELOPE.createdAt + 1 };
+    await obj.fetch(post("/dispatch", { envelope: untargeted }));
+    expect(await claimAs("m-b")).toBe("sb-any");
+
+    // Shared-token daemon (no vouched machine id) must not claim a pinned run.
+    const pinned = { ...ENVELOPE, sandboxId: "sb-pinned", createdAt: ENVELOPE.createdAt + 2 };
+    await obj.fetch(post("/dispatch", { envelope: pinned, targetMachineId: "m-a" }));
+    expect(await claimAs()).toBeNull();
+  });
+
+  it("skipping a targeted record still hands the next one to the caller in order", async () => {
+    const { obj } = makeDispatch();
+    await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: "m-a" }));
+    await obj.fetch(post("/dispatch", { envelope: { ...ENVELOPE, sandboxId: "sb-later", createdAt: ENVELOPE.createdAt + 1 } }));
+    const req = post("/claim", {});
+    req.headers.set(LOCAL_MACHINE_HEADER, "m-b");
+    const claimed = (await (await obj.fetch(req)).json()) as { envelope: LocalRunEnvelope | null };
+    expect(claimed.envelope?.sandboxId).toBe("sb-later");
+  });
+
   it("refuses malformed envelopes and results", async () => {
     const { obj } = makeDispatch();
     expect((await obj.fetch(post("/dispatch", { envelope: { sandboxId: "x" } }))).status).toBe(400);

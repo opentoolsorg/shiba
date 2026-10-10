@@ -1,7 +1,7 @@
 import { Effect, Fiber } from "effect";
 import { runWorkerEffect } from "../src/effect/runtime.js";
 import { toTaggedError } from "../src/run-errors.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acquireContainer,
   acquireSandboxOps,
@@ -66,6 +66,10 @@ function fakeOps() {
     ),
   } satisfies SandboxOps;
 }
+
+afterEach(() => {
+  for (const leak of leakedContainers()) forgetLeaked(leak.sandboxId);
+});
 
 describe("runWithContainer", () => {
   it("preserves a typed task failure when the scope release also fails", async () => {
