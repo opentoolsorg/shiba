@@ -13,14 +13,31 @@ import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
 import { ToneChip } from "./ToneChip";
 
-function IntegrationRow({
+const ACTION_CLASS =
+  "inline-flex shrink-0 items-center gap-1 rounded-none border border-[#d3d2c8] bg-[#fffef8] px-3 py-1.5 text-[11px] font-mono font-medium text-[#1c1cc8] transition-colors hover:border-[#0000a8]/40 hover:bg-[#0000a8]/5 active:translate-y-px";
+
+function Logo({ src, name }: { src?: string; name: string }): JSX.Element {
+  return (
+    <span className="grid size-10 shrink-0 place-items-center rounded-none border border-[#e0ded5] bg-white">
+      {src ? (
+        <img src={src} alt="" width={22} height={22} className="size-[22px] object-contain" />
+      ) : (
+        <span className="text-sm font-semibold text-[#222320]">{name.slice(0, 1)}</span>
+      )}
+    </span>
+  );
+}
+
+function IntegrationCard({
   name,
+  logo,
   status,
   children,
   action,
   muted = false,
 }: {
   name: string;
+  logo?: string;
   status: ReactNode;
   children: ReactNode;
   action?: { label: string; onClick?: () => void; href?: string };
@@ -28,30 +45,22 @@ function IntegrationRow({
 }): JSX.Element {
   return (
     <div
-      className={`flex flex-col gap-2 border-b border-[#e0ded5] px-4 py-3.5 last:border-b-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${muted ? "opacity-60" : ""}`}
+      className={`group flex flex-col gap-3 rounded-none border border-[#e0ded5] bg-[#fffef8] p-4 shadow-[2px_2px_0_var(--paper-shadow)] transition-[border-color,transform] hover:border-[#d3d2c8] ${muted ? "opacity-60" : "hover:-translate-y-px"}`}
     >
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[13px] font-semibold text-[#222320]">{name}</span>
-          {status}
+      <div className="flex items-center gap-3">
+        <Logo src={logo} name={name} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold text-[#222320]">{name}</p>
+          <div className="mt-1">{status}</div>
         </div>
-        <div className="mt-1 text-xs leading-relaxed text-[#6a6f63]">{children}</div>
       </div>
+      <div className="flex-1 text-xs leading-relaxed text-[#6a6f63]">{children}</div>
       {action?.href ? (
-        <a
-          href={action.href}
-          target="_blank"
-          rel="noreferrer"
-          className="shrink-0 self-start rounded-none border border-[#e0ded5] bg-[#fffef8] px-2.5 py-1 text-[11px] font-mono font-medium text-[#1c1cc8] transition-colors hover:border-[#0000a8]/40 hover:bg-[#0000a8]/5 sm:self-center"
-        >
+        <a href={action.href} target="_blank" rel="noreferrer" className={`${ACTION_CLASS} self-start`}>
           {action.label}
         </a>
       ) : action ? (
-        <button
-          type="button"
-          onClick={action.onClick}
-          className="shrink-0 self-start rounded-none border border-[#e0ded5] bg-[#fffef8] px-2.5 py-1 text-[11px] font-mono font-medium text-[#1c1cc8] transition-colors hover:border-[#0000a8]/40 hover:bg-[#0000a8]/5 sm:self-center"
-        >
+        <button type="button" onClick={action.onClick} className={`${ACTION_CLASS} self-start`}>
           {action.label}
         </button>
       ) : null}
@@ -70,14 +79,23 @@ function IntegrationGroup({
 }): JSX.Element {
   return (
     <section>
-      <p className="mb-1 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
-        {title}
-      </p>
-      <p className="mb-2 text-xs text-[#6a6f63]">{hint}</p>
-      <div className="rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[2px_2px_0_var(--paper-shadow)]">
-        {children}
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <h3 className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-[#222320]">
+          {title}
+        </h3>
+        <p className="text-xs text-[#6a6f63]">{hint}</p>
       </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{children}</div>
     </section>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <div className="rounded-none border border-[#e0ded5] bg-[#fffef8] px-4 py-3">
+      <p className="text-[10px] font-mono uppercase tracking-[0.12em] text-[#6a6f63]">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-[#222320]">{value}</p>
+    </div>
   );
 }
 
@@ -117,6 +135,15 @@ export function IntegrationsView({
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
   const mailboxList = mailboxes.state.kind === "data" ? mailboxes.state.data.mailboxes : undefined;
 
+  const connected = status
+    ? [
+        status.github.token && status.github.webhookSecret,
+        status.slack.signingSecret && status.slack.botToken && status.slack.approvers > 0,
+        (mailboxList?.length ?? 0) > 0,
+      ].filter(Boolean).length
+    : 0;
+  const needsSetup = status ? 3 - connected : 0;
+
   const failed = setup.state.kind === "error" ? setup.state : null;
   const reloadAll = () => {
     setup.reload();
@@ -136,15 +163,22 @@ export function IntegrationsView({
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-        <div className="max-w-6xl mx-auto flex flex-col gap-6">
+        <div className="max-w-5xl mx-auto flex flex-col gap-8">
           {failed ? <LoadErrorState message={failed.message} onRetry={reloadAll} /> : null}
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <SummaryTile label="Connected" value={status ? String(connected) : "…"} />
+            <SummaryTile label="Needs setup" value={status ? String(needsSetup) : "…"} />
+            <SummaryTile label="Coming soon" value={String(COMING_SOON_APPS.length)} />
+          </div>
 
           <IntegrationGroup
             title="Apps"
             hint="OAuth apps your agents work with. AI-agent providers live in Agents & MCP."
           >
-            <IntegrationRow
+            <IntegrationCard
               name="GitHub"
+              logo="/assets/channels/github.svg"
               status={githubChip(status?.github)}
               action={
                 status && !(status.github.token && status.github.webhookSecret)
@@ -163,16 +197,16 @@ export function IntegrationsView({
                     : "Add a GitHub token and webhook secret in your deployment settings."}
                 </p>
               ) : null}
-            </IntegrationRow>
+            </IntegrationCard>
             {COMING_SOON_APPS.map((app) => (
-              <IntegrationRow
+              <IntegrationCard
                 key={app.name}
                 name={app.name}
                 status={<ToneChip tone="neutral" label="Coming soon" />}
                 muted
               >
                 <p>{app.blurb}</p>
-              </IntegrationRow>
+              </IntegrationCard>
             ))}
           </IntegrationGroup>
 
@@ -180,8 +214,9 @@ export function IntegrationsView({
             title="Chat & approval channels"
             hint="Chat apps where you can queue tasks and approve runs."
           >
-            <IntegrationRow
+            <IntegrationCard
               name="Slack"
+              logo="/assets/channels/slack.svg"
               status={slackChip(status?.slack)}
               action={
                 status && !(status.slack.signingSecret && status.slack.botToken)
@@ -197,9 +232,10 @@ export function IntegrationsView({
                     : "Not set up yet — connect a Slack app in your deployment settings."}
                 </p>
               ) : null}
-            </IntegrationRow>
-            <IntegrationRow
+            </IntegrationCard>
+            <IntegrationCard
               name="Telegram"
+              logo="/assets/channels/telegram.svg"
               status={<ToneChip tone="neutral" label="Available via deployment" />}
               action={{ label: "Open BotFather ↗", href: "https://t.me/BotFather" }}
             >
@@ -207,9 +243,10 @@ export function IntegrationsView({
               <p className="mt-0.5 text-[11px]">
                 Set up by your deployment operator — the dashboard can&apos;t verify it.
               </p>
-            </IntegrationRow>
-            <IntegrationRow
+            </IntegrationCard>
+            <IntegrationCard
               name="Discord"
+              logo="/assets/channels/discord.svg"
               status={<ToneChip tone="neutral" label="Available via deployment" />}
               action={{
                 label: "Open Discord portal ↗",
@@ -220,11 +257,11 @@ export function IntegrationsView({
               <p className="mt-0.5 text-[11px]">
                 Set up by your deployment operator — the dashboard can&apos;t verify it.
               </p>
-            </IntegrationRow>
+            </IntegrationCard>
           </IntegrationGroup>
 
           <IntegrationGroup title="Email" hint="Inbound triage and approval-gated outbound mail.">
-            <IntegrationRow
+            <IntegrationCard
               name="Mailbox"
               status={
                 mailboxList === undefined ? (
@@ -254,7 +291,7 @@ export function IntegrationsView({
                   {mailboxList.length > 4 ? ` · +${mailboxList.length - 4} more` : ""}
                 </p>
               ) : null}
-            </IntegrationRow>
+            </IntegrationCard>
           </IntegrationGroup>
         </div>
       </div>

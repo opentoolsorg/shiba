@@ -21,12 +21,22 @@
  * throws). A malformed map or pin throws at intake — before any approval
  * card — never inside a container.
  *
- * Intended operator defaults (docs only — nothing is pinned in code):
- *   orchestrator → codex              (OpenAI-class planning)
- *   explorer     → devin-subscription (swe-2)
- *   fixer        → opencode           (deepseek)
- *   reviewer     → claude-subscription(opus-class)
- *   designer     → antigravity-subscription (Gemini)
+ * Pinned for real in `wrangler.jsonc` vars (PLAN.md §20), so a pinned role
+ * resolves to its own harness+model before any default. An UNPINNED role does
+ * NOT fall back per-role: it resolves the deployment default instead —
+ * `input.harness ?? env.AGENT_HARNESS ?? "opencode"`, then that harness's
+ * `*_MODEL` var, then HARNESS_DEFAULT_MODELS. There is no per-role default
+ * table in code; a role with no pin and no per-call harness gets the same
+ * routing as any other run.
+ *
+ * The five lines below are T52's ORIGINAL intended routing, recorded for
+ * provenance. §20 realised them as an explicit pin; keep them in step with
+ * `wrangler.jsonc` or delete them, but do not read them as defaults:
+ *   orchestrator → codex                    (OpenAI-class planning)
+ *   explorer     → devin                    (swe-2)
+ *   fixer        → claude-code              (sonnet-5-5)
+ *   reviewer     → claude-code              (opus-5-5)
+ *   designer     → claude-code              (opus-5-5)
  */
 import { AGENT_ROLES, isJsonObject, type AgentRole } from "@shiba/shared";
 import type { Env } from "../env.js";
@@ -124,9 +134,18 @@ function rolePin(env: Env, role: AgentRole): { pin: RolePin; source: RolePinSour
   return null;
 }
 
+/**
+ * Model ids the provider has retired — a pin naming one throws at intake, not in a container.
+ * openai/gpt-5.6-sol: retires from Codex 2026-10-14, blocked early (PLAN.md §20.2).
+ */
+export const RETIRED_MODELS = new Set<string>(["openai/gpt-5.6-sol"]);
+
 function resolvePin(env: Env, pin: RolePin): { harness: AgentHarnessName; model: string } {
   const harness = resolveHarness(pin.harness, env);
   const model = pin.model ?? harnessModelEnv(env, harness.name) ?? (HARNESS_DEFAULT_MODELS[harness.name] as string);
+  if (RETIRED_MODELS.has(model)) {
+    throw new Error(`Model ${model} is retired by its provider; repin this role (ROLE_MODEL_MAP / ROLE_MODEL__<ROLE>).`);
+  }
   // Same validation the run path applies at intake: a provider the harness
   // can't drive, or one with no known API host, throws here.
   assertSupportedModel(harness.name, harness.supportedProviders, model);

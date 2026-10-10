@@ -66,6 +66,7 @@ export function createRun(args: {
   authAccount?: string;
   /** T51: the approved runtime — "local" dispatches to the operator daemon. */
   runtime?: RuntimeSelection;
+  targetMachineId?: string;
   testCommand?: string[];
   /** Run-fork lineage — hashed into the approved input like every field. */
   forkedFrom?: ForkLineage;
@@ -92,6 +93,7 @@ export function createRun(args: {
       ...(args.continuesKey !== undefined ? { continuesKey: args.continuesKey } : {}),
       ...(args.authAccount !== undefined ? { authAccount: args.authAccount } : {}),
       ...(args.runtime !== undefined ? { runtime: args.runtime } : {}),
+      ...(args.targetMachineId !== undefined ? { targetMachineId: args.targetMachineId } : {}),
       ...(args.testCommand !== undefined ? { testCommand: args.testCommand } : {}),
       ...(args.forkedFrom !== undefined ? { forkedFrom: args.forkedFrom } : {}),
     },

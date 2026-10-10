@@ -1193,7 +1193,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               slackRunFailed({
                 repoUrl: fullInput.repoUrl,
                 userMessage: runErrorWire(failure.code).userMessage,
-                detail: message.slice(0, 1000),
+                detail: redactSecrets(message).slice(0, 1000),
                 unknown: failureStatus === "unknown",
               }),
             );
@@ -2419,7 +2419,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // re-drive it.
     this.setState({ ...this.state });
     this.inFlightEffects.add(effectId);
-    this.ctx.waitUntil(
+    this.holdOpen(
       send
         .then(() => {
           this.emitSpine(
