@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'" />
+<title>Shiba Desktop setup</title>
+<style>
+  body { font: 14px -apple-system, system-ui, sans-serif; margin: 0; display: grid; place-items: center; min-height: 100vh; background: #fafafa; color: #111; }
+  main { width: min(420px, 90vw); }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { color: #555; margin: 0 0 16px; }
+  input { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px; border: 1px solid #bbb; border-radius: 6px; }
+  button { margin-top: 12px; padding: 8px 14px; font-size: 14px; border: 0; border-radius: 6px; background: #111; color: #fff; cursor: pointer; }
+  #error { color: #b00020; margin-top: 12px; min-height: 1em; }
+  @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } p { color: #aaa; } input { background: #222; color: #eee; border-color: #444; } button { background: #eee; color: #111; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Connect to Shiba</h1>
+  <p>Enter the URL of your Shiba deployment.</p>
+  <form id="form">
+    <input id="url" type="url" placeholder="https://shiba.example.com" autocomplete="off" required />
+    <button type="submit">Continue</button>
+  </form>
+  <div id="error" role="alert"></div>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

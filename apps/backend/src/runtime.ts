@@ -403,7 +403,7 @@ export class ComputerPreviewAdapter implements RuntimeAdapter {
  * client wraps the DO stub; tests inject an in-memory one.
  */
 export interface LocalDispatchClient {
-  dispatch(envelope: import("@shiba/shared").LocalRunEnvelope): Promise<void>;
+  dispatch(envelope: import("@shiba/shared").LocalRunEnvelope, targetMachineId?: string): Promise<void>;
   status(sandboxId: string): Promise<{
     status: "pending" | "claimed" | "settled" | "cancelled";
     claimedAt?: number;
@@ -495,7 +495,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     throwIfAborted(opts?.signal);
     await emit({ phase: "clone", message: `Dispatching ${this.harness.name} to the local runtime.`, fraction: 0.05 });
     try {
-      await this.client.dispatch(envelope);
+      await this.client.dispatch(envelope, input.targetMachineId);
     } catch (error) {
       return failureResult(`Local dispatch failed: ${shortError(error)}`, 0, "", signals);
     }

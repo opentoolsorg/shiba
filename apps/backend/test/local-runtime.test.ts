@@ -22,7 +22,7 @@ import {
 import worker from "../src/index.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
-import { LocalDispatch } from "../src/local-dispatch.js";
+import { LOCAL_MACHINE_HEADER, LocalDispatch } from "../src/local-dispatch.js";
 import { LocalRuntimeAdapter, type LocalDispatchClient } from "../src/runtime.js";
 import { resolveHarness } from "../src/harness/index.js";
 import { DUMMY_PROVIDER_KEY } from "../src/provider-gateway.js";
@@ -218,6 +218,36 @@ describe("LocalDispatch DO", () => {
     expect(status.result?.changedFiles).toEqual(["a.ts"]);
   });
 
+  it("pins a record to targetMachineId; only the matching vouched machine (or anyone, if unpinned) claims it", async () => {
+    const { obj } = makeDispatch();
+    const claimAs = async (machine?: string) =>
+      (await (
+        await obj.fetch(
+          new Request("https://local-dispatch/claim", {
+            method: "POST",
+            headers: { "content-type": "application/json", ...(machine !== undefined ? { [LOCAL_MACHINE_HEADER]: machine } : {}) },
+            body: "{}",
+          }),
+        )
+      ).json()) as { envelope: LocalRunEnvelope | null };
+    expect((await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: " m-1 " }))).status).toBe(200);
+    expect((await claimAs("m-2")).envelope).toBeNull();
+    expect((await claimAs()).envelope).toBeNull(); // shared token: no vouched id, no pinned runs
+    expect((await claimAs("m-1")).envelope?.sandboxId).toBe("sb-d1");
+
+    const unpinned = { ...ENVELOPE, sandboxId: "sb-d2" };
+    await obj.fetch(post("/dispatch", { envelope: unpinned }));
+    expect((await claimAs()).envelope?.sandboxId).toBe("sb-d2");
+    await obj.fetch(post("/dispatch", { envelope: { ...ENVELOPE, sandboxId: "sb-d3" } }));
+    expect((await claimAs("m-9")).envelope?.sandboxId).toBe("sb-d3");
+  });
+
+  it("refuses a targetMachineId over 128 chars", async () => {
+    const { obj } = makeDispatch();
+    expect((await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: "x".repeat(129) }))).status).toBe(400);
+    expect((await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: "x".repeat(128) }))).status).toBe(200);
+  });
+
   it("cancel marks the record and a settled record stays settled", async () => {
     const { obj } = makeDispatch();
     await obj.fetch(post("/dispatch", { envelope: ENVELOPE }));
@@ -330,6 +360,38 @@ describe("T51 intake boundary", () => {
     expect(body.ok).toBe(true);
     const approval = orchestrator.state.pendingApprovals?.find((a) => a.approvalId === body.approvalId);
     expect(approval?.runtime).toBe("local");
+  });
+
+  describe("targetMachineId intake", () => {
+    const queueLocal = (extra: Record<string, unknown>, orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" })) =>
+      orchestrator.onRequest(
+        queueRequest({ ...RUN_BODY, runtime: "local", harness: "opencode", ...extra }, { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }),
+      );
+
+    it("400s an empty, over-long, or non-string target", async () => {
+      expect((await queueLocal({ targetMachineId: "" })).status).toBe(400);
+      expect((await queueLocal({ targetMachineId: "   " })).status).toBe(400);
+      expect((await queueLocal({ targetMachineId: "x".repeat(129) })).status).toBe(400);
+      expect((await queueLocal({ targetMachineId: 7 })).status).toBe(400);
+    });
+
+    it("trims the target and freezes it on the approval", async () => {
+      const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
+      const res = await queueLocal({ targetMachineId: "  m-1  " }, orchestrator);
+      expect(res.status).toBe(200);
+      const { approvalId } = (await res.json()) as { approvalId: string };
+      const approval = orchestrator.state.pendingApprovals?.find((a) => a.approvalId === approvalId) as { targetMachineId?: string };
+      expect(approval.targetMachineId).toBe("m-1");
+    });
+
+    it("ignores the target when the runtime is not local", async () => {
+      const orchestrator = makeOrchestrator({});
+      const res = await orchestrator.onRequest(queueRequest({ ...RUN_BODY, runtime: "sandbox", targetMachineId: "m-1" }));
+      expect(res.status).toBe(200);
+      const { approvalId } = (await res.json()) as { approvalId: string };
+      const approval = orchestrator.state.pendingApprovals?.find((a) => a.approvalId === approvalId) as { targetMachineId?: string };
+      expect(approval.targetMachineId).toBeUndefined();
+    });
   });
 
   it("runtime:\"sandbox\" queues normally with no flag and no voucher", async () => {
@@ -539,6 +601,15 @@ describe("LocalRuntimeAdapter", () => {
     expect(kinds).toContain("local.settled");
     // Daemon receipts merged — the exec.settled the verify gate reads.
     expect(kinds).toContain("exec.settled");
+  });
+
+  it("passes the approved targetMachineId to the dispatch client", async () => {
+    const targets: (string | undefined)[] = [];
+    const { client } = makeClient({ dispatch: async (_envelope, target) => void targets.push(target) });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT, targetMachineId: "m-1" } as never, NOOP_EMIT, {});
+    await adapter.runCodingTask(NOOP_OPS, TASK_INPUT as never, NOOP_EMIT, {});
+    expect(targets).toEqual(["m-1", undefined]);
   });
 
   it("refuses a harness that does not support the local runtime", async () => {

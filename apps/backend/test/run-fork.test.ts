@@ -167,6 +167,19 @@ describe("decider: forkedFrom rides the frozen input", () => {
 });
 
 describe("POST /api/runs/<id>/fork", () => {
+  it("carries a local parent's targetMachineId onto the fork, and drops it for non-local parents", async () => {
+    const forkApproval = async (parentOver: Record<string, unknown>) => {
+      const instance = agent();
+      const parent = await seedParent(instance, true);
+      instance.state.runs = [{ ...parent, ...parentOver } as typeof parent];
+      const { approvalId } = (await (await instance.onRequest(forkBody("run-parent"))).json()) as { approvalId: string };
+      return instance.state.pendingApprovals?.find((a) => a.approvalId === approvalId) as { runtime?: string; targetMachineId?: string };
+    };
+    expect(await forkApproval({ runtime: "local", targetMachineId: "m-1" })).toMatchObject({ runtime: "local", targetMachineId: "m-1" });
+    expect((await forkApproval({ runtime: "local" })).targetMachineId).toBeUndefined();
+    expect((await forkApproval({ runtime: "sandbox", targetMachineId: "m-1" })).targetMachineId).toBeUndefined();
+  });
+
   it("404s when the parent run is missing", async () => {
     const instance = agent();
     const res = await instance.onRequest(forkBody("run-nope"));

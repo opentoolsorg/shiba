@@ -32,6 +32,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { unlinkSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -50,6 +51,11 @@ const HEARTBEAT_MS = 30_000;
 const PROBED_HARNESSES = ["claude", "codex", "opencode", "agy"];
 // EX_CONFIG: a revoked token needs operator action, not a restart loop.
 const EXIT_REVOKED = 78;
+// EX_TEMPFAIL: a second daemon over the same run root exits fast.
+const EXIT_LOCKED = 75;
+
+/** Status hook for a host process (worker_thread); a no-op under plain node. */
+const report = (msg) => process.parentPort?.postMessage({ type: "status", ...msg });
 
 function fail(message, code = 1) {
   console.error(`shiba-local: ${message}`);
@@ -85,6 +91,8 @@ let AUTH = {};
 let machineId = "";
 let harnesses = [];
 let activeRunId;
+let activeHarnessChild;
+let heldClaim;
 
 async function post(sub, body) {
   const res = await fetch(`${workerUrl}/api/local/${sub}`, {
@@ -120,6 +128,68 @@ function boundTail(text, max) {
 
 // ── Leases ──────────────────────────────────────────────────────────────
 const leasePath = (id) => path.join(runRoot, "leases", "run", `${id}.lease`);
+
+// ── Single-instance lock ────────────────────────────────────────────────
+const lockPath = path.join(runRoot, "daemon.lock");
+// A pid alone can be recycled after a reboot; pairing it with boot time can't.
+const BOOT_SKEW_MS = 60_000;
+const bootAt = () => Math.round(Date.now() - os.uptime() * 1000);
+
+/** A lock is live only when its JSON parses, its pid answers, and it was written this boot. */
+async function lockIsLive(raw) {
+  let lock;
+  try {
+    lock = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  if (typeof lock?.pid !== "number" || !(await holderAlive(lock.pid))) return false;
+  return typeof lock.bootAt !== "number" || Math.abs(lock.bootAt - bootAt()) <= BOOT_SKEW_MS;
+}
+
+/** Exclusive-create the lock; a live holder wins, a stale one is taken over once. */
+async function acquireLock() {
+  await fs.mkdir(runRoot, { recursive: true, mode: 0o700 });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let handle;
+    try {
+      handle = await fs.open(lockPath, "wx");
+      await handle.writeFile(JSON.stringify({ pid: process.pid, at: Date.now(), bootAt: bootAt() }));
+      await handle.close();
+      // process.exit skips async cleanup — release must be synchronous.
+      process.on("exit", () => {
+        // revoked()/fail() exit without gracefulStop; don't orphan a mid-run harness.
+        activeHarnessChild?.kill("SIGTERM");
+        try {
+          unlinkSync(lockPath);
+        } catch {}
+      });
+      return;
+    } catch (error) {
+      if (handle !== undefined) await handle.close().catch(() => {});
+      if (error.code !== "EEXIST") throw error;
+    }
+    const raw = await fs.readFile(lockPath, "utf8").catch(() => null);
+    if (raw === null) continue;
+    if (await lockIsLive(raw)) {
+      fail(`another shiba-local daemon is running (pid ${JSON.parse(raw).pid})`, EXIT_LOCKED);
+    }
+    // rename is atomic: of several racers over one stale lock, exactly one moves it.
+    const claimed = `${lockPath}.${process.pid}.stale`;
+    try {
+      await fs.rename(lockPath, claimed);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      continue;
+    }
+    // A racer may have already replaced the stale lock with its live one; hand it back.
+    if ((await fs.readFile(claimed, "utf8").catch(() => raw)) !== raw) {
+      await fs.link(claimed, lockPath).catch(() => {});
+    }
+    await fs.rm(claimed, { force: true });
+  }
+  fail("another shiba-local daemon is running (stale lock)", EXIT_LOCKED);
+}
 
 async function holderAlive(pid) {
   try {
@@ -159,7 +229,8 @@ async function reapDeadWorkspaces() {
     const sandboxId = entry.slice(0, -".lease".length);
     await fs.rm(file, { force: true });
     // The workspace belonged to the dead holder — deleting it is the lease
-    // semantic; a claimed run re-posts via the DO if it was interrupted.
+    // semantic. Nothing re-queues a claimed run: the record stays claimed
+    // until the adapter's deadline settles it as an error.
     await fs.rm(path.join(runRoot, "runs", sandboxId), { recursive: true, force: true });
   }
 }
@@ -177,6 +248,7 @@ function runProcess(argv, opts = {}) {
       env: opts.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    opts.onChild?.(child);
     let stdout = "";
     let stderr = "";
     let killed = false;
@@ -362,9 +434,13 @@ async function execute(envelope) {
       cwd: cloneDir,
       env,
       timeoutMs: remaining(),
+      onChild: (child) => {
+        activeHarnessChild = child;
+      },
       onStdout: (chunk) => process.stdout.write(chunk),
       onStderr: (chunk) => process.stderr.write(chunk),
     });
+    activeHarnessChild = undefined;
     milestone("harness.idle", `exitCode:${run.exitCode}`);
     const stderrTail = boundTail(run.stderr, MAX_STDERR_TAIL_CHARS);
     if (run.exitCode !== 0) {
@@ -480,16 +556,37 @@ function revoked() {
 async function heartbeat() {
   try {
     await post("heartbeat", { machineId, hostname, platform, daemonVersion: DAEMON_VERSION, harnesses, ...(activeRunId ? { activeRunId } : {}) });
+    report({ state: "heartbeat", ok: true });
   } catch (error) {
+    report({ state: "heartbeat", ok: false });
     if (error.status === 401) revoked();
     // Network blips are expected; the next tick retries.
     console.error(`shiba-local: heartbeat failed: ${error.message}`);
   }
 }
 
+const RESULT_ATTEMPTS = 4;
+
+/** A finished run is expensive to lose: retry transient failures ~1s, 2s, 4s with jitter. */
+async function postResult(body) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await post("result", body);
+    } catch (error) {
+      if (error.status === 401) revoked();
+      const transient = error.status === undefined || error.status >= 500 || error.status === 429;
+      if (!transient || attempt >= RESULT_ATTEMPTS || stopping) throw error;
+      console.error(`shiba-local: result post attempt ${attempt} failed, retrying: ${error.message}`);
+      await new Promise((r) => setTimeout(r, 1_000 * 2 ** (attempt - 1) * (0.75 + Math.random() * 0.5)));
+      if (stopping) throw error;
+    }
+  }
+}
+
 // ── Loop ────────────────────────────────────────────────────────────────
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  await acquireLock();
   harnesses = probeHarnesses();
   if (args.connect) await pair(args.connect, args.pair);
   // Env vars win so the pre-pairing deployment-bearer setup keeps working unchanged.
@@ -504,8 +601,11 @@ async function main() {
   await heartbeat();
   setInterval(heartbeat, HEARTBEAT_MS).unref();
   console.log(`shiba-local: polling ${workerUrl}/api/local as ${operator} (root ${runRoot})`);
+  report({ state: "polling", machineId, harnesses });
   let idlePolls = 0;
   for (;;) {
+    // gracefulStop owns settlement once stopping; never claim a run it will abandon.
+    if (stopping) return new Promise(() => {});
     let claim;
     try {
       claim = await post("claim", { operator });
@@ -529,8 +629,10 @@ async function main() {
     idlePolls = 0;
     const { envelope } = claim;
     console.log(`shiba-local: claimed ${envelope.sandboxId} (${envelope.harness}) — ${envelope.repoUrl}@${envelope.baseBranch}`);
+    report({ state: "claimed", runId: envelope.sandboxId, harness: envelope.harness, repoUrl: envelope.repoUrl });
     let result;
     activeRunId = envelope.sandboxId;
+    heldClaim = { sandboxId: envelope.sandboxId, claimToken: claim.claimToken };
     try {
       result = await execute(envelope);
     } catch (error) {
@@ -538,17 +640,43 @@ async function main() {
     } finally {
       activeRunId = undefined;
     }
+    if (stopping) return new Promise(() => {});
     try {
-      await post("result", { sandboxId: envelope.sandboxId, claimToken: claim.claimToken, result });
+      await postResult({ sandboxId: envelope.sandboxId, claimToken: claim.claimToken, result });
       console.log(`shiba-local: settled ${envelope.sandboxId} — ${result.status} (exit ${result.exitCode})`);
+      report({ state: "settled", runId: envelope.sandboxId, status: result.status, exitCode: result.exitCode, repoUrl: envelope.repoUrl, posted: true });
     } catch (error) {
       console.error(`shiba-local: result post failed for ${envelope.sandboxId}: ${error.message}`);
+      report({ state: "settled", runId: envelope.sandboxId, status: result.status, exitCode: result.exitCode, repoUrl: envelope.repoUrl, posted: false });
       // The DO holds the claim stale-window; the record reaps at 45min.
     }
+    heldClaim = undefined;
     if (args.once) process.exit(result.status === "completed" ? 0 : 1);
   }
 }
 
-process.on("SIGINT", () => process.exit(130));
-process.on("SIGTERM", () => process.exit(143));
+/**
+ * Stop mid-run like a crash that still reports: kill the harness child,
+ * settle the held claim best-effort inside a 3s budget, drop its lease,
+ * then exit with the signal's code. Only the direct child is killed —
+ * a process-group kill would need detached:true, a behavior change.
+ */
+let stopping = false;
+async function gracefulStop(code) {
+  if (stopping) return;
+  stopping = true;
+  const held = heldClaim;
+  if (held === undefined) process.exit(code);
+  activeHarnessChild?.kill("SIGTERM");
+  try {
+    await Promise.race([
+      post("result", { sandboxId: held.sandboxId, claimToken: held.claimToken, result: errorResult("daemon stopped") }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("stop budget exceeded")), 3_000)),
+    ]);
+  } catch {}
+  await releaseLease(held.sandboxId).catch(() => {});
+  process.exit(code);
+}
+process.on("SIGINT", () => void gracefulStop(130));
+process.on("SIGTERM", () => void gracefulStop(143));
 await main();

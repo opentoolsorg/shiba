@@ -19,6 +19,11 @@ export interface TaskComposerProps {
   baseBranch: string;
   publishPullRequest: boolean;
   harness: string;
+  /** T63 — desktop "Run on" control. Rendered only when the shell reports a
+   *  paired, ready daemon (localRunAvailable). "sandbox" keeps the chat path. */
+  runTarget?: "sandbox" | "local";
+  onRunTargetChange?: (value: "sandbox" | "local") => void;
+  localRunAvailable?: boolean;
   routing: ModelRoutingControl;
   busy: boolean;
   isSubmitting: boolean;
@@ -50,12 +55,23 @@ const HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = [
   { value: "claude-code", label: "Claude Code", desc: "Anthropic Claude Code CLI" },
 ];
 
+// Only these harnesses declare local support — the backend refuses anything
+// else at intake (orchestrator.ts), so the local lane pins to this set.
+const LOCAL_HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = [
+  { value: "opencode", label: "OpenCode", desc: "Default autonomous coding engine" },
+  { value: "claude-code", label: "Claude Code", desc: "Anthropic Claude Code CLI" },
+  { value: "codex", label: "Codex", desc: "OpenAI Codex CLI" },
+];
+
 export function TaskComposer({
   repoUrl,
   task,
   baseBranch,
   publishPullRequest,
   harness,
+  runTarget = "sandbox",
+  onRunTargetChange,
+  localRunAvailable = false,
   routing,
   busy,
   isSubmitting,
@@ -100,10 +116,11 @@ export function TaskComposer({
   const fieldClass =
     "bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2.5 py-1.5 touch:min-h-11 text-xs focus:outline-none focus:border-[#1c1cc8] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[#6a6f63]/60 transition-colors";
 
+  const harnessBase = runTarget === "local" ? LOCAL_HARNESS_OPTIONS : HARNESS_OPTIONS;
   const harnessOptions =
-    harness !== "" && !HARNESS_OPTIONS.some((h) => h.value === harness)
-      ? [...HARNESS_OPTIONS, { value: harness, label: harness, desc: "Deployment-pinned harness" }]
-      : HARNESS_OPTIONS;
+    harness !== "" && !harnessBase.some((h) => h.value === harness)
+      ? [...harnessBase, { value: harness, label: harness, desc: "Deployment-pinned harness" }]
+      : harnessBase;
   const currentHarness = harnessOptions.find((h) => h.value === harness);
   const currentConnection = routing.connections?.find((c) => c.id === routing.connectionId);
 
@@ -175,6 +192,20 @@ export function TaskComposer({
             ))}
           </select>
         </Tooltip>
+
+        {localRunAvailable && onRunTargetChange ? (
+          <Tooltip content="Where the run executes — the cloud sandbox or this paired computer" side="top">
+            <select
+              value={runTarget}
+              onChange={(event) => onRunTargetChange(event.target.value === "local" ? "local" : "sandbox")}
+              aria-label="Run on"
+              className={`${fieldClass} cursor-pointer`}
+            >
+              <option value="sandbox">Run on: Sandbox</option>
+              <option value="local">Run on: This computer</option>
+            </select>
+          </Tooltip>
+        ) : null}
 
         <Tooltip content="Model the coding agent uses — leave blank for the deployment default" side="top">
           <input

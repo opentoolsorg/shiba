@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { toast } from "sonner";
 import type { ComputerStatus, ConnectedComputer, PairingTokenResponse } from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
+import { createLatest, shouldShowConnect, useDesktopStatus } from "../desktop-status";
 
 const POLL_MS = 10_000;
 
@@ -106,43 +107,63 @@ export function RemoteAccessView(): JSX.Element {
   const [pairing, setPairing] = useState<PairingTokenResponse | null>(null);
   const [pairingBusy, setPairingBusy] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  // T63 — present only inside the desktop shell on the configured origin.
+  const { bridge, status: desktopStatus, refresh: refreshDesktop } = useDesktopStatus();
+  // The bridge owns signed-out/disabled; the existing 404 empty state covers "disabled".
+  const showConnectThisComputer = shouldShowConnect(bridge !== undefined, desktopStatus);
+
+  const mounted = useRef(true);
+  // Polls and post-pair/revoke reloads overlap; only the latest load may apply.
+  const [loads] = useState(createLatest);
 
   const load = useCallback(async () => {
+    const seq = loads.next();
+    const apply = (next: FleetState) => {
+      if (mounted.current && loads.isLatest(seq)) setFleet(next);
+    };
     try {
       const res = await fetch("/api/computers", { cache: "no-store" });
       // 404: the Worker has no fleet routes because SHIBA_LOCAL_RUNTIME is off.
-      if (res.status === 404) return setFleet({ kind: "disabled" });
-      if (!res.ok) return setFleet({ kind: "error", message: `GET /api/computers failed with ${res.status}.` });
+      if (res.status === 404) return apply({ kind: "disabled" });
+      if (!res.ok) return apply({ kind: "error", message: `GET /api/computers failed with ${res.status}.` });
       const body = (await res.json()) as { computers?: ConnectedComputer[] };
-      setFleet({ kind: "ready", computers: body.computers ?? [] });
+      apply({ kind: "ready", computers: body.computers ?? [] });
     } catch {
-      setFleet({ kind: "error", message: "Network error reaching /api/computers." });
+      apply({ kind: "error", message: "Network error reaching /api/computers." });
     }
-  }, []);
+  }, [loads]);
 
   useEffect(() => {
+    mounted.current = true;
     void load();
     const poll = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(poll);
+    return () => {
+      mounted.current = false;
+      window.clearInterval(poll);
+    };
   }, [load]);
 
   useEffect(() => {
     fetch("/api/whoami", { redirect: "manual", cache: "no-store" })
       .then(async (res) => {
         const body = (await res.json().catch(() => null)) as { agent?: unknown } | null;
+        if (!mounted.current) return;
         setIdentity(
           res.ok && typeof body?.agent === "string"
             ? { kind: "ok", agent: body.agent }
             : { kind: "down", message: `GET /api/whoami returned ${res.status || "a redirect"}.` },
         );
       })
-      .catch(() => setIdentity({ kind: "down", message: "Network error reaching /api/whoami." }));
+      .catch(() => {
+        if (mounted.current) setIdentity({ kind: "down", message: "Network error reaching /api/whoami." });
+      });
   }, []);
 
   const addComputer = async () => {
     setPairingBusy(true);
     try {
       const res = await fetch("/api/computers/pairing-token", { method: "POST" });
+      if (res.status === 404) { setFleet({ kind: "disabled" }); return; }
       if (res.status === 503) throw new Error("Pairing is not configured — set PAIRING_SECRET or LOCAL_ADAPTER_TOKEN on the Worker.");
       if (!res.ok) throw new Error(`POST /api/computers/pairing-token failed with ${res.status}.`);
       setPairing((await res.json()) as PairingTokenResponse);
@@ -150,6 +171,37 @@ export function RemoteAccessView(): JSX.Element {
       toast.error(err instanceof Error ? err.message : "Could not create a pairing token.");
     } finally {
       setPairingBusy(false);
+    }
+  };
+
+  // One-click pairing: the modal's manual connect command stays available as
+  // "Add another computer"; this path hands the token straight to the shell.
+  const connectThisComputer = async () => {
+    if (!bridge) return;
+    setPairingBusy(true);
+    try {
+      const res = await fetch("/api/computers/pairing-token", { method: "POST" });
+      if (!mounted.current) return;
+      if (res.status === 503) throw new Error("Pairing is not configured — set PAIRING_SECRET or LOCAL_ADAPTER_TOKEN on the Worker.");
+      if (!res.ok) {
+        if (res.status === 404) setFleet({ kind: "disabled" });
+        refreshDesktop();
+        throw new Error(`POST /api/computers/pairing-token failed with ${res.status}.`);
+      }
+      const body = (await res.json()) as PairingTokenResponse;
+      const result = await bridge.pair(body.token);
+      if (!mounted.current) return;
+      if (result.ok) {
+        toast("This computer is connected.");
+      } else {
+        toast.error(result.error);
+      }
+      refreshDesktop();
+      void load();
+    } catch (err) {
+      if (mounted.current) toast.error(err instanceof Error ? err.message : "Could not pair this computer.");
+    } finally {
+      if (mounted.current) setPairingBusy(false);
     }
   };
 
@@ -193,14 +245,30 @@ export function RemoteAccessView(): JSX.Element {
             Pair local machines with one command. Daemons connect outbound — no open ports on your computer.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void addComputer()}
-          disabled={fleet.kind !== "ready" || pairingBusy}
-          className="text-xs font-semibold text-white bg-[#0000a8] hover:bg-[#1c1cc8] disabled:opacity-40 px-3 py-1.5 rounded-none transition-colors"
-        >
-          {pairingBusy ? "Generating…" : "Add computer"}
-        </button>
+        <div className="flex items-center gap-2">
+          {bridge && showConnectThisComputer ? (
+            <button
+              type="button"
+              onClick={() => void connectThisComputer()}
+              disabled={pairingBusy}
+              className="text-xs font-semibold text-white bg-[#0000a8] hover:bg-[#1c1cc8] disabled:opacity-40 px-3 py-1.5 rounded-none transition-colors"
+            >
+              {pairingBusy ? "Connecting…" : "Connect this computer"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void addComputer()}
+            disabled={fleet.kind !== "ready" || pairingBusy}
+            className={
+              bridge
+                ? "text-xs font-medium text-[#222320] border border-[#e0ded5] hover:bg-[#e0ded5]/60 disabled:opacity-40 px-3 py-1.5 rounded-none transition-colors"
+                : "text-xs font-semibold text-white bg-[#0000a8] hover:bg-[#1c1cc8] disabled:opacity-40 px-3 py-1.5 rounded-none transition-colors"
+            }
+          >
+            {pairingBusy && !bridge ? "Generating…" : bridge ? "Add another computer" : "Add computer"}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
@@ -264,6 +332,11 @@ export function RemoteAccessView(): JSX.Element {
                     <div className="flex items-center gap-2">
                       <span className={`size-2 rounded-full shrink-0 ${STATUS_DOT[c.status]}`} title={c.status} aria-hidden="true" />
                       <span className="text-sm font-semibold text-[#222320] truncate flex-1">{c.hostname}</span>
+                      {desktopStatus?.machineId === c.machineId ? (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-none bg-[#15803d]/10 text-[#15803d] border border-[#15803d]/30">
+                          This computer
+                        </span>
+                      ) : null}
                       <span className="text-[10px] font-mono uppercase text-[#6a6f63]">{c.status}</span>
                     </div>
                     <div className="text-[11px] font-mono text-[#6a6f63] flex flex-wrap gap-x-3">

@@ -123,6 +123,8 @@ export type LocalDispatchStatus = "pending" | "claimed" | "settled" | "cancelled
 export interface LocalDispatchRecord {
   envelope: LocalRunEnvelope;
   status: LocalDispatchStatus;
+  /** Only this paired machine may claim the run; absent = any daemon. */
+  targetMachineId?: string;
   /** Minted at claim; results must present it — a second daemon can't hijack. */
   claimToken?: string;
   claimedAt?: number;

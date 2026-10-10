@@ -11,6 +11,7 @@ import {
   type ConnectedComputer,
   type PairingTokenResponse,
 } from "@shiba/shared";
+import { buildLocalRunEnvelope } from "@shiba/shared";
 import worker from "../src/index.js";
 import { LocalDispatch } from "../src/local-dispatch.js";
 
@@ -53,7 +54,7 @@ function makeFleet(extraEnv: Record<string, unknown> = {}) {
       env,
     );
   const computers = async () => ((await (await call("/api/computers")).json()) as { computers: ConnectedComputer[] }).computers;
-  return { call, computers, map };
+  return { call, computers, map, obj, env };
 }
 
 const MACHINE = { hostname: "box", platform: "darwin-arm64", daemonVersion: "0.1.0", harnesses: ["claude", "codex"] };
@@ -140,6 +141,50 @@ describe("heartbeat + fleet status", () => {
     expect(res.status).toBe(200);
     expect((await fleet.computers())[0]).toMatchObject({ machineId: "m-env", status: "idle" });
     expect((await fleet.call("/api/local/claim", { token: "daemon-secret", body: {} })).status).toBe(200);
+  });
+});
+
+describe("machine identity on claim", () => {
+  const envelope = buildLocalRunEnvelope({
+    input: { sandboxId: "sb-pin", repoUrl: "https://github.com/o/r", baseBranch: "main", task: "t" },
+    harnessName: "opencode",
+    workdir: "/workspace/sb-pin",
+    configFiles: [],
+    setupCommands: [],
+    argv: ["opencode", "run"],
+    env: {},
+    dummyKey: "dummy",
+    execAllowlist: [["npm", "test"]],
+    setupAllowlist: [["mkdir"]],
+    deadlineAt: Date.now() + 60_000,
+  });
+
+  it("a forged X-Shiba-Machine-Id never overrides the token's machine; a shared token gets no identity", async () => {
+    const fleet = makeFleet({ LOCAL_ADAPTER_TOKEN: "daemon-secret" });
+    const a = (await (await pair(fleet)).res.json()) as { adapterToken: string; machineId: string };
+    const b = (await (await pair(fleet)).res.json()) as { adapterToken: string; machineId: string };
+    const dispatchPinned = () =>
+      fleet.obj.fetch(
+        new Request("https://local-dispatch/dispatch", {
+          method: "POST",
+          body: JSON.stringify({ envelope, targetMachineId: a.machineId }),
+        }),
+      );
+    const claim = async (token: string, forgedId: string) => {
+      const res = await worker.fetch(
+        new Request("https://localhost/api/local/claim", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "x-shiba-machine-id": forgedId },
+          body: "{}",
+        }),
+        fleet.env,
+      );
+      return ((await res.json()) as { envelope: { sandboxId: string } | null }).envelope;
+    };
+    expect((await dispatchPinned()).status).toBe(200);
+    expect(await claim(b.adapterToken, a.machineId)).toBeNull(); // B forges A's id
+    expect(await claim("daemon-secret", a.machineId)).toBeNull(); // shared token forges A's id
+    expect((await claim(a.adapterToken, "forged"))?.sandboxId).toBe("sb-pin"); // A's token wins over a bad header
   });
 });
 
