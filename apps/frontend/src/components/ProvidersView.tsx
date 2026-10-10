@@ -1,7 +1,7 @@
 /**
  * Providers — connect the AI coding agents that run your tasks (Claude,
  * Codex, Antigravity, Cursor, Devin + the pre-installed sandbox CLI
- * catalog) and the capability modules they reach through the gateway.
+ * catalog).
  * The MCP gateway itself lives on Agents & MCP.
  */
 import { type JSX, useEffect, useState } from "react";
@@ -170,69 +170,6 @@ export function ProvidersView(): JSX.Element {
                 </div>
               );
             })}
-          </div>
-        </div>
-
-
-        <div>
-          <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--muted-foreground-2)] mb-3">
-            Skills
-          </h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 font-mono text-xs">
-            <div className="border border-[var(--border-1)] bg-[var(--card)] p-3.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[var(--fg)]">Memory</span>
-                <span className="text-[10px] text-[var(--success)] font-semibold">Vectorize</span>
-              </div>
-              <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">
-                Semantic fact banking &amp; recall. Scopes: <code>memory:read</code>,{" "}
-                <code>memory:write</code>.
-              </p>
-              <div className="text-[10px] text-[var(--primary)]/80 font-bold pt-1">
-                memory_bank, memory_recall
-              </div>
-            </div>
-
-            <div className="border border-[var(--border-1)] bg-[var(--card)] p-3.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[var(--fg)]">Mailbox</span>
-                <span className="text-[10px] text-[var(--success)] font-semibold">Email + R2</span>
-              </div>
-              <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">
-                Inbound mail &amp; approval-gated sends. Scopes: <code>email:read</code>,{" "}
-                <code>email:draft</code>, <code>email:send</code>.
-              </p>
-              <div className="text-[10px] text-[var(--primary)]/80 font-bold pt-1">
-                list_emails, create_draft, send_email
-              </div>
-            </div>
-
-            <div className="border border-[var(--border-1)] bg-[var(--card)] p-3.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[var(--fg)]">Sandbox</span>
-                <span className="text-[10px] text-[var(--success)] font-semibold">Containers</span>
-              </div>
-              <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">
-                Ephemeral containers for code. Scopes: <code>sandbox:exec</code>,{" "}
-                <code>runs:read</code>.
-              </p>
-              <div className="text-[10px] text-[var(--primary)]/80 font-bold pt-1">
-                queue_run (Approval Gate)
-              </div>
-            </div>
-
-            <div className="border border-[var(--border-1)] bg-[var(--card)] p-3.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[var(--fg)]">Audit Trail</span>
-                <span className="text-[10px] text-[var(--success)] font-semibold">D1 Database</span>
-              </div>
-              <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">
-                Every MCP call logged with SHA-256 argument hash fingerprints.
-              </p>
-              <div className="text-[10px] text-[var(--primary)]/80 font-bold pt-1">
-                Zero plaintext leakage
-              </div>
-            </div>
           </div>
         </div>
 
