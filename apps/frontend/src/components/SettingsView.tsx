@@ -1,33 +1,18 @@
 /**
  * SettingsView — the settings section bodies mounted by SettingsModal (the
- * Kosuke-style popup) and any full-page embed. Every section mounts the REAL
- * surface (MemoryTab, /api/setup/status, /api/agents, /api/whoami,
+ * Kosuke-style popup). Sections mount only the live data they need from
+ * /api/setup/status, /api/agents, and /api/whoami,
  * /api/auth/*) rather than duplicating internals; sections with no real data
  * source are omitted, not stubbed.
  */
-import { type JSX, type ReactNode, useMemo, useState } from "react";
+import { type JSX, type ReactNode, useState } from "react";
 import { version as dashboardVersion } from "../../package.json";
 import { authClient } from "../auth-client";
-import {
-  type AgentCliEntry,
-  type RoleModelWire,
-  type SetupStatus,
-  useAgentsDirectory,
-  useSetupStatus,
-  useWhoami,
-} from "../live-status";
+import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
-import { MemoryTab } from "./MemoryTab";
 import { ConnectionsCard, PurposeRoutingCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
-import {
-  SUBSCRIPTION_AUTH,
-  SubscriptionConnect,
-  type SubscriptionId,
-  type SubscriptionStatus,
-  subscriptionChip,
-} from "./SubscriptionConnect";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
@@ -38,35 +23,27 @@ export type SettingsSectionId =
   | "repositories"
   | "automations"
   | "mailbox"
-  | "providers"
   | "models"
   | "environments"
-  | "memory"
-  | "guidance"
   | "experimental"
   | "deployment";
 
 /** Single source for section labels — the modal nav groups render from this. */
-export const SETTINGS_SECTION_LABELS: Record<
-  SettingsSectionId,
-  { label: string; blurb: string }
-> = {
-  account: { label: "Account", blurb: "Identity, auth lane & sign out" },
-  appearance: { label: "Appearance", blurb: "Theme" },
-  repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
-  automations: { label: "Automations", blurb: "Kill switch & TypeSafe key" },
-  mailbox: { label: "Mailbox", blurb: "Agent mailbox & email sending" },
-  providers: { label: "AI Providers", blurb: "Your AI agents" },
-  models: { label: "Models", blurb: "Per-role agent routing" },
-  environments: {
-    label: "Environments",
-    blurb: "Deployment configuration the Worker proves",
-  },
-  memory: { label: "Memory", blurb: "Vectorize long-term semantic memory" },
-  guidance: { label: "API keys & MCP", blurb: "MCP principals & capability scopes" },
-  experimental: { label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
-  deployment: { label: "Deployment", blurb: "Serving host, models & harness" },
-};
+export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string; blurb: string }> =
+  {
+    account: { label: "Account", blurb: "Identity, auth lane & sign out" },
+    appearance: { label: "Appearance", blurb: "Theme" },
+    repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
+    automations: { label: "Automations", blurb: "Kill switch & TypeSafe key" },
+    mailbox: { label: "Mailbox", blurb: "Agent mailbox & email sending" },
+    models: { label: "Models", blurb: "Per-role agent routing" },
+    environments: {
+      label: "Environments",
+      blurb: "Deployment configuration the Worker proves",
+    },
+    experimental: { label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
+    deployment: { label: "Deployment", blurb: "Serving host, models & harness" },
+  };
 
 function SectionShell({
   title,
@@ -132,34 +109,11 @@ function ChecklistRow({
       >
         {ok ? "✓" : "·"}
       </span>
+      <span className="sr-only">{ok ? "Configured" : "Not configured"}</span>
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium text-[#222320]">{label}</div>
         <div className="font-mono text-[11px] text-[#6a6f63]">{detail}</div>
       </div>
-    </div>
-  );
-}
-
-function ProviderLaneRow({
-  id,
-  agents,
-}: {
-  id: SubscriptionId;
-  agents: AgentCliEntry[];
-}): JSX.Element {
-  const spec = SUBSCRIPTION_AUTH[id];
-  const credential = agents.find((entry) => entry.id === id)?.credential ?? spec.credential;
-  const [status, setStatus] = useState<SubscriptionStatus>({ kind: "loading" });
-  return (
-    <div className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
-      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-        <div className="min-w-0">
-          <div className="text-[13px] font-semibold text-[#222320]">{spec.label}</div>
-          <div className="text-[11px] text-[#6a6f63]">{spec.blurb}</div>
-        </div>
-        {subscriptionChip(status)}
-      </div>
-      <SubscriptionConnect spec={spec} credential={credential} onStatus={setStatus} />
     </div>
   );
 }
@@ -171,22 +125,11 @@ const ROLE_SOURCE_LABEL: Record<RoleModelWire["source"], string> = {
 };
 
 /**
- * One role row of the Models section: a read-only harness picker (the live
- * /api/agents catalog) plus the model the backend resolved for that role.
- * Values are env-driven — the row shows where to set them, never a form.
+ * One role row of the Models section. Values are deployment-resolved and
+ * displayed as text so read-only state does not look editable.
  */
-function RoleModelRow({
-  row,
-  agents,
-}: {
-  row: RoleModelWire;
-  agents: AgentCliEntry[];
-}): JSX.Element {
+function RoleModelRow({ row }: { row: RoleModelWire }): JSX.Element {
   const roleVar = `ROLE_MODEL__${row.role.toUpperCase()}`;
-  const options =
-    row.harness === "" || agents.some((a) => a.id === row.harness)
-      ? agents
-      : [...agents, { id: row.harness, label: row.harness } as AgentCliEntry];
   return (
     <div className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
       <div className="flex items-center justify-between gap-3">
@@ -202,26 +145,15 @@ function RoleModelRow({
           }
         />
       </div>
-      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-        <select
-          disabled
-          value={row.harness}
-          aria-label={`${row.role} harness`}
-          className="bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2.5 py-1.5 text-xs font-medium disabled:opacity-80 disabled:cursor-not-allowed sm:w-56"
-        >
-          {options.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <input
-          readOnly
-          value={row.model}
-          aria-label={`${row.role} model`}
-          spellCheck={false}
-          className="flex-1 bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2.5 py-1.5 text-xs font-mono read-only:opacity-80"
-        />
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="border border-[#e0ded5] bg-[#f1efe6] px-2.5 py-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-[#6a6f63]">Harness</div>
+          <div className="font-mono text-xs text-[#222320]">{row.harness || "Not resolved"}</div>
+        </div>
+        <div className="border border-[#e0ded5] bg-[#f1efe6] px-2.5 py-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-[#6a6f63]">Model</div>
+          <div className="break-all font-mono text-xs text-[#222320]">{row.model || "Default"}</div>
+        </div>
       </div>
       {row.error ? <div className="mt-1.5 text-[11px] text-[#b91c1c]">{row.error}</div> : null}
       <div className="mt-1.5 font-mono text-[11px] text-[#6a6f63]">
@@ -231,17 +163,11 @@ function RoleModelRow({
   );
 }
 
-function ModelsSection({
-  status,
-  agents,
-}: {
-  status: SetupStatus | undefined;
-  agents: AgentCliEntry[];
-}): JSX.Element {
+function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Element {
   if (!status) {
     return (
       <Card>
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+        <div role="status" className="px-4 py-6 text-center text-xs text-[#6a6f63]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -256,7 +182,7 @@ function ModelsSection({
             This deployment doesn't report per-role routing — update the backend.
           </div>
         ) : (
-          rows.map((row) => <RoleModelRow key={row.role} row={row} agents={agents} />)
+          rows.map((row) => <RoleModelRow key={row.role} row={row} />)
         )}
       </Card>
       <Card>
@@ -287,7 +213,7 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
   if (!status) {
     return (
       <Card>
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+        <div role="status" className="px-4 py-6 text-center text-xs text-[#6a6f63]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -370,14 +296,6 @@ const EXPERIMENTAL_FLAGS: { flag: string; effect: string; related: string }[] = 
   },
 ];
 
-const MAILBOX_VARS: { name: string; effect: string }[] = [
-  {
-    name: "AGENT_MAILBOX",
-    effect: "Agent mailbox address latest_verification scans (default dev@tryshiba.dev).",
-  },
-  { name: "SEND_EMAIL", effect: "Email Sending binding the email approval bridge executes sends with." },
-];
-
 const KILL_SWITCHES: { flag: string; effect: string }[] = [
   {
     flag: "MEMORY_ENABLED",
@@ -413,23 +331,18 @@ const AUTH_LANE_LABEL: Record<string, string> = {
 };
 
 /** Account — the identity the Worker proves via /api/whoami plus sign-out. */
-function AccountSection({
-  status,
-  onSignOut,
-}: {
-  status: SetupStatus | undefined;
-  onSignOut?: () => void;
-}): JSX.Element {
+function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX.Element {
+  const setup = useSetupStatus();
+  const status = setup.state.kind === "data" ? setup.state.data : undefined;
   const whoami = useWhoami();
   const [signingOut, setSigningOut] = useState(false);
   const identity = whoami.state.kind === "data" ? whoami.state.data : undefined;
-  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
 
   const signOut = async () => {
     setSigningOut(true);
     try {
       if (onSignOut) {
-        onSignOut();
+        await onSignOut();
       } else {
         await authClient.signOut().catch(() => {});
         window.location.reload();
@@ -446,9 +359,7 @@ function AccountSection({
           <LoadErrorState message={whoami.state.message} onRetry={whoami.reload} />
         </div>
       ) : !identity ? (
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
-          Reading /api/whoami…
-        </div>
+        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">Reading /api/whoami…</div>
       ) : (
         <>
           <div className="flex items-center gap-3 border-b border-[#e0ded5] px-4 py-3.5">
@@ -467,7 +378,6 @@ function AccountSection({
               </div>
             </div>
           </div>
-          <AccountRow label="Serving host" value={hostname || "unknown"} />
           <AccountRow
             label="GitHub"
             value="GITHUB_TOKEN — opens pull requests"
@@ -501,35 +411,48 @@ function AccountSection({
   );
 }
 
-const THEME_OPTIONS: { id: "dark" | "light" | "system"; label: string; hint: string; glyph: string }[] =
-  [
-    { id: "dark", label: "Dark", hint: "Paper-on-ink, low glare", glyph: "◐" },
-    { id: "light", label: "Light", hint: "Bright paper surface", glyph: "☀" },
-    { id: "system", label: "System", hint: "Follows OS appearance", glyph: "⌘" },
-  ];
+const THEME_OPTIONS: {
+  id: "dark" | "light" | "system";
+  label: string;
+  hint: string;
+  glyph: string;
+}[] = [
+  { id: "dark", label: "Dark", hint: "Paper-on-ink, low glare", glyph: "◐" },
+  { id: "light", label: "Light", hint: "Bright paper surface", glyph: "☀" },
+  { id: "system", label: "System", hint: "Follows OS appearance", glyph: "⌘" },
+];
 
 /** Appearance — the real next-themes picker the nav rail toggle shares. */
 function AppearanceSection(): JSX.Element {
   const { theme, resolvedTheme, setTheme } = useTheme();
   return (
     <Card>
-      <div role="radiogroup" aria-label="Theme" className="grid grid-cols-1 gap-2 px-4 py-4 lg:grid-cols-3">
+      <div
+        role="radiogroup"
+        aria-label="Theme"
+        className="grid grid-cols-1 gap-2 px-4 py-4 lg:grid-cols-3"
+      >
         {THEME_OPTIONS.map((option) => {
           const active = (theme ?? "system") === option.id;
           return (
-            <button
+            <label
               key={option.id}
-              type="button"
-              onClick={() => setTheme(option.id)}
-              role="radio"
-              aria-checked={active}
+              data-active={active || undefined}
               className={
-                "flex flex-col items-start gap-1 rounded-none border px-3 py-3 text-left transition-colors " +
+                "flex cursor-pointer flex-col items-start gap-1 rounded-none border px-3 py-3 text-left transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-[#0000a8] " +
                 (active
                   ? "border-[#0000a8]/50 bg-[#0000a8]/10 shadow-[2px_2px_0_var(--paper-shadow)]"
                   : "border-[#e0ded5] bg-[#f6f4ed] hover:border-[#d3d2c8] hover:bg-[#f1efe6]")
               }
             >
+              <input
+                type="radio"
+                name="dashboard-theme"
+                value={option.id}
+                checked={active}
+                onChange={() => setTheme(option.id)}
+                className="sr-only"
+              />
               <span className="flex w-full items-center justify-between">
                 <span aria-hidden="true" className="text-base text-[#222320]">
                   {option.glyph}
@@ -542,23 +465,123 @@ function AppearanceSection(): JSX.Element {
               </span>
               <span className="text-xs font-semibold text-[#222320]">{option.label}</span>
               <span className="text-[10px] leading-snug text-[#6a6f63]">{option.hint}</span>
-            </button>
+            </label>
           );
         })}
       </div>
       <div className="border-t border-[#e0ded5] px-4 py-2.5 font-mono text-[11px] text-[#6a6f63]">
         Active: {theme ?? "system"}
-        {theme === "system" && resolvedTheme ? " (resolved: " + resolvedTheme + ")" : ""} —
-        keyboard: press D anywhere
+        {theme === "system" && resolvedTheme ? ` (resolved: ${resolvedTheme})` : ""} — keyboard:
+        press D anywhere
       </div>
     </Card>
   );
 }
 
+type LiveSettingsSection = "automations" | "mailbox" | "environments";
+
+function LiveSettingsSectionBody({
+  section,
+  onNavigate,
+}: {
+  section: LiveSettingsSection;
+  onNavigate?: (view: AppNavView) => void;
+}): JSX.Element {
+  const setup = useSetupStatus();
+  const status = setup.state.kind === "data" ? setup.state.data : undefined;
+  const content =
+    setup.state.kind === "error" ? (
+      <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
+    ) : status ? (
+      section === "automations" ? (
+        <Card>
+          <ChecklistRow
+            label="Automations enabled"
+            ok={status.automations.enabled}
+            detail='AUTOMATIONS_ENABLED kill switch — "false"/"0"/"off" stops every automation firing'
+          />
+          <ChecklistRow
+            label="TypeSafe key"
+            ok={status.automations.typeSafe}
+            detail="TYPESAFE_API_KEY — System One judgments"
+          />
+        </Card>
+      ) : section === "mailbox" ? (
+        <Card>
+          <ChecklistRow
+            label="Custom mailbox address"
+            ok={status.mailbox.addressOverride}
+            detail="AGENT_MAILBOX override; the built-in default is used when unset."
+          />
+          <ChecklistRow
+            label="Outbound email binding"
+            ok={status.mailbox.sendEnabled}
+            detail="SEND_EMAIL binding required for approved email sends."
+          />
+        </Card>
+      ) : (
+        <EnvironmentsSection status={status} />
+      )
+    ) : (
+      <Card>
+        <div role="status" className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+          Reading /api/setup/status…
+        </div>
+      </Card>
+    );
+
+  if (section === "automations") {
+    return (
+      <SectionShell
+        title="Automations"
+        description="Deployment switches the Automations view runs under — booleans from GET /api/setup/status. Triggers themselves are managed in the Automations view."
+      >
+        {content}
+        <ViewLink view="automations" label="Open Automations" onNavigate={onNavigate} />
+      </SectionShell>
+    );
+  }
+  if (section === "mailbox") {
+    return (
+      <SectionShell
+        title="Mailbox"
+        description="Deployment-backed mailbox configuration. Only booleans are exposed; address values are never returned by the setup endpoint."
+      >
+        {content}
+        <ViewLink view="inbox" label="Open Mailbox" onNavigate={onNavigate} />
+      </SectionShell>
+    );
+  }
+  return (
+    <SectionShell
+      title="Environments"
+      description="Configuration the deployment itself proves — every row is a boolean from GET /api/setup/status."
+    >
+      {content}
+    </SectionShell>
+  );
+}
+
+function ModelsSettingsSection(): JSX.Element {
+  const setup = useSetupStatus();
+  const status = setup.state.kind === "data" ? setup.state.data : undefined;
+  return (
+    <SectionShell
+      title="Models"
+      description="Which agent CLI + model each delegation role runs — resolved live from ROLE_MODEL_MAP / ROLE_MODEL__* env vars. Read-only: the Worker reports env state; set vars at deploy time."
+    >
+      {setup.state.kind === "error" ? (
+        <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
+      ) : (
+        <ModelsSection status={status} />
+      )}
+    </SectionShell>
+  );
+}
+
 /**
- * The real settings content for one section — shared by the SettingsModal
- * popup and any full-page embed. Owns its own data hooks, so each shell
- * gets a fresh read of /api/setup/status, /api/agents, and /api/whoami.
+ * The real settings content for one section. Each data-backed section owns
+ * its hooks so static sections do not issue unrelated API requests.
  */
 export function SettingsSectionBody({
   section,
@@ -567,22 +590,8 @@ export function SettingsSectionBody({
 }: {
   section: SettingsSectionId;
   onNavigate?: (view: AppNavView) => void;
-  onSignOut?: () => void;
+  onSignOut?: () => Promise<void>;
 }): JSX.Element {
-  const directory = useAgentsDirectory();
-  const setup = useSetupStatus();
-
-  const status = setup.state.kind === "data" ? setup.state.data : undefined;
-  const agents = directory.state.kind === "data" ? directory.state.data.agents : [];
-  const principals = directory.state.kind === "data" ? directory.state.data.principals : undefined;
-  const secretCredentials = useMemo(
-    () =>
-      (directory.state.kind === "data" ? directory.state.data.agents : []).filter(
-        (entry) => entry.credential.kind !== "ai-gateway-byok",
-      ),
-    [directory.state],
-  );
-
   const hostname = typeof window !== "undefined" ? window.location.hostname : "";
 
   if (section === "account") {
@@ -591,7 +600,7 @@ export function SettingsSectionBody({
         title="Account"
         description="Who you are to this deployment — the identity GET /api/whoami proves, plus the auth lane and sign-out."
       >
-        <AccountSection status={status} onSignOut={onSignOut} />
+        <AccountSection onSignOut={onSignOut} />
       </SectionShell>
     );
   }
@@ -618,210 +627,11 @@ export function SettingsSectionBody({
     );
   }
 
-  if (section === "automations") {
-    return (
-      <SectionShell
-        title="Automations"
-        description="Deployment switches the Automations view runs under — booleans from GET /api/setup/status. Triggers themselves are managed in the Automations view."
-      >
-        {setup.state.kind === "error" ? (
-          <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
-        ) : status ? (
-          <Card>
-            <ChecklistRow
-              label="Automations enabled"
-              ok={status.automations.enabled}
-              detail='AUTOMATIONS_ENABLED kill switch — "false"/"0"/"off" stops every automation firing'
-            />
-            <ChecklistRow
-              label="TypeSafe key"
-              ok={status.automations.typeSafe}
-              detail="TYPESAFE_API_KEY — System One judgments"
-            />
-          </Card>
-        ) : (
-          <Card>
-            <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
-              Reading /api/setup/status…
-            </div>
-          </Card>
-        )}
-        <ViewLink view="automations" label="Open Automations" onNavigate={onNavigate} />
-      </SectionShell>
-    );
+  if (section === "automations" || section === "mailbox" || section === "environments") {
+    return <LiveSettingsSectionBody section={section} onNavigate={onNavigate} />;
   }
 
-  if (section === "mailbox") {
-    return (
-      <SectionShell
-        title="Mailbox"
-        description="Worker bindings behind the Mailbox view. Set at deploy time; the Worker does not report their live state, so none is shown here."
-      >
-        <Card>
-          {MAILBOX_VARS.map((entry) => (
-            <div key={entry.name} className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
-              <div className="font-mono text-xs font-semibold text-[#1c1cc8]">{entry.name}</div>
-              <div className="mt-0.5 text-xs text-[#222320]">{entry.effect}</div>
-            </div>
-          ))}
-        </Card>
-        <ViewLink view="inbox" label="Open Mailbox" onNavigate={onNavigate} />
-      </SectionShell>
-    );
-  }
-
-  if (section === "providers") {
-    return (
-      <SectionShell
-        title="AI Providers"
-        description="Your AI agents. Connect a provider to let it run tasks for you — disconnect any time."
-      >
-        <Card>
-          {(Object.keys(SUBSCRIPTION_AUTH) as SubscriptionId[]).map((id) => (
-            <ProviderLaneRow key={id} id={id} agents={agents} />
-          ))}
-        </Card>
-        <Card>
-          <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
-            Other credentials
-          </div>
-          {secretCredentials.length === 0 ? (
-            <div className="px-4 py-5 text-center text-xs text-[#6a6f63]">
-              {directory.state.kind === "loading"
-                ? "Loading catalog…"
-                : "No secret-backed credentials in this deployment's catalog."}
-            </div>
-          ) : (
-            secretCredentials.map((entry) => (
-              <div
-                key={entry.id}
-                className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0"
-              >
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-[#222320]">{entry.label}</div>
-                  <div className="font-mono text-[11px] text-[#6a6f63]">
-                    {entry.credential.label}
-                  </div>
-                  {entry.credential.configured === false && entry.credential.setupHint ? (
-                    <div className="mt-0.5 font-mono text-[11px] text-[#b45309]">
-                      {entry.credential.setupHint}
-                    </div>
-                  ) : null}
-                </div>
-                <ToneChip
-                  tone={
-                    entry.credential.configured === true
-                      ? "ok"
-                      : entry.credential.configured === false
-                        ? "danger"
-                        : "neutral"
-                  }
-                  label={
-                    entry.credential.configured === true
-                      ? "Configured"
-                      : entry.credential.configured === false
-                        ? "Not set up"
-                        : "Not introspectable"
-                  }
-                />
-              </div>
-            ))
-          )}
-        </Card>
-        <ViewLink view="agents" label="Manage agents & MCP" onNavigate={onNavigate} />
-      </SectionShell>
-    );
-  }
-
-  if (section === "models") {
-    return (
-      <SectionShell
-        title="Models"
-        description="Which agent CLI + model each delegation role runs — resolved live from ROLE_MODEL_MAP / ROLE_MODEL__* env vars. Read-only: the Worker reports env state; set vars at deploy time."
-      >
-        {setup.state.kind === "error" ? (
-          <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
-        ) : (
-          <ModelsSection status={status} agents={agents} />
-        )}
-      </SectionShell>
-    );
-  }
-
-  if (section === "environments") {
-    return (
-      <SectionShell
-        title="Environments"
-        description="Configuration the deployment itself proves — every row is a boolean from GET /api/setup/status."
-      >
-        {setup.state.kind === "error" ? (
-          <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
-        ) : (
-          <EnvironmentsSection status={status} />
-        )}
-      </SectionShell>
-    );
-  }
-
-  if (section === "memory") {
-    return (
-      <SectionShell
-        title="Memory"
-        description="Long-term semantic memory — the same MemoryTab mounted in the Memory view."
-      >
-        <MemoryTab />
-      </SectionShell>
-    );
-  }
-
-  if (section === "guidance") {
-    return (
-      <SectionShell
-        title="API keys & MCP"
-        description="Registered MCP-token principals and their capability scopes (read-only — managed in Agents & MCP)."
-      >
-        <Card>
-          {principals === undefined ? (
-            <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
-              {directory.state.kind === "error"
-                ? "Could not load /api/agents."
-                : "Loading principals…"}
-            </div>
-          ) : principals.length === 0 ? (
-            <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
-              No MCP-token principals registered.
-            </div>
-          ) : (
-            principals.map((principal) => (
-              <div
-                key={principal.principal}
-                className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0"
-              >
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-[#222320]">{principal.principal}</div>
-                  <div className="mt-0.5 flex flex-wrap gap-1">
-                    {principal.scopes.map((scope) => (
-                      <span
-                        key={scope}
-                        className="rounded-none border border-[#e0ded5] bg-[#f6f4ed] px-1.5 py-px font-mono text-[10px] text-[#6a6f63]"
-                      >
-                        {scope}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <ToneChip
-                  tone={principal.live ? "ok" : "neutral"}
-                  label={principal.live ? "Live" : "Revoked"}
-                />
-              </div>
-            ))
-          )}
-        </Card>
-        <ViewLink view="agents" label="Open Agents & MCP" onNavigate={onNavigate} />
-      </SectionShell>
-    );
-  }
+  if (section === "models") return <ModelsSettingsSection />;
 
   if (section === "experimental") {
     return (
@@ -869,41 +679,10 @@ export function SettingsSectionBody({
             @shiba/frontend@{dashboardVersion}
           </div>
         </div>
-        {status ? (
-          <>
-            <div className="border-b border-[#e0ded5] px-4 py-2.5">
-              <div className="text-xs font-medium text-[#222320]">Orchestrator model</div>
-              <div className="font-mono text-[11px] text-[#6a6f63]">
-                {status.models.orchestrator}
-              </div>
-            </div>
-            <div className="border-b border-[#e0ded5] px-4 py-2.5">
-              <div className="text-xs font-medium text-[#222320]">Coding model</div>
-              <div className="font-mono text-[11px] text-[#6a6f63]">{status.models.coding}</div>
-            </div>
-            <div className="border-b border-[#e0ded5] px-4 py-2.5">
-              <div className="text-xs font-medium text-[#222320]">Default harness</div>
-              <div className="font-mono text-[11px] text-[#6a6f63]">{status.models.harness}</div>
-            </div>
-            <div className="px-4 py-2.5">
-              <div className="text-xs font-medium text-[#222320]">AI Gateway</div>
-              <div className="font-mono text-[11px] text-[#6a6f63]">
-                {status.gateway.id} · {status.gateway.reachable}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="px-4 py-2.5 text-xs text-[#6a6f63]">
-            {setup.state.kind === "error"
-              ? "Model details unavailable — /api/setup/status failed."
-              : "Reading /api/setup/status…"}
-          </div>
-        )}
       </Card>
     </SectionShell>
   );
 }
-
 
 function RepositoriesSection(): JSX.Element {
   const repos = useSavedRepos();
@@ -949,7 +728,10 @@ function RepositoriesSection(): JSX.Element {
         </div>
       ) : (
         repos.map((repo) => (
-          <div key={repo} className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0 flex items-center justify-between gap-3">
+          <div
+            key={repo}
+            className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0 flex items-center justify-between gap-3"
+          >
             <span className="font-mono text-xs text-[#222320] truncate">{repo}</span>
             <button
               type="button"

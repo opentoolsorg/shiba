@@ -19,6 +19,7 @@ export interface SetupStatus {
   betterAuth: { configured: boolean };
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelWire[] };
   automations: { enabled: boolean; typeSafe: boolean };
+  mailbox: { addressOverride: boolean; sendEnabled: boolean };
 }
 
 /**
@@ -103,11 +104,19 @@ function useApiJson<T>(path: string): {
   return { state, reload, inFlight };
 }
 
-export function useSetupStatus(): { state: LoadState<SetupStatus>; reload: () => void; inFlight: boolean } {
+export function useSetupStatus(): {
+  state: LoadState<SetupStatus>;
+  reload: () => void;
+  inFlight: boolean;
+} {
   return useApiJson<SetupStatus>("/api/setup/status");
 }
 
-export function useAgentsDirectory(): { state: LoadState<AgentsDirectory>; reload: () => void; inFlight: boolean } {
+export function useAgentsDirectory(): {
+  state: LoadState<AgentsDirectory>;
+  reload: () => void;
+  inFlight: boolean;
+} {
   return useApiJson<AgentsDirectory>("/api/agents");
 }
 
@@ -117,7 +126,11 @@ export interface WhoamiWire {
   auth?: "better-auth" | "access" | "none";
 }
 
-export function useWhoami(): { state: LoadState<WhoamiWire>; reload: () => void; inFlight: boolean } {
+export function useWhoami(): {
+  state: LoadState<WhoamiWire>;
+  reload: () => void;
+  inFlight: boolean;
+} {
   return useApiJson<WhoamiWire>("/api/whoami");
 }
 
@@ -196,7 +209,11 @@ export interface ModelConfigWire {
   purposes: string[];
 }
 
-export function useModelConfig(): { state: LoadState<ModelConfigWire>; reload: () => void; inFlight: boolean } {
+export function useModelConfig(): {
+  state: LoadState<ModelConfigWire>;
+  reload: () => void;
+  inFlight: boolean;
+} {
   return useApiJson<ModelConfigWire>("/api/model-config");
 }
 
@@ -234,9 +251,7 @@ export function codingModelOptions(
   connectionId: string,
 ): string[] {
   const selected = connections.find((c) => c.id === connectionId);
-  const allowedProviders = new Set(
-    (selected ? [selected] : connections).map((c) => c.service),
-  );
+  const allowedProviders = new Set((selected ? [selected] : connections).map((c) => c.service));
   return [
     ...new Set(
       allowedProviders.size === 0
@@ -311,7 +326,7 @@ export function useSpine(
         }
         const latest =
           body.latestSeq ??
-          (body.events.length > 0 ? body.events[body.events.length - 1]!.seq : since ?? 0);
+          (body.events.length > 0 ? body.events[body.events.length - 1]!.seq : (since ?? 0));
         const seen = new Set(buffer.current.events.map((event) => event.seq));
         buffer.current = {
           base,

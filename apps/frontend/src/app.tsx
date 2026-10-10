@@ -14,7 +14,12 @@ import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
 import { RemoteAccessView } from "./components/RemoteAccessView";
 import { useSavedRepos, useSavedSkills, saveRepo } from "./saved";
-import { codingModelOptions, readyConnectionOptions, useAgentsDirectory, useModelConfig } from "./live-status";
+import {
+  codingModelOptions,
+  readyConnectionOptions,
+  useAgentsDirectory,
+  useModelConfig,
+} from "./live-status";
 import { DashboardView } from "./components/DashboardView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
 import { FirstRunWizard, ONBOARDING_STORAGE_KEY } from "./components/FirstRunWizard";
@@ -35,11 +40,7 @@ import { authClient } from "./auth-client";
 import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
 import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
-import {
-  extractPendingApprovals,
-  extractCompletedDiff,
-  parseRepoName,
-} from "./ui-helpers";
+import { extractPendingApprovals, extractCompletedDiff, parseRepoName } from "./ui-helpers";
 import type { AgentPrincipal, RetainedRun, StoredApproval, ToolRunRecord } from "./types";
 
 const ORCHESTRATOR_AGENT = "coding-orchestrator";
@@ -47,12 +48,14 @@ const ORCHESTRATOR_AGENT = "coding-orchestrator";
 // Guard for single-key shortcuts: never fire while the user is typing.
 function isEditableTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
-  return Boolean(
-    el?.closest?.("input, textarea, select, [contenteditable]"),
-  );
+  return Boolean(el?.closest?.("input, textarea, select, [contenteditable]"));
 }
 
-function useRetainedRuns(refreshToken: number, sessionId: string, sessionApiAvailable: boolean): { runs: RetainedRun[]; error: string | null } {
+function useRetainedRuns(
+  refreshToken: number,
+  sessionId: string,
+  sessionApiAvailable: boolean,
+): { runs: RetainedRun[]; error: string | null } {
   const [runs, setRuns] = useState<RetainedRun[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -206,7 +209,10 @@ function useAgentPrincipals(refreshToken: number, enabled: boolean): AgentPrinci
 // with JSON {error:"Session not found."}. Only the JSON signal may be treated
 // as a dead session — anything else is a safe "route unsupported" signal.
 async function isSessionNotFoundBody(response: Response): Promise<boolean> {
-  const body = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
+  const body = (await response
+    .clone()
+    .json()
+    .catch(() => null)) as { error?: unknown } | null;
   return body?.error === "Session not found.";
 }
 
@@ -229,7 +235,10 @@ async function fetchIdentity(): Promise<IdentityResult> {
     return { issue: "signin", message: "Sign-in required.", auth: "access" };
   }
   if (res.status === 401) {
-    const body = (await res.clone().json().catch(() => null)) as { code?: unknown } | null;
+    const body = (await res
+      .clone()
+      .json()
+      .catch(() => null)) as { code?: unknown } | null;
     if (body?.code === "access_not_configured") {
       return { issue: "unconfigured", message: "Cloudflare Access is not configured." };
     }
@@ -239,7 +248,13 @@ async function fetchIdentity(): Promise<IdentityResult> {
   }
   // Non-JSON means something other than the Worker answered (static host, dev proxy).
   const body = (await res.json().catch(() => null)) as { agent?: unknown; auth?: unknown } | null;
-  if (body === null || res.status === 404 || res.status === 502 || res.status === 503 || res.status === 504) {
+  if (
+    body === null ||
+    res.status === 404 ||
+    res.status === 502 ||
+    res.status === 503 ||
+    res.status === 504
+  ) {
     return { issue: "unreachable", message: `GET /api/whoami returned ${res.status}.` };
   }
   if (!res.ok) return { issue: "error", message: `GET /api/whoami failed with ${res.status}.` };
@@ -345,11 +360,14 @@ export function App(): React.JSX.Element {
   // Only these harnesses run locally; anything else would show as a
   // deployment pin the backend then refuses.
   useEffect(() => {
-    if (runTarget === "local" && !["opencode", "claude-code", "codex"].includes(harness)) setHarness("opencode");
+    if (runTarget === "local" && !["opencode", "claude-code", "codex"].includes(harness))
+      setHarness("opencode");
   }, [runTarget, harness]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
-  const [webSessions, setWebSessions] = useState<{ id: string; name: string; agentName: string; updatedAt: number }[]>([]);
-// Persistent workspace panel removed from tasks view; functionality promoted to standalone views.
+  const [webSessions, setWebSessions] = useState<
+    { id: string; name: string; agentName: string; updatedAt: number }[]
+  >([]);
+  // Persistent workspace panel removed from tasks view; functionality promoted to standalone views.
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const mobileNavTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -391,9 +409,13 @@ export function App(): React.JSX.Element {
     if (showOnboardingModal) return;
     let cancelled = false;
     detectSetupSteps()
-      .then((found) => { if (!cancelled) setSetupDone(found.size); })
+      .then((found) => {
+        if (!cancelled) setSetupDone(found.size);
+      })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [showOnboardingModal]);
 
   useEffect(() => {
@@ -470,6 +492,7 @@ export function App(): React.JSX.Element {
   // Better-auth lane sign-out: clears the session cookie, then re-runs
   // whoami — the 401 that follows lands on AuthScreen again.
   const handleSignOut = useCallback(async () => {
+    setSettingsModalOpen(false);
     await authClient.signOut().catch(() => {});
     setOrchestratorName(null);
     setAuthMode(null);
@@ -551,7 +574,9 @@ export function App(): React.JSX.Element {
           return;
         }
         if (!response.ok) throw new Error(`Sessions request failed: ${response.status}`);
-        const body = (await response.json()) as { sessions?: { id: string; name: string; agentName: string; updatedAt: number }[] };
+        const body = (await response.json()) as {
+          sessions?: { id: string; name: string; agentName: string; updatedAt: number }[];
+        };
         if (!cancelled) {
           setSessionApiAvailable(true);
           setWebSessions(Array.isArray(body.sessions) ? body.sessions : []);
@@ -563,9 +588,15 @@ export function App(): React.JSX.Element {
       .catch((error: unknown) => {
         if (!cancelled) setNotice(error instanceof Error ? error.message : String(error));
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [orchestratorName]);
-  const { runs: retainedRuns, error: runsError } = useRetainedRuns(refreshToken, selectedSessionId, sessionApiAvailable);
+  const { runs: retainedRuns, error: runsError } = useRetainedRuns(
+    refreshToken,
+    selectedSessionId,
+    sessionApiAvailable,
+  );
   const {
     approvals: storedApprovals,
     decided: decidedStoredApprovals,
@@ -584,10 +615,7 @@ export function App(): React.JSX.Element {
 
   const toolRuns = useMemo(() => Object.values(runsById) as ToolRunRecord[], [runsById]);
 
-  const pendingApprovals = useMemo(
-    () => extractPendingApprovals(chat.messages),
-    [chat.messages],
-  );
+  const pendingApprovals = useMemo(() => extractPendingApprovals(chat.messages), [chat.messages]);
 
   // A chat-queued approval's DO pointer is the same record — the chat
   // card is the decision surface, so stored pointers already shown as
@@ -667,7 +695,9 @@ export function App(): React.JSX.Element {
         await chat.addToolApprovalResponse({ id: approvalId, approved });
         setApprovalAnnouncement(
           `Task ${approved ? "approved" : "rejected"}. ${
-            approved ? "Sandbox execution is now permitted." : "No sandbox will start for this tool call."
+            approved
+              ? "Sandbox execution is now permitted."
+              : "No sandbox will start for this tool call."
           }`,
         );
         setNotice(null);
@@ -737,14 +767,10 @@ export function App(): React.JSX.Element {
           throw new Error(body.error ?? `Approval request failed: ${response.status}`);
         }
         if (body.result === "unknown") {
-          throw new Error(
-            "The approval is gone — it expired or was already decided elsewhere.",
-          );
+          throw new Error("The approval is gone — it expired or was already decided elsewhere.");
         }
         setApprovalAnnouncement(
-          approved
-            ? "Approved — the request is executing."
-            : "Rejected — nothing will execute.",
+          approved ? "Approved — the request is executing." : "Rejected — nothing will execute.",
         );
         setNotice(null);
       } catch (decisionError) {
@@ -825,7 +851,9 @@ export function App(): React.JSX.Element {
           setNotice("Queued — approve the run card to execute on this computer.");
           refreshRuns();
         } catch (error) {
-          setNotice(`Run could not be queued: ${error instanceof Error ? error.message : String(error)}`);
+          setNotice(
+            `Run could not be queued: ${error instanceof Error ? error.message : String(error)}`,
+          );
         } finally {
           submitInFlight.current = false;
           setIsSubmitting(false);
@@ -833,9 +861,11 @@ export function App(): React.JSX.Element {
         return;
       }
       if (!orchestratorName) {
-        setNotice(identityError
-          ? `Task not sent: agent identity failed to resolve (${identityError}).`
-          : "Task not sent: still resolving your agent identity.");
+        setNotice(
+          identityError
+            ? `Task not sent: agent identity failed to resolve (${identityError}).`
+            : "Task not sent: still resolving your agent identity.",
+        );
         return;
       }
       // Without a live agent connection sendMessage resolves silently, so the
@@ -860,7 +890,9 @@ export function App(): React.JSX.Element {
         ...(connectionId.trim() ? [`Model connection: ${connectionId.trim()}`] : []),
         `Open a pull request with the result: ${publishPullRequest ? "yes" : "no"}`,
         ...(attachedSkills.length > 0
-          ? [`Skills: ${attachedSkills.map((skill) => skill.repoUrl ? `${skill.name} (${skill.repoUrl})` : skill.name).join(", ")}`]
+          ? [
+              `Skills: ${attachedSkills.map((skill) => (skill.repoUrl ? `${skill.name} (${skill.repoUrl})` : skill.name)).join(", ")}`,
+            ]
           : []),
         "",
         `Task: ${task.trim()}`,
@@ -872,17 +904,38 @@ export function App(): React.JSX.Element {
         await chat.sendMessage({ text });
         if (!submitFailed.current) {
           saveRepo(repoUrl.trim());
-          setTask((current) => current === task ? "" : current);
+          setTask((current) => (current === task ? "" : current));
           refreshRuns();
         }
       } catch (error) {
-        setNotice(`Task could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+        setNotice(
+          `Task could not be sent: ${error instanceof Error ? error.message : String(error)}`,
+        );
       } finally {
         submitInFlight.current = false;
         setIsSubmitting(false);
       }
     },
-    [repoUrl, baseBranch, task, publishPullRequest, harness, codingModel, connectionId, chat, agent, orchestratorName, identityError, refreshRuns, savedSkills, selectedSkillIds, runTarget, sessionApiAvailable, selectedSessionId, desktopStatus],
+    [
+      repoUrl,
+      baseBranch,
+      task,
+      publishPullRequest,
+      harness,
+      codingModel,
+      connectionId,
+      chat,
+      agent,
+      orchestratorName,
+      identityError,
+      refreshRuns,
+      savedSkills,
+      selectedSkillIds,
+      runTarget,
+      sessionApiAvailable,
+      selectedSessionId,
+      desktopStatus,
+    ],
   );
 
   const confirmClearAll = useCallback(async () => {
@@ -899,34 +952,47 @@ export function App(): React.JSX.Element {
       // back to an unscoped delete for a named session — that would wipe runs
       // belonging to other sessions.
       if (!sessionApiAvailable && selectedSessionId !== "default") {
-        setNotice("Conversation history cleared. Run registry is unchanged because this backend does not support session-scoped runs.");
+        setNotice(
+          "Conversation history cleared. Run registry is unchanged because this backend does not support session-scoped runs.",
+        );
         return;
       }
-      const response = await fetch(sessionApiAvailable
-        ? `/api/runs?session=${encodeURIComponent(selectedSessionId)}`
-        : "/api/runs", { method: "DELETE" });
+      const response = await fetch(
+        sessionApiAvailable
+          ? `/api/runs?session=${encodeURIComponent(selectedSessionId)}`
+          : "/api/runs",
+        { method: "DELETE" },
+      );
       if (sessionApiAvailable && (response.status === 404 || response.status === 405)) {
         // A real "Session not found." means the scoped session is gone — the
         // API still works; prune the stale item and land on the default
         // session instead of disabling session scoping globally.
         if (response.status === 404 && (await isSessionNotFoundBody(response))) {
-          setWebSessions((current) => current.filter((session) => session.id !== selectedSessionId));
+          setWebSessions((current) =>
+            current.filter((session) => session.id !== selectedSessionId),
+          );
           setSelectedSessionId("default");
-          setNotice("That session no longer exists — it was removed from the list. Conversation history cleared; run registry is unchanged.");
+          setNotice(
+            "That session no longer exists — it was removed from the list. Conversation history cleared; run registry is unchanged.",
+          );
           refreshRuns();
           return;
         }
         setSessionApiAvailable(false);
-        setNotice("Conversation history cleared. Run registry is unchanged because this backend does not support session-scoped runs.");
+        setNotice(
+          "Conversation history cleared. Run registry is unchanged because this backend does not support session-scoped runs.",
+        );
         return;
       }
       if (!response.ok) throw new Error(`Runs clear failed: ${response.status}`);
       setNotice("Conversation history and run registry cleared.");
       refreshRuns();
     } catch (error) {
-      setNotice(historyCleared
-        ? "History cleared locally; run registry could not be cleared"
-        : `History could not be cleared: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice(
+        historyCleared
+          ? "History cleared locally; run registry could not be cleared"
+          : `History could not be cleared: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       clearInFlight.current = false;
       setClearing(false);
@@ -947,7 +1013,9 @@ export function App(): React.JSX.Element {
         // sessions API or firing an unscoped delete at another session's run.
         if ((response.status === 404 || response.status === 405) && sessionApiAvailable) {
           if (response.status === 404 && (await isSessionNotFoundBody(response))) {
-            setWebSessions((current) => current.filter((session) => session.id !== selectedSessionId));
+            setWebSessions((current) =>
+              current.filter((session) => session.id !== selectedSessionId),
+            );
             setSelectedSessionId("default");
             setNotice("That session no longer exists — it was removed from the list.");
             refreshRuns();
@@ -961,7 +1029,9 @@ export function App(): React.JSX.Element {
         setNotice(`Cancellation requested for ${runId}.`);
         refreshRuns();
       } catch (error) {
-        setNotice(`Cancellation could not be requested: ${error instanceof Error ? error.message : String(error)}`);
+        setNotice(
+          `Cancellation could not be requested: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     },
     [refreshRuns, selectedSessionId, sessionApiAvailable],
@@ -970,6 +1040,18 @@ export function App(): React.JSX.Element {
   // Keyboard shortcut listener: Cmd/Ctrl+Enter submits, Escape closes modals
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (settingsModalOpen) {
+        if (
+          e.key.toLowerCase() === "d" &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !isEditableTarget(e.target)
+        ) {
+          toggleTheme();
+        }
+        return;
+      }
       if (e.key === "Escape") {
         setShowClearModal(false);
         setShowShortcutsModal(false);
@@ -993,10 +1075,7 @@ export function App(): React.JSX.Element {
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
         toggleSessionsCollapsed();
-      } else if (
-        e.key.toLowerCase() === "d" &&
-        !e.metaKey && !e.ctrlKey && !e.altKey
-      ) {
+      } else if (e.key.toLowerCase() === "d" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         toggleTheme();
       } else if (e.key === "[") {
         e.preventDefault();
@@ -1007,7 +1086,15 @@ export function App(): React.JSX.Element {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isSubmitting, repoUrl, task, submitTask, toggleSessionsCollapsed, toggleTheme]);
+  }, [
+    isSubmitting,
+    repoUrl,
+    task,
+    submitTask,
+    toggleSessionsCollapsed,
+    toggleTheme,
+    settingsModalOpen,
+  ]);
 
   // First-seen time per live run: a stable createdAt so ordering doesn't churn.
   const firstSeen = useRef(new Map<string, number>());
@@ -1053,7 +1140,8 @@ export function App(): React.JSX.Element {
           runId: tr.runId,
           sandboxId: tr.runId,
           repoUrl: typeof input.repoUrl === "string" ? input.repoUrl : "",
-          task: typeof input.task === "string" ? input.task : `Delegated run ${tr.runId.slice(0, 8)}`,
+          task:
+            typeof input.task === "string" ? input.task : `Delegated run ${tr.runId.slice(0, 8)}`,
           baseBranch: typeof input.baseBranch === "string" ? input.baseBranch : "main",
           publishPullRequest: input.publishPullRequest === true,
           status: tr.status || "running",
@@ -1080,9 +1168,12 @@ export function App(): React.JSX.Element {
   // Only offer models the backend would accept: the provider namespace must
   // have a ready connection — and match the selected one when one is picked.
   const codingModelSuggestions = useMemo(() => {
-    const models = agentsDirectory.state.kind === "data"
-      ? agentsDirectory.state.data.agents.map((agent) => agent.defaultModel).filter((m) => typeof m === "string" && m.includes("/"))
-      : [];
+    const models =
+      agentsDirectory.state.kind === "data"
+        ? agentsDirectory.state.data.agents
+            .map((agent) => agent.defaultModel)
+            .filter((m) => typeof m === "string" && m.includes("/"))
+        : [];
     return codingModelOptions(models, modelConnections, connectionId);
   }, [agentsDirectory.state, modelConnections, connectionId]);
 
@@ -1097,23 +1188,38 @@ export function App(): React.JSX.Element {
 
   const repoSuggestions = useMemo(() => {
     const merged = [...savedRepos, ...allRuns.map((run) => run.repoUrl)];
-    return [...new Set(merged.filter((repo) => typeof repo === "string" && repo.startsWith("https://github.com/")))];
+    return [
+      ...new Set(
+        merged.filter((repo) => typeof repo === "string" && repo.startsWith("https://github.com/")),
+      ),
+    ];
   }, [savedRepos, allRuns]);
-
 
   // Named web sessions are selectable chat contexts; retained delegated runs remain inspectable.
   const sessions = useMemo<SessionItem[]>(() => {
     const items: SessionItem[] = webSessions.map((session) => ({
       id: session.id,
-      title: session.id === "default" && chat.messages.length > 0 ? "Current session" : session.name,
+      title:
+        session.id === "default" && chat.messages.length > 0 ? "Current session" : session.name,
       repoName: "web chat",
-      status: session.id === selectedSessionId && (chat.isStreaming || chat.status === "streaming") ? "running" : "live",
+      status:
+        session.id === selectedSessionId && (chat.isStreaming || chat.status === "streaming")
+          ? "running"
+          : "live",
       updatedAt: session.updatedAt,
       live: session.id === selectedSessionId,
       webSession: true,
     }));
     if (!items.some((session) => session.id === "default")) {
-      items.unshift({ id: "default", title: "Default Session", repoName: "web chat", status: "live", updatedAt: 0, live: selectedSessionId === "default", webSession: true });
+      items.unshift({
+        id: "default",
+        title: "Default Session",
+        repoName: "web chat",
+        status: "live",
+        updatedAt: 0,
+        live: selectedSessionId === "default",
+        webSession: true,
+      });
     }
     const seen = new Set<string>();
     for (const run of retainedRuns) {
@@ -1131,9 +1237,12 @@ export function App(): React.JSX.Element {
       const input = toolRunInput(run);
       items.push({
         id: run.runId,
-        title: typeof input.task === "string" ? input.task : `Delegated run ${run.runId.slice(0, 8)}`,
+        title:
+          typeof input.task === "string" ? input.task : `Delegated run ${run.runId.slice(0, 8)}`,
         repoName:
-          typeof input.repoUrl === "string" ? parseRepoName(input.repoUrl) : run.agentType ?? "sandbox",
+          typeof input.repoUrl === "string"
+            ? parseRepoName(input.repoUrl)
+            : (run.agentType ?? "sandbox"),
         status: run.status,
         updatedAt: seenAt(run.runId),
       });
@@ -1154,55 +1263,66 @@ export function App(): React.JSX.Element {
 
   const liveSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0];
 
-  const handleSelectSession = useCallback(async (id: string) => {
-    const session = webSessions.find((item) => item.id === id);
-    if (!session && id !== "default") {
-      // A run row is not a chat session: inspect it without disturbing the
-      // selected chat session or its session-scoped run list.
-      setSelectedRunId(id);
-      setMobileSessionsOpen(false);
-      setMainView("analytics");
-      return;
-    }
-    if (session && id !== "default") {
-      try {
-        const response = await fetch(`/api/sessions/${encodeURIComponent(id)}/resume`, { method: "POST" });
-        if (response.status === 404 || response.status === 405) {
-          if (response.status === 404 && (await isSessionNotFoundBody(response))) {
-            // Real session-not-found: the API is healthy, this item is stale.
-            // Prune it and land on the default session — don't mark the
-            // sessions API unavailable or select the dead session.
-            setWebSessions((current) => current.filter((item) => item.id !== id));
-            setSelectedSessionId("default");
-            setMobileSessionsOpen(false);
-            setSelectedRunId(null);
-            setMainView("tasks");
-            setNotice("That session no longer exists — it was removed from the list.");
-            return;
-          }
-          // Older backends lack the resume route: degrade to local selection
-          // instead of blocking the switch.
-          setSessionApiAvailable(false);
-        } else if (!response.ok) {
-          throw new Error(`Could not resume session: ${response.status}`);
-        }
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : String(error));
+  const handleSelectSession = useCallback(
+    async (id: string) => {
+      const session = webSessions.find((item) => item.id === id);
+      if (!session && id !== "default") {
+        // A run row is not a chat session: inspect it without disturbing the
+        // selected chat session or its session-scoped run list.
+        setSelectedRunId(id);
+        setMobileSessionsOpen(false);
+        setMainView("analytics");
         return;
       }
-    }
-    setSelectedSessionId(id);
-    setMobileSessionsOpen(false);
-    setSelectedRunId(null);
-    setMainView("tasks");
-  }, [webSessions]);
+      if (session && id !== "default") {
+        try {
+          const response = await fetch(`/api/sessions/${encodeURIComponent(id)}/resume`, {
+            method: "POST",
+          });
+          if (response.status === 404 || response.status === 405) {
+            if (response.status === 404 && (await isSessionNotFoundBody(response))) {
+              // Real session-not-found: the API is healthy, this item is stale.
+              // Prune it and land on the default session — don't mark the
+              // sessions API unavailable or select the dead session.
+              setWebSessions((current) => current.filter((item) => item.id !== id));
+              setSelectedSessionId("default");
+              setMobileSessionsOpen(false);
+              setSelectedRunId(null);
+              setMainView("tasks");
+              setNotice("That session no longer exists — it was removed from the list.");
+              return;
+            }
+            // Older backends lack the resume route: degrade to local selection
+            // instead of blocking the switch.
+            setSessionApiAvailable(false);
+          } else if (!response.ok) {
+            throw new Error(`Could not resume session: ${response.status}`);
+          }
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : String(error));
+          return;
+        }
+      }
+      setSelectedSessionId(id);
+      setMobileSessionsOpen(false);
+      setSelectedRunId(null);
+      setMainView("tasks");
+    },
+    [webSessions],
+  );
 
   const handleNewTask = useCallback(async () => {
     if (!sessionApiAvailable) {
       setSelectedSessionId("default");
       setMobileSessionsOpen(false);
       setMainView("tasks");
-      window.setTimeout(() => document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus(), 0);
+      window.setTimeout(
+        () =>
+          document
+            .querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')
+            ?.focus(),
+        0,
+      );
       return;
     }
     try {
@@ -1216,12 +1336,23 @@ export function App(): React.JSX.Element {
         setSelectedSessionId("default");
         setMobileSessionsOpen(false);
         setMainView("tasks");
-        window.setTimeout(() => document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus(), 0);
+        window.setTimeout(
+          () =>
+            document
+              .querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')
+              ?.focus(),
+          0,
+        );
         return;
       }
       if (!response.ok) throw new Error(`Could not create session: ${response.status}`);
-      const body = (await response.json()) as { session: { id: string; name: string; agentName: string; updatedAt: number } };
-      setWebSessions((current) => [body.session, ...current.filter((session) => session.id !== body.session.id)]);
+      const body = (await response.json()) as {
+        session: { id: string; name: string; agentName: string; updatedAt: number };
+      };
+      setWebSessions((current) => [
+        body.session,
+        ...current.filter((session) => session.id !== body.session.id),
+      ]);
       setSelectedSessionId(body.session.id);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -1236,19 +1367,26 @@ export function App(): React.JSX.Element {
   }, [sessionApiAvailable]);
 
   const activeSandboxCount = useMemo(() => {
-    return toolRuns.filter((r) => r.status === "running" || r.status === "pending").length +
-      retainedRuns.filter((r) => r.status === "running" || r.status === "pending").length;
+    return (
+      toolRuns.filter((r) => r.status === "running" || r.status === "pending").length +
+      retainedRuns.filter((r) => r.status === "running" || r.status === "pending").length
+    );
   }, [toolRuns, retainedRuns]);
 
   const connectionState = identityError
     ? `Identity error: ${identityError}`
     : agent.connectionError
-    ? `Connection error: ${agent.connectionError.message ?? "unknown"}`
-    : agent.identified
-      ? "Connected"
-      : "Connecting";
+      ? `Connection error: ${agent.connectionError.message ?? "unknown"}`
+      : agent.identified
+        ? "Connected"
+        : "Connecting";
 
-  const busy = isSubmitting || clearing || chat.isStreaming || chat.status === "streaming" || chat.status === "submitted";
+  const busy =
+    isSubmitting ||
+    clearing ||
+    chat.isStreaming ||
+    chat.status === "streaming" ||
+    chat.status === "submitted";
 
   const commands: CommandItem[] = [
     ...APP_NAV_ITEMS.map((item) => ({
@@ -1368,6 +1506,7 @@ export function App(): React.JSX.Element {
               variant="sheet"
               activeView={mainView}
               onNavigate={(view) => {
+                if (view === "settings") mobileNavWasOpen.current = false;
                 openView(view);
                 setMobileNavOpen(false);
               }}
@@ -1394,589 +1533,742 @@ export function App(): React.JSX.Element {
       ) : null}
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-      {/* NAVY TOP BAR — bezalel-style breadcrumb + quick actions */}
-      <header className="h-[calc(2.75rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-[#0000a8] text-white flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
-        <button
-          type="button"
-          ref={mobileNavTriggerRef}
-          onClick={() => setMobileNavOpen(true)}
-          aria-label="Open navigation"
-          aria-expanded={mobileNavOpen}
-          className="lg:hidden size-11 -my-1 shrink-0 rounded-none flex items-center justify-center text-white/90 hover:bg-white/15 transition-colors"
-        >
-          <svg aria-hidden="true"  className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2 min-w-0">
-          <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-white/60">
-            Shiba
-          </span>
-          <span className="text-white/40 text-xs" aria-hidden="true">/</span>
-          <span className="text-[13px] font-medium truncate">
-            {APP_NAV_ITEMS.find((item) => item.id === mainView)?.label ?? "Tasks"}
-          </span>
-        </nav>
-        <div className="ml-auto flex items-center gap-1.5">
-          <Tooltip content="Command menu" shortcut="⌘K" side="bottom">
-            <button
-              type="button"
-              onClick={() => setCommandMenuOpen(true)}
-              aria-label="Open command menu"
-              className="h-7 touch:h-9 touch:min-w-11 justify-center rounded-none border border-white/20 bg-white/10 text-white/90 hover:bg-white/20 hover:text-white flex items-center gap-1.5 px-2 text-[11px] font-medium transition-colors"
-            >
-              <svg aria-hidden="true"  className="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
-              </svg>
-              <span className="font-mono text-[10px] text-white/60">⌘K</span>
-            </button>
-          </Tooltip>
-        </div>
-      </header>
-
-      {bannerMessage ? (
-        <div
-          role="alert"
-          className="shrink-0 flex items-center gap-3 px-4 py-2 bg-[#fb2c36]/10 border-b border-[#fb2c36]/30 text-xs text-[#b91c1c]"
-        >
-          <span className="size-2 shrink-0 rounded-full bg-[#fb2c36] animate-pulse" aria-hidden="true" />
-          <span className="flex-1 min-w-0 break-words">
-            {bannerMessage}
-            {online && identityIssue ? (
-              <span className="text-[#6a6f63]"> Retrying automatically.</span>
-            ) : null}
-          </span>
+        {/* NAVY TOP BAR — bezalel-style breadcrumb + quick actions */}
+        <header className="h-[calc(2.75rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-[#0000a8] text-white flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
           <button
             type="button"
-            onClick={() => {
-              if (identityIssue) retryIdentity();
-              else agent.reconnect();
-            }}
-            className="shrink-0 touch:min-h-11 px-3 py-1 rounded-none border border-[#fb2c36]/40 bg-[#fffef8] text-[#b91c1c] font-medium hover:bg-[#fb2c36]/10 transition-colors"
+            ref={mobileNavTriggerRef}
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open navigation"
+            aria-expanded={mobileNavOpen}
+            className="lg:hidden size-11 -my-1 shrink-0 rounded-none flex items-center justify-center text-white/90 hover:bg-white/15 transition-colors"
           >
-            Retry now
+            <svg
+              aria-hidden="true"
+              className="size-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
           </button>
-        </div>
-      ) : null}
-
-      <div className="flex-1 flex min-w-0 min-h-0">
-      {inboxMounted ? (
-        <div
-          className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]"
-          style={mainView === "inbox" ? undefined : { display: "none" }}
-        >
-          <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
-                <span>Mailbox</span>
-              </h2>
-              <p className="text-xs text-[#6a6f63]">
-                Cloudflare Email Routing, inbound triage, and approval-gated outbound send.
-              </p>
-            </div>
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 min-w-0">
+            <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-white/60">
+              Shiba
+            </span>
+            <span className="text-white/40 text-xs" aria-hidden="true">
+              /
+            </span>
+            <span className="text-[13px] font-medium truncate">
+              {APP_NAV_ITEMS.find((item) => item.id === mainView)?.label ?? "Tasks"}
+            </span>
+          </nav>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Tooltip content="Command menu" shortcut="⌘K" side="bottom">
+              <button
+                type="button"
+                onClick={() => setCommandMenuOpen(true)}
+                aria-label="Open command menu"
+                className="h-7 touch:h-9 touch:min-w-11 justify-center rounded-none border border-white/20 bg-white/10 text-white/90 hover:bg-white/20 hover:text-white flex items-center gap-1.5 px-2 text-[11px] font-medium transition-colors"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="size-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"
+                  />
+                </svg>
+                <span className="font-mono text-[10px] text-white/60">⌘K</span>
+              </button>
+            </Tooltip>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-            <div className="max-w-6xl mx-auto">
-              <InboxTab onOpenApprovals={() => setMainView("approvals")} />
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {mainView === "inbox" ? (
-        null
-      ) : mainView === "dashboard" ? (
-        <DashboardView
-          runs={retainedRuns}
-          pendingApprovals={pendingApprovals}
-          storedApprovals={visibleStoredApprovals}
-          agents={agentPrincipals}
-          connectionLabel={connectionState}
-          connectionTone={identityError || agent.connectionError ? "error" : agent.identified ? "ok" : "pending"}
-          runsError={runsError}
-          onNavigate={openView}
-          onNewTask={handleNewTask}
-          onInspectRun={(runId) => {
-            setSelectedRunId(runId);
-            setMainView("analytics");
-          }}
-        />
-      ) : mainView === "tasks" ? (
-      <div className="flex-1 flex overflow-hidden">
-        {/* LEFT: Devin-style sessions rail with collapse / expand */}
-        <div
-          className={`hidden lg:block self-stretch transition-all duration-200 ease-out overflow-hidden shrink-0 ${
-            sessionsCollapsed ? "w-0 opacity-0 pointer-events-none" : "w-[280px] opacity-100"
-          }`}
-          aria-hidden={sessionsCollapsed}
-        >
-          <SessionsSidebar
-            sessions={sessions}
-            agents={agentPrincipals}
-            selectedId={selectedRunId ?? selectedSessionId}
-            onSelect={handleSelectSession}
-            onNewTask={handleNewTask}
-            connectionLabel={connectionState}
-            connectionTone={
-              identityError || agent.connectionError
-                ? "error"
-                : agent.identified
-                ? "ok"
-                : "pending"
-            }
-            setupDone={setupDone}
-            setupTotal={SETUP_TOTAL_STEPS}
-            onOpenSetup={() => setShowFirstRun(true)}
-            onToggleCollapse={toggleSessionsCollapsed}
-          />
-        </div>
+        </header>
 
-        {/* Mobile sessions drawer (below lg) */}
-        {mobileSessionsOpen ? (
-          <div className="fixed inset-0 z-40 lg:hidden">
+        {bannerMessage ? (
+          <div
+            role="alert"
+            className="shrink-0 flex items-center gap-3 px-4 py-2 bg-[#fb2c36]/10 border-b border-[#fb2c36]/30 text-xs text-[#b91c1c]"
+          >
+            <span
+              className="size-2 shrink-0 rounded-full bg-[#fb2c36] animate-pulse"
+              aria-hidden="true"
+            />
+            <span className="flex-1 min-w-0 break-words">
+              {bannerMessage}
+              {online && identityIssue ? (
+                <span className="text-[#6a6f63]"> Retrying automatically.</span>
+              ) : null}
+            </span>
             <button
               type="button"
-              aria-label="Close sessions"
-              className="absolute inset-0 bg-black/60"
-              onClick={() => setMobileSessionsOpen(false)}
-            />
-            <div className="absolute inset-y-0 left-0 shadow-[3px_3px_0_var(--paper-shadow)] bg-[#f6f4ed] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
-              <SessionsSidebar
-                sessions={sessions}
-                agents={agentPrincipals}
-                selectedId={selectedRunId ?? selectedSessionId}
-                onSelect={handleSelectSession}
-                onNewTask={handleNewTask}
-                connectionLabel={connectionState}
-                connectionTone={
-                  identityError || agent.connectionError
-                    ? "error"
-                    : agent.identified
-                    ? "ok"
-                    : "pending"
-                }
-                setupDone={setupDone}
-                setupTotal={SETUP_TOTAL_STEPS}
-                onOpenSetup={() => {
-                  setMobileSessionsOpen(false);
-                  setShowFirstRun(true);
-                }}
-                isMobileDrawer={true}
-                onToggleCollapse={() => setMobileSessionsOpen(false)}
-              />
-            </div>
+              onClick={() => {
+                if (identityIssue) retryIdentity();
+                else agent.reconnect();
+              }}
+              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-none border border-[#fb2c36]/40 bg-[#fffef8] text-[#b91c1c] font-medium hover:bg-[#fb2c36]/10 transition-colors"
+            >
+              Retry now
+            </button>
           </div>
         ) : null}
 
-        {/* CENTER: conversation timeline + composer */}
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f6f4ed]" aria-busy={busy}>
-          {/* SESSION HEADER */}
-          <div className="border-b border-black/[0.08] bg-[#f6f4ed]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-2.5 min-w-0">
-              {/* Desktop sidebar toggle button */}
-              <Tooltip
-                content={sessionsCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                shortcut="⌘B"
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  onClick={toggleSessionsCollapsed}
-                  aria-label={sessionsCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                  aria-expanded={!sessionsCollapsed}
-                  className="hidden lg:flex w-7 h-7 rounded-none border border-black/[0.08] bg-[#fffef8] text-[#6a6f63] hover:text-[#222320] hover:bg-[#e0ded5] items-center justify-center transition-colors shrink-0"
-                >
-                  <svg aria-hidden="true"  className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    {sessionsCollapsed ? (
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    ) : (
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                    )}
-                  </svg>
-                </button>
-              </Tooltip>
-
-              {/* Mobile open sessions button */}
-              <Tooltip content="Open sessions drawer" side="bottom">
-              <button
-                type="button"
-                onClick={() => setMobileSessionsOpen(true)}
-                aria-label="Open sessions"
-                className="lg:hidden w-7 h-7 touch:w-11 touch:h-11 rounded-none border border-black/[0.08] bg-[#fffef8] text-[#6a6f63] hover:text-[#222320] flex items-center justify-center transition-colors shrink-0"
-              >
-                <svg aria-hidden="true"  className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
-              </Tooltip>
-
-              <Tooltip content="Shiba Coding Agent" side="bottom">
-              <img
-                src="/assets/mascot/pet-logo.png"
-                alt="Shiba"
-                className="w-6 h-6 rounded-full bg-white object-contain border border-[#0000a8]/40 shrink-0 cursor-default"
-              />
-              </Tooltip>
-              <h1 className="text-sm font-semibold text-[#222320] font-display tracking-tight truncate">
-                {liveSession ? liveSession.title : "New coding task"}
-              </h1>
-              <Tooltip content="Active real-time agent orchestration stream" side="bottom">
-              <span className="text-[10px] font-bold uppercase tracking-wider border rounded-none px-2 py-0.5 shrink-0 text-[#1c1cc8] border-[#0000a8]/15 bg-[#0000a8]/10">
-                Live
-              </span>
-              </Tooltip>
-            </div>
-
-            <div className="hidden md:flex items-center gap-4 text-xs font-mono text-[#6a6f63] shrink-0">
-              <Tooltip content="Tool runs currently in flight" side="bottom">
-              <span className="cursor-default">
-                <span className="text-[#6a6f63]">Active</span>{" "}
-                <span className="text-[#0000a8] font-bold">{toolRuns.length}</span>
-              </span>
-              </Tooltip>
-              <Tooltip content="Actions waiting for human approval" side="bottom">
-              <span className="cursor-default">
-                <span className="text-[#6a6f63]">Approvals</span>{" "}
-                <span className={pendingApprovals.length + visibleStoredApprovals.length > 0 ? "font-bold text-[#f99c00]" : "font-bold text-[#6a6f63]"}>
-                  {pendingApprovals.length + visibleStoredApprovals.length}
-                </span>
-              </span>
-              </Tooltip>
-              <Tooltip content="Total completed and retained runs" side="bottom">
-              <span className="cursor-default">
-                <span className="text-[#6a6f63]">Runs</span>{" "}
-                <span className="text-[#222320] font-bold">{allRuns.length}</span>
-              </span>
-              </Tooltip>
-              <Tooltip content="Container has zero secrets; provider keys stay at AI Gateway egress" side="bottom">
-              <span className="text-[10px] uppercase tracking-wider font-mono text-[#0000a8]/80 bg-[#0000a8]/10 border border-[#0000a8]/10 px-2 py-0.5 rounded-none">
-                Zero-Trust Boundary
-              </span>
-              </Tooltip>
-
-            </div>
-          </div>
-
-          {/* PENDING APPROVALS STRIP */}
-          {(pendingApprovals.length + visibleStoredApprovals.length > 0 || approvalAnnouncement) ? (
-            <div className="bg-[#fffef8] border-b border-[#e0ded5] px-3 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-3 shadow-[2px_2px_0_var(--paper-shadow)] z-10 shrink-0">
-              <p className="text-sm font-medium text-[#222320]" role="status" aria-live="polite">
-                {pendingApprovals.length + visibleStoredApprovals.length > 0 ? (
-                  <span className="flex items-center gap-2 text-[#b45309]">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#b45309] animate-pulse" />
-                    {pendingApprovals.length + visibleStoredApprovals.length} task{pendingApprovals.length + visibleStoredApprovals.length === 1 ? "" : "s"} waiting for your approval.
-                  </span>
-                ) : (
-                  <span className="text-[#15803d] flex items-center gap-2">
-                    <svg aria-hidden="true"  className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    {approvalAnnouncement}
-                  </span>
-                )}
-              </p>
-              {visibleStoredApprovals.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setMainView("approvals")}
-                  className="shrink-0 text-xs font-semibold text-[#b45309] border border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/15 rounded-none px-3 py-1.5 touch:min-h-11 transition-colors"
-                >
-                  Review
-                </button>
-              ) : null}
+        <div className="flex-1 flex min-w-0 min-h-0">
+          {inboxMounted ? (
+            <div
+              className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]"
+              style={mainView === "inbox" ? undefined : { display: "none" }}
+            >
+              <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+                    <span>Mailbox</span>
+                  </h2>
+                  <p className="text-xs text-[#6a6f63]">
+                    Cloudflare Email Routing, inbound triage, and approval-gated outbound send.
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+                <div className="max-w-6xl mx-auto">
+                  <InboxTab onOpenApprovals={() => setMainView("approvals")} />
+                </div>
+              </div>
             </div>
           ) : null}
+          {mainView === "inbox" ? null : mainView === "dashboard" ? (
+            <DashboardView
+              runs={retainedRuns}
+              pendingApprovals={pendingApprovals}
+              storedApprovals={visibleStoredApprovals}
+              agents={agentPrincipals}
+              connectionLabel={connectionState}
+              connectionTone={
+                identityError || agent.connectionError
+                  ? "error"
+                  : agent.identified
+                    ? "ok"
+                    : "pending"
+              }
+              runsError={runsError}
+              onNavigate={openView}
+              onNewTask={handleNewTask}
+              onInspectRun={(runId) => {
+                setSelectedRunId(runId);
+                setMainView("analytics");
+              }}
+            />
+          ) : mainView === "tasks" ? (
+            <div className="flex-1 flex overflow-hidden">
+              {/* LEFT: Devin-style sessions rail with collapse / expand */}
+              <div
+                className={`hidden lg:block self-stretch transition-all duration-200 ease-out overflow-hidden shrink-0 ${
+                  sessionsCollapsed ? "w-0 opacity-0 pointer-events-none" : "w-[280px] opacity-100"
+                }`}
+                aria-hidden={sessionsCollapsed}
+              >
+                <SessionsSidebar
+                  sessions={sessions}
+                  agents={agentPrincipals}
+                  selectedId={selectedRunId ?? selectedSessionId}
+                  onSelect={handleSelectSession}
+                  onNewTask={handleNewTask}
+                  connectionLabel={connectionState}
+                  connectionTone={
+                    identityError || agent.connectionError
+                      ? "error"
+                      : agent.identified
+                        ? "ok"
+                        : "pending"
+                  }
+                  setupDone={setupDone}
+                  setupTotal={SETUP_TOTAL_STEPS}
+                  onOpenSetup={() => setShowFirstRun(true)}
+                  onToggleCollapse={toggleSessionsCollapsed}
+                />
+              </div>
 
-          {/* NOTICES / ERRORS */}
-          {notice || chat.error || runsError ? (
-            <div className="px-3 sm:px-5 xl:px-6 pt-3 flex flex-col gap-2 shrink-0">
-              {notice ? (
-                <div role="status" aria-live="polite" className="text-xs text-[#6a6f63] bg-[#fffef8] p-3 rounded-none border border-[#e0ded5] flex items-start gap-2">
-                  <svg aria-hidden="true"  className="w-4 h-4 text-[#0000a8] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div className="break-words">{notice}</div>
+              {/* Mobile sessions drawer (below lg) */}
+              {mobileSessionsOpen ? (
+                <div className="fixed inset-0 z-40 lg:hidden">
+                  <button
+                    type="button"
+                    aria-label="Close sessions"
+                    className="absolute inset-0 bg-black/60"
+                    onClick={() => setMobileSessionsOpen(false)}
+                  />
+                  <div className="absolute inset-y-0 left-0 shadow-[3px_3px_0_var(--paper-shadow)] bg-[#f6f4ed] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
+                    <SessionsSidebar
+                      sessions={sessions}
+                      agents={agentPrincipals}
+                      selectedId={selectedRunId ?? selectedSessionId}
+                      onSelect={handleSelectSession}
+                      onNewTask={handleNewTask}
+                      connectionLabel={connectionState}
+                      connectionTone={
+                        identityError || agent.connectionError
+                          ? "error"
+                          : agent.identified
+                            ? "ok"
+                            : "pending"
+                      }
+                      setupDone={setupDone}
+                      setupTotal={SETUP_TOTAL_STEPS}
+                      onOpenSetup={() => {
+                        setMobileSessionsOpen(false);
+                        setShowFirstRun(true);
+                      }}
+                      isMobileDrawer={true}
+                      onToggleCollapse={() => setMobileSessionsOpen(false)}
+                    />
+                  </div>
                 </div>
               ) : null}
-              {chat.error ? (
-                <div role="alert" className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-none border border-[#fb2c36]/30 flex items-start gap-2">
-                  <svg aria-hidden="true"  className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <div className="break-words">Chat error: {chat.error.message}</div>
+
+              {/* CENTER: conversation timeline + composer */}
+              <main
+                className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f6f4ed]"
+                aria-busy={busy}
+              >
+                {/* SESSION HEADER */}
+                <div className="border-b border-black/[0.08] bg-[#f6f4ed]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {/* Desktop sidebar toggle button */}
+                    <Tooltip
+                      content={sessionsCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                      shortcut="⌘B"
+                      side="bottom"
+                    >
+                      <button
+                        type="button"
+                        onClick={toggleSessionsCollapsed}
+                        aria-label={sessionsCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                        aria-expanded={!sessionsCollapsed}
+                        className="hidden lg:flex w-7 h-7 rounded-none border border-black/[0.08] bg-[#fffef8] text-[#6a6f63] hover:text-[#222320] hover:bg-[#e0ded5] items-center justify-center transition-colors shrink-0"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="w-4 h-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          {sessionsCollapsed ? (
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={1.8}
+                              d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                            />
+                          ) : (
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={1.8}
+                              d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                            />
+                          )}
+                        </svg>
+                      </button>
+                    </Tooltip>
+
+                    {/* Mobile open sessions button */}
+                    <Tooltip content="Open sessions drawer" side="bottom">
+                      <button
+                        type="button"
+                        onClick={() => setMobileSessionsOpen(true)}
+                        aria-label="Open sessions"
+                        className="lg:hidden w-7 h-7 touch:w-11 touch:h-11 rounded-none border border-black/[0.08] bg-[#fffef8] text-[#6a6f63] hover:text-[#222320] flex items-center justify-center transition-colors shrink-0"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="w-4 h-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      </button>
+                    </Tooltip>
+
+                    <Tooltip content="Shiba Coding Agent" side="bottom">
+                      <img
+                        src="/assets/mascot/pet-logo.png"
+                        alt="Shiba"
+                        className="w-6 h-6 rounded-full bg-white object-contain border border-[#0000a8]/40 shrink-0 cursor-default"
+                      />
+                    </Tooltip>
+                    <h1 className="text-sm font-semibold text-[#222320] font-display tracking-tight truncate">
+                      {liveSession ? liveSession.title : "New coding task"}
+                    </h1>
+                    <Tooltip content="Active real-time agent orchestration stream" side="bottom">
+                      <span className="text-[10px] font-bold uppercase tracking-wider border rounded-none px-2 py-0.5 shrink-0 text-[#1c1cc8] border-[#0000a8]/15 bg-[#0000a8]/10">
+                        Live
+                      </span>
+                    </Tooltip>
+                  </div>
+
+                  <div className="hidden md:flex items-center gap-4 text-xs font-mono text-[#6a6f63] shrink-0">
+                    <Tooltip content="Tool runs currently in flight" side="bottom">
+                      <span className="cursor-default">
+                        <span className="text-[#6a6f63]">Active</span>{" "}
+                        <span className="text-[#0000a8] font-bold">{toolRuns.length}</span>
+                      </span>
+                    </Tooltip>
+                    <Tooltip content="Actions waiting for human approval" side="bottom">
+                      <span className="cursor-default">
+                        <span className="text-[#6a6f63]">Approvals</span>{" "}
+                        <span
+                          className={
+                            pendingApprovals.length + visibleStoredApprovals.length > 0
+                              ? "font-bold text-[#f99c00]"
+                              : "font-bold text-[#6a6f63]"
+                          }
+                        >
+                          {pendingApprovals.length + visibleStoredApprovals.length}
+                        </span>
+                      </span>
+                    </Tooltip>
+                    <Tooltip content="Total completed and retained runs" side="bottom">
+                      <span className="cursor-default">
+                        <span className="text-[#6a6f63]">Runs</span>{" "}
+                        <span className="text-[#222320] font-bold">{allRuns.length}</span>
+                      </span>
+                    </Tooltip>
+                    <Tooltip
+                      content="Container has zero secrets; provider keys stay at AI Gateway egress"
+                      side="bottom"
+                    >
+                      <span className="text-[10px] uppercase tracking-wider font-mono text-[#0000a8]/80 bg-[#0000a8]/10 border border-[#0000a8]/10 px-2 py-0.5 rounded-none">
+                        Zero-Trust Boundary
+                      </span>
+                    </Tooltip>
+                  </div>
                 </div>
-              ) : null}
-              {runsError ? (
-                <div className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-none border border-[#fb2c36]/30 flex items-start gap-2">
-                  <svg aria-hidden="true"  className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div className="break-words">Runs registry: {runsError}</div>
+
+                {/* PENDING APPROVALS STRIP */}
+                {pendingApprovals.length + visibleStoredApprovals.length > 0 ||
+                approvalAnnouncement ? (
+                  <div className="bg-[#fffef8] border-b border-[#e0ded5] px-3 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-3 shadow-[2px_2px_0_var(--paper-shadow)] z-10 shrink-0">
+                    <p
+                      className="text-sm font-medium text-[#222320]"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {pendingApprovals.length + visibleStoredApprovals.length > 0 ? (
+                        <span className="flex items-center gap-2 text-[#b45309]">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#b45309] animate-pulse" />
+                          {pendingApprovals.length + visibleStoredApprovals.length} task
+                          {pendingApprovals.length + visibleStoredApprovals.length === 1 ? "" : "s"}{" "}
+                          waiting for your approval.
+                        </span>
+                      ) : (
+                        <span className="text-[#15803d] flex items-center gap-2">
+                          <svg
+                            aria-hidden="true"
+                            className="w-4 h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                          {approvalAnnouncement}
+                        </span>
+                      )}
+                    </p>
+                    {visibleStoredApprovals.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setMainView("approvals")}
+                        className="shrink-0 text-xs font-semibold text-[#b45309] border border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/15 rounded-none px-3 py-1.5 touch:min-h-11 transition-colors"
+                      >
+                        Review
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {/* NOTICES / ERRORS */}
+                {notice || chat.error || runsError ? (
+                  <div className="px-3 sm:px-5 xl:px-6 pt-3 flex flex-col gap-2 shrink-0">
+                    {notice ? (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className="text-xs text-[#6a6f63] bg-[#fffef8] p-3 rounded-none border border-[#e0ded5] flex items-start gap-2"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="w-4 h-4 text-[#0000a8] shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                        <div className="break-words">{notice}</div>
+                      </div>
+                    ) : null}
+                    {chat.error ? (
+                      <div
+                        role="alert"
+                        className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-none border border-[#fb2c36]/30 flex items-start gap-2"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                          />
+                        </svg>
+                        <div className="break-words">Chat error: {chat.error.message}</div>
+                      </div>
+                    ) : null}
+                    {runsError ? (
+                      <div className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-none border border-[#fb2c36]/30 flex items-start gap-2">
+                        <svg
+                          aria-hidden="true"
+                          className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                        <div className="break-words">Runs registry: {runsError}</div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
+                <div
+                  className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${chat.messages.length === 0 ? "hidden" : ""}`}
+                >
+                  <StepTimeline
+                    messages={chat.messages}
+                    isStreaming={chat.isStreaming || chat.status === "streaming"}
+                    pendingApprovals={pendingApprovals}
+                    decisions={decisions}
+                    onDecideApproval={decideApproval}
+                    starters={STARTER_TEMPLATES}
+                    onStarter={(starterTask) => {
+                      setTask(starterTask);
+                      if (!repoUrl) setRepoUrl("https://github.com/cloudflare/ai-chat");
+                    }}
+                  />
                 </div>
-              ) : null}
+
+                {/* COMPOSER — hero when the session is empty, docked once the run is going */}
+                <div
+                  className={
+                    chat.messages.length === 0
+                      ? "flex-1 flex flex-col min-h-0"
+                      : "border-t border-black/[0.08] bg-[#f6f4ed]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
+                  }
+                >
+                  <TaskComposer
+                    repoUrl={repoUrl}
+                    task={task}
+                    baseBranch={baseBranch}
+                    publishPullRequest={publishPullRequest}
+                    harness={harness}
+                    busy={busy}
+                    repoSuggestions={repoSuggestions}
+                    skills={savedSkills}
+                    selectedSkillIds={selectedSkillIds}
+                    onToggleSkill={(id) =>
+                      setSelectedSkillIds((current) =>
+                        current.includes(id)
+                          ? current.filter((entry) => entry !== id)
+                          : [...current, id],
+                      )
+                    }
+                    isSubmitting={isSubmitting}
+                    clearing={clearing}
+                    runTarget={runTarget}
+                    onRunTargetChange={setRunTarget}
+                    localRunAvailable={localRunAvailable}
+                    onRepoUrlChange={setRepoUrl}
+                    onTaskChange={setTask}
+                    onBaseBranchChange={setBaseBranch}
+                    onPublishPullRequestChange={setPublishPullRequest}
+                    onHarnessChange={setHarness}
+                    routing={{
+                      codingModel,
+                      connectionId,
+                      onCodingModelChange: setCodingModel,
+                      onConnectionChange: setConnectionId,
+                      modelSuggestions: codingModelSuggestions,
+                      connections: modelConnections,
+                    }}
+                    variant={chat.messages.length === 0 ? "hero" : "docked"}
+                    onSubmit={submitTask}
+                    onClear={() => setShowClearModal(true)}
+                  />
+                </div>
+              </main>
             </div>
-          ) : null}
-
-          {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
-          <div className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${chat.messages.length === 0 ? "hidden" : ""}`}>
-            <StepTimeline
-              messages={chat.messages}
-              isStreaming={chat.isStreaming || chat.status === "streaming"}
+          ) : mainView === "activity" ? (
+            // Remount on session switch so the previous session's spine never
+            // renders as the new one's while its first fetch is in flight.
+            <ActivityView
+              key={selectedSessionId}
+              sessionId={selectedSessionId}
+              sessionApiAvailable={sessionApiAvailable}
+            />
+          ) : mainView === "analytics" ? (
+            <AnalyticsView
+              runs={retainedRuns}
+              error={runsError}
+              sessionId={selectedSessionId}
+              sessionApiAvailable={sessionApiAvailable}
+              onNavigate={openView}
+            />
+          ) : mainView === "diff" ? (
+            <DiffView
+              runs={allRuns}
+              selectedRunId={selectedRunId}
+              onSelectRun={(id) => setSelectedRunId(id)}
+            />
+          ) : mainView === "approvals" ? (
+            <ApprovalsView
               pendingApprovals={pendingApprovals}
               decisions={decisions}
               onDecideApproval={decideApproval}
-              starters={STARTER_TEMPLATES}
-              onStarter={(starterTask) => {
-                setTask(starterTask);
-                if (!repoUrl) setRepoUrl("https://github.com/cloudflare/ai-chat");
-              }}
+              storedApprovals={visibleStoredApprovals}
+              storedDecisions={storedDecisions}
+              decidedStoredApprovals={decidedStoredApprovals}
+              storedApprovalsError={storedApprovalsError}
+              onDecideStoredApproval={decideStoredApproval}
+              orchestratorName={orchestratorName}
+              onRefresh={refreshRuns}
             />
-          </div>
+          ) : mainView === "memory" ? (
+            <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
+              <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+                    <span>Agent Memory</span>
+                  </h2>
+                  <p className="text-xs text-[#6a6f63]">
+                    Vectorize long-term semantic memory, extracted facts, and session context.
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+                <div className="max-w-6xl mx-auto">
+                  <MemoryTab />
+                </div>
+              </div>
+            </div>
+          ) : mainView === "automations" ? (
+            <AutomationsView />
+          ) : mainView === "providers" ? (
+            <ProvidersView />
+          ) : mainView === "skills" ? (
+            <SkillsView />
+          ) : mainView === "agents" ? (
+            <AgentsView />
+          ) : mainView === "integrations" ? (
+            <IntegrationsView onNavigate={openView} />
+          ) : mainView === "remote" ? (
+            <RemoteAccessView />
+          ) : null}
 
-          {/* COMPOSER — hero when the session is empty, docked once the run is going */}
-          <div className={chat.messages.length === 0
-            ? "flex-1 flex flex-col min-h-0"
-            : "border-t border-black/[0.08] bg-[#f6f4ed]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
-          }>
-            <TaskComposer
-              repoUrl={repoUrl}
-              task={task}
-              baseBranch={baseBranch}
-              publishPullRequest={publishPullRequest}
-              harness={harness}
-              busy={busy}
-              repoSuggestions={repoSuggestions}
-              skills={savedSkills}
-              selectedSkillIds={selectedSkillIds}
-              onToggleSkill={(id) =>
-                setSelectedSkillIds((current) =>
-                  current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id])
-              }
-              isSubmitting={isSubmitting}
-              clearing={clearing}
-              runTarget={runTarget}
-              onRunTargetChange={setRunTarget}
-              localRunAvailable={localRunAvailable}
-              onRepoUrlChange={setRepoUrl}
-              onTaskChange={setTask}
-              onBaseBranchChange={setBaseBranch}
-              onPublishPullRequestChange={setPublishPullRequest}
-              onHarnessChange={setHarness}
-              routing={{
-                codingModel,
-                connectionId,
-                onCodingModelChange: setCodingModel,
-                onConnectionChange: setConnectionId,
-                modelSuggestions: codingModelSuggestions,
-                connections: modelConnections,
+          {/* SETTINGS — Kosuke-style popup over the current view */}
+          {settingsModalOpen ? (
+            <SettingsModal
+              isOpen
+              onClose={() => setSettingsModalOpen(false)}
+              onFocusRestore={() => {
+                if (window.matchMedia("(max-width: 1023px)").matches) {
+                  mobileNavTriggerRef.current?.focus();
+                }
               }}
-              variant={chat.messages.length === 0 ? "hero" : "docked"}
-              onSubmit={submitTask}
-              onClear={() => setShowClearModal(true)}
+              onOpenSessions={() => {
+                setMainView("tasks");
+                if (window.matchMedia("(min-width: 1024px)").matches) {
+                  setSessionsCollapsed((collapsed) => {
+                    if (collapsed) {
+                      try {
+                        localStorage.setItem("shiba:sidebar-collapsed", "false");
+                      } catch {
+                        // Ignore storage errors in private mode.
+                      }
+                    }
+                    return false;
+                  });
+                } else {
+                  setMobileSessionsOpen(true);
+                }
+              }}
+              onNavigate={(view) => {
+                setSettingsModalOpen(false);
+                openView(view);
+              }}
+              onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
             />
-          </div>
-        </main>
+          ) : null}
 
-      </div>
-      ) : mainView === "activity" ? (
-        // Remount on session switch so the previous session's spine never
-        // renders as the new one's while its first fetch is in flight.
-        <ActivityView
-          key={selectedSessionId}
-          sessionId={selectedSessionId}
-          sessionApiAvailable={sessionApiAvailable}
-        />
-      ) : mainView === "analytics" ? (
-        <AnalyticsView
-          runs={retainedRuns}
-          error={runsError}
-          sessionId={selectedSessionId}
-          sessionApiAvailable={sessionApiAvailable}
-          onNavigate={openView}
-        />
-      ) : mainView === "diff" ? (
-        <DiffView
-          runs={allRuns}
-          selectedRunId={selectedRunId}
-          onSelectRun={(id) => setSelectedRunId(id)}
-        />
-      ) : mainView === "approvals" ? (
-        <ApprovalsView
-          pendingApprovals={pendingApprovals}
-          decisions={decisions}
-          onDecideApproval={decideApproval}
-          storedApprovals={visibleStoredApprovals}
-          storedDecisions={storedDecisions}
-          decidedStoredApprovals={decidedStoredApprovals}
-          storedApprovalsError={storedApprovalsError}
-          onDecideStoredApproval={decideStoredApproval}
-          orchestratorName={orchestratorName}
-          onRefresh={refreshRuns}
-        />
-      ) : mainView === "memory" ? (
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-          <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
-                <span>Agent Memory</span>
-              </h2>
-              <p className="text-xs text-[#6a6f63]">
-                Vectorize long-term semantic memory, extracted facts, and session context.
-              </p>
+          {/* CLEAR HISTORY CONFIRMATION MODAL */}
+          {showClearModal ? (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+              <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)]">
+                <h3 className="text-lg font-bold text-[#222320] mb-2">
+                  Clear Conversation & Runs?
+                </h3>
+                <p className="text-sm text-[#6a6f63] mb-5 leading-relaxed">
+                  This will erase all active conversation history and delete retained run registry
+                  records on the orchestrator. Active sandboxes will not be destroyed automatically.
+                </p>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-none text-sm font-medium text-[#6a6f63] hover:text-[#222320] bg-[#fffef8] border border-[#e0ded5] transition-colors"
+                    onClick={() => setShowClearModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-none text-sm font-semibold text-white bg-[#fb2c36] hover:bg-[#fb2c36]/90 transition-colors shadow-[2px_2px_0_var(--paper-shadow)]"
+                    onClick={confirmClearAll}
+                  >
+                    Yes, Clear History
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-            <div className="max-w-6xl mx-auto">
-              <MemoryTab />
+          ) : null}
+
+          {/* ONBOARDING SETUP MODAL */}
+          <FirstRunWizard
+            open={showFirstRun}
+            onClose={() => setShowFirstRun(false)}
+            onNavigate={openView}
+            onOpenChecklist={() => setShowOnboardingModal(true)}
+          />
+
+          <OnboardingModal
+            isOpen={showOnboardingModal}
+            onClose={() => setShowOnboardingModal(false)}
+            onOpenInbox={() => setMainView("inbox")}
+            onSelectStarterTask={(repo, t, h) => {
+              setRepoUrl(repo);
+              setTask(t);
+              setHarness(h);
+            }}
+          />
+
+          {/* KEYBOARD SHORTCUTS MODAL */}
+          {showShortcutsModal ? (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+              <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)]">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-bold text-[#222320]">Keyboard Shortcuts</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowShortcutsModal(false)}
+                    className="text-[#6a6f63] hover:text-[#222320] text-sm font-mono"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="flex flex-col gap-2.5 text-xs">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
+                    <span className="text-[#6a6f63]">Submit Task</span>
+                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                      ⌘ / Ctrl + Enter
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
+                    <span className="text-[#6a6f63]">Toggle Sessions Sidebar</span>
+                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                      ⌘ / Ctrl + B or [
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
+                    <span className="text-[#6a6f63]">Close Modals</span>
+                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                      Escape
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
+                    <span className="text-[#6a6f63]">Open Shortcuts Guide</span>
+                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                      ?
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
+                    <span className="text-[#6a6f63]">Command Menu</span>
+                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                      ⌘ / Ctrl + K
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
+                    <span className="text-[#6a6f63]">Toggle Light / Dark Theme</span>
+                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                      D
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-5 text-right">
+                  <button
+                    type="button"
+                    className="px-4 py-1.5 rounded-none text-xs font-medium text-[#222320] bg-[#fffef8] border border-[#e0ded5] hover:bg-[#e0ded5] transition-colors"
+                    onClick={() => setShowShortcutsModal(false)}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : null}
+          <CommandMenu
+            open={commandMenuOpen}
+            onClose={() => setCommandMenuOpen(false)}
+            commands={commands}
+          />
         </div>
-      ) : mainView === "automations" ? (
-        <AutomationsView />
-      ) : mainView === "providers" ? (
-        <ProvidersView />
-      ) : mainView === "skills" ? (
-        <SkillsView />
-      ) : mainView === "agents" ? (
-        <AgentsView />
-      ) : mainView === "integrations" ? (
-        <IntegrationsView onNavigate={openView} />
-      ) : mainView === "remote" ? (
-        <RemoteAccessView />
-      ) : (
-        null
-      )}
-
-      {/* SETTINGS — Kosuke-style popup over the current view */}
-      {settingsModalOpen ? (
-        <SettingsModal
-          isOpen
-          onClose={() => setSettingsModalOpen(false)}
-          onNavigate={(view) => {
-            setSettingsModalOpen(false);
-            openView(view);
-          }}
-          onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
-        />
-      ) : null}
-
-      {/* CLEAR HISTORY CONFIRMATION MODAL */}
-      {showClearModal ? (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)]">
-            <h3 className="text-lg font-bold text-[#222320] mb-2">Clear Conversation & Runs?</h3>
-            <p className="text-sm text-[#6a6f63] mb-5 leading-relaxed">
-              This will erase all active conversation history and delete retained run registry records on the orchestrator. Active sandboxes will not be destroyed automatically.
-            </p>
-            <div className="flex items-center justify-end gap-3">
-              <button
-                type="button"
-                className="px-4 py-2 rounded-none text-sm font-medium text-[#6a6f63] hover:text-[#222320] bg-[#fffef8] border border-[#e0ded5] transition-colors"
-                onClick={() => setShowClearModal(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="px-4 py-2 rounded-none text-sm font-semibold text-white bg-[#fb2c36] hover:bg-[#fb2c36]/90 transition-colors shadow-[2px_2px_0_var(--paper-shadow)]"
-                onClick={confirmClearAll}
-              >
-                Yes, Clear History
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* ONBOARDING SETUP MODAL */}
-      <FirstRunWizard
-        open={showFirstRun}
-        onClose={() => setShowFirstRun(false)}
-        onNavigate={openView}
-        onOpenChecklist={() => setShowOnboardingModal(true)}
-      />
-
-      <OnboardingModal
-        isOpen={showOnboardingModal}
-        onClose={() => setShowOnboardingModal(false)}
-        onOpenInbox={() => setMainView("inbox")}
-        onSelectStarterTask={(repo, t, h) => {
-          setRepoUrl(repo);
-          setTask(t);
-          setHarness(h);
-        }}
-      />
-
-      {/* KEYBOARD SHORTCUTS MODAL */}
-      {showShortcutsModal ? (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)]">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-[#222320]">Keyboard Shortcuts</h3>
-              <button
-                type="button"
-                onClick={() => setShowShortcutsModal(false)}
-                className="text-[#6a6f63] hover:text-[#222320] text-sm font-mono"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex flex-col gap-2.5 text-xs">
-              <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                <span className="text-[#6a6f63]">Submit Task</span>
-                <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
-                  ⌘ / Ctrl + Enter
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                <span className="text-[#6a6f63]">Toggle Sessions Sidebar</span>
-                <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
-                  ⌘ / Ctrl + B  or  [
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                <span className="text-[#6a6f63]">Close Modals</span>
-                <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
-                  Escape
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                <span className="text-[#6a6f63]">Open Shortcuts Guide</span>
-                <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
-                  ?
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                <span className="text-[#6a6f63]">Command Menu</span>
-                <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
-                  ⌘ / Ctrl + K
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                <span className="text-[#6a6f63]">Toggle Light / Dark Theme</span>
-                <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
-                  D
-                </span>
-              </div>
-            </div>
-            <div className="mt-5 text-right">
-              <button
-                type="button"
-                className="px-4 py-1.5 rounded-none text-xs font-medium text-[#222320] bg-[#fffef8] border border-[#e0ded5] hover:bg-[#e0ded5] transition-colors"
-                onClick={() => setShowShortcutsModal(false)}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      <CommandMenu
-        open={commandMenuOpen}
-        onClose={() => setCommandMenuOpen(false)}
-        commands={commands}
-      />
-      </div>
       </div>
     </div>
   );

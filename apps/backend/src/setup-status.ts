@@ -21,6 +21,7 @@ export interface SetupStatus {
   betterAuth: { configured: boolean };
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelStatus[] };
   automations: { enabled: boolean; typeSafe: boolean };
+  mailbox: { addressOverride: boolean; sendEnabled: boolean };
 }
 
 /** HEAD the resolved gateway URL: distinguishes reachable/401/other without a body. */
@@ -65,8 +66,15 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
       roles: describeRoleModels(env),
     },
     automations: {
-      enabled: env.AUTOMATIONS_ENABLED !== "false" && env.AUTOMATIONS_ENABLED !== "0" && env.AUTOMATIONS_ENABLED !== "off",
+      enabled:
+        env.AUTOMATIONS_ENABLED !== "false" &&
+        env.AUTOMATIONS_ENABLED !== "0" &&
+        env.AUTOMATIONS_ENABLED !== "off",
       typeSafe: Boolean(env.TYPESAFE_API_KEY),
+    },
+    mailbox: {
+      addressOverride: Boolean(env.AGENT_MAILBOX?.trim()),
+      sendEnabled: env.SEND_EMAIL !== undefined,
     },
   };
 }
