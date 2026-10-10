@@ -1,6 +1,6 @@
 /**
  * SettingsModal — Kosuke-style settings popup: a grouped left nav
- * (YOUR ACCOUNT / WORKSPACE) beside a scrollable content pane that mounts
+ * (YOUR ACCOUNT / WORKSPACE / FEATURES) beside a scrollable content pane that mounts
  * the REAL section bodies from SettingsView — no duplicated internals.
  * Closes on Esc, backdrop click, or the ✕ button.
  */
@@ -17,8 +17,9 @@ const SETTINGS_NAV_GROUPS: { heading: string; sections: SettingsSectionId[] }[] 
   { heading: "Your account", sections: ["account", "appearance"] },
   {
     heading: "Workspace",
-    sections: ["providers", "models", "repositories", "memory", "environments"],
+    sections: ["providers", "models", "memory", "environments"],
   },
+  { heading: "Features", sections: ["automations", "mailbox", "repositories"] },
   { heading: "Deployment", sections: ["guidance", "experimental", "deployment"] },
 ];
 

@@ -36,6 +36,8 @@ export type SettingsSectionId =
   | "account"
   | "appearance"
   | "repositories"
+  | "automations"
+  | "mailbox"
   | "providers"
   | "models"
   | "environments"
@@ -52,6 +54,8 @@ export const SETTINGS_SECTION_LABELS: Record<
   account: { label: "Account", blurb: "Identity, auth lane & sign out" },
   appearance: { label: "Appearance", blurb: "Theme" },
   repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
+  automations: { label: "Automations", blurb: "Kill switch & TypeSafe key" },
+  mailbox: { label: "Mailbox", blurb: "Agent mailbox & email sending" },
   providers: { label: "AI Providers", blurb: "Your AI agents" },
   models: { label: "Models", blurb: "Per-role agent routing" },
   environments: {
@@ -81,6 +85,28 @@ function SectionShell({
       </div>
       {children}
     </section>
+  );
+}
+
+/** Deep-link out of settings into a first-class app view. */
+function ViewLink({
+  view,
+  label,
+  onNavigate,
+}: {
+  view: AppNavView;
+  label: string;
+  onNavigate?: (view: AppNavView) => void;
+}): JSX.Element | null {
+  if (!onNavigate) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate(view)}
+      className="self-start text-xs font-semibold text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
+    >
+      {label} →
+    </button>
   );
 }
 
@@ -314,16 +340,6 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         ok={status.access.required}
         detail="REQUIRE_ACCESS / ACCESS_AUD — identity on every path"
       />
-      <ChecklistRow
-        label="Automations enabled"
-        ok={status.automations.enabled}
-        detail="AUTOMATIONS_ENABLED kill switch"
-      />
-      <ChecklistRow
-        label="TypeSafe key"
-        ok={status.automations.typeSafe}
-        detail="TYPESAFE_API_KEY — System One judgments"
-      />
     </Card>
   );
 }
@@ -354,8 +370,15 @@ const EXPERIMENTAL_FLAGS: { flag: string; effect: string; related: string }[] = 
   },
 ];
 
+const MAILBOX_VARS: { name: string; effect: string }[] = [
+  {
+    name: "AGENT_MAILBOX",
+    effect: "Agent mailbox address latest_verification scans (default dev@tryshiba.dev).",
+  },
+  { name: "SEND_EMAIL", effect: "Email Sending binding the email approval bridge executes sends with." },
+];
+
 const KILL_SWITCHES: { flag: string; effect: string }[] = [
-  { flag: "AUTOMATIONS_ENABLED", effect: '"false"/"0"/"off" stops every automation firing.' },
   {
     flag: "MEMORY_ENABLED",
     effect: '"false"/"0"/"off" disables run-end distillation into Memory — never the run.',
@@ -595,6 +618,58 @@ export function SettingsSectionBody({
     );
   }
 
+  if (section === "automations") {
+    return (
+      <SectionShell
+        title="Automations"
+        description="Deployment switches the Automations view runs under — booleans from GET /api/setup/status. Triggers themselves are managed in the Automations view."
+      >
+        {setup.state.kind === "error" ? (
+          <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
+        ) : status ? (
+          <Card>
+            <ChecklistRow
+              label="Automations enabled"
+              ok={status.automations.enabled}
+              detail='AUTOMATIONS_ENABLED kill switch — "false"/"0"/"off" stops every automation firing'
+            />
+            <ChecklistRow
+              label="TypeSafe key"
+              ok={status.automations.typeSafe}
+              detail="TYPESAFE_API_KEY — System One judgments"
+            />
+          </Card>
+        ) : (
+          <Card>
+            <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+              Reading /api/setup/status…
+            </div>
+          </Card>
+        )}
+        <ViewLink view="automations" label="Open Automations" onNavigate={onNavigate} />
+      </SectionShell>
+    );
+  }
+
+  if (section === "mailbox") {
+    return (
+      <SectionShell
+        title="Mailbox"
+        description="Worker bindings behind the Mailbox view. Set at deploy time; the Worker does not report their live state, so none is shown here."
+      >
+        <Card>
+          {MAILBOX_VARS.map((entry) => (
+            <div key={entry.name} className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
+              <div className="font-mono text-xs font-semibold text-[#1c1cc8]">{entry.name}</div>
+              <div className="mt-0.5 text-xs text-[#222320]">{entry.effect}</div>
+            </div>
+          ))}
+        </Card>
+        <ViewLink view="inbox" label="Open Mailbox" onNavigate={onNavigate} />
+      </SectionShell>
+    );
+  }
+
   if (section === "providers") {
     return (
       <SectionShell
@@ -653,15 +728,7 @@ export function SettingsSectionBody({
             ))
           )}
         </Card>
-        {onNavigate ? (
-          <button
-            type="button"
-            onClick={() => onNavigate("agents")}
-            className="self-start text-xs font-semibold text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
-          >
-            Manage agents & MCP →
-          </button>
-        ) : null}
+        <ViewLink view="agents" label="Manage agents & MCP" onNavigate={onNavigate} />
       </SectionShell>
     );
   }
@@ -751,15 +818,7 @@ export function SettingsSectionBody({
             ))
           )}
         </Card>
-        {onNavigate ? (
-          <button
-            type="button"
-            onClick={() => onNavigate("agents")}
-            className="self-start text-xs font-semibold text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
-          >
-            Open Agents & MCP →
-          </button>
-        ) : null}
+        <ViewLink view="agents" label="Open Agents & MCP" onNavigate={onNavigate} />
       </SectionShell>
     );
   }
