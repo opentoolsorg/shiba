@@ -1126,9 +1126,10 @@ describe("Forged session records cannot steer Worker trust points", () => {
       }),
       env,
     );
-    // The forged DO name is not in the recomputed fan-out set, so the
-    // victim's approval was never probed and stays pending.
-    expect(((await res.json()) as { result: string }).result).toBe("unknown");
+    // F10: a non-web threadKey the caller does not own requires the
+    // DASHBOARD_APPROVERS allowlist — the forged DO name is never probed
+    // and the victim's approval stays pending.
+    expect(res.status).toBe(403);
     expect(pending.status).toBe("pending");
   });
 
