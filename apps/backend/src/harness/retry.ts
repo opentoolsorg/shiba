@@ -18,17 +18,20 @@
  * The caller's signal bridges to a real fiber interrupt (`runFork` +
  * `Fiber.interrupt` from an abort listener — the same seam as
  * src/sandbox/lifecycle.ts), so an abort mid-backoff kills the wait instead
- * of sleeping it out. Outcomes cross the promise boundary as the raw thrown
- * values callers already see — the `Exit` is unwrapped by hand rather than
- * through `runWorkerEffect` so error identity (`instanceof`, `.cause`)
- * survives.
+ * of sleeping it out. Task rejections travel the typed error channel inside
+ * `RetryTaskError` — a concrete `Schema.TaggedError` rather than
+ * `unknown`, so `Effect.retry` and `mapError` predicates stay typed —
+ * and are unwrapped exactly once when the `Exit` is read back by hand at
+ * the promise boundary (rather than through `runWorkerEffect`), so error
+ * identity (`instanceof`, `.cause`) survives: callers see the raw thrown
+ * values they always saw.
  *
  * A RetryExhaustedError is itself classified: its name maps to
  * "supervision_exhausted", and its message still matches the envelope
  * classifier's "retry budget exhausted" text — pinned by tests since the
  * flattened form is what the orchestrator classifies.
  */
-import { Cause, Duration, Effect, Exit, Fiber, Schedule } from "effect";
+import { Cause, Duration, Effect, Exit, Fiber, Schedule, Schema } from "effect";
 
 import { classifyRunError, type RunErrorCode } from "../run-errors.js";
 
@@ -128,6 +131,18 @@ function cancelled(): Error {
 }
 
 /**
+ * Internal typed channel for task failures — never crosses the promise
+ * boundary as itself. `tryPromise` rejections are unknown at the edge;
+ * wrapping them in a Schema-tagged error keeps `Effect.retry`'s `while`
+ * gate and the finalizing `mapError` concrete, while `.cause` carries
+ * the thrown value untouched so the single boundary unwrap restores exact
+ * rejection identity.
+ */
+class RetryTaskError extends Schema.TaggedError<RetryTaskError>()("RetryTaskError", {
+  cause: Schema.Unknown,
+}) {}
+
+/**
  * The failure that survives once the budget stops retrying: an abort is
  * never rewritten, an abort signal wins over a late transient error, a
  * still-transient error becomes the exhausted-budget failure, and anything
@@ -160,13 +175,14 @@ export async function withRetry<T>(
   if (signal?.aborted) throw cancelled();
   const program = Effect.mapError(
     Effect.retry(
-      Effect.tryPromise({ try: task, catch: (error) => error }),
+      Effect.tryPromise({ try: task, catch: (cause) => new RetryTaskError({ cause }) }),
       {
         schedule: retrySchedule(policy),
-        while: (error) => !isAbortError(error) && policy.retryIf(error),
+        while: (error) => !isAbortError(error.cause) && policy.retryIf(error.cause),
       },
     ),
-    (error) => finalizeRetryError(policy, signal, error),
+    (error) =>
+      new RetryTaskError({ cause: finalizeRetryError(policy, signal, error.cause) }),
   );
   const fiber = Effect.runFork(program);
   const onAbort = () => Effect.runFork(Fiber.interrupt(fiber));
@@ -180,8 +196,12 @@ export async function withRetry<T>(
     if (Exit.isSuccess(exit)) return exit.value;
     if (Cause.hasInterruptsOnly(exit.cause)) throw cancelled();
     // squash surfaces the first Fail over a Die in a mixed cause — the
-    // task's own typed error is the more informative throwable.
-    throw Cause.squash(exit.cause);
+    // task's own typed error is the more informative throwable. The typed
+    // channel holds RetryTaskError; unwrap it once here so the rejection is
+    // the raw value callers always saw. Non-wrapper values (defects) pass
+    // through unchanged.
+    const error = Cause.squash(exit.cause);
+    throw error instanceof RetryTaskError ? error.cause : error;
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }

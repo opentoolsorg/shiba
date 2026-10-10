@@ -314,6 +314,7 @@ describe("toTaggedError", () => {
     expect(err).toBeInstanceOf(Error);
     expect(err).toBeInstanceOf(RunError);
     expect(err._tag).toBe("RunError");
+    expect(err.name).toBe("RunError");
     expect(err.code).toBe("rate_limit_exceeded");
     expect(err.message).toBe("slow down");
   });
@@ -322,5 +323,25 @@ describe("toTaggedError", () => {
     for (const code of ALL_CODES) {
       expect(toTaggedError(code, "m").code).toBe(code);
     }
+  });
+});
+
+describe("RunError construction", () => {
+  it("rejects a code outside the closed vocabulary", () => {
+    // The classifier treats instanceof RunError as authoritative — a code
+    // outside RUN_ERROR_DEFS would crash runErrorWire downstream, so the
+    // Schema-backed constructor must refuse it instead of passing it through.
+    expect(
+      () => new RunError({ code: "not_a_code" as RunErrorCode, message: "x" }),
+    ).toThrow();
+  });
+
+  it("still builds from a vocabulary code and exposes the tag contract", () => {
+    const err = new RunError({ code: "cancelled", message: "stopped" });
+    expect(err._tag).toBe("RunError");
+    expect(err.name).toBe("RunError");
+    expect(err.code).toBe("cancelled");
+    expect(err.message).toBe("stopped");
+    expect(classifyRunError(err).code).toBe("cancelled");
   });
 });
