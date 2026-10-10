@@ -13,6 +13,7 @@
  * orchestrator honors it only while the approval is still pending.
  */
 import { buildChatThreadName, buildDecisionData, parseDecisionData } from "@shiba/shared";
+import { seenDelivery } from "./automations-stub.js";
 import {
   chatApprovalText,
   chatTaskChunks,
@@ -77,6 +78,7 @@ interface DiscordUser {
 }
 
 interface DiscordInteraction {
+  id?: string;
   type?: number;
   application_id?: string;
   token?: string;
@@ -139,6 +141,17 @@ export async function handleDiscordInteractions(
   }
   if (interaction.type === PING) {
     return Response.json({ type: 1 });
+  }
+  // Discord retries interactions inside the signature window; dedupe on the
+  // server-assigned interaction id so a replayed signed payload cannot queue
+  // a second run. Dedupe failures fail open (a duplicate is recoverable, a
+  // dropped command is not) — the signature still gates unauthenticated calls.
+  const interactionId = interaction.id ?? "";
+  if (interactionId !== "") {
+    const already = await seenDelivery(env, `discord-interaction:${interactionId}`).catch(() => false);
+    if (already) {
+      return ephemeral("Already processed.");
+    }
   }
   const applicationId = interaction.application_id ?? "";
   const token = interaction.token ?? "";

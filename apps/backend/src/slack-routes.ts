@@ -7,6 +7,7 @@
  * module only wires the command to the orchestrator.
  */
 import { getAgentByName } from "agents/routing";
+import { seenDelivery } from "./automations-stub.js";
 import type { Env } from "./env.js";
 import { parseGitHubRepoUrl, redactSecrets } from "./security.js";
 import { buildApprovalBlocks, type ExecutionContextLike } from "./slack-approval.js";
@@ -187,6 +188,16 @@ export async function handleSlackCommand(
   const params = new URLSearchParams(rawBody);
   if ((params.get("command") ?? "").trim() !== SLASH_COMMAND) {
     return Response.json({ error: "Unknown command." }, { status: 400 });
+  }
+  // Slack retries slash commands inside the signature window; dedupe on the
+  // per-invocation trigger_id so a replayed signed payload cannot queue a
+  // second run. Dedupe failures fail open — the signature still gates callers.
+  const triggerId = params.get("trigger_id") ?? "";
+  if (triggerId !== "") {
+    const already = await seenDelivery(env, `slack-command:${triggerId}`).catch(() => false);
+    if (already) {
+      return Response.json({ response_type: "ephemeral", text: "Already processed." });
+    }
   }
   let parsed: ParsedSlackCommand;
   try {
