@@ -21,6 +21,14 @@ export const DEFAULT_SESSION_ID = "default";
 export const DEFAULT_SESSION_NAME = "Default Session";
 export const MAX_SESSIONS_PER_USER = 100;
 
+/**
+ * Registry records expire after this much inactivity (measured off
+ * updatedAt). The per-user count cap bounds growth; without a TTL every
+ * abandoned session still occupies a slot forever, so readers prune stale
+ * records on access.
+ */
+export const WEB_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 export const MAX_METADATA_KEYS = 20;
 export const MAX_METADATA_KEY_LENGTH = 64;
 export const MAX_METADATA_VALUE_LENGTH = 1024;
@@ -68,6 +76,18 @@ export function isValidSessionId(id: string): boolean {
   if (typeof id !== "string") return false;
   if (id === DEFAULT_SESSION_ID) return true;
   return SESSION_UUID_REGEX.test(id);
+}
+
+/**
+ * Drop registry records whose updatedAt is older than WEB_SESSION_TTL_MS.
+ * Callers compare lengths to detect when a state write is needed.
+ */
+export function pruneExpiredWebSessions(
+  sessions: WebSessionRecord[],
+  now: number,
+): WebSessionRecord[] {
+  const cutoff = now - WEB_SESSION_TTL_MS;
+  return sessions.filter((session) => session.updatedAt >= cutoff);
 }
 
 /**

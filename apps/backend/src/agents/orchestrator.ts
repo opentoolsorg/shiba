@@ -132,6 +132,7 @@ import { extractPullRequestUrl } from "../transcript.js";
 import {
   isDashboardAgentName,
   MAX_SESSIONS_PER_USER,
+  pruneExpiredWebSessions,
   sanitizeSessionMetadata,
   sanitizeSessionName,
   validateSessionRecordIntegrity,
@@ -492,6 +493,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...current,
       webSessions,
     });
+  }
+
+  /**
+   * F17: evict registry records idle longer than WEB_SESSION_TTL_MS. The
+   * hard cap bounds count but not retention — without expiry an abandoned
+   * session occupies its slot forever. Pruning runs on the read surfaces
+   * so stale rows leave durable state, not just the response.
+   */
+  private evictExpiredWebSessions(now: number): void {
+    const pruned = pruneExpiredWebSessions(this.storedWebSessions, now);
+    if (pruned.length !== this.storedWebSessions.length) {
+      this.writeWebSessions(pruned);
+    }
   }
 
   private get sessionDeleted(): boolean {
@@ -2850,6 +2864,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   private listApprovals(agentPrincipal: string | null): Response {
     const now = Date.now();
+    this.evictExpiredWebSessions(now);
     const expiredSends = this.expiredEmailSends(now);
     const pruned = pruneApprovals(this.approvals, now);
     if (pruned.length !== this.approvals.length) {
@@ -2884,6 +2899,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private async handleInternalWebSessions(request: Request, url: URL): Promise<Response> {
+    // Prune before any read/write below so expired records neither list
+    // nor count against the per-user cap.
+    this.evictExpiredWebSessions(Date.now());
     if (url.pathname === "/internal/web-sessions") {
       if (request.method === "GET") {
         // Sessions marked for deletion are mid-teardown and must not be
