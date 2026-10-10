@@ -138,8 +138,12 @@ export function SettingsModal({
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      if (restoreFocusRef.current?.isConnected) restoreFocusRef.current.focus();
-      else onFocusRestoreRef.current?.();
+      const opener = restoreFocusRef.current;
+      if (opener?.isConnected && opener !== document.body && opener !== document.documentElement) {
+        opener.focus();
+      } else {
+        onFocusRestoreRef.current?.();
+      }
     };
   }, [isOpen]);
 
@@ -193,7 +197,7 @@ export function SettingsModal({
               <fieldset
                 key={group.heading}
                 aria-labelledby={`${navigationId}-${group.heading}`}
-                className="m-0 flex min-w-0 gap-0.5 border-0 p-0 sm:mb-3 sm:block sm:last:mb-0"
+                className="m-0 flex w-max shrink-0 gap-0.5 border-0 p-0 sm:mb-3 sm:block sm:w-auto sm:last:mb-0"
               >
                 <legend
                   id={`${navigationId}-${group.heading}`}
@@ -201,7 +205,7 @@ export function SettingsModal({
                 >
                   {group.heading}
                 </legend>
-                <div className="flex gap-0.5 sm:flex-col">
+                <div className="flex w-max gap-0.5 sm:w-auto sm:flex-col">
                   {group.items.map((item) => {
                     const isSection = "section" in item;
                     const sectionId = isSection ? item.section : undefined;
