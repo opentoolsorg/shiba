@@ -140,7 +140,9 @@ export async function forwardClaudeSubscription(
   const target = new URL(request.url);
   if (
     target.protocol !== "https:" ||
-    (target.hostname !== "api.anthropic.com" && target.hostname !== "claude.ai") ||
+    target.hostname !== "api.anthropic.com" ||
+    target.port !== "" ||
+    !["/v1/messages", "/v1/messages/count_tokens", "/v1/models"].includes(target.pathname) ||
     target.username !== "" ||
     target.password !== ""
   ) {
@@ -198,6 +200,9 @@ export async function forwardCodexSubscription(
   if (
     target.protocol !== "https:" ||
     target.hostname !== "chatgpt.com" ||
+    target.port !== "" ||
+    // Reject encoded paths rather than let upstream decoding escape the scope.
+    !/^\/backend-api\/(codex|wham)\/[a-zA-Z0-9_./-]+$/.test(target.pathname) ||
     target.username !== "" ||
     target.password !== ""
   ) {
