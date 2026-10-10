@@ -6,27 +6,11 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
+import type { DesktopStatus, PairResult } from "@shiba/shared";
 import type { ChildLike } from "./controller.js";
 import { originOf } from "./navigation.js";
 
-// Structural mirror of packages/shared/src/desktop-bridge.ts — kept local so
-// this module never forces a package.json dependency while the scaffold and
-// supervisor land in parallel. Types are compile-time only and structurally
-// identical to the shared contract.
-type DesktopDaemonState =
-  | "signed-out" | "disabled" | "unpaired" | "paired-elsewhere"
-  | "starting" | "idle" | "busy" | "offline" | "revoked" | "conflict" | "crashed";
-
-export interface DesktopStatus {
-  state: DesktopDaemonState;
-  machineId?: string;
-  activeRunId?: string;
-  harnesses?: string[];
-  pairedTo?: string;
-  detail?: string;
-}
-
-export type PairResult = { ok: true } | { ok: false; error: string };
+export type { DesktopStatus, PairResult };
 
 export const DESKTOP_STATUS_CHANNEL = "desktop:status";
 export const DESKTOP_PAIR_CHANNEL = "desktop:pair";

@@ -536,6 +536,25 @@ describe("approvalEvidenceFor + runInputHash", () => {
     expect(runInputHash({ ...INPUT, testCommand: undefined })).toBe(legacy);
   });
 
+  it("hashes the pinned machine: a changed target changes the hash, absent stays legacy", () => {
+    const local = { ...INPUT, runtime: "local" as const };
+    const legacy = runInputHash(local);
+    const pinned = runInputHash({ ...local, targetMachineId: "m-1" });
+    expect(pinned).not.toBe(legacy);
+    expect(runInputHash({ ...local, targetMachineId: "m-2" })).not.toBe(pinned);
+    expect(runInputHash({ ...local, targetMachineId: undefined })).toBe(legacy);
+  });
+
+  it("start/approve reject evidence hashed for a different target; queue replay rejects a mismatched target", () => {
+    const local = { ...INPUT, runtime: "local" as const };
+    const run = apply(null, queue({ input: { ...local, targetMachineId: "m-1" } })).run!;
+    const wrong = evidence({ inputHash: runInputHash({ ...local, targetMachineId: "m-2" }) });
+    expectError(run, { type: "approve", commandId: "c1", runId: "r1", approval: wrong, at: 3_500 }, "approval_mismatch");
+    const right = evidence({ inputHash: runInputHash({ ...local, targetMachineId: "m-1" }) });
+    expect(apply(run, { type: "approve", commandId: "c2", runId: "r1", approval: right, at: 3_500 }, pointer()).events[0]).toMatchObject({ type: "run.approved" });
+    expectError(run, queue({ input: { ...local, targetMachineId: "m-2" } }), "input_conflict");
+  });
+
   it("derives evidence from the decided record", () => {
     const record = pointer();
     const ev = approvalEvidenceFor(record, INPUT);

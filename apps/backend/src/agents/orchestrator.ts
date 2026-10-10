@@ -1657,6 +1657,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(parent.route !== undefined ? { route: parent.route } : {}),
           ...(parent.authAccount !== undefined ? { authAccount: parent.authAccount } : {}),
           ...(parent.runtime !== undefined ? { runtime: parent.runtime } : {}),
+          ...(parent.runtime === "local" && parent.targetMachineId !== undefined
+            ? { targetMachineId: parent.targetMachineId }
+            : {}),
           ...(parent.testCommand !== undefined ? { testCommand: parent.testCommand } : {}),
           forkedFrom,
           ...(agentPrincipal !== null ? { queuedBy: agentPrincipal } : {}),

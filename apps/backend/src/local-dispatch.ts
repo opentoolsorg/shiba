@@ -135,7 +135,8 @@ export class LocalDispatch extends DurableObject {
       const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
       const pending = [...records.values()]
         .filter((record) => record.status === "pending")
-        .filter((record) => record.targetMachineId === undefined || machineId === undefined || record.targetMachineId === machineId)
+        // Pinned runs need a per-machine token: no vouched id means unpinned only.
+        .filter((record) => record.targetMachineId === undefined || record.targetMachineId === machineId)
         .sort((a, b) => a.envelope.createdAt - b.envelope.createdAt)[0];
       if (pending === undefined) {
         return Response.json({ envelope: null });
