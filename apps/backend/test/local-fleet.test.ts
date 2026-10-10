@@ -3,6 +3,7 @@
  * single-use + TTL-bound pairing, and revoke → the machine's next call 401s.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import {
   LOCAL_COMPUTER_PRUNE_MS,
   LOCAL_HEARTBEAT_STALE_MS,
@@ -13,7 +14,9 @@ import {
 } from "@shiba/shared";
 import { buildLocalRunEnvelope } from "@shiba/shared";
 import worker from "../src/index.js";
-import { LocalDispatch } from "../src/local-dispatch.js";
+import { handleBetterAuth } from "../src/better-auth.js";
+import type { Env } from "../src/env.js";
+import { LOCAL_MACHINE_HEADER, LocalDispatch } from "../src/local-dispatch.js";
 
 vi.mock("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
@@ -44,11 +47,16 @@ function makeFleet(extraEnv: Record<string, unknown> = {}) {
     PAIRING_SECRET: "pairing-secret",
     ...extraEnv,
   } as never;
-  const call = (path: string, init: { method?: string; body?: unknown; token?: string } = {}) =>
+  const call = (path: string, init: { method?: string; body?: unknown; token?: string; cookie?: string; headers?: Record<string, string> } = {}) =>
     worker.fetch(
       new Request(`https://localhost${path}`, {
         method: init.method ?? (init.body === undefined ? "GET" : "POST"),
-        headers: { "content-type": "application/json", ...(init.token !== undefined ? { authorization: `Bearer ${init.token}` } : {}) },
+        headers: {
+          "content-type": "application/json",
+          ...(init.token !== undefined ? { authorization: `Bearer ${init.token}` } : {}),
+          ...(init.cookie !== undefined ? { cookie: init.cookie } : {}),
+          ...init.headers,
+        },
         ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
       }),
       env,
@@ -58,6 +66,35 @@ function makeFleet(extraEnv: Record<string, unknown> = {}) {
 }
 
 const MACHINE = { hostname: "box", platform: "darwin-arm64", daemonVersion: "0.1.0", harnesses: ["claude", "codex"] };
+
+// node:sqlite statement params accept primitives only — same normalizer
+// as better-auth.test.ts's D1 stand-in.
+function toBind(value: unknown): null | number | bigint | string | Uint8Array {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (value instanceof Date) return value.getTime();
+  return value as never;
+}
+function fakeD1(): D1Database {
+  const db = new DatabaseSync(":memory:");
+  const prepared = (sql: string, params: unknown[]) => ({
+    bind: (...args: unknown[]) => prepared(sql, args),
+    run: async () => {
+      const result = db.prepare(sql).run(...(params.map(toBind) as never[]));
+      return { results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
+    },
+    all: async () => ({ results: db.prepare(sql).all(...(params.map(toBind) as never[])), meta: {} }),
+    first: async () => db.prepare(sql).get(...(params.map(toBind) as never[])) ?? null,
+  });
+  return {
+    prepare: (sql: string) => prepared(sql, []),
+    batch: async (stmts: { all: () => Promise<unknown> }[]) => Promise.all(stmts.map((s) => s.all())),
+    exec: (sql: string) => {
+      db.exec(sql);
+      return { count: 0, duration: 0 };
+    },
+  } as unknown as D1Database;
+}
 
 async function pair(fleet: ReturnType<typeof makeFleet>) {
   const minted = (await (await fleet.call("/api/computers/pairing-token", { method: "POST" })).json()) as PairingTokenResponse;
@@ -206,5 +243,30 @@ describe("dark by default", () => {
     expect((await fleet.call("/api/computers")).status).toBe(404);
     expect((await fleet.call("/api/computers/pairing-token", { method: "POST" })).status).toBe(404);
     expect((await fleet.call("/api/local/pair", { body: { pairingToken: "x", ...MACHINE } })).status).toBe(404);
+  });
+});
+
+describe("auth gate", () => {
+  // T61: the fleet routes must accept a signed-in better-auth session, not
+  // just the Access/loopback lanes the synchronous gate covered.
+  it("GET /api/computers returns 200 for a better-auth session", async () => {
+    const d1 = fakeD1();
+    const authEnv = { AGENT_AUDIT: d1, BETTER_AUTH_SECRET: "x".repeat(32) } as unknown as Env;
+    const signup = await handleBetterAuth(
+      new Request("http://localhost:8787/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost:8787" },
+        body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
+      }),
+      authEnv,
+    );
+    expect(signup?.status).toBe(200);
+    const cookie = signup!.headers.get("set-cookie")!.split(";")[0]!;
+
+    const fleet = makeFleet({ AGENT_AUDIT: d1, BETTER_AUTH_SECRET: "x".repeat(32) });
+    // The built-in lane is configured, so an anonymous request 401s…
+    expect((await fleet.call("/api/computers")).status).toBe(401);
+    // …and the session cookie authorizes the fleet read.
+    expect((await fleet.call("/api/computers", { cookie })).status).toBe(200);
   });
 });

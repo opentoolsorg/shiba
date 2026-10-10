@@ -941,6 +941,29 @@ describe("run reliability", () => {
     expect(completed!.text.length).toBeLessThan(1200);
   });
 
+  it("redacts malformed structured child output before posting failure details", async () => {
+    const { instance, posts, settled } = slackAgent();
+    mocks.execute.mockResolvedValue({ error: "Bearer secret-output-token" });
+    approveDirect(instance, "bad-output", INPUT);
+    const delegate = instance.getTools()["delegate_coding_task"] as unknown as {
+      execute: (input: unknown, options?: unknown) => Promise<unknown>;
+    };
+    await expect(delegate.execute(INPUT, { toolCallId: "bad-output" })).rejects.toThrow();
+    await settled();
+    expect(JSON.stringify(posts)).not.toContain("secret-output-token");
+  });
+
+  it("settles a post-back without ctx instead of leaving its outbox claim stuck", async () => {
+    const { instance, posts } = slackAgent();
+    Object.assign(instance, { ctx: undefined });
+    instance.setState({ runs: [{ ...retained(), updatedAt: Date.now() }] });
+    await expect(instance.cancelRun("r1")).resolves.toMatchObject({ status: "cancelled" });
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    await vi.waitFor(() => {
+      expect(Reflect.get(instance, "inFlightEffects").size).toBe(0);
+    });
+  });
+
   it("logs Slack ok:false post-back failures that arrive as HTTP 200", async () => {
     const { instance, settled } = slackAgent({ ok: false, error: "not_in_channel" });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

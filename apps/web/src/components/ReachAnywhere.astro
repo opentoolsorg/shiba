@@ -47,17 +47,6 @@
       <div class="reach-stage" id="reach-stage">
         <!-- SVG Canvas for Smooth Bezier Curves and Animated Glowing Packets -->
         <svg class="reach-svg-canvas" id="reach-svg" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true">
-          <defs>
-            <filter id="packet-glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="2.5" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-            <filter id="packet-bright" x="-60%" y="-60%" width="220%" height="220%">
-              <feGaussianBlur stdDeviation="4" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-          </defs>
-
           <!-- Connector Wires (Dynamic S-curves calculated from card edge midpoints) -->
           <g class="reach-wires-group" id="reach-wires-group">
             <path id="wire-left-0" class="reach-wire" d="M 235,52 C 350,52 390,200 458,200" />
@@ -71,58 +60,6 @@
             <path id="wire-right-3" class="reach-wire" d="M 542,200 C 610,200 650,268 765,268" />
           </g>
 
-          <!-- Flowing Glowing Data Packets along the curves -->
-          <g class="reach-packets-group">
-            <!-- Web -> Center -->
-            <rect id="pkt-left-0" width="7" height="7" class="reach-pkt pkt-left" x="-100" y="-100" filter="url(#packet-glow)">
-              <animateMotion dur="3.4s" repeatCount="indefinite" begin="0.3s">
-                <mpath href="#wire-left-0" />
-              </animateMotion>
-            </rect>
-            <!-- Slack -> Center (Primary) -->
-            <rect id="pkt-left-1" width="8" height="8" class="reach-pkt pkt-left pkt-primary" x="-100" y="-100" filter="url(#packet-bright)">
-              <animateMotion dur="2.7s" repeatCount="indefinite" begin="1.1s">
-                <mpath href="#wire-left-1" />
-              </animateMotion>
-            </rect>
-            <!-- Telegram -> Center -->
-            <rect id="pkt-left-2" width="7" height="7" class="reach-pkt pkt-left" x="-100" y="-100" filter="url(#packet-glow)">
-              <animateMotion dur="3.6s" repeatCount="indefinite" begin="1.9s">
-                <mpath href="#wire-left-2" />
-              </animateMotion>
-            </rect>
-            <!-- Discord -> Center -->
-            <rect id="pkt-left-3" width="7" height="7" class="reach-pkt pkt-left" x="-100" y="-100" filter="url(#packet-glow)">
-              <animateMotion dur="4.0s" repeatCount="indefinite" begin="2.6s">
-                <mpath href="#wire-left-3" />
-              </animateMotion>
-            </rect>
-
-            <!-- Center -> Computer Use -->
-            <rect id="pkt-right-0" width="7" height="7" class="reach-pkt pkt-right" x="-100" y="-100" filter="url(#packet-glow)">
-              <animateMotion dur="3.3s" repeatCount="indefinite" begin="0.8s">
-                <mpath href="#wire-right-0" />
-              </animateMotion>
-            </rect>
-            <!-- Center -> Code (Featured primary stream) -->
-            <rect id="pkt-right-1" width="8" height="8" class="reach-pkt pkt-right pkt-primary" x="-100" y="-100" filter="url(#packet-bright)">
-              <animateMotion dur="2.4s" repeatCount="indefinite" begin="1.0s">
-                <mpath href="#wire-right-1" />
-              </animateMotion>
-            </rect>
-            <!-- Center -> Personal Agents -->
-            <rect id="pkt-right-2" width="7" height="7" class="reach-pkt pkt-right" x="-100" y="-100" filter="url(#packet-glow)">
-              <animateMotion dur="3.5s" repeatCount="indefinite" begin="1.7s">
-                <mpath href="#wire-right-2" />
-              </animateMotion>
-            </rect>
-            <!-- Center -> Memory -->
-            <rect id="pkt-right-3" width="7" height="7" class="reach-pkt pkt-right" x="-100" y="-100" filter="url(#packet-glow)">
-              <animateMotion dur="3.7s" repeatCount="indefinite" begin="2.2s">
-                <mpath href="#wire-right-3" />
-              </animateMotion>
-            </rect>
-          </g>
         </svg>
 
         <!-- Left Column: CHANNELS (Inbound Triggers) -->
@@ -182,37 +119,11 @@
 
         <!-- Center Hub: Shiba Workstation with Rich Animated SVG -->
         <div class="reach-center-hub" id="reach-center-hub">
-          <!-- Concentric Stepped Square Frames (Retro radar) -->
-          <div class="reach-coord-frame frame-1" aria-hidden="true"></div>
-          <div class="reach-coord-frame frame-2" aria-hidden="true"></div>
-          <div class="reach-coord-frame frame-3" aria-hidden="true"></div>
 
           <!-- Central Hardware Workstation Node with Rich Animated SVG -->
           <div class="reach-center-node" id="reach-center-node" title="Shiba Core Workstation">
             <div class="reach-node-inner">
-              <!-- A readable mascot, framed as a terminal rather than nested tiny windows. -->
-              <svg class="reach-shiba-pc-svg" width="88" height="88" viewBox="0 0 96 96" fill="none" role="img" aria-labelledby="reach-shiba-logo-title">
-                <title id="reach-shiba-logo-title">Shiba, your coding companion</title>
-                <rect x="9" y="8" width="78" height="72" rx="4" fill="var(--card)" stroke="var(--navy)" stroke-width="2" />
-                <path d="M10 23H86" stroke="var(--line-2)" />
-                <circle cx="17" cy="16" r="2" fill="var(--navy)" />
-                <circle cx="24" cy="16" r="2" fill="var(--line-2)" />
-                <circle cx="31" cy="16" r="2" fill="var(--line-2)" />
-                <path d="M74 14L77 16L74 18M80 18H83" stroke="var(--navy)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                <!-- Upright ears and broad cream cheeks remain distinct at small sizes. -->
-                <path d="M25 48L24 30Q24 27 27 29L39 37M57 37L69 29Q72 27 72 30L71 48" fill="#D99850" stroke="#49382B" stroke-width="2" stroke-linejoin="round" />
-                <path d="M28 34L29 44L35 39Z M68 34L67 44L61 39Z" fill="#F4D3B1" />
-                <path d="M48 35C34 35 23 45 23 57C23 69 34 75 48 75C62 75 73 69 73 57C73 45 62 35 48 35Z" fill="#D99850" stroke="#49382B" stroke-width="2" />
-                <path d="M25 57C31 54 35 57 39 61C42 56 54 56 57 61C61 57 65 54 71 57C71 67 61 73 48 73C35 73 25 67 25 57Z" fill="#FFF1DB" />
-                <path d="M35 46L39 45M57 45L61 46" stroke="#FFF1DB" stroke-width="3" stroke-linecap="round" />
-                <g class="shiba-eye">
-                  <ellipse cx="36" cy="53" rx="2" ry="2.5" fill="#49382B" />
-                  <ellipse cx="60" cy="53" rx="2" ry="2.5" fill="#49382B" />
-                </g>
-                <path d="M44 60Q48 58 52 60L48 64Z" fill="#49382B" />
-                <path d="M48 64V66M42 66Q45 70 48 66Q51 70 54 66" stroke="#49382B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M38 81V86H58V81M30 87H66" stroke="var(--navy)" stroke-width="2" stroke-linecap="square" />
-              </svg>
+              <img class="reach-shiba-pc-svg" src="/assets/mascot/shiba-sticker-hero.webp" width="96" height="96" alt="Shiba, your coding companion" loading="lazy" />
             </div>
             <span class="reach-node-status-led" aria-hidden="true"></span>
           </div>
@@ -493,19 +404,6 @@
     stroke-width: 2.2;
   }
 
-  .reach-pkt {
-    fill: var(--navy);
-    border-radius: 0 !important;
-  }
-
-  .reach-pkt.pkt-primary {
-    fill: #ffffff;
-  }
-
-  html[data-theme='dark'] .reach-pkt.pkt-primary {
-    fill: #ffffff;
-  }
-
   /* Column of Cards */
   .reach-col {
     display: flex;
@@ -620,52 +518,6 @@
     padding-inline: 16px;
   }
 
-  /* Stepped Square Frames (Retro radar) */
-  .reach-coord-frame {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    border: 1px solid var(--line);
-    transform: translate(-50%, calc(-50% - 24px));
-    border-radius: 0 !important;
-    pointer-events: none;
-  }
-
-  .reach-coord-frame.frame-1 {
-    width: 120px;
-    height: 120px;
-    animation: frame-radar 4s linear infinite;
-  }
-
-  .reach-coord-frame.frame-2 {
-    width: 180px;
-    height: 180px;
-    animation: frame-radar 4s linear infinite 1.33s;
-  }
-
-  .reach-coord-frame.frame-3 {
-    width: 240px;
-    height: 240px;
-    animation: frame-radar 4s linear infinite 2.66s;
-  }
-
-  @keyframes frame-radar {
-    0% {
-      opacity: 0.6;
-      transform: translate(-50%, calc(-50% - 24px)) scale(0.9);
-      border-color: var(--navy);
-    }
-    50% {
-      opacity: 0.25;
-      border-color: var(--line-2);
-    }
-    100% {
-      opacity: 0;
-      transform: translate(-50%, calc(-50% - 24px)) scale(1.18);
-      border-color: var(--line);
-    }
-  }
-
   /* Center Hardware Node */
   .reach-center-node {
     display: grid;
@@ -692,8 +544,8 @@
 
   .reach-shiba-pc-svg {
     display: block;
-    width: 88px;
-    height: 88px;
+    width: 96px;
+    height: 96px;
   }
 
   /* CRT Scanline Sweep Animation */
@@ -706,18 +558,6 @@
     20% { opacity: 0.7; }
     80% { opacity: 0.7; }
     100% { transform: translateY(14px); opacity: 0; }
-  }
-
-  /* Shiba Eye Blink Animation */
-  .shiba-eye {
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: eye-blink 5s infinite;
-  }
-
-  @keyframes eye-blink {
-    0%, 96%, 100% { transform: scaleY(1); }
-    98% { transform: scaleY(0.1); }
   }
 
   /* Terminal Cursor Blink */
@@ -890,7 +730,7 @@
     .reach-center-hub {
       padding: 16px 0;
     }
-    .reach-svg-canvas, .reach-coord-frame, .reach-col-headers {
+    .reach-svg-canvas, .reach-col-headers {
       display: none;
     }
     .reach-statusbar {
@@ -906,16 +746,9 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .reach-coord-frame,
     .crt-sweep-line,
-    .shiba-eye,
     .terminal-cursor {
       animation: none !important;
-    }
-    /* SMIL animateMotion ignores CSS animation:none; the only switch is
-       rendering, so the flowing packets are removed entirely. */
-    .reach-packets-group {
-      display: none;
     }
     .reach-card,
     .reach-wire {
