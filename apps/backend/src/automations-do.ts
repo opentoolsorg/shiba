@@ -252,7 +252,13 @@ export class Automations {
     const webhookId = parseAutomationWebhookPath(url.pathname);
     if (webhookId && request.method === "POST") {
       const store = await this.load();
-      const automation = store.get(webhookId);
+      let decodedId = webhookId;
+      try {
+        decodedId = decodeURIComponent(webhookId);
+      } catch {
+        // Malformed % escapes keep the raw id — lookup below 404s anyway.
+      }
+      const automation = store.get(decodedId);
       if (!automation) {
         return Response.json({ error: "Automation not found." }, { status: 404 });
       }
@@ -262,8 +268,15 @@ export class Automations {
       if (!verifyWebhookSecret(automation, secret)) {
         return Response.json({ error: "Invalid automation secret." }, { status: 401 });
       }
-      const result = await this.fireEvent({ kind: "webhook", secret }, await this.orchestrator());
-      return Response.json({ ok: true, id: webhookId, ...result });
+      // Scope the fan-out to this automation: a webhook trigger event without
+      // onlyId would match-verify against every stored automation's secret.
+      const result = await this.fireEvent(
+        { kind: "webhook", secret },
+        await this.orchestrator(),
+        Date.now(),
+        automation.id,
+      );
+      return Response.json({ ok: true, id: automation.id, ...result });
     }
     return Response.json({ error: "Not found." }, { status: 404 });
   }

@@ -132,6 +132,7 @@ import { extractPullRequestUrl } from "../transcript.js";
 import {
   isDashboardAgentName,
   MAX_SESSIONS_PER_USER,
+  pruneExpiredWebSessions,
   sanitizeSessionMetadata,
   sanitizeSessionName,
   validateSessionRecordIntegrity,
@@ -494,6 +495,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     });
   }
 
+  /**
+   * F17: evict registry records idle longer than WEB_SESSION_TTL_MS. The
+   * hard cap bounds count but not retention — without expiry an abandoned
+   * session occupies its slot forever. Pruning runs on the read surfaces
+   * so stale rows leave durable state, not just the response.
+   */
+  private evictExpiredWebSessions(now: number): void {
+    const pruned = pruneExpiredWebSessions(this.storedWebSessions, now);
+    if (pruned.length !== this.storedWebSessions.length) {
+      this.writeWebSessions(pruned);
+    }
+  }
+
   private get sessionDeleted(): boolean {
     return this.state?.sessionDeletedAt !== undefined;
   }
@@ -794,7 +808,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * the tryRunPromise signal the way `effectWithSignal` does.
    */
   private async executeDelegatedTask(
-    input: DelegateInput,
+    _input: DelegateInput,
     childExecute: NonNullable<ReturnType<typeof agentTool>["execute"]>,
     toolCallId: string | undefined,
     abortSignal?: AbortSignal,
@@ -818,73 +832,40 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (this.sessionDeleted) return yield* Effect.fail(toTaggedError("internal_error", "Session deleted."));
       const callId = toolCallId ?? crypto.randomUUID();
       const runId = `agent-tool:${callId}`;
-      let reserved = this.store.get(runId);
-      let pointer = this.approvals.find((approval) => approval.approvalId === callId);
+      const reserved = this.store.get(runId);
+      const pointer = this.approvals.find((approval) => approval.approvalId === callId);
       if (!reserved && pointer?.status === "approved") {
         return "Run was removed before execution.";
       }
       if (reserved && reserved.status !== "pending") {
         return reserved.summary ?? reserved.error ?? `Run is ${reserved.status}.`;
       }
-      // T40 gate: an execute with no approval trail stays refused. Two
-      // producers legally reach here: the /api/approvals resolve dispatch
-      // (pointer approved, run already reserved) and a chat-gate Approve —
-      // the AI-SDK continuation only calls execute after a human approves,
-      // so a pending pointer minted at gate emission resolves in place.
-      if (!reserved) {
-        if (pointer === undefined || pointer.status !== "pending") {
-          return "Run is not approved to execute.";
-        }
-        if (!canStartRun(this.store.list())) {
-          return "All coding runs are busy. Approve again when a slot frees.";
-        }
-        const gateThreadKey = pointer.threadKey;
-        const resolved = resolvePendingApproval(
-          this.approvals,
-          {
-            threadKey: gateThreadKey,
-            approvalId: callId,
-            approved: true,
-            decidedBy: `chat:${this.name ?? "unknown"}`,
-          },
-          Date.now(),
-        );
-        const record =
-          resolved.result === "approved"
-            ? resolved.approvals.find(
-                (a) => a.approvalId === callId && a.threadKey === gateThreadKey,
-              )
-            : undefined;
-        if (record === undefined) {
-          return "Run is not approved to execute.";
-        }
-        const minted = this.mintApprovedRun(record);
-        // Decision, reserved run, and resolve receipt commit in one write —
-        // the same atomic triple the /api/approvals resolve lands (T41).
-        this.setState({
-          ...this.state,
-          pendingApprovals: resolved.approvals,
-          runs: [...this.store.list(), minted],
-          commandReceipts: this.withCommandReceipt({
-            commandId: `approval:${callId}`,
-            kind: "approval.resolve",
-            outcome: "approved",
-            threadKey: pointer.threadKey,
-            approvalId: callId,
-            runId: minted.runId,
-            dispatched: true,
-            at: Date.now(),
-          }),
-        });
-        reserved = minted;
-        pointer = record;
+      // Execution never decides an approval. Only the authenticated resolve
+      // path may reserve a run and mark its pointer approved.
+      if (!reserved || pointer?.status !== "approved") {
+        return "Run is not approved to execute.";
       }
+      // Ignore caller input: execute may be invoked with different arguments
+      // after approval. Every dispatch field comes from the approved snapshot.
+      const input: DelegateInput = {
+        repoUrl: reserved.repoUrl,
+        task: reserved.task,
+        baseBranch: reserved.baseBranch,
+        publishPullRequest: reserved.publishPullRequest,
+        ...(pointer.harness !== undefined
+          ? { harness: delegateInputSchema.shape.harness.parse(pointer.harness) }
+          : {}),
+        ...(reserved.authAccount !== undefined ? { authAccount: reserved.authAccount } : {}),
+        ...(reserved.runtime !== undefined ? { runtime: reserved.runtime } : {}),
+        ...(pointer.role !== undefined ? { role: pointer.role } : {}),
+      };
       failureRun = reserved;
       // T51 dispatch-side check — the queued record's frozen runtime is what
       // counts; the intake gate can never be bypassed by a chat-surface tool
       // call because a `default`/`slack:*` DO fails isDashboardAgentName.
-      if (input.runtime === "local" || reserved.runtime === "local") {
-        if (reserved.runtime !== input.runtime) {
+      const callRuntime = _input.runtime;
+      if (callRuntime === "local" || reserved.runtime === "local") {
+        if (reserved.runtime !== callRuntime) {
           return "Approved input does not match this call's runtime.";
         }
         if (this.env[LOCAL_RUNTIME_FLAG] !== "1" || !isDashboardAgentName(this.name)) {
@@ -2850,6 +2831,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   private listApprovals(agentPrincipal: string | null): Response {
     const now = Date.now();
+    this.evictExpiredWebSessions(now);
     const expiredSends = this.expiredEmailSends(now);
     const pruned = pruneApprovals(this.approvals, now);
     if (pruned.length !== this.approvals.length) {
@@ -2884,6 +2866,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private async handleInternalWebSessions(request: Request, url: URL): Promise<Response> {
+    // Prune before any read/write below so expired records neither list
+    // nor count against the per-user cap.
+    this.evictExpiredWebSessions(Date.now());
     if (url.pathname === "/internal/web-sessions") {
       if (request.method === "GET") {
         // Sessions marked for deletion are mid-teardown and must not be

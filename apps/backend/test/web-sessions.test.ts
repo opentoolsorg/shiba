@@ -63,10 +63,12 @@ import {
   MAX_SESSIONS_PER_USER,
   mintSessionId,
   parseSessionAgentName,
+  pruneExpiredWebSessions,
   sanitizeSessionMetadata,
   sanitizeSessionName,
   SESSION_UUID_REGEX,
   validateSessionRecordIntegrity,
+  WEB_SESSION_TTL_MS,
   type WebSessionRecord,
 } from "../src/web-sessions.js";
 import {
@@ -385,6 +387,41 @@ describe("CodingOrchestrator internal web-sessions handler and teardown", () => 
     expect(res.status).toBe(200);
     const data = (await res.json()) as { sessions: WebSessionRecord[] };
     expect(data.sessions).toEqual([session]);
+  });
+
+  it("evicts expired web-session records from durable state on read", async () => {
+    const fresh = createWebSession("alice", { name: "Fresh" });
+    const stale = createWebSession("alice", { name: "Stale" });
+    stale.updatedAt = Date.now() - WEB_SESSION_TTL_MS - 1;
+    const orchestrator = createTestOrchestrator([fresh, stale]);
+
+    const res = await orchestrator.onRequest(
+      new Request("https://internal/internal/web-sessions", { method: "GET" }),
+    );
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { sessions: WebSessionRecord[] };
+    expect(data.sessions.map((s) => s.id)).toEqual([fresh.id]);
+    expect(orchestrator.storedWebSessions.map((s) => s.id)).toEqual([fresh.id]);
+  });
+
+  it("expired records do not count against MAX_SESSIONS_PER_USER", async () => {
+    const orchestrator = createTestOrchestrator(
+      Array.from({ length: MAX_SESSIONS_PER_USER }, (_, i) => {
+        const s = createWebSession("alice", { name: `Stale ${i}` });
+        s.updatedAt = Date.now() - WEB_SESSION_TTL_MS - 1;
+        return s;
+      }),
+    );
+    const fresh = createWebSession("alice", { name: "New" });
+    const res = await orchestrator.onRequest(
+      new Request("https://internal/internal/web-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: fresh }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(orchestrator.storedWebSessions.map((s) => s.id)).toEqual([fresh.id]);
   });
 
   it("handles POST /internal/web-sessions and enforces MAX_SESSIONS_PER_USER", async () => {
@@ -1089,9 +1126,10 @@ describe("Forged session records cannot steer Worker trust points", () => {
       }),
       env,
     );
-    // The forged DO name is not in the recomputed fan-out set, so the
-    // victim's approval was never probed and stays pending.
-    expect(((await res.json()) as { result: string }).result).toBe("unknown");
+    // F10: a non-web threadKey the caller does not own requires the
+    // DASHBOARD_APPROVERS allowlist — the forged DO name is never probed
+    // and the victim's approval stays pending.
+    expect(res.status).toBe(403);
     expect(pending.status).toBe("pending");
   });
 

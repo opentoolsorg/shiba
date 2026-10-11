@@ -979,12 +979,31 @@ describe("chat approval gate", () => {
     await expect(delegate.needsApproval(INPUT, { toolCallId: "chat-1" })).resolves.toBe(true);
     expect(instance.state.pendingApprovals?.filter((a) => a.approvalId === "chat-1")).toHaveLength(1);
 
-    await delegate.execute(INPUT, { toolCallId: "chat-1" });
+    // The card Approve lands through the authenticated resolve path —
+    // execute itself never decides an approval — and its fire-and-forget
+    // dispatch drives the reserved run to completion.
+    const resolved = await instance.onRequest(
+      new Request("https://internal/api/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadKey: "default",
+          approvalId: "chat-1",
+          approved: true,
+          decidedBy: "human",
+        }),
+      }),
+    );
+    expect(resolved.status).toBe(200);
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
     const pointer = instance.state.pendingApprovals?.find((a) => a.approvalId === "chat-1");
     expect(pointer?.status).toBe("approved");
-    expect(pointer?.decidedBy).toMatch(/^chat:/);
+    expect(pointer?.decidedBy).toBe("human");
+    await vi.waitFor(() => {
+      const r = instance.state.runs.find((run) => run.runId === "agent-tool:chat-1");
+      expect(r?.status).toBe("completed");
+    });
     const run = instance.state.runs.find((r) => r.runId === "agent-tool:chat-1");
-    expect(run?.status).toBe("completed");
     expect(run?.approval?.approvalId).toBe("chat-1");
     expect(mocks.execute).toHaveBeenCalledOnce();
   });

@@ -203,6 +203,14 @@ export interface Env {
   DISCORD_BOT_TOKEN?: string;
   /** Optional. Comma-separated Discord user ids allowed to approve; unset = nobody. */
   DISCORD_APPROVERS?: string;
+  /**
+   * Optional. Comma-separated dashboard user ids (Access emails) allowed to
+   * resolve approvals that are NOT scoped to a caller's own web session —
+   * shared/"default" orchestrator approvals (email, automations, queued runs).
+   * Unset/empty = nobody may decide them. Web-session approvals stay bound to
+   * the session owner regardless.
+   */
+  DASHBOARD_APPROVERS?: string;
   /** Optional. JSON map `{channelId: "https://github.com/owner/repo"}` for commands without a repo. */
   DISCORD_CHANNEL_REPOS?: string;
   /** Optional. TypeSafe System One key for `run_when`; unset falls back to Workers AI. */
