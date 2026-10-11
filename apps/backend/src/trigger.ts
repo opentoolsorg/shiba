@@ -16,6 +16,41 @@ import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 
 export const TRIGGER_PATH = "/api/trigger";
 
+/**
+ * Pre-auth throttle for the bearer-only endpoint: the edge Access policy
+ * bypasses /api/trigger for machine callers, so token guessing is bounded
+ * here instead. A fixed one-minute window per caller IP in the AGENT_TOKENS
+ * KV (same bucket store as oauth-mcp); when the KV binding is absent the
+ * limit is skipped rather than fabricating a global counter per isolate.
+ * KV errors fail closed — an unbounded guessing endpoint is worse than a
+ * transient 503 the caller can retry.
+ */
+const TRIGGER_RATE_LIMIT = 10;
+const TRIGGER_RATE_WINDOW_MS = 60_000;
+
+async function triggerRateLimited(env: Env, request: Request): Promise<boolean> {
+  const kv = env.AGENT_TOKENS;
+  if (!kv) {
+    return false;
+  }
+  const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+  const window = Math.floor(Date.now() / TRIGGER_RATE_WINDOW_MS);
+  const key = `rl_trigger:${ip}:${window}`;
+  try {
+    const raw = await kv.get(key, { type: "text" });
+    const count = raw === null ? 0 : Number.parseInt(raw, 10);
+    if (!Number.isFinite(count) || count >= TRIGGER_RATE_LIMIT) {
+      return true;
+    }
+    await kv.put(key, String(count + 1), {
+      expirationTtl: Math.ceil((TRIGGER_RATE_WINDOW_MS * 2) / 1000),
+    });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export interface TriggerDeps {
   orchestratorStub?: { fetch: (r: Request) => Promise<Response> };
 }
@@ -63,6 +98,9 @@ export async function handleTrigger(
   const url = new URL(request.url);
   if (url.pathname !== TRIGGER_PATH || request.method !== "POST") {
     return null;
+  }
+  if (await triggerRateLimited(env, request)) {
+    return Response.json({ error: "Too many trigger requests; retry later." }, { status: 429 });
   }
   const token = env.TRIGGER_TOKEN?.trim() ?? "";
   // A short token is brute-forceable over the wire; fail closed rather than

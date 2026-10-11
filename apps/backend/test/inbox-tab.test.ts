@@ -855,6 +855,8 @@ describe("dashboard approval routes", () => {
     };
     try {
       const { env } = makeEnvWithTwoMailboxes();
+      // F10: resolving a shared "default" approval requires the approver allowlist.
+      env.DASHBOARD_APPROVERS = "dev@example.com";
       const response = await worker.fetch(
         new Request("http://localhost/api/approvals", {
           method: "POST",
@@ -897,6 +899,8 @@ describe("dashboard approval routes", () => {
     };
     try {
       const { env } = makeEnvWithTwoMailboxes();
+      // F10: resolving a shared "default" approval requires the approver allowlist.
+      env.DASHBOARD_APPROVERS = "dev@example.com";
       const response = await worker.fetch(
         new Request("http://localhost/api/approvals", {
           method: "POST",

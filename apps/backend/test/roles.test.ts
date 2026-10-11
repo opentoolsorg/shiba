@@ -162,7 +162,7 @@ describe("role routing in delegation", () => {
       ROLE_MODEL_MAP: JSON.stringify({ fixer: { harness: "codex", model: "openai/gpt-5.3-codex" } }),
     });
     mocks.execute.mockResolvedValue("ok");
-    approveDirect(instance, "role1");
+    approveDirect(instance, "role1", { ...DELEGATE_INPUT, role: "fixer" });
     const delegate = instance.getTools()["delegate_coding_task"] as {
       execute: (input: unknown, options?: unknown) => Promise<unknown>;
     };
@@ -181,10 +181,10 @@ describe("role routing in delegation", () => {
     await execution.catch(() => {});
   });
 
-  it("an unpinned role keeps the deployment default chain", async () => {
+  it("an unpinned role keeps the deployment default chain — a caller-supplied harness/model is ignored", async () => {
     const instance = agent({ CLAUDE_CODE_MODEL: "anthropic/claude-custom" });
     mocks.execute.mockResolvedValue("ok");
-    approveDirect(instance, "role2");
+    approveDirect(instance, "role2", { ...DELEGATE_INPUT, role: "explorer" });
     const delegate = instance.getTools()["delegate_coding_task"] as {
       execute: (input: unknown, options?: unknown) => Promise<unknown>;
     };
@@ -197,8 +197,8 @@ describe("role routing in delegation", () => {
     const calls = mocks.execute.mock.calls as unknown as [[string]];
     expect(parseAgentToolInput([{ role: "user", text: calls[0]![0]! }])).toMatchObject({
       role: "explorer",
-      harness: "claude-code",
-      codingModel: "anthropic/claude-custom",
+      harness: "opencode",
+      codingModel: "google/gemini-3.5-flash-lite",
     });
     await execution.catch(() => {});
   });

@@ -54,14 +54,14 @@ export const ANTIGRAVITY_SUBSCRIPTION_PROVIDERS = ["google-subscription"] as con
 
 /**
  * Hosts an Antigravity run may reach — the observed Google surface for the
- * ACP agent: the Cloud Code backend, OAuth endpoints (the in-container
- * process refreshes its own tokens), the sign-in host, the component CDN,
- * and the generative-language fallback. Deny-by-default applies.
+ * ACP agent: the Cloud Code backend, component CDN, and generative-language
+ * fallback. OAuth/sign-in hosts are deliberately excluded from repository
+ * runs: token exchange belongs to the separate auth sandbox. In-run token
+ * refresh fails closed. This is containment only, not Worker-side custody;
+ * the ACP token file remains readable by same-user repository processes.
  */
 export const ANTIGRAVITY_SUBSCRIPTION_HOSTS = [
   "cloudcode-pa.googleapis.com",
-  "oauth2.googleapis.com",
-  "accounts.google.com",
   "dl.google.com",
   "generativelanguage.googleapis.com",
 ] as const;

@@ -104,23 +104,47 @@ describe("github webhook delivery dedupe", () => {
     const second = await webhookRequest(h, { deliveryId: "d-1" });
     expect(await second.json()).toEqual({ ok: true, deduped: true });
     expect(h.fanOutUrls()).toHaveLength(1);
-    expect(h.dedupeUrls()).toHaveLength(2);
+    // First request records delivery id + payload hash (2 calls); the replay
+    // short-circuits on the delivery-id check (1 call).
+    expect(h.dedupeUrls()).toHaveLength(3);
   });
 
-  it("fans out when x-github-delivery is missing (backward compatible)", async () => {
+  it("forwards the delivery id to the automation fan-out", async () => {
+    const h = makeHarness();
+    const response = await webhookRequest(h, { deliveryId: "d-fwd" });
+    expect(response.status).toBe(200);
+    const fanOut = h.stubFetch.mock.calls
+      .map((call) => call[0] as Request)
+      .find((req) => new URL(req.url).pathname === "/internal/github");
+    const body = (await fanOut?.json()) as { deliveryId?: string };
+    expect(body.deliveryId).toBe("d-fwd");
+  });
+
+  it("rejects a signed body missing x-github-delivery (replay guard)", async () => {
     const h = makeHarness();
     const response = await webhookRequest(h);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, event: "issues", action: "opened" });
-    expect(h.fanOutUrls()).toHaveLength(1);
+    expect(response.status).toBe(400);
+    expect(h.fanOutUrls()).toHaveLength(0);
     expect(h.dedupeUrls()).toHaveLength(0);
   });
 
-  it("fans out when the dedupe endpoint errors (fail-open)", async () => {
+  it("dedupes a replayed signed body under a fresh delivery id", async () => {
+    const h = makeHarness();
+    const payload = JSON.stringify({ action: "opened", number: 1 });
+    // Same signed body replayed with a DIFFERENT delivery id: dedupe records
+    // both the delivery id and the payload hash, so the replay is refused.
+    const first = await webhookRequest(h, { deliveryId: "d-orig", payload });
+    expect(first.status).toBe(200);
+    const second = await webhookRequest(h, { deliveryId: "d-replay", payload });
+    expect(await second.json()).toEqual({ ok: true, deduped: true });
+    expect(h.fanOutUrls()).toHaveLength(1);
+  });
+
+  it("fails closed (503) when the dedupe endpoint errors", async () => {
     const h = makeHarness({ dedupeError: true });
     const response = await webhookRequest(h, { deliveryId: "d-err" });
-    expect(response.status).toBe(200);
-    expect(h.fanOutUrls()).toHaveLength(1);
+    expect(response.status).toBe(503);
+    expect(h.fanOutUrls()).toHaveLength(0);
     expect(h.dedupeUrls()).toHaveLength(1);
   });
 

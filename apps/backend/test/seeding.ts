@@ -25,6 +25,8 @@ export interface SeedInput {
   route?: ApprovedRoute;
   /** T51: the approved runtime the pointer reserves. */
   runtime?: "sandbox" | "local";
+  /** T52: the delegation role frozen onto the approval pointer. */
+  role?: import("../../../packages/shared/src/roles.js").AgentRole;
 }
 
 type SeedableState = { runs: DelegatedRun[]; pendingApprovals?: PendingApproval[] };
@@ -71,6 +73,7 @@ export function approvePointerOnly<S extends SeedableState>(
     ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
     ...(input.route !== undefined ? { route: input.route } : {}),
     ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
+    ...(input.role !== undefined ? { role: input.role } : {}),
     createdAt: now - 1_000,
   });
   const { approvals } = resolvePendingApproval(

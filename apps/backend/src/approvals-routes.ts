@@ -3,6 +3,7 @@ import type { Env } from "./env.js";
 import { DECIDED_APPROVALS_LIMIT, type PendingApproval } from "./pending-approvals.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { jsonObjectBody } from "./route-utils.js";
+import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 import {
   buildSessionAgentName,
@@ -19,10 +20,14 @@ import {
  * merges; resolving probes the caller's DO first, then `"default"` — an
  * `"unknown"` reply means "try the next stub", never a verdict.
  *
- * Decider gate: any Access-authenticated identity — the megaplan's "same
- * Access-auth gate as /api/runs" for every dashboard surface. The Slack
- * surface is deliberately stricter (SLACK_APPROVERS allowlist) because a
- * Slack workspace admits people the Access policy never vetted.
+ * Decider gate: any Access-authenticated identity may LIST, and may decide
+ * approvals scoped to their own web sessions. Approvals living outside a
+ * web session — shared "default" orchestrator approvals for email,
+ * automations, and queued runs — additionally require membership in the
+ * DASHBOARD_APPROVERS allowlist (unset = nobody, matching the
+ * SLACK_APPROVERS/TELEGRAM_APPROVERS/DISCORD_APPROVERS posture) because a
+ * multi-user Access policy admits people who were never meant to sign off
+ * on shared side effects.
  */
 export async function handleApprovals(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
@@ -103,6 +108,11 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
       if (!sessionAgentNames.includes(body.threadKey)) {
         return Response.json({ error: "Session not found." }, { status: 404 });
       }
+    } else if (!isApprover(decidedBy, parseApproverAllowlist(env.DASHBOARD_APPROVERS))) {
+      return Response.json(
+        { error: "Not authorized to resolve shared approvals." },
+        { status: 403 },
+      );
     }
     let probeFailure: Response | null = null;
     for (const stub of stubs) {
