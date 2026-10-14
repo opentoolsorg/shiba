@@ -13,6 +13,7 @@ import {
 } from "@cloudflare/ai-chat/react";
 import { isToolUIPart, type UIMessage } from "ai";
 import type { CSSProperties } from "react";
+import { LoaderCircle, ShieldCheck, Wrench, type LucideIcon } from "lucide-react";
 import { ApprovalCard } from "./ApprovalCard";
 import { Tooltip } from "./Tooltip";
 import {
@@ -28,7 +29,7 @@ export interface StepTimelineProps {
   decisions: Record<string, boolean>;
   onDecideApproval: (approvalId: string, approved: boolean) => void;
   renderToolOutput?: (part: ToolPart) => string | null; // optional, has default
-  starters?: { icon: string; label: string; task: string }[];
+  starters?: { icon: LucideIcon; label: string; task: string }[];
   onStarter?: (task: string) => void;
 }
 
@@ -49,33 +50,6 @@ function defaultRenderToolOutput(part: ToolPart): string | null {
   return typeof output === "string" ? output : JSON.stringify(output, null, 2);
 }
 
-function WrenchIcon() {
-  return (
-    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-      />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-      />
-    </svg>
-  );
-}
-
 function RailIcon({ kind }: { kind: "tool" | "text" | "approval" }) {
   if (kind === "text") {
     return (
@@ -87,14 +61,14 @@ function RailIcon({ kind }: { kind: "tool" | "text" | "approval" }) {
     );
   }
   if (kind === "approval") {
-    return <ShieldIcon />;
+    return <ShieldCheck className="w-3 h-3" strokeWidth={2} aria-hidden="true" />;
   }
-  return <WrenchIcon />;
+  return <Wrench className="w-3 h-3" strokeWidth={2} aria-hidden="true" />;
 }
 
 function statusChipClass(rejected: boolean, waiting: boolean): string {
-  if (rejected) return "text-[#fb2c36] border-[#fb2c36]/30 bg-[#fb2c36]/10";
-  if (waiting) return "text-[#b45309] border-[#b45309]/30 bg-[#b45309]/10 animate-pulse";
+  if (rejected) return "text-[#b91c1c] border-[#fb2c36]/30 bg-[#fb2c36]/10";
+  if (waiting) return "text-[#b45309] border-[#b45309]/30 bg-[#b45309]/10";
   return "text-[#6a6f63] border-[#e0ded5] bg-[#f1efe6]";
 }
 
@@ -132,7 +106,7 @@ export function StepTimeline({
                   style={{ "--enter-delay": `${150 + starterIndex * 60}ms` } as CSSProperties}
                   className="inline-flex items-center gap-1.5 text-xs text-[#222320] bg-[#fffef8] hover:bg-[#e0ded5] border border-[#e0ded5] rounded-none px-3 py-1.5 touch:min-h-11 transition-colors active:scale-95 animate-enter"
                 >
-                  <span aria-hidden="true">{starter.icon}</span>
+                  <span aria-hidden="true"><starter.icon className="w-3.5 h-3.5" strokeWidth={2} /></span>
                   {starter.label}
                 </button>
               </Tooltip>
@@ -276,7 +250,7 @@ export function StepTimeline({
               />
             </span>
             <div className="bg-[#f1efe6] border border-[#e0ded5] rounded-none p-4 text-xs text-[#6a6f63] flex items-center gap-2 w-fit">
-              <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-[#1c1cc8] border-t-transparent rounded-full" />
+              <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[#1c1cc8]" aria-hidden="true" />
               <span className="text-[#1c1cc8] font-semibold">Shiba is reasoning…</span>
             </div>
           </div>

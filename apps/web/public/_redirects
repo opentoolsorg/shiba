@@ -1,6 +1,11 @@
 /docs /docs/overview/ 301
 /docs/ /docs/overview/ 301
 
+# The waitlist POST lives in the Worker on app.tryshiba.dev; Pages cannot
+# serve it. 200 = edge proxy (method, body and headers forwarded), not a
+# redirect. The Worker accepts the tryshiba.dev Origin for this route.
+/api/waitlist https://app.tryshiba.dev/api/waitlist 200
+
 # The live dashboard is the Worker at app.tryshiba.dev — the static copy
 # under /app/ is a snapshot with no /api/* backend. Send dashboard traffic
 # to the real host; keep /app/ itself serving for deep assets.

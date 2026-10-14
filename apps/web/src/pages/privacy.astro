@@ -1,0 +1,246 @@
+---
+import MarketingPage from '../layouts/MarketingPage.astro';
+
+const privacySchema = {
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  name: 'Shiba Privacy Notice',
+  description: 'What tryshiba.dev collects: a waitlist email, optional GitHub username, and a hashed IP. Self-hosted Shiba stores data in your own Cloudflare account.',
+  url: 'https://tryshiba.dev/privacy/',
+};
+---
+
+<MarketingPage
+  title="Privacy Notice | Shiba"
+  description="What tryshiba.dev collects: a waitlist email, optional GitHub username, and a hashed IP. Self-hosted Shiba stores data in your own Cloudflare account."
+  path="/privacy/"
+  type="website"
+  schema={privacySchema}
+  breadcrumbs={[
+    { name: 'Home', path: '/' },
+    { name: 'Privacy', path: '/privacy/' },
+  ]}
+>
+  <section class="shell hero">
+    <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-[var(--card)] border border-[var(--line-2)] text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--navy)] mb-6 shadow-[2px_2px_0_var(--paper-shadow)]">
+      <span class="w-2 h-2 bg-[var(--navy)]"></span>
+      <span>LEGAL · LAST UPDATED OCTOBER 2026</span>
+    </div>
+    <h1 class="text-4xl sm:text-6xl font-bold tracking-tight text-[var(--ink)] leading-[1.08] mb-6">
+      Privacy, written by the person who holds the data.
+    </h1>
+    <p class="lead text-base sm:text-lg text-[var(--ink-2)] leading-relaxed mb-6 max-w-2xl">
+      Shiba is a one-person open-source project. This page describes what this website collects and what the software stores when you deploy it yourself. No law firm wrote it, so it says exactly what the code does and nothing more.
+    </p>
+    <div class="truth-box">
+      <div class="text-[var(--navy)] text-xl font-bold">✦</div>
+      <div>
+        <h4 class="text-[var(--ink)] font-bold text-sm mb-1">The short version</h4>
+        <p class="text-[var(--ink-2)] text-xs leading-relaxed">
+          The waitlist stores your email, your interest choice, an optional GitHub username, and a one-way hash of your IP. That is the whole list. When you self-host Shiba, your code and run data live in your own Cloudflare account, not in anything operated by this project.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <div class="shell">
+    <section class="story-section" aria-labelledby="collect-title">
+      <div class="section-label"><span class="micro">01 / Collected</span></div>
+      <div class="prose-body">
+        <h2 id="collect-title" class="text-[var(--ink)]">What the waitlist collects</h2>
+        <p class="text-[var(--ink-2)]">
+          The form at <a class="text-[var(--navy)] underline" href="/waitlist/">/waitlist/</a> is the only place this site asks you for anything, and it only submits when you tick the consent checkbox:
+        </p>
+        <ul class="data-list">
+          <li><span class="data-key">email</span><span class="data-val">Required. Used to send release updates and contributor notices you asked for.</span></li>
+          <li><span class="data-key">interest</span><span class="data-val">Required. One of: self-host feedback, contribute, or both.</span></li>
+          <li><span class="data-key">github</span><span class="data-val">Optional. Your GitHub username, for contributor recognition.</span></li>
+          <li><span class="data-key">ipHash</span><span class="data-val">SHA-256 hash of your IP, computed at the edge. Used only to rate-limit submissions. The raw IP is not stored.</span></li>
+        </ul>
+        <p class="text-[var(--ink-2)]">
+          There is also a hidden honeypot field that rejects bots. Filling it in just marks the submission invalid.
+        </p>
+      </div>
+    </section>
+
+    <section class="story-section" aria-labelledby="store-title">
+      <div class="section-label"><span class="micro">02 / Stored</span></div>
+      <div class="prose-body">
+        <h2 id="store-title" class="text-[var(--ink)]">Where it lives</h2>
+        <p class="text-[var(--ink-2)]">
+          Submissions go to a dedicated SQLite-backed Cloudflare Durable Object on the project's Cloudflare account. It is not published, indexed, or shared with any third party. Responses are sent with <code>Cache-Control: no-store</code>.
+        </p>
+        <p class="text-[var(--ink-2)]">
+          Cloudflare processes the request itself to serve the site and API; Cloudflare's own <a class="text-[var(--navy)] underline" href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">privacy policy ↗</a> applies to that edge handling.
+        </p>
+      </div>
+    </section>
+
+    <section class="story-section" aria-labelledby="never-title">
+      <div class="section-label"><span class="micro">03 / Never</span></div>
+      <div class="prose-body">
+        <h2 id="never-title" class="text-[var(--ink)]">What we do not collect</h2>
+        <ul class="check-list">
+          <li>No analytics, tracking pixels, ad networks, or fingerprinting on this site.</li>
+          <li>No cookies beyond the theme preference stored in your own browser's localStorage.</li>
+          <li>No data resale, no data sharing, no marketing profiles. There is no ad business here.</li>
+          <li>Signing up is never required to access the software. Shiba is AGPL-3.0-only source on GitHub.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="story-section" aria-labelledby="selfhost-title">
+      <div class="section-label"><span class="micro">04 / Self-hosted</span></div>
+      <div class="prose-body">
+        <h2 id="selfhost-title" class="text-[var(--ink)]">When you run Shiba yourself</h2>
+        <p class="text-[var(--ink-2)]">
+          Shiba is self-hosted software. When you deploy it, every byte of your installation (run logs, task history, repository checkouts, sandbox output, secrets) lives in <em>your</em> Cloudflare account and on your infrastructure. The project never receives telemetry from your deployment. You are the controller of that data, not us.
+        </p>
+        <p class="text-[var(--ink-2)]">
+          Provider credentials are deliberately kept out of the container: sandboxed runs receive a dummy key and provider requests are forwarded at the Worker's egress layer, and your <code>GITHUB_TOKEN</code> is attached in the Worker, never inside the container. Details and limitations are in <a class="text-[var(--navy)] underline" href="/docs/security/">Security &amp; credential boundaries</a>.
+        </p>
+      </div>
+    </section>
+
+    <section class="story-section" aria-labelledby="rights-title">
+      <div class="section-label"><span class="micro">05 / Your call</span></div>
+      <div class="prose-body">
+        <h2 id="rights-title" class="text-[var(--ink)]">Access, correction, deletion</h2>
+        <p class="text-[var(--ink-2)]">
+          To see, fix, or delete your waitlist entry, open an issue on <a class="text-[var(--navy)] underline" href="https://github.com/princepal9120/shiba/issues" target="_blank" rel="noopener noreferrer">GitHub ↗</a> or contact the maintainer through the repository. Include the email address you signed up with. Removal is an admin delete against the Durable Object and is permanent.
+        </p>
+        <p class="text-[var(--ink-2)]">
+          The only change that will ever happen to this page is that it gets more specific as the project does. It will not get vaguer.
+        </p>
+      </div>
+    </section>
+  </div>
+</MarketingPage>
+
+<style>
+  .hero {
+    padding-top: clamp(60px, 8vw, 100px);
+    padding-bottom: clamp(32px, 4vw, 56px);
+  }
+  .truth-box {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 18px 20px;
+    background: var(--card);
+    border: 1px solid var(--line-2);
+    box-shadow: 2px 2px 0 var(--paper-shadow);
+    max-width: 620px;
+  }
+  .micro {
+    display: inline-block;
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--ink-2);
+    border-top: 1px solid var(--line-2);
+    padding-top: 12px;
+  }
+  .story-section {
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: minmax(120px, 0.72fr) minmax(0, 3fr);
+    gap: clamp(32px, 6vw, 88px);
+    padding-block: clamp(56px, 8vw, 96px);
+  }
+  .section-label {
+    padding-top: 12px;
+  }
+  .prose-body {
+    max-width: 900px;
+    min-width: 0;
+  }
+  .prose-body h2 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: clamp(1.85rem, 3.6vw, 3rem);
+    font-weight: 400;
+    line-height: 1.02;
+    margin-bottom: 28px;
+    letter-spacing: -0.045em;
+    text-wrap: balance;
+  }
+  .prose-body p {
+    max-width: 68ch;
+    font-size: 16px;
+    line-height: 1.8;
+    margin-bottom: 22px;
+  }
+  .prose-body code {
+    font-family: 'Geist Mono', monospace;
+    font-size: 0.85em;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    padding: 1px 5px;
+  }
+  .data-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 28px;
+    display: grid;
+    gap: 2px;
+  }
+  .data-list li {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    align-items: start;
+  }
+  .data-key {
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--navy);
+    padding-top: 2px;
+  }
+  .data-val {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-2);
+  }
+  .check-list {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0;
+    display: grid;
+    gap: 2px;
+    max-width: 68ch;
+  }
+  .check-list li {
+    position: relative;
+    padding: 13px 16px 13px 44px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-2);
+  }
+  .check-list li::before {
+    content: '✓';
+    position: absolute;
+    left: 16px;
+    top: 13px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ok);
+  }
+  .prose-body h2 { text-wrap: balance; }
+  @media (max-width: 900px) {
+    .story-section {
+      grid-template-columns: 1fr;
+      gap: 22px;
+      padding-block: 52px;
+    }
+    .section-label { padding-top: 0; }
+    .data-list li { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
