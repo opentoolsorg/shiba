@@ -1,0 +1,200 @@
+---
+import MarketingPage from '../layouts/MarketingPage.astro';
+
+const termsSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  name: 'Shiba Terms of Use',
+  description: 'Terms for tryshiba.dev and the Shiba open-source project: AGPL-3.0-only software, no warranty, no SLA, your infrastructure is your responsibility.',
+  url: 'https://tryshiba.dev/terms/',
+};
+---
+
+<MarketingPage
+  title="Terms of Use | Shiba"
+  description="Terms for tryshiba.dev and the Shiba open-source project: AGPL-3.0-only software, no warranty, no SLA, your infrastructure is your responsibility."
+  path="/terms/"
+  type="website"
+  schema={termsSchema}
+  breadcrumbs={[
+    { name: 'Home', path: '/' },
+    { name: 'Terms', path: '/terms/' },
+  ]}
+>
+  <section class="shell hero">
+    <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-[var(--card)] border border-[var(--line-2)] text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--navy)] mb-6 shadow-[2px_2px_0_var(--paper-shadow)]">
+      <span class="w-2 h-2 bg-[var(--navy)]"></span>
+      <span>LEGAL · LAST UPDATED OCTOBER 2026</span>
+    </div>
+    <h1 class="text-4xl sm:text-6xl font-bold tracking-tight text-[var(--ink)] leading-[1.08] mb-6">
+      Terms, at the same altitude as the code.
+    </h1>
+    <p class="lead text-base sm:text-lg text-[var(--ink-2)] leading-relaxed mb-6 max-w-2xl">
+      Shiba is AGPL-3.0-only open-source software maintained by one person. There is no company, no subscription, and no contract to negotiate. These terms cover this website and the project as published on GitHub.
+    </p>
+    <div class="truth-box">
+      <div class="text-[var(--navy)] text-xl font-bold">✦</div>
+      <div>
+        <h4 class="text-[var(--ink)] font-bold text-sm mb-1">The short version</h4>
+        <p class="text-[var(--ink-2)] text-xs leading-relaxed">
+          The license is the deal: use, study, modify, and share under AGPL-3.0-only. The software ships as-is with no warranty. When you self-host it, the infrastructure, the model bills, and the generated code are yours.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <div class="shell">
+    <section class="story-section" aria-labelledby="license-title">
+      <div class="section-label"><span class="micro">01 / License</span></div>
+      <div class="prose-body">
+        <h2 id="license-title" class="text-[var(--ink)]">The license is the terms</h2>
+        <p class="text-[var(--ink-2)]">
+          Shiba is published under the <strong>GNU Affero General Public License v3.0 only</strong> (AGPL-3.0-only). Your rights and obligations for using, modifying, and distributing the software are defined by that license text, which ships in the repository's <a class="text-[var(--navy)] underline" href="https://github.com/princepal9120/shiba/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">LICENSE file ↗</a>. If you run a modified version as a network service, the AGPL requires you to offer its source to users of that service.
+        </p>
+        <p class="text-[var(--ink-2)]">
+          Nothing on this site grants rights beyond the license, and nothing here takes away rights the license gives you.
+        </p>
+      </div>
+    </section>
+
+    <section class="story-section" aria-labelledby="asis-title">
+      <div class="section-label"><span class="micro">02 / Warranty</span></div>
+      <div class="prose-body">
+        <h2 id="asis-title" class="text-[var(--ink)]">As-is, honestly</h2>
+        <p class="text-[var(--ink-2)]">
+          The software and this site are provided "as is" without warranty of any kind, express or implied, including merchantability, fitness for a particular purpose, and non-infringement. The maintainer is not liable for damages arising from use of the software, to the maximum extent permitted by law.
+        </p>
+        <p class="text-[var(--ink-2)]">
+          Concretely: Shiba is an early-stage approval-gated coding agent. Approval gates, egress controls, and credential boundaries are engineering controls, not guarantees. Treat generated code as untrusted, review changes, run tests, and use least-privilege credentials scoped to repositories you are comfortable exposing.
+        </p>
+      </div>
+    </section>
+
+    <section class="story-section" aria-labelledby="yours-title">
+      <div class="section-label"><span class="micro">03 / Your infra</span></div>
+      <div class="prose-body">
+        <h2 id="yours-title" class="text-[var(--ink)]">Your account, your bill, your code</h2>
+        <ul class="check-list">
+          <li>Self-hosted installations run in your Cloudflare account. Usage charges on that account (Workers, Durable Objects, Sandbox containers, AI Gateway) are yours.</li>
+          <li>Model inference is billed by whichever provider you configure, under your agreement with that provider.</li>
+          <li>Code the agent writes is output you own and are responsible for reviewing, licensing, and shipping.</li>
+          <li>You control retention and deletion for your deployment's data. Clearing history does not erase all child Durable Object data; see the security docs.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="story-section" aria-labelledby="site-title">
+      <div class="section-label"><span class="micro">04 / This site</span></div>
+      <div class="prose-body">
+        <h2 id="site-title" class="text-[var(--ink)]">tryshiba.dev</h2>
+        <p class="text-[var(--ink-2)]">
+          This site and its waitlist exist to share project updates and coordinate contributors. Joining the waitlist creates no entitlement to access, support, or uptime; self-hosting never requires it. Do not submit the form on behalf of someone else or try to abuse the endpoint; submissions are rate-limited and honeypot-filtered.
+        </p>
+        <p class="text-[var(--ink-2)]">
+          Content on this site, including docs and the journal, is descriptive. Where the site says something is implemented, the repository is the source of truth; where it says something is unverified, believe it.
+        </p>
+      </div>
+    </section>
+
+    <section class="story-section" aria-labelledby="changes-title">
+      <div class="section-label"><span class="micro">05 / Changes</span></div>
+      <div class="prose-body">
+        <h2 id="changes-title" class="text-[var(--ink)]">Changes and contact</h2>
+        <p class="text-[var(--ink-2)]">
+          These terms may change as the project does; the current version lives at this URL and in git history. Questions, disputes, or takedown requests go through the <a class="text-[var(--navy)] underline" href="https://github.com/princepal9120/shiba/issues" target="_blank" rel="noopener noreferrer">GitHub issue tracker ↗</a>.
+        </p>
+      </div>
+    </section>
+  </div>
+</MarketingPage>
+
+<style>
+  .hero {
+    padding-top: clamp(60px, 8vw, 100px);
+    padding-bottom: clamp(32px, 4vw, 56px);
+  }
+  .truth-box {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 18px 20px;
+    background: var(--card);
+    border: 1px solid var(--line-2);
+    box-shadow: 2px 2px 0 var(--paper-shadow);
+    max-width: 620px;
+  }
+  .micro {
+    display: inline-block;
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--ink-2);
+    border-top: 1px solid var(--line-2);
+    padding-top: 12px;
+  }
+  .story-section {
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: minmax(120px, 0.72fr) minmax(0, 3fr);
+    gap: clamp(32px, 6vw, 88px);
+    padding-block: clamp(56px, 8vw, 96px);
+  }
+  .section-label {
+    padding-top: 12px;
+  }
+  .prose-body {
+    max-width: 900px;
+    min-width: 0;
+  }
+  .prose-body h2 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: clamp(1.85rem, 3.6vw, 3rem);
+    font-weight: 400;
+    line-height: 1.02;
+    margin-bottom: 28px;
+    letter-spacing: -0.045em;
+    text-wrap: balance;
+  }
+  .prose-body p {
+    max-width: 68ch;
+    font-size: 16px;
+    line-height: 1.8;
+    margin-bottom: 22px;
+  }
+  .check-list {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0;
+    display: grid;
+    gap: 2px;
+    max-width: 68ch;
+  }
+  .check-list li {
+    position: relative;
+    padding: 13px 16px 13px 44px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-2);
+  }
+  .check-list li::before {
+    content: '✓';
+    position: absolute;
+    left: 16px;
+    top: 13px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ok);
+  }
+  @media (max-width: 900px) {
+    .story-section {
+      grid-template-columns: 1fr;
+      gap: 22px;
+      padding-block: 52px;
+    }
+    .section-label { padding-top: 0; }
+  }
+</style>
