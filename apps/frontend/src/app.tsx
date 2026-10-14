@@ -29,6 +29,7 @@ import { SettingsView } from "./components/SettingsView";
 import { TaskComposer } from "./components/TaskComposer";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
+import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
 import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavRail";
 import { AuthScreen } from "./components/AuthScreen";
 import { authClient } from "./auth-client";
@@ -266,22 +267,22 @@ const SETUP_TOTAL_STEPS = 6;
 
 const STARTER_TEMPLATES = [
   {
-    icon: "🧪",
+    icon: FlaskConical,
     label: "Fix Failing Tests",
     task: "Investigate test failures in the repository, fix the root cause, and verify all test suites pass with zero regressions.",
   },
   {
-    icon: "⚡",
+    icon: Zap,
     label: "Add Unit Tests",
     task: "Identify uncovered functions in the core modules and add thorough unit test coverage with edge case tests.",
   },
   {
-    icon: "🧹",
+    icon: Sparkles,
     label: "Refactor & Clean",
     task: "Refactor duplicate utility logic, remove unused imports and dead code, and ensure clean types across the codebase.",
   },
   {
-    icon: "📖",
+    icon: BookOpen,
     label: "Documentation",
     task: "Review and update README and code comments to match recent API changes and architecture decisions.",
   },
