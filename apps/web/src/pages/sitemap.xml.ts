@@ -11,6 +11,8 @@ export async function GET() {
 		{ path: '/why-shiba/', changefreq: 'weekly', priority: '0.9' },
 		{ path: '/waitlist/', changefreq: 'daily', priority: '0.9' },
 		{ path: '/blog/', changefreq: 'weekly', priority: '0.8' },
+		{ path: '/privacy/', changefreq: 'yearly', priority: '0.3' },
+		{ path: '/terms/', changefreq: 'yearly', priority: '0.3' },
 	];
 
 	// Posts are dated, so they change on their own cadence rather than with the

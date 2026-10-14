@@ -1,4 +1,5 @@
 import { useState, useMemo, type JSX } from "react";
+import { Check, TriangleAlert } from "lucide-react";
 import { ApprovalCard } from "./ApprovalCard";
 import { AuditPanel } from "./AuditPanel";
 import {
@@ -58,7 +59,7 @@ export function ApprovalsView({
           <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
             <span>Approvals & Decision Center</span>
             {totalPending > 0 ? (
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-none bg-[#f99c00] text-white animate-pulse">
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-none bg-[#b45309] text-white">
                 {totalPending} waiting
               </span>
             ) : (
@@ -92,10 +93,8 @@ export function ApprovalsView({
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {storedApprovalsError !== null ? (
-            <div className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 border border-[#fb2c36]/30 rounded-none p-3.5 flex items-start gap-2">
-              <svg aria-hidden="true"  className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
+            <div className="text-xs text-[#b91c1c] bg-[#fb2c36]/10 border border-[#fb2c36]/30 rounded-none p-3.5 flex items-start gap-2">
+              <TriangleAlert aria-hidden="true" className="w-4 h-4 text-[#b91c1c] shrink-0 mt-0.5" strokeWidth={2} />
               <span>Approval queue sync error: {storedApprovalsError}</span>
             </div>
           ) : null}
@@ -106,7 +105,7 @@ export function ApprovalsView({
               <h3 id="pending-approvals-heading" className="text-sm font-semibold text-[#222320] flex items-center gap-2">
                 <span>Pending Approvals</span>
                 {totalPending > 0 ? (
-                  <span className="size-2 rounded-full bg-[#b45309] animate-pulse" />
+                  <span className="size-2 rounded-full bg-[#b45309]" aria-hidden="true" />
                 ) : null}
               </h3>
               <span className="text-xs font-mono text-[#6a6f63]">
@@ -117,9 +116,7 @@ export function ApprovalsView({
             {totalPending === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[#e0ded5] rounded-none bg-[#fffef8] text-center p-6">
                 <div className="w-10 h-10 rounded-full bg-[#15803d]/10 text-[#15803d] flex items-center justify-center mb-2">
-                  <svg aria-hidden="true"  className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                  <Check aria-hidden="true" className="w-5 h-5" strokeWidth={2} />
                 </div>
                 <h4 className="text-sm font-semibold text-[#222320]">All Clear</h4>
                 <p className="text-xs text-[#6a6f63] max-w-sm mt-0.5">
@@ -134,6 +131,7 @@ export function ApprovalsView({
                     key={approval.approvalId}
                     approval={approval}
                     decided={decisions[approval.approvalId] !== undefined}
+                    decision={decisions[approval.approvalId]}
                     onDecideApproval={onDecideApproval}
                     agentName={orchestratorName ?? undefined}
                   />
@@ -177,11 +175,17 @@ export function ApprovalsView({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filteredDecided.map((approval) => (
-                  <DecidedApprovalRow key={approval.approvalId} approval={approval} />
-                ))}
-              </div>
+              {filteredDecided.length === 0 ? (
+                <p className="border border-dashed border-[#e0ded5] bg-[#fffef8] px-4 py-6 text-center text-xs text-[#6a6f63]">
+                  No decided actions match the “{outcomeFilter}” filter.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {filteredDecided.map((approval) => (
+                    <DecidedApprovalRow key={approval.approvalId} approval={approval} />
+                  ))}
+                </div>
+              )}
             </section>
           ) : null}
 

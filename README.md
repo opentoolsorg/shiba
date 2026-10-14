@@ -1,18 +1,19 @@
 # Shiba — AI Coworker
 
-[![Site](https://img.shields.io/badge/Site-shiba--ai--coworker.pages.dev-0B9F95?style=flat-square&logo=cloudflarepages&logoColor=white)](https://shiba.pages.dev/)
-[![Documentation](https://img.shields.io/badge/Docs-shiba--ai--coworker.pages.dev%2Fdocs-teal?style=flat-square)](https://shiba.pages.dev/docs/)
+[![Site](https://img.shields.io/badge/Site-tryshiba.dev-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://tryshiba.dev/)
+[![Documentation](https://img.shields.io/badge/Docs-tryshiba.dev%2Fdocs-teal?style=flat-square)](https://tryshiba.dev/docs/)
+[![Dashboard](https://img.shields.io/badge/Dashboard-app.tryshiba.dev-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://app.tryshiba.dev/app/)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg?style=flat-square)](LICENSE)
 
 Shiba is an open-source, self-hosted AI software engineer — an account-owned Cloudflare workspace: describe a GitHub task, review the proposed delegation, approve or reject it, and inspect a sandbox-generated diff. The repository is a pnpm monorepo containing a React dashboard, an Astro/Starlight documentation site, and a Cloudflare Worker backend built around Agents and Sandbox containers running OpenCode.
 
-**Status: local prototype, not production-ready.** No live end-to-end cloud run is claimed. The deployed Cloudflare Pages site contains the static landing page at `/`, dashboard UI at `/app/`, and documentation at `/docs/` — it does not include the Worker backend, so it does not establish a live coding run. `VERIFICATION.md` records passing local typecheck, lint, tests, and build checks; the backend remains a prototype until a dated run meets the P2 acceptance bar in `PLAN.md` §15: submit → approve → clone/code/collect with a diff that matches reality, rejection starting no container, honest failure exit codes, PRs with deletions shown as deleted, and peak memory measured.
+**Status: deployed prototype, not production-ready.** No live end-to-end cloud run is claimed. Two hosts exist: `tryshiba.dev` is the Cloudflare Pages site (landing `/`, docs `/docs/` — static only), and `app.tryshiba.dev` is the deployed Worker (dashboard `/app/` plus the API) behind Cloudflare Access with `workers.dev` disabled. The Worker deploy proves the stack provisions and serves; it does not establish a live coding run. `VERIFICATION.md` records passing local typecheck, lint, tests, and build checks; the backend remains a prototype until a dated run meets the P2 acceptance bar in `PLAN.md` §15: submit → approve → clone/code/collect with a diff that matches reality, rejection starting no container, honest failure exit codes, PRs with deletions shown as deleted, and peak memory measured.
 
-**Static site (landing, docs, dashboard UI):** [https://shiba.pages.dev/](https://shiba.pages.dev/)
+**Static site (landing, docs):** [https://tryshiba.dev/](https://tryshiba.dev/)
 
-- **Landing Page:** [https://shiba.pages.dev/](https://shiba.pages.dev/)
-- **Documentation:** [https://shiba.pages.dev/docs/](https://shiba.pages.dev/docs/)
-- **Tasks Dashboard:** [https://shiba.pages.dev/app/](https://shiba.pages.dev/app/)
+- **Landing Page:** [https://tryshiba.dev/](https://tryshiba.dev/)
+- **Documentation:** [https://tryshiba.dev/docs/](https://tryshiba.dev/docs/)
+- **Tasks Dashboard + API:** [https://app.tryshiba.dev/app/](https://app.tryshiba.dev/app/) — the Worker host, gated by Cloudflare Access. `/app` and `/dashboard` on tryshiba.dev redirect here; `app.tryshiba.dev` is the only public Worker host.
 
 Provider traffic is intercepted at the Sandbox egress boundary and forwarded through the account owner's AI Gateway binding — there is no provider callback route (the dead callback path was deleted; the forwarder and its route no longer exist).
 
@@ -79,7 +80,7 @@ pnpm build
 pnpm exec wrangler pages deploy public --project-name shiba --branch main --commit-dirty=true
 ~~~
 
-This flow deploys only the landing page, `/app/` dashboard, and `/docs/` documentation. The UI is currently static and has no Worker API or WebSocket proxy.
+This flow deploys the static landing page and `/docs/` documentation to `tryshiba.dev`. The Pages site serves no Worker API or WebSocket proxy of its own: `_redirects` sends `/app*` and `/dashboard*` to `app.tryshiba.dev` and edge-proxies `POST /api/waitlist` to the Worker. The live dashboard must be reached on `app.tryshiba.dev`, not the Pages host.
 
 ## Deploy the Worker backend
 
@@ -97,7 +98,7 @@ What a live deploy does, secure by default:
 - `REQUIRE_ACCESS=1` is always set on live stages: no verified Access identity means 401 on the dashboard and API.
 - Without `REQUIRE_ACCESS` or `ACCESS_AUD`, only loopback hosts are served; requests to deployed hosts fail closed with 401.
 - With `ACCESS_EMAILS` and `WORKERS_SUBDOMAIN` set, it creates an Access app for the Worker host that allows only those emails, and the Worker verifies the `Cf-Access-Jwt-Assertion` JWT (`ACCESS_AUD`) instead of trusting the identity header.
-- A second Access app **bypasses** the machine callers, which the Worker authenticates itself: `/api/slack/events`, `/api/slack/command`, `/api/slack/interact`, `/api/github/webhook` (HMAC), `/mcp` (bearer token), `/api/automations/*/trigger` (shared secret).
+- A second Access app **bypasses** the machine callers, which the Worker authenticates itself: `/api/slack/events`, `/api/slack/command`, `/api/slack/interact`, `/api/github/webhook` (HMAC), `/api/telegram/webhook`, `/api/discord/interactions`, `/api/trigger`, `/mcp` (bearer token), `/api/automations/*/trigger` (shared secret).
 - Secrets come only from `.env` (see `.env.example`). Alchemy replaces the Worker's secrets on every deploy, so a secret missing from `.env` is removed — don't mix in `wrangler secret put`.
 
 Still manual: add a provider key (BYOK) to the `default` AI Gateway, create the Slack app from `slack-app-manifest.yaml`, and mint an MCP token for Claude Code (see [Use from Claude Code](#use-from-claude-code)). Inbound email needs a domain on Cloudflare with Email Routing sending to the Worker; workers.dev cannot receive mail.
@@ -110,15 +111,15 @@ Rollback to wrangler (same bindings): `npx wrangler deploy --config apps/backend
 
 | Surface | How |
 |---|---|
-| Web dashboard | `https://<worker-host>/app/` — Access login with an allowed email |
+| Web dashboard | `https://app.tryshiba.dev/app/` — Access login with an allowed email |
 | iPhone | Same URL in Safari → Share → **Add to Home Screen** (standalone app). Slack mobile works for approvals too. |
 | Slack | `@shiba` in a thread or `/shiba <repo> <task>`; approve on the card |
-| Telegram & Discord | *Coming soon* — end-to-end task delegation and interactive approval bots |
-| Claude Code | MCP over `https://<worker-host>/mcp` with a bearer token — see below |
+| Telegram & Discord | Implemented webhook + approval-card bots (`/api/telegram/webhook`, `/api/discord/interactions`), gated by `TELEGRAM_APPROVERS`/`DISCORD_APPROVERS`; not yet verified against a live workspace |
+| Claude Code | MCP over `https://app.tryshiba.dev/mcp` with a bearer token — see below |
 
 ### Use from Claude Code
 
-Mint a token into the deployed KV (id printed as `agentTokensNamespace` by `pnpm run deploy:alchemy`), then paste the printed line:
+Mint a token into the deployed KV (id printed as `agentTokensNamespace` by `pnpm run deploy:alchemy`), then paste the printed line. `<worker-host>` is `app.tryshiba.dev` on the live stage:
 
 ~~~sh
 node scripts/mint-token.mjs --agent claude-code --scopes sandbox:exec,runs:read \

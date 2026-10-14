@@ -5,6 +5,10 @@ description: Current routes, responses, and SDK approval transport.
 
 All paths are relative to the Worker origin. The shared orchestrator name is default. These routes do not implement their own user authorization; protect the installation before exposure.
 
+:::caution[Stale route table]
+As of 2026-10-15 this page is a partial reference only. The routes documented below still exist, but the Worker now serves far more than this table covers: 18 `apps/backend/src/*-routes.ts` modules plus `oauth-mcp.ts`, `better-auth.ts`, `telegram.ts`, `discord.ts`, `trigger.ts`, `waitlist.ts`, and the `/agents/coding-orchestrator/*` SDK lane. The authoritative list is `apps/backend/src/index.ts` (dispatch order) and `apps/backend/src/request-auth.ts` (signature-authenticated paths). Undocumented routes include `/api/approvals`, `/api/audit`, `/api/sessions*`, `/api/spine`, `/api/usage`, `/api/screenshots/:id`, `/api/sandboxes/:id/*`, `/api/computers*`, `/api/automations*`, `/api/memory/*`, `/api/whoami`, `/api/setup/status`, `/api/agents`, `/api/model-config`, `/api/threads/:id`, `/api/emails-search`, `/api/emails/:id/read`, `/api/waitlist`, `/api/trigger`, `/api/auth/*` + `/api/auth/*-subscription`, `/api/antigravity/callback`, `/api/telegram/webhook`, `/api/discord/interactions`, `/oauth/*`, `/.well-known/oauth-*`, and `/mcp`. Treat this page as covering only the routes named below until it is rewritten.
+:::
+
 ## Email API
 
 `GET /api/email/openapi.json` serves the machine-readable OpenAPI 3.1 contract (`apps/backend/src/email-openapi.json`) for this installation's mailbox, email, thread, draft, and attachment routes. It describes **Shiba's own API**, not Goshen Email's `/v1` API. Production requests need a valid Cloudflare Access session/JWT; an `Authorization: Bearer` MCP token does not authenticate these dashboard routes. Local `wrangler dev` can run without Access.

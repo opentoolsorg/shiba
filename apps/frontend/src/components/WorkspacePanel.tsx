@@ -10,7 +10,7 @@ import type { StoredApproval } from "../types";
 const ACCENT_BUTTON =
   "text-[11px] bg-[#0000a8]/10 hover:bg-[#0000a8]/15 border border-[#0000a8]/15 text-[#1c1cc8] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-none transition-colors";
 const DANGER_BUTTON =
-  "text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[#fb2c36]/50 text-[#fb2c36] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-none transition-colors";
+  "text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[#fb2c36]/50 text-[#b91c1c] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-none transition-colors";
 
 /** Kind-aware label for a stored approval pointer; unknown kinds render raw. */
 export function storedApprovalKind(approval: StoredApproval): string {
@@ -141,7 +141,7 @@ export function DecidedApprovalRow({ approval }: { approval: StoredApproval }): 
       </p>
       <p className="text-[11px] text-[#222320] font-medium break-words">{approval.task}</p>
       {approval.execution?.error !== undefined ? (
-        <p className="text-[10px] text-[#fb2c36] mt-1 break-words">{approval.execution.error}</p>
+        <p className="text-[10px] text-[#b91c1c] mt-1 break-words">{approval.execution.error}</p>
       ) : null}
       <p className="text-[10px] text-[#6a6f63] font-mono mt-1">
         {formatTimeAgo(approval.decidedAt ?? approval.createdAt)}
