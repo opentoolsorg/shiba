@@ -35,7 +35,15 @@ export interface OrchestratorStub {
 
 async function queueOnOrchestrator(
   stub: OrchestratorStub,
-  input: { repoUrl: string; task: string; publishPullRequest: boolean; threadKey: string; commandId?: string },
+  input: {
+    repoUrl: string;
+    task: string;
+    publishPullRequest: boolean;
+    threadKey: string;
+    role?: string;
+    codingModel?: string;
+    commandId?: string;
+  },
 ): Promise<{ approvalId: string }> {
   const queued = await stub.fetch(
     new Request("https://internal/api/runs", {
@@ -202,6 +210,11 @@ export class Automations {
             repoUrl: `https://github.com/${mapped.repo}`,
             task,
             publishPullRequest: false,
+            // Reviewer-role run pinned to Sol (opencodex gpt-6.1-sol) via the
+            // opencode-go gateway subscription; REVIEW_RUN_MODEL overrides,
+            // and ROLE_MODEL__REVIEWER still wins over this per-run id.
+            role: "reviewer",
+            codingModel: this.env.REVIEW_RUN_MODEL?.trim() || "opencode-go/gpt-6.1-sol",
             threadKey: `review:${mapped.repo}#${pull}`,
             commandId:
               typeof record.deliveryId === "string" && record.deliveryId !== ""

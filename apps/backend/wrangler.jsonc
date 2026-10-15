@@ -162,5 +162,8 @@
     { "tag": "v7", "new_sqlite_classes": ["ModelConfig"] },
     { "tag": "v8", "deleted_classes": ["McpGateway"] },
     { "tag": "v9", "new_sqlite_classes": ["LocalDispatch"] },
+    // alchemy deploy left this tag on the published script; wrangler must
+    // see it so it doesn't re-apply already-existing DO migrations.
+    { "tag": "alchemy:v10" },
   ],
 }
