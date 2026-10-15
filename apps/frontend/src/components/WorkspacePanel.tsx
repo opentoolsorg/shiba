@@ -8,9 +8,9 @@ import { formatTimeAgo, statusChipClass } from "../ui-helpers";
 import type { StoredApproval } from "../types";
 
 const ACCENT_BUTTON =
-  "text-[11px] bg-[#0000a8]/10 hover:bg-[#0000a8]/15 border border-[#0000a8]/15 text-[#1c1cc8] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-none transition-colors";
+  "text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-[var(--radius-button)] transition-colors";
 const DANGER_BUTTON =
-  "text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[#fb2c36]/50 text-[#b91c1c] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-none transition-colors";
+  "text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[#fb2c36]/50 text-[#b91c1c] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-[var(--radius-button)] transition-colors";
 
 /** Kind-aware label for a stored approval pointer; unknown kinds render raw. */
 export function storedApprovalKind(approval: StoredApproval): string {
@@ -65,25 +65,25 @@ export function StoredApprovalCard({
       ...(approval.testCommand?.length ? { testCommand: approval.testCommand } : {}),
     } satisfies Record<string, unknown>);
   return (
-    <div className="border border-[#e0ded5] border-l-2 border-l-[#b45309] rounded-none bg-[#f6f4ed] p-3">
+    <div className="border border-[var(--border-1)] border-l-2 border-l-[#b45309] rounded-[var(--radius-button)] bg-[var(--bg)] p-3">
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <span className="text-[10px] font-bold uppercase tracking-wider text-[#b45309]">
           {storedApprovalKind(approval)}
         </span>
-        <span className="text-[10px] text-[#6a6f63] font-mono">
+        <span className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
           {formatTimeAgo(approval.createdAt)}
         </span>
       </div>
-      <p className="text-[10px] font-mono text-[#6a6f63] truncate mb-1">
+      <p className="text-[10px] font-mono text-[var(--muted-foreground-2)] truncate mb-1">
         via {storedApprovalAgent(approval)}
       </p>
-      <p className="text-[11px] text-[#222320] font-medium break-words mb-1">{approval.task}</p>
+      <p className="text-[11px] text-[var(--fg)] font-medium break-words mb-1">{approval.task}</p>
       {approval.testCommand?.length ? (
-        <p className="text-[11px] font-mono text-[#6a6f63] break-words mb-1">
-          <span className="font-semibold text-[#222320]">Tests:</span> {approval.testCommand.join(" ")}
+        <p className="text-[11px] font-mono text-[var(--muted-foreground-2)] break-words mb-1">
+          <span className="font-semibold text-[var(--fg)]">Tests:</span> {approval.testCommand.join(" ")}
         </p>
       ) : null}
-      <pre className="font-mono text-[10px] text-[#6a6f63] bg-[#fffef8] p-2 rounded-none border border-[#e0ded5] whitespace-pre-wrap break-words max-h-32 overflow-auto mb-2">
+      <pre className="font-mono text-[10px] text-[var(--muted-foreground-2)] bg-[var(--card)] p-2 rounded-[var(--radius-button)] border border-[var(--border-1)] whitespace-pre-wrap break-words max-h-32 overflow-auto mb-2">
         {JSON.stringify(frozen, null, 2)}
       </pre>
       <div className="flex items-center gap-2">
@@ -124,26 +124,26 @@ export function DecidedApprovalRow({ approval }: { approval: StoredApproval }): 
           ? { label: "Executed", cls: statusChipClass("completed") }
           : { label: "Approved", cls: statusChipClass("running") };
   return (
-    <div className="border border-[#e0ded5] rounded-none bg-[#f6f4ed] p-3">
+    <div className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] p-3">
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[#6a6f63]">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
           {storedApprovalKind(approval)}
         </span>
         <span
-          className={`text-[10px] font-bold uppercase tracking-wider border rounded-none px-2 py-0.5 shrink-0 ${chip.cls}`}
+          className={`text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 shrink-0 ${chip.cls}`}
         >
           {chip.label}
         </span>
       </div>
-      <p className="text-[10px] font-mono text-[#6a6f63] truncate mb-1">
+      <p className="text-[10px] font-mono text-[var(--muted-foreground-2)] truncate mb-1">
         via {storedApprovalAgent(approval)}
         {approval.decidedBy !== undefined ? ` · ${approval.decidedBy}` : ""}
       </p>
-      <p className="text-[11px] text-[#222320] font-medium break-words">{approval.task}</p>
+      <p className="text-[11px] text-[var(--fg)] font-medium break-words">{approval.task}</p>
       {approval.execution?.error !== undefined ? (
         <p className="text-[10px] text-[#b91c1c] mt-1 break-words">{approval.execution.error}</p>
       ) : null}
-      <p className="text-[10px] text-[#6a6f63] font-mono mt-1">
+      <p className="text-[10px] text-[var(--muted-foreground-2)] font-mono mt-1">
         {formatTimeAgo(approval.decidedAt ?? approval.createdAt)}
       </p>
     </div>

@@ -1459,17 +1459,17 @@ export function App(): React.JSX.Element {
   if (identityIssue === "signin" || identityIssue === "unconfigured") {
     const accessUnconfigured = identityIssue === "unconfigured";
     return (
-      <div className="h-dvh bg-[#f6f4ed] text-[#222320] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-sm w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)] flex flex-col items-center text-center gap-3">
+      <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
           <img
             src="/assets/mascot/pet-logo.png"
             alt="Shiba"
-            className="size-14 rounded-full bg-white object-contain border border-[#0000a8]/40"
+            className="size-14 rounded-full bg-white object-contain border border-[var(--primary)]/40"
           />
-          <h1 className="text-2xl text-[#222320]">
+          <h1 className="text-2xl text-[var(--fg)]">
             {accessUnconfigured ? "Dashboard access isn't configured" : "Sign in to continue"}
           </h1>
-          <p className="text-sm text-[#6a6f63] leading-relaxed">
+          <p className="text-sm text-[var(--muted-foreground-2)] leading-relaxed">
             {accessUnconfigured
               ? "This deployment has no Cloudflare Access application, so the dashboard is locked. Set ACCESS_EMAILS and WORKERS_SUBDOMAIN and redeploy, or set ACCESS_AUD to an existing Access app's AUD tag."
               : "Your Cloudflare Access session has expired or you are not signed in yet."}
@@ -1477,7 +1477,7 @@ export function App(): React.JSX.Element {
           {accessUnconfigured ? (
             <a
               href="/docs/deployment/"
-              className="mt-1 w-full min-h-11 flex items-center justify-center rounded-none bg-[#0000a8] hover:bg-[#1c1cc8] text-white text-sm font-semibold transition-colors shadow-[2px_2px_0_var(--paper-shadow)]"
+              className="mt-1 w-full min-h-11 flex items-center justify-center rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)]"
             >
               Deployment documentation
             </a>
@@ -1485,7 +1485,7 @@ export function App(): React.JSX.Element {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="mt-1 w-full min-h-11 rounded-none bg-[#0000a8] hover:bg-[#1c1cc8] text-white text-sm font-semibold transition-colors shadow-[2px_2px_0_var(--paper-shadow)] active:scale-[0.98]"
+              className="mt-1 w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
             >
               Sign in
             </button>
@@ -1545,7 +1545,7 @@ export function App(): React.JSX.Element {
             className="absolute inset-0 bg-black/60"
             onClick={() => setMobileNavOpen(false)}
           />
-          <div className="absolute inset-y-0 left-0 shadow-[3px_3px_0_var(--paper-shadow)] animate-enter-x">
+          <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] animate-enter-x">
             <AppNavRail
               variant="sheet"
               activeView={mainView}
@@ -1671,7 +1671,7 @@ export function App(): React.JSX.Element {
             <span className="flex-1 min-w-0 break-words">
               {bannerMessage}
               {online && identityIssue ? (
-                <span className="text-[#6a6f63]"> Retrying automatically.</span>
+                <span className="text-[var(--muted-foreground-2)]"> Retrying automatically.</span>
               ) : null}
             </span>
             <button
@@ -1680,7 +1680,7 @@ export function App(): React.JSX.Element {
                 if (identityIssue) retryIdentity();
                 else agent.reconnect();
               }}
-              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-none border border-[#fb2c36]/40 bg-[#fffef8] text-[#b91c1c] font-medium hover:bg-[#fb2c36]/10 transition-colors"
+              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-[var(--radius-button)] border border-[#fb2c36]/40 bg-[var(--card)] text-[#b91c1c] font-medium hover:bg-[#fb2c36]/10 transition-colors"
             >
               Retry now
             </button>
@@ -1690,15 +1690,15 @@ export function App(): React.JSX.Element {
         <div className="flex-1 flex min-w-0 min-h-0">
           {inboxMounted ? (
             <div
-              className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]"
+              className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]"
               style={mainView === "inbox" ? undefined : { display: "none" }}
             >
-              <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+              <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
                     <span>Mailbox</span>
                   </h2>
-                  <p className="text-xs text-[#6a6f63]">
+                  <p className="text-xs text-[var(--muted-foreground-2)]">
                     Cloudflare Email Routing, inbound triage, and approval-gated outbound send.
                   </p>
                 </div>
@@ -1771,7 +1771,7 @@ export function App(): React.JSX.Element {
                     className="absolute inset-0 bg-black/60"
                     onClick={() => setMobileSessionsOpen(false)}
                   />
-                  <div className="absolute inset-y-0 left-0 shadow-[3px_3px_0_var(--paper-shadow)] bg-[#f6f4ed] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
+                  <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] bg-[var(--bg)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
                     <SessionsSidebar
                       sessions={sessions}
                       agents={agentPrincipals}
@@ -1801,11 +1801,11 @@ export function App(): React.JSX.Element {
 
               {/* CENTER: conversation timeline + composer */}
               <main
-                className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f6f4ed]"
+                className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[var(--bg)]"
                 aria-busy={busy}
               >
                 {/* SESSION HEADER */}
-                <div className="border-b border-black/[0.08] bg-[#f6f4ed]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
+                <div className="border-b border-black/[0.08] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
                   <div className="flex items-center gap-2.5 min-w-0">
                     {/* Desktop sidebar toggle button */}
                     <Tooltip
@@ -1818,7 +1818,7 @@ export function App(): React.JSX.Element {
                         onClick={toggleSessionsCollapsed}
                         aria-label={sessionsCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                         aria-expanded={!sessionsCollapsed}
-                        className="hidden lg:flex w-7 h-7 rounded-none border border-black/[0.08] bg-[#fffef8] text-[#6a6f63] hover:text-[#222320] hover:bg-[#e0ded5] items-center justify-center transition-colors shrink-0"
+                        className="hidden lg:flex w-7 h-7 rounded-[var(--radius-button)] border border-black/[0.08] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] items-center justify-center transition-colors shrink-0"
                       >
                         <svg
                           aria-hidden="true"
@@ -1852,7 +1852,7 @@ export function App(): React.JSX.Element {
                         type="button"
                         onClick={() => setMobileSessionsOpen(true)}
                         aria-label="Open sessions"
-                        className="lg:hidden w-7 h-7 touch:w-11 touch:h-11 rounded-none border border-black/[0.08] bg-[#fffef8] text-[#6a6f63] hover:text-[#222320] flex items-center justify-center transition-colors shrink-0"
+                        className="lg:hidden w-7 h-7 touch:w-11 touch:h-11 rounded-[var(--radius-button)] border border-black/[0.08] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] flex items-center justify-center transition-colors shrink-0"
                       >
                         <svg
                           aria-hidden="true"
@@ -1875,34 +1875,34 @@ export function App(): React.JSX.Element {
                       <img
                         src="/assets/mascot/pet-logo.png"
                         alt="Shiba"
-                        className="w-6 h-6 rounded-full bg-white object-contain border border-[#0000a8]/40 shrink-0 cursor-default"
+                        className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
                       />
                     </Tooltip>
-                    <h1 className="text-sm font-semibold text-[#222320] font-display tracking-tight truncate">
+                    <h1 className="text-sm font-semibold text-[var(--fg)] font-sans tracking-tight truncate">
                       {liveSession ? liveSession.title : "New coding task"}
                     </h1>
                     <Tooltip content="Active real-time agent orchestration stream" side="bottom">
-                      <span className="text-[10px] font-bold uppercase tracking-wider border rounded-none px-2 py-0.5 shrink-0 text-[#1c1cc8] border-[#0000a8]/15 bg-[#0000a8]/10">
+                      <span className="text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 shrink-0 text-[var(--primary)] border-[var(--primary)]/15 bg-[var(--primary-soft)]">
                         Live
                       </span>
                     </Tooltip>
                   </div>
 
-                  <div className="hidden md:flex items-center gap-4 text-xs font-mono text-[#6a6f63] shrink-0">
+                  <div className="hidden md:flex items-center gap-4 text-xs font-mono text-[var(--muted-foreground-2)] shrink-0">
                     <Tooltip content="Tool runs currently in flight" side="bottom">
                       <span className="cursor-default">
-                        <span className="text-[#6a6f63]">Active</span>{" "}
-                        <span className="text-[#0000a8] font-bold">{toolRuns.length}</span>
+                        <span className="text-[var(--muted-foreground-2)]">Active</span>{" "}
+                        <span className="text-[var(--primary)] font-bold">{toolRuns.length}</span>
                       </span>
                     </Tooltip>
                     <Tooltip content="Actions waiting for human approval" side="bottom">
                       <span className="cursor-default">
-                        <span className="text-[#6a6f63]">Approvals</span>{" "}
+                        <span className="text-[var(--muted-foreground-2)]">Approvals</span>{" "}
                         <span
                           className={
                             pendingApprovals.length + visibleStoredApprovals.length > 0
                               ? "font-bold text-[#f99c00]"
-                              : "font-bold text-[#6a6f63]"
+                              : "font-bold text-[var(--muted-foreground-2)]"
                           }
                         >
                           {pendingApprovals.length + visibleStoredApprovals.length}
@@ -1911,15 +1911,15 @@ export function App(): React.JSX.Element {
                     </Tooltip>
                     <Tooltip content="Total completed and retained runs" side="bottom">
                       <span className="cursor-default">
-                        <span className="text-[#6a6f63]">Runs</span>{" "}
-                        <span className="text-[#222320] font-bold">{allRuns.length}</span>
+                        <span className="text-[var(--muted-foreground-2)]">Runs</span>{" "}
+                        <span className="text-[var(--fg)] font-bold">{allRuns.length}</span>
                       </span>
                     </Tooltip>
                     <Tooltip
                       content="Container has zero secrets; provider keys stay at AI Gateway egress"
                       side="bottom"
                     >
-                      <span className="text-[10px] uppercase tracking-wider font-mono text-[#0000a8]/80 bg-[#0000a8]/10 border border-[#0000a8]/10 px-2 py-0.5 rounded-none">
+                      <span className="text-[10px] uppercase tracking-wider font-mono text-[var(--primary)]/80 bg-[var(--primary-soft)] border border-[var(--primary)]/10 px-2 py-0.5 rounded-[var(--radius-button)]">
                         Zero-Trust Boundary
                       </span>
                     </Tooltip>
@@ -1929,9 +1929,9 @@ export function App(): React.JSX.Element {
                 {/* PENDING APPROVALS STRIP */}
                 {pendingApprovals.length + visibleStoredApprovals.length > 0 ||
                 approvalAnnouncement ? (
-                  <div className="bg-[#fffef8] border-b border-[#e0ded5] px-3 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-3 shadow-[2px_2px_0_var(--paper-shadow)] z-10 shrink-0">
+                  <div className="bg-[var(--card)] border-b border-[var(--border-1)] px-3 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-3 shadow-[var(--sh-card)] z-10 shrink-0">
                     <p
-                      className="text-sm font-medium text-[#222320]"
+                      className="text-sm font-medium text-[var(--fg)]"
                       role="status"
                       aria-live="polite"
                     >
@@ -1966,7 +1966,7 @@ export function App(): React.JSX.Element {
                       <button
                         type="button"
                         onClick={() => setMainView("approvals")}
-                        className="shrink-0 text-xs font-semibold text-[#b45309] border border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/15 rounded-none px-3 py-1.5 touch:min-h-11 transition-colors"
+                        className="shrink-0 text-xs font-semibold text-[#b45309] border border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/15 rounded-[var(--radius-button)] px-3 py-1.5 touch:min-h-11 transition-colors"
                       >
                         Review
                       </button>
@@ -1981,11 +1981,11 @@ export function App(): React.JSX.Element {
                       <div
                         role="status"
                         aria-live="polite"
-                        className="text-xs text-[#6a6f63] bg-[#fffef8] p-3 rounded-none border border-[#e0ded5] flex items-start gap-2"
+                        className="text-xs text-[var(--muted-foreground-2)] bg-[var(--card)] p-3 rounded-[var(--radius-button)] border border-[var(--border-1)] flex items-start gap-2"
                       >
                         <svg
                           aria-hidden="true"
-                          className="w-4 h-4 text-[#0000a8] shrink-0 mt-0.5"
+                          className="w-4 h-4 text-[var(--primary)] shrink-0 mt-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -2003,7 +2003,7 @@ export function App(): React.JSX.Element {
                     {chat.error ? (
                       <div
                         role="alert"
-                        className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-none border border-[#fb2c36]/30 flex items-start gap-2"
+                        className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-[var(--radius-button)] border border-[#fb2c36]/30 flex items-start gap-2"
                       >
                         <svg
                           aria-hidden="true"
@@ -2023,7 +2023,7 @@ export function App(): React.JSX.Element {
                       </div>
                     ) : null}
                     {runsError ? (
-                      <div className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-none border border-[#fb2c36]/30 flex items-start gap-2">
+                      <div className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-[var(--radius-button)] border border-[#fb2c36]/30 flex items-start gap-2">
                         <svg
                           aria-hidden="true"
                           className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5"
@@ -2067,7 +2067,7 @@ export function App(): React.JSX.Element {
                   className={
                     chat.messages.length === 0
                       ? "flex-1 flex flex-col min-h-0"
-                      : "border-t border-black/[0.08] bg-[#f6f4ed]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
+                      : "border-t border-black/[0.08] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
                   <TaskComposer
@@ -2148,13 +2148,13 @@ export function App(): React.JSX.Element {
               onRefresh={refreshRuns}
             />
           ) : mainView === "memory" ? (
-            <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-              <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+            <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+              <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
                     <span>Agent Memory</span>
                   </h2>
-                  <p className="text-xs text-[#6a6f63]">
+                  <p className="text-xs text-[var(--muted-foreground-2)]">
                     Vectorize long-term semantic memory, extracted facts, and session context.
                   </p>
                 </div>
@@ -2251,25 +2251,25 @@ export function App(): React.JSX.Element {
           {/* CLEAR HISTORY CONFIRMATION MODAL */}
           {showClearModal ? (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-              <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)]">
-                <h3 className="text-lg font-bold text-[#222320] mb-2">
+              <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
+                <h3 className="text-lg font-bold text-[var(--fg)] mb-2">
                   Clear Conversation & Runs?
                 </h3>
-                <p className="text-sm text-[#6a6f63] mb-5 leading-relaxed">
+                <p className="text-sm text-[var(--muted-foreground-2)] mb-5 leading-relaxed">
                   This will erase all active conversation history and delete retained run registry
                   records on the orchestrator. Active sandboxes will not be destroyed automatically.
                 </p>
                 <div className="flex items-center justify-end gap-3">
                   <button
                     type="button"
-                    className="px-4 py-2 rounded-none text-sm font-medium text-[#6a6f63] hover:text-[#222320] bg-[#fffef8] border border-[#e0ded5] transition-colors"
+                    className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-[var(--muted-foreground-2)] hover:text-[var(--fg)] bg-[var(--card)] border border-[var(--border-1)] transition-colors"
                     onClick={() => setShowClearModal(false)}
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
-                    className="px-4 py-2 rounded-none text-sm font-semibold text-white bg-[#fb2c36] hover:bg-[#fb2c36]/90 transition-colors shadow-[2px_2px_0_var(--paper-shadow)]"
+                    className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-semibold text-white bg-[#fb2c36] hover:bg-[#fb2c36]/90 transition-colors shadow-[var(--sh-card)]"
                     onClick={confirmClearAll}
                   >
                     Yes, Clear History
@@ -2305,52 +2305,52 @@ export function App(): React.JSX.Element {
           {/* KEYBOARD SHORTCUTS MODAL */}
           {showShortcutsModal ? (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-              <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)]">
+              <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-[#222320]">Keyboard Shortcuts</h3>
+                  <h3 className="text-base font-bold text-[var(--fg)]">Keyboard Shortcuts</h3>
                   <button
                     type="button"
                     onClick={() => setShowShortcutsModal(false)}
-                    className="text-[#6a6f63] hover:text-[#222320] text-sm font-mono"
+                    className="text-[var(--muted-foreground-2)] hover:text-[var(--fg)] text-sm font-mono"
                   >
                     ✕
                   </button>
                 </div>
                 <div className="flex flex-col gap-2.5 text-xs">
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Submit Task</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Submit Task</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ⌘ / Ctrl + Enter
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Toggle Sessions Sidebar</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Toggle Sessions Sidebar</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ⌘ / Ctrl + B or [
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Close Modals</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Close Modals</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       Escape
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Open Shortcuts Guide</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Open Shortcuts Guide</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ?
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Command Menu</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Command Menu</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ⌘ / Ctrl + K
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Toggle Light / Dark Theme</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Toggle Light / Dark Theme</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       D
                     </span>
                   </div>
@@ -2358,7 +2358,7 @@ export function App(): React.JSX.Element {
                 <div className="mt-5 text-right">
                   <button
                     type="button"
-                    className="px-4 py-1.5 rounded-none text-xs font-medium text-[#222320] bg-[#fffef8] border border-[#e0ded5] hover:bg-[#e0ded5] transition-colors"
+                    className="px-4 py-1.5 rounded-[var(--radius-button)] text-xs font-medium text-[var(--fg)] bg-[var(--card)] border border-[var(--border-1)] hover:bg-[var(--secondary)] transition-colors"
                     onClick={() => setShowShortcutsModal(false)}
                   >
                     Done

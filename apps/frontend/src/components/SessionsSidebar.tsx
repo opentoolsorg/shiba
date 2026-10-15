@@ -124,7 +124,7 @@ function AgentRow({ agent }: { agent: AgentPrincipal }) {
   return (
     <Tooltip content={tooltipText} side="right" align="start" delayMs={400}>
       <div
-        className="group w-full text-left rounded-none px-3 py-2 flex items-start gap-2.5 text-[#222320]"
+        className="group w-full text-left rounded-[var(--radius-button)] px-3 py-2 flex items-start gap-2.5 text-[var(--fg)]"
       >
         <span
           className={`mt-[7px] size-1.5 rounded-full shrink-0 ${
@@ -185,7 +185,7 @@ export function SessionsSidebar({
           <h2 className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
             Sessions
           </h2>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-none bg-[var(--card)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] tabular-nums">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[var(--card)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] tabular-nums">
             {sessions.length}
           </span>
         </div>
@@ -196,7 +196,7 @@ export function SessionsSidebar({
               type="button"
               onClick={onToggleCollapse}
               aria-label={isMobileDrawer ? "Close sessions" : "Collapse sidebar"}
-              className="size-7 rounded-none flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[#222320] hover:bg-black/[0.06] transition-colors"
+              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-black/[0.06] transition-colors"
             >
               {isMobileDrawer ? (
                 <X aria-hidden="true" className="size-4" strokeWidth={2} />
@@ -243,7 +243,7 @@ export function SessionsSidebar({
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground-2)] hover:text-[#222320] text-xs"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] text-xs"
             >
               ✕
             </button>
@@ -312,9 +312,9 @@ export function SessionsSidebar({
           <button
             type="button"
             onClick={onOpenSetup}
-            className={`inline-flex items-center gap-2 text-xs font-semibold rounded-none px-2.5 py-1.5 border transition-colors w-fit ${
+            className={`inline-flex items-center gap-2 text-xs font-semibold rounded-[var(--radius-button)] px-2.5 py-1.5 border transition-colors w-fit ${
               setupComplete
-                ? "text-[#1c1cc8] border-[#0000a8]/40 bg-[#0000a8]/10 hover:bg-[#0000a8]/20"
+                ? "text-[var(--primary)] border-[var(--primary)]/40 bg-[var(--primary-soft)] hover:bg-[var(--primary-soft-hover)]"
                 : "text-[#b45309] border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/20"
             }`}
           >
@@ -325,7 +325,7 @@ export function SessionsSidebar({
           <Tooltip content="Documentation & API guides" side="top">
             <a
               href="/docs"
-              className="text-xs text-[var(--muted-foreground-2)] hover:text-[#222320] transition-colors shrink-0"
+              className="text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors shrink-0"
             >
               Docs
             </a>

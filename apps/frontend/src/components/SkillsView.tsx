@@ -10,7 +10,7 @@ import { useState, type JSX } from "react";
 import { useSavedSkills, saveSkill, removeSkill } from "../saved";
 
 const FIELD =
-  "bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#1c1cc8] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[#6a6f63]/60 transition-colors";
+  "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
 
 export function SkillsView(): JSX.Element {
   const skills = useSavedSkills();
@@ -42,18 +42,18 @@ export function SkillsView(): JSX.Element {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-      <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0">
-        <h2 className="text-base font-semibold text-[#222320]">Skills</h2>
-        <p className="text-xs text-[#6a6f63]">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0">
+        <h2 className="text-base font-semibold text-[var(--fg)]">Skills</h2>
+        <p className="text-xs text-[var(--muted-foreground-2)]">
           Saved instruction bundles your agents can use on any run. Pick them in the task composer — they ship with the run to the cloud agent.
         </p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
-          <div className="rounded-none border border-[#d3d2c8] bg-[#fffef8] p-4 flex flex-col gap-2.5 shadow-[3px_3px_0_var(--paper-shadow)]">
-            <div className="text-xs font-semibold text-[#222320]">Add a skill</div>
+          <div className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-2.5 shadow-[var(--sh-overlay)]">
+            <div className="text-xs font-semibold text-[var(--fg)]">Add a skill</div>
             <input
               type="text"
               value={name}
@@ -82,7 +82,7 @@ export function SkillsView(): JSX.Element {
               <button
                 type="button"
                 onClick={addSkill}
-                className="text-[11px] bg-[#0000a8]/10 hover:bg-[#0000a8]/15 border border-[#0000a8]/15 text-[#1c1cc8] font-medium py-1.5 px-3 rounded-none transition-colors"
+                className="text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)] font-medium py-1.5 px-3 rounded-[var(--radius-button)] transition-colors"
               >
                 Save skill
               </button>
@@ -91,7 +91,7 @@ export function SkillsView(): JSX.Element {
           </div>
 
           {skills.length === 0 ? (
-            <div className="rounded-none border border-dashed border-[#d3d2c8] bg-[#f9f8f2] p-6 text-center text-xs text-[#6a6f63]">
+            <div className="rounded-[var(--radius-button)] border border-dashed border-[var(--border-2)] bg-[#f9f8f2] p-6 text-center text-xs text-[var(--muted-foreground-2)]">
               No skills saved yet — add one above, or open the task composer to pick skills when you run a task.
             </div>
           ) : (
@@ -99,22 +99,22 @@ export function SkillsView(): JSX.Element {
               {skills.map((skill) => (
                 <li
                   key={skill.id}
-                  className="rounded-none border border-[#d3d2c8] bg-[#fffef8] px-4 py-3 flex items-start justify-between gap-3 shadow-[2px_2px_0_var(--paper-shadow)]"
+                  className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-4 py-3 flex items-start justify-between gap-3 shadow-[var(--sh-card)]"
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-[#222320]">{skill.name}</div>
+                    <div className="text-sm font-medium text-[var(--fg)]">{skill.name}</div>
                     {skill.repoUrl ? (
-                      <div className="text-[11px] font-mono text-[#6a6f63] truncate">{skill.repoUrl}</div>
+                      <div className="text-[11px] font-mono text-[var(--muted-foreground-2)] truncate">{skill.repoUrl}</div>
                     ) : null}
                     {skill.notes ? (
-                      <div className="text-[11px] text-[#6a6f63] mt-0.5">{skill.notes}</div>
+                      <div className="text-[11px] text-[var(--muted-foreground-2)] mt-0.5">{skill.notes}</div>
                     ) : null}
                   </div>
                   <button
                     type="button"
                     onClick={() => removeSkill(skill.id)}
                     aria-label={`Remove ${skill.name}`}
-                    className="shrink-0 text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[#e0ded5] hover:border-[#fb2c36]/50 text-[#6a6f63] hover:text-[#fb2c36] font-medium py-1 px-2.5 rounded-none transition-colors"
+                    className="shrink-0 text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[var(--border-1)] hover:border-[#fb2c36]/50 text-[var(--muted-foreground-2)] hover:text-[#fb2c36] font-medium py-1 px-2.5 rounded-[var(--radius-button)] transition-colors"
                   >
                     Remove
                   </button>
