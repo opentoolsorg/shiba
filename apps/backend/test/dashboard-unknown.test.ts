@@ -32,7 +32,7 @@ describe("dashboard unknown status", () => {
     const error = statusDotClass({ ...base, status: "error" });
     const completed = statusDotClass({ ...base, status: "completed" });
     const pending = statusDotClass({ ...base, status: "pending" });
-    expect(unknown).toContain("var(--orange)");
+    expect(unknown).toContain("var(--attention)");
     expect(unknown).not.toBe(error);
     expect(unknown).not.toBe(completed);
     expect(unknown).not.toBe(pending);

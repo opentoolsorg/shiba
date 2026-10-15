@@ -10,6 +10,7 @@
 import type { JSX, ReactNode } from "react";
 import { type SetupStatus, useMailboxes, useSetupStatus } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
+import { GmailConnection } from "./GmailConnection";
 import { LoadErrorState } from "./LoadErrorState";
 import { ToneChip } from "./ToneChip";
 
@@ -223,7 +224,8 @@ export function IntegrationsView({
             </IntegrationRow>
           </IntegrationGroup>
 
-          <IntegrationGroup title="Email" hint="Inbound triage and approval-gated outbound mail.">
+          <IntegrationGroup title="Email" hint="Inbound triage, approval-gated outbound mail, and read-only Gmail.">
+            <GmailConnection />
             <IntegrationRow
               name="Mailbox"
               status={

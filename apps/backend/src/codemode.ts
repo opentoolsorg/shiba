@@ -26,8 +26,8 @@ import { registerEmailTools } from "./mcp-email-tools.js";
 import { registerMemoryTools } from "./mcp-memory-tools.js";
 import { registerRunTools } from "./mcp-run-tools.js";
 
-/** Everything an agentic caller may do; admin:tokens stays operator-only. */
-const ORCHESTRATOR_SCOPES: Scope[] = SCOPES.filter((s) => s !== "admin:tokens");
+/** The shared cross-user principal must never inherit personal Gmail access. */
+const ORCHESTRATOR_SCOPES: Scope[] = SCOPES.filter((s) => s !== "admin:tokens" && s !== "gmail:read");
 
 export const ORCHESTRATOR_PRINCIPAL: TokenRecord = {
   principal: "orchestrator-agent",
