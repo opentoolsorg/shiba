@@ -105,25 +105,6 @@
   --dur-fast: 150ms;
   --dur-med: 320ms;
 
-  /* Temporary compat aliases to keep unmigrated components functioning */
-  --paper: var(--bg);
-  --ink: var(--fg);
-  --ink-2: var(--muted-foreground-1);
-  --navy: var(--primary);
-  --navy-2: var(--primary-soft-hover);
-  --panel-elevated: var(--card-hover);
-  --line: var(--border-1);
-  --line-light: var(--border-1);
-  --accent: var(--primary);
-  --accent-light: var(--primary-soft-hover);
-  --accent-ink: var(--primary-text);
-  --brand: var(--primary);
-  --brand-light: var(--primary-soft-hover);
-  --danger: var(--destructive);
-  --ok: var(--success);
-  --pending: var(--warning-fg);
-  --running: var(--primary);
-  --paper-dot: var(--shader-ink);
 }
 
 .dark, html.dark {
@@ -204,23 +185,6 @@
   --sh-sheet: var(--sh-overlay);
   --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
 
-  /* Temporary compat aliases for dark */
-  --paper: var(--bg);
-  --ink: var(--fg);
-  --ink-2: var(--muted-foreground-1);
-  --navy: var(--primary);
-  --navy-2: var(--primary-soft-hover);
-  --panel-elevated: var(--card-hover);
-  --line: var(--border-1);
-  --line-light: var(--border-1);
-  --accent: var(--primary);
-  --accent-light: var(--primary-soft-hover);
-  --accent-ink: #152335;
-  --danger: var(--destructive);
-  --ok: var(--success);
-  --pending: var(--warning-fg);
-  --running: var(--primary);
-  --paper-dot: var(--shader-ink);
 }
 
 * {
