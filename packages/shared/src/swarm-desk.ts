@@ -1,6 +1,16 @@
 export const SWARM_LANES = ["backlog", "in_progress", "needs_review", "archived"] as const;
 export type SwarmLane = (typeof SWARM_LANES)[number];
 
+export function formatRunAge(updatedAt: number, nowMs: number): string {
+  const seconds = Math.max(0, Math.floor((nowMs - updatedAt) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 export const SWARM_MODES = ["captain", "build", "review"] as const;
 export type SwarmMode = (typeof SWARM_MODES)[number];
 
@@ -14,11 +24,17 @@ export interface SwarmRunInput {
   screenshotUrl?: string | null;
   updatedAt: number;
   createdAt: number;
+  archivedAt?: number;
+  usage?: { costUsd?: number };
   summary?: string;
   role?: "orchestrator" | "explorer" | "fixer" | "reviewer" | "designer";
 }
 
 export interface SwarmCard {
+  archived?: boolean;
+  archivedAt?: number;
+  issueRef?: string;
+  costUsd?: number | null;
   runId: string;
   title: string;
   task: string;
@@ -32,7 +48,8 @@ export interface SwarmCard {
   updatedAt: number;
 }
 
-export function laneForRun(run: Pick<SwarmRunInput, "status" | "pullUrl">): SwarmLane {
+export function laneForRun(run: Pick<SwarmRunInput, "status" | "pullUrl" | "archivedAt">): SwarmLane {
+  if (run.archivedAt !== undefined) return "archived";
   switch (run.status) {
     case "pending":
       return "backlog";
@@ -110,6 +127,10 @@ export function projectSwarmDesk(runs: readonly SwarmRunInput[]): Record<SwarmLa
       pullUrl: run.pullUrl,
       screenshotUrl: run.screenshotUrl,
       updatedAt: run.updatedAt,
+      archivedAt: run.archivedAt,
+      archived: run.archivedAt !== undefined,
+      costUsd: run.usage?.costUsd ?? null,
+      issueRef: run.task.split("\n")[0]?.match(/[A-Z][A-Z0-9]+-\d+/)?.[0],
     };
     desk[lane].push(card);
   }

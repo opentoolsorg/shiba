@@ -303,6 +303,20 @@ export class RunStore {
     this.write(this.read().map((run) => (run.runId === runId ? next : normalizeRun(run))));
   }
 
+  archiveRun(runId: string): DelegatedRun | null {
+    const current = this.get(runId);
+    if (!current) return null;
+    const command: RunCommand = {
+      type: "archive", commandId: `archive:${runId}:${current.generation}`, runId, at: Date.now(),
+    };
+    const decision = decideRunTransition({ run: current }, command);
+    this.decisionTap?.(command, decision);
+    if ("error" in decision) throw new Error(decision.error.message);
+    const next = applyRunEvents(current, decision.events, makeReceipt);
+    if (next && !decision.events.every((event) => event.replayed)) this.replace(runId, next);
+    return next;
+  }
+
   clear(): void {
     this.write([]);
   }

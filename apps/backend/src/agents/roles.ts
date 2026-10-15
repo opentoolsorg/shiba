@@ -25,7 +25,10 @@
  *   orchestrator → codex              (OpenAI-class planning)
  *   explorer     → devin-subscription (swe-2)
  *   fixer        → opencode           (deepseek)
- *   reviewer     → claude-subscription(opus-class)
+ *   reviewer     → opencode           (opencode-go/gpt-6.1-sol — Sol on the
+ *                                     opencodex lane; the built-in PR review
+ *                                     automation pins it per run via
+ *                                     REVIEW_RUN_MODEL, this pin wins)
  *   designer     → antigravity-subscription (Gemini)
  */
 import { AGENT_ROLES, isJsonObject, type AgentRole } from "@shiba/shared";

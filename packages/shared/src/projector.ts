@@ -54,6 +54,8 @@ export function appendToLog(log: SpineEvent[] | undefined, events: SpineEvent[])
 function spineToDeciderEvent(event: SpineEvent): RunEvent | null {
   const p = event.payload;
   switch (event.kind) {
+    case "run.archived":
+      return { type: "run.archived", commandId: event.commandId, at: event.at };
     case "run.proposed":
       return p && "run" in p
         ? {

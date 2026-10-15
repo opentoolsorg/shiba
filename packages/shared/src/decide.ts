@@ -62,6 +62,7 @@ export interface QueuedRunInput {
 }
 
 export type RunCommand =
+  | { type: "archive"; commandId: string; runId: string; at: number }
   | { type: "queue"; commandId: string; runId: string; input: QueuedRunInput; approval?: ApprovalEvidence; at: number }
   | { type: "approve"; commandId: string; runId: string; approval: ApprovalEvidence; at: number }
   | { type: "start"; commandId: string; runId: string; approvalEvidence?: ApprovalEvidence; at: number }
@@ -72,6 +73,7 @@ export type RunCommand =
   | { type: "reclaim"; commandId: string; runId: string; deadlineMs: number; at: number };
 
 export type RunEvent =
+  | { type: "run.archived"; commandId: string; at: number; replayed?: boolean }
   | { type: "run.queued"; commandId: string; at: number; run: DelegatedRun; replayed?: boolean }
   | { type: "run.approved"; commandId: string; at: number; approval: ApprovalEvidence; replayed?: boolean }
   | { type: "run.started"; commandId: string; at: number; approval?: ApprovalEvidence; replayed?: boolean }
@@ -155,6 +157,12 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
   const at = command.at;
 
   switch (command.type) {
+    case "archive": {
+      if (run === null) return rejected("run_not_found", `Cannot archive missing run ${command.runId}.`);
+      return { events: [{ type: "run.archived", commandId: command.commandId, at,
+        ...(run.archivedAt !== undefined ? { replayed: true } : {}),
+      }] };
+    }
     case "queue": {
       if (run === null) {
         const approval = command.approval;
@@ -412,6 +420,13 @@ export function applyRunEvents(
   for (const event of events) {
     if (event.replayed) continue;
     switch (event.type) {
+      case "run.archived": {
+        if (run === null) break;
+        run.archivedAt = event.at;
+        run.updatedAt = event.at;
+        run.generation += 1;
+        break;
+      }
       case "run.queued": {
         run = { ...event.run, receipts: event.run.receipts ?? [] };
         pushReceipt(run, "init", `Queued ${run.repoUrl} (${run.baseBranch}).`, event.at, make);

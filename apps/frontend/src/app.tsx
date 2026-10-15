@@ -2106,6 +2106,16 @@ export function App(): React.JSX.Element {
           ) : mainView === "swarm" ? (
             <SwarmDeskView
               runs={retainedRuns}
+              onResolve={async (runId) => {
+                const params = new URLSearchParams();
+                if (selectedSessionId) params.set("session", selectedSessionId);
+                const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/archive?${params}`, { method: "POST" });
+                if (!response.ok) {
+                  const body = await response.json().catch(() => ({})) as { error?: string };
+                  throw new Error(body.error ?? `Resolve failed (${response.status}).`);
+                }
+                refreshRuns();
+              }}
               onApplyIntake={(prompt) => {
                 setTask(prompt);
                 setMainView("tasks");

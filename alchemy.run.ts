@@ -117,6 +117,10 @@ export const ACCESS_BYPASS_PATHS = [
   "/api/telegram/webhook",
   "/api/discord/interactions",
   "/api/github/webhook",
+  // Sentry issue alerts authenticate in-Worker via the hook signature or
+  // shared-secret token (sentry-webhook-routes.ts) and cannot complete an
+  // Access login — same machine-caller class as the GitHub webhook.
+  "/api/sentry/webhook",
   "/mcp",
   "/mcp/*",
   "/api/automations/*/trigger",

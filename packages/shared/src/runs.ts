@@ -45,6 +45,8 @@ export interface DelegatedRun {
   status: RunStatus;
   createdAt: number;
   updatedAt: number;
+  /** Operator-archived timestamp; archiving leaves status intact. Absent on older records. */
+  archivedAt?: number;
   summary?: string;
   error?: string;
   /** Classified error code; set on every error/unknown transition. */

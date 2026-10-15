@@ -100,6 +100,13 @@ export interface Env {
   ORCHESTRATOR_MODEL: string;
   /** Optional Workers AI override for the PR review lane's reasoning pass. */
   REVIEW_MODEL?: string;
+  /**
+   * Coding-model override for the delegated review runs the built-in
+   * pull_request lane queues (provider/model form). Defaults to
+   * opencode-go/gpt-6.1-sol — the opencodex Sol lane served through the
+   * opencode-go gateway subscription. ROLE_MODEL__REVIEWER still wins.
+   */
+  REVIEW_RUN_MODEL?: string;
   /** Optional Workers AI override for plan-only runs. */
   PLAN_MODEL?: string;
   /** Optional Workers AI override for UI-copy passes. */

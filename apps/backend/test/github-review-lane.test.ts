@@ -100,6 +100,14 @@ describe("pull_request review lane", () => {
     expect(input.threadKey).toBe("review:acme/widgets#12");
     expect(input.commandId).toBe("review:d-pr-1");
     expect(input.publishPullRequest).toBe(false);
+    expect(input.role).toBe("reviewer");
+    expect(input.codingModel).toBe("opencode-go/gpt-6.1-sol");
+  });
+
+  it("honors REVIEW_RUN_MODEL", async () => {
+    orchestratorCalls.length = 0;
+    await makeDo({ REVIEW_RUN_MODEL: " custom/reviewer " }).fetch(githubInternal(PR_PAYLOAD));
+    expect(orchestratorCalls[0]?.input).toMatchObject({ role: "reviewer", codingModel: "custom/reviewer" });
   });
 
   it("queues on synchronize too", async () => {

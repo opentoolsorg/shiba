@@ -2340,6 +2340,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   /** Cancel a retained run and destroy its sandbox. Returns null when unknown. */
+  async archiveRun(runId: string): Promise<DelegatedRun | null> {
+    return this.store.archiveRun(runId);
+  }
+
   async cancelRun(runId: string): Promise<DelegatedRun | null> {
     const run = this.store.get(runId);
     if (!run) return null;
@@ -3207,6 +3211,20 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ error: "Invalid run ID." }, { status: 400 });
       }
       return this.screenAction(screenRunId, screenBody as Record<string, unknown>, agentPrincipal);
+    }
+    const archiveMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/archive$/);
+    if (archiveMatch) {
+      if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      let id: string;
+      try { id = decodeURIComponent(archiveMatch[1]!); }
+      catch { return Response.json({ error: "Invalid run ID." }, { status: 400 }); }
+      const existing = this.store.get(id);
+      if (!existing || (agentPrincipal !== null && existing.queuedBy !== agentPrincipal)) {
+        return Response.json({ error: "Run not found." }, { status: 404 });
+      }
+      const run = await this.archiveRun(id);
+      return run ? Response.json({ run: this.serializeRun(run) })
+        : Response.json({ error: "Run not found." }, { status: 404 });
     }
     const forkMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/fork$/);
     if (forkMatch !== null) {
