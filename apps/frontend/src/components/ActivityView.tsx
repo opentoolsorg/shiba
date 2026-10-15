@@ -1,6 +1,7 @@
-import { useEffect, type JSX } from "react";
+import { useEffect, useMemo, type JSX } from "react";
 import { LoadErrorState } from "./LoadErrorState";
 import { useSpine, type OutboxEntryWire, type SpineEventWire } from "../live-status";
+import { documentVisibilityPause } from "../polling";
 
 /**
  * Orchestrator activity — the P9 event spine, surfaced. Two panels:
@@ -19,15 +20,43 @@ export function ActivityView({
 
   // Poll 5s after each fetch settles — never abort a request that's still in
   // flight, or a slow DO keeps the feed stuck on "Reading the spine…" forever.
+  // A hidden tab holds the next tick and refreshes once on resume.
   useEffect(() => {
     if (inFlight) return;
-    const timer = window.setTimeout(reload, 5_000);
-    return () => window.clearTimeout(timer);
+    const pause = documentVisibilityPause();
+    let timer: number | undefined;
+    if (!pause.isPaused()) {
+      timer = window.setTimeout(reload, 5_000);
+    }
+    const unsubscribe = pause.subscribe(() => {
+      if (pause.isPaused()) {
+        if (timer !== undefined) {
+          window.clearTimeout(timer);
+          timer = undefined;
+        }
+      } else if (timer === undefined) {
+        // Resume: the interval was skipped while hidden — refresh now.
+        reload();
+      }
+    });
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      unsubscribe();
+    };
   }, [inFlight, reload]);
 
   const events = state.kind === "data" ? state.data.events : [];
   const outbox = state.kind === "data" ? state.data.outbox : [];
-  const pending = outbox.filter((entry) => entry.status === "pending");
+  // Bounded (≤ MAX_SPINE_EVENTS) but still worth memoizing: every render used
+  // to re-allocate a sorted copy and re-filter the outbox.
+  const sortedEvents = useMemo(
+    () => [...events].sort((a, b) => b.seq - a.seq),
+    [events],
+  );
+  const pending = useMemo(
+    () => outbox.filter((entry) => entry.status === "pending"),
+    [outbox],
+  );
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
@@ -73,11 +102,9 @@ export function ActivityView({
               </div>
             ) : (
               <ol className="divide-y divide-[var(--border-1)]/60">
-                {[...events]
-                  .sort((a, b) => b.seq - a.seq)
-                  .map((event) => (
-                    <EventRow key={event.seq} event={event} />
-                  ))}
+                {sortedEvents.map((event) => (
+                  <EventRow key={event.seq} event={event} />
+                ))}
               </ol>
             )}
           </section>

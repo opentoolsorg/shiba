@@ -44,7 +44,8 @@ import { authClient } from "./auth-client";
 import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
 import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
-import { extractPendingApprovals, extractCompletedDiff, parseRepoName } from "./ui-helpers";
+import { extractPendingApprovals, extractCompletedDiff, parseRepoName, runsListUrl } from "./ui-helpers";
+import { createCompletionDrivenPoll, documentVisibilityPause } from "./polling";
 import type { AgentPrincipal, RetainedRun, StoredApproval, ToolRunRecord } from "./types";
 
 const ORCHESTRATOR_AGENT = "coding-orchestrator";
@@ -59,15 +60,20 @@ function useRetainedRuns(
   refreshToken: number,
   sessionId: string,
   sessionApiAvailable: boolean,
-): { runs: RetainedRun[]; error: string | null } {
+  fullDetail: boolean,
+): { runs: RetainedRun[]; error: string | null; detailReady: boolean } {
   const [runs, setRuns] = useState<RetainedRun[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // True once a full-payload response has landed while fullDetail was on.
+  // Detail surfaces (the diff inspector) gate on it so a summary list can
+  // never render as "this run has no diff".
+  const [detailReady, setDetailReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    let url = sessionApiAvailable
-      ? `/api/runs?session=${encodeURIComponent(sessionId)}`
-      : "/api/runs";
+    if (!fullDetail) setDetailReady(false);
+    let sessionScoped = sessionApiAvailable;
+    let url = runsListUrl(sessionId, sessionScoped, fullDetail);
     const load = async () => {
       try {
         let response = await fetch(url);
@@ -75,15 +81,17 @@ function useRetainedRuns(
         // unscoped list rather than leaving the registry empty. A 404 JSON
         // {error:"Session not found."} is different — the session itself is
         // gone, so an unscoped list would show another session's runs.
-        if ((response.status === 404 || response.status === 405) && url !== "/api/runs") {
+        if ((response.status === 404 || response.status === 405) && sessionScoped) {
           if (await isSessionNotFoundBody(response)) {
             if (!cancelled) {
               setRuns([]);
               setError(null);
+              setDetailReady(fullDetail);
             }
             return;
           }
-          url = "/api/runs";
+          sessionScoped = false;
+          url = runsListUrl(sessionId, false, fullDetail);
           response = await fetch(url);
         }
         if (!response.ok) throw new Error(`Runs request failed: ${response.status}`);
@@ -91,6 +99,7 @@ function useRetainedRuns(
         if (!cancelled) {
           setRuns(Array.isArray(body.runs) ? body.runs : []);
           setError(null);
+          setDetailReady(fullDetail);
         }
       } catch (fetchError: unknown) {
         if (!cancelled) {
@@ -102,9 +111,9 @@ function useRetainedRuns(
     return () => {
       cancelled = true;
     };
-  }, [refreshToken, sessionId, sessionApiAvailable]);
+  }, [refreshToken, sessionId, sessionApiAvailable, fullDetail]);
 
-  return { runs, error };
+  return { runs, error, detailReady };
 }
 
 /**
@@ -136,7 +145,7 @@ function useStoredApprovals(
     let applied = 0;
     const load = () => {
       const seq = ++sent;
-      fetch("/api/approvals")
+      return fetch("/api/approvals")
         .then(async (response) => {
           if (!response.ok) {
             throw new Error(`Approvals request failed: ${response.status}`);
@@ -158,11 +167,16 @@ function useStoredApprovals(
           }
         });
     };
-    load();
-    const timer = window.setInterval(load, 10_000);
+    // Completion-driven: the next tick arms only after this load settles
+    // (single inflight), and a hidden tab pauses instead of stacking polls.
+    const poll = createCompletionDrivenPoll({
+      intervalMs: 10_000,
+      load,
+      pause: documentVisibilityPause(),
+    });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, [refreshToken, enabled]);
 
@@ -184,7 +198,7 @@ function useAgentPrincipals(refreshToken: number, enabled: boolean): AgentPrinci
     let applied = 0;
     const load = () => {
       const seq = ++sent;
-      fetch("/api/agents")
+      return fetch("/api/agents")
         .then(async (response) => {
           if (!response.ok) {
             throw new Error(`Agents request failed: ${response.status}`);
@@ -197,11 +211,14 @@ function useAgentPrincipals(refreshToken: number, enabled: boolean): AgentPrinci
         })
         .catch(() => {});
     };
-    load();
-    const timer = window.setInterval(load, 10_000);
+    const poll = createCompletionDrivenPoll({
+      intervalMs: 10_000,
+      load,
+      pause: documentVisibilityPause(),
+    });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, [refreshToken, enabled]);
 
@@ -613,11 +630,15 @@ export function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [orchestratorName]);
-  const { runs: retainedRuns, error: runsError } = useRetainedRuns(
-    refreshToken,
-    selectedSessionId,
-    sessionApiAvailable,
-  );
+  // Ordinary views read the lean summary projection; only the diff
+  // inspector pulls the full run payload (diff/receipts/signals/steering).
+  const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady } =
+    useRetainedRuns(
+      refreshToken,
+      selectedSessionId,
+      sessionApiAvailable,
+      mainView === "diff",
+    );
   const {
     approvals: storedApprovals,
     decided: decidedStoredApprovals,
@@ -1148,6 +1169,7 @@ export function App(): React.JSX.Element {
         summary: r.summary,
         error: r.error,
         diff: r.diff,
+        hasDiff: r.hasDiff ?? Boolean(r.diff),
       });
     }
     for (const tr of toolRuns) {
@@ -2104,6 +2126,8 @@ export function App(): React.JSX.Element {
               runs={allRuns}
               selectedRunId={selectedRunId}
               onSelectRun={(id) => setSelectedRunId(id)}
+              loading={!runsDetailReady}
+              error={runsError}
             />
           ) : mainView === "approvals" ? (
             <ApprovalsView
