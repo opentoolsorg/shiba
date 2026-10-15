@@ -46,6 +46,49 @@ export function toolDisplayName(part: ToolPart): string {
   return typeof raw === "string" ? raw : "tool";
 }
 
+/**
+ * /api/runs list URL. Ordinary views consume the lean `view=summary`
+ * projection (leader-owned backend contract: required run fields plus
+ * `hasDiff`, without diff/receipts/signals/steering); the diff inspector
+ * asks for the full payload. No `limit` — retained history stays whole.
+ */
+export function runsListUrl(
+  sessionId: string,
+  sessionApiAvailable: boolean,
+  fullDetail: boolean,
+): string {
+  const params = new URLSearchParams();
+  if (sessionApiAvailable) params.set("session", sessionId);
+  if (!fullDetail) params.set("view", "summary");
+  const query = params.toString();
+  return query === "" ? "/api/runs" : `/api/runs?${query}`;
+}
+
+// Object-valued tool outputs serialize identically for identical objects;
+// cache by output identity so re-rendered history doesn't re-stringify.
+const toolOutputCache = new WeakMap<object, string>();
+
+/**
+ * Default tool-output renderer for the step timeline. Identical to the old
+ * inline formatter, plus a WeakMap memo keyed on the output object — React
+ * element identity can't stop a re-render, but this stops the re-serialize.
+ */
+export function formatToolOutput(part: ToolPart): string | null {
+  if (typeof part !== "object" || part === null) return null;
+  const typed = part as Record<string, unknown>;
+  const output = typed.output ?? typed.result;
+  if (output === undefined || output === null) return null;
+  if (typeof output === "string") return output;
+  if (typeof output === "object") {
+    const cached = toolOutputCache.get(output);
+    if (cached !== undefined) return cached;
+    const serialized = JSON.stringify(output, null, 2);
+    toolOutputCache.set(output, serialized);
+    return serialized;
+  }
+  return JSON.stringify(output, null, 2);
+}
+
 // Registry statuses: pending|running|completed|error|aborted|cancelled|unknown.
 const STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
