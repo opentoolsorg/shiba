@@ -43,3 +43,4 @@ shiba-ai-coworker-docs/
 audit/
 !.env.schema
 .hermes/
+graphify-out/

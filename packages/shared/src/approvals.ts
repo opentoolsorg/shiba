@@ -24,7 +24,7 @@ export type JsonValue =
  * for why the recursive arms are named interfaces rather than inline
  * types or aliases (only interface references defer instantiation).
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- marker interface; see above
+// Marker interface; see above.
 export interface JsonArray extends Array<JsonValue> {}
 
 /**

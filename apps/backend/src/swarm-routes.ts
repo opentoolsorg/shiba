@@ -1,6 +1,12 @@
-import { laneForRun, normalizeSwarmWebhook, parseSwarmIntake } from "../../../packages/shared/src/swarm-desk.js";
-import type { SwarmRunInput } from "../../../packages/shared/src/swarm-desk.js";
-import { redactShareView, signShareToken, verifyShareToken } from "../../../packages/shared/src/swarm-share.js";
+import {
+  laneForRun,
+  normalizeSwarmWebhook,
+  parseSwarmIntake,
+  redactShareView,
+  signShareToken,
+  verifyShareToken,
+} from "@shiba/shared";
+import type { SwarmRunInput } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 

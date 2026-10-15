@@ -192,6 +192,11 @@ describe("worker-level 401 codes", () => {
     expect(await statusFor("/api/runs", makeEnv())).toEqual({ status: 401, code: "better_auth" });
   });
 
+  it("better_auth when Access and the built-in lane are both configured", async () => {
+    const env = makeEnv({ REQUIRE_ACCESS: "1" } as Partial<Env>);
+    expect(await statusFor("/api/whoami", env)).toEqual({ status: 401, code: "better_auth" });
+  });
+
   it("serves /api/auth/* before the gate", async () => {
     const worker = (await import("../src/index.js")).default;
     const res = await worker.fetch(
