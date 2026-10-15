@@ -1,4 +1,5 @@
 import { useState, useMemo, type JSX } from "react";
+import { Check, Copy, Download } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 
 export interface DiffViewerProps {
@@ -33,7 +34,7 @@ const LINE_CLASSES: Record<LineKind, string> = {
   file: "font-bold text-[#222320] bg-[#0000a8]/10 border-y border-[#0000a8]/10 py-1 px-2 rounded-none block font-mono text-[11px]",
   hunk: "text-[#0000a8] font-mono text-[11px] bg-[#0000a8]/5 py-0.5 px-2 block my-0.5 rounded-none",
   add: "text-[#15803d] bg-[#15803d]/10 block w-full px-2 -mx-2 border-l-2 border-[#15803d]",
-  del: "text-[#fb2c36] bg-[#fb2c36]/10 block w-full px-2 -mx-2 border-l-2 border-[#fb2c36]",
+  del: "text-[#b91c1c] bg-[#fb2c36]/10 block w-full px-2 -mx-2 border-l-2 border-[#fb2c36]",
   context: "text-[#6a6f63] block px-2",
 };
 
@@ -95,7 +96,7 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
             </span>
           ) : null}
           <span className="text-[#15803d] font-semibold">+{stats.additions}</span>
-          <span className="text-[#fb2c36] font-semibold">-{stats.deletions}</span>
+          <span className="text-[#b91c1c] font-semibold">-{stats.deletions}</span>
         </div>
         <div className="flex items-center gap-2">
           <Tooltip content={copied ? "Diff copied to clipboard!" : "Copy unified diff to clipboard"} side="top">
@@ -106,16 +107,12 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
             >
               {copied ? (
                 <>
-                  <svg aria-hidden="true"  className="w-3.5 h-3.5 text-[#15803d]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                  <Check aria-hidden="true" className="w-3.5 h-3.5 text-[#15803d]" strokeWidth={2} />
                   <span className="text-[#15803d] font-medium">Copied</span>
                 </>
               ) : (
                 <>
-                  <svg aria-hidden="true"  className="w-3.5 h-3.5 text-[#6a6f63]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
+                  <Copy aria-hidden="true" className="w-3.5 h-3.5 text-[#6a6f63]" strokeWidth={2} />
                   <span>Copy diff</span>
                 </>
               )}
@@ -128,9 +125,7 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
               onClick={downloadPatch}
               className="text-[11px] font-sans px-2.5 py-1 rounded-none bg-[#f6f4ed] hover:bg-[#e0ded5] text-[#6a6f63] hover:text-[#222320] border border-black/[0.08] transition-colors flex items-center gap-1"
             >
-              <svg aria-hidden="true"  className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
+              <Download aria-hidden="true" className="w-3.5 h-3.5" strokeWidth={2} />
               <span>.diff</span>
             </button>
           </Tooltip>

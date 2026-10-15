@@ -451,11 +451,15 @@ describe("grok harness", () => {
 
 describe("connection compatibility stays honest", () => {
   it("cursor is a remote executor — no sandbox harness drives it", () => {
-    // No xai CONNECTION_SERVICES row exists today, so the grok branch is only
-    // reachable through a real service here — cursor must stay empty.
+    // The grok service row routes through the xai namespace; cursor stays a
+    // remote executor with no sandbox-compatible harness.
     expect(compatibleHarnesses("cursor")).toEqual([]);
     expect(compatibleHarnesses("anthropic")).toContain("claude-code");
     expect(compatibleHarnesses("anthropic")).toContain("opencode");
+    // The new fleet lanes resolve to real provider namespaces.
+    expect(compatibleHarnesses("grok")).toContain("grok");
+    expect(compatibleHarnesses("grok")).toContain("opencode");
+    expect(compatibleHarnesses("luan")).toEqual(["opencode", "opencode-acp"]);
   });
 });
 

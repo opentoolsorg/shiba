@@ -13,5 +13,9 @@ export function isPublicStaticPath(path: string): boolean {
 export function isPublicRequest(request: Request): boolean {
   const path = new URL(request.url).pathname;
   return ((request.method === "GET" || request.method === "HEAD") && isPublicStaticPath(path))
-    || (request.method === "POST" && path === "/api/waitlist");
+    || (request.method === "POST" && path === "/api/waitlist")
+    // POST-only bypass so a Sentry alert reaches the handler even when the
+    // edge Access gate is misconfigured; the handler still verifies the
+    // shared secret before queueing anything.
+    || (request.method === "POST" && path === "/api/sentry/webhook");
 }

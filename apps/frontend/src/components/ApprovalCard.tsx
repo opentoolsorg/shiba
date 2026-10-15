@@ -2,18 +2,22 @@
 // surface this card with Approve/Reject wired to chat.addToolApprovalResponse
 // via the parent's onDecideApproval. Never auto-approve; never hide.
 import type { JSX } from "react";
+import { Ban, Check } from "lucide-react";
 import type { PendingApproval } from "../ui-helpers";
 import { Tooltip } from "./Tooltip";
 
 export interface ApprovalCardProps {
   approval: PendingApproval;
   decided: boolean;
+  /** The boolean outcome of the decision, when known — shown after the
+   *  buttons settle so the card reads as a resolved record, not a dead form. */
+  decision?: boolean;
   onDecideApproval: (approvalId: string, approved: boolean) => void;
   /** Agent requesting the approval — the orchestrator instance driving the chat. */
   agentName?: string;
 }
 
-export function ApprovalCard({ approval, decided, onDecideApproval, agentName }: ApprovalCardProps): JSX.Element {
+export function ApprovalCard({ approval, decided, decision, onDecideApproval, agentName }: ApprovalCardProps): JSX.Element {
   const rawTestCommand =
     typeof approval.input === "object" && approval.input !== null && !Array.isArray(approval.input)
       ? (approval.input as Record<string, unknown>)["testCommand"]
@@ -42,9 +46,19 @@ export function ApprovalCard({ approval, decided, onDecideApproval, agentName }:
           </Tooltip>
           <span className="truncate">{approval.tool}</span>
         </div>
-        <span className="text-[10px] uppercase tracking-wider font-bold bg-[#b45309]/15 border border-[#b45309]/30 text-[#b45309] px-2 py-0.5 rounded-none shrink-0">
-          Action Required
-        </span>
+        {decided && decision !== undefined ? (
+          <span className={`text-[10px] uppercase tracking-wider font-bold border px-2 py-0.5 rounded-none shrink-0 ${
+            decision
+              ? "bg-[#15803d]/15 border-[#15803d]/30 text-[#15803d]"
+              : "bg-[#b91c1c]/15 border-[#b91c1c]/30 text-[#b91c1c]"
+          }`}>
+            {decision ? "Approved" : "Rejected"}
+          </span>
+        ) : (
+          <span className="text-[10px] uppercase tracking-wider font-bold bg-[#b45309]/15 border border-[#b45309]/30 text-[#b45309] px-2 py-0.5 rounded-none shrink-0">
+            Action Required
+          </span>
+        )}
       </div>
 
       {agentName !== undefined ? (
@@ -75,24 +89,20 @@ export function ApprovalCard({ approval, decided, onDecideApproval, agentName }:
             disabled={decided}
             onClick={() => onDecideApproval(approval.approvalId, true)}
           >
-            <svg aria-hidden="true"  className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-            </svg>
-            <span>Approve</span>
+            <Check aria-hidden="true" className="w-4 h-4" strokeWidth={2.5} />
+            <span>{decided && decision === true ? "Approved" : "Approve"}</span>
           </button>
         </Tooltip>
 
         <Tooltip content="Reject tool execution and cancel operation" side="top">
           <button
             type="button"
-            className="bg-transparent border border-[#fb2c36] text-[#fb2c36] hover:bg-[#fb2c36]/10 font-semibold py-2 px-5 touch:min-h-11 rounded-none transition-all disabled:opacity-50 text-sm flex items-center gap-1.5 active:scale-[0.98]"
+            className="bg-transparent border border-[#b91c1c] text-[#b91c1c] hover:bg-[#b91c1c]/10 font-semibold py-2 px-5 touch:min-h-11 rounded-none transition-all disabled:opacity-50 text-sm flex items-center gap-1.5 active:scale-[0.98]"
             disabled={decided}
             onClick={() => onDecideApproval(approval.approvalId, false)}
           >
-            <svg aria-hidden="true"  className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            <span>Reject</span>
+            <Ban aria-hidden="true" className="w-4 h-4" strokeWidth={2.5} />
+            <span>{decided && decision === false ? "Rejected" : "Reject"}</span>
           </button>
         </Tooltip>
       </div>

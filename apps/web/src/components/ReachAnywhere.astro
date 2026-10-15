@@ -26,7 +26,7 @@
     <div class="reach-titlebar">
       <div class="reach-titlebar-left">
         <span class="titlebar-dot" aria-hidden="true"></span>
-        <span class="titlebar-text">shiba.workspace &mdash; reach-anywhere.flow</span>
+        <span class="titlebar-text">shiba.workspace &middot; reach-anywhere.flow</span>
       </div>
       <div class="reach-titlebar-right" aria-hidden="true">
         <span class="win-btn win-min"></span>
@@ -541,7 +541,11 @@
     cursor: pointer;
     text-align: left;
     transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), border-color 150ms ease, background 150ms ease;
-    outline: none;
+  }
+
+  .reach-card:focus-visible {
+    outline: 2px solid var(--navy);
+    outline-offset: 2px;
   }
 
   .reach-card:hover {
@@ -903,11 +907,19 @@
 
   @media (prefers-reduced-motion: reduce) {
     .reach-coord-frame,
-    .reach-packets-group rect,
     .crt-sweep-line,
     .shiba-eye,
     .terminal-cursor {
       animation: none !important;
+    }
+    /* SMIL animateMotion ignores CSS animation:none; the only switch is
+       rendering, so the flowing packets are removed entirely. */
+    .reach-packets-group {
+      display: none;
+    }
+    .reach-card,
+    .reach-wire {
+      transition: none !important;
     }
   }
 </style>
@@ -1057,12 +1069,16 @@
       }
     }
 
-    // Auto cycle every 3.8s
-    setInterval(function() {
-      if (userInteracting) return;
-      currentFlow = (currentFlow + 1) % workflows.length;
-      applyWorkflow(workflows[currentFlow]);
-    }, 3800);
+    // Auto cycle every 3.8s. Reduced-motion users keep manual control only:
+    // the rotation loop and the hover-driven pausing never start.
+    var prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!prefersReducedMotion) {
+      setInterval(function() {
+        if (userInteracting) return;
+        currentFlow = (currentFlow + 1) % workflows.length;
+        applyWorkflow(workflows[currentFlow]);
+      }, 3800);
+    }
 
     // Interactive Hover & Click
     leftCards.forEach(function(card) {

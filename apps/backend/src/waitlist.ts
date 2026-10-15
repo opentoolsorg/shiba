@@ -8,6 +8,8 @@ export interface WaitlistEntry {
 }
 
 const MAX_BODY_BYTES = 4096;
+// Static Pages host that edge-proxies /api/waitlist to this Worker.
+const PAGES_ORIGIN = "https://tryshiba.dev";
 const EMAIL = /^[a-z\d.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)+$/i;
 const GITHUB = /^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i;
 
@@ -72,7 +74,10 @@ export async function handleWaitlist(request: Request, env: Pick<Env, "Waitlist"
   }
 
   if (request.method !== "POST") return noStore(Response.json({ error: "Method not allowed." }, { status: 405 }));
-  if (request.headers.get("Origin") !== url.origin) {
+  // The marketing site is static Pages on tryshiba.dev; its _redirects edge-proxies
+  // POST /api/waitlist to this Worker, so the Pages origin is a legitimate submitter.
+  const origin = request.headers.get("Origin");
+  if (origin !== url.origin && origin !== PAGES_ORIGIN) {
     return noStore(Response.json({ error: "Submit the form from this site." }, { status: 403 }));
   }
   if (!request.headers.get("Content-Type")?.startsWith("application/json")) {

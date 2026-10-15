@@ -6,11 +6,14 @@
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_POLICY,
+  validateConnectionModel,
+  validatePolicyModels,
   type ApprovedRoute,
   type Connection,
 } from "../src/model-connections.js";
 import {
   resolveCodingRoute,
+  resolvePurposeModel,
   revalidateCodingRoute,
   type ModelConfigSnapshot,
 } from "../src/model-policy.js";
@@ -125,5 +128,80 @@ describe("revalidateCodingRoute", () => {
     expect(
       revalidateCodingRoute(snapshot([connection({ status: "disabled" })]), frozen),
     ).toMatch(/disabled/);
+  });
+});
+
+describe("purpose policy accepts the fleet purposes", () => {
+  it("accepts review, plan, and ui as Workers AI models", () => {
+    const result = validatePolicyModels({
+      review: "@cf/meta/llama-3.1-8b-instruct",
+      plan: "@cf/meta/llama-3.1-8b-instruct",
+      ui: "@cf/meta/llama-3.1-8b-instruct",
+    });
+    expect(result).toEqual({
+      models: {
+        review: "@cf/meta/llama-3.1-8b-instruct",
+        plan: "@cf/meta/llama-3.1-8b-instruct",
+        ui: "@cf/meta/llama-3.1-8b-instruct",
+      },
+    });
+  });
+
+  it("still refuses coding, intent, and quality in the policy", () => {
+    expect(validatePolicyModels({ coding: "@cf/x/y" })).toMatchObject({ error: expect.any(String) });
+    expect(validatePolicyModels({ intent: "@cf/x/y" })).toMatchObject({ error: expect.any(String) });
+    expect(validatePolicyModels({ quality: "@cf/x/y" })).toMatchObject({ error: expect.any(String) });
+  });
+});
+
+describe("resolvePurposeModel", () => {
+  it("prefers the policy model for a purpose", () => {
+    const policy = { ...EMPTY_POLICY, models: { review: "@cf/a/policy-model" } };
+    expect(resolvePurposeModel(policy, "review", { ORCHESTRATOR_MODEL: "@cf/a/orch", REVIEW_MODEL: "@cf/a/rev" })).toBe(
+      "@cf/a/policy-model",
+    );
+  });
+
+  it("falls back to the purpose-specific env var", () => {
+    expect(resolvePurposeModel(EMPTY_POLICY, "review", { ORCHESTRATOR_MODEL: "@cf/a/orch", REVIEW_MODEL: "@cf/a/rev" })).toBe(
+      "@cf/a/rev",
+    );
+    expect(resolvePurposeModel(EMPTY_POLICY, "plan", { ORCHESTRATOR_MODEL: "@cf/a/orch", PLAN_MODEL: "@cf/a/plan" })).toBe(
+      "@cf/a/plan",
+    );
+    expect(resolvePurposeModel(EMPTY_POLICY, "ui", { ORCHESTRATOR_MODEL: "@cf/a/orch", UI_MODEL: "@cf/a/ui" })).toBe(
+      "@cf/a/ui",
+    );
+  });
+
+  it("falls back to ORCHESTRATOR_MODEL then the built-in default", () => {
+    expect(resolvePurposeModel(EMPTY_POLICY, "review", { ORCHESTRATOR_MODEL: "@cf/a/orch" })).toBe("@cf/a/orch");
+    expect(resolvePurposeModel(EMPTY_POLICY, "plan", {})).toBe("@cf/zai-org/glm-4.7-flash");
+  });
+});
+
+describe("grok and luan connections", () => {
+  it("validates grok models inside the xai namespace", () => {
+    const conn = connection({ service: "grok", displayName: "Grok BYOK", credentialRef: "grok-byok" });
+    expect(validateConnectionModel(conn, "xai/grok-4.6", "grok")).toBeNull();
+    expect(validateConnectionModel(conn, "xai/grok-4.6", "opencode")).toBeNull();
+    expect(validateConnectionModel(conn, "openai/gpt-5", "grok")).toMatch(/does not belong to the xai connection/);
+  });
+
+  it("validates luan models inside the opencode-go namespace", () => {
+    const conn = connection({ service: "luan", displayName: "Luan fleet", credentialRef: "luan-byok" });
+    expect(validateConnectionModel(conn, "opencode-go/deepseek-v3.2", "opencode")).toBeNull();
+    expect(validateConnectionModel(conn, "xai/grok-4.6", "opencode")).toMatch(
+      /does not belong to the opencode-go connection/,
+    );
+  });
+
+  it("routes through resolveCodingRoute like any other connection", () => {
+    const route = resolveCodingRoute(
+      snapshot([connection({ id: "conn_grok", service: "grok" })]),
+      { connectionId: "conn_grok", model: "xai/grok-4.6", harness: "grok" },
+    );
+    expect(route.connectionId).toBe("conn_grok");
+    expect(route.modelId).toBe("xai/grok-4.6");
   });
 });
