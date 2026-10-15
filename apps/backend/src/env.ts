@@ -98,6 +98,16 @@ export interface Env {
   GATEWAY_ID: string;
   /** Model id for the parent planning agent (Workers AI id). */
   ORCHESTRATOR_MODEL: string;
+  /** Optional Workers AI override for the PR review lane's reasoning pass. */
+  REVIEW_MODEL?: string;
+  /** Optional Workers AI override for plan-only runs. */
+  PLAN_MODEL?: string;
+  /** Optional Workers AI override for UI-copy passes. */
+  UI_MODEL?: string;
+  /** Shared secret that verifies Sentry issue-alert webhooks (HMAC or token header). */
+  SENTRY_WEBHOOK_SECRET?: string;
+  /** Default repository a Sentry fix run targets when the alert omits one. */
+  SENTRY_REPO_URL?: string;
   /** Coding model in provider/model format, e.g. google/gemini-3.5-flash-lite. */
   CODING_MODEL: string;
   /** Optional default model for the claude-code harness, e.g. anthropic/claude-sonnet-4-6. */

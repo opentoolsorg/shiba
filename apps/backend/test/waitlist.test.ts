@@ -4,12 +4,13 @@ import { handleWaitlist, parseWaitlistEntry } from "../src/waitlist.js";
 import { Waitlist } from "../src/waitlist-do.js";
 
 const ORIGIN = "https://tryshiba.dev";
+const WORKER_ORIGIN = "https://app.tryshiba.dev";
 const entry = { email: "  USER@example.com ", interest: "both", github: "@dev-user", consent: true };
 
-function post(body: unknown, headers: Record<string, string> = {}) {
-  return new Request(`${ORIGIN}/api/waitlist`, {
+function post(body: unknown, headers: Record<string, string> = {}, host = ORIGIN) {
+  return new Request(`${host}/api/waitlist`, {
     method: "POST",
-    headers: { Origin: ORIGIN, "Content-Type": "application/json", ...headers },
+    headers: { Origin: host, "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }
@@ -46,10 +47,21 @@ describe("waitlist boundary", () => {
     expect(captured).toHaveLength(1);
     expect(await captured[0]!.json()).toMatchObject({ email: "user@example.com", interest: "both", github: "dev-user" });
     expect((await handleWaitlist(post(entry, { Origin: "https://evil.example" }), env))?.status).toBe(403);
+    expect((await handleWaitlist(post(entry, { Origin: "https://evil.example" }, WORKER_ORIGIN), env))?.status).toBe(403);
     expect((await handleWaitlist(post({ ...entry, email: "bad" }), env))?.status).toBe(400);
     expect((await handleWaitlist(post({ ...entry, company: "bot.example" }), env))?.status).toBe(400);
     expect((await handleWaitlist(post({ ...entry, padding: "x".repeat(5000) }), env))?.status).toBe(400);
     expect(captured).toHaveLength(1);
+  });
+
+  it("accepts the Pages origin when the request arrives at the Worker host", async () => {
+    const env = { Waitlist: { idFromName: () => "id", get: () => ({ fetch: async () => Response.json({ ok: true }, { status: 201 }) }) } } as unknown as Parameters<typeof handleWaitlist>[1];
+    // Pages edge-proxies the form POST unchanged: URL host is the Worker,
+    // Origin stays the site the user submitted from.
+    const proxied = await handleWaitlist(post(entry, { Origin: ORIGIN }, WORKER_ORIGIN), env);
+    expect(proxied?.status).toBe(201);
+    expect((await handleWaitlist(post(entry, { Origin: "https://www.tryshiba.dev" }, WORKER_ORIGIN), env))?.status).toBe(403);
+    expect((await handleWaitlist(post(entry, { Origin: "null" }, WORKER_ORIGIN), env))?.status).toBe(403);
   });
 });
 

@@ -31,6 +31,15 @@ export const CONNECTION_SERVICES = [
   "google",
   "devin",
   "opencode-go",
+  // Grok rides the AI Gateway BYOK lane: the connection owns the gateway's
+  // "grok" provider credential, and its models live in the xai/* namespace
+  // (PROVIDER_HOSTS maps xai to api.x.ai).
+  "grok",
+  // Luan is the opencode-go routed lane for the daily-coding fleet: models
+  // validate in the opencode-go/* namespace and run on the opencode
+  // harness, while the connection keeps a distinct credential reference so
+  // operators can rotate the fleet key without touching other connections.
+  "luan",
   "cursor",
   // The ACP registry namespace: a connection in this service models
   // `acp/<registry-agent-id>` — the generic `acp` harness resolves the
@@ -52,6 +61,13 @@ export const SERVICE_AUTH_MODE: Record<ConnectionService, ConnectionAuthMode> = 
   openai: "gateway-byok",
   google: "gateway-byok",
   "opencode-go": "gateway-byok",
+  // Grok models egress through the AI Gateway's grok provider BYOK
+  // credential (api.x.ai). No Worker secret is provisioned for it.
+  grok: "gateway-byok",
+  // Luan models validate in the opencode-go namespace and egress through
+  // the same gateway provider; the separate service id exists so the fleet
+  // lane keeps its own connection record and credential reference.
+  luan: "gateway-byok",
   devin: "worker-service-secret",
   // Cursor Cloud Agents is a remote execution service, not an inference
   // endpoint: no harness drives it, and it is not in PROVIDER_HOSTS.
@@ -107,6 +123,13 @@ export const PURPOSES = [
   "intent",
   "quality",
   "distillation",
+  // Non-coding Workers AI purposes (spec §4): the PR review lane plans on
+  // "review", plan-only runs on "plan", and UI-copy passes on "ui". Each is
+  // policy-settable like orchestrator; `coding` stays out of the policy —
+  // it routes per run through the connection catalog.
+  "review",
+  "plan",
+  "ui",
 ] as const;
 export type Purpose = (typeof PURPOSES)[number];
 
@@ -181,6 +204,11 @@ export interface ModelOption {
 /** The provider namespace of a connection service (its model-id prefix). */
 export function providerOfService(service: ConnectionService): string {
   // The opencode-go service serves models under the opencode-go/* namespace.
+  // grok is the AI Gateway slug for the xAI host — its models are xai/*.
+  if (service === "grok") return "xai";
+  // luan is a fleet lane routed through the opencode-go provider; its
+  // models validate in the opencode-go/* namespace.
+  if (service === "luan") return "opencode-go";
   return service;
 }
 

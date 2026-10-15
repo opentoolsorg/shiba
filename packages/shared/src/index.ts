@@ -27,3 +27,5 @@ export * from "./local-runtime.js";
 export * from "./local-fleet.js";
 export * from "./security.js";
 export * from "./desktop-bridge.js";
+export * from "./swarm-desk.js";
+export * from "./swarm-share.js";

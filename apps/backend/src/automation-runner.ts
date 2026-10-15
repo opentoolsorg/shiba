@@ -124,6 +124,14 @@ export function githubWebhookToEvent(
       : ref?.startsWith("refs/heads/")
         ? ref.slice("refs/heads/".length)
         : undefined;
+  const headSha = pr && typeof pr.head === "object" && pr.head !== null
+    ? ((pr.head as { sha?: unknown }).sha as string | undefined)
+    : undefined;
+  const diffRef = pr && typeof pr.diff_url === "string"
+    ? pr.diff_url
+    : pr && typeof pr.html_url === "string" && typeof pr.number === "number"
+      ? `${pr.html_url}.diff`
+      : undefined;
   return {
     event: githubEvent,
     action: typeof record.action === "string" ? record.action : undefined,
@@ -131,6 +139,9 @@ export function githubWebhookToEvent(
     branch,
     author: userLogin,
     labels,
+    ...(typeof headSha === "string" && headSha !== "" ? { headSha } : {}),
+    ...(typeof diffRef === "string" && diffRef !== "" ? { diffRef } : {}),
+    ...(pr && typeof pr.number === "number" ? { pullNumber: pr.number } : {}),
   };
 }
 

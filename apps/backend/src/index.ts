@@ -24,6 +24,7 @@ import { handleAudit } from "./audit-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
+import { handleSentryWebhook } from "./sentry-webhook-routes.js";
 import { handleInbox } from "./inbox-routes.js";
 import { handleLocalAdapter, isLocalRuntimePath } from "./local-routes.js";
 import { LocalDispatch } from "./local-dispatch.js";
@@ -32,6 +33,7 @@ import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
+import { handleSwarm } from "./swarm-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
 import { handleWebSessions } from "./sessions-routes.js";
@@ -216,6 +218,10 @@ export default {
       if (runsResponse) {
         return runsResponse;
       }
+      const swarmResponse = await handleSwarm(request, env);
+      if (swarmResponse) {
+        return swarmResponse;
+      }
       const usageResponse = await handleUsage(request, env);
       if (usageResponse) {
         return usageResponse;
@@ -305,6 +311,10 @@ export default {
       const webhookResponse = await handleGitHubWebhook(request, env, ctx);
       if (webhookResponse) {
         return webhookResponse;
+      }
+      const sentryResponse = await handleSentryWebhook(request, env);
+      if (sentryResponse) {
+        return sentryResponse;
       }
       if (url.pathname.startsWith("/agents/")) {
         const route = url.pathname.match(/^\/agents\/coding-orchestrator\/([^/]+)(?:\/(.*))?$/);

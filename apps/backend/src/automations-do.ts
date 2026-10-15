@@ -159,6 +159,7 @@ export class Automations {
       const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
       const githubEvent = typeof record.event === "string" ? record.event : "unknown";
       const mapped = githubWebhookToEvent(githubEvent, record.payload);
+      const orchestrator = await this.orchestrator();
       const result = await this.fireEvent(
         {
           kind: "github",
@@ -167,9 +168,80 @@ export class Automations {
             ? { deliveryId: record.deliveryId }
             : {}),
         },
-        await this.orchestrator(),
+        orchestrator,
       );
-      return Response.json(result);
+      // Built-in PR review lane (Capy-style Review mode): a pull_request
+      // opened/synchronize delivery always queues an approval-gated review
+      // run on the "review" purpose, alongside any user automations that
+      // matched. The run carries repo + head sha + diff ref in the task so
+      // the reviewer reads the real diff, and the delivery id keeps retries
+      // idempotent. A queue failure is logged, never thrown — the webhook
+      // already answered GitHub.
+      let reviewQueued = false;
+      if (
+        automationsEnabled(this.env.AUTOMATIONS_ENABLED) &&
+        mapped.event === "pull_request" &&
+        (mapped.action === "opened" || mapped.action === "synchronize") &&
+        typeof mapped.repo === "string" &&
+        typeof mapped.headSha === "string" &&
+        mapped.headSha !== ""
+      ) {
+        try {
+          const pull = mapped.pullNumber ?? 0;
+          const diffRef = mapped.diffRef ?? `https://github.com/${mapped.repo}/pull/${pull}.diff`;
+          const task = [
+            `Review the pull request diff and post findings. Do not modify code.`,
+            `Purpose: review`,
+            `Repository: https://github.com/${mapped.repo}`,
+            `Pull request: #${pull}`,
+            `Head SHA: ${mapped.headSha}`,
+            `Diff: ${diffRef}`,
+            ...(typeof mapped.branch === "string" ? [`Head branch: ${mapped.branch}`] : []),
+          ].join("\n");
+          await queueOnOrchestrator(orchestrator, {
+            repoUrl: `https://github.com/${mapped.repo}`,
+            task,
+            publishPullRequest: false,
+            threadKey: `review:${mapped.repo}#${pull}`,
+            commandId:
+              typeof record.deliveryId === "string" && record.deliveryId !== ""
+                ? `review:${record.deliveryId}`
+                : `review:${mapped.repo}:${mapped.headSha}`,
+          });
+          reviewQueued = true;
+        } catch (error) {
+          console.error(
+            `pr review lane queue failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      return Response.json({ ...result, reviewQueued });
+    }
+    if (request.method === "POST" && url.pathname === "/internal/sentry") {
+      // Sentry issue-alert lane: the verified webhook hands the run fields
+      // over; this lane puts it on the SAME approval-gated queue path every
+      // automation uses. No auto-approve — the card waits for an operator.
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+      }
+      const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+      const repoUrl = typeof record.repoUrl === "string" ? record.repoUrl : "";
+      const task = typeof record.task === "string" ? record.task : "";
+      const eventId = typeof record.eventId === "string" ? record.eventId : "";
+      if (repoUrl === "" || task === "" || eventId === "") {
+        return Response.json({ error: "repoUrl, task, and eventId are required." }, { status: 400 });
+      }
+      const queued = await queueOnOrchestrator(await this.orchestrator(), {
+        repoUrl,
+        task,
+        publishPullRequest: true,
+        threadKey: `sentry:${eventId}`,
+        commandId: `sentry:${eventId}`,
+      });
+      return Response.json({ ok: true, approvalId: queued.approvalId });
     }
     if (request.method === "POST" && url.pathname === "/internal/dedupe") {
       // Cross-isolate idempotency for retried Slack event deliveries:

@@ -7,6 +7,7 @@ import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
+import { SwarmDeskView } from "./components/SwarmDeskView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
@@ -2102,6 +2103,29 @@ export function App(): React.JSX.Element {
             </div>
           ) : mainView === "automations" ? (
             <AutomationsView />
+          ) : mainView === "swarm" ? (
+            <SwarmDeskView
+              runs={retainedRuns}
+              onApplyIntake={(prompt) => {
+                setTask(prompt);
+                setMainView("tasks");
+                window.setTimeout(() => {
+                  document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
+                }, 0);
+              }}
+              shareUrlFor={async (runId) => {
+                const response = await fetch("/api/swarm/share", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ runId }),
+                });
+                const body = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+                if (!response.ok || typeof body.url !== "string") {
+                  throw new Error(body.error ?? `Share failed (${response.status}).`);
+                }
+                return body.url;
+              }}
+            />
           ) : mainView === "providers" ? (
             <ProvidersView />
           ) : mainView === "skills" ? (

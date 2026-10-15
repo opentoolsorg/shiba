@@ -5,6 +5,7 @@
  * Footer carries setup progress, docs link, and connection state.
  */
 import { useMemo, useState } from "react";
+import { ChevronsLeft, Plus, Search, X } from "lucide-react";
 import type { AgentPrincipal } from "../types";
 import { formatTimeAgo, statusLabel } from "../ui-helpers";
 import { Tooltip } from "./Tooltip";
@@ -67,7 +68,7 @@ function connectionDotClass(tone: SessionsSidebarProps["connectionTone"]): strin
 
 function GroupLabel({ children }: { children: string }) {
   return (
-    <h3 className="px-3 pt-3.5 pb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.1em] text-[#6a6f63]/60 select-none">
+    <h3 className="px-3 pt-3.5 pb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.1em] text-[#6a6f63] select-none">
       {children}
     </h3>
   );
@@ -123,8 +124,7 @@ function AgentRow({ agent }: { agent: AgentPrincipal }) {
   return (
     <Tooltip content={tooltipText} side="right" align="start" delayMs={400}>
       <div
-        tabIndex={0}
-        className="group w-full text-left rounded-none px-3 py-2 flex items-start gap-2.5 text-[#222320] focus:outline-none focus-visible:bg-black/[0.04]"
+        className="group w-full text-left rounded-none px-3 py-2 flex items-start gap-2.5 text-[#222320]"
       >
         <span
           className={`mt-[7px] size-1.5 rounded-full shrink-0 ${
@@ -199,13 +199,9 @@ export function SessionsSidebar({
               className="size-7 rounded-none flex items-center justify-center text-[#6a6f63] hover:text-[#222320] hover:bg-black/[0.06] transition-colors"
             >
               {isMobileDrawer ? (
-                <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X aria-hidden="true" className="size-4" strokeWidth={2} />
               ) : (
-                <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                </svg>
+                <ChevronsLeft aria-hidden="true" className="size-4" strokeWidth={1.8} />
               )}
             </button>
           </Tooltip>
@@ -220,9 +216,7 @@ export function SessionsSidebar({
             onClick={onNewTask}
             className="primary-action w-full inline-flex min-h-11 items-center justify-center gap-1.5 font-semibold text-[13px] px-3 rounded-none"
           >
-            <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-            </svg>
+            <Plus aria-hidden="true" className="size-4" strokeWidth={2.5} />
             New task
           </button>
         </Tooltip>
@@ -231,19 +225,11 @@ export function SessionsSidebar({
       {/* Search */}
       <div className="px-3 pb-2">
         <div className="relative">
-          <svg aria-hidden="true" 
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-[#6a6f63]/60"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"
-            />
-          </svg>
+          <Search
+            aria-hidden="true"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-[#6a6f63]/60 pointer-events-none"
+            strokeWidth={2}
+          />
           <input
             type="search"
             value={query}

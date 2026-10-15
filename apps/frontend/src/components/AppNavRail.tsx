@@ -5,6 +5,30 @@
  * state, utility cluster (setup, docs, shortcuts, theme) at the bottom.
  */
 import type { JSX } from "react";
+import {
+  Activity,
+  BarChart3,
+  Blocks,
+  BookMarked,
+  BookOpen,
+  Brain,
+  Cpu,
+  GitCompareArrows,
+  Inbox,
+  LayoutDashboard,
+  LogOut,
+  MessageSquare,
+  Monitor,
+  Moon,
+  Settings,
+  ShieldCheck,
+  SquareCheckBig,
+  Sun,
+  Terminal,
+  X,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 
 export type AppNavView =
   | "dashboard"
@@ -13,6 +37,7 @@ export type AppNavView =
   | "analytics"
   | "diff"
   | "approvals"
+  | "swarm"
   | "agents"
   | "inbox"
   | "memory"
@@ -36,6 +61,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "analytics", label: "Analytics", description: "Usage & Run Insights" },
   { id: "diff", label: "Diff", description: "Code Changes & Git Diffs" },
   { id: "approvals", label: "Approvals", description: "Review & Decision Queue" },
+  { id: "swarm", label: "Swarm", description: "Run Lanes, Modes & Share Links" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
   { id: "agents", label: "Agents & MCP", description: "MCP Gateway & Agent Tokens" },
@@ -48,7 +74,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
 ];
 
 const NAV_GROUPS: { label: string; items: AppNavView[] }[] = [
-  { label: "Workspace", items: ["dashboard", "tasks", "activity", "analytics", "diff", "approvals", "automations"] },
+  { label: "Workspace", items: ["dashboard", "tasks", "activity", "analytics", "diff", "approvals", "swarm", "automations"] },
   { label: "Capabilities", items: ["agents", "providers", "skills", "integrations", "inbox", "memory"] },
   { label: "System", items: ["remote", "settings"] },
 ];
@@ -72,82 +98,23 @@ export interface AppNavRailProps {
   onSignOut?: () => void;
 }
 
-const ICONS: Record<AppNavView, JSX.Element> = {
-  dashboard: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" />
-    </svg>
-  ),
-  tasks: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-    </svg>
-  ),
-  activity: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M22 12h-4l-3 9L9 3l-3 9H2" />
-    </svg>
-  ),
-  analytics: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 5.14v14l11-7-11-7z" />
-    </svg>
-  ),
-  diff: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v10M8 7a2 2 0 100-4 2 2 0 000 4zm0 10a2 2 0 100 4 2 2 0 000-4zm8-6v6m0-6a2 2 0 100-4 2 2 0 000 4zm0 6a2 2 0 100 4 2 2 0 000-4z" />
-    </svg>
-  ),
-  approvals: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-    </svg>
-  ),
-  inbox: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-    </svg>
-  ),
-  memory: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-    </svg>
-  ),
-  agents: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-    </svg>
-  ),
-  automations: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-    </svg>
-  ),
-  integrations: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6.75l-3.75 3.75m0 0a2.625 2.625 0 103.712 3.712 2.625 2.625 0 00-3.712-3.712zm0 0L6.75 13.5m10.5-10.5l3.75 3.75m0 0a2.625 2.625 0 11-3.712 3.712 2.625 2.625 0 013.712-3.712z" />
-    </svg>
-  ),
-  providers: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l3 3-3 3m5-6h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  ),
-  skills: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M17 5H7a2 2 0 00-2 2v12l4-2 3 2 3-2 4 2V7a2 2 0 00-2-2zM9 9h6M9 12h4" />
-    </svg>
-  ),
-  settings: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.398.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.894.149c-.424.07-.764.383-.929.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.398.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.398-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.108-1.204l-.526-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894zM15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  ),
-  remote: (
-    <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-    </svg>
-  ),
+const ICONS: Record<AppNavView, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  tasks: MessageSquare,
+  activity: Activity,
+  analytics: BarChart3,
+  diff: GitCompareArrows,
+  approvals: ShieldCheck,
+  inbox: Inbox,
+  memory: Brain,
+  agents: Cpu,
+  automations: Zap,
+  integrations: Blocks,
+  providers: Terminal,
+  skills: BookMarked,
+  settings: Settings,
+  remote: Monitor,
+  swarm: SquareCheckBig,
 };
 
 function NavItem({
@@ -250,9 +217,7 @@ export function AppNavRail({
           aria-label="Close navigation"
           className="size-11 -mt-1.5 -mr-1.5 shrink-0 rounded-none flex items-center justify-center text-[#6a6f63] dark:text-[#aaa99f] hover:text-[#222320] dark:hover:text-[#f4f2ea] hover:bg-[#e0ded5] dark:hover:bg-[#3b3d36] transition-colors"
         >
-          <svg aria-hidden="true"  className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <X aria-hidden="true" className="size-5" strokeWidth={2} />
         </button>
       ) : null}
       </div>
@@ -268,6 +233,7 @@ export function AppNavRail({
               {group.items.map((id) => {
                 const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
                 if (!item) return null;
+                const Icon = ICONS[item.id];
                 return (
                   <NavItem
                     key={item.id}
@@ -277,7 +243,7 @@ export function AppNavRail({
                     badge={
                       item.id === "approvals" && pendingApprovalCount && pendingApprovalCount > 0 ? (
                         <span
-                          className="min-w-4 h-4 px-1 rounded-none bg-[#f99c00] text-white text-[9px] font-bold flex items-center justify-center animate-pulse"
+                          className="min-w-4 h-4 px-1 rounded-none bg-[#b45309] text-white text-[9px] font-bold flex items-center justify-center"
                           aria-hidden="true"
                         >
                           {pendingApprovalCount}
@@ -285,7 +251,7 @@ export function AppNavRail({
                       ) : undefined
                     }
                   >
-                    {ICONS[item.id]}
+                    <Icon className="size-4" strokeWidth={1.8} aria-hidden="true" />
                   </NavItem>
                 );
               })}
@@ -302,7 +268,7 @@ export function AppNavRail({
           badge={
             !setupComplete && setupRemaining !== null ? (
               <span
-                className="min-w-4 h-4 px-1 rounded-none bg-[#f99c00] text-white text-[9px] font-bold flex items-center justify-center"
+                className="min-w-4 h-4 px-1 rounded-none bg-[#b45309] text-white text-[9px] font-bold flex items-center justify-center"
                 aria-hidden="true"
               >
                 {setupRemaining}
@@ -310,9 +276,7 @@ export function AppNavRail({
             ) : undefined
           }
         >
-          <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-          </svg>
+          <SquareCheckBig className="size-4" strokeWidth={1.8} aria-hidden="true" />
         </NavItem>
 
         <a
@@ -321,9 +285,7 @@ export function AppNavRail({
           className="group w-full flex items-center gap-2.5 rounded-none px-2.5 py-1.5 touch:min-h-11 text-[13px] font-medium text-[#222320] dark:text-[#eae8e1] hover:bg-[#e0ded5] dark:hover:bg-[#3b3d36] hover:text-[#222320] dark:hover:text-[#f4f2ea] transition-colors duration-100"
         >
           <span className="text-[#6a6f63] dark:text-[#aaa99f] group-hover:text-[#222320] dark:group-hover:text-[#f4f2ea]" aria-hidden="true">
-            <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V2H6.5A2.5 2.5 0 004 4.5v15z" />
-            </svg>
+            <BookOpen className="size-4" strokeWidth={1.8} aria-hidden="true" />
           </span>
           <span className="flex-1 text-left truncate">Documentation</span>
         </a>
@@ -338,9 +300,7 @@ export function AppNavRail({
             subLabel={accountEmail ?? undefined}
             onClick={onSignOut}
           >
-            <svg aria-hidden="true" className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-            </svg>
+            <LogOut className="size-4" strokeWidth={1.8} aria-hidden="true" />
           </NavItem>
         ) : null}
 
@@ -350,13 +310,9 @@ export function AppNavRail({
             onClick={onToggleTheme}
           >
             {theme === "light" ? (
-              <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
-              </svg>
+              <Moon className="size-4" strokeWidth={1.8} aria-hidden="true" />
             ) : (
-              <svg aria-hidden="true"  className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
-              </svg>
+              <Sun className="size-4" strokeWidth={1.8} aria-hidden="true" />
             )}
           </NavItem>
         ) : null}
