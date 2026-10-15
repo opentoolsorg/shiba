@@ -372,7 +372,7 @@ export function RemoteAccessView(): JSX.Element {
                           <button
                             type="button"
                             onClick={() => void revoke(c)}
-                            className="text-xs font-semibold text-white bg-[#b91c1c] hover:bg-[var(--destructive)] px-2.5 py-1 rounded-[var(--radius-button)]"
+                            className="text-xs font-semibold text-[var(--destructive-text)] bg-[var(--destructive)] hover:opacity-90 px-2.5 py-1 rounded-[var(--radius-button)]"
                           >
                             Confirm revoke
                           </button>

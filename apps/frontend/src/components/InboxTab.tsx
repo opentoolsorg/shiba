@@ -899,7 +899,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                       type="button"
                       onClick={() => void toggleExpanded(email)}
                       aria-expanded={expanded}
-                      className="w-full text-left p-3.5 hover:bg-[#fcfbf7] transition-colors flex flex-col gap-1"
+                      className="w-full text-left p-3.5 hover:bg-[var(--card-hover)] transition-colors flex flex-col gap-1"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <span

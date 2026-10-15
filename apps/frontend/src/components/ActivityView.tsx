@@ -40,7 +40,7 @@ export function ActivityView({
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {pending.length > 0 ? (
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a5a00] bg-[#f4b400]/15 border border-[#f4b400]/40 px-2 py-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--warning-fg)] bg-[var(--warning-subtle)] border border-[var(--warning)] px-2 py-1">
               {pending.length} owed
             </span>
           ) : null}
@@ -108,9 +108,9 @@ export function ActivityView({
 }
 
 const KIND_TONE: Record<string, string> = {
-  "run.completed": "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30",
+  "run.completed": "text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border-[color-mix(in_oklch,var(--success)_35%,transparent)]",
   "run.failed": "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
-  "run.cancelled": "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40",
+  "run.cancelled": "text-[var(--warning-fg)] bg-[var(--warning-subtle)] border-[var(--warning)]",
   "run.rejected": "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
   "approval.answered": "text-[var(--primary)] bg-[var(--primary-soft)] border-[var(--primary)]/30",
   "approval.requested": "text-[var(--primary)] bg-[var(--primary-soft)] border-[var(--primary)]/30",
@@ -173,10 +173,10 @@ function EventRow({ event }: { event: SpineEventWire }): JSX.Element {
 function OutboxRow({ entry }: { entry: OutboxEntryWire }): JSX.Element {
   const tone =
     entry.status === "dispatched"
-      ? "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30"
+      ? "text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border-[color-mix(in_oklch,var(--success)_35%,transparent)]"
       : entry.status === "failed"
         ? "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]"
-        : "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40";
+        : "text-[var(--warning-fg)] bg-[var(--warning-subtle)] border-[var(--warning)]";
   return (
     <li className="px-4 py-2.5 flex flex-col gap-1">
       <div className="flex items-center gap-2">

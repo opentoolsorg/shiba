@@ -91,7 +91,7 @@ export function SkillsView(): JSX.Element {
           </div>
 
           {skills.length === 0 ? (
-            <div className="rounded-[var(--radius-button)] border border-dashed border-[var(--border-2)] bg-[#f9f8f2] p-6 text-center text-xs text-[var(--muted-foreground-2)]">
+            <div className="rounded-[var(--radius-button)] border border-dashed border-[var(--border-2)] bg-[var(--section)] p-6 text-center text-xs text-[var(--muted-foreground-2)]">
               No skills saved yet — add one above, or open the task composer to pick skills when you run a task.
             </div>
           ) : (

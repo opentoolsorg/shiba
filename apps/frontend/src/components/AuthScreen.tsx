@@ -52,8 +52,8 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
   }
 
   return (
-    <div className="h-dvh bg-[var(--bg)] dark:bg-[#191a18] text-[var(--fg)] dark:text-[#eae8e1] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      <div className="bg-[var(--card)] dark:bg-[#22231f] border border-[var(--border-1)] dark:border-[#3b3d36] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
+    <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
         <img
           src="/assets/mascot/pet-logo.png"
           alt="Shiba"
@@ -62,25 +62,25 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
         <h1 className="text-xl">
           {mode === "signup" ? "Create the dashboard account" : "Sign in to continue"}
         </h1>
-        <p className="text-sm text-[var(--muted-foreground-2)] dark:text-[#aaa99f] leading-relaxed">
+        <p className="text-sm text-[var(--muted-foreground-2)] leading-relaxed">
           {mode === "signup"
             ? "The first account becomes the dashboard owner — sign-up closes after it."
             : "Sign in with your dashboard email and password."}
         </p>
         <form onSubmit={submit} className="w-full flex flex-col gap-2.5 mt-1 text-left">
           {mode === "signup" ? (
-            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)] dark:text-[#aaa99f]">
+            <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
               Name
               <input
                 type="text"
                 autoComplete="name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] dark:border-[#3b3d36] bg-[var(--card)] dark:bg-[#191a18] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] dark:text-[#eae8e1] focus:outline-none focus:border-[var(--primary)] dark:focus:border-[#9cbce2]"
+                className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
               />
             </label>
           ) : null}
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)] dark:text-[#aaa99f]">
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
             Email
             <input
               type="email"
@@ -88,10 +88,10 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] dark:border-[#3b3d36] bg-[var(--card)] dark:bg-[#191a18] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] dark:text-[#eae8e1] focus:outline-none focus:border-[var(--primary)] dark:focus:border-[#9cbce2]"
+              className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)] dark:text-[#aaa99f]">
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
             Password
             <input
               type="password"
@@ -100,7 +100,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
               autoComplete={mode === "signup" ? "new-password" : "current-password"}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] dark:border-[#3b3d36] bg-[var(--card)] dark:bg-[#191a18] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] dark:text-[#eae8e1] focus:outline-none focus:border-[var(--primary)] dark:focus:border-[#9cbce2]"
+              className="w-full min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm font-normal normal-case tracking-normal text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]"
             />
           </label>
           {error ? (
@@ -126,7 +126,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
             setMode(mode === "signup" ? "signin" : "signup");
             setError(null);
           }}
-          className="text-xs text-[var(--primary)] dark:text-[#9cbce2] hover:underline"
+          className="text-xs text-[var(--primary)] hover:underline"
         >
           {mode === "signup"
             ? "Have an account? Sign in"

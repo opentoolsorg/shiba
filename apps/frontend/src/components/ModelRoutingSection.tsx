@@ -223,10 +223,10 @@ export function ConnectionsCard(): JSX.Element {
               <span
                 className={`text-[10px] font-semibold uppercase tracking-[0.08em] border px-1.5 py-0.5 ${
                   connection.status === "ready"
-                    ? "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30"
+                    ? "text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border-[color-mix(in_oklch,var(--success)_35%,transparent)]"
                     : connection.status === "disabled"
                       ? "text-[var(--muted-foreground-2)] bg-[var(--section)] border-[var(--border-1)]"
-                      : "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40"
+                      : "text-[var(--warning-fg)] bg-[var(--warning-subtle)] border-[var(--warning)]"
                 }`}
               >
                 {connection.status}

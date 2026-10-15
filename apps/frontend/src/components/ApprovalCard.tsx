@@ -50,7 +50,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
           <span className={`text-[10px] uppercase tracking-wider font-bold border px-2 py-0.5 rounded-[var(--radius-button)] shrink-0 ${
             decision
               ? "bg-[var(--success)]/15 border-[color-mix(in_oklch,var(--success)_30%,transparent)] text-[var(--success)]"
-              : "bg-[#b91c1c]/15 border-[#b91c1c]/30 text-[var(--destructive)]"
+              : "bg-[var(--destructive-soft)] border-[var(--destructive)] text-[var(--destructive)]"
           }`}>
             {decision ? "Approved" : "Rejected"}
           </span>
@@ -85,7 +85,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <Tooltip content="Approve tool execution inside isolated container" side="top">
           <button
             type="button"
-            className="bg-[var(--success)] hover:bg-[#166534] text-[var(--card)] font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm shadow-[var(--sh-card)] flex items-center gap-1.5 active:scale-[0.98]"
+            className="bg-[var(--success)] hover:opacity-90 text-[var(--card)] font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm shadow-[var(--sh-card)] flex items-center gap-1.5 active:scale-[0.98]"
             disabled={decided}
             onClick={() => onDecideApproval(approval.approvalId, true)}
           >
@@ -97,7 +97,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <Tooltip content="Reject tool execution and cancel operation" side="top">
           <button
             type="button"
-            className="bg-transparent border border-[#b91c1c] text-[var(--destructive)] hover:bg-[#b91c1c]/10 font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm flex items-center gap-1.5 active:scale-[0.98]"
+            className="bg-transparent border border-[var(--destructive)] text-[var(--destructive)] hover:bg-[var(--destructive-soft)] font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm flex items-center gap-1.5 active:scale-[0.98]"
             disabled={decided}
             onClick={() => onDecideApproval(approval.approvalId, false)}
           >

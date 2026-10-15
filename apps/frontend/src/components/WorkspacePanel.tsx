@@ -65,7 +65,7 @@ export function StoredApprovalCard({
       ...(approval.testCommand?.length ? { testCommand: approval.testCommand } : {}),
     } satisfies Record<string, unknown>);
   return (
-    <div className="border border-[var(--border-1)] border-l-2 border-l-[#b45309] rounded-[var(--radius-button)] bg-[var(--bg)] p-3">
+    <div className="border border-[var(--border-1)] border-l-2 border-l-[var(--attention)] rounded-[var(--radius-button)] bg-[var(--bg)] p-3">
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--warning-fg)]">
           {storedApprovalKind(approval)}
