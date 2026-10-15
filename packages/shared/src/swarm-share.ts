@@ -141,7 +141,7 @@ export async function verifyShareToken(
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes));
+    parsed = JSON.parse(new TextDecoder().decode(payloadBytes));
   } catch {
     return null;
   }
