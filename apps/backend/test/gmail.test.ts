@@ -384,6 +384,12 @@ describe("Gmail explicit grants, bounded tools, disconnect", () => {
     expect((await searchGmail(env, reader, "mail", 1)).messages).toHaveLength(1);
     // A re-minted same-name token is a different credential and needs its own grant.
     await expect(searchGmail(env, { ...reader, created: reader.created + 1 }, "mail", 1)).rejects.toThrow("Explicit Gmail connection grant");
+    // A peer's own token under the same default-style name grants independently.
+    await grantGmail(env, PEER, (await createToken(env, reader.principal, ["gmail:read"], reader.created + 1)).token);
+    expect((await gmailStatus(env, PEER)).grants).toHaveLength(1);
+    expect((await gmailStatus(env, OWNER)).grants).toHaveLength(1);
+    expect((await searchGmail(env, { ...reader, created: reader.created + 1 }, "mail", 1)).messages).toHaveLength(1);
+    await revokeGmailGrant(env, PEER, reader.principal);
     await expect(searchGmail(env, { ...reader, scopes: ["email:read"] }, "mail", 1)).rejects.toThrow("missing scope");
     await expect(searchGmail(env, { ...reader, revoked: true }, "mail", 1)).rejects.toThrow("access denied");
     await revokeGmailGrant(env, OWNER, reader.principal);
@@ -426,6 +432,9 @@ describe("Gmail explicit grants, bounded tools, disconnect", () => {
     const audit = JSON.stringify(sql.prepare("SELECT * FROM audit_log").all());
     for (const value of [REFRESH, ACCESS, "private-query", "untrusted subject", "é".repeat(100)]) expect(audit).not.toContain(value);
     expect(audit).toContain("gmail_read");
+    // Owner lifecycle is audited too, by hashed subject only.
+    expect(audit).toContain("gmail.connect");
+    expect(audit).toContain("gmail.grant");
     expect(audit).toContain("missing scope");
   });
 

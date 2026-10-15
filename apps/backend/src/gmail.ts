@@ -1,5 +1,6 @@
 /** Gmail's isolated read-only credential store. No generic auth accounts or mailbox DOs. */
 import { requireScope, sha256Hex, verifyToken, type TokenRecord } from "./agent-tokens.js";
+import { audit } from "./audit.js";
 import type { Env } from "./env.js";
 import { wrapUntrusted } from "./mailbox-store.js";
 
@@ -47,8 +48,8 @@ const SCHEMA = [
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1))
   )`,
   `CREATE TABLE IF NOT EXISTS gmail_grants (
-    principal TEXT PRIMARY KEY, owner TEXT NOT NULL, connection_id TEXT NOT NULL,
-    created_at INTEGER NOT NULL, token_created INTEGER NOT NULL,
+    principal TEXT NOT NULL, owner TEXT NOT NULL, connection_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL, token_created INTEGER NOT NULL, PRIMARY KEY (principal, token_created),
     FOREIGN KEY(connection_id) REFERENCES gmail_connections(id) ON DELETE CASCADE
   )`,
 ];
@@ -246,6 +247,7 @@ export async function finishGmailConnect(env: Env, owner: string, state: string,
       env.AGENT_AUDIT.prepare("DELETE FROM gmail_oauth_states WHERE state_hash = ? AND owner = ?").bind(stateHash, owner),
     ]);
     if (result[0]?.meta.changes !== 1) throw new GmailError("Gmail connection changed; disconnect before reconnecting.", 409);
+    await auditOwner(env, owner, "gmail.connect", connection.id);
     return connection;
   } catch (error) {
     if (tokens) await revokeGoogleToken(tokens.refresh_token as string);
@@ -298,8 +300,7 @@ export async function grantGmail(env: Env, owner: string, token: string, now = D
   await env.AGENT_AUDIT.prepare(
     `INSERT INTO gmail_grants (principal, owner, connection_id, created_at, token_created)
      SELECT ?, owner, id, ?, ? FROM gmail_connections WHERE owner = ? AND active = 1
-     ON CONFLICT(principal) DO UPDATE SET token_created = excluded.token_created, created_at = excluded.created_at
-     WHERE gmail_grants.owner = excluded.owner AND gmail_grants.connection_id = excluded.connection_id`,
+     ON CONFLICT(principal, token_created) DO NOTHING`,
   ).bind(record.principal, now, record.created, owner).run();
   const grant = await env.AGENT_AUDIT.prepare(
     `SELECT g.principal, g.created_at AS createdAt FROM gmail_grants g
@@ -307,12 +308,19 @@ export async function grantGmail(env: Env, owner: string, token: string, now = D
      WHERE g.principal = ? AND c.owner = ? AND g.token_created = ?`,
   ).bind(record.principal, owner, record.created).first<GmailGrant>();
   if (!grant) throw new GmailError("No connection or principal already granted elsewhere.", 409);
+  await auditOwner(env, owner, "gmail.grant", record.principal);
   return grant;
 }
 export async function revokeGmailGrant(env: Env, owner: string, principal: string): Promise<void> {
   validateGmailPrincipal(principal);
   await ensureGmailSchema(env);
   await env.AGENT_AUDIT.prepare("DELETE FROM gmail_grants WHERE principal = ? AND owner = ?").bind(principal, owner).run();
+  await auditOwner(env, owner, "gmail.revoke_grant", principal);
+}
+
+// Owner-side lifecycle trail (hashed subject only); agent tool calls are audited by the MCP registry.
+async function auditOwner(env: Env, owner: string, tool: string, subject: string, outcome = "ok"): Promise<void> {
+  await audit(env, { principal: owner, tool, argsHash: await sha256Hex(subject), outcome });
 }
 
 async function revokeGoogleToken(token: string): Promise<"revoked" | "failed"> {
@@ -351,6 +359,7 @@ export async function disconnectGmail(env: Env, owner: string) {
       "DELETE FROM gmail_connections WHERE owner = ? AND id = ? AND active = 0",
     ).bind(owner, connection.id).run();
   }
+  await auditOwner(env, owner, "gmail.disconnect", connection?.id ?? "", revoke);
   return { disconnected: true as const, revoke };
 }
 
