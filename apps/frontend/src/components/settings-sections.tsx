@@ -1,9 +1,8 @@
 /**
- * SettingsView — the settings section bodies mounted by SettingsModal (the
- * Kosuke-style popup). Sections mount only the live data they need from
- * /api/setup/status, /api/agents, and /api/whoami,
- * /api/auth/*) rather than duplicating internals; sections with no real data
- * source are omitted, not stubbed.
+ * Settings section bodies mounted by SettingsModal (the Kosuke-style popup).
+ * Sections mount only the live data they need from /api/setup/status,
+ * /api/agents, and /api/whoami, /api/auth/*) rather than duplicating
+ * internals; sections with no real data source are omitted, not stubbed.
  */
 import { type JSX, type ReactNode, useState } from "react";
 import { version as dashboardVersion } from "../../package.json";
