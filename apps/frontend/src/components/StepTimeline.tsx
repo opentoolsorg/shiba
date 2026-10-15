@@ -12,11 +12,12 @@ import {
   getToolPartState,
 } from "@cloudflare/ai-chat/react";
 import { isToolUIPart, type UIMessage } from "ai";
-import type { CSSProperties } from "react";
+import { memo, type CSSProperties } from "react";
 import { LoaderCircle, ShieldCheck, Wrench, type LucideIcon } from "lucide-react";
 import { ApprovalCard } from "./ApprovalCard";
 import { Tooltip } from "./Tooltip";
 import {
+  formatToolOutput,
   toolDisplayName,
   type PendingApproval,
   type ToolPart,
@@ -40,14 +41,6 @@ function partText(part: ToolPart): string | null {
     return typed.text;
   }
   return null;
-}
-
-function defaultRenderToolOutput(part: ToolPart): string | null {
-  if (typeof part !== "object" || part === null) return null;
-  const typed = part as Record<string, unknown>;
-  const output = typed.output ?? typed.result;
-  if (output === undefined || output === null) return null;
-  return typeof output === "string" ? output : JSON.stringify(output, null, 2);
 }
 
 function RailIcon({ kind }: { kind: "tool" | "text" | "approval" }) {
@@ -78,7 +71,7 @@ export function StepTimeline({
   pendingApprovals,
   decisions,
   onDecideApproval,
-  renderToolOutput = defaultRenderToolOutput,
+  renderToolOutput = formatToolOutput,
   starters,
   onStarter,
 }: StepTimelineProps) {
@@ -121,121 +114,19 @@ export function StepTimeline({
     <ol className="flex flex-col gap-5">
       {messages.map((message) => {
         if (message.role === "user") {
-          return (
-            <li key={message.id} className="flex flex-col items-end">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--muted-foreground-2)] uppercase tracking-wider mb-1 px-1">
-                <span>You</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
-              </div>
-              <div className="flex flex-col gap-2 max-w-[92%] md:max-w-[85%] bg-[var(--primary)] text-white rounded-[var(--radius-button)] p-4 font-medium shadow-[var(--sh-card)]">
-                {message.parts.map((part, index) => {
-                  const text = partText(part);
-                  if (text === null) return null;
-                  return (
-                    <pre
-                      key={index}
-                      className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed"
-                    >
-                      {text}
-                    </pre>
-                  );
-                })}
-              </div>
-            </li>
-          );
+          return <UserMessageRow key={message.id} message={message} />;
         }
 
         // Assistant / tool steps on the left icon rail.
         return (
-          <li key={message.id} className="flex flex-col items-start">
-            <div className="relative pl-9 flex flex-col gap-3 w-full before:content-[''] before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-[var(--secondary)]">
-              {message.parts.map((part, index) => {
-                const text = partText(part);
-                if (text !== null) {
-                  return (
-                    <div key={message.id + ":text:" + index} className="relative">
-                      <span className="absolute -left-9 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border border-[var(--border-1)] flex items-center justify-center text-[var(--muted-foreground-2)]">
-                        <RailIcon kind="text" />
-                      </span>
-                      <div className="bg-[var(--panel)] border border-[var(--border-1)] text-[var(--fg)] rounded-[var(--radius-button)] p-4 shadow-[var(--sh-card)] max-w-[92%] md:max-w-[85%]">
-                        <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
-                          {text}
-                        </pre>
-                      </div>
-                    </div>
-                  );
-                }
-
-                if (isToolUIPart(part)) {
-                  const state = getToolPartState(part);
-                  const approval = getToolApproval(part);
-                  const rejected = approval?.approved === false;
-                  const waiting = state === "waiting-approval";
-                  const output = renderToolOutput(part);
-                  const callId = getToolCallId(part);
-                  // Build the gate card from the tool part itself; the
-                  // pendingApprovals join is only a decided-state lookup.
-                  const approvalId = approval?.id;
-                  const pendingApproval: PendingApproval | undefined =
-                    waiting && approvalId
-                      ? pendingApprovals.find((a) => a.approvalId === approvalId) ?? {
-                          messageId: message.id,
-                          toolCallId: callId,
-                          approvalId,
-                          tool: toolDisplayName(part),
-                          input: getToolInput(part),
-                        }
-                      : undefined;
-
-                  return (
-                    <div key={callId ?? (message.id + ":tool:" + index)} className="relative flex flex-col gap-3">
-                      <span
-                        className={`absolute -left-9 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border flex items-center justify-center ${
-                          waiting
-                            ? "border-[var(--warning-fg)]/60 text-[var(--warning-fg)]"
-                            : "border-[var(--border-1)] text-[var(--muted-foreground-2)]"
-                        }`}
-                      >
-                        <RailIcon kind={waiting ? "approval" : "tool"} />
-                      </span>
-                      <div className="flex flex-wrap items-center gap-2 bg-[var(--panel)]/70 p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)] font-mono text-xs w-fit max-w-full">
-                        <span className="text-[var(--primary)] font-semibold bg-[var(--card)] px-2 py-0.5 rounded-[var(--radius-button)]">
-                          Ran {toolDisplayName(part)}
-                        </span>
-                        <span
-                          className={`text-[11px] font-semibold px-2 py-0.5 rounded-[var(--radius-button)] border ${statusChipClass(
-                            rejected,
-                            waiting,
-                          )}`}
-                        >
-                          {rejected ? "Rejected" : state}
-                        </span>
-                      </div>
-                      {output !== null && output !== "" ? (
-                        <details className="max-w-[92%] md:max-w-[85%] group">
-                          <summary className="cursor-pointer text-[11px] font-mono text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors select-none">
-                            Output
-                          </summary>
-                          <pre className="mt-1 whitespace-pre-wrap font-mono text-xs text-[var(--muted-foreground-2)] bg-[var(--card)] p-3 rounded-[var(--radius-button)] border border-[var(--border-1)] max-h-56 overflow-auto">
-                            {output}
-                          </pre>
-                        </details>
-                      ) : null}
-                      {waiting && pendingApproval ? (
-                        <ApprovalCard
-                          approval={pendingApproval}
-                          decided={decisions[pendingApproval.approvalId] !== undefined}
-                          onDecideApproval={onDecideApproval}
-                        />
-                      ) : null}
-                    </div>
-                  );
-                }
-
-                return null;
-              })}
-            </div>
-          </li>
+          <AssistantMessageRow
+            key={message.id}
+            message={message}
+            pendingApprovals={pendingApprovals}
+            decisions={decisions}
+            onDecideApproval={onDecideApproval}
+            renderToolOutput={renderToolOutput}
+          />
         );
       })}
 
@@ -259,3 +150,144 @@ export function StepTimeline({
     </ol>
   );
 }
+
+// Memoized rows: unchanged messages (identity-stable across streaming
+// updates) skip re-traversal entirely; `decisions`/`pendingApprovals`/
+// callbacks stay in the prop list so an approval card can never freeze.
+
+const UserMessageRow = memo(function UserMessageRow({
+  message,
+}: {
+  message: UIMessage;
+}) {
+  return (
+    <li className="flex flex-col items-end">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--muted-foreground-2)] uppercase tracking-wider mb-1 px-1">
+        <span>You</span>
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
+      </div>
+      <div className="flex flex-col gap-2 max-w-[92%] md:max-w-[85%] bg-[var(--primary)] text-white rounded-[var(--radius-button)] p-4 font-medium shadow-[var(--sh-card)]">
+        {message.parts.map((part, index) => {
+          const text = partText(part);
+          if (text === null) return null;
+          return (
+            <pre
+              key={index}
+              className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed"
+            >
+              {text}
+            </pre>
+          );
+        })}
+      </div>
+    </li>
+  );
+});
+
+interface AssistantMessageRowProps {
+  message: UIMessage;
+  pendingApprovals: PendingApproval[];
+  decisions: Record<string, boolean>;
+  onDecideApproval: (approvalId: string, approved: boolean) => void;
+  renderToolOutput: (part: ToolPart) => string | null;
+}
+
+const AssistantMessageRow = memo(function AssistantMessageRow({
+  message,
+  pendingApprovals,
+  decisions,
+  onDecideApproval,
+  renderToolOutput,
+}: AssistantMessageRowProps) {
+  return (
+    <li className="flex flex-col items-start">
+      <div className="relative pl-9 flex flex-col gap-3 w-full before:content-[''] before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-[var(--secondary)]">
+        {message.parts.map((part, index) => {
+          const text = partText(part);
+          if (text !== null) {
+            return (
+              <div key={message.id + ":text:" + index} className="relative">
+                <span className="absolute -left-9 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border border-[var(--border-1)] flex items-center justify-center text-[var(--muted-foreground-2)]">
+                  <RailIcon kind="text" />
+                </span>
+                <div className="bg-[var(--panel)] border border-[var(--border-1)] text-[var(--fg)] rounded-[var(--radius-button)] p-4 shadow-[var(--sh-card)] max-w-[92%] md:max-w-[85%]">
+                  <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
+                    {text}
+                  </pre>
+                </div>
+              </div>
+            );
+          }
+
+          if (isToolUIPart(part)) {
+            const state = getToolPartState(part);
+            const approval = getToolApproval(part);
+            const rejected = approval?.approved === false;
+            const waiting = state === "waiting-approval";
+            const output = renderToolOutput(part);
+            const callId = getToolCallId(part);
+            // Build the gate card from the tool part itself; the
+            // pendingApprovals join is only a decided-state lookup.
+            const approvalId = approval?.id;
+            const pendingApproval: PendingApproval | undefined =
+              waiting && approvalId
+                ? pendingApprovals.find((a) => a.approvalId === approvalId) ?? {
+                    messageId: message.id,
+                    toolCallId: callId,
+                    approvalId,
+                    tool: toolDisplayName(part),
+                    input: getToolInput(part),
+                  }
+                : undefined;
+
+            return (
+              <div key={callId ?? (message.id + ":tool:" + index)} className="relative flex flex-col gap-3">
+                <span
+                  className={`absolute -left-9 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border flex items-center justify-center ${
+                    waiting
+                      ? "border-[var(--warning-fg)]/60 text-[var(--warning-fg)]"
+                      : "border-[var(--border-1)] text-[var(--muted-foreground-2)]"
+                  }`}
+                >
+                  <RailIcon kind={waiting ? "approval" : "tool"} />
+                </span>
+                <div className="flex flex-wrap items-center gap-2 bg-[var(--panel)]/70 p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)] font-mono text-xs w-fit max-w-full">
+                  <span className="text-[var(--primary)] font-semibold bg-[var(--card)] px-2 py-0.5 rounded-[var(--radius-button)]">
+                    Ran {toolDisplayName(part)}
+                  </span>
+                  <span
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-[var(--radius-button)] border ${statusChipClass(
+                      rejected,
+                      waiting,
+                    )}`}
+                  >
+                    {rejected ? "Rejected" : state}
+                  </span>
+                </div>
+                {output !== null && output !== "" ? (
+                  <details className="max-w-[92%] md:max-w-[85%] group">
+                    <summary className="cursor-pointer text-[11px] font-mono text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors select-none">
+                      Output
+                    </summary>
+                    <pre className="mt-1 whitespace-pre-wrap font-mono text-xs text-[var(--muted-foreground-2)] bg-[var(--card)] p-3 rounded-[var(--radius-button)] border border-[var(--border-1)] max-h-56 overflow-auto">
+                      {output}
+                    </pre>
+                  </details>
+                ) : null}
+                {waiting && pendingApproval ? (
+                  <ApprovalCard
+                    approval={pendingApproval}
+                    decided={decisions[pendingApproval.approvalId] !== undefined}
+                    onDecideApproval={onDecideApproval}
+                  />
+                ) : null}
+              </div>
+            );
+          }
+
+          return null;
+        })}
+      </div>
+    </li>
+  );
+});
