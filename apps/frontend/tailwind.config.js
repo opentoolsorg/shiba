@@ -25,6 +25,7 @@ export default {
         sans: ['Inter', 'Geist', 'system-ui', 'sans-serif'],
         mono: ['"Geist Mono"', 'ui-monospace', 'monospace'],
         tech: ['"Geist Mono"', 'monospace'],
+        display: ['Inter', 'system-ui', 'sans-serif'],
       },
       borderRadius: {
         xs: 'var(--radius-xs)',

@@ -97,6 +97,7 @@
   /* Typography & fonts */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  --font-display: var(--font-sans);
   --font-body: var(--font-sans);
 
   /* Focus & motion */
@@ -105,6 +106,26 @@
   --dur-fast: 150ms;
   --dur-med: 320ms;
 
+  /* Temporary compat aliases to keep unmigrated components functioning */
+  --paper: var(--bg);
+  --ink: var(--fg);
+  --ink-2: var(--muted-foreground-1);
+  --navy: var(--primary);
+  --navy-2: var(--primary-soft-hover);
+  --panel-elevated: var(--card-hover);
+  --line: var(--border-1);
+  --line-light: var(--border-1);
+  --accent: var(--primary);
+  --accent-light: var(--primary-soft-hover);
+  --accent-ink: var(--primary-text);
+  --brand: var(--primary);
+  --brand-light: var(--primary-soft-hover);
+  --danger: var(--destructive);
+  --ok: var(--success);
+  --pending: var(--warning-fg);
+  --running: var(--primary);
+  --paper-shadow: transparent;
+  --paper-dot: var(--shader-ink);
 }
 
 .dark, html.dark {
@@ -185,6 +206,24 @@
   --sh-sheet: var(--sh-overlay);
   --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
 
+  /* Temporary compat aliases for dark */
+  --paper: var(--bg);
+  --ink: var(--fg);
+  --ink-2: var(--muted-foreground-1);
+  --navy: var(--primary);
+  --navy-2: var(--primary-soft-hover);
+  --panel-elevated: var(--card-hover);
+  --line: var(--border-1);
+  --line-light: var(--border-1);
+  --accent: var(--primary);
+  --accent-light: var(--primary-soft-hover);
+  --accent-ink: #152335;
+  --danger: var(--destructive);
+  --ok: var(--success);
+  --pending: var(--warning-fg);
+  --running: var(--primary);
+  --paper-shadow: transparent;
+  --paper-dot: var(--shader-ink);
 }
 
 * {
@@ -201,7 +240,7 @@ body {
   overflow-x: hidden;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1, h2, h3, h4, h5, h6, .font-display {
   font-family: var(--font-sans);
   font-style: normal;
   font-weight: 500;
@@ -309,3 +348,29 @@ button:focus-visible,
   animation: enter-slide-x var(--dur-fast) var(--ease-out) both;
 }
 
+/* Temporary bridge for hardcoded color utility classes across components until G004 completes */
+html.dark [class~="bg-[#f6f4ed]"] { background-color: var(--bg); }
+html.dark [class~="bg-[#f6f4ed]/60"] { background-color: color-mix(in oklch, var(--bg) 60%, transparent); }
+html.dark [class~="bg-[#fffef8]"] { background-color: var(--card); }
+html.dark [class~="bg-[#fffef8]/60"] { background-color: color-mix(in oklch, var(--card) 60%, transparent); }
+html.dark [class~="bg-[#f6f4ed]/95"],
+html.dark [class~="bg-[#fffef8]/95"] { background-color: var(--panel); }
+html.dark [class~="bg-[#f1efe6]"] { background-color: var(--panel); }
+html.dark [class~="bg-[#e9e8df]"] { background-color: var(--card-hover); }
+html.dark [class~="bg-[#e0ded5]"] { background-color: var(--border-1); }
+html.dark [class~="bg-[#222320]"] { background-color: var(--card); }
+html.dark [class~="bg-[#0000a8]"] { background-color: var(--primary); }
+html.dark [class~="bg-[#1c1cc8]"] { background-color: var(--primary-soft-hover); }
+html.dark [class~="text-[#222320]"] { color: var(--fg); }
+html.dark [class~="text-[#4b5046]"] { color: var(--muted-foreground-1); }
+html.dark [class~="text-[#6a6f63]"] { color: var(--muted-foreground-2); }
+html.dark [class~="text-[#0000a8]"] { color: var(--primary); }
+html.dark [class~="text-[#fffef8]"] { color: var(--fg); }
+html.dark [class~="border-[#e0ded5]"] { border-color: var(--border-1); }
+html.dark [class~="border-[#d3d2c8]"] { border-color: var(--border-2); }
+html.dark [class~="border-[#0000a8]"] { border-color: var(--primary); }
+html.dark .glass-panel {
+  background: color-mix(in oklch, var(--panel) 85%, transparent);
+  border-color: var(--border-1);
+  box-shadow: var(--sh-card);
+}
