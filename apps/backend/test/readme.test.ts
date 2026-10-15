@@ -27,8 +27,11 @@ describe("README structure (T24 honest-ship contract)", () => {
     expect(README).toContain("GITHUB_TOKEN");
   });
 
-  it("stays honest: local prototype with P2/P3 runs cited, not claimed", () => {
-    expect(README).toContain("local prototype");
+  it("stays honest: deployed prototype with P2/P3 runs cited, not claimed", () => {
+    // The README says "deployed prototype" — the Worker is deployed and the
+    // test must not drift it back to "local"; run-level verification is
+    // what the claim still withholds.
+    expect(README).toContain("deployed prototype");
     expect(README).toContain("VERIFICATION.md");
     expect(README).toContain("No live end-to-end cloud run is claimed");
     expect(README).toContain("P2");

@@ -2,6 +2,7 @@ import { useMemo, useState, type JSX } from "react";
 // eslint-disable-next-line no-restricted-imports
 import {
   SWARM_LANES,
+  formatRunAge,
   projectSwarmDesk,
   parseSwarmIntake,
   type SwarmCard,
@@ -15,6 +16,7 @@ export interface SwarmDeskViewProps {
   runs: SwarmRunInput[];
   onApplyIntake: (prompt: string) => void;
   shareUrlFor: (runId: string) => Promise<string>;
+  onResolve?: (runId: string) => Promise<void> | void;
 }
 
 const LANE_LABELS: Record<SwarmLane, string> = {
@@ -34,8 +36,12 @@ export function SwarmDeskView({
   runs,
   onApplyIntake,
   shareUrlFor,
+  onResolve,
 }: SwarmDeskViewProps): JSX.Element {
   const [intakeText, setIntakeText] = useState("");
+  const [search, setSearch] = useState("");
+  const [resolving, setResolving] = useState<Record<string, boolean>>({});
+  const [resolveErrors, setResolveErrors] = useState<Record<string, string>>({});
   const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
   const [shareErrors, setShareErrors] = useState<Record<string, string>>({});
   const [sharingRunIds, setSharingRunIds] = useState<Record<string, boolean>>({});
@@ -44,6 +50,15 @@ export function SwarmDeskView({
   const isApplyDisabled = !parsedIntake.prompt.trim();
 
   const desk = useMemo(() => projectSwarmDesk(runs), [runs]);
+  const handleResolve = async (runId: string) => {
+    if (!onResolve || resolving[runId]) return;
+    setResolving((previous) => ({ ...previous, [runId]: true }));
+    setResolveErrors((previous) => ({ ...previous, [runId]: "" }));
+    try { await onResolve(runId); }
+    catch (error) {
+      setResolveErrors((previous) => ({ ...previous, [runId]: error instanceof Error ? error.message : String(error) }));
+    } finally { setResolving((previous) => ({ ...previous, [runId]: false })); }
+  };
 
   const handleApply = () => {
     if (isApplyDisabled) return;
@@ -112,9 +127,19 @@ export function SwarmDeskView({
         </section>
 
         {/* Four lanes: stacked below lg, 4 columns from lg (1024px) */}
+        <input
+          type="search"
+          aria-label="Search threads"
+          placeholder="Search threads…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="w-full min-h-11 bg-[#fffef8] border border-[#d3d2c8] rounded-none px-3 text-sm text-[#222320] placeholder-[#6a6f63] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0000a8]"
+        />
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
           {SWARM_LANES.map((lane) => {
-            const cards: SwarmCard[] = desk[lane];
+            const cards: SwarmCard[] = desk[lane].filter((card) =>
+              [card.title, card.repoUrl, card.runId, card.issueRef ?? ""].some((value) => value.toLowerCase().includes(search.trim().toLowerCase())),
+            );
             const laneLabel = LANE_LABELS[lane];
 
             return (
@@ -154,6 +179,11 @@ export function SwarmDeskView({
                           <h4 className="text-[13px] font-medium text-[#222320] leading-snug break-words">
                             {card.title}
                           </h4>
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#6a6f63]">
+                            {card.issueRef ? <span className="font-mono border border-[#d3d2c8] px-1.5 py-0.5">{card.issueRef}</span> : null}
+                            <span>{formatRunAge(card.updatedAt, Date.now())}</span>
+                            {card.costUsd != null ? <span>${card.costUsd.toFixed(2)}</span> : null}
+                          </div>
 
                           {/* Mode chip and Repo */}
                           <div className="flex flex-wrap items-center gap-2">
@@ -187,6 +217,12 @@ export function SwarmDeskView({
                               >
                                 {isSharing ? "Sharing..." : "Share"}
                               </button>
+                              {lane === "needs_review" && onResolve ? (
+                                <button type="button" onClick={() => handleResolve(card.runId)} disabled={Boolean(resolving[card.runId])}
+                                  className="min-h-11 text-[11px] font-mono text-[#1c1cc8] border border-[#d3d2c8] px-2 rounded-none disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0000a8]">
+                                  {resolving[card.runId] ? "Resolving..." : "Mark resolved"}
+                                </button>
+                              ) : null}
                             </div>
 
                             {shareUrl ? (
@@ -200,6 +236,7 @@ export function SwarmDeskView({
                                 {shareError}
                               </div>
                             ) : null}
+                            {resolveErrors[card.runId] ? <div role="alert" className="text-[11px] font-mono text-[#b91c1c] border border-[#fb2c36]/30 px-2 py-1 break-all">{resolveErrors[card.runId]}</div> : null}
                           </div>
                         </article>
                       );

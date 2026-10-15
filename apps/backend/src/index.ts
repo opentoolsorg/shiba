@@ -34,6 +34,7 @@ import { handleOAuth } from "./oauth-mcp.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
+import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
 import { handleWebSessions } from "./sessions-routes.js";
@@ -222,6 +223,8 @@ export default {
       if (swarmResponse) {
         return swarmResponse;
       }
+      const v1Response = await handleV1(request, env);
+      if (v1Response) return v1Response;
       const usageResponse = await handleUsage(request, env);
       if (usageResponse) {
         return usageResponse;

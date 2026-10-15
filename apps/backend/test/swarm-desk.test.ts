@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   laneForRun,
+  formatRunAge,
   modeForRole,
   normalizeSwarmWebhook,
   parseSwarmIntake,
@@ -23,6 +24,15 @@ function makeRun(overrides: Partial<SwarmRunInput> = {}): SwarmRunInput {
 }
 
 describe("swarm desk projection", () => {
+  it("prioritizes explicit archiving even on active runs", () => {
+    expect(laneForRun(makeRun({ status: "running", archivedAt: 0 }))).toBe("archived");
+    expect(projectSwarmDesk([makeRun({ archivedAt: 2, task: "ENG-42 Fix ABC-1\nOTHER-9", usage: { costUsd: 0.42 } })]).archived[0])
+      .toMatchObject({ archived: true, archivedAt: 2, issueRef: "ENG-42", costUsd: 0.42 });
+    expect(projectSwarmDesk([makeRun({ task: "Fix\nENG-42" })]).backlog[0]?.issueRef).toBeUndefined();
+  });
+  it.each([[26_000, "26s ago"], [300_000, "5m ago"], [7_200_000, "2h ago"], [259_200_000, "3d ago"], [-1000, "0s ago"]])("formats age %s", (elapsed, label) => {
+    expect(formatRunAge(0, elapsed as number)).toBe(label);
+  });
   it.each([
     ["pending", "backlog"],
     ["running", "in_progress"],

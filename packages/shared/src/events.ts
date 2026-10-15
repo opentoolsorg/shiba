@@ -14,6 +14,7 @@ import type { PendingApproval } from "./approvals.js";
 import type { RunEvent } from "./decide.js";
 
 export type RunSpineKind =
+  | "run.archived"
   | "run.proposed"
   | "run.approved"
   | "run.rejected"
@@ -42,6 +43,7 @@ export type SpineKind =
   | "approval.answered";
 
 export const SPINE_KINDS: readonly SpineKind[] = [
+  "run.archived",
   "run.proposed",
   "run.approved",
   "run.rejected",
@@ -120,6 +122,7 @@ export const MAX_SPINE_EVENTS = 1000;
 
 /** Per-run decider events → spine kinds. Rejected decisions emit no event. */
 const DECIDER_TO_SPINE: Record<RunEvent["type"], RunSpineKind> = {
+  "run.archived": "run.archived",
   "run.queued": "run.proposed",
   "run.approved": "run.approved",
   "run.started": "run.started",
