@@ -862,7 +862,9 @@ describe("unescapePorcelainPath", () => {
 describe("streamed output buffering", () => {
   it("parses an event line split across arbitrary chunk boundaries", async () => {
     const ops = makeFakeOps();
-    ops.exec = async (_command, opts) => {
+    const baseExec = ops.exec;
+    ops.exec = async (command, opts) => {
+      if (!command.includes("opencode")) return baseExec(command, opts);
       const line = `${JSON.stringify({ type: "log", part: "hello split world" })}\n`;
       for (const ch of line) {
         opts?.onOutput?.("stdout", ch);
@@ -880,7 +882,9 @@ describe("streamed output buffering", () => {
 
   it("drops an oversized pending line honestly and keeps parsing later events", async () => {
     const ops = makeFakeOps();
-    ops.exec = async (_command, opts) => {
+    const baseExec = ops.exec;
+    ops.exec = async (command, opts) => {
+      if (!command.includes("opencode")) return baseExec(command, opts);
       const big = "x".repeat(MAX_STREAM_LINE_CHARS + 512);
       for (let i = 0; i < big.length; i += 8192) {
         opts?.onOutput?.("stdout", big.slice(i, i + 8192));
@@ -901,7 +905,9 @@ describe("streamed output buffering", () => {
 
   it("keeps parsing usage and error events after the progress cap", async () => {
     const ops = makeFakeOps();
-    ops.exec = async (_command, opts) => {
+    const baseExec = ops.exec;
+    ops.exec = async (command, opts) => {
+      if (!command.includes("opencode")) return baseExec(command, opts);
       for (let i = 0; i < MAX_PROGRESS_EVENTS + 10; i += 1) {
         opts?.onOutput?.("stdout", `${JSON.stringify({ type: "log", part: `line ${i}` })}\n`);
       }

@@ -140,8 +140,8 @@ export async function publishFilesAsPullRequest(
   let cursor = 0;
   const uploadNext = async (): Promise<void> => {
     while (cursor < uploads.length) {
-      const item = uploads[cursor];
-      cursor += 1;
+      const item = uploads[cursor++];
+      if (!item) return;
       const blob = await api<{ sha: string }>(resolved, `/repos/${owner}/${repo}/git/blobs`, json({
         content: item.file.content,
         encoding: item.file.encoding === "base64" ? "base64" : "utf-8",
