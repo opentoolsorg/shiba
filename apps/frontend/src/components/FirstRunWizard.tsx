@@ -2,7 +2,7 @@
  * FirstRunWizard — the post-signup onboarding flow. Three steps:
  *   1. Channels  — review deployment-reported configuration for the surfaces
  *      that carry tasks & approvals (Slack/Telegram/Discord/Email/GitHub).
- *   2. Your agent — connect one AI provider via the shared
+ *   2. Your agent — optionally connect a subscription provider via the shared
  *      SubscriptionConnect control.
  *   3. Model routing — the deployment's role→harness map, read-only, with a
  *      link into Settings → Models.
@@ -10,7 +10,7 @@
  * (`shiba-onboarding-v1` in localStorage) and can be reopened from Setup
  * Guide. Steps never block: "Skip" always works, "Finish" marks it done.
  */
-import { useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import type { AppNavView } from "./AppNavRail";
 import { ToneChip } from "./ToneChip";
 import {
@@ -32,7 +32,7 @@ const SUBSCRIPTION_IDS = Object.keys(SUBSCRIPTION_AUTH) as SubscriptionId[];
 
 const STEPS = [
   { id: "channels", title: "Your channels", blurb: "Where tasks and approvals reach you" },
-  { id: "agent", title: "Your agent", blurb: "The AI provider that does the work" },
+  { id: "agent", title: "Your agent", blurb: "Optional subscription provider connections" },
   { id: "models", title: "Model routing", blurb: "Which agent handles each kind of task" },
 ] as const;
 
@@ -195,6 +195,9 @@ export function FirstRunWizard({
 }): JSX.Element | null {
   const [step, setStep] = useState(0);
   const [subscriptions, setSubscriptions] = useState<Partial<Record<SubscriptionId, SubscriptionStatus>>>({});
+  const [routingRetried, setRoutingRetried] = useState(false);
+  const routingRef = useRef<HTMLDivElement>(null);
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
   const directory = useAgentsDirectory();
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
@@ -211,6 +214,19 @@ export function FirstRunWizard({
     subscriptions[id] === undefined || subscriptions[id]?.kind === "loading",
   );
   const providerCheckFailed = SUBSCRIPTION_IDS.some((id) => subscriptions[id]?.kind === "error");
+
+  useEffect(() => {
+    if (routingRetried && !setup.inFlight && setup.state.kind === "data") {
+      const active = document.activeElement;
+      if (!active || active === document.body || active === retryButtonRef.current) {
+        routingRef.current?.focus();
+      }
+    }
+  }, [routingRetried, setup.inFlight, setup.state.kind]);
+
+  useEffect(() => {
+    if (!open || step !== 2) setRoutingRetried(false);
+  }, [open, step]);
 
   if (!open) return null;
 
@@ -247,10 +263,21 @@ export function FirstRunWizard({
         </>
       }
     >
+      <p role="status" className="sr-only">
+        {step !== 2
+          ? ""
+          : setup.inFlight
+            ? "Checking model routing…"
+            : routingRetried && setup.state.kind === "data"
+              ? "Model routing loaded."
+              : routingRetried
+                ? "Model routing still could not be loaded."
+                : ""}
+      </p>
       {step > 0 ? (
         <div role="status" className="mb-3 space-y-1.5">
           <ToneChip
-            tone={connectedProviders > 0 ? "ok" : "pending"}
+            tone={connectedProviders > 0 ? "ok" : "neutral"}
             label={`${connectedProviders} subscription provider${connectedProviders === 1 ? "" : "s"} connected`}
           />
           <p className="text-[11px] leading-relaxed text-[#6a6f63]">
@@ -259,7 +286,7 @@ export function FirstRunWizard({
               : providerCheckFailed
                 ? "Some connections could not be checked. Only confirmed connections are counted."
                 : connectedProviders === 0
-                  ? "No provider connected yet. You can continue setup, but running tasks needs a configured provider."
+                  ? "No subscription provider connected yet. Task credentials depend on your deployment's model routing."
                   : "Connection status is reported by the deployment; model routing is configured separately."}
           </p>
         </div>
@@ -269,9 +296,9 @@ export function FirstRunWizard({
           <ChannelRow
             name="GitHub"
             status={
-              setup.state.kind === "error" ? (
+              setup.state.kind === "error" && !setup.inFlight ? (
                 <ToneChip tone="pending" label="Could not check" />
-              ) : status === undefined ? (
+              ) : setup.inFlight || status === undefined ? (
                 <ToneChip tone="neutral" label="Checking…" />
               ) : status.github.token && status.github.webhookSecret ? (
                 <ToneChip tone="ok" label="Configured" />
@@ -287,9 +314,9 @@ export function FirstRunWizard({
           <ChannelRow
             name="Slack"
             status={
-              setup.state.kind === "error" ? (
+              setup.state.kind === "error" && !setup.inFlight ? (
                 <ToneChip tone="pending" label="Could not check" />
-              ) : status === undefined ? (
+              ) : setup.inFlight || status === undefined ? (
                 <ToneChip tone="neutral" label="Checking…" />
               ) : status.slack.signingSecret && status.slack.botToken && status.slack.approvers > 0 ? (
                 <ToneChip tone="ok" label="Configured" />
@@ -344,35 +371,44 @@ export function FirstRunWizard({
         </div>
       ) : null}
 
-      {step > 0 ? (
-        <div hidden={step !== 1}>
-          {SUBSCRIPTION_IDS.map((id) => (
-            <AgentRow
-              key={id}
-              id={id}
-              agentCredential={agents.find((a) => a.id === id)?.credential}
-              status={subscriptions[id]}
-              onStatus={(next) => setSubscriptions((current) => ({ ...current, [id]: next }))}
-            />
-          ))}
-          <p className="mt-3 text-[11px] leading-relaxed text-[#6a6f63]">
-            Connect at least one agent to run tasks. You can add or switch providers later in
-            Settings → Providers.
-          </p>
-        </div>
-      ) : null}
+      <div hidden={step !== 1}>
+        {SUBSCRIPTION_IDS.map((id) => (
+          <AgentRow
+            key={id}
+            id={id}
+            agentCredential={agents.find((a) => a.id === id)?.credential}
+            status={subscriptions[id]}
+            onStatus={(next) => setSubscriptions((current) => ({ ...current, [id]: next }))}
+          />
+        ))}
+        <p className="mt-3 text-[11px] leading-relaxed text-[#6a6f63]">
+          Connect a subscription provider if your model routing requires one. You can add or
+          switch providers later in Settings → Providers.
+        </p>
+      </div>
 
       {step === 2 ? (
-        <div>
-          {setup.state.kind === "loading" ? (
-            <p role="status" className="text-[11px] text-[#6a6f63]">Checking model routing…</p>
-          ) : setup.state.kind === "error" ? (
+        <div ref={routingRef} tabIndex={-1}>
+          {setup.state.kind === "error" ? (
             <div className="space-y-2 text-[11px] text-[#b45309]">
               <p>Model routing could not be loaded. You can continue setup and check it later.</p>
-              <button type="button" onClick={setup.reload} className="font-mono text-[#1c1cc8] hover:text-[#0000a8]">
+              <button
+                ref={retryButtonRef}
+                type="button"
+                onClick={() => {
+                  if (!setup.inFlight) {
+                    setRoutingRetried(true);
+                    setup.reload();
+                  }
+                }}
+                aria-disabled={setup.inFlight}
+                className="font-mono text-[#1c1cc8] hover:text-[#0000a8] aria-disabled:cursor-wait aria-disabled:opacity-60 aria-disabled:hover:text-[#1c1cc8]"
+              >
                 Retry routing check
               </button>
             </div>
+          ) : setup.inFlight ? (
+            <p className="text-[11px] text-[#6a6f63]">Checking model routing…</p>
           ) : roles.length === 0 ? (
             <p className="text-[11px] text-[#6a6f63]">
               This deployment has not reported per-role routing. Ask your administrator to

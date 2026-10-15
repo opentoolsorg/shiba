@@ -143,9 +143,9 @@ describe("dashboard components SSR (T14 sweep)", () => {
       }),
     );
     expect(html).toContain("task-composer");
-    expect(html).toContain("github.com/princepal9120/shiba");
+    expect(html).toContain("princepal9120/shiba");
     expect(html).toContain("Fix the inbox badge");
-    expect(html).toContain("Create PR");
+    expect(html).toContain("opens a PR");
     expect(html).toContain("OpenCode");
   });
 

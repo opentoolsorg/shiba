@@ -156,7 +156,7 @@ describe("dashboard rendering", () => {
 
     expect(appMarkup).toContain('data-testid="task-composer"');
     expect(appMarkup).toContain("<textarea");
-    expect(appMarkup).toContain('type="checkbox"');
+    expect(appMarkup).toContain('aria-label="More options"');
   });
 
   it("renders diff output for completed runs in standalone DiffView", () => {
