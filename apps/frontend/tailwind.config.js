@@ -22,10 +22,10 @@ export default {
         touch: { raw: "(pointer: coarse)" },
       },
       fontFamily: {
-        sans: ['Inter', 'Geist', 'system-ui', 'sans-serif'],
+        sans: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['"Geist Mono"', 'ui-monospace', 'monospace'],
         tech: ['"Geist Mono"', 'monospace'],
-        display: ['Inter', 'system-ui', 'sans-serif'],
+        display: ['"Instrument Serif"', 'Georgia', 'serif'],
       },
       borderRadius: {
         xs: 'var(--radius-xs)',
