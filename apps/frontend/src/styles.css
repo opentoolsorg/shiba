@@ -1,64 +1,66 @@
-/* Capy design system - Production theme tokens */
+/* Shiba paper-OS theme — tryshiba.dev design tokens on the Capy shell IA.
+   Dark charcoal paper (#191a18), periwinkle accent (#9cbce2), Geist +
+   Instrument Serif + Geist Mono, square corners, hard offset shadows. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: light;
-  --bg: oklch(94.31% .0006 286.15);
+  --bg: #f6f4ed;
   --chrome: var(--bg);
-  --panel: oklch(98.21% .0007 286.22);
-  --card: oklch(100% 0 0);
-  --card-hover: oklch(98.21% .0007 286.22);
-  --popover: oklch(100% 0 0);
+  --panel: #f1efe6;
+  --card: #fffef8;
+  --card-hover: #f1efe6;
+  --popover: #fffef8;
   --popover-hover: oklch(0% 0 0/.04);
-  --input: oklch(100% 0 0);
-  --button: oklch(100% 0 0);
-  --button-hover: oklch(98.21% .0007 286.22);
+  --input: #fffef8;
+  --button: #fffef8;
+  --button-hover: #f1efe6;
   --inverse: var(--fg);
   --inverse-hover: color-mix(in oklch, var(--fg) 88%, var(--bg));
   --inverse-text: var(--bg);
   --secondary: oklch(0% 0 0/.05);
   --secondary-hover: oklch(0% 0 0/.08);
   --section: oklch(0% 0 0/.04);
-  --muted: oklch(91.11% .0007 286.15);
+  --muted: #e0ded5;
   --overlay: oklch(0% 0 0/.4);
   --overlay-media: oklch(0% 0 0/.92);
   --overlay-fg: oklch(100% 0 0);
-  --fg: oklch(23.34% .0018 286.15);
+  --fg: #222320;
   --text: var(--fg);
-  --muted-foreground-1: color-mix(in oklch, var(--text) 62%, var(--bg));
-  --muted-foreground-2: color-mix(in oklch, var(--text) 48%, var(--bg));
-  --muted-foreground-3: color-mix(in oklch, var(--text) 36%, var(--bg));
-  --icon-muted: color-mix(in oklch, var(--text) 42%, var(--bg));
+  --muted-foreground-1: #454840;
+  --muted-foreground-2: #6a6f63;
+  --muted-foreground-3: #a5a69b;
+  --icon-muted: #6a6f63;
   --text-link: var(--primary);
-  --border-1: oklch(0% 0 0/.08);
-  --border-2: oklch(0% 0 0/.11);
-  --border-3: oklch(0% 0 0/.15);
-  --primary: oklch(63.3% .109 186.94);
-  --shader-ink: #4f9c8e;
+  --border-1: #e0ded5;
+  --border-2: #d3d2c8;
+  --border-3: #a5a69b;
+  --primary: #0000a8;
+  --shader-ink: #0000a8;
   --primary-soft: color-mix(in oklch, var(--primary) 20%, transparent);
   --primary-soft-hover: color-mix(in oklch, var(--primary) 26%, transparent);
   --primary-text: oklch(100% 0 0);
-  --ring: color-mix(in oklch, var(--primary) 92%, black);
-  --destructive: oklch(55% .185 27);
-  --destructive-soft: color-mix(in oklch, var(--destructive) 18%, transparent);
-  --destructive-soft-hover: color-mix(in oklch, var(--destructive) 24%, transparent);
+  --ring: var(--primary);
+  --destructive: #b52b2b;
+  --destructive-soft: color-mix(in oklch, var(--destructive) 12%, transparent);
+  --destructive-soft-hover: color-mix(in oklch, var(--destructive) 18%, transparent);
   --destructive-text: oklch(100% 0 0);
-  --warning: oklch(85% .155 96);
-  --warning-fg: oklch(62% .125 85);
-  --warning-subtle: color-mix(in oklch, var(--warning) 10%, transparent);
-  --success: oklch(61.7% .208 142.85);
-  --info: oklch(60% .2 250);
-  --complete: oklch(60% .19 300);
-  --attention: oklch(72% .19 41);
-  --progress: oklch(82.4% .179 91.3);
+  --warning: #f99c00;
+  --warning-fg: #976400;
+  --warning-subtle: color-mix(in oklch, var(--warning) 12%, transparent);
+  --success: #227146;
+  --info: #0000a8;
+  --complete: #6b3fa0;
+  --attention: #b06e28;
+  --progress: #f99c00;
   --purple: oklch(60% .21 292);
   --pink: oklch(63% .2 355);
   --orange: oklch(65% .17 55);
   --lime: oklch(63% .18 128);
-  --diff-add: oklch(56% .15 142.85);
-  --diff-del: oklch(55% .15 27);
+  --diff-add: #227146;
+  --diff-del: #b52b2b;
   --diff-add-wash: color-mix(in lab, var(--card) 94%, var(--diff-add));
   --diff-del-wash: color-mix(in lab, var(--card) 94%, var(--diff-del));
   --diff-add-emphasis: color-mix(in oklch, var(--diff-add) 20%, transparent);
@@ -72,31 +74,32 @@
   --chart-7: oklch(56% .17 330);
   --chart-8: oklch(67% .12 220);
   --chart-other: var(--muted-foreground-3);
-  --sh-plate: 0 1px 2px oklch(0% 0 0/.05);
+  --sh-plate: 1px 1px 0 #2527261c;
   --highlight-top: transparent;
   --card-hairline: transparent;
-  --sh-card: 0 0 0 .5px oklch(0% 0 0/.11);
-  --sh-overlay: 0 6px 18px oklch(0% 0 0/.03), 0 3px 9px oklch(0% 0 0/.04), 0 1px 1px oklch(0% 0 0/.05);
-  --sh-composer: 0 4px 12px oklch(0% 0 0/.025), 0 2px 6px oklch(0% 0 0/.03), 0 1px 1px oklch(0% 0 0/.04);
-  --sh-sheet: 0 9px 48px oklch(0% 0 0/.08), 0 6px 24px oklch(0% 0 0/.1), 0 1px 1px oklch(0% 0 0/.04);
+  --sh-card: 2px 2px 0 #2527261c;
+  --sh-overlay: 3px 3px 0 #2527261c;
+  --sh-composer: 3px 3px 0 #2527261c;
+  --sh-sheet: 4px 4px 0 #2527261c;
   --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
 
-  /* Radii */
-  --radius-xs: .125rem;
-  --radius-sm: .1875rem;
-  --radius-md: .375rem;
-  --radius-lg: .5rem;
-  --radius: .375rem;
-  --radius-inner: .125rem;
-  --radius-button: .375rem;
-  --radius-kbd: .1875rem;
-  --radius-card: .5rem;
-  --radius-overlay: .5rem;
-  --radius-panel: .75rem;
+  /* Radii — paper-OS: square corners everywhere */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius: 0;
+  --radius-inner: 0;
+  --radius-button: 0;
+  --radius-kbd: 0;
+  --radius-card: 0;
+  --radius-overlay: 0;
+  --radius-panel: 0;
 
   /* Typography & fonts */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  --font-display: 'Instrument Serif', Georgia, serif;
   --font-body: var(--font-sans);
 
   /* Focus & motion */
@@ -308,4 +311,3 @@ button:focus-visible,
 .animate-enter-x {
   animation: enter-slide-x var(--dur-fast) var(--ease-out) both;
 }
-
