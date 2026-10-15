@@ -14,7 +14,8 @@ import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
 import { RemoteAccessView } from "./components/RemoteAccessView";
-import { useSavedRepos, useSavedSkills, saveRepo } from "./saved";
+import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
+import { useSocketLiveness } from "./socket-liveness";
 import {
   codingModelOptions,
   readyConnectionOptions,
@@ -159,7 +160,8 @@ function useStoredApprovals(
         });
     };
     load();
-    const timer = window.setInterval(load, 10_000);
+    // Fallback only: DO state hints bump refreshToken; this catches other sessions' approvals.
+    const timer = window.setInterval(load, 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -198,7 +200,7 @@ function useAgentPrincipals(refreshToken: number, enabled: boolean): AgentPrinci
         .catch(() => {});
     };
     load();
-    const timer = window.setInterval(load, 10_000);
+    const timer = window.setInterval(load, 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -381,6 +383,33 @@ export function App(): React.JSX.Element {
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
+  // Per-session composer draft: a scope change loads that scope's draft
+  // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
+  const draftScope = useRef<string | null>(null);
+  const pendingDraft = useRef<{ scope: string; text: string } | null>(null);
+  const flushDraft = useCallback(() => {
+    const pending = pendingDraft.current;
+    pendingDraft.current = null;
+    if (pending) writeDraft(pending.scope, pending.text);
+  }, []);
+  useEffect(() => {
+    if (draftScope.current !== selectedSessionId) {
+      flushDraft(); // the old scope's unwritten keystrokes land before switching
+      draftScope.current = selectedSessionId;
+      setTask(readDraft(selectedSessionId));
+      return;
+    }
+    pendingDraft.current = { scope: selectedSessionId, text: task };
+    // An emptied composer (submit or clear) flushes now; typing waits for 300 ms idle.
+    if (!task.trim()) return flushDraft();
+    const timer = window.setTimeout(flushDraft, 300);
+    return () => window.clearTimeout(timer);
+  }, [selectedSessionId, task, flushDraft]);
+  // A failed submit restores its text only into the session it came from.
+  const restoreDraft = useCallback((scope: string, text: string) => {
+    if (draftScope.current === scope) setTask((current) => (current === "" ? text : current));
+    else writeDraft(scope, text);
+  }, []);
   // T63 — "Run on: This computer" is offered only while the desktop shell
   // reports a paired, reachable daemon (idle or busy).
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
@@ -480,6 +509,8 @@ export function App(): React.JSX.Element {
 
   const submitFailed = useRef(false);
   const submitInFlight = useRef(false);
+  // Same request body => same commandId, so a retried POST dedupes server-side.
+  const runCommand = useRef<{ key: string; id: string } | null>(null);
   const clearInFlight = useRef(false);
   const [decisions, setDecisions] = useState<Record<string, boolean>>({});
   const [approvalAnnouncement, setApprovalAnnouncement] = useState("");
@@ -551,6 +582,26 @@ export function App(): React.JSX.Element {
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
 
+  const refreshRuns = useCallback(() => setRefreshToken((token) => token + 1), []);
+  // DO state broadcasts hint that runs/approvals changed: trailing 150 ms debounce,
+  // at most one refetch per second, and a steady burst still fires within ~1 s.
+  const invalidateTimer = useRef<number | undefined>(undefined);
+  const invalidateSince = useRef<number | undefined>(undefined);
+  const lastInvalidateRefresh = useRef(0);
+  const invalidateSoon = useCallback(() => {
+    const now = Date.now();
+    invalidateSince.current ??= now;
+    window.clearTimeout(invalidateTimer.current);
+    const due = Math.max(lastInvalidateRefresh.current + 1000, Math.min(now + 150, invalidateSince.current + 1000));
+    invalidateTimer.current = window.setTimeout(() => {
+      invalidateTimer.current = undefined;
+      invalidateSince.current = undefined;
+      lastInvalidateRefresh.current = Date.now();
+      refreshRuns();
+    }, due - now);
+  }, [refreshRuns]);
+  useEffect(() => () => window.clearTimeout(invalidateTimer.current), []);
+
   const activeWebSession = webSessions.find((session) => session.id === selectedSessionId);
   const agent = useAgent({
     agent: ORCHESTRATOR_AGENT,
@@ -559,7 +610,11 @@ export function App(): React.JSX.Element {
     // produces a 403 burst on every load.
     name: activeWebSession?.agentName ?? orchestratorName ?? "identity-pending",
     enabled: orchestratorName !== null,
+    onStateUpdate: invalidateSoon,
+    minReconnectionDelay: 1000,
+    maxReconnectionDelay: 30_000,
   });
+  useSocketLiveness(agent, orchestratorName !== null, invalidateSoon);
   const chat = useAgentChat({
     agent,
     // Skip the /get-messages prefetch while the DO name is the pending
@@ -648,8 +703,6 @@ export function App(): React.JSX.Element {
 
   const decidedRef = useRef<Set<string>>(new Set());
   const decidedStoredRef = useRef<Set<string>>(new Set());
-
-  const refreshRuns = useCallback(() => setRefreshToken((token) => token + 1), []);
 
   // Waking from background or regaining network: reconnect now instead of
   // waiting out the socket's backoff, and refetch runs/approvals/identity.
@@ -812,14 +865,6 @@ export function App(): React.JSX.Element {
     [refreshRuns],
   );
 
-  useEffect(() => {
-    if (chat.status === "streaming" || chat.isStreaming) {
-      const timer = window.setTimeout(refreshRuns, 3000);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
-  }, [chat.status, chat.isStreaming, chat.messages.length, refreshRuns]);
-
   const submitTask = useCallback(
     async (event?: React.FormEvent) => {
       if (event) event.preventDefault();
@@ -840,6 +885,23 @@ export function App(): React.JSX.Element {
         // and the approval card appears like any other run. HTTP-only, so the
         // chat-socket identity guards below don't apply. Skills have no
         // /api/runs field and are not sent for local runs.
+        const fields = {
+          repoUrl: repoUrl.trim(),
+          task: task.trim(),
+          baseBranch: branch,
+          ...(harness ? { harness } : {}),
+          ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
+          ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+          publishPullRequest,
+        };
+        const body = { ...fields, runtime: "local", ...targetMachineFields(desktopStatus) };
+        // Keyed on user-editable fields only, so a daemon re-pair doesn't mint a new commandId for a retry.
+        const key = JSON.stringify(fields);
+        if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID() };
+        const commandId = runCommand.current.id;
+        const draft = task;
+        const draftSession = selectedSessionId;
+        setTask("");
         submitInFlight.current = true;
         setIsSubmitting(true);
         try {
@@ -850,28 +912,19 @@ export function App(): React.JSX.Element {
             {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                repoUrl: repoUrl.trim(),
-                task: task.trim(),
-                baseBranch: branch,
-                ...(harness ? { harness } : {}),
-                ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
-                ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
-                runtime: "local",
-                ...targetMachineFields(desktopStatus),
-                publishPullRequest,
-              }),
+              body: JSON.stringify({ ...body, commandId }),
             },
           );
           if (!res.ok) {
             const detail = (await res.text().catch(() => "")).slice(0, 200);
             throw new Error(`Run request failed with ${res.status}${detail ? `: ${detail}` : ""}`);
           }
+          runCommand.current = null;
           saveRepo(repoUrl.trim());
-          setTask((current) => (current === task ? "" : current));
           setNotice("Queued — approve the run card to execute on this computer.");
           refreshRuns();
         } catch (error) {
+          restoreDraft(draftSession, draft);
           setNotice(
             `Run could not be queued: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -918,17 +971,38 @@ export function App(): React.JSX.Element {
         "",
         `Task: ${task.trim()}`,
       ].join("\n");
+      const draft = task;
+      const draftSession = selectedSessionId;
+      setTask("");
       submitInFlight.current = true;
       submitFailed.current = false;
       setIsSubmitting(true);
       try {
-        await chat.sendMessage({ text });
-        if (!submitFailed.current) {
+        // Structured copy of the composer fields so the approval card doesn't
+        // depend on the LLM echoing them back from `text`.
+        await chat.sendMessage({
+          text,
+          metadata: {
+            shibaTask: {
+              repoUrl: repoUrl.trim(),
+              task: task.trim(),
+              baseBranch: branch,
+              harness,
+              publishPullRequest,
+              ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
+              ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+            },
+          },
+        });
+        // onError already surfaces chat.error in the notice banner.
+        if (submitFailed.current) {
+          restoreDraft(draftSession, draft);
+        } else {
           saveRepo(repoUrl.trim());
-          setTask((current) => (current === task ? "" : current));
           refreshRuns();
         }
       } catch (error) {
+        restoreDraft(draftSession, draft);
         setNotice(
           `Task could not be sent: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -956,6 +1030,7 @@ export function App(): React.JSX.Element {
       sessionApiAvailable,
       selectedSessionId,
       desktopStatus,
+      restoreDraft,
     ],
   );
 

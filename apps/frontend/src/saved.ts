@@ -116,3 +116,36 @@ export function removeSkill(id: string): void {
   skillsCache = getSavedSkills().filter((skill) => skill.id !== id);
   writeList(SKILLS_KEY, skillsCache);
 }
+
+// Unsent composer text per scope (session id); newest 100 kept.
+const DRAFTS_KEY = "shiba-composer-drafts-v1";
+type Drafts = Record<string, { text: string; updatedAt: number }>;
+
+function readDrafts(): Drafts {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}") as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Drafts) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function readDraft(scope: string): string {
+  const text = readDrafts()[scope]?.text;
+  return typeof text === "string" ? text : "";
+}
+
+export function writeDraft(scope: string, text: string): void {
+  try {
+    const drafts = readDrafts();
+    // Stored oldest-first and re-inserted on write, so the stable sort breaks same-ms ties by recency.
+    delete drafts[scope];
+    if (text.trim()) drafts[scope] = { text, updatedAt: Date.now() };
+    const newest = Object.entries(drafts)
+      .sort(([, a], [, b]) => (a?.updatedAt ?? 0) - (b?.updatedAt ?? 0))
+      .slice(-100);
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(newest)));
+  } catch {
+    // Storage full or blocked: the draft lives only in component state.
+  }
+}
