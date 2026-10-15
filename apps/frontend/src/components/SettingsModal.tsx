@@ -164,15 +164,15 @@ export function SettingsModal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="relative z-10 m-auto flex h-[82dvh] max-h-[780px] w-full max-w-4xl flex-col overflow-hidden rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[3px_3px_0_var(--paper-shadow)]"
+        className="relative z-10 m-auto flex h-[82dvh] max-h-[780px] w-full max-w-4xl flex-col overflow-hidden rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)]"
       >
         {/* Header — title + close, like Kosuke's dialog chrome. */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e0ded5] bg-[#f1efe6] px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-3">
           <div>
-            <h2 id={titleId} className="text-base font-semibold text-[#222320]">
+            <h2 id={titleId} className="text-base font-semibold text-[var(--fg)]">
               Settings
             </h2>
-            <p id={descriptionId} className="text-[11px] text-[#6a6f63]">
+            <p id={descriptionId} className="text-[11px] text-[var(--muted-foreground-2)]">
               Deployment-aware settings and shortcuts to full feature experiences.
             </p>
           </div>
@@ -181,7 +181,7 @@ export function SettingsModal({
             type="button"
             onClick={onClose}
             aria-label="Close settings"
-            className="flex size-11 shrink-0 items-center justify-center rounded-none border border-[#e0ded5] bg-[#fffef8] font-mono text-sm text-[#6a6f63] transition-colors hover:bg-[#e0ded5] hover:text-[#222320] sm:size-8"
+            className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] font-mono text-sm text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--fg)] sm:size-8"
           >
             ✕
           </button>
@@ -191,7 +191,7 @@ export function SettingsModal({
           {/* Left nav — grouped sidebar on sm+, horizontal strip on phones. */}
           <nav
             aria-label="Settings navigation"
-            className="flex shrink-0 gap-2 overflow-x-auto border-b border-[#e0ded5] bg-[#f6f4ed] px-2.5 py-2 sm:w-52 sm:flex-col sm:gap-0 sm:overflow-x-visible sm:overflow-y-auto sm:border-b-0 sm:border-r sm:py-3"
+            className="flex shrink-0 gap-2 overflow-x-auto border-b border-[var(--border-1)] bg-[var(--bg)] px-2.5 py-2 sm:w-52 sm:flex-col sm:gap-0 sm:overflow-x-visible sm:overflow-y-auto sm:border-b-0 sm:border-r sm:py-3"
           >
             {SETTINGS_NAV_GROUPS.map((group) => (
               <fieldset
@@ -201,7 +201,7 @@ export function SettingsModal({
               >
                 <legend
                   id={`${navigationId}-${group.heading}`}
-                  className="sr-only px-2.5 pb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63] sm:not-sr-only"
+                  className="sr-only px-2.5 pb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)] sm:not-sr-only"
                 >
                   {group.heading}
                 </legend>
@@ -227,10 +227,10 @@ export function SettingsModal({
                         aria-current={isActive ? "page" : undefined}
                         aria-controls={isSection ? contentId : undefined}
                         className={
-                          "min-h-11 shrink-0 rounded-none px-2.5 py-2 text-left transition-colors duration-100 sm:w-full sm:shrink " +
+                          "min-h-11 shrink-0 rounded-[var(--radius-button)] px-2.5 py-2 text-left transition-colors duration-100 sm:w-full sm:shrink " +
                           (isActive
-                            ? "bg-[#0000a8] text-white shadow-[2px_2px_0_var(--paper-shadow)]"
-                            : "text-[#222320] hover:bg-[#e0ded5]")
+                            ? "bg-[var(--primary)] text-white shadow-[var(--sh-card)]"
+                            : "text-[var(--fg)] hover:bg-[var(--secondary)]")
                         }
                       >
                         <span className="block whitespace-nowrap text-[13px] font-medium">
@@ -240,7 +240,7 @@ export function SettingsModal({
                         <span
                           className={
                             "mt-0.5 hidden truncate text-[10px] leading-snug sm:block " +
-                            (isActive ? "text-white/80" : "text-[#6a6f63]")
+                            (isActive ? "text-white/80" : "text-[var(--muted-foreground-2)]")
                           }
                         >
                           {entry.blurb}
@@ -258,7 +258,7 @@ export function SettingsModal({
             id={contentId}
             aria-live="polite"
             key={section}
-            className="min-w-0 flex-1 overflow-y-auto bg-[#f6f4ed] p-4 sm:p-6"
+            className="min-w-0 flex-1 overflow-y-auto bg-[var(--bg)] p-4 sm:p-6"
           >
             <div className="mx-auto max-w-2xl">
               <SettingsSectionBody

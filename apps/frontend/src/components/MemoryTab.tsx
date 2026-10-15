@@ -11,11 +11,11 @@ import type { MemoryFact, MemorySession } from "../types";
 import { formatTimeAgo } from "../ui-helpers";
 
 const GHOST_BUTTON =
-  "text-[11px] bg-transparent hover:bg-[#fffef8] border border-[#e0ded5] hover:border-[#d3d2c8] text-[#6a6f63] hover:text-[#222320] font-medium py-1 px-2.5 touch:min-h-11 rounded-none transition-colors inline-flex items-center justify-center gap-1.5";
+  "text-[11px] bg-transparent hover:bg-[var(--card)] border border-[var(--border-1)] hover:border-[var(--border-2)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5";
 const ACCENT_BUTTON =
-  "text-[11px] bg-[#0000a8]/10 hover:bg-[#0000a8]/15 border border-[#0000a8]/20 text-[#1c1cc8] font-medium py-1 px-2.5 touch:min-h-11 rounded-none transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
+  "text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/20 text-[var(--primary)] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
 const DANGER_BUTTON =
-  "text-[11px] bg-[#fb2c36]/10 hover:bg-[#fb2c36]/20 border border-[#fb2c36]/50 text-[#fb2c36] font-medium py-1 px-2.5 touch:min-h-11 rounded-none transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
+  "text-[11px] bg-[#fb2c36]/10 hover:bg-[#fb2c36]/20 border border-[#fb2c36]/50 text-[#fb2c36] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -30,11 +30,11 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 export function sourceChipClass(source: string): string {
   switch (source) {
     case "run":
-      return "text-[#1c1cc8] border-[#0000a8]/30 bg-[#0000a8]/10";
+      return "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)]";
     case "email":
       return "text-[#b45309] border-[#f99c00]/40 bg-[#f99c00]/10";
     default:
-      return "text-[#6a6f63] border-[#e0ded5] bg-[#fffef8]";
+      return "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]";
   }
 }
 
@@ -202,13 +202,13 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
   return (
     <div className={`flex flex-col gap-3.5 ${className}`}>
       {/* Header & Activity Summary (Bezalel-inspired settings & privacy rationale) */}
-      <header className="border border-[#e0ded5] rounded-none bg-[#fffef8] p-3.5 shadow-[2px_2px_0_var(--paper-shadow)]">
+      <header className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] p-3.5 shadow-[var(--sh-card)]">
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <div>
-            <h3 className="font-display text-[17px] text-[#222320] leading-tight">
+            <h3 className="font-sans text-[17px] text-[var(--fg)] leading-tight">
               Durable Agent Memory
             </h3>
-            <p className="text-[11px] text-[#6a6f63] mt-0.5">
+            <p className="text-[11px] text-[var(--muted-foreground-2)] mt-0.5">
               Facts & context persisted in the Memory DO across sessions.
             </p>
           </div>
@@ -221,7 +221,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             aria-label="Reload memory"
           >
             <svg aria-hidden="true" 
-              className={`w-3.5 h-3.5 text-[#6a6f63] ${loading ? "animate-spin" : ""}`}
+              className={`w-3.5 h-3.5 text-[var(--muted-foreground-2)] ${loading ? "animate-spin" : ""}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -238,17 +238,17 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         </div>
 
         {/* Activity & stats summary */}
-        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-[#e0ded5]/60 text-[10px] font-mono text-[#6a6f63]">
-          <span className="inline-flex items-center gap-1 bg-[#f6f4ed] border border-[#e0ded5] px-2 py-0.5 rounded-none">
-            <span className="font-bold text-[#1c1cc8]">{facts.length}</span>
+        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-[var(--border-1)] text-[10px] font-mono text-[var(--muted-foreground-2)]">
+          <span className="inline-flex items-center gap-1 bg-[var(--bg)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)]">
+            <span className="font-bold text-[var(--primary)]">{facts.length}</span>
             <span>facts banked</span>
           </span>
-          <span className="inline-flex items-center gap-1 bg-[#f6f4ed] border border-[#e0ded5] px-2 py-0.5 rounded-none">
-            <span className="font-bold text-[#222320]">{sessions.length}</span>
+          <span className="inline-flex items-center gap-1 bg-[var(--bg)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)]">
+            <span className="font-bold text-[var(--fg)]">{sessions.length}</span>
             <span>sessions</span>
           </span>
           {searchActive ? (
-            <span className="inline-flex items-center gap-1 bg-[#0000a8]/10 text-[#1c1cc8] border border-[#0000a8]/20 px-2 py-0.5 rounded-none">
+            <span className="inline-flex items-center gap-1 bg-[var(--primary-soft)] text-[var(--primary)] border border-[var(--primary)]/20 px-2 py-0.5 rounded-[var(--radius-button)]">
               <span>Recall:</span>
               <span className="font-semibold truncate max-w-[120px]">"{lastRecallQuery}"</span>
             </span>
@@ -257,14 +257,14 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       </header>
 
       {/* Segmented View Mode Switcher */}
-      <nav aria-label="Memory sections" className="flex items-center gap-1 bg-[#f1efe6] p-1 rounded-none border border-[#e0ded5]">
+      <nav aria-label="Memory sections" className="flex items-center gap-1 bg-[var(--panel)] p-1 rounded-[var(--radius-button)] border border-[var(--border-1)]">
         <button
           type="button"
           onClick={() => setViewMode("facts")}
-          className={`flex-1 text-[11px] font-medium py-1 px-3 rounded-none transition-all touch:min-h-11 ${
+          className={`flex-1 text-[11px] font-medium py-1 px-3 rounded-[var(--radius-button)] transition-all touch:min-h-11 ${
             viewMode === "facts"
-              ? "bg-[#fffef8] text-[#222320] shadow-[2px_2px_0_var(--paper-shadow)] font-semibold"
-              : "text-[#6a6f63] hover:text-[#222320]"
+              ? "bg-[var(--card)] text-[var(--fg)] shadow-[var(--sh-card)] font-semibold"
+              : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
           }`}
         >
           Banked Facts ({facts.length})
@@ -272,10 +272,10 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         <button
           type="button"
           onClick={() => setViewMode("sessions")}
-          className={`flex-1 text-[11px] font-medium py-1 px-3 rounded-none transition-all touch:min-h-11 ${
+          className={`flex-1 text-[11px] font-medium py-1 px-3 rounded-[var(--radius-button)] transition-all touch:min-h-11 ${
             viewMode === "sessions"
-              ? "bg-[#fffef8] text-[#222320] shadow-[2px_2px_0_var(--paper-shadow)] font-semibold"
-              : "text-[#6a6f63] hover:text-[#222320]"
+              ? "bg-[var(--card)] text-[var(--fg)] shadow-[var(--sh-card)] font-semibold"
+              : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
           }`}
         >
           Recorded Sessions ({sessions.length})
@@ -292,7 +292,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       >
         <div className="flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
-            <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-[#6a6f63]">
+            <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-[var(--muted-foreground-2)]">
               <svg aria-hidden="true"  className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
@@ -302,14 +302,14 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Recall a fact (e.g. preferences, stack, conventions)…"
-              className="w-full text-[11px] font-mono bg-[#fffef8] border border-[#e0ded5] rounded-none pl-8 pr-7 py-1.5 text-[#222320] placeholder:text-[#6a6f63] focus:outline-none focus:border-[#0000a8]/50 focus:ring-1 focus:ring-[#0000a8]/30 transition-colors"
+              className="w-full text-[11px] font-mono bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] pl-8 pr-7 py-1.5 text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus:outline-none focus:border-[var(--primary)]/50 focus:ring-1 focus:ring-[var(--ring)] transition-colors"
             />
             {query.length > 0 ? (
               <button
                 type="button"
                 onClick={() => setQuery("")}
                 aria-label="Clear input text"
-                className="absolute inset-y-0 right-0 pr-2 flex items-center text-[#6a6f63] hover:text-[#222320]"
+                className="absolute inset-y-0 right-0 pr-2 flex items-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
               >
                 <svg aria-hidden="true"  className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                   <path
@@ -331,7 +331,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                 setQuery("");
                 void load();
               }}
-              className="text-[11px] text-[#6a6f63] hover:text-[#222320] px-1"
+              className="text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] px-1"
             >
               Clear
             </button>
@@ -340,18 +340,18 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
         {/* Filters bar: Source & Agent */}
         {viewMode === "facts" ? (
-          <div className="flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono text-[#6a6f63]">
+          <div className="flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono text-[var(--muted-foreground-2)]">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="uppercase tracking-wider text-[9px] text-[#6a6f63]/80">Source:</span>
+              <span className="uppercase tracking-wider text-[9px] text-[var(--muted-foreground-2)]">Source:</span>
               {(['all', 'run', 'email'] as const).map((src) => (
                 <button
                   key={src}
                   type="button"
                   onClick={() => setSourceFilter(src)}
-                  className={`px-2 py-0.5 rounded-none border transition-colors ${
+                  className={`px-2 py-0.5 rounded-[var(--radius-button)] border transition-colors ${
                     sourceFilter === src
-                      ? "bg-[#fffef8] text-[#222320] border-[#0000a8]/40 font-semibold shadow-[2px_2px_0_var(--paper-shadow)]"
-                      : "bg-transparent border-transparent hover:border-[#e0ded5] text-[#6a6f63]"
+                      ? "bg-[var(--card)] text-[var(--fg)] border-[var(--primary)]/40 font-semibold shadow-[var(--sh-card)]"
+                      : "bg-transparent border-transparent hover:border-[var(--border-1)] text-[var(--muted-foreground-2)]"
                   }`}
                 >
                   {src === "all" ? "All" : src.toUpperCase()}
@@ -361,11 +361,11 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
             {availableAgents.length > 1 ? (
               <div className="flex items-center gap-1">
-                <span className="uppercase tracking-wider text-[9px] text-[#6a6f63]/80">Agent:</span>
+                <span className="uppercase tracking-wider text-[9px] text-[var(--muted-foreground-2)]">Agent:</span>
                 <select
                   value={agentFilter}
                   onChange={(e) => setAgentFilter(e.target.value)}
-                  className="text-[10px] font-mono bg-[#fffef8] border border-[#e0ded5] rounded-none px-1.5 py-0.5 text-[#222320] focus:outline-none focus:border-[#0000a8]/50"
+                  className="text-[10px] font-mono bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-1.5 py-0.5 text-[var(--fg)] focus:outline-none focus:border-[var(--primary)]/50"
                 >
                   <option value="all">All agents</option>
                   {availableAgents.map((ag) => (
@@ -382,7 +382,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
       {/* Notifications & Error Feedback */}
       {notice !== null ? (
-        <div className="text-[11px] text-[#15803d] bg-[#15803d]/10 border border-[#15803d]/20 rounded-none px-2.5 py-2 flex items-center justify-between gap-2">
+        <div className="text-[11px] text-[#15803d] bg-[#15803d]/10 border border-[#15803d]/20 rounded-[var(--radius-button)] px-2.5 py-2 flex items-center justify-between gap-2">
           <span>{notice}</span>
           <button
             type="button"
@@ -395,7 +395,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       ) : null}
 
       {error !== null ? (
-        <div className="text-[11px] text-[#fb2c36] bg-[#fb2c36]/10 border border-[#fb2c36]/20 rounded-none px-2.5 py-2 flex items-center justify-between gap-2">
+        <div className="text-[11px] text-[#fb2c36] bg-[#fb2c36]/10 border border-[#fb2c36]/20 rounded-[var(--radius-button)] px-2.5 py-2 flex items-center justify-between gap-2">
           <span className="flex-1">{error}</span>
           <button
             type="button"
@@ -409,8 +409,8 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
       {/* Active Recall Banner */}
       {searchActive ? (
-        <div className="flex items-center justify-between gap-2 bg-[#0000a8]/5 border border-[#0000a8]/15 rounded-none px-3 py-2 text-[11px]">
-          <div className="flex items-center gap-1.5 text-[#1c1cc8]">
+        <div className="flex items-center justify-between gap-2 bg-[var(--primary)]/5 border border-[var(--primary)]/15 rounded-[var(--radius-button)] px-3 py-2 text-[11px]">
+          <div className="flex items-center gap-1.5 text-[var(--primary)]">
             <svg aria-hidden="true"  className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -424,7 +424,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
               setQuery("");
               void load();
             }}
-            className="text-[10px] font-mono text-[#1c1cc8] hover:underline font-semibold shrink-0"
+            className="text-[10px] font-mono text-[var(--primary)] hover:underline font-semibold shrink-0"
           >
             Reset
           </button>
@@ -435,21 +435,21 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       {viewMode === "facts" ? (
         <section aria-label="Banked Facts" className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#6a6f63]">
+            <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
               {searchActive ? "Recall results" : "Facts"}
             </h4>
-            <span className="text-[10px] font-mono text-[#6a6f63]">
+            <span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">
               {visibleFacts.length} {visibleFacts.length === 1 ? "fact" : "facts"}
             </span>
           </div>
 
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[#e0ded5] rounded-none bg-[#f6f4ed] px-4 text-center">
-              <p className="text-[#6a6f63] text-xs">Loading memory…</p>
+            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+              <p className="text-[var(--muted-foreground-2)] text-xs">Loading memory…</p>
             </div>
           ) : visibleFacts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[#e0ded5] rounded-none bg-[#f6f4ed] px-4 text-center">
-              <p className="text-[#6a6f63] text-xs">
+            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+              <p className="text-[var(--muted-foreground-2)] text-xs">
                 {searchActive
                   ? `Nothing recalled for "${lastRecallQuery}".`
                   : sourceFilter !== "all" || agentFilter !== "all"
@@ -466,36 +466,36 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                 return (
                   <li
                     key={fact.id}
-                    className="border border-[#e0ded5] hover:border-[#d3d2c8] rounded-none bg-[#fffef8] p-3.5 shadow-[2px_2px_0_var(--paper-shadow)] transition-all flex flex-col gap-2"
+                    className="border border-[var(--border-1)] hover:border-[var(--border-2)] rounded-[var(--radius-button)] bg-[var(--card)] p-3.5 shadow-[var(--sh-card)] transition-all flex flex-col gap-2"
                   >
-                    <pre className="font-mono text-[11px] text-[#222320] whitespace-pre-wrap break-words leading-relaxed bg-[#f6f4ed]/50 p-2.5 rounded-none border border-[#e0ded5]/60">
+                    <pre className="font-mono text-[11px] text-[var(--fg)] whitespace-pre-wrap break-words leading-relaxed bg-[var(--secondary)] p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)]">
                       {fact.fact}
                     </pre>
 
                     <div className="flex items-center gap-2 flex-wrap pt-1">
                       <span
-                        className={`text-[10px] font-bold uppercase tracking-wider border rounded-none px-2 py-0.5 ${sourceChipClass(
+                        className={`text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 ${sourceChipClass(
                           fact.source,
                         )}`}
                       >
                         {fact.source}
                       </span>
 
-                      <span className="text-[10px] font-mono text-[#6a6f63] bg-[#f6f4ed] border border-[#e0ded5] px-1.5 py-0.5 rounded-none">
+                      <span className="text-[10px] font-mono text-[var(--muted-foreground-2)] bg-[var(--bg)] border border-[var(--border-1)] px-1.5 py-0.5 rounded-[var(--radius-button)]">
                         @{fact.agent}
                       </span>
 
                       <time
                         dateTime={new Date(fact.created_at).toISOString()}
                         title={new Date(fact.created_at).toLocaleString()}
-                        className="text-[10px] font-mono text-[#6a6f63]"
+                        className="text-[10px] font-mono text-[var(--muted-foreground-2)]"
                       >
                         {formatTimeAgo(fact.created_at)}
                       </time>
 
                       {scoreText !== "" ? (
                         <span
-                          className="text-[10px] font-mono text-[#1c1cc8] bg-[#0000a8]/10 border border-[#0000a8]/20 px-2 py-0.5 rounded-none font-semibold"
+                          className="text-[10px] font-mono text-[var(--primary)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 px-2 py-0.5 rounded-[var(--radius-button)] font-semibold"
                           title={`Relevance score: ${scoreText}`}
                         >
                           Score {scoreText}
@@ -511,7 +511,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                           onClick={() => setConfirmForget(fact.id)}
                           aria-label={`Forget fact ${fact.id}`}
                         >
-                          <svg aria-hidden="true"  className="w-3 h-3 text-[#6a6f63]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg aria-hidden="true"  className="w-3 h-3 text-[var(--muted-foreground-2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -526,7 +526,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
                     {/* Explicit Two-Step Confirmation Prompt */}
                     {isConfirming ? (
-                      <div className="mt-1 bg-[#fb2c36]/5 border border-[#fb2c36]/25 rounded-none p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="mt-1 bg-[#fb2c36]/5 border border-[#fb2c36]/25 rounded-[var(--radius-button)] p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-1.5 text-[11px] text-[#fb2c36]">
                           <svg aria-hidden="true"  className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
@@ -569,17 +569,17 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       {viewMode === "sessions" ? (
         <section aria-label="Recorded Sessions" className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#6a6f63]">
+            <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
               Recorded Sessions
             </h4>
-            <span className="text-[10px] font-mono text-[#6a6f63]">
+            <span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">
               {visibleSessions.length} {visibleSessions.length === 1 ? "session" : "sessions"}
             </span>
           </div>
 
           {!loading && visibleSessions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[#e0ded5] rounded-none bg-[#f6f4ed] px-4 text-center">
-              <p className="text-[#6a6f63] text-xs">
+            <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+              <p className="text-[var(--muted-foreground-2)] text-xs">
                 {agentFilter !== "all"
                   ? "No sessions recorded for selected agent."
                   : "No sessions recorded yet."}
@@ -592,18 +592,18 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                 return (
                   <li
                     key={session.id}
-                    className={`border rounded-none bg-[#fffef8] overflow-hidden transition-colors ${
-                      expanded ? "border-[#0000a8]/50 shadow-[2px_2px_0_var(--paper-shadow)]" : "border-[#e0ded5] hover:border-[#d3d2c8]"
+                    className={`border rounded-[var(--radius-button)] bg-[var(--card)] overflow-hidden transition-colors ${
+                      expanded ? "border-[var(--primary)]/50 shadow-[var(--sh-card)]" : "border-[var(--border-1)] hover:border-[var(--border-2)]"
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => setExpandedSession(expanded ? null : session.id)}
                       aria-expanded={expanded}
-                      className="w-full text-left p-3 hover:bg-[#f6f4ed]/50 transition-colors flex items-center gap-2 touch:min-h-11"
+                      className="w-full text-left p-3 hover:bg-[var(--secondary)] transition-colors flex items-center gap-2 touch:min-h-11"
                     >
                       <svg aria-hidden="true" 
-                        className={`w-3.5 h-3.5 text-[#6a6f63] transition-transform shrink-0 ${
+                        className={`w-3.5 h-3.5 text-[var(--muted-foreground-2)] transition-transform shrink-0 ${
                           expanded ? "rotate-90" : ""
                         }`}
                         fill="none"
@@ -612,27 +612,27 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
-                      <span className="text-[10px] font-mono text-[#1c1cc8] bg-[#0000a8]/10 border border-[#0000a8]/20 px-1.5 py-0.5 rounded-none font-semibold">
+                      <span className="text-[10px] font-mono text-[var(--primary)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 px-1.5 py-0.5 rounded-[var(--radius-button)] font-semibold">
                         @{session.agent}
                       </span>
-                      <span className="font-mono text-[11px] text-[#222320] truncate flex-1">
+                      <span className="font-mono text-[11px] text-[var(--fg)] truncate flex-1">
                         Session {session.id}
                       </span>
                       <time
                         dateTime={new Date(session.started_at).toISOString()}
                         title={new Date(session.started_at).toLocaleString()}
-                        className="text-[10px] font-mono text-[#6a6f63] shrink-0 ml-auto"
+                        className="text-[10px] font-mono text-[var(--muted-foreground-2)] shrink-0 ml-auto"
                       >
                         {formatTimeAgo(session.started_at)}
                       </time>
                     </button>
                     {expanded ? (
-                      <div className="px-3 pb-3 pt-1 border-t border-[#e0ded5]/50 flex flex-col gap-2">
-                        <div className="flex items-center justify-between text-[10px] font-mono text-[#6a6f63]">
+                      <div className="px-3 pb-3 pt-1 border-t border-[var(--border-1)] flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-[var(--muted-foreground-2)]">
                           <span>Started: {new Date(session.started_at).toLocaleString()}</span>
                           <span>ID: {session.id}</span>
                         </div>
-                        <pre className="font-mono text-[11px] text-[#222320] bg-[#f6f4ed]/60 p-2.5 rounded-none border border-[#e0ded5] whitespace-pre-wrap break-words max-h-48 overflow-auto leading-relaxed">
+                        <pre className="font-mono text-[11px] text-[var(--fg)] bg-[var(--card)]/60 p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)] whitespace-pre-wrap break-words max-h-48 overflow-auto leading-relaxed">
                           {session.summary}
                         </pre>
                       </div>

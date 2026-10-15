@@ -22,7 +22,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 function outcomeClass(outcome: string): string {
   if (outcome === "error") return "text-[#fb2c36]";
   if (outcome === "denied") return "text-[#b45309]";
-  return "text-[#6a6f63]";
+  return "text-[var(--muted-foreground-2)]";
 }
 
 export function AuditPanel(): JSX.Element {
@@ -49,37 +49,37 @@ export function AuditPanel(): JSX.Element {
 
   return (
     <div className="flex flex-col gap-2">
-      <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#6a6f63] border-t border-[#e0ded5] pt-3 flex items-center justify-between">
+      <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground-2)] border-t border-[var(--border-1)] pt-3 flex items-center justify-between">
         <span>Audit log</span>
         <button
           type="button"
           onClick={() => void load()}
           title="Refresh audit log"
-          className="text-[11px] text-[#6a6f63] hover:text-[#222320] font-normal normal-case tracking-normal transition-colors"
+          className="text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] font-normal normal-case tracking-normal transition-colors"
         >
           Refresh
         </button>
       </h4>
 
       {error !== null ? (
-        <p className="text-[11px] text-[#fb2c36] bg-[#fb2c36]/10 border border-[#fb2c36]/20 rounded-none px-2.5 py-2">
+        <p className="text-[11px] text-[#fb2c36] bg-[#fb2c36]/10 border border-[#fb2c36]/20 rounded-[var(--radius-button)] px-2.5 py-2">
           {error}
         </p>
       ) : null}
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[#e0ded5] rounded-none bg-[#f6f4ed] px-4 text-center">
-          <p className="text-[#6a6f63] text-xs">Loading audit log…</p>
+        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+          <p className="text-[var(--muted-foreground-2)] text-xs">Loading audit log…</p>
         </div>
       ) : entries.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[#e0ded5] rounded-none bg-[#f6f4ed] px-4 text-center">
-          <p className="text-[#6a6f63] text-xs">No audited tool calls yet.</p>
+        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+          <p className="text-[var(--muted-foreground-2)] text-xs">No audited tool calls yet.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto border border-[#e0ded5] rounded-none bg-[#f6f4ed]">
-          <table className="w-full text-[10px] font-mono text-[#6a6f63]">
+        <div className="overflow-x-auto border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)]">
+          <table className="w-full text-[10px] font-mono text-[var(--muted-foreground-2)]">
             <thead>
-              <tr className="border-b border-[#e0ded5] text-left">
+              <tr className="border-b border-[var(--border-1)] text-left">
                 <th className="px-2 py-1.5 font-medium">ts</th>
                 <th className="px-2 py-1.5 font-medium">principal</th>
                 <th className="px-2 py-1.5 font-medium">tool</th>
@@ -89,7 +89,7 @@ export function AuditPanel(): JSX.Element {
             </thead>
             <tbody>
               {entries.map((entry) => (
-                <tr key={entry.id} className="border-b border-[#e0ded5]/60 last:border-b-0">
+                <tr key={entry.id} className="border-b border-[var(--border-1)] last:border-b-0">
                   <td
                     className="px-2 py-1.5 whitespace-nowrap"
                     title={new Date(entry.ts).toISOString()}

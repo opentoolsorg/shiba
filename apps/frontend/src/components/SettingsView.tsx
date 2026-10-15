@@ -57,8 +57,8 @@ function SectionShell({
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <h3 className="text-sm font-semibold text-[#222320]">{title}</h3>
-        <p className="mt-0.5 text-xs text-[#6a6f63]">{description}</p>
+        <h3 className="text-sm font-semibold text-[var(--fg)]">{title}</h3>
+        <p className="mt-0.5 text-xs text-[var(--muted-foreground-2)]">{description}</p>
       </div>
       {children}
     </section>
@@ -80,7 +80,7 @@ function ViewLink({
     <button
       type="button"
       onClick={() => onNavigate(view)}
-      className="self-start text-xs font-semibold text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
+      className="self-start text-xs font-semibold text-[var(--primary)] transition-colors hover:text-[var(--primary)]"
     >
       {label} →
     </button>
@@ -98,21 +98,21 @@ function ChecklistRow({
   detail: string;
 }): JSX.Element {
   return (
-    <div className="flex items-start gap-2.5 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0">
+    <div className="flex items-start gap-2.5 border-b border-[var(--border-1)] px-4 py-2.5 last:border-b-0">
       <span
         aria-hidden="true"
-        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-none border text-[10px] font-bold ${
+        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[var(--radius-button)] border text-[10px] font-bold ${
           ok
             ? "border-[#15803d]/40 bg-[#15803d]/10 text-[#15803d]"
-            : "border-[#d3d2c8] bg-[#e0ded5]/60 text-[#6a6f63]"
+            : "border-[var(--border-2)] bg-[var(--secondary)] text-[var(--muted-foreground-2)]"
         }`}
       >
         {ok ? "✓" : "·"}
       </span>
       <span className="sr-only">{ok ? "Configured" : "Not configured"}</span>
       <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-[#222320]">{label}</div>
-        <div className="font-mono text-[11px] text-[#6a6f63]">{detail}</div>
+        <div className="text-xs font-medium text-[var(--fg)]">{label}</div>
+        <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">{detail}</div>
       </div>
     </div>
   );
@@ -131,9 +131,9 @@ const ROLE_SOURCE_LABEL: Record<RoleModelWire["source"], string> = {
 function RoleModelRow({ row }: { row: RoleModelWire }): JSX.Element {
   const roleVar = `ROLE_MODEL__${row.role.toUpperCase()}`;
   return (
-    <div className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
+    <div className="border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[13px] font-semibold text-[#222320]">{row.role}</div>
+        <div className="text-[13px] font-semibold text-[var(--fg)]">{row.role}</div>
         <ToneChip
           tone={row.error ? "danger" : row.source === "default" ? "neutral" : "navy"}
           label={
@@ -146,17 +146,17 @@ function RoleModelRow({ row }: { row: RoleModelWire }): JSX.Element {
         />
       </div>
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div className="border border-[#e0ded5] bg-[#f1efe6] px-2.5 py-1.5">
-          <div className="text-[10px] uppercase tracking-wide text-[#6a6f63]">Harness</div>
-          <div className="font-mono text-xs text-[#222320]">{row.harness || "Not resolved"}</div>
+        <div className="border border-[var(--border-1)] bg-[var(--panel)] px-2.5 py-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground-2)]">Harness</div>
+          <div className="font-mono text-xs text-[var(--fg)]">{row.harness || "Not resolved"}</div>
         </div>
-        <div className="border border-[#e0ded5] bg-[#f1efe6] px-2.5 py-1.5">
-          <div className="text-[10px] uppercase tracking-wide text-[#6a6f63]">Model</div>
-          <div className="break-all font-mono text-xs text-[#222320]">{row.model || "Default"}</div>
+        <div className="border border-[var(--border-1)] bg-[var(--panel)] px-2.5 py-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground-2)]">Model</div>
+          <div className="break-all font-mono text-xs text-[var(--fg)]">{row.model || "Default"}</div>
         </div>
       </div>
       {row.error ? <div className="mt-1.5 text-[11px] text-[#b91c1c]">{row.error}</div> : null}
-      <div className="mt-1.5 font-mono text-[11px] text-[#6a6f63]">
+      <div className="mt-1.5 font-mono text-[11px] text-[var(--muted-foreground-2)]">
         set via ROLE_MODEL_MAP["{row.role}"] or {roleVar}
       </div>
     </div>
@@ -167,7 +167,7 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
   if (!status) {
     return (
       <Card>
-        <div role="status" className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -178,7 +178,7 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
     <>
       <Card>
         {rows.length === 0 ? (
-          <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+          <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
             This deployment doesn't report per-role routing — update the backend.
           </div>
         ) : (
@@ -186,17 +186,17 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
         )}
       </Card>
       <Card>
-        <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+        <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
           How to pin a role (wrangler vars / secrets at deploy time)
         </div>
         <div className="px-4 py-3 flex flex-col gap-2">
-          <div className="font-mono text-[11px] leading-relaxed text-[#222320] break-all">
+          <div className="font-mono text-[11px] leading-relaxed text-[var(--fg)] break-all">
             ROLE_MODEL_MAP={'{"fixer":{"harness":"opencode","model":"opencode-go/deepseek-v3.2"}}'}
           </div>
-          <div className="font-mono text-[11px] leading-relaxed text-[#222320] break-all">
+          <div className="font-mono text-[11px] leading-relaxed text-[var(--fg)] break-all">
             ROLE_MODEL__REVIEWER="claude-subscription/anthropic-subscription/claude-sonnet-4-6"
           </div>
-          <div className="text-xs text-[#6a6f63]">
+          <div className="text-xs text-[var(--muted-foreground-2)]">
             One JSON map, or a per-role {"<harness>/<provider>/<model>"} var (model optional — the
             harness's own *_MODEL var, then its catalog default, fills it in). An unpinned role
             resolves to the deployment default chain (AGENT_HARNESS, then opencode).
@@ -213,7 +213,7 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
   if (!status) {
     return (
       <Card>
-        <div role="status" className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -314,10 +314,10 @@ function AccountRow({
   chip?: ReactNode;
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5 last:border-b-0">
+    <div className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5 last:border-b-0">
       <div className="min-w-0">
-        <div className="text-xs font-medium text-[#222320]">{label}</div>
-        <div className="font-mono text-[11px] text-[#6a6f63] truncate">{value}</div>
+        <div className="text-xs font-medium text-[var(--fg)]">{label}</div>
+        <div className="font-mono text-[11px] text-[var(--muted-foreground-2)] truncate">{value}</div>
       </div>
       {chip}
     </div>
@@ -359,21 +359,21 @@ function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX
           <LoadErrorState message={whoami.state.message} onRetry={whoami.reload} />
         </div>
       ) : !identity ? (
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">Reading /api/whoami…</div>
+        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading /api/whoami…</div>
       ) : (
         <>
-          <div className="flex items-center gap-3 border-b border-[#e0ded5] px-4 py-3.5">
+          <div className="flex items-center gap-3 border-b border-[var(--border-1)] px-4 py-3.5">
             <span
               aria-hidden="true"
-              className="flex size-10 shrink-0 items-center justify-center rounded-none border border-[#0000a8]/40 bg-[#0000a8]/10 text-sm font-bold uppercase text-[#1c1cc8]"
+              className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-button)] border border-[var(--primary)]/40 bg-[var(--primary-soft)] text-sm font-bold uppercase text-[var(--primary)]"
             >
               {identity.agent.slice(0, 2)}
             </span>
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-semibold text-[#222320]">
+              <div className="truncate text-[13px] font-semibold text-[var(--fg)]">
                 {identity.agent}
               </div>
-              <div className="font-mono text-[11px] text-[#6a6f63]">
+              <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
                 {AUTH_LANE_LABEL[identity.auth ?? ""] ?? identity.auth ?? "Unknown lane"}
               </div>
             </div>
@@ -392,14 +392,14 @@ function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX
           />
           {identity.auth === "better-auth" ? (
             <div className="flex items-center justify-between gap-3 px-4 py-3">
-              <div className="text-xs text-[#6a6f63]">
+              <div className="text-xs text-[var(--muted-foreground-2)]">
                 Signs out of this dashboard session only.
               </div>
               <button
                 type="button"
                 onClick={() => void signOut()}
                 disabled={signingOut}
-                className="shrink-0 rounded-none border border-[#fb2c36]/50 bg-[#fb2c36]/10 px-3 py-1.5 text-[11px] font-semibold text-[#fb2c36] transition-colors hover:bg-[#fb2c36]/20 disabled:opacity-60"
+                className="shrink-0 rounded-[var(--radius-button)] border border-[#fb2c36]/50 bg-[#fb2c36]/10 px-3 py-1.5 text-[11px] font-semibold text-[#fb2c36] transition-colors hover:bg-[#fb2c36]/20 disabled:opacity-60"
               >
                 {signingOut ? "Signing out…" : "Sign out"}
               </button>
@@ -439,10 +439,10 @@ function AppearanceSection(): JSX.Element {
               key={option.id}
               data-active={active || undefined}
               className={
-                "flex cursor-pointer flex-col items-start gap-1 rounded-none border px-3 py-3 text-left transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-[#0000a8] " +
+                "flex cursor-pointer flex-col items-start gap-1 rounded-[var(--radius-button)] border px-3 py-3 text-left transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-[var(--primary)] " +
                 (active
-                  ? "border-[#0000a8]/50 bg-[#0000a8]/10 shadow-[2px_2px_0_var(--paper-shadow)]"
-                  : "border-[#e0ded5] bg-[#f6f4ed] hover:border-[#d3d2c8] hover:bg-[#f1efe6]")
+                  ? "border-[var(--primary)]/50 bg-[var(--primary-soft)] shadow-[var(--sh-card)]"
+                  : "border-[var(--border-1)] bg-[var(--bg)] hover:border-[var(--border-2)] hover:bg-[var(--panel)]")
               }
             >
               <input
@@ -454,22 +454,22 @@ function AppearanceSection(): JSX.Element {
                 className="sr-only"
               />
               <span className="flex w-full items-center justify-between">
-                <span aria-hidden="true" className="text-base text-[#222320]">
+                <span aria-hidden="true" className="text-base text-[var(--fg)]">
                   {option.glyph}
                 </span>
                 {active ? (
-                  <span aria-hidden="true" className="text-xs font-bold text-[#1c1cc8]">
+                  <span aria-hidden="true" className="text-xs font-bold text-[var(--primary)]">
                     ✓
                   </span>
                 ) : null}
               </span>
-              <span className="text-xs font-semibold text-[#222320]">{option.label}</span>
-              <span className="text-[10px] leading-snug text-[#6a6f63]">{option.hint}</span>
+              <span className="text-xs font-semibold text-[var(--fg)]">{option.label}</span>
+              <span className="text-[10px] leading-snug text-[var(--muted-foreground-2)]">{option.hint}</span>
             </label>
           );
         })}
       </div>
-      <div className="border-t border-[#e0ded5] px-4 py-2.5 font-mono text-[11px] text-[#6a6f63]">
+      <div className="border-t border-[var(--border-1)] px-4 py-2.5 font-mono text-[11px] text-[var(--muted-foreground-2)]">
         Active: {theme ?? "system"}
         {theme === "system" && resolvedTheme ? ` (resolved: ${resolvedTheme})` : ""} — keyboard:
         press D anywhere
@@ -524,7 +524,7 @@ function LiveSettingsSectionBody({
       )
     ) : (
       <Card>
-        <div role="status" className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -641,21 +641,21 @@ export function SettingsSectionBody({
       >
         <Card>
           {EXPERIMENTAL_FLAGS.map((flag) => (
-            <div key={flag.flag} className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
-              <div className="font-mono text-xs font-semibold text-[#1c1cc8]">{flag.flag}</div>
-              <div className="mt-0.5 text-xs text-[#222320]">{flag.effect}</div>
-              <div className="mt-0.5 font-mono text-[11px] text-[#6a6f63]">{flag.related}</div>
+            <div key={flag.flag} className="border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
+              <div className="font-mono text-xs font-semibold text-[var(--primary)]">{flag.flag}</div>
+              <div className="mt-0.5 text-xs text-[var(--fg)]">{flag.effect}</div>
+              <div className="mt-0.5 font-mono text-[11px] text-[var(--muted-foreground-2)]">{flag.related}</div>
             </div>
           ))}
         </Card>
         <Card>
-          <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+          <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
             Kill switches (env.ts)
           </div>
           {KILL_SWITCHES.map((flag) => (
-            <div key={flag.flag} className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0">
-              <div className="font-mono text-xs font-semibold text-[#1c1cc8]">{flag.flag}</div>
-              <div className="mt-0.5 text-xs text-[#222320]">{flag.effect}</div>
+            <div key={flag.flag} className="border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
+              <div className="font-mono text-xs font-semibold text-[var(--primary)]">{flag.flag}</div>
+              <div className="mt-0.5 text-xs text-[var(--fg)]">{flag.effect}</div>
             </div>
           ))}
         </Card>
@@ -669,13 +669,13 @@ export function SettingsSectionBody({
       description="What this dashboard is served by — the Worker serving this page is the deployment."
     >
       <Card>
-        <div className="border-b border-[#e0ded5] px-4 py-2.5">
-          <div className="text-xs font-medium text-[#222320]">Serving host</div>
-          <div className="font-mono text-[11px] text-[#6a6f63]">{hostname || "unknown"}</div>
+        <div className="border-b border-[var(--border-1)] px-4 py-2.5">
+          <div className="text-xs font-medium text-[var(--fg)]">Serving host</div>
+          <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">{hostname || "unknown"}</div>
         </div>
-        <div className="border-b border-[#e0ded5] px-4 py-2.5">
-          <div className="text-xs font-medium text-[#222320]">Dashboard package</div>
-          <div className="font-mono text-[11px] text-[#6a6f63]">
+        <div className="border-b border-[var(--border-1)] px-4 py-2.5">
+          <div className="text-xs font-medium text-[var(--fg)]">Dashboard package</div>
+          <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
             @shiba/frontend@{dashboardVersion}
           </div>
         </div>
@@ -702,7 +702,7 @@ function RepositoriesSection(): JSX.Element {
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-[#e0ded5] flex flex-col gap-2">
+      <div className="px-4 py-3 border-b border-[var(--border-1)] flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <input
             type="url"
@@ -710,12 +710,12 @@ function RepositoriesSection(): JSX.Element {
             onChange={(event) => setDraft(event.target.value)}
             placeholder="https://github.com/owner/repo"
             aria-label="New repository URL"
-            className="flex-1 bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[#1c1cc8] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[#6a6f63]/60 transition-colors"
+            className="flex-1 bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors"
           />
           <button
             type="button"
             onClick={add}
-            className="text-[11px] bg-[#0000a8]/10 hover:bg-[#0000a8]/15 border border-[#0000a8]/15 text-[#1c1cc8] font-medium py-1.5 px-3 rounded-none transition-colors shrink-0"
+            className="text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)] font-medium py-1.5 px-3 rounded-[var(--radius-button)] transition-colors shrink-0"
           >
             Save repo
           </button>
@@ -723,21 +723,21 @@ function RepositoriesSection(): JSX.Element {
         {error ? <span className="text-[11px] text-[#fb2c36]">{error}</span> : null}
       </div>
       {repos.length === 0 ? (
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
           None saved yet — repos you run tasks against are saved automatically too.
         </div>
       ) : (
         repos.map((repo) => (
           <div
             key={repo}
-            className="border-b border-[#e0ded5] px-4 py-3 last:border-b-0 flex items-center justify-between gap-3"
+            className="border-b border-[var(--border-1)] px-4 py-3 last:border-b-0 flex items-center justify-between gap-3"
           >
-            <span className="font-mono text-xs text-[#222320] truncate">{repo}</span>
+            <span className="font-mono text-xs text-[var(--fg)] truncate">{repo}</span>
             <button
               type="button"
               onClick={() => removeRepo(repo)}
               aria-label={`Remove ${repo}`}
-              className="shrink-0 text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[#e0ded5] hover:border-[#fb2c36]/50 text-[#6a6f63] hover:text-[#fb2c36] font-medium py-1 px-2.5 rounded-none transition-colors"
+              className="shrink-0 text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[var(--border-1)] hover:border-[#fb2c36]/50 text-[var(--muted-foreground-2)] hover:text-[#fb2c36] font-medium py-1 px-2.5 rounded-[var(--radius-button)] transition-colors"
             >
               Remove
             </button>

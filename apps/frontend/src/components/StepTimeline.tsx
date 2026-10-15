@@ -69,7 +69,7 @@ function RailIcon({ kind }: { kind: "tool" | "text" | "approval" }) {
 function statusChipClass(rejected: boolean, waiting: boolean): string {
   if (rejected) return "text-[#b91c1c] border-[#fb2c36]/30 bg-[#fb2c36]/10";
   if (waiting) return "text-[#b45309] border-[#b45309]/30 bg-[#b45309]/10";
-  return "text-[#6a6f63] border-[#e0ded5] bg-[#f1efe6]";
+  return "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--panel)]";
 }
 
 export function StepTimeline({
@@ -84,16 +84,16 @@ export function StepTimeline({
 }: StepTimelineProps) {
   if (messages.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[#e0ded5] rounded-none bg-[#f1efe6]/40 px-6 text-center animate-enter">
+      <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--panel)]/40 px-6 text-center animate-enter">
         <img
           src="/assets/mascot/shiba-sticker-hero.webp"
           alt="Shiba illustration mascot"
-          className="w-56 h-auto max-h-40 rounded-none shadow-[3px_3px_0_var(--paper-shadow)] border border-[#0000a8]/30 mb-3 object-cover"
+          className="w-56 h-auto max-h-40 rounded-[var(--radius-button)] shadow-[var(--sh-overlay)] border border-[var(--primary)]/30 mb-3 object-cover"
         />
-        <h2 className="font-display text-3xl text-[#222320] mb-1">
+        <h2 className="font-sans text-3xl text-[var(--fg)] mb-1">
           Delegate the next task.
         </h2>
-        <p className="text-[#6a6f63] text-sm mb-2 font-medium">
+        <p className="text-[var(--muted-foreground-2)] text-sm mb-2 font-medium">
           No messages yet. Submit a task to start.
         </p>
         {starters && starters.length > 0 ? (
@@ -104,7 +104,7 @@ export function StepTimeline({
                   type="button"
                   onClick={() => onStarter?.(starter.task)}
                   style={{ "--enter-delay": `${150 + starterIndex * 60}ms` } as CSSProperties}
-                  className="inline-flex items-center gap-1.5 text-xs text-[#222320] bg-[#fffef8] hover:bg-[#e0ded5] border border-[#e0ded5] rounded-none px-3 py-1.5 touch:min-h-11 transition-colors active:scale-95 animate-enter"
+                  className="inline-flex items-center gap-1.5 text-xs text-[var(--fg)] bg-[var(--card)] hover:bg-[var(--secondary)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-1.5 touch:min-h-11 transition-colors active:scale-95 animate-enter"
                 >
                   <span aria-hidden="true"><starter.icon className="w-3.5 h-3.5" strokeWidth={2} /></span>
                   {starter.label}
@@ -123,11 +123,11 @@ export function StepTimeline({
         if (message.role === "user") {
           return (
             <li key={message.id} className="flex flex-col items-end">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#6a6f63] uppercase tracking-wider mb-1 px-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--muted-foreground-2)] uppercase tracking-wider mb-1 px-1">
                 <span>You</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-[#0000a8]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
               </div>
-              <div className="flex flex-col gap-2 max-w-[92%] md:max-w-[85%] bg-[#0000a8] text-white rounded-none p-4 font-medium shadow-[2px_2px_0_var(--paper-shadow)]">
+              <div className="flex flex-col gap-2 max-w-[92%] md:max-w-[85%] bg-[var(--primary)] text-white rounded-[var(--radius-button)] p-4 font-medium shadow-[var(--sh-card)]">
                 {message.parts.map((part, index) => {
                   const text = partText(part);
                   if (text === null) return null;
@@ -148,16 +148,16 @@ export function StepTimeline({
         // Assistant / tool steps on the left icon rail.
         return (
           <li key={message.id} className="flex flex-col items-start">
-            <div className="relative pl-9 flex flex-col gap-3 w-full before:content-[''] before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-[#e0ded5]">
+            <div className="relative pl-9 flex flex-col gap-3 w-full before:content-[''] before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-[var(--secondary)]">
               {message.parts.map((part, index) => {
                 const text = partText(part);
                 if (text !== null) {
                   return (
                     <div key={message.id + ":text:" + index} className="relative">
-                      <span className="absolute -left-9 top-0.5 w-6 h-6 rounded-none bg-[#f1efe6] border border-[#e0ded5] flex items-center justify-center text-[#6a6f63]">
+                      <span className="absolute -left-9 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border border-[var(--border-1)] flex items-center justify-center text-[var(--muted-foreground-2)]">
                         <RailIcon kind="text" />
                       </span>
-                      <div className="bg-[#f1efe6] border border-[#e0ded5] text-[#222320] rounded-none p-4 shadow-[2px_2px_0_var(--paper-shadow)] max-w-[92%] md:max-w-[85%]">
+                      <div className="bg-[var(--panel)] border border-[var(--border-1)] text-[var(--fg)] rounded-[var(--radius-button)] p-4 shadow-[var(--sh-card)] max-w-[92%] md:max-w-[85%]">
                         <pre className="whitespace-pre-wrap font-sans text-sm break-words leading-relaxed">
                           {text}
                         </pre>
@@ -190,20 +190,20 @@ export function StepTimeline({
                   return (
                     <div key={callId ?? (message.id + ":tool:" + index)} className="relative flex flex-col gap-3">
                       <span
-                        className={`absolute -left-9 top-0.5 w-6 h-6 rounded-none bg-[#f1efe6] border flex items-center justify-center ${
+                        className={`absolute -left-9 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border flex items-center justify-center ${
                           waiting
                             ? "border-[#b45309]/60 text-[#b45309]"
-                            : "border-[#e0ded5] text-[#6a6f63]"
+                            : "border-[var(--border-1)] text-[var(--muted-foreground-2)]"
                         }`}
                       >
                         <RailIcon kind={waiting ? "approval" : "tool"} />
                       </span>
-                      <div className="flex flex-wrap items-center gap-2 bg-[#f1efe6]/70 p-2.5 rounded-none border border-[#e0ded5]/60 font-mono text-xs w-fit max-w-full">
-                        <span className="text-[#1c1cc8] font-semibold bg-[#fffef8] px-2 py-0.5 rounded-none">
+                      <div className="flex flex-wrap items-center gap-2 bg-[var(--panel)]/70 p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)] font-mono text-xs w-fit max-w-full">
+                        <span className="text-[var(--primary)] font-semibold bg-[var(--card)] px-2 py-0.5 rounded-[var(--radius-button)]">
                           Ran {toolDisplayName(part)}
                         </span>
                         <span
-                          className={`text-[11px] font-semibold px-2 py-0.5 rounded-none border ${statusChipClass(
+                          className={`text-[11px] font-semibold px-2 py-0.5 rounded-[var(--radius-button)] border ${statusChipClass(
                             rejected,
                             waiting,
                           )}`}
@@ -213,10 +213,10 @@ export function StepTimeline({
                       </div>
                       {output !== null && output !== "" ? (
                         <details className="max-w-[92%] md:max-w-[85%] group">
-                          <summary className="cursor-pointer text-[11px] font-mono text-[#6a6f63] hover:text-[#222320] transition-colors select-none">
+                          <summary className="cursor-pointer text-[11px] font-mono text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors select-none">
                             Output
                           </summary>
-                          <pre className="mt-1 whitespace-pre-wrap font-mono text-xs text-[#6a6f63] bg-[#fffef8] p-3 rounded-none border border-[#e0ded5] max-h-56 overflow-auto">
+                          <pre className="mt-1 whitespace-pre-wrap font-mono text-xs text-[var(--muted-foreground-2)] bg-[var(--card)] p-3 rounded-[var(--radius-button)] border border-[var(--border-1)] max-h-56 overflow-auto">
                             {output}
                           </pre>
                         </details>
@@ -242,16 +242,16 @@ export function StepTimeline({
       {isStreaming ? (
         <li className="flex flex-col items-start">
           <div className="relative pl-9">
-            <span className="absolute left-0 top-0.5 w-6 h-6 rounded-none bg-[#f1efe6] border border-[#0000a8]/40 flex items-center justify-center">
+            <span className="absolute left-0 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border border-[var(--primary)]/40 flex items-center justify-center">
               <img
                 src="/assets/mascot/pet-logo.png"
                 alt=""
                 className="w-4 h-4 rounded-full bg-white object-contain animate-bounce"
               />
             </span>
-            <div className="bg-[#f1efe6] border border-[#e0ded5] rounded-none p-4 text-xs text-[#6a6f63] flex items-center gap-2 w-fit">
-              <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[#1c1cc8]" aria-hidden="true" />
-              <span className="text-[#1c1cc8] font-semibold">Shiba is reasoning…</span>
+            <div className="bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] p-4 text-xs text-[var(--muted-foreground-2)] flex items-center gap-2 w-fit">
+              <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[var(--primary)]" aria-hidden="true" />
+              <span className="text-[var(--primary)] font-semibold">Shiba is reasoning…</span>
             </div>
           </div>
         </li>
