@@ -212,7 +212,7 @@ export class Automations {
         },
         orchestrator,
       );
-      // Built-in PR review lane (Capy-style Review mode): a pull_request
+      // Built-in PR review lane (Review mode): a pull_request
       // opened/synchronize delivery always queues an approval-gated review
       // run on the "review" purpose, alongside any user automations that
       // matched. The run carries repo + head sha + diff ref in the task so

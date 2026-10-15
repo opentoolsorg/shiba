@@ -1715,7 +1715,7 @@ export function App(): React.JSX.Element {
       ) : null}
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* TOP BAR — Capy subtle chrome header */}
+        {/* TOP BAR — subtle chrome header */}
         <header className="h-[calc(2.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-[var(--chrome)] border-b border-[var(--border-1)] text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
           <button
             type="button"
