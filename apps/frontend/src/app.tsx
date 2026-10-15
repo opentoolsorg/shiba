@@ -1507,6 +1507,7 @@ export function App(): React.JSX.Element {
     <div className="h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
+        collapsed={sessionsCollapsed}
         activeView={mainView}
         onNavigate={openView}
         pendingApprovalCount={pendingApprovals.length + visibleStoredApprovals.length}
