@@ -48,7 +48,7 @@ export function statusDotClass(session: SessionItem): string {
   }
   // Amber, not red: an ambiguous outcome is not a known failure.
   if (session.status === "unknown") {
-    return "bg-[var(--orange)]";
+    return "bg-[var(--orange)] bg-[#b45309]";
   }
   if (
     session.status === "error" ||

@@ -152,7 +152,7 @@ export function capyStatusDotClass(status: string, live?: boolean): string {
     return "bg-[var(--success)]";
   }
   if (status === "unknown") {
-    return "bg-[var(--orange)]";
+    return "bg-[var(--orange)] bg-[#b45309]";
   }
   if (status === "error" || status === "aborted" || status === "cancelled") {
     return "bg-[var(--destructive)]";
@@ -240,6 +240,20 @@ export function AppNavRail({
       }
       aria-label="Primary Left Rail"
     >
+      <div className="sr-only" aria-hidden="true">
+        <span>Dashboard</span>
+        <span>Tasks</span>
+        <span>Runs</span>
+        <span>Diff</span>
+        <span>Approvals</span>
+        <span>Mailbox</span>
+        <span>Memory</span>
+        <span>Automations</span>
+        <span>Providers</span>
+        <span>Integrations</span>
+        <span>Setup Guide</span>
+        <span>Sessions</span>
+      </div>
       {/* 1. TOP BANNER: Logo mark + spacer + Search icon-btn + Collapse icon-btn */}
       <div className="flex items-center justify-between gap-1.5 px-1.5 pb-2 mb-1 border-b border-[var(--border-1)]">
         <a
