@@ -49,6 +49,11 @@ export const TEST_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
 export const TEST_EVIDENCE_TAIL_CHARS = 4000;
 export const MAX_PROGRESS_EVENTS = 256;
 
+/** Largest pending (no-newline-yet) stdout line the stream parser buffers
+ * before dropping it. Structured records bigger than this are reported
+ * honestly instead of buffered unboundedly or chopped into fake events. */
+export const MAX_STREAM_LINE_CHARS = 1_048_576;
+
 export interface ExecResult {
   stdout: string;
   stderr: string;
@@ -661,6 +666,12 @@ interface OutputStream {
  */
 function streamProgress(harness: AgentHarness, emit: ProgressEmitter, _signal?: AbortSignal): OutputStream {
   let buffer = "";
+  // Index into buffer that is already known newline-free; searching resumes
+  // there instead of rescanning the pending line on every chunk (linear).
+  let searchFrom = 0;
+  // Set after an oversized line is dropped: everything up to the next
+  // newline is the same unparseable record and gets discarded too.
+  let dropping = false;
   let emitted = 0;
   let pending: Promise<void> = Promise.resolve();
   const emitText = (text: string) => {
@@ -678,12 +689,33 @@ function streamProgress(harness: AgentHarness, emit: ProgressEmitter, _signal?: 
     usage: undefined,
     onData(stream_, data) {
       if (stream_ !== "stdout") return;
+      if (dropping) {
+        const end = data.indexOf("\n");
+        if (end < 0) return;
+        dropping = false;
+        buffer = "";
+        searchFrom = 0;
+        data = data.slice(end + 1);
+      }
       buffer += data;
       for (;;) {
-        const newline = buffer.indexOf("\n");
-        if (newline < 0) break;
+        const newline = buffer.indexOf("\n", searchFrom);
+        if (newline < 0) {
+          searchFrom = buffer.length;
+          if (buffer.length > MAX_STREAM_LINE_CHARS) {
+            // Bounded, honest overflow: report the drop and discard the
+            // partial record until its delimiter rather than emitting
+            // fabricated events or buffering without bound.
+            emitText(`[${harness.name}] oversized output line dropped (exceeded ${MAX_STREAM_LINE_CHARS} chars).`);
+            buffer = "";
+            searchFrom = 0;
+            dropping = true;
+          }
+          break;
+        }
         const line = buffer.slice(0, newline);
         buffer = buffer.slice(newline + 1);
+        searchFrom = 0;
         try {
           const event = harness.parseEvent(line);
           if (event === null || event === undefined) continue;
@@ -719,6 +751,8 @@ function streamProgress(harness: AgentHarness, emit: ProgressEmitter, _signal?: 
     },
     async finish() {
       buffer = "";
+      searchFrom = 0;
+      dropping = false;
       await pending;
     },
   };

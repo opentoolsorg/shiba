@@ -1,7 +1,7 @@
 /**
  * SettingsModal — Kosuke-style settings popup: a grouped left nav
  * (YOUR ACCOUNT / WORKSPACE / FEATURES) beside a scrollable content pane that mounts
- * the REAL section bodies from SettingsView — no duplicated internals.
+ * the REAL section bodies from settings-sections — no duplicated internals.
  * Closes on Esc, backdrop click, or the ✕ button.
  */
 import { type JSX, useEffect, useId, useRef, useState } from "react";
@@ -10,7 +10,7 @@ import {
   SETTINGS_SECTION_LABELS,
   SettingsSectionBody,
   type SettingsSectionId,
-} from "./SettingsView";
+} from "./settings-sections";
 
 /** Settings sections plus direct links to real first-class feature views. */
 const sectionItems = (...sections: SettingsSectionId[]) => sections.map((section) => ({ section }));
@@ -64,6 +64,8 @@ export interface SettingsModalProps {
   /** Better-auth sign-out; the Account section shows its button only with auth:"better-auth". */
   onSignOut?: () => Promise<void>;
   initialSection?: SettingsSectionId;
+  /** Reports section switches so the app can reopen where the user left off. */
+  onSectionChange?: (section: SettingsSectionId) => void;
 }
 
 export function SettingsModal({
@@ -74,6 +76,7 @@ export function SettingsModal({
   onFocusRestore,
   onSignOut,
   initialSection = "account",
+  onSectionChange,
 }: SettingsModalProps): JSX.Element | null {
   const [section, setSection] = useState<SettingsSectionId>(initialSection);
   const titleId = useId();
@@ -164,7 +167,7 @@ export function SettingsModal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="relative z-10 m-auto flex h-[82dvh] max-h-[780px] w-full max-w-4xl flex-col overflow-hidden rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)]"
+        className="relative z-10 m-auto flex h-[82dvh] max-h-[780px] w-full max-w-4xl flex-col overflow-hidden rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)] animate-enter"
       >
         {/* Header — title + close, like Kosuke's dialog chrome. */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-3">
@@ -218,8 +221,10 @@ export function SettingsModal({
                         key={itemKey}
                         type="button"
                         onClick={() => {
-                          if (isSection) setSection(item.section);
-                          else {
+                          if (isSection) {
+                            setSection(item.section);
+                            onSectionChange?.(item.section);
+                          } else {
                             onNavigate?.(item.view);
                             if (item.openSessions) onOpenSessions?.();
                           }

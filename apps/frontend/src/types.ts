@@ -17,7 +17,9 @@ export type { EmailDirection } from "@shiba/shared";
  * Retained run record from `GET /api/runs` — the orchestrator's
  * DelegatedRun verbatim. Aliased (not mirrored) so drift is impossible.
  */
-export type RetainedRun = DelegatedRun;
+// Summary-projection rows (GET /api/runs?view=summary) keep every required
+// DelegatedRun field plus `hasDiff`; heavy fields stay optional/absent.
+export type RetainedRun = DelegatedRun & { hasDiff?: boolean };
 
 export interface ToolRunPart {
   text?: string;
@@ -158,4 +160,5 @@ export interface VMRun {
   summary?: string;
   error?: string;
   diff?: string;
+  hasDiff?: boolean;
 }

@@ -67,7 +67,7 @@ export interface AppNavItem {
 export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "dashboard", label: "Dashboard", description: "Overview & At-a-Glance Stats" },
   { id: "tasks", label: "Threads", description: "Tasks & Live Sessions" },
-  { id: "activity", label: "Activity", description: "Orchestrator Event Log" },
+  { id: "activity", label: "Activity", description: "Workspace activity & event log" },
   { id: "analytics", label: "Analytics", description: "Usage & Run Insights" },
   { id: "diff", label: "Pull requests", description: "Code Changes & Git Diffs" },
   { id: "approvals", label: "Approvals", description: "Review & Decision Queue" },
