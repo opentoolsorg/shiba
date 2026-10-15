@@ -276,7 +276,11 @@ export async function gmailStatus(env: Env, owner: string) {
      JOIN gmail_connections c ON c.id = g.connection_id AND c.owner = g.owner AND c.active = 1
      WHERE c.owner = ? ORDER BY g.created_at`,
   ).bind(owner).all<GmailGrant>();
-  return { configured, connection, grants: grants.results };
+  // Lets the UI follow the real consent window instead of guessing it.
+  const pending = await env.AGENT_AUDIT.prepare(
+    "SELECT 1 FROM gmail_oauth_states WHERE owner = ? AND consumed = 0 AND expires_at > ?",
+  ).bind(owner, Date.now()).first();
+  return { configured, pending: pending !== null, connection, grants: grants.results };
 }
 
 export function validateGmailPrincipal(principal: string): void {

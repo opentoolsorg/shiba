@@ -238,8 +238,13 @@ describe("Gmail owner-only route boundary", () => {
     signIn();
     const start = await beginGmailConnect(env, OWNER);
     const state = new URL(start.authorizationUrl).searchParams.get("state")!;
+    expect((await gmailStatus(env, OWNER)).pending).toBe(true);
     expect((await handleGmail(request(`/callback?error=access_denied&state=${state}`), env))?.status).toBe(400);
+    expect((await gmailStatus(env, OWNER)).pending).toBe(false);
     await expect(beginGmailConnect(env, OWNER)).resolves.toHaveProperty("authorizationUrl");
+    // Disconnect with no connection cancels a pending flow (the UI's Cancel).
+    expect(await disconnectGmail(env, OWNER)).toEqual({ disconnected: true, revoke: "not_connected" });
+    expect((await gmailStatus(env, OWNER)).pending).toBe(false);
     const res = await handleGmail(request(""), { ...env, REQUIRE_ACCESS: "1" });
     expect(res?.status).toBe(503);
     expect(await res!.json()).toEqual({ error: "Gmail requires ACCESS_AUD when Cloudflare Access is enabled." });
@@ -250,7 +255,7 @@ describe("Gmail owner-only route boundary", () => {
     const { env } = environment();
     signIn();
     const missing = { ...env, GMAIL_TOKEN_KEY: undefined };
-    expect(await (await handleGmail(request(""), missing))!.json()).toEqual({ configured: false, connection: null, grants: [] });
+    expect(await (await handleGmail(request(""), missing))!.json()).toEqual({ configured: false, pending: false, connection: null, grants: [] });
     expect((await handleGmail(request("/connect", "POST"), missing))?.status).toBe(503);
     expect((await handleGmail(request("/connect", "POST", undefined, "https://evil.test"), env))?.status).toBe(403);
     expect((await handleGmail(request("/grants", "POST", { token: "shb_x", owner: PEER }), env))?.status).toBe(400);
