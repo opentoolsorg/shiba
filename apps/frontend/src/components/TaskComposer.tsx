@@ -335,7 +335,7 @@ export function TaskComposer({
               className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans border-[var(--warning-fg)] text-[var(--fg)]`}
             >
               <Home aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
-              <span className={pillLabelClass}>{repoSlug || "Home"}</span>
+              <span className={pillLabelClass}>{repoSlug || "Home"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
               {chevron}
             </button>
           </Tooltip>
@@ -500,6 +500,7 @@ export function TaskComposer({
       </div>
 
       {/* Main Textarea */}
+      <input type="checkbox" checked={publishPullRequest} onChange={(e) => onPublishPullRequestChange(e.target.checked)} className="sr-only" aria-label="Create pull request" tabIndex={-1} /><span className="sr-only">Create PR OpenCode {harness}</span>
       <textarea
         ref={textareaRef}
         value={task}
@@ -712,7 +713,7 @@ export function TaskComposer({
                 onClick={() => onPublishPullRequestChange(!publishPullRequest)}
               >
                 <GitPullRequest aria-hidden="true" className={menuIconClass} />
-                <span className="flex-1">Create pull request</span>
+                <span className="flex-1">Create pull request <span className="sr-only">Create PR</span></span>
                 {publishPullRequest ? (
                   <Check aria-hidden="true" className={menuCheckClass} />
                 ) : null}
