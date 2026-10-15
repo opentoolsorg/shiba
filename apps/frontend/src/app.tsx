@@ -167,10 +167,12 @@ function useStoredApprovals(
           }
         });
     };
-    // Completion-driven: the next tick arms only after this load settles
-    // (single inflight), and a hidden tab pauses instead of stacking polls.
+    // Completion-driven fallback (30s): DO state hints bump refreshToken for
+    // real-time refreshes; this poll only catches other sessions' approvals.
+    // The next tick arms after this load settles (single inflight), and a
+    // hidden tab pauses instead of stacking polls.
     const poll = createCompletionDrivenPoll({
-      intervalMs: 10_000,
+      intervalMs: 30_000,
       load,
       pause: documentVisibilityPause(),
     });
@@ -212,7 +214,7 @@ function useAgentPrincipals(refreshToken: number, enabled: boolean): AgentPrinci
         .catch(() => {});
     };
     const poll = createCompletionDrivenPoll({
-      intervalMs: 10_000,
+      intervalMs: 30_000,
       load,
       pause: documentVisibilityPause(),
     });
