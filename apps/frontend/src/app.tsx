@@ -7,6 +7,7 @@ import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
+import { ActivityReportView } from "./components/ActivityReportView";
 import { SwarmDeskView } from "./components/SwarmDeskView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
@@ -33,7 +34,7 @@ import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
-import { SettingsView } from "./components/SettingsView";
+import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
@@ -372,8 +373,15 @@ export function App(): React.JSX.Element {
   // Settings is a Kosuke-style popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
   const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
-  const [settingsInitialSection, setSettingsInitialSection] = useState<"account" | "models">("account");
+  // Last section the user had open in the settings modal — reopening lands
+  // where they left off; deep links (e.g. the wizard's Models step) override it.
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>("account");
   const openView = useCallback((view: AppNavView) => {
+    // Settings is a popup, not a routable view — every nav path opens the modal.
+    if (view === "settings") {
+      setSettingsModalOpen(true);
+      return;
+    }
     setMainView(view);
   }, []);
   // Once visited, the mailbox stays mounted (hidden) — its local state
@@ -501,7 +509,10 @@ export function App(): React.JSX.Element {
     const onPop = () => {
       const view = viewFromUrl();
       if (view === "settings") setSettingsModalOpen(true);
-      else setMainView(view ?? "tasks");
+      else {
+        setMainView(view ?? "tasks");
+        setSettingsModalOpen(false);
+      }
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -1137,6 +1148,11 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (settingsModalOpen) {
+        if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+          e.preventDefault();
+          setSettingsModalOpen(false);
+          return;
+        }
         if (
           e.key.toLowerCase() === "d" &&
           !e.metaKey &&
@@ -1174,6 +1190,9 @@ export function App(): React.JSX.Element {
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
         toggleSessionsCollapsed();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setSettingsModalOpen(true);
       } else if (e.key.toLowerCase() === "d" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         toggleTheme();
       } else if (e.key === "[") {
@@ -2161,11 +2180,20 @@ export function App(): React.JSX.Element {
           ) : mainView === "activity" ? (
             // Remount on session switch so the previous session's spine never
             // renders as the new one's while its first fetch is in flight.
-            <ActivityView
-              key={selectedSessionId}
-              sessionId={selectedSessionId}
-              sessionApiAvailable={sessionApiAvailable}
-            />
+            <div className="flex-1 overflow-y-auto">
+              <ActivityReportView
+                key={selectedSessionId}
+                sessionId={selectedSessionId}
+                sessionApiAvailable={sessionApiAvailable}
+              />
+              <div className="flex h-[max(520px,70vh)] flex-col">
+                <ActivityView
+                  key={selectedSessionId}
+                  sessionId={selectedSessionId}
+                  sessionApiAvailable={sessionApiAvailable}
+                />
+              </div>
+            </div>
           ) : mainView === "analytics" ? (
             <AnalyticsView
               runs={retainedRuns}
@@ -2256,13 +2284,6 @@ export function App(): React.JSX.Element {
             <IntegrationsView onNavigate={openView} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
-          ) : mainView === "settings" ? (
-            <SettingsView
-              onNavigate={openView}
-              onBack={() => openView("tasks")}
-              accountEmail={authMode === "better-auth" ? orchestratorName : null}
-              onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
-            />
           ) : null}
 
           {/* SETTINGS — Kosuke-style popup over the current view */}
@@ -2270,6 +2291,7 @@ export function App(): React.JSX.Element {
             <SettingsModal
               isOpen
               initialSection={settingsInitialSection}
+              onSectionChange={setSettingsInitialSection}
               onClose={() => setSettingsModalOpen(false)}
               onFocusRestore={() => {
                 if (window.matchMedia("(max-width: 1023px)").matches) {
@@ -2399,6 +2421,12 @@ export function App(): React.JSX.Element {
                     <span className="text-[var(--muted-foreground-2)]">Command Menu</span>
                     <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ⌘ / Ctrl + K
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Open Settings</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
+                      ⌘ / Ctrl + ,
                     </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
