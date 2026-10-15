@@ -758,7 +758,7 @@ export interface SettingsViewProps {
   accountEmail?: string | null;
 }
 
-export const CAPY_SETTINGS_GROUPS: {
+export const SETTINGS_GROUPS: {
   heading: string;
   sections: SettingsSectionId[];
 }[] = [
@@ -780,8 +780,8 @@ export function SettingsView({
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return CAPY_SETTINGS_GROUPS;
-    return CAPY_SETTINGS_GROUPS.map((g) => ({
+    if (!q) return SETTINGS_GROUPS;
+    return SETTINGS_GROUPS.map((g) => ({
       heading: g.heading,
       sections: g.sections.filter((sec) => {
         const info = SETTINGS_SECTION_LABELS[sec];
@@ -795,7 +795,7 @@ export function SettingsView({
 
   return (
     <div className="flex-1 flex h-full overflow-hidden bg-[var(--bg)]">
-      {/* Capy Settings Rail (~232px) */}
+      {/* Settings Rail (~232px) */}
       <aside
         className="w-[232px] shrink-0 h-full flex flex-col bg-[var(--chrome)] border-r border-[var(--border-1)] py-2.5 px-2.5 z-20 select-none overflow-hidden"
         aria-label="Settings Rail"
