@@ -28,16 +28,16 @@ export class ErrorBoundary extends Component<
       return (
         <div
           role="alert"
-          className="min-h-dvh flex flex-col items-center justify-center gap-4 bg-[#f6f4ed] text-[#222320] p-6 text-center"
+          className="min-h-dvh flex flex-col items-center justify-center gap-4 bg-[var(--bg)] text-[var(--fg)] p-6 text-center"
         >
           <p className="text-lg font-semibold">Something went wrong.</p>
-          <p className="text-sm text-[#6a6f63] max-w-md break-words">
+          <p className="text-sm text-[var(--muted-foreground-2)] max-w-md break-words">
             {this.state.error.message}
           </p>
           <button
             type="button"
             onClick={this.retry}
-            className="px-4 py-2 rounded-none text-sm font-medium bg-[#0000a8] text-white hover:bg-[#1c1cc8] transition-colors"
+            className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] transition-colors"
           >
             Try again
           </button>

@@ -30,24 +30,24 @@ export function ActivityView({
   const pending = outbox.filter((entry) => entry.status === "pending");
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-      <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-[#222320]">Orchestrator activity</h2>
-          <p className="text-xs text-[#6a6f63]">
+          <h2 className="text-base font-semibold text-[var(--fg)]">Orchestrator activity</h2>
+          <p className="text-xs text-[var(--muted-foreground-2)]">
             What your agent decided and the side effects it still owes — the event spine, live.
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {pending.length > 0 ? (
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8a5a00] bg-[#f4b400]/15 border border-[#f4b400]/40 px-2 py-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--warning-fg)] bg-[var(--warning-subtle)] border border-[var(--warning)] px-2 py-1">
               {pending.length} owed
             </span>
           ) : null}
           <button
             type="button"
             onClick={reload}
-            className="text-xs text-[#1c1cc8] hover:text-[#0000a8] border border-[#e0ded5] hover:border-[#0000a8]/40 bg-transparent px-3 py-1.5 transition-colors"
+            className="text-xs text-[var(--primary)] hover:text-[var(--primary)] border border-[var(--border-1)] hover:border-[var(--primary)]/40 bg-transparent px-3 py-1.5 transition-colors"
           >
             Refresh
           </button>
@@ -58,21 +58,21 @@ export function ActivityView({
         <div className="max-w-5xl mx-auto grid gap-4 lg:grid-cols-[1fr_320px]">
           <section
             aria-label="Event log"
-            className="border border-[#e0ded5] bg-[#fffef8] shadow-[3px_3px_0_var(--paper-shadow)]"
+            className="border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)]"
           >
-            <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+            <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Event log
             </div>
             {state.kind === "loading" ? (
-              <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">Reading the spine…</div>
+              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading the spine…</div>
             ) : state.kind === "error" ? (
               <LoadErrorState message={state.message} onRetry={reload} />
             ) : events.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
                 No decisions yet — queue a task and the spine records every step here.
               </div>
             ) : (
-              <ol className="divide-y divide-[#e0ded5]/60">
+              <ol className="divide-y divide-[var(--border-1)]/60">
                 {[...events]
                   .sort((a, b) => b.seq - a.seq)
                   .map((event) => (
@@ -84,17 +84,17 @@ export function ActivityView({
 
           <section
             aria-label="Outbox"
-            className="border border-[#e0ded5] bg-[#fffef8] shadow-[3px_3px_0_var(--paper-shadow)] self-start"
+            className="border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)] self-start"
           >
-            <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+            <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Outbox — owed side effects
             </div>
             {outbox.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
                 Nothing owed — every post-back that should happen has been delivered.
               </div>
             ) : (
-              <ol className="divide-y divide-[#e0ded5]/60">
+              <ol className="divide-y divide-[var(--border-1)]/60">
                 {outbox.map((entry) => (
                   <OutboxRow key={entry.id} entry={entry} />
                 ))}
@@ -108,13 +108,13 @@ export function ActivityView({
 }
 
 const KIND_TONE: Record<string, string> = {
-  "run.completed": "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30",
-  "run.failed": "text-[#fb2c36] bg-[#fb2c36]/10 border-[#fb2c36]/30",
-  "run.cancelled": "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40",
-  "run.rejected": "text-[#fb2c36] bg-[#fb2c36]/10 border-[#fb2c36]/30",
-  "approval.answered": "text-[#1c1cc8] bg-[#0000a8]/10 border-[#0000a8]/30",
-  "approval.requested": "text-[#1c1cc8] bg-[#0000a8]/10 border-[#0000a8]/30",
-  "side_effect.failed": "text-[#fb2c36] bg-[#fb2c36]/10 border-[#fb2c36]/30",
+  "run.completed": "text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border-[color-mix(in_oklch,var(--success)_35%,transparent)]",
+  "run.failed": "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
+  "run.cancelled": "text-[var(--warning-fg)] bg-[var(--warning-subtle)] border-[var(--warning)]",
+  "run.rejected": "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
+  "approval.answered": "text-[var(--primary)] bg-[var(--primary-soft)] border-[var(--primary)]/30",
+  "approval.requested": "text-[var(--primary)] bg-[var(--primary-soft)] border-[var(--primary)]/30",
+  "side_effect.failed": "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
 };
 
 function eventSummary(event: SpineEventWire): string {
@@ -138,11 +138,11 @@ function eventSummary(event: SpineEventWire): string {
 }
 
 function EventRow({ event }: { event: SpineEventWire }): JSX.Element {
-  const tone = KIND_TONE[event.kind] ?? "text-[#6a6f63] bg-black/[0.04] border-[#e0ded5]";
+  const tone = KIND_TONE[event.kind] ?? "text-[var(--muted-foreground-2)] bg-[var(--section)] border-[var(--border-1)]";
   const summary = eventSummary(event);
   return (
     <li className="px-4 py-2.5 flex items-baseline gap-3">
-      <span className="font-mono text-[10px] text-[#6a6f63]/70 w-10 shrink-0 tabular-nums">
+      <span className="font-mono text-[10px] text-[var(--muted-foreground-2)] w-10 shrink-0 tabular-nums">
         #{event.seq}
       </span>
       <span
@@ -151,17 +151,17 @@ function EventRow({ event }: { event: SpineEventWire }): JSX.Element {
         {event.kind}
       </span>
       <span className="flex-1 min-w-0">
-        <span className="block text-xs text-[#222320] truncate">
-          {summary || <span className="text-[#6a6f63]">—</span>}
+        <span className="block text-xs text-[var(--fg)] truncate">
+          {summary || <span className="text-[var(--muted-foreground-2)]">—</span>}
         </span>
-        <span className="block font-mono text-[10px] text-[#6a6f63]/70 truncate">
+        <span className="block font-mono text-[10px] text-[var(--muted-foreground-2)] truncate">
           {event.runId ? `run ${event.runId.slice(0, 12)}… · ` : ""}
           cmd {event.commandId.slice(0, 12)}
           {event.causationId ? ` · caused by ${event.causationId.slice(0, 12)}` : ""}
         </span>
       </span>
       <time
-        className="font-mono text-[10px] text-[#6a6f63]/70 shrink-0 tabular-nums"
+        className="font-mono text-[10px] text-[var(--muted-foreground-2)] shrink-0 tabular-nums"
         dateTime={new Date(event.at).toISOString()}
       >
         {new Date(event.at).toLocaleTimeString()}
@@ -173,25 +173,25 @@ function EventRow({ event }: { event: SpineEventWire }): JSX.Element {
 function OutboxRow({ entry }: { entry: OutboxEntryWire }): JSX.Element {
   const tone =
     entry.status === "dispatched"
-      ? "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30"
+      ? "text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border-[color-mix(in_oklch,var(--success)_35%,transparent)]"
       : entry.status === "failed"
-        ? "text-[#fb2c36] bg-[#fb2c36]/10 border-[#fb2c36]/30"
-        : "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40";
+        ? "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]"
+        : "text-[var(--warning-fg)] bg-[var(--warning-subtle)] border-[var(--warning)]";
   return (
     <li className="px-4 py-2.5 flex flex-col gap-1">
       <div className="flex items-center gap-2">
         <span className={`text-[10px] font-semibold uppercase tracking-[0.08em] border px-1.5 py-0.5 ${tone}`}>
           {entry.status}
         </span>
-        <span className="text-xs font-medium text-[#222320]">{entry.effectKind}</span>
-        <span className="font-mono text-[10px] text-[#6a6f63]/70 ml-auto">×{entry.attempts}</span>
+        <span className="text-xs font-medium text-[var(--fg)]">{entry.effectKind}</span>
+        <span className="font-mono text-[10px] text-[var(--muted-foreground-2)] ml-auto">×{entry.attempts}</span>
       </div>
-      <div className="font-mono text-[10px] text-[#6a6f63] truncate">
+      <div className="font-mono text-[10px] text-[var(--muted-foreground-2)] truncate">
         {entry.target}
         {entry.summary ? ` — ${entry.summary}` : ""}
       </div>
       {entry.lastError ? (
-        <div className="text-[10px] text-[#fb2c36] truncate">{entry.lastError}</div>
+        <div className="text-[10px] text-[var(--destructive)] truncate">{entry.lastError}</div>
       ) : null}
     </li>
   );

@@ -39,6 +39,7 @@ import {
 } from "./agent-tokens.js";
 import { audit } from "./audit.js";
 import { registerEmailTools } from "./mcp-email-tools.js";
+import { registerGmailTools } from "./mcp-gmail-tools.js";
 import { registerMemoryTools } from "./mcp-memory-tools.js";
 import { registerRunTools } from "./mcp-run-tools.js";
 import { registerScreenTools } from "./mcp-screen-tools.js";
@@ -282,6 +283,7 @@ function buildMcpServer(env: Env, mcpCtx: McpRequestContext): McpServer {
   const server = new McpServer({ name: "shiba", version: "0.1.0" });
   const registry = createToolRegistry(env);
   registerEmailTools(registry, env);
+  registerGmailTools(registry);
   registerMemoryTools(registry, env);
   registerRunTools(registry, env);
   registerScreenTools(registry, env);

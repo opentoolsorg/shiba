@@ -9,7 +9,6 @@
 
 import type { AuthSnapshot } from "@shiba/shared";
 import { type JSX, useEffect, useRef, useState } from "react";
-import { Tooltip } from "./Tooltip";
 
 export interface AgentCliCredential {
   kind: "ai-gateway-byok" | "worker-secret" | "oauth-signin";
@@ -119,29 +118,30 @@ export const SUBSCRIPTION_AUTH: Record<
 
 export type SubscriptionStatus =
   | { kind: "loading" }
+  | { kind: "error" }
   | { kind: "unavailable" }
   | { kind: "snapshot"; snapshot: AuthSnapshot };
 
 const CHIP_TONES = {
-  ok: "border-[#15803d]/30 bg-[#15803d]/10 text-[#15803d]",
-  danger: "border-[#fb2c36]/30 bg-[#fb2c36]/10 text-[#fb2c36]",
-  pending: "border-[#f99c00]/30 bg-[#f99c00]/10 text-[#b45309]",
-  navy: "border-[#0000a8]/30 bg-[#0000a8]/10 text-[#1c1cc8]",
-  neutral: "border-[#d3d2c8] bg-[#e0ded5]/60 text-[#6a6f63]",
+  ok: "border-[color-mix(in_oklch,var(--success)_30%,transparent)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)]",
+  danger: "border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] text-[var(--destructive)]",
+  pending: "border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
+  navy: "border-[var(--primary)]/30 bg-[var(--primary-soft)] text-[var(--primary)]",
+  neutral: "border-[var(--border-2)] bg-[var(--secondary)] text-[var(--muted-foreground-2)]",
 } as const;
 
 const CHIP_DOTS = {
-  ok: "bg-[#15803d]",
-  danger: "bg-[#fb2c36]",
-  pending: "bg-[#f99c00]",
-  navy: "bg-[#0000a8]",
-  neutral: "bg-[#6a6f63]",
+  ok: "bg-[var(--success)]",
+  danger: "bg-[var(--destructive)]",
+  pending: "bg-[var(--warning)]",
+  navy: "bg-[var(--primary)]",
+  neutral: "bg-[var(--muted-foreground-3)]",
 } as const;
 
 export function chip(tone: keyof typeof CHIP_TONES, label: string): JSX.Element {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-none border px-2 py-0.5 text-[11px] font-medium ${CHIP_TONES[tone]}`}
+      className={`inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border px-2 py-0.5 text-[11px] font-medium ${CHIP_TONES[tone]}`}
     >
       <span className={`size-1.5 rounded-full ${CHIP_DOTS[tone]}`} />
       {label}
@@ -152,6 +152,7 @@ export function chip(tone: keyof typeof CHIP_TONES, label: string): JSX.Element 
 /** The card chip reflects the live auth-flow phase, not credential presence. */
 export function subscriptionChip(status: SubscriptionStatus | undefined): JSX.Element {
   if (status?.kind === "unavailable") return chip("neutral", "Unavailable");
+  if (status?.kind === "error") return chip("pending", "Could not check");
   const phase = status?.kind === "snapshot" ? status.snapshot.phase : undefined;
   switch (phase) {
     case "succeeded":
@@ -172,9 +173,9 @@ export function subscriptionChip(status: SubscriptionStatus | undefined): JSX.El
 }
 
 const CONNECT_PRIMARY =
-  "bg-[#0000a8] hover:bg-[#1c1cc8] text-white font-semibold py-1 px-3 rounded-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-[11px] font-mono shadow-[2px_2px_0_var(--paper-shadow)] active:translate-y-px";
+  "bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white font-semibold py-1 px-3 rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-[11px] font-mono shadow-[var(--sh-card)] active:translate-y-px";
 const CONNECT_SECONDARY =
-  "text-[11px] font-mono font-medium text-[#6a6f63] hover:text-[#222320] border border-[#e0ded5] hover:border-[#d3d2c8] bg-[#fffef8] px-2.5 py-1 rounded-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  "text-[11px] font-mono font-medium text-[var(--muted-foreground-2)] hover:text-[var(--fg)] border border-[var(--border-1)] hover:border-[var(--border-2)] bg-[var(--card)] px-2.5 py-1 rounded-[var(--radius-button)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
 
 /**
  * Connect/Disconnect for one subscription lane. Status comes from the flow
@@ -235,6 +236,7 @@ export function SubscriptionConnect({
     if (!response.ok) {
       throw new Error(body.error ?? `Auth request failed: ${response.status}`);
     }
+    if (body.snapshot === undefined) throw new Error("The connection status could not be read. Try again.");
     applySnapshot(body.snapshot);
     return body.snapshot;
   };
@@ -245,7 +247,9 @@ export function SubscriptionConnect({
       markUnavailable();
       return;
     }
+    if (!response.ok) throw new Error("The connection status could not be checked. Try again.");
     const body = (await response.json().catch(() => ({}))) as { snapshot?: AuthSnapshot };
+    if (body.snapshot === undefined) throw new Error("The connection status could not be read. Try again.");
     applySnapshot(body.snapshot);
   };
 
@@ -262,13 +266,18 @@ export function SubscriptionConnect({
           }
           return;
         }
+        if (!response.ok) throw new Error("Connection status is unavailable.");
         const body = (await response.json().catch(() => ({}))) as { snapshot?: AuthSnapshot };
-        if (!cancelled && body.snapshot !== undefined) {
+        if (body.snapshot === undefined) throw new Error("Connection status was not reported.");
+        if (!cancelled) {
           setSnapshot(body.snapshot);
           onStatusRef.current({ kind: "snapshot", snapshot: body.snapshot });
         }
       } catch {
-        // The card still renders; connect attempts surface their own error.
+        if (!cancelled) {
+          setFlowError("We could not check this connection. Try connecting again, or contact your administrator if this continues.");
+          onStatusRef.current({ kind: "error" });
+        }
       }
     })();
     return () => {
@@ -285,7 +294,7 @@ export function SubscriptionConnect({
       await work();
     } catch (err) {
       setFlowError(err instanceof Error ? err.message : String(err));
-      await refresh().catch(() => undefined);
+      await refresh().catch(() => onStatusRef.current({ kind: "error" }));
     } finally {
       setBusy(false);
     }
@@ -294,6 +303,7 @@ export function SubscriptionConnect({
   const connect = () =>
     void run(async () => {
       const snap = await callFlow("begin");
+      if (snap === undefined) return;
       if (spec.oauthRedirect) {
         setCallbackSent(false);
         // Popup blockers can refuse an async open — the waiting panel always
@@ -350,25 +360,20 @@ export function SubscriptionConnect({
       : undefined;
 
   return (
-    <div className="mt-3 space-y-2 border-t border-[#e0ded5]/60 pt-3">
+    <div className="mt-3 space-y-2 border-t border-[var(--border-1)] pt-3">
       {unavailable ? (
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[11px] text-[#6a6f63]">Subscription auth is off</span>
-          <Tooltip
-            content={`Enable ${spec.flag}=1 on the Worker to use this flow`}
-            side="top"
-            align="end"
-          >
-            <span className="inline-flex">
-              <button type="button" disabled className={CONNECT_PRIMARY}>
-                Connect
-              </button>
-            </span>
-          </Tooltip>
+        <div className="space-y-2">
+          <p className="border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--warning-fg)]">
+            {spec.label} subscription sign-in is not enabled on this deployment. Ask your
+            administrator to enable it, or choose another provider.
+          </p>
+          <button type="button" disabled className={CONNECT_PRIMARY}>
+            Connect
+          </button>
         </div>
       ) : phase === "waiting" ? (
         <div className="space-y-2">
-          <p className="font-mono text-[11px] leading-relaxed text-[#6a6f63]">
+          <p className="font-mono text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
             {snapshot?.message ??
               "Open the sign-in URL, complete sign-in, then paste the failed redirect URL."}
             {owner !== undefined ? ` Owner: ${owner}.` : ""}
@@ -412,7 +417,7 @@ export function SubscriptionConnect({
                 onChange={(event) => setPasteUrl(event.target.value)}
                 placeholder="http://127.0.0.1:…/?code=…&state=…"
                 aria-label="Pasted OAuth redirect URL"
-                className="min-w-0 flex-1 rounded-none border border-[#e0ded5] bg-[#f1efe6] px-2.5 py-1.5 font-mono text-xs text-[#222320] transition-colors placeholder-[#6a6f63]/60 focus:border-[#1c1cc8] focus:outline-none focus:ring-1 focus:ring-[#1c1cc8]/40"
+                className="min-w-0 flex-1 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] px-2.5 py-1.5 font-mono text-xs text-[var(--fg)] transition-colors placeholder-[var(--muted-foreground-3)]/60 focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
               />
               <button
                 type="button"
@@ -429,7 +434,7 @@ export function SubscriptionConnect({
               type="button"
               onClick={disconnect}
               disabled={busy}
-              className="font-mono text-[10px] text-[#6a6f63] hover:text-[#222320]"
+              className="font-mono text-[10px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
             >
               Cancel sign-in
             </button>
@@ -437,7 +442,7 @@ export function SubscriptionConnect({
         </div>
       ) : phase === "succeeded" ? (
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-mono text-[11px] text-[#15803d]">
+          <span className="truncate font-mono text-[11px] text-[var(--success)]">
             account: {account}
             {owner !== undefined ? ` · ${owner}` : ""}
             {snapshot?.expiresAt !== undefined
@@ -450,7 +455,7 @@ export function SubscriptionConnect({
         </div>
       ) : (
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-mono text-[11px] text-[#6a6f63]">
+          <span className="truncate font-mono text-[11px] text-[var(--muted-foreground-2)]">
             {phase === "starting" || phase === "verifying"
               ? "Connecting…"
               : phase === "failed"
@@ -468,33 +473,30 @@ export function SubscriptionConnect({
                 Check again
               </button>
             ) : null}
-            <Tooltip
-              disabled={!needsSecret}
-              content={credential.setupHint ?? "Provision the credential first."}
-              side="top"
-              align="end"
+            <button
+              type="button"
+              onClick={connect}
+              disabled={busy || needsSecret}
+              className={CONNECT_PRIMARY}
             >
-              <span className="inline-flex">
-                <button
-                  type="button"
-                  onClick={connect}
-                  disabled={busy || needsSecret}
-                  className={CONNECT_PRIMARY}
-                >
-                  {busy ? "Connecting…" : phase === "failed" ? "Retry connect" : "Connect"}
-                </button>
-              </span>
-            </Tooltip>
+              {busy ? "Connecting…" : phase === "failed" ? "Retry connect" : "Connect"}
+            </button>
           </div>
         </div>
       )}
+      {!unavailable && needsSecret && phase !== "succeeded" ? (
+        <p className="border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--warning-fg)]">
+          This provider needs a deployment credential before you can connect. Ask your
+          administrator to configure it, or choose another provider.
+        </p>
+      ) : null}
       {flowError !== null ? (
-        <div className="border border-[#fb2c36]/30 bg-[#fb2c36]/10 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#fb2c36]">
+        <div className="border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--destructive)]">
           {flowError}
         </div>
       ) : null}
       {notice !== null && flowError === null ? (
-        <div className="border border-[#0000a8]/25 bg-[#0000a8]/10 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#1c1cc8]">
+        <div className="border border-[var(--primary)]/25 bg-[var(--primary-soft)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--primary)]">
           {notice}
         </div>
       ) : null}

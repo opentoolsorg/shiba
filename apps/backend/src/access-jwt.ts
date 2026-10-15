@@ -6,8 +6,8 @@ const ACCESS_JWT_HEADER = "Cf-Access-Jwt-Assertion";
 const TEAM_ISSUER = /^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/;
 const jwksByIssuer = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
-/** Verified Access email for `aud`, or null. The token's `iss` picks the JWKS; `aud` binds it to our app. */
-export async function verifyAccessJwt(token: string, aud: string): Promise<string | null> {
+/** The token's `iss` picks the allowlisted JWKS; `aud` binds it to our app. */
+async function verifiedAccessClaims(token: string, aud: string) {
   try {
     const iss = decodeJwt(token).iss;
     if (typeof iss !== "string" || !TEAM_ISSUER.test(iss)) return null;
@@ -19,10 +19,25 @@ export async function verifyAccessJwt(token: string, aud: string): Promise<strin
       jwksByIssuer.set(iss, jwks);
     }
     const { payload } = await jwtVerify(token, jwks, { issuer: iss, audience: aud, algorithms: ["RS256"] });
-    return typeof payload.email === "string" && payload.email.trim() !== "" ? payload.email.trim() : null;
+    return payload;
   } catch {
     return null;
   }
+}
+
+/** Preserve the dashboard's existing email identity semantics. */
+export async function verifyAccessJwt(token: string, aud: string): Promise<string | null> {
+  const payload = await verifiedAccessClaims(token, aud);
+  return typeof payload?.email === "string" && payload.email.trim() !== "" ? payload.email.trim() : null;
+}
+
+/** Stable, source/audience-namespaced owner; never trust the email header. */
+export async function verifiedAccessOwner(request: Request, aud: string): Promise<string | null> {
+  const token = request.headers.get(ACCESS_JWT_HEADER);
+  const payload = token ? await verifiedAccessClaims(token, aud) : null;
+  return typeof payload?.sub === "string" && payload.sub.trim() !== ""
+    ? JSON.stringify(["access", payload.iss, aud, payload.sub])
+    : null;
 }
 
 /**

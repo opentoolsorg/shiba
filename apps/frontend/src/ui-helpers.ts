@@ -77,19 +77,19 @@ export const ERROR_FAMILY_STATUSES: ReadonlySet<string> = new Set([
 // Status chip classes — single source for app.tsx, WorkspacePanel, and any
 // future pane that renders run/session status pills.
 export const STATUS_CHIP_CLASSES: Record<string, string> = {
-  completed: "text-[#15803d] border-[#15803d]/30 bg-[#15803d]/10",
-  running: "text-[#0000a8] border-[#0000a8]/30 bg-[#0000a8]/10",
-  pending: "text-[#b45309] border-[#f99c00]/40 bg-[#f99c00]/10",
-  "waiting-approval": "text-[#b45309] border-[#f99c00]/40 bg-[#f99c00]/10",
-  error: "text-[#fb2c36] border-[#fb2c36]/30 bg-[#fb2c36]/10",
-  aborted: "text-[#fb2c36] border-[#fb2c36]/30 bg-[#fb2c36]/10",
-  cancelled: "text-[#fb2c36] border-[#fb2c36]/30 bg-[#fb2c36]/10",
+  completed: "text-[var(--success)] border-[color-mix(in_oklch,var(--success)_30%,transparent)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)]",
+  running: "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)]",
+  pending: "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)]",
+  "waiting-approval": "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)]",
+  error: "text-[var(--destructive)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)]",
+  aborted: "text-[var(--destructive)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)]",
+  cancelled: "text-[var(--destructive)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)]",
   // Amber, not error red: ambiguous outcome is not a known failure.
-  unknown: "text-[#b45309] border-[#b45309]/30 bg-[#b45309]/10",
+  unknown: "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning-fg)_30%,transparent)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)]",
 };
 
 export function statusChipClass(status: string): string {
-  return STATUS_CHIP_CLASSES[status] ?? "text-[#6a6f63] border-[#e0ded5] bg-[#fffef8]";
+  return STATUS_CHIP_CLASSES[status] ?? "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]";
 }
 
 // Diff output for completed live runs. The orchestrator surfaces the unified

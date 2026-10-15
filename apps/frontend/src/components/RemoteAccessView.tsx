@@ -15,9 +15,9 @@ type FleetState =
 type Identity = { kind: "checking" } | { kind: "ok"; agent: string } | { kind: "down"; message: string };
 
 const STATUS_DOT: Record<ComputerStatus, string> = {
-  idle: "bg-[#15803d]",
-  busy: "bg-[#f99c00] animate-pulse",
-  offline: "bg-[#6a6f63]/50",
+  idle: "bg-[var(--success)]",
+  busy: "bg-[var(--warning)] animate-pulse",
+  offline: "bg-[var(--muted-foreground-3)]/50",
 };
 
 function ago(ms: number): string {
@@ -57,17 +57,17 @@ function PairingModal({ pairing, onClose }: { pairing: PairingTokenResponse; onC
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="pairing-heading"
-        className="w-full max-w-xl bg-[#fffef8] border border-[#e0ded5] rounded-none shadow-[2px_2px_0_var(--paper-shadow)] p-5 flex flex-col gap-4"
+        className="w-full max-w-xl bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] shadow-[var(--sh-card)] p-5 flex flex-col gap-4"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 id="pairing-heading" className="text-sm font-semibold text-[#222320]">Add computer</h3>
-            <p className="text-xs text-[#6a6f63] mt-0.5">
+            <h3 id="pairing-heading" className="text-sm font-semibold text-[var(--fg)]">Add computer</h3>
+            <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5">
               Run this on the machine you want to pair. The token works once; the daemon then connects outbound only.
             </p>
           </div>
@@ -75,23 +75,23 @@ function PairingModal({ pairing, onClose }: { pairing: PairingTokenResponse; onC
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-xs text-[#6a6f63] hover:text-[#222320] border border-[#e0ded5] px-2 py-1 rounded-none"
+            className="text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)] border border-[var(--border-1)] px-2 py-1 rounded-[var(--radius-button)]"
           >
             ✕
           </button>
         </div>
-        <pre className="text-[11px] font-mono bg-[#f1efe6] border border-[#e0ded5] p-3 whitespace-pre-wrap break-all text-[#222320] select-all">
+        <pre className="text-[11px] font-mono bg-[var(--panel)] border border-[var(--border-1)] p-3 whitespace-pre-wrap break-all text-[var(--fg)] select-all">
           {pairing.connectCommand}
         </pre>
         <div className="flex items-center justify-between gap-3">
-          <span className={`text-xs font-mono ${expired ? "text-[#b91c1c]" : "text-[#6a6f63]"}`} aria-live="polite">
+          <span className={`text-xs font-mono ${expired ? "text-[var(--destructive)]" : "text-[var(--muted-foreground-2)]"}`} aria-live="polite">
             {expired ? "Token expired — close and generate a new one" : `Expires in ${countdown(remaining)}`}
           </span>
           <button
             type="button"
             onClick={copy}
             disabled={expired}
-            className="text-xs font-semibold text-white bg-[#0000a8] hover:bg-[#1c1cc8] disabled:opacity-40 px-3 py-1.5 rounded-none transition-colors"
+            className="text-xs font-semibold text-white bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-40 px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
           >
             Copy command
           </button>
@@ -230,18 +230,18 @@ export function RemoteAccessView(): JSX.Element {
   const online = computers.filter((c) => c.status !== "offline").length;
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-      <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
         <div>
-          <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
             <span>Remote Access</span>
             {fleet.kind === "ready" ? (
-              <span className="text-xs font-mono px-2 py-0.5 rounded-none bg-[#15803d]/10 text-[#15803d] border border-[#15803d]/30">
+              <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
                 {online}/{computers.length} online
               </span>
             ) : null}
           </h2>
-          <p className="text-xs text-[#6a6f63]">
+          <p className="text-xs text-[var(--muted-foreground-2)]">
             Pair local machines with one command. Daemons connect outbound — no open ports on your computer.
           </p>
         </div>
@@ -251,7 +251,7 @@ export function RemoteAccessView(): JSX.Element {
               type="button"
               onClick={() => void connectThisComputer()}
               disabled={pairingBusy}
-              className="text-xs font-semibold text-white bg-[#0000a8] hover:bg-[#1c1cc8] disabled:opacity-40 px-3 py-1.5 rounded-none transition-colors"
+              className="text-xs font-semibold text-white bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-40 px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
             >
               {pairingBusy ? "Connecting…" : "Connect this computer"}
             </button>
@@ -262,8 +262,8 @@ export function RemoteAccessView(): JSX.Element {
             disabled={fleet.kind !== "ready" || pairingBusy}
             className={
               bridge
-                ? "text-xs font-medium text-[#222320] border border-[#e0ded5] hover:bg-[#e0ded5]/60 disabled:opacity-40 px-3 py-1.5 rounded-none transition-colors"
-                : "text-xs font-semibold text-white bg-[#0000a8] hover:bg-[#1c1cc8] disabled:opacity-40 px-3 py-1.5 rounded-none transition-colors"
+                ? "text-xs font-medium text-[var(--fg)] border border-[var(--border-1)] hover:bg-[var(--secondary)] disabled:opacity-40 px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
+                : "text-xs font-semibold text-white bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-40 px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
             }
           >
             {pairingBusy && !bridge ? "Generating…" : bridge ? "Add another computer" : "Add computer"}
@@ -274,45 +274,45 @@ export function RemoteAccessView(): JSX.Element {
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           <section aria-labelledby="connections-heading" className="flex flex-col gap-3">
-            <div className="pb-1 border-b border-[#e0ded5]">
-              <h3 id="connections-heading" className="text-sm font-semibold text-[#222320]">Connections</h3>
+            <div className="pb-1 border-b border-[var(--border-1)]">
+              <h3 id="connections-heading" className="text-sm font-semibold text-[var(--fg)]">Connections</h3>
             </div>
-            <div className="bg-[#fffef8] border border-[#e0ded5] p-4 rounded-none shadow-[2px_2px_0_var(--paper-shadow)] grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] shadow-[var(--sh-card)] grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div className="flex items-center gap-2">
                 <span
-                  className={`size-2 rounded-full ${identity.kind === "ok" ? "bg-[#15803d]" : identity.kind === "down" ? "bg-[#fb2c36]" : "bg-[#6a6f63]/50"}`}
+                  className={`size-2 rounded-full ${identity.kind === "ok" ? "bg-[var(--success)]" : identity.kind === "down" ? "bg-[var(--destructive)]" : "bg-[var(--muted-foreground-3)]/50"}`}
                   aria-hidden="true"
                 />
-                <span className="text-[#6a6f63]">Worker endpoint</span>
-                <span className="font-mono text-[#222320] truncate">
+                <span className="text-[var(--muted-foreground-2)]">Worker endpoint</span>
+                <span className="font-mono text-[var(--fg)] truncate">
                   {identity.kind === "ok" ? "reachable" : identity.kind === "down" ? identity.message : "checking…"}
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[#6a6f63]">Signed in as</span>
-                <span className="font-mono text-[#222320] truncate">{identity.kind === "ok" ? identity.agent : "—"}</span>
+                <span className="text-[var(--muted-foreground-2)]">Signed in as</span>
+                <span className="font-mono text-[var(--fg)] truncate">{identity.kind === "ok" ? identity.agent : "—"}</span>
               </div>
             </div>
           </section>
 
           <section aria-labelledby="computers-heading" className="flex flex-col gap-3">
-            <div className="flex items-center justify-between pb-1 border-b border-[#e0ded5]">
-              <h3 id="computers-heading" className="text-sm font-semibold text-[#222320]">Computers</h3>
-              <span className="text-xs font-mono text-[#6a6f63]">
+            <div className="flex items-center justify-between pb-1 border-b border-[var(--border-1)]">
+              <h3 id="computers-heading" className="text-sm font-semibold text-[var(--fg)]">Computers</h3>
+              <span className="text-xs font-mono text-[var(--muted-foreground-2)]">
                 {computers.length} paired · refreshes every {POLL_MS / 1000}s
               </span>
             </div>
 
             {fleet.kind === "loading" ? (
-              <p className="text-xs text-[#6a6f63] py-6 text-center">Loading fleet…</p>
+              <p className="text-xs text-[var(--muted-foreground-2)] py-6 text-center">Loading fleet…</p>
             ) : fleet.kind === "error" ? (
               <LoadErrorState message={fleet.message} onRetry={() => void load()} />
             ) : fleet.kind === "disabled" || computers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[#e0ded5] rounded-none bg-[#fffef8] text-center p-6">
-                <h4 className="text-sm font-semibold text-[#222320]">
+              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-center p-6">
+                <h4 className="text-sm font-semibold text-[var(--fg)]">
                   {fleet.kind === "disabled" ? "Local runtime is disabled" : "No computers paired"}
                 </h4>
-                <p className="text-xs text-[#6a6f63] max-w-sm mt-0.5">
+                <p className="text-xs text-[var(--muted-foreground-2)] max-w-sm mt-0.5">
                   {fleet.kind === "disabled" ? (
                     <>
                       Set <code className="font-mono">SHIBA_LOCAL_RUNTIME=1</code> on the Worker to pair local daemons.
@@ -327,31 +327,31 @@ export function RemoteAccessView(): JSX.Element {
                 {computers.map((c) => (
                   <li
                     key={c.machineId}
-                    className="bg-[#fffef8] border border-[#e0ded5] p-4 rounded-none shadow-[2px_2px_0_var(--paper-shadow)] flex flex-col gap-2"
+                    className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] shadow-[var(--sh-card)] flex flex-col gap-2"
                   >
                     <div className="flex items-center gap-2">
                       <span className={`size-2 rounded-full shrink-0 ${STATUS_DOT[c.status]}`} title={c.status} aria-hidden="true" />
-                      <span className="text-sm font-semibold text-[#222320] truncate flex-1">{c.hostname}</span>
+                      <span className="text-sm font-semibold text-[var(--fg)] truncate flex-1">{c.hostname}</span>
                       {desktopStatus?.machineId === c.machineId ? (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-none bg-[#15803d]/10 text-[#15803d] border border-[#15803d]/30">
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
                           This computer
                         </span>
                       ) : null}
-                      <span className="text-[10px] font-mono uppercase text-[#6a6f63]">{c.status}</span>
+                      <span className="text-[10px] font-mono uppercase text-[var(--muted-foreground-2)]">{c.status}</span>
                     </div>
-                    <div className="text-[11px] font-mono text-[#6a6f63] flex flex-wrap gap-x-3">
+                    <div className="text-[11px] font-mono text-[var(--muted-foreground-2)] flex flex-wrap gap-x-3">
                       <span>{c.platform}</span>
                       <span>v{c.daemonVersion}</span>
                       <span>seen {ago(c.lastHeartbeat)}</span>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {c.harnesses.length === 0 ? (
-                        <span className="text-[10px] text-[#6a6f63]">no harnesses detected</span>
+                        <span className="text-[10px] text-[var(--muted-foreground-2)]">no harnesses detected</span>
                       ) : (
                         c.harnesses.map((h) => (
                           <span
                             key={h}
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded-none bg-[#0000a8]/10 text-[#0000a8] border border-[#0000a8]/20"
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[var(--primary-soft)] text-[var(--primary)] border border-[var(--primary)]/20"
                           >
                             {h}
                           </span>
@@ -361,18 +361,18 @@ export function RemoteAccessView(): JSX.Element {
                     <div className="flex justify-end gap-2 pt-1">
                       {confirmRevoke === c.machineId ? (
                         <>
-                          <span className="text-[11px] text-[#b91c1c] self-center">Revoke {c.hostname}?</span>
+                          <span className="text-[11px] text-[var(--destructive)] self-center">Revoke {c.hostname}?</span>
                           <button
                             type="button"
                             onClick={() => setConfirmRevoke(null)}
-                            className="text-xs text-[#222320] bg-[#fffef8] hover:bg-[#e0ded5] border border-[#e0ded5] px-2.5 py-1 rounded-none"
+                            className="text-xs text-[var(--fg)] bg-[var(--card)] hover:bg-[var(--secondary)] border border-[var(--border-1)] px-2.5 py-1 rounded-[var(--radius-button)]"
                           >
                             Cancel
                           </button>
                           <button
                             type="button"
                             onClick={() => void revoke(c)}
-                            className="text-xs font-semibold text-white bg-[#b91c1c] hover:bg-[#fb2c36] px-2.5 py-1 rounded-none"
+                            className="text-xs font-semibold text-[var(--destructive-text)] bg-[var(--destructive)] hover:opacity-90 px-2.5 py-1 rounded-[var(--radius-button)]"
                           >
                             Confirm revoke
                           </button>
@@ -381,7 +381,7 @@ export function RemoteAccessView(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => setConfirmRevoke(c.machineId)}
-                          className="text-xs text-[#b91c1c] border border-[#fb2c36]/30 bg-[#fb2c36]/5 hover:bg-[#fb2c36]/10 px-2.5 py-1 rounded-none"
+                          className="text-xs text-[var(--destructive)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive)]/5 hover:bg-[var(--destructive-soft)] px-2.5 py-1 rounded-[var(--radius-button)]"
                         >
                           Revoke
                         </button>

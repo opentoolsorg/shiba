@@ -29,6 +29,7 @@
     "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",
     "CODING_MODEL": "google/gemini-3.5-flash-lite",
     "RUNTIME": "sandbox",
+    "SHIBA_CLAUDE_SUBSCRIPTION": "1",
     // Must match containers.instance_type. Cloudbox-style deploy-time size knob.
     "INSTANCE_TYPE": "standard-1",
     // Public hostname of this Worker (e.g. "shiba.example.com") — used to
@@ -36,8 +37,8 @@
     // Empty = PR screenshot capture disabled (capture fails safe, never fails the run).
     "WORKER_HOSTNAME": "app.tryshiba.dev",
     "BETTER_AUTH_URL": "https://app.tryshiba.dev",
-    // T48 opt-ins, set per-deploy via `wrangler secret put`/var overrides or
-    // the alchemy configVars list (deliberately absent here = feature dark):
+    // T48: Claude subscription harness stays registered by default; its
+    // Wrangler secret is still required before runs can authenticate.
     //   SHIBA_CLAUDE_SUBSCRIPTION=1  registers the claude-subscription harness
     //   CLAUDE_SUBSCRIPTION_MODEL    per-deploy model override
     //   CLAUDE_SUBSCRIPTION_TOKEN[_<ACCOUNT>]  the operator's `claude

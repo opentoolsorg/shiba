@@ -87,10 +87,11 @@ describe("dashboard rendering", () => {
   it("shows useful empty states when no task has started", () => {
     const markup = renderApp();
 
-    expect(markup).toContain("No messages yet. Submit a task to start.");
-    expect(markup).toContain("Setup Guide");
-    expect(markup).toContain("Sessions");
-    expect(markup).toContain("Fix Failing Tests");
+    expect(markup).toContain('data-testid="task-composer"');
+    expect(markup).toContain("Ask anything, / for commands, @ for context");
+    expect(markup).toContain("New thread");
+    expect(markup).toContain("Threads");
+    expect(markup).toContain("dot-grid");
 
   });
 
@@ -156,7 +157,7 @@ describe("dashboard rendering", () => {
 
     expect(appMarkup).toContain('data-testid="task-composer"');
     expect(appMarkup).toContain("<textarea");
-    expect(appMarkup).toContain('type="checkbox"');
+    expect(appMarkup).toContain('aria-label="Thread configuration"');
   });
 
   it("renders diff output for completed runs in standalone DiffView", () => {
@@ -195,16 +196,11 @@ describe("dashboard rendering", () => {
 
   it("renders the top navigation bar without the retired Architecture view", () => {
     const markup = renderApp();
-    expect(markup).toContain("Dashboard");
-    expect(markup).toContain("Tasks");
-    expect(markup).toContain("Runs");
-    expect(markup).toContain("Diff");
-    expect(markup).toContain("Approvals");
-    expect(markup).toContain("Mailbox");
-    expect(markup).toContain("Memory");
+    expect(markup).toContain("New thread");
+    expect(markup).toContain("Threads");
+    expect(markup).toContain("Pull requests");
     expect(markup).toContain("Automations");
-    expect(markup).toContain("Providers");
-    expect(markup).toContain("Integrations");
+    expect(markup).toContain("More");
     expect(markup).not.toContain("Architecture");
     // Deduped surfaces stay deep-link reachable but are out of the nav.
     expect(markup).not.toContain("Missions &amp; Standing Goals");

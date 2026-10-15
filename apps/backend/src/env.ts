@@ -365,6 +365,13 @@ export interface Env {
    * origin validation. Unset falls back to each request's own origin.
    */
   BETTER_AUTH_URL?: string;
+  /** Gmail read-only OAuth. Absent/invalid config fails closed; no generic auth accounts. */
+  GMAIL_CLIENT_ID?: string;
+  GMAIL_CLIENT_SECRET?: string;
+  /** Exact registered /api/connections/gmail/callback URL; never derived from a request. */
+  GMAIL_REDIRECT_URI?: string;
+  /** 32 random bytes encoded as 64 hex characters; AES-GCM-256 refresh-token key. */
+  GMAIL_TOKEN_KEY?: string;
   /**
    * Optional. Comma-separated ACP registry agent ids the generic `acp`
    * harness may spawn (`*` = all). Absent or empty = the lane is dark —
