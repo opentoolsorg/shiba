@@ -1,5 +1,6 @@
 node_modules/
 public/
+app-public/
 !apps/web/public/
 !apps/web/public/**
 !apps/frontend/public/

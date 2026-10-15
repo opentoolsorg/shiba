@@ -39,15 +39,15 @@ const mockSession: MemorySession = {
 describe("MemoryTab helpers", () => {
   it("sourceChipClass assigns distinct tokens for run, email, and fallback sources", () => {
     const runClass = sourceChipClass("run");
-    expect(runClass).toContain("text-[#1c1cc8]");
-    expect(runClass).toContain("bg-[#0000a8]/10");
+    expect(runClass).toContain("text-[var(--primary)]");
+    expect(runClass).toContain("bg-[var(--primary-soft)]");
 
     const emailClass = sourceChipClass("email");
-    expect(emailClass).toContain("text-[#b45309]");
-    expect(emailClass).toContain("bg-[#f99c00]/10");
+    expect(emailClass).toContain("text-[var(--warning-fg)]");
+    expect(emailClass).toContain("bg-[var(--warning-subtle)]");
 
     const otherClass = sourceChipClass("manual");
-    expect(otherClass).toContain("text-[#6a6f63]");
+    expect(otherClass).toContain("text-[var(--muted-foreground-2)]");
   });
 
   it("formatRecallScore formats floating-point similarity scores", () => {

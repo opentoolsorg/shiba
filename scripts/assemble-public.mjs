@@ -1,7 +1,5 @@
-import { existsSync } from 'node:fs';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { workerRedirects } from './worker-redirects.mjs';
 
 // Assemble the Worker's ASSETS directory (public/) from package-local build
 // outputs. Runs after `turbo run build`:
@@ -32,9 +30,13 @@ for (const [src, dst] of steps) {
   console.log(`Copied ${src} -> ${dst}`);
 }
 
-const redirects = new URL('public/_redirects', root);
-if (existsSync(fileURLToPath(redirects))) {
-  const path = fileURLToPath(redirects);
-  await writeFile(path, workerRedirects(await readFile(path, 'utf8')));
-  console.log('Filtered host redirects from public/_redirects for Worker assets');
-}
+// The Worker (app.tryshiba.dev) serves only the dashboard; public/ stays the Pages site.
+// _redirects and blog/ are tryshiba.dev marketing files, so they never ship to the Worker.
+const appSrc = fileURLToPath(new URL('apps/frontend/dist/client', root));
+const appDest = fileURLToPath(new URL('app-public', root));
+await rm(appDest, { recursive: true, force: true });
+await cp(appSrc, appDest, {
+  recursive: true,
+  filter: (src) => !/^\/(_redirects|blog)(\/|$)/.test(src.slice(appSrc.length)),
+});
+console.log('Copied apps/frontend/dist/client -> app-public (Worker assets)');

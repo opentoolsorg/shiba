@@ -9,10 +9,8 @@ export default {
     // Prevent persistent :hover styles after taps on touchscreens.
     hoverOnlyWhenSupported: true,
   },
-  // Class strategy so `dark:` variants follow the in-app next-themes toggle
-  // (html.dark), not the OS prefers-color-scheme — otherwise AppNavRail and
-  // AuthScreen stay dark on an OS-dark machine while the rest of the app
-  // (which remaps tokens under html.dark in styles.css) is light.
+  // Class strategy so  variants follow the in-app next-themes toggle
+  // (html.dark), not the OS prefers-color-scheme.
   darkMode: "class",
   content: [
     resolve(root, "src/**/*.{js,ts,jsx,tsx,html}"),
@@ -20,24 +18,106 @@ export default {
   ],
   theme: {
     extend: {
-      // `touch:` targets coarse pointers (phones/tablets) for 44px tap targets.
       screens: {
         touch: { raw: "(pointer: coarse)" },
       },
       fontFamily: {
-        display: ['"Instrument Serif"', 'Georgia', 'serif'],
-        comic: ['Bangers', '"Comic Sans MS"', 'cursive', 'sans-serif'],
-        tech: ['"Geist Mono"', '"DM Mono"', 'monospace'],
         sans: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['"Geist Mono"', 'ui-monospace', 'monospace'],
+        tech: ['"Geist Mono"', 'monospace'],
+        display: ['"Instrument Serif"', 'Georgia', 'serif'],
+      },
+      borderRadius: {
+        xs: 'var(--radius-xs)',
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        DEFAULT: 'var(--radius)',
+        inner: 'var(--radius-inner)',
+        button: 'var(--radius-button)',
+        kbd: 'var(--radius-kbd)',
+        card: 'var(--radius-card)',
+        overlay: 'var(--radius-overlay)',
+        panel: 'var(--radius-panel)',
+      },
+      boxShadow: {
+        plate: 'var(--sh-plate)',
+        card: 'var(--sh-card)',
+        overlay: 'var(--sh-overlay)',
+        composer: 'var(--sh-composer)',
+        sheet: 'var(--sh-sheet)',
       },
       colors: {
+        bg: 'var(--bg)',
+        chrome: 'var(--chrome)',
+        panel: 'var(--panel)',
+        card: {
+          DEFAULT: 'var(--card)',
+          hover: 'var(--card-hover)',
+        },
+        popover: {
+          DEFAULT: 'var(--popover)',
+          hover: 'var(--popover-hover)',
+        },
+        input: 'var(--input)',
+        button: {
+          DEFAULT: 'var(--button)',
+          hover: 'var(--button-hover)',
+        },
+        secondary: {
+          DEFAULT: 'var(--secondary)',
+          hover: 'var(--secondary-hover)',
+        },
+        section: 'var(--section)',
+        muted: {
+          DEFAULT: 'var(--muted)',
+          foreground: 'var(--muted-foreground-1)',
+          'foreground-1': 'var(--muted-foreground-1)',
+          'foreground-2': 'var(--muted-foreground-2)',
+          'foreground-3': 'var(--muted-foreground-3)',
+        },
+        overlay: {
+          DEFAULT: 'var(--overlay)',
+          fg: 'var(--overlay-fg)',
+          media: 'var(--overlay-media)',
+        },
+        fg: 'var(--fg)',
+        border: {
+          DEFAULT: 'var(--border-1)',
+          1: 'var(--border-1)',
+          2: 'var(--border-2)',
+          3: 'var(--border-3)',
+        },
+        primary: {
+          DEFAULT: 'var(--primary)',
+          soft: 'var(--primary-soft)',
+          'soft-hover': 'var(--primary-soft-hover)',
+          foreground: 'var(--primary-text)',
+        },
+        ring: 'var(--ring)',
+        destructive: {
+          DEFAULT: 'var(--destructive)',
+          soft: 'var(--destructive-soft)',
+          'soft-hover': 'var(--destructive-soft-hover)',
+          foreground: 'var(--destructive-text)',
+        },
+        warning: {
+          DEFAULT: 'var(--warning)',
+          fg: 'var(--warning-fg)',
+          subtle: 'var(--warning-subtle)',
+        },
+        success: 'var(--success)',
+        info: 'var(--info)',
+        complete: 'var(--complete)',
+        attention: 'var(--attention)',
+        progress: 'var(--progress)',
         brand: {
-          DEFAULT: '#0000a8',
-          light: '#1c1cc8',
-          dark: '#000086',
-          glow: 'rgba(0, 0, 168, 0.18)',
-        }
-      }
+          DEFAULT: 'var(--primary)',
+          light: 'var(--primary-soft)',
+          dark: 'var(--shader-ink)',
+          glow: 'color-mix(in oklch, var(--primary) 24%, transparent)',
+        },
+      },
     },
   },
   plugins: [],

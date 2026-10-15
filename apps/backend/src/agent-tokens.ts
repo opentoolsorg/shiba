@@ -17,6 +17,7 @@ import { randomHex } from "./mailbox-store.js";
 import { InputError, redactSecrets } from "./security.js";
 
 export const SCOPES = [
+  "gmail:read",
   "email:read",
   "email:draft",
   "email:send",

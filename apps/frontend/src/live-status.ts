@@ -100,7 +100,10 @@ function useApiJson<T>(path: string): {
       cancelled = true;
     };
   }, [path, attempt]);
-  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  const reload = useCallback(() => {
+    setInFlight(true);
+    setAttempt((n) => n + 1);
+  }, []);
   return { state, reload, inFlight };
 }
 

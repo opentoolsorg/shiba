@@ -32,10 +32,12 @@ import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
+import { SettingsView } from "./components/SettingsView";
 import { TaskComposer } from "./components/TaskComposer";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
 import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavRail";
 import { AuthScreen } from "./components/AuthScreen";
 import { authClient } from "./auth-client";
@@ -279,6 +281,31 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 
 type MainView = AppNavView;
 
+const VIEW_ALIASES: Record<string, AppNavView> = {
+  "run-registry": "analytics",
+  orchestrator: "activity",
+  mailbox: "inbox",
+};
+
+// Each sidebar view owns a root path (/dashboard/, /skills/ …); legacy ?tab=/?view=/?run= still resolve.
+function viewFromUrl(): AppNavView | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("run")) return "dashboard";
+  const toView = (raw: string | null) => {
+    const view = raw ? (VIEW_ALIASES[raw] ?? raw) : null;
+    return APP_NAV_ITEMS.some((item) => item.id === view) ? (view as AppNavView) : null;
+  };
+  return (
+    toView(window.location.pathname.split("/")[1] ?? null) ??
+    toView(params.get("tab") || params.get("view"))
+  );
+}
+
+function pathForView(view: MainView): string {
+  return view === "tasks" ? "/" : `/${view}/`;
+}
+
 const SETUP_TOTAL_STEPS = 6;
 
 const STARTER_TEMPLATES = [
@@ -336,13 +363,16 @@ export function App(): React.JSX.Element {
     if (notice) toast(notice);
   }, [notice]);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [mainView, setMainView] = useState<MainView>("tasks");
+  const [mainView, setMainView] = useState<MainView>(() => {
+    const view = viewFromUrl();
+    return view && view !== "settings" ? view : "tasks";
+  });
   // Settings is a Kosuke-style popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
+  const [settingsInitialSection, setSettingsInitialSection] = useState<"account" | "models">("account");
   const openView = useCallback((view: AppNavView) => {
-    if (view === "settings") setSettingsModalOpen(true);
-    else setMainView(view);
+    setMainView(view);
   }, []);
   // Once visited, the mailbox stays mounted (hidden) — its local state
   // (search text, selected thread, drafts) survives nav switches.
@@ -420,43 +450,32 @@ export function App(): React.JSX.Element {
     };
   }, [showOnboardingModal]);
 
+  // The view itself is read in the useState initializers; only the run pick needs an effect.
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const tabParam = params.get("tab") || params.get("view");
-      const runParam = params.get("run");
-      if (runParam) {
-        setSelectedRunId(runParam);
-        setMainView("dashboard");
-        setMainView("dashboard");
-      } else if (tabParam === "analytics" || tabParam === "run-registry") {
-        setMainView("analytics");
-      } else if (tabParam === "activity" || tabParam === "orchestrator") {
-        setMainView("activity");
-      } else if (tabParam === "diff") {
-        setMainView("diff");
-      } else if (tabParam === "approvals") {
-        setMainView("approvals");
-      } else if (tabParam === "inbox" || tabParam === "mailbox") {
-        setMainView("inbox");
-      } else if (tabParam === "memory") {
-        setMainView("memory");
-      } else if (tabParam === "automations") {
-        setMainView("automations");
-      } else if (tabParam === "agents") {
-        setMainView("agents");
-      } else if (tabParam === "providers") {
-        setMainView("providers");
-      } else if (tabParam === "skills") {
-        setMainView("skills");
-      } else if (tabParam === "integrations") {
-        setMainView("integrations");
-      } else if (tabParam === "remote") {
-        setMainView("remote");
-      } else if (tabParam === "settings") {
-        setSettingsModalOpen(true);
-      }
-    }
+    const runParam = new URLSearchParams(window.location.search).get("run");
+    if (runParam) setSelectedRunId(runParam);
+  }, []);
+
+  // The first sync rewrites a legacy /app/ URL in place (query kept for any reader); later view changes are history steps.
+  const router = useRouter();
+  const urlSynced = useRef(false);
+  useEffect(() => {
+    const path = pathForView(mainView);
+    const first = !urlSynced.current;
+    urlSynced.current = true;
+    if (window.location.pathname === path) return;
+    if (first) router.history.replace(path + window.location.search);
+    else router.history.push(path);
+  }, [mainView, router]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const view = viewFromUrl();
+      if (view === "settings") setSettingsModalOpen(true);
+      else setMainView(view ?? "tasks");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   const submitFailed = useRef(false);
@@ -1071,7 +1090,10 @@ export function App(): React.JSX.Element {
         return;
       }
       if (isEditableTarget(e.target)) return;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "o" || e.key === "O")) {
+        e.preventDefault();
+        handleNewTaskRef.current();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandMenuOpen((prev) => !prev);
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
@@ -1098,6 +1120,7 @@ export function App(): React.JSX.Element {
     settingsModalOpen,
   ]);
 
+  const handleNewTaskRef = useRef<() => void>(() => {});
   // First-seen time per live run: a stable createdAt so ordering doesn't churn.
   const firstSeen = useRef(new Map<string, number>());
   const seenAt = useCallback((runId: string) => {
@@ -1181,12 +1204,15 @@ export function App(): React.JSX.Element {
 
   // Connections/agents can change in Settings — refetch each time the user
   // returns to the composer so the pickers never serve a stale snapshot.
+  // Depend on the stable reload callbacks: the hook results are new objects every render, which looped.
+  const reloadModelConfig = modelConfig.reload;
+  const reloadAgentsDirectory = agentsDirectory.reload;
   useEffect(() => {
     if (mainView === "tasks") {
-      modelConfig.reload();
-      agentsDirectory.reload();
+      reloadModelConfig();
+      reloadAgentsDirectory();
     }
-  }, [mainView, modelConfig, agentsDirectory]);
+  }, [mainView, reloadModelConfig, reloadAgentsDirectory]);
 
   const repoSuggestions = useMemo(() => {
     const merged = [...savedRepos, ...allRuns.map((run) => run.repoUrl)];
@@ -1431,17 +1457,17 @@ export function App(): React.JSX.Element {
   if (identityIssue === "signin" || identityIssue === "unconfigured") {
     const accessUnconfigured = identityIssue === "unconfigured";
     return (
-      <div className="h-dvh bg-[#f6f4ed] text-[#222320] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-sm w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)] flex flex-col items-center text-center gap-3">
+      <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
           <img
             src="/assets/mascot/pet-logo.png"
             alt="Shiba"
-            className="size-14 rounded-full bg-white object-contain border border-[#0000a8]/40"
+            className="size-14 rounded-full bg-white object-contain border border-[var(--primary)]/40"
           />
-          <h1 className="text-2xl text-[#222320]">
+          <h1 className="text-xl text-[var(--fg)]">
             {accessUnconfigured ? "Dashboard access isn't configured" : "Sign in to continue"}
           </h1>
-          <p className="text-sm text-[#6a6f63] leading-relaxed">
+          <p className="text-sm text-[var(--muted-foreground-2)] leading-relaxed">
             {accessUnconfigured
               ? "This deployment has no Cloudflare Access application, so the dashboard is locked. Set ACCESS_EMAILS and WORKERS_SUBDOMAIN and redeploy, or set ACCESS_AUD to an existing Access app's AUD tag."
               : "Your Cloudflare Access session has expired or you are not signed in yet."}
@@ -1449,7 +1475,7 @@ export function App(): React.JSX.Element {
           {accessUnconfigured ? (
             <a
               href="/docs/deployment/"
-              className="mt-1 w-full min-h-11 flex items-center justify-center rounded-none bg-[#0000a8] hover:bg-[#1c1cc8] text-white text-sm font-semibold transition-colors shadow-[2px_2px_0_var(--paper-shadow)]"
+              className="mt-1 w-full min-h-11 flex items-center justify-center rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)]"
             >
               Deployment documentation
             </a>
@@ -1457,7 +1483,7 @@ export function App(): React.JSX.Element {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="mt-1 w-full min-h-11 rounded-none bg-[#0000a8] hover:bg-[#1c1cc8] text-white text-sm font-semibold transition-colors shadow-[2px_2px_0_var(--paper-shadow)] active:scale-[0.98]"
+              className="mt-1 w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
             >
               Sign in
             </button>
@@ -1478,9 +1504,10 @@ export function App(): React.JSX.Element {
           : null;
 
   return (
-    <div className="h-dvh overflow-hidden bg-[#f6f4ed] text-[#222320] font-sans selection:bg-[#0000a8] selection:text-white flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div className="h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
+        collapsed={sessionsCollapsed}
         activeView={mainView}
         onNavigate={openView}
         pendingApprovalCount={pendingApprovals.length + visibleStoredApprovals.length}
@@ -1493,6 +1520,20 @@ export function App(): React.JSX.Element {
         onOpenShortcuts={() => setShowShortcutsModal(true)}
         accountEmail={authMode === "better-auth" ? orchestratorName : null}
         onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
+        sessions={sessions}
+        selectedSessionId={selectedRunId ?? selectedSessionId}
+        onSelectSession={handleSelectSession}
+        onNewTask={handleNewTask}
+        onOpenSearch={() => setCommandMenuOpen(true)}
+        onToggleCollapse={toggleSessionsCollapsed}
+        connectionLabel={connectionState}
+        connectionTone={
+          identityError || agent.connectionError
+            ? "error"
+            : agent.identified
+              ? "ok"
+              : "pending"
+        }
       />
 
       {mobileNavOpen ? (
@@ -1500,10 +1541,10 @@ export function App(): React.JSX.Element {
           <button
             type="button"
             aria-label="Close navigation"
-            className="absolute inset-0 bg-black/60"
+            className="absolute inset-0 bg-[var(--overlay)]"
             onClick={() => setMobileNavOpen(false)}
           />
-          <div className="absolute inset-y-0 left-0 shadow-[3px_3px_0_var(--paper-shadow)] animate-enter-x">
+          <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] animate-enter-x">
             <AppNavRail
               variant="sheet"
               activeView={mainView}
@@ -1529,21 +1570,43 @@ export function App(): React.JSX.Element {
               accountEmail={authMode === "better-auth" ? orchestratorName : null}
               onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
               onClose={() => setMobileNavOpen(false)}
+              sessions={sessions}
+              selectedSessionId={selectedRunId ?? selectedSessionId}
+              onSelectSession={(id) => {
+                handleSelectSession(id);
+                setMobileNavOpen(false);
+              }}
+              onNewTask={() => {
+                handleNewTask();
+                setMobileNavOpen(false);
+              }}
+              onOpenSearch={() => {
+                setMobileNavOpen(false);
+                setCommandMenuOpen(true);
+              }}
+              connectionLabel={connectionState}
+              connectionTone={
+                identityError || agent.connectionError
+                  ? "error"
+                  : agent.identified
+                    ? "ok"
+                    : "pending"
+              }
             />
           </div>
         </div>
       ) : null}
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* NAVY TOP BAR — bezalel-style breadcrumb + quick actions */}
-        <header className="h-[calc(2.75rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-[#0000a8] text-white flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
+        {/* TOP BAR — Capy subtle chrome header */}
+        <header className="h-[calc(2.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-[var(--chrome)] border-b border-[var(--border-1)] text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
           <button
             type="button"
             ref={mobileNavTriggerRef}
             onClick={() => setMobileNavOpen(true)}
             aria-label="Open navigation"
             aria-expanded={mobileNavOpen}
-            className="lg:hidden size-11 -my-1 shrink-0 rounded-none flex items-center justify-center text-white/90 hover:bg-white/15 transition-colors"
+            className="lg:hidden size-9 -my-1 shrink-0 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
           >
             <svg
               aria-hidden="true"
@@ -1557,14 +1620,14 @@ export function App(): React.JSX.Element {
             </svg>
           </button>
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-white/60">
+            <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
               Shiba
             </span>
-            <span className="text-white/40 text-xs" aria-hidden="true">
+            <span className="text-[var(--muted-foreground-3)] text-xs" aria-hidden="true">
               /
             </span>
-            <span className="text-[13px] font-medium truncate">
-              {APP_NAV_ITEMS.find((item) => item.id === mainView)?.label ?? "Tasks"}
+            <span className="text-[13px] font-medium text-[var(--fg)] truncate">
+              {APP_NAV_ITEMS.find((item) => item.id === mainView)?.label ?? "Threads"}
             </span>
           </nav>
           <div className="ml-auto flex items-center gap-1.5">
@@ -1573,7 +1636,7 @@ export function App(): React.JSX.Element {
                 type="button"
                 onClick={() => setCommandMenuOpen(true)}
                 aria-label="Open command menu"
-                className="h-7 touch:h-9 touch:min-w-11 justify-center rounded-none border border-white/20 bg-white/10 text-white/90 hover:bg-white/20 hover:text-white flex items-center gap-1.5 px-2 text-[11px] font-medium transition-colors"
+                className="h-7 touch:h-8 touch:min-w-10 justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] flex items-center gap-1.5 px-2 text-[11px] font-medium transition-colors"
               >
                 <svg
                   aria-hidden="true"
@@ -1598,16 +1661,16 @@ export function App(): React.JSX.Element {
         {bannerMessage ? (
           <div
             role="alert"
-            className="shrink-0 flex items-center gap-3 px-4 py-2 bg-[#fb2c36]/10 border-b border-[#fb2c36]/30 text-xs text-[#b91c1c]"
+            className="shrink-0 flex items-center gap-3 px-4 py-2 bg-[var(--destructive-soft)] border-b border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] text-xs text-[var(--destructive)]"
           >
             <span
-              className="size-2 shrink-0 rounded-full bg-[#fb2c36] animate-pulse"
+              className="size-2 shrink-0 rounded-full bg-[var(--destructive)] animate-pulse"
               aria-hidden="true"
             />
             <span className="flex-1 min-w-0 break-words">
               {bannerMessage}
               {online && identityIssue ? (
-                <span className="text-[#6a6f63]"> Retrying automatically.</span>
+                <span className="text-[var(--muted-foreground-2)]"> Retrying automatically.</span>
               ) : null}
             </span>
             <button
@@ -1616,7 +1679,7 @@ export function App(): React.JSX.Element {
                 if (identityIssue) retryIdentity();
                 else agent.reconnect();
               }}
-              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-none border border-[#fb2c36]/40 bg-[#fffef8] text-[#b91c1c] font-medium hover:bg-[#fb2c36]/10 transition-colors"
+              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_40%,transparent)] bg-[var(--card)] text-[var(--destructive)] font-medium hover:bg-[var(--destructive-soft)] transition-colors"
             >
               Retry now
             </button>
@@ -1626,15 +1689,15 @@ export function App(): React.JSX.Element {
         <div className="flex-1 flex min-w-0 min-h-0">
           {inboxMounted ? (
             <div
-              className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]"
+              className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]"
               style={mainView === "inbox" ? undefined : { display: "none" }}
             >
-              <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+              <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
                     <span>Mailbox</span>
                   </h2>
-                  <p className="text-xs text-[#6a6f63]">
+                  <p className="text-xs text-[var(--muted-foreground-2)]">
                     Cloudflare Email Routing, inbound triage, and approval-gated outbound send.
                   </p>
                 </div>
@@ -1670,44 +1733,16 @@ export function App(): React.JSX.Element {
             />
           ) : mainView === "tasks" ? (
             <div className="flex-1 flex overflow-hidden">
-              {/* LEFT: Devin-style sessions rail with collapse / expand */}
-              <div
-                className={`hidden lg:block self-stretch transition-all duration-200 ease-out overflow-hidden shrink-0 ${
-                  sessionsCollapsed ? "w-0 opacity-0 pointer-events-none" : "w-[280px] opacity-100"
-                }`}
-                aria-hidden={sessionsCollapsed}
-              >
-                <SessionsSidebar
-                  sessions={sessions}
-                  agents={agentPrincipals}
-                  selectedId={selectedRunId ?? selectedSessionId}
-                  onSelect={handleSelectSession}
-                  onNewTask={handleNewTask}
-                  connectionLabel={connectionState}
-                  connectionTone={
-                    identityError || agent.connectionError
-                      ? "error"
-                      : agent.identified
-                        ? "ok"
-                        : "pending"
-                  }
-                  setupDone={setupDone}
-                  setupTotal={SETUP_TOTAL_STEPS}
-                  onOpenSetup={() => setShowFirstRun(true)}
-                  onToggleCollapse={toggleSessionsCollapsed}
-                />
-              </div>
-
               {/* Mobile sessions drawer (below lg) */}
               {mobileSessionsOpen ? (
                 <div className="fixed inset-0 z-40 lg:hidden">
                   <button
                     type="button"
                     aria-label="Close sessions"
-                    className="absolute inset-0 bg-black/60"
+                    className="absolute inset-0 bg-[var(--overlay)]"
                     onClick={() => setMobileSessionsOpen(false)}
                   />
-                  <div className="absolute inset-y-0 left-0 shadow-[3px_3px_0_var(--paper-shadow)] bg-[#f6f4ed] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
+                  <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] bg-[var(--bg)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
                     <SessionsSidebar
                       sessions={sessions}
                       agents={agentPrincipals}
@@ -1737,11 +1772,11 @@ export function App(): React.JSX.Element {
 
               {/* CENTER: conversation timeline + composer */}
               <main
-                className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f6f4ed]"
+                className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[var(--bg)]"
                 aria-busy={busy}
               >
                 {/* SESSION HEADER */}
-                <div className="border-b border-black/[0.08] bg-[#f6f4ed]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
+                <div className="border-b border-black/[0.08] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
                   <div className="flex items-center gap-2.5 min-w-0">
                     {/* Desktop sidebar toggle button */}
                     <Tooltip
@@ -1754,7 +1789,7 @@ export function App(): React.JSX.Element {
                         onClick={toggleSessionsCollapsed}
                         aria-label={sessionsCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                         aria-expanded={!sessionsCollapsed}
-                        className="hidden lg:flex w-7 h-7 rounded-none border border-black/[0.08] bg-[#fffef8] text-[#6a6f63] hover:text-[#222320] hover:bg-[#e0ded5] items-center justify-center transition-colors shrink-0"
+                        className="hidden lg:flex w-7 h-7 rounded-[var(--radius-button)] border border-black/[0.08] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] items-center justify-center transition-colors shrink-0"
                       >
                         <svg
                           aria-hidden="true"
@@ -1788,7 +1823,7 @@ export function App(): React.JSX.Element {
                         type="button"
                         onClick={() => setMobileSessionsOpen(true)}
                         aria-label="Open sessions"
-                        className="lg:hidden w-7 h-7 touch:w-11 touch:h-11 rounded-none border border-black/[0.08] bg-[#fffef8] text-[#6a6f63] hover:text-[#222320] flex items-center justify-center transition-colors shrink-0"
+                        className="lg:hidden w-7 h-7 touch:w-11 touch:h-11 rounded-[var(--radius-button)] border border-black/[0.08] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] flex items-center justify-center transition-colors shrink-0"
                       >
                         <svg
                           aria-hidden="true"
@@ -1811,34 +1846,34 @@ export function App(): React.JSX.Element {
                       <img
                         src="/assets/mascot/pet-logo.png"
                         alt="Shiba"
-                        className="w-6 h-6 rounded-full bg-white object-contain border border-[#0000a8]/40 shrink-0 cursor-default"
+                        className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
                       />
                     </Tooltip>
-                    <h1 className="text-sm font-semibold text-[#222320] font-display tracking-tight truncate">
+                    <h1 className="text-sm font-semibold text-[var(--fg)] font-sans tracking-tight truncate">
                       {liveSession ? liveSession.title : "New coding task"}
                     </h1>
                     <Tooltip content="Active real-time agent orchestration stream" side="bottom">
-                      <span className="text-[10px] font-bold uppercase tracking-wider border rounded-none px-2 py-0.5 shrink-0 text-[#1c1cc8] border-[#0000a8]/15 bg-[#0000a8]/10">
+                      <span className="text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 shrink-0 text-[var(--primary)] border-[var(--primary)]/15 bg-[var(--primary-soft)]">
                         Live
                       </span>
                     </Tooltip>
                   </div>
 
-                  <div className="hidden md:flex items-center gap-4 text-xs font-mono text-[#6a6f63] shrink-0">
+                  <div className="hidden md:flex items-center gap-4 text-xs font-mono text-[var(--muted-foreground-2)] shrink-0">
                     <Tooltip content="Tool runs currently in flight" side="bottom">
                       <span className="cursor-default">
-                        <span className="text-[#6a6f63]">Active</span>{" "}
-                        <span className="text-[#0000a8] font-bold">{toolRuns.length}</span>
+                        <span className="text-[var(--muted-foreground-2)]">Active</span>{" "}
+                        <span className="text-[var(--primary)] font-bold">{toolRuns.length}</span>
                       </span>
                     </Tooltip>
                     <Tooltip content="Actions waiting for human approval" side="bottom">
                       <span className="cursor-default">
-                        <span className="text-[#6a6f63]">Approvals</span>{" "}
+                        <span className="text-[var(--muted-foreground-2)]">Approvals</span>{" "}
                         <span
                           className={
                             pendingApprovals.length + visibleStoredApprovals.length > 0
-                              ? "font-bold text-[#f99c00]"
-                              : "font-bold text-[#6a6f63]"
+                              ? "font-bold text-[var(--warning-fg)]"
+                              : "font-bold text-[var(--muted-foreground-2)]"
                           }
                         >
                           {pendingApprovals.length + visibleStoredApprovals.length}
@@ -1847,15 +1882,15 @@ export function App(): React.JSX.Element {
                     </Tooltip>
                     <Tooltip content="Total completed and retained runs" side="bottom">
                       <span className="cursor-default">
-                        <span className="text-[#6a6f63]">Runs</span>{" "}
-                        <span className="text-[#222320] font-bold">{allRuns.length}</span>
+                        <span className="text-[var(--muted-foreground-2)]">Runs</span>{" "}
+                        <span className="text-[var(--fg)] font-bold">{allRuns.length}</span>
                       </span>
                     </Tooltip>
                     <Tooltip
                       content="Container has zero secrets; provider keys stay at AI Gateway egress"
                       side="bottom"
                     >
-                      <span className="text-[10px] uppercase tracking-wider font-mono text-[#0000a8]/80 bg-[#0000a8]/10 border border-[#0000a8]/10 px-2 py-0.5 rounded-none">
+                      <span className="text-[10px] uppercase tracking-wider font-mono text-[var(--primary)]/80 bg-[var(--primary-soft)] border border-[var(--primary)]/10 px-2 py-0.5 rounded-[var(--radius-button)]">
                         Zero-Trust Boundary
                       </span>
                     </Tooltip>
@@ -1865,21 +1900,21 @@ export function App(): React.JSX.Element {
                 {/* PENDING APPROVALS STRIP */}
                 {pendingApprovals.length + visibleStoredApprovals.length > 0 ||
                 approvalAnnouncement ? (
-                  <div className="bg-[#fffef8] border-b border-[#e0ded5] px-3 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-3 shadow-[2px_2px_0_var(--paper-shadow)] z-10 shrink-0">
+                  <div className="bg-[var(--card)] border-b border-[var(--border-1)] px-3 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-3 shadow-[var(--sh-card)] z-10 shrink-0">
                     <p
-                      className="text-sm font-medium text-[#222320]"
+                      className="text-sm font-medium text-[var(--fg)]"
                       role="status"
                       aria-live="polite"
                     >
                       {pendingApprovals.length + visibleStoredApprovals.length > 0 ? (
-                        <span className="flex items-center gap-2 text-[#b45309]">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#b45309] animate-pulse" />
+                        <span className="flex items-center gap-2 text-[var(--warning-fg)]">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[var(--warning-fg)] animate-pulse" />
                           {pendingApprovals.length + visibleStoredApprovals.length} task
                           {pendingApprovals.length + visibleStoredApprovals.length === 1 ? "" : "s"}{" "}
                           waiting for your approval.
                         </span>
                       ) : (
-                        <span className="text-[#15803d] flex items-center gap-2">
+                        <span className="text-[var(--success)] flex items-center gap-2">
                           <svg
                             aria-hidden="true"
                             className="w-4 h-4"
@@ -1902,7 +1937,7 @@ export function App(): React.JSX.Element {
                       <button
                         type="button"
                         onClick={() => setMainView("approvals")}
-                        className="shrink-0 text-xs font-semibold text-[#b45309] border border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/15 rounded-none px-3 py-1.5 touch:min-h-11 transition-colors"
+                        className="shrink-0 text-xs font-semibold text-[var(--warning-fg)] border border-[color-mix(in_oklch,var(--warning-fg)_40%,transparent)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)] hover:bg-[var(--warning-fg)]/15 rounded-[var(--radius-button)] px-3 py-1.5 touch:min-h-11 transition-colors"
                       >
                         Review
                       </button>
@@ -1917,11 +1952,11 @@ export function App(): React.JSX.Element {
                       <div
                         role="status"
                         aria-live="polite"
-                        className="text-xs text-[#6a6f63] bg-[#fffef8] p-3 rounded-none border border-[#e0ded5] flex items-start gap-2"
+                        className="text-xs text-[var(--muted-foreground-2)] bg-[var(--card)] p-3 rounded-[var(--radius-button)] border border-[var(--border-1)] flex items-start gap-2"
                       >
                         <svg
                           aria-hidden="true"
-                          className="w-4 h-4 text-[#0000a8] shrink-0 mt-0.5"
+                          className="w-4 h-4 text-[var(--primary)] shrink-0 mt-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -1939,11 +1974,11 @@ export function App(): React.JSX.Element {
                     {chat.error ? (
                       <div
                         role="alert"
-                        className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-none border border-[#fb2c36]/30 flex items-start gap-2"
+                        className="text-xs text-[var(--destructive)] bg-[var(--destructive-soft)] p-3 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] flex items-start gap-2"
                       >
                         <svg
                           aria-hidden="true"
-                          className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5"
+                          className="w-4 h-4 text-[var(--destructive)] shrink-0 mt-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -1959,10 +1994,10 @@ export function App(): React.JSX.Element {
                       </div>
                     ) : null}
                     {runsError ? (
-                      <div className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-none border border-[#fb2c36]/30 flex items-start gap-2">
+                      <div className="text-xs text-[var(--destructive)] bg-[var(--destructive-soft)] p-3 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] flex items-start gap-2">
                         <svg
                           aria-hidden="true"
-                          className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5"
+                          className="w-4 h-4 text-[var(--destructive)] shrink-0 mt-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -2003,7 +2038,7 @@ export function App(): React.JSX.Element {
                   className={
                     chat.messages.length === 0
                       ? "flex-1 flex flex-col min-h-0"
-                      : "border-t border-black/[0.08] bg-[#f6f4ed]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
+                      : "border-t border-black/[0.08] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
                   <TaskComposer
@@ -2084,13 +2119,13 @@ export function App(): React.JSX.Element {
               onRefresh={refreshRuns}
             />
           ) : mainView === "memory" ? (
-            <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-              <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+            <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+              <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
                     <span>Agent Memory</span>
                   </h2>
-                  <p className="text-xs text-[#6a6f63]">
+                  <p className="text-xs text-[var(--muted-foreground-2)]">
                     Vectorize long-term semantic memory, extracted facts, and session context.
                   </p>
                 </div>
@@ -2146,12 +2181,20 @@ export function App(): React.JSX.Element {
             <IntegrationsView onNavigate={openView} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
+          ) : mainView === "settings" ? (
+            <SettingsView
+              onNavigate={openView}
+              onBack={() => openView("tasks")}
+              accountEmail={authMode === "better-auth" ? orchestratorName : null}
+              onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
+            />
           ) : null}
 
           {/* SETTINGS — Kosuke-style popup over the current view */}
           {settingsModalOpen ? (
             <SettingsModal
               isOpen
+              initialSection={settingsInitialSection}
               onClose={() => setSettingsModalOpen(false)}
               onFocusRestore={() => {
                 if (window.matchMedia("(max-width: 1023px)").matches) {
@@ -2185,26 +2228,26 @@ export function App(): React.JSX.Element {
 
           {/* CLEAR HISTORY CONFIRMATION MODAL */}
           {showClearModal ? (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-              <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)]">
-                <h3 className="text-lg font-bold text-[#222320] mb-2">
+            <div className="fixed inset-0 bg-[var(--overlay)] z-50 flex items-center justify-center p-4">
+              <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
+                <h3 className="text-lg font-bold text-[var(--fg)] mb-2">
                   Clear Conversation & Runs?
                 </h3>
-                <p className="text-sm text-[#6a6f63] mb-5 leading-relaxed">
+                <p className="text-sm text-[var(--muted-foreground-2)] mb-5 leading-relaxed">
                   This will erase all active conversation history and delete retained run registry
                   records on the orchestrator. Active sandboxes will not be destroyed automatically.
                 </p>
                 <div className="flex items-center justify-end gap-3">
                   <button
                     type="button"
-                    className="px-4 py-2 rounded-none text-sm font-medium text-[#6a6f63] hover:text-[#222320] bg-[#fffef8] border border-[#e0ded5] transition-colors"
+                    className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-medium text-[var(--muted-foreground-2)] hover:text-[var(--fg)] bg-[var(--card)] border border-[var(--border-1)] transition-colors"
                     onClick={() => setShowClearModal(false)}
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
-                    className="px-4 py-2 rounded-none text-sm font-semibold text-white bg-[#fb2c36] hover:bg-[#fb2c36]/90 transition-colors shadow-[2px_2px_0_var(--paper-shadow)]"
+                    className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-semibold text-white bg-[var(--destructive)] hover:bg-[var(--destructive)]/90 transition-colors shadow-[var(--sh-card)]"
                     onClick={confirmClearAll}
                   >
                     Yes, Clear History
@@ -2219,6 +2262,10 @@ export function App(): React.JSX.Element {
             open={showFirstRun}
             onClose={() => setShowFirstRun(false)}
             onNavigate={openView}
+            onOpenModels={() => {
+              setSettingsInitialSection("models");
+              setSettingsModalOpen(true);
+            }}
             onOpenChecklist={() => setShowOnboardingModal(true)}
           />
 
@@ -2235,53 +2282,53 @@ export function App(): React.JSX.Element {
 
           {/* KEYBOARD SHORTCUTS MODAL */}
           {showShortcutsModal ? (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-              <div className="bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full p-6 shadow-[3px_3px_0_var(--paper-shadow)]">
+            <div className="fixed inset-0 bg-[var(--overlay)] z-50 flex items-center justify-center p-4">
+              <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-[#222320]">Keyboard Shortcuts</h3>
+                  <h3 className="text-base font-bold text-[var(--fg)]">Keyboard Shortcuts</h3>
                   <button
                     type="button"
                     onClick={() => setShowShortcutsModal(false)}
-                    className="text-[#6a6f63] hover:text-[#222320] text-sm font-mono"
+                    className="text-[var(--muted-foreground-2)] hover:text-[var(--fg)] text-sm font-mono"
                   >
                     ✕
                   </button>
                 </div>
                 <div className="flex flex-col gap-2.5 text-xs">
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Submit Task</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Submit Task</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ⌘ / Ctrl + Enter
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Toggle Sessions Sidebar</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Toggle Sessions Sidebar</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ⌘ / Ctrl + B or [
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Close Modals</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Close Modals</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       Escape
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Open Shortcuts Guide</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Open Shortcuts Guide</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ?
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Command Menu</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Command Menu</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ⌘ / Ctrl + K
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[#e0ded5]">
-                    <span className="text-[#6a6f63]">Toggle Light / Dark Theme</span>
-                    <span className="font-mono bg-[#fffef8] border border-[#e0ded5] px-2 py-0.5 rounded-none text-[#222320]">
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Toggle Light / Dark Theme</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       D
                     </span>
                   </div>
@@ -2289,7 +2336,7 @@ export function App(): React.JSX.Element {
                 <div className="mt-5 text-right">
                   <button
                     type="button"
-                    className="px-4 py-1.5 rounded-none text-xs font-medium text-[#222320] bg-[#fffef8] border border-[#e0ded5] hover:bg-[#e0ded5] transition-colors"
+                    className="px-4 py-1.5 rounded-[var(--radius-button)] text-xs font-medium text-[var(--fg)] bg-[var(--card)] border border-[var(--border-1)] hover:bg-[var(--secondary)] transition-colors"
                     onClick={() => setShowShortcutsModal(false)}
                   >
                     Done

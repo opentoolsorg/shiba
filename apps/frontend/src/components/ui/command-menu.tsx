@@ -24,14 +24,14 @@ function CommandDialog({
       <button
         type="button"
         aria-label="Close command menu"
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-[var(--overlay)]"
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Command menu"
-        className="relative bg-[#fffef8] border border-[#e0ded5] rounded-none max-w-md w-full shadow-[3px_3px_0_var(--paper-shadow)] overflow-hidden"
+        className="relative bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full shadow-[var(--sh-overlay)] overflow-hidden"
       >
         {children}
       </div>
@@ -54,10 +54,10 @@ export function CommandMenu({
         <Command.Input
           autoFocus
           placeholder="Type a command or search…"
-          className="w-full bg-transparent px-4 py-3 text-sm text-[#222320] placeholder:text-[#6a6f63] border-b border-[#e0ded5] focus:outline-none"
+          className="w-full bg-transparent px-4 py-3 text-sm text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] border-b border-[var(--border-1)] focus:outline-none"
         />
         <Command.List className="max-h-72 overflow-y-auto py-1.5">
-          <Command.Empty className="px-4 py-6 text-center text-xs text-[#6a6f63]">
+          <Command.Empty className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
             No matching commands.
           </Command.Empty>
           {commands.map((item) => (
@@ -68,11 +68,11 @@ export function CommandMenu({
                 onClose();
                 item.run();
               }}
-              className="w-full flex items-center justify-between px-4 py-2 text-left text-sm text-[#6a6f63] cursor-pointer data-[selected=true]:bg-[#0000a8]/15 data-[selected=true]:text-[#222320]"
+              className="w-full flex items-center justify-between px-4 py-2 text-left text-sm text-[var(--muted-foreground-2)] cursor-pointer data-[selected=true]:bg-[var(--primary-soft)] data-[selected=true]:text-[var(--fg)]"
             >
               <span>{item.label}</span>
               {item.hint ? (
-                <span className="font-mono text-[10px] text-[#6a6f63]">
+                <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">
                   {item.hint}
                 </span>
               ) : null}

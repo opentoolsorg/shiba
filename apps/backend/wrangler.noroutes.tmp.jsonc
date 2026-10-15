@@ -1,0 +1,166 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/wrangler/configuration-schema.json",
+  "name": "shiba-ai-coworker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat", "legacy_module_registry"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "../../app-public",
+    "not_found_handling": "404-page",
+  },
+  // Version preview URLs are reachable without a Cloudflare Access policy;
+  // the header-only Worker gate is not authentication on its own.
+  "preview_urls": false,
+  // workers.dev subdomain stays disabled — app.tryshiba.dev is the only
+  // public host. (With `routes` present wrangler defaults this to false;
+  // stated explicitly so the alchemy workersDev parity is unmissable.)
+  "workers_dev": false,
+  // Single public host: app.tryshiba.dev serves the Worker (dashboard +
+  // /api/* same-origin). Custom domain auto-manages DNS + edge TLS — the
+  // tryshiba.dev zone lives on this account. tryshiba.dev itself stays on
+  // Pages (landing + docs); workers.dev stays disabled (default once
+  // routes exist) — one canonical host.
+    "vars": {
+    "GATEWAY_ID": "default",
+    "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",
+    "CODING_MODEL": "google/gemini-3.5-flash-lite",
+    "RUNTIME": "sandbox",
+    // Must match containers.instance_type. Cloudbox-style deploy-time size knob.
+    "INSTANCE_TYPE": "standard-1",
+    // Public hostname of this Worker (e.g. "shiba.example.com") — used to
+    // mint sandbox preview URLs and absolute screenshot links for PRs.
+    // Empty = PR screenshot capture disabled (capture fails safe, never fails the run).
+    "WORKER_HOSTNAME": "app.tryshiba.dev",
+    // T48 opt-ins, set per-deploy via `wrangler secret put`/var overrides or
+    // the alchemy configVars list (deliberately absent here = feature dark):
+    //   SHIBA_CLAUDE_SUBSCRIPTION=1  registers the claude-subscription harness
+    //   CLAUDE_SUBSCRIPTION_MODEL    per-deploy model override
+    //   CLAUDE_SUBSCRIPTION_TOKEN[_<ACCOUNT>]  the operator's `claude
+    //   setup-token` output — a Wrangler secret, read only at egress.
+    //   SHIBA_CODEX_SUBSCRIPTION=1   registers the codex-subscription harness
+    //   CODEX_SUBSCRIPTION_MODEL     per-deploy model override
+    //   CODEX_SUBSCRIPTION_AUTH_JSON[_<ACCOUNT>]  the operator's `codex
+    //   login` auth.json contents — a Wrangler secret, read only at egress.
+    //   SHIBA_ANTIGRAVITY_SUBSCRIPTION=1  registers antigravity-subscription
+    //   + /api/antigravity/callback (the pasted-redirect OAuth flow). No
+    //   secret var — Google tokens live in the container profile.
+    //   ANTIGRAVITY_SUBSCRIPTION_MODEL  per-deploy model override
+    //   SHIBA_CURSOR_SUBSCRIPTION=1  opens the /api/auth/cursor-subscription
+    //   lane.
+    //   CURSOR_SUBSCRIPTION_MODEL    per-deploy model override
+    //   CURSOR_SUBSCRIPTION_TOKEN[_<ACCOUNT>]  the operator's Cursor Agent
+    //   API key — a Wrangler secret, read only at egress.
+    //   SHIBA_DEVIN_SUBSCRIPTION=1   opens the /api/auth/devin-subscription
+    //   lane.
+    //   DEVIN_SUBSCRIPTION_MODEL     per-deploy model override
+    //   DEVIN_SUBSCRIPTION_TOKEN[_<ACCOUNT>]  the operator's Devin API
+    //   key/session token — a Wrangler secret, read only at egress.
+    //   SHIBA_LOCAL_RUNTIME=1   admits runtime:"local" at the dashboard
+    //   intake and opens /api/local for the operator daemon (T51).
+    //   LOCAL_ADAPTER_TOKEN     bearer the `shiba local` daemon presents on
+    //   /api/local/* — a Wrangler secret; unset = the surface is dark even
+    //   with the flag on.
+    //   AGENT_MAILBOX          agent mailbox identity for the MCP
+    //   latest_verification default — unset = dev@tryshiba.dev. Register
+    //   the address in the Inbox and assign it to the agent principal.
+    // Built-in dashboard auth (better-auth.ts) — unset = lane dark:
+    //   BETTER_AUTH_SECRET     >=32-char signing secret (Wrangler secret);
+    //   turns on email+password sign-in at /api/auth/*.
+    //   BETTER_AUTH_URL        canonical dashboard URL for cookie scope;
+    //   unset = each request's own origin.
+    // T52 per-role routing pins (agents/roles.ts) — plain vars, never
+    // secrets; absent = every role resolves through the deployment default:
+    //   ROLE_MODEL_MAP          JSON {"<role>":{"harness":"...","model":"..."}}
+    //   ROLE_MODEL__ORCHESTRATOR / __EXPLORER / __FIXER / __REVIEWER /
+    //   __DESIGNER              "harness/model" or bare "harness" per role
+    //   PAIRING_SECRET          optional HMAC key for dashboard-minted
+    //   pairing tokens (T52); falls back to LOCAL_ADAPTER_TOKEN.
+  }, 
+  "ai": {
+    "binding": "AI",
+  },
+  "worker_loaders": [
+    { "binding": "LOADER" },
+  ],
+  // Workers Browser Rendering (T33): headless Chromium for post-run preview
+  // screenshots. Puppeteer connects via env.BROWSER.
+  "browser": {
+    "binding": "BROWSER",
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"],
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "CodingOrchestrator", "class_name": "CodingOrchestrator" },
+      { "name": "OpenCodeAgent", "class_name": "OpenCodeAgent" },
+      { "name": "Sandbox", "class_name": "Sandbox" },
+      { "name": "Automations", "class_name": "Automations" },
+      { "name": "Mailbox", "class_name": "Mailbox" },
+      { "name": "Memory", "class_name": "Memory" },
+      { "name": "Waitlist", "class_name": "Waitlist" },
+      { "name": "ModelConfig", "class_name": "ModelConfig" },
+      { "name": "LocalDispatch", "class_name": "LocalDispatch" },
+    ],
+  },
+  // Email attachment bodies >256KB go here, keyed `emailId/partId`
+  // (megaplan T3). Bucket must exist: `wrangler r2 bucket create shiba-attachments`.
+  "r2_buckets": [
+    { "binding": "ATTACHMENTS", "bucket_name": "shiba-attachments" },
+  ],
+  // Megaplan T4: agent bearer tokens, records keyed `tok_<sha256(raw)>`.
+  // Provision: `wrangler kv namespace create AGENT_TOKENS` then paste the id.
+  "kv_namespaces": [
+    { "binding": "AGENT_TOKENS", "id": "59cf73c3a6e0447fad8ced723d03fd13" },
+  ],
+  // Megaplan T4: MCP tool-call audit log. Provision:
+  // `wrangler d1 create shiba-audit` then paste the database_id.
+  "d1_databases": [
+    { "binding": "AGENT_AUDIT", "database_name": "shiba-audit", "database_id": "a426d79d-295d-4875-ae93-90b8679aa466" },
+  ],
+  // Pre-auth limit on /mcp: verifyToken is a KV read per request, so an
+  // unauthenticated flood is a quota-exhaustion vector. Per-source-IP
+  // (cf-connecting-ip), evaluated before the token check in handleMcp.
+  "ratelimits": [
+    { "name": "MCP_RATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 100, "period": 60 } },
+  ],
+  // Megaplan T8: bge-base-en-v1.5 embeddings of banked facts, keyed by
+  // fact id (768-dim, cosine); `agent` metadata powers scoped recall
+  // filters. Provision:
+  // `wrangler vectorize create shiba-memory --dimensions=768 --metric=cosine`
+  // `wrangler vectorize create-metadata-index shiba-memory --property-name=agent --type=string`
+  "vectorize": [
+    { "binding": "MEMORY_VECTORS", "index_name": "shiba-memory" },
+  ],
+  // Megaplan T7: outbound send for approval-gated email_send executions.
+  // destination_addresses unset — every recipient is a human-approved
+  // frozen payload field, not a binding-level restriction. Requires
+  // Email Routing's Email Sending enabled on the account.
+  "send_email": [
+    { "name": "SEND_EMAIL" },
+  ],
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "name": "shiba-ai-coworker-sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 5,
+    },
+  ],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CodingOrchestrator", "OpenCodeAgent", "Sandbox"] },
+    { "tag": "v2", "new_sqlite_classes": ["Automations"] },
+    { "tag": "v3", "new_sqlite_classes": ["Mailbox"] },
+    { "tag": "v4", "new_sqlite_classes": ["McpGateway"] },
+    { "tag": "v5", "new_sqlite_classes": ["Memory"] },
+    { "tag": "v6", "new_sqlite_classes": ["Waitlist"] },
+    { "tag": "v7", "new_sqlite_classes": ["ModelConfig"] },
+    { "tag": "v8", "deleted_classes": ["McpGateway"] },
+    { "tag": "v9", "new_sqlite_classes": ["LocalDispatch"] },
+    // alchemy deploy left this tag on the published script; wrangler must
+    // see it so it doesn't re-apply already-existing DO migrations.
+    { "tag": "alchemy:v10" },
+  ],
+}

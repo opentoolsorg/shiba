@@ -15,7 +15,7 @@ export const Route = createRootRoute({
         name: "viewport",
         content: "width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content",
       },
-      { name: "theme-color", content: "#0000a8" },
+      { name: "theme-color", content: "#191a18" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-title", content: "Shiba" },
@@ -56,11 +56,11 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     // next-themes, and browser extensions, rewrite <html> before React hydrates.
-    <html lang="en" className="light" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body className="bg-[#f6f4ed] text-[#222320] antialiased selection:bg-[#0000a8] selection:text-white">
+      <body className="bg-[var(--bg)] text-[var(--fg)] antialiased selection:bg-[var(--primary)] selection:text-[var(--primary-text)] font-sans">
         <Outlet />
         <Scripts />
       </body>

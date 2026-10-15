@@ -24,6 +24,7 @@ import { handleAudit } from "./audit-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
+import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
 import { handleInbox } from "./inbox-routes.js";
 import { handleLocalAdapter, isLocalRuntimePath } from "./local-routes.js";
@@ -73,6 +74,38 @@ export { handleWebSessions } from "./sessions-routes.js";
 // so gate it behind a first-request check — this flag flips to `true` only on
 // a non-throwing call, so a still-retired id keeps failing every request.
 let codingModelVerified = false;
+
+// The landing site lives on tryshiba.dev; the app host only serves the dashboard.
+const MARKETING_SECTIONS = new Set([
+  "docs",
+  "blog",
+  "why-shiba",
+  "open-source-devin-alternative",
+  "privacy",
+  "terms",
+  "waitlist",
+  "welcome",
+]);
+// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the tasks home.
+export const DASHBOARD_VIEWS = new Set([
+  "",
+  "dashboard",
+  "tasks",
+  "activity",
+  "analytics",
+  "diff",
+  "approvals",
+  "swarm",
+  "agents",
+  "inbox",
+  "memory",
+  "automations",
+  "providers",
+  "integrations",
+  "skills",
+  "remote",
+  "settings",
+]);
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -147,6 +180,16 @@ export default {
       // request. The gate then composes both identity systems.
       const betterAuthResponse = await handleBetterAuth(request, env);
       if (betterAuthResponse) return betterAuthResponse;
+      if (request.method === "GET" || request.method === "HEAD") {
+        const section = url.pathname.split("/")[1] ?? "";
+        if (MARKETING_SECTIONS.has(section)) {
+          return Response.redirect(`https://tryshiba.dev${url.pathname}${url.search}`, 301);
+        }
+        // The shell is static and shows sign-in itself; single segment so /agents/<do>/… still routes.
+        if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
+      }
       if (!isPublicRequest(request) && !(await isAuthorizedRequest(request, env))) {
         return Response.json(
           {
@@ -161,6 +204,8 @@ export default {
           { status: 401 },
         );
       }
+      const gmailResponse = await handleGmail(request, env);
+      if (gmailResponse) return gmailResponse;
       const oauthResponse = await handleOAuth(request, env, await resolveUserId(request, env));
       if (oauthResponse) return oauthResponse;
       const waitlistResponse = await handleWaitlist(request, env);

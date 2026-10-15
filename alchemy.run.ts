@@ -99,13 +99,11 @@ const workersSubdomain = process.env.WORKERS_SUBDOMAIN?.trim();
 const workerHost = workersSubdomain ? `${workerName}.${workersSubdomain}.workers.dev` : undefined;
 const accessEnabled = isLiveStage && workerHost !== undefined && accessEmails.length > 0;
 if (isLiveStage && !accessEnabled) {
-  // REQUIRE_ACCESS is set for live stages below, so a deploy without a
-  // managed Access app fails closed: every dashboard/API request 401s
-  // unless an operator-managed Access app already fronts the hostname.
+  // No managed Access app: identity comes from the built-in email lane (BETTER_AUTH_SECRET);
+  // with neither lane the Worker gate fails closed on its own.
   console.warn(
-    "alchemy: live stage without DashboardAccess — set ACCESS_EMAILS and " +
-      "WORKERS_SUBDOMAIN to manage Access here, or every request will 401 " +
-      "unless an external Access application fronts the worker hostname.",
+    "alchemy: live stage without DashboardAccess — dashboard sign-in uses BETTER_AUTH_SECRET; " +
+      "set ACCESS_EMAILS and WORKERS_SUBDOMAIN to manage Access here.",
   );
 }
 // Machine callers authenticate inside the Worker (Slack/GitHub HMAC, MCP bearer,
@@ -155,10 +153,11 @@ export const Worker = Cloudflare.Worker("Worker", {
   main: new URL("./apps/backend/src/index.ts", import.meta.url).href,
   compatibility: {
     date: "2026-06-01",
-    flags: ["nodejs_compat"],
+    // legacy_module_registry: alchemy otherwise adds new_module_registry; keep wrangler parity.
+    flags: ["nodejs_compat", "legacy_module_registry"],
   },
   assets: {
-    directory: "./public",
+    directory: "./app-public",
     notFoundHandling: "404-page",
   },
   // workers.dev disabled on live stages — app.tryshiba.dev is the only
@@ -177,12 +176,14 @@ export const Worker = Cloudflare.Worker("Worker", {
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
+    SHIBA_CLAUDE_SUBSCRIPTION: "1",
     // Must match the Sandbox container's instanceType.
     INSTANCE_TYPE: "standard-1",
     // Public hostname for preview URLs + absolute screenshot links (T33).
     // Empty = PR screenshot capture disabled. Preview stages fall back to
     // their workers.dev hostname (or empty when WORKERS_SUBDOMAIN is unset).
     WORKER_HOSTNAME: isLiveStage ? "app.tryshiba.dev" : (workerHost ?? ""),
+    BETTER_AUTH_URL: "https://app.tryshiba.dev",
 
     AI: Cloudflare.Workers.AI(),
 
@@ -281,6 +282,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       // Built-in dashboard auth signing secret (better-auth.ts): absent =
       // the lane is dark and the gate falls back to Access/fail-closed.
       "BETTER_AUTH_SECRET",
+      "GMAIL_CLIENT_SECRET",
+      "GMAIL_TOKEN_KEY",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
@@ -289,15 +292,16 @@ export const Worker = Cloudflare.Worker("Worker", {
       // falls back to LOCAL_ADAPTER_TOKEN when unset).
       "PAIRING_SECRET",
     ]),
-    // Live deploys fail closed: no Access identity = 401 on the dashboard/API.
-    ...(isLiveStage ? { REQUIRE_ACCESS: "1" } : {}),
-    ...(DashboardAccess ? { ACCESS_AUD: DashboardAccess.pipe(Effect.map((app) => app.aud)) } : {}),
+    // REQUIRE_ACCESS without ACCESS_AUD trusts a client-sent Access email header, so only pair them.
+    ...(DashboardAccess
+      ? { REQUIRE_ACCESS: "1", ACCESS_AUD: DashboardAccess.pipe(Effect.map((app) => app.aud)) }
+      : {}),
     ...configVars([
       "REQUIRE_ACCESS",
       "AUTOMATIONS_ENABLED",
       "AGENT_HARNESS",
       "CLAUDE_CODE_MODEL",
-      // T48 opt-ins (§18.10): absent = the subscription harness is dark.
+      // T48: enabled by default; the auth secret is still required to run it.
       "SHIBA_CLAUDE_SUBSCRIPTION",
       "CLAUDE_SUBSCRIPTION_MODEL",
       // T49 opt-ins (§18.11): absent = the subscription harness is dark.
@@ -345,6 +349,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       // Built-in dashboard auth: canonical public URL for cookie scope and
       // origin checks; unset = each request's own origin.
       "BETTER_AUTH_URL",
+      "GMAIL_CLIENT_ID",
+      "GMAIL_REDIRECT_URI",
     ]),
   },
 });
@@ -394,7 +400,7 @@ export default Alchemy.Stack(
       yield* MachineBypass;
     } else if (isLiveStage) {
       yield* Effect.logWarning(
-        "Cloudflare Access not configured (set ACCESS_EMAILS and WORKERS_SUBDOMAIN): the dashboard/API will answer 401 until it is.",
+        "Cloudflare Access not managed here (set ACCESS_EMAILS and WORKERS_SUBDOMAIN): dashboard sign-in relies on BETTER_AUTH_SECRET.",
       );
     }
     const tokens = yield* AgentTokens;

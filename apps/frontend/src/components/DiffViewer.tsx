@@ -31,11 +31,11 @@ function classifyLine(line: string): LineKind {
 }
 
 const LINE_CLASSES: Record<LineKind, string> = {
-  file: "font-bold text-[#222320] bg-[#0000a8]/10 border-y border-[#0000a8]/10 py-1 px-2 rounded-none block font-mono text-[11px]",
-  hunk: "text-[#0000a8] font-mono text-[11px] bg-[#0000a8]/5 py-0.5 px-2 block my-0.5 rounded-none",
-  add: "text-[#15803d] bg-[#15803d]/10 block w-full px-2 -mx-2 border-l-2 border-[#15803d]",
-  del: "text-[#b91c1c] bg-[#fb2c36]/10 block w-full px-2 -mx-2 border-l-2 border-[#fb2c36]",
-  context: "text-[#6a6f63] block px-2",
+  file: "font-bold text-[var(--fg)] bg-[var(--primary-soft)] border-y border-[var(--primary)]/10 py-1 px-2 rounded-[var(--radius-button)] block font-mono text-[11px]",
+  hunk: "text-[var(--primary)] font-mono text-[11px] bg-[var(--primary)]/5 py-0.5 px-2 block my-0.5 rounded-[var(--radius-button)]",
+  add: "text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] block w-full px-2 -mx-2 border-l-2 border-[var(--success)]",
+  del: "text-[var(--destructive)] bg-[var(--destructive-soft)] block w-full px-2 -mx-2 border-l-2 border-[var(--destructive)]",
+  context: "text-[var(--muted-foreground-2)] block px-2",
 };
 
 export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
@@ -56,7 +56,7 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
   }, [diff]);
 
   if (!diff) {
-    return <p className="text-xs text-[#6a6f63] italic">No file changes produced</p>;
+    return <p className="text-xs text-[var(--muted-foreground-2)] italic">No file changes produced</p>;
   }
 
   const lines = diff.split("\n");
@@ -87,32 +87,32 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
   return (
     <div className="flex flex-col gap-2 w-full mt-2">
       {/* Diff Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[#fffef8] border border-black/[0.08] rounded-none shadow-[2px_2px_0_var(--paper-shadow)] text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[var(--card)] border border-black/[0.08] rounded-[var(--radius-button)] shadow-[var(--sh-card)] text-xs">
         <div className="flex items-center gap-2 font-mono">
-          <span className="text-[#6a6f63] font-medium">Unified Diff</span>
+          <span className="text-[var(--muted-foreground-2)] font-medium">Unified Diff</span>
           {stats.files > 0 ? (
-            <span className="bg-[#f6f4ed] text-[#222320] border border-[#e0ded5] rounded-none px-1.5 py-0.5 text-[11px]">
+            <span className="bg-[var(--bg)] text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-1.5 py-0.5 text-[11px]">
               {stats.files} file{stats.files === 1 ? "" : "s"}
             </span>
           ) : null}
-          <span className="text-[#15803d] font-semibold">+{stats.additions}</span>
-          <span className="text-[#b91c1c] font-semibold">-{stats.deletions}</span>
+          <span className="text-[var(--success)] font-semibold">+{stats.additions}</span>
+          <span className="text-[var(--destructive)] font-semibold">-{stats.deletions}</span>
         </div>
         <div className="flex items-center gap-2">
           <Tooltip content={copied ? "Diff copied to clipboard!" : "Copy unified diff to clipboard"} side="top">
             <button
               type="button"
               onClick={copyDiff}
-              className="text-[11px] font-sans px-2.5 py-1 rounded-none bg-[#f6f4ed] hover:bg-[#e0ded5] text-[#222320] border border-black/[0.08] transition-colors flex items-center gap-1.5"
+              className="text-[11px] font-sans px-2.5 py-1 rounded-[var(--radius-button)] bg-[var(--bg)] hover:bg-[var(--secondary)] text-[var(--fg)] border border-black/[0.08] transition-colors flex items-center gap-1.5"
             >
               {copied ? (
                 <>
-                  <Check aria-hidden="true" className="w-3.5 h-3.5 text-[#15803d]" strokeWidth={2} />
-                  <span className="text-[#15803d] font-medium">Copied</span>
+                  <Check aria-hidden="true" className="w-3.5 h-3.5 text-[var(--success)]" strokeWidth={2} />
+                  <span className="text-[var(--success)] font-medium">Copied</span>
                 </>
               ) : (
                 <>
-                  <Copy aria-hidden="true" className="w-3.5 h-3.5 text-[#6a6f63]" strokeWidth={2} />
+                  <Copy aria-hidden="true" className="w-3.5 h-3.5 text-[var(--muted-foreground-2)]" strokeWidth={2} />
                   <span>Copy diff</span>
                 </>
               )}
@@ -123,7 +123,7 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
             <button
               type="button"
               onClick={downloadPatch}
-              className="text-[11px] font-sans px-2.5 py-1 rounded-none bg-[#f6f4ed] hover:bg-[#e0ded5] text-[#6a6f63] hover:text-[#222320] border border-black/[0.08] transition-colors flex items-center gap-1"
+              className="text-[11px] font-sans px-2.5 py-1 rounded-[var(--radius-button)] bg-[var(--bg)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] border border-black/[0.08] transition-colors flex items-center gap-1"
             >
               <Download aria-hidden="true" className="w-3.5 h-3.5" strokeWidth={2} />
               <span>.diff</span>
@@ -134,7 +134,7 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
 
       {/* Code Block */}
       <pre
-        className="font-mono text-xs leading-[1.45] bg-[#f6f4ed] border border-t-0 border-black/[0.08] rounded-none p-3.5 -mt-2 max-h-96 overflow-auto whitespace-pre block w-full"
+        className="font-mono text-xs leading-[1.45] bg-[var(--bg)] border border-t-0 border-black/[0.08] rounded-[var(--radius-button)] p-3.5 -mt-2 max-h-96 overflow-auto whitespace-pre block w-full"
         role="region"
         aria-label={runId ? `Diff for ${runId}` : "Unified diff"}
       >
