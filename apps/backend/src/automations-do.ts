@@ -33,6 +33,12 @@ export interface OrchestratorStub {
   fetch: (request: Request) => Promise<Response>;
 }
 
+const DEDUPE_PREFIX = "dedupe:";
+const DEDUPE_TTL_MS = 3_600_000;
+const DEDUPE_GC_INTERVAL_MS = 60_000;
+const DEDUPE_GC_STATE_KEY = "automation-dedupe-gc:last-success";
+const DEDUPE_GC_DELETE_LIMIT = 128;
+
 async function queueOnOrchestrator(
   stub: OrchestratorStub,
   input: {
@@ -149,6 +155,34 @@ export class Automations {
 
   private async orchestrator(): Promise<OrchestratorStub> {
     return getAgentByName(this.env.CodingOrchestrator, ORCHESTRATOR_NAME);
+  }
+
+  /**
+   * Bounded cleanup for durable delivery keys. Sweep state lives outside the
+   * dedupe namespace so it can never be mistaken for a delivery record.
+   * The timestamp advances only after a successful list+delete pass; callers
+   * catch failures so cleanup trouble never turns an accepted delivery into a
+   * failed request whose retry then looks like a duplicate.
+   */
+  private async sweepDedupe(nowMs: number): Promise<void> {
+    const lastSweep = await this.ctx.storage.get<unknown>(DEDUPE_GC_STATE_KEY);
+    if (
+      typeof lastSweep === "number" &&
+      Number.isFinite(lastSweep) &&
+      nowMs - lastSweep < DEDUPE_GC_INTERVAL_MS
+    ) {
+      return;
+    }
+    const all = await this.ctx.storage.list<unknown>({ prefix: DEDUPE_PREFIX });
+    const stale = [...all.entries()]
+      .filter(([, seenAt]) => typeof seenAt !== "number" || seenAt < nowMs - DEDUPE_TTL_MS)
+      .map(([key]) => key)
+      .sort()
+      .slice(0, DEDUPE_GC_DELETE_LIMIT);
+    if (stale.length > 0) {
+      await this.ctx.storage.delete(stale);
+    }
+    await this.ctx.storage.put(DEDUPE_GC_STATE_KEY, nowMs);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -270,18 +304,19 @@ export class Automations {
       if (typeof key !== "string" || !key) {
         return Response.json({ error: "Missing dedupe key." }, { status: 400 });
       }
-      const storageKey = `dedupe:${key.slice(0, 200)}`;
+      const storageKey = DEDUPE_PREFIX + key.slice(0, 200);
       if (await this.ctx.storage.get<number>(storageKey)) {
         return Response.json({ seen: true });
       }
       const now = Date.now();
       await this.ctx.storage.put(storageKey, now);
-      const all = await this.ctx.storage.list<number>({ prefix: "dedupe:" });
-      const stale = [...all.keys()].filter((k) => (all.get(k) ?? 0) < now - 3_600_000);
-      // storage.delete caps at 128 keys per call — chunk the sweep so a large
-      // backlog can't throw and silently disable dedupe.
-      for (let i = 0; i < stale.length; i += 128) {
-        await this.ctx.storage.delete(stale.slice(i, i + 128));
+      try {
+        await this.sweepDedupe(now);
+      } catch (error) {
+        console.warn(
+          "automation dedupe sweep failed: " +
+            (error instanceof Error ? error.message : String(error)),
+        );
       }
       return Response.json({ seen: false });
     }

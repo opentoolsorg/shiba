@@ -50,6 +50,15 @@ export async function resolveRunStoreTarget(
 }
 
 export async function handleRuns(request: Request, env: Env): Promise<Response | null> {
+  const res = await handleRunsInner(request, env);
+  if (res === null) return null;
+  // Run state is live: every response (errors included) is no-store; re-wrap since stub.fetch headers may be immutable.
+  const out = new Response(res.body, res);
+  out.headers.set("cache-control", "no-store");
+  return out;
+}
+
+async function handleRunsInner(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   // /api/spine rides this lane: the orchestrator's P9 event log + outbox
   // live on the same DO, behind the same dashboard auth and session scope.

@@ -50,3 +50,8 @@
 # Set to any value to enforce Cloudflare Access on /app and /api locally too.
 # REQUIRE_ACCESS=1
 
+
+# Shiba Desktop local runtime (uncomment to enable pairing from the app).
+# SHIBA_LOCAL_RUNTIME=1
+# LOCAL_ADAPTER_TOKEN=
+# PAIRING_SECRET=

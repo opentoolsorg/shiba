@@ -133,6 +133,25 @@ describe("decideRunTransition — queue", () => {
     );
   });
 
+  it("rejects a replay that re-targets a local run to another machine", () => {
+    expectError(
+      pendingRun({ runtime: "local", targetMachineId: "m-a" }),
+      queue({ input: { ...INPUT, runtime: "local", targetMachineId: "m-b" } }),
+      "input_conflict",
+    );
+  });
+
+  it("hashes the machine pin: evidence for machine A does not cover a run for machine B", () => {
+    const approvedForA = evidence({ inputHash: runInputHash({ ...INPUT, runtime: "local", targetMachineId: "m-a" }) });
+    expectError(
+      null,
+      queue({ input: { ...INPUT, runtime: "local", targetMachineId: "m-b" }, approval: approvedForA }),
+      "approval_mismatch",
+    );
+    const { run } = apply(null, queue({ input: { ...INPUT, runtime: "local", targetMachineId: "m-a" }, approval: approvedForA }));
+    expect(run!.targetMachineId).toBe("m-a");
+  });
+
   it("rejects a replay that changes the approved test command", () => {
     expectError(
       pendingRun({ testCommand: ["pnpm", "test"] }),

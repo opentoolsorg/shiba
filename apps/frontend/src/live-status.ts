@@ -187,6 +187,68 @@ export function useUsageReport(
 }
 
 // ---------------------------------------------------------------------------
+// Activity report (GET /api/activity)
+// ---------------------------------------------------------------------------
+
+/** One KPI's current-vs-previous window; null = the backend has no data for it. */
+export interface ActivityMetricWire {
+  now: number | null;
+  last: number | null;
+}
+
+/** Wire shape of `GET /api/activity` — workspace activity aggregates. */
+export interface ActivityReportWire {
+  generatedAt: number;
+  period: { from: number; to: number };
+  previous: { from: number; to: number };
+  projects: string[];
+  members: string[];
+  metrics: {
+    contribution: ActivityMetricWire;
+    issuesDetected: ActivityMetricWire;
+    prsContributed: ActivityMetricWire;
+    prsMerged: ActivityMetricWire;
+    feedbackLoops: ActivityMetricWire;
+    agentHours: ActivityMetricWire;
+  };
+  /** UTC days oldest-first across the trailing 52-week window. */
+  contribution: { date: string; count: number }[];
+  pullRequests: {
+    total: { date: string; count: number }[];
+    byMember: { member: string; count: number }[];
+  };
+}
+
+/** Filters for the activity report; `project`/`member` are omitted when unset. */
+export interface ActivityReportQuery {
+  days?: number;
+  from?: number;
+  to?: number;
+  runtime: "all" | "cloud" | "local";
+  project?: string;
+  member?: string;
+}
+
+export function useActivityReport(
+  sessionId: string,
+  sessionApiAvailable: boolean,
+  query: ActivityReportQuery,
+): { state: LoadState<ActivityReportWire>; reload: () => void; inFlight: boolean } {
+  const params = new URLSearchParams();
+  if (query.from !== undefined && query.to !== undefined) {
+    params.set("from", String(query.from));
+    params.set("to", String(query.to));
+  } else {
+    params.set("days", String(query.days ?? 30));
+  }
+  params.set("runtime", query.runtime);
+  if (query.project) params.set("project", query.project);
+  if (query.member) params.set("member", query.member);
+  if (sessionApiAvailable) params.set("session", sessionId);
+  return useApiJson<ActivityReportWire>(`/api/activity?${params.toString()}`);
+}
+
+// ---------------------------------------------------------------------------
 // Model config (Project 4 — purpose-aware model routing) + spine (P9)
 // ---------------------------------------------------------------------------
 
