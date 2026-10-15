@@ -1,3 +1,4 @@
+
 import {
   type JSX,
   type ReactNode,
@@ -13,15 +14,19 @@ import {
   Bot,
   Check,
   ChevronDown,
+  Cloud,
   Container,
   Cpu,
   Eraser,
   FolderGit2,
   GitBranch,
   GitPullRequest,
+  Home,
   Laptop,
+  Mic,
   Plus,
   Search,
+  SlidersHorizontal,
   Sparkles,
   X,
 } from "lucide-react";
@@ -89,7 +94,7 @@ const LOCAL_HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = 
   { value: "codex", label: "Codex", desc: "OpenAI Codex CLI" },
 ];
 
-type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "access" | null;
+type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "access" | "config" | "effort" | null;
 
 /** owner/repo from a GitHub URL; falls back to the trimmed raw value. */
 function repoSlugOf(repoUrl: string): string {
@@ -105,6 +110,14 @@ function repoSlugOf(repoUrl: string): string {
 function modelTail(model: string): string {
   const slash = model.indexOf("/");
   return slash > 0 ? model.slice(slash + 1) : model;
+}
+
+function AnthropicIcon({ className = "size-3.5" }: { className?: string }): JSX.Element {
+  return (
+    <svg role="img" viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z" />
+    </svg>
+  );
 }
 
 /**
@@ -153,7 +166,7 @@ function Popover({
       role="menu"
       aria-labelledby={labelledBy}
       data-popover={kind}
-      className={`absolute bottom-full mb-1.5 z-40 bg-[#fffef8] border border-[#d3d2c8] rounded-none shadow-[3px_3px_0_var(--paper-shadow)] overflow-hidden ${className}`}
+      className={`absolute bottom-full mb-1.5 z-40 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] overflow-hidden ${className}`}
     >
       {children}
     </div>
@@ -161,16 +174,16 @@ function Popover({
 }
 
 const pillClass =
-  "inline-flex items-center gap-1.5 text-xs text-[#6a6f63] hover:text-[#222320] hover:bg-black/[0.05] border border-transparent hover:border-[#e0ded5] px-2 py-1.5 touch:min-h-11 rounded-none transition-colors cursor-pointer select-none max-w-[220px]";
+  "inline-flex items-center gap-1.5 text-xs text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-transparent hover:border-[var(--border-1)] px-2 py-1.5 h-[var(--h-control-sm,28px)] rounded-[var(--radius-button)] transition-colors cursor-pointer select-none max-w-[220px]";
 const pillLabelClass = "truncate font-medium";
 const menuRowClass =
-  "w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-xs text-[#222320] hover:bg-[#0000a8]/10 transition-colors cursor-pointer";
-const menuIconClass = "w-3.5 h-3.5 text-[#6a6f63] shrink-0";
-const menuCheckClass = "w-3.5 h-3.5 text-[#1c1cc8] shrink-0";
+  "w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-xs text-[var(--fg)] hover:bg-[var(--secondary-hover)] transition-colors cursor-pointer";
+const menuIconClass = "size-3.5 text-[var(--icon-muted)] shrink-0";
+const menuCheckClass = "size-3.5 text-[var(--primary)] shrink-0";
 const sectionLabelClass =
-  "text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6a6f63]";
+  "text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]";
 const inputClass =
-  "bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#1c1cc8] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[#6a6f63]/60 transition-colors";
+  "bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-sm)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] placeholder-[var(--muted-foreground-3)] transition-colors";
 
 export function TaskComposer({
   repoUrl,
@@ -209,6 +222,7 @@ export function TaskComposer({
   const [modelFilter, setModelFilter] = useState("");
   const [modelDraft, setModelDraft] = useState("");
   const [branchDraft, setBranchDraft] = useState("");
+  const [effortLevel, setEffortLevel] = useState<"Low" | "Medium" | "High">("Medium");
   const baseId = useId();
   const idFor = (name: string) => `${baseId}-${name}`;
 
@@ -217,7 +231,6 @@ export function TaskComposer({
       setOpen((current) => {
         const next = current === kind ? null : kind;
         if (next !== null) {
-          // Fresh drafts each open; the skills submenu always re-enters at root.
           if (next !== "menu") setMenuView("root");
           if (next === "repo") {
             setRepoFilter("");
@@ -227,7 +240,7 @@ export function TaskComposer({
             setModelFilter("");
             setModelDraft("");
           }
-          if (next === "branch") {
+          if (next === "branch" || next === "config") {
             setBranchDraft(baseBranch);
           }
         }
@@ -238,9 +251,6 @@ export function TaskComposer({
   );
   const close = useCallback(() => setOpen(null), []);
 
-  // Auto-grow the task field up to ~192px, then scroll. Runs after every
-  // render — the controlled value is already flushed, and three DOM writes
-  // are cheaper than tracking which state could resize the box.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -298,7 +308,7 @@ export function TaskComposer({
   };
 
   const chevron = (
-    <ChevronDown aria-hidden="true" className="w-3 h-3 text-[#6a6f63]/70 shrink-0" />
+    <ChevronDown aria-hidden="true" className="size-3 text-[var(--icon-muted)] shrink-0" />
   );
 
   const form = (
@@ -306,196 +316,26 @@ export function TaskComposer({
       data-testid="task-composer"
       aria-label="Task composer"
       onSubmit={handleSubmit}
-      className={`rounded-none border bg-[#fffef8] flex flex-col shadow-[3px_3px_0_var(--paper-shadow)] relative group focus-within:border-[#0000a8]/40 transition-colors ${hero ? "border-[#c9c8bc] p-4 sm:p-5 gap-3" : "border-[#d3d2c8] p-3 gap-2.5"}`}
+      className={`w-full rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] flex flex-col shadow-[var(--sh-composer)] relative group focus-within:border-[var(--ring)] transition-colors ${
+        hero ? "p-4 sm:p-5 gap-3" : "p-3 gap-2.5"
+      }`}
     >
-      <textarea
-        ref={textareaRef}
-        value={task}
-        onChange={(event) => onTaskChange(event.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Describe the task or bug to fix (e.g. 'Fix the broken authentication test in auth.test.ts')…"
-        rows={1}
-        className={`w-full resize-none bg-transparent text-base lg:text-sm text-[#222320] placeholder-[#6a6f63]/70 focus:outline-none overflow-y-auto leading-relaxed ${hero ? "min-h-[96px] max-h-64" : "min-h-[72px] max-h-48"}`}
-        aria-label="Task description"
-      />
-
-      {/* Selected skills ride the run — shown as removable chips. */}
-      {selectedSkills.length > 0 ? (
-        <fieldset className="flex items-center gap-1.5 flex-wrap" aria-label="Attached skills">
-          {selectedSkills.map((skill) => (
-            <span
-              key={skill.id}
-              className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-none border bg-[#0000a8]/10 border-[#0000a8]/30 text-[#1c1cc8]"
-            >
-              <Sparkles aria-hidden="true" className="w-2.5 h-2.5" />
-              {skill.name}
-              <button
-                type="button"
-                aria-label={`Remove skill ${skill.name}`}
-                onClick={() => onToggleSkill?.(skill.id)}
-                className="hover:text-[#222320] cursor-pointer"
-              >
-                <X aria-hidden="true" className="w-2.5 h-2.5" />
-              </button>
-            </span>
-          ))}
-        </fieldset>
-      ) : null}
-
-      {/* Toolbar — Devin-style: + menu, repo + branch pills … selectors, send */}
-      <div className="flex items-center gap-1 flex-wrap">
-        {/* + menu */}
+      {/* Top Chips Row: Project (Repo) + Run Target */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Project Selector (Home / Repo Picker) */}
         <div className="relative">
-          <Tooltip content="Attach context and options" side="top">
-            <button
-              type="button"
-              id={idFor("menu-button")}
-              aria-haspopup="menu"
-              aria-expanded={open === "menu"}
-              aria-label="More options"
-              onClick={() => toggle("menu")}
-              className="inline-flex items-center justify-center w-7 h-7 touch:min-h-11 touch:w-11 text-[#6a6f63] hover:text-[#222320] hover:bg-black/[0.05] border border-[#e0ded5] hover:border-[#d3d2c8] rounded-none transition-colors cursor-pointer"
-            >
-              <Plus aria-hidden="true" className="w-4 h-4" />
-            </button>
-          </Tooltip>
-          <Popover
-            kind="menu"
-            open={open === "menu"}
-            onClose={close}
-            labelledBy={idFor("menu-button")}
-            className="left-0 w-64"
-          >
-            {menuView === "root" ? (
-              <div className="py-1.5">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={menuRowClass}
-                  onClick={() => toggle("repo")}
-                >
-                  <FolderGit2 aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1">Repositories</span>
-                  <span className="font-mono text-[10px] text-[#6a6f63] truncate max-w-[110px]">
-                    {repoSlug || "none"}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={menuRowClass}
-                  onClick={() => setMenuView("skills")}
-                >
-                  <Sparkles aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1">Skills</span>
-                  {selectedSkillIds.length > 0 ? (
-                    <span className="font-mono text-[10px] text-[#1c1cc8]">
-                      {selectedSkillIds.length}
-                    </span>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={menuRowClass}
-                  onClick={() => toggle("branch")}
-                >
-                  <GitBranch aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1">Base branch</span>
-                  <span className="font-mono text-[10px] text-[#6a6f63] truncate max-w-[90px]">
-                    {baseBranch.trim() || "main"}
-                  </span>
-                </button>
-                <div className="my-1 border-t border-[#e0ded5]" aria-hidden="true" />
-                <button
-                  type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={publishPullRequest}
-                  className={menuRowClass}
-                  onClick={() => onPublishPullRequestChange(!publishPullRequest)}
-                >
-                  <GitPullRequest aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1">Create pull request</span>
-                  {publishPullRequest ? (
-                    <Check aria-hidden="true" className={menuCheckClass} />
-                  ) : null}
-                </button>
-                <div className="my-1 border-t border-[#e0ded5]" aria-hidden="true" />
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={menuRowClass}
-                  onClick={() => {
-                    setOpen(null);
-                    onClear();
-                  }}
-                  disabled={clearing || busy}
-                >
-                  <Eraser aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1">
-                    {clearing ? "Clearing…" : "Clear conversation"}
-                  </span>
-                </button>
-              </div>
-            ) : (
-              <div className="py-1.5">
-                <button type="button" className={menuRowClass} onClick={() => setMenuView("root")}>
-                  <ChevronDown
-                    aria-hidden="true"
-                    className="w-3.5 h-3.5 text-[#6a6f63] rotate-90"
-                  />
-                  <span className="flex-1 font-medium">Skills</span>
-                </button>
-                <div className="my-1 border-t border-[#e0ded5]" aria-hidden="true" />
-                {skills.length === 0 ? (
-                  <p className="px-3.5 py-3 text-[11px] text-[#6a6f63]">
-                    No saved skills — add them in the Skills view.
-                  </p>
-                ) : (
-                  skills.map((skill) => {
-                    const active = selectedSkillIds.includes(skill.id);
-                    return (
-                      <button
-                        key={skill.id}
-                        type="button"
-                        role="menuitemcheckbox"
-                        aria-checked={active}
-                        className={menuRowClass}
-                        onClick={() => onToggleSkill?.(skill.id)}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={`w-3.5 h-3.5 border flex items-center justify-center shrink-0 ${active ? "bg-[#0000a8] border-[#0000a8]" : "border-[#d3d2c8]"}`}
-                        >
-                          {active ? <Check className="w-2.5 h-2.5 text-white" /> : null}
-                        </span>
-                        <span className="flex-1 truncate">{skill.name}</span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </Popover>
-        </div>
-
-        {/* Repository pill — Devin's "All repositories" slot, end-to-end via
-            saved repos + run history (repoSuggestions). */}
-        <div className="relative">
-          <Tooltip content="Target GitHub repository (cloned into container)" side="top">
+          <Tooltip content="Target GitHub repository (Project)" side="top">
             <button
               type="button"
               id={idFor("repo-button")}
               aria-haspopup="menu"
               aria-expanded={open === "repo"}
-              aria-label={`Repository: ${repoSlug || "none selected"}`}
+              aria-label={`Project: ${repoSlug || "Select repository"}`}
               onClick={() => toggle("repo")}
-              className={`${pillClass} ${repoUrl.trim() === "" ? "border-dashed border-[#d3d2c8]" : ""}`}
+              className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans border-0 text-[var(--fg)]`}
             >
-              <FolderGit2 aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
-              <span className={`${pillLabelClass} font-mono`}>
-                {repoSlug || "Select repository"}
-              </span>
+              <Home aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
+              <span className={pillLabelClass}>{repoSlug || "Home"}</span>
               {chevron}
             </button>
           </Tooltip>
@@ -506,20 +346,20 @@ export function TaskComposer({
             labelledBy={idFor("repo-button")}
             className="left-0 w-72"
           >
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-[#e0ded5]">
-              <Search aria-hidden="true" className="w-3.5 h-3.5 text-[#6a6f63]" />
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-1)]">
+              <Search aria-hidden="true" className="size-3.5 text-[var(--icon-muted)]" />
               <input
                 type="text"
                 value={repoFilter}
                 onChange={(event) => setRepoFilter(event.target.value)}
                 placeholder="Search repositories…"
                 aria-label="Search repositories"
-                className="flex-1 bg-transparent text-xs text-[#222320] placeholder-[#6a6f63]/60 focus:outline-none"
+                className="flex-1 bg-transparent text-xs text-[var(--fg)] placeholder-[var(--muted-foreground-3)] focus:outline-none"
               />
             </div>
             <div className="max-h-56 overflow-y-auto py-1">
               {filteredRepos.length === 0 ? (
-                <p className="px-3.5 py-3 text-[11px] text-[#6a6f63]">
+                <p className="px-3 py-2.5 text-[11px] text-[var(--muted-foreground-2)]">
                   {repoSuggestions.length === 0
                     ? "No repositories yet — run one or paste a URL below."
                     : "No matches."}
@@ -545,7 +385,7 @@ export function TaskComposer({
                 })
               )}
             </div>
-            <div className="border-t border-[#e0ded5] px-3 py-2.5 flex flex-col gap-2">
+            <div className="border-t border-[var(--border-1)] px-3 py-2.5 flex flex-col gap-2">
               <label htmlFor={idFor("repo-url-input")} className={sectionLabelClass}>
                 Use a URL
               </label>
@@ -568,7 +408,7 @@ export function TaskComposer({
                   type="button"
                   disabled={!repoUrlDraft.trim()}
                   onClick={() => pickRepo(repoUrlDraft.trim())}
-                  className="text-xs font-medium px-2 py-1.5 border border-[#e0ded5] text-[#6a6f63] hover:text-[#222320] hover:border-[#d3d2c8] rounded-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-xs font-medium px-2 py-1.5 border border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Use
                 </button>
@@ -577,140 +417,340 @@ export function TaskComposer({
           </Popover>
         </div>
 
-        {/* Base branch pill */}
-        <div className="relative">
-          <Tooltip content="Base branch to checkout" side="top">
-            <button
-              type="button"
-              id={idFor("branch-button")}
-              aria-haspopup="menu"
-              aria-expanded={open === "branch"}
-              aria-label={`Base branch: ${baseBranch.trim() || "main"}`}
-              onClick={() => toggle("branch")}
-              className={`${pillClass} ${(baseBranch.trim() || "main") !== "main" ? "text-[#1c1cc8]" : ""}`}
+        {/* Run Target Selector (Cloud / This computer) */}
+        {onRunTargetChange ? (
+          <div className="relative">
+            <Tooltip content="Execution target (Cloud vs Local)" side="top">
+              <button
+                type="button"
+                id={idFor("access-button")}
+                aria-haspopup="menu"
+                aria-expanded={open === "access"}
+                aria-label={`Run on: ${runTarget === "local" ? "Local" : "Cloud"}`}
+                onClick={() => toggle("access")}
+                className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans border-0 text-[var(--fg)]`}
+              >
+                {runTarget === "local" ? (
+                  <Laptop aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
+                ) : (
+                  <Cloud aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
+                )}
+                <span className={pillLabelClass}>
+                  {runTarget === "local" ? "Local" : "Cloud"}
+                </span>
+                {chevron}
+              </button>
+            </Tooltip>
+            <Popover
+              kind="access"
+              open={open === "access"}
+              onClose={close}
+              labelledBy={idFor("access-button")}
+              className="left-0 w-64"
             >
-              <GitBranch aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
-              <span className={`${pillLabelClass} font-mono`}>
-                {baseBranch.trim() || "main"}
-              </span>
-              {(baseBranch.trim() || "main") !== "main" ? (
-                <span
-                  aria-hidden="true"
-                  className="w-1.5 h-1.5 rounded-full bg-[#1c1cc8] shrink-0"
-                />
-              ) : null}
-            </button>
-          </Tooltip>
-          <Popover
-            kind="branch"
-            open={open === "branch"}
-            onClose={close}
-            labelledBy={idFor("branch-button")}
-            className="left-0 w-60"
-          >
-            <div className="px-3 py-2.5 flex flex-col gap-2">
-              <label htmlFor={idFor("branch-input")} className={sectionLabelClass}>
-                Base branch
-              </label>
-              <input
-                id={idFor("branch-input")}
-                type="text"
-                value={branchDraft}
-                onChange={(event) => setBranchDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    applyBranch();
-                  }
-                }}
-                placeholder="main"
-                className={`${inputClass} font-mono w-full`}
-              />
-              <div className="flex items-center justify-between">
+              <div className="py-1">
                 <button
                   type="button"
-                  className="text-[11px] text-[#6a6f63] hover:text-[#222320] cursor-pointer"
+                  role="menuitemradio"
+                  aria-checked={runTarget === "sandbox"}
+                  className={menuRowClass}
                   onClick={() => {
-                    onBaseBranchChange("main");
+                    onRunTargetChange("sandbox");
                     setOpen(null);
                   }}
                 >
-                  Reset to main
+                  <Cloud aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-medium">Cloud (Sandbox)</span>
+                    <span className="block text-[10px] text-[var(--muted-foreground-2)]">
+                      Isolated ephemeral Cloudflare Workers container
+                    </span>
+                  </span>
+                  {runTarget === "sandbox" ? (
+                    <Check aria-hidden="true" className={menuCheckClass} />
+                  ) : null}
                 </button>
                 <button
                   type="button"
-                  className="text-xs font-medium px-2.5 py-1 bg-[#0000a8] text-white hover:bg-[#1c1cc8] rounded-none transition-colors"
-                  onClick={applyBranch}
+                  role="menuitemradio"
+                  aria-checked={runTarget === "local"}
+                  className={menuRowClass}
+                  onClick={() => {
+                    onRunTargetChange("local");
+                    setOpen(null);
+                  }}
                 >
-                  Set
+                  <Laptop aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-medium">Local (This computer)</span>
+                    <span className="block text-[10px] text-[var(--muted-foreground-2)]">
+                      {localRunAvailable
+                        ? "Paired daemon runs the harness locally"
+                        : "Pair a computer in Remote Access first"}
+                    </span>
+                  </span>
+                  {runTarget === "local" ? (
+                    <Check aria-hidden="true" className={menuCheckClass} />
+                  ) : null}
                 </button>
+              </div>
+            </Popover>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Main Textarea */}
+      <textarea
+        ref={textareaRef}
+        value={task}
+        onChange={(event) => onTaskChange(event.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Ask anything, / for commands, @ for context"
+        rows={1}
+        className={`w-full resize-none bg-transparent text-base lg:text-sm text-[var(--fg)] placeholder-[var(--muted-foreground-2)] focus:outline-none overflow-y-auto leading-relaxed ${
+          hero ? "min-h-[96px] max-h-64" : "min-h-[72px] max-h-48"
+        }`}
+        aria-label="Task description"
+      />
+
+      {/* Selected skills removable chips */}
+      {selectedSkills.length > 0 ? (
+        <fieldset className="flex items-center gap-1.5 flex-wrap" aria-label="Attached skills">
+          {selectedSkills.map((skill) => (
+            <span
+              key={skill.id}
+              className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-[var(--radius-button)] border border-[var(--primary-soft)] bg-[var(--primary-soft)] text-[var(--primary)]"
+            >
+              <Sparkles aria-hidden="true" className="size-2.5" />
+              {skill.name}
+              <button
+                type="button"
+                aria-label={`Remove skill ${skill.name}`}
+                onClick={() => onToggleSkill?.(skill.id)}
+                className="hover:text-[var(--fg)] cursor-pointer"
+              >
+                <X aria-hidden="true" className="size-2.5" />
+              </button>
+            </span>
+          ))}
+        </fieldset>
+      ) : null}
+
+      {/* Bottom control row: + add menu, sliders thread-config, model chip, effort chip, spacer, teal CTA */}
+      <div className="flex items-center gap-1.5 flex-wrap pt-1">
+        {/* + button (add context / tools) */}
+        <div className="relative">
+          <Tooltip content="Add to message: attach/repos/skills" side="top">
+            <button
+              type="button"
+              id={idFor("menu-button")}
+              aria-haspopup="menu"
+              aria-expanded={open === "menu"}
+              aria-label="Add to message"
+              onClick={() => toggle("menu")}
+              className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-[var(--border-1)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
+            >
+              <Plus aria-hidden="true" className="size-4" />
+            </button>
+          </Tooltip>
+          <Popover
+            kind="menu"
+            open={open === "menu"}
+            onClose={close}
+            labelledBy={idFor("menu-button")}
+            className="left-0 w-64"
+          >
+            {menuView === "root" ? (
+              <div className="py-1">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={menuRowClass}
+                  onClick={() => toggle("repo")}
+                >
+                  <FolderGit2 aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1">Repositories</span>
+                  <span className="font-mono text-[10px] text-[var(--muted-foreground-2)] truncate max-w-[110px]">
+                    {repoSlug || "none"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={menuRowClass}
+                  onClick={() => setMenuView("skills")}
+                >
+                  <Sparkles aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1">Skills</span>
+                  {selectedSkillIds.length > 0 ? (
+                    <span className="font-mono text-[10px] text-[var(--primary)] font-semibold">
+                      {selectedSkillIds.length}
+                    </span>
+                  ) : null}
+                </button>
+                <div className="my-1 border-t border-[var(--border-1)]" aria-hidden="true" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={menuRowClass}
+                  onClick={() => {
+                    setOpen(null);
+                    onClear();
+                  }}
+                  disabled={clearing || busy}
+                >
+                  <Eraser aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1">
+                    {clearing ? "Clearing…" : "Clear conversation"}
+                  </span>
+                </button>
+              </div>
+            ) : (
+              <div className="py-1.5">
+                <button type="button" className={menuRowClass} onClick={() => setMenuView("root")}>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-3.5 text-[var(--icon-muted)] rotate-90"
+                  />
+                  <span className="flex-1 font-medium">Skills</span>
+                </button>
+                <div className="my-1 border-t border-[var(--border-1)]" aria-hidden="true" />
+                {skills.length === 0 ? (
+                  <p className="px-3.5 py-3 text-[11px] text-[var(--muted-foreground-2)]">
+                    No saved skills — add them in the Skills view.
+                  </p>
+                ) : (
+                  skills.map((skill) => {
+                    const active = selectedSkillIds.includes(skill.id);
+                    return (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked={active}
+                        className={menuRowClass}
+                        onClick={() => onToggleSkill?.(skill.id)}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`size-3.5 border flex items-center justify-center shrink-0 rounded-[var(--radius-inner)] ${
+                            active ? "bg-[var(--primary)] border-[var(--primary)]" : "border-[var(--border-2)]"
+                          }`}
+                        >
+                          {active ? <Check className="size-2.5 text-[var(--primary-text)]" /> : null}
+                        </span>
+                        <span className="flex-1 truncate">{skill.name}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </Popover>
+        </div>
+
+        {/* Sliders icon: Thread configuration (base branch, PR toggle, agent harness) */}
+        <div className="relative">
+          <Tooltip content="Thread configuration (branch, PR, agent)" side="top">
+            <button
+              type="button"
+              id={idFor("config-button")}
+              aria-haspopup="menu"
+              aria-expanded={open === "config"}
+              aria-label="Thread configuration"
+              onClick={() => toggle("config")}
+              className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-[var(--border-1)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
+            >
+              <SlidersHorizontal aria-hidden="true" className="size-4" />
+            </button>
+          </Tooltip>
+          <Popover
+            kind="config"
+            open={open === "config"}
+            onClose={close}
+            labelledBy={idFor("config-button")}
+            className="left-0 w-72"
+          >
+            <div className="py-2 px-3 flex flex-col gap-3">
+              <span className={sectionLabelClass}>Thread Options</span>
+              {/* Branch setting */}
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor={idFor("config-branch-input")} className="text-xs text-[var(--muted-foreground-1)]">
+                  Base branch
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    id={idFor("config-branch-input")}
+                    type="text"
+                    value={branchDraft}
+                    onChange={(event) => setBranchDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        applyBranch();
+                      }
+                    }}
+                    placeholder="main"
+                    className={`${inputClass} font-mono flex-1`}
+                  />
+                  <button
+                    type="button"
+                    className="text-xs font-medium px-2 py-1.5 bg-[var(--primary)] text-[var(--primary-text)] rounded-[var(--radius-button)] hover:opacity-90 transition-opacity"
+                    onClick={applyBranch}
+                  >
+                    Set
+                  </button>
+                </div>
+              </div>
+
+              {/* PR Toggle */}
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={publishPullRequest}
+                className="flex items-center gap-2 text-xs text-[var(--fg)] hover:bg-[var(--secondary-hover)] p-1.5 rounded-[var(--radius-button)] transition-colors cursor-pointer text-left"
+                onClick={() => onPublishPullRequestChange(!publishPullRequest)}
+              >
+                <GitPullRequest aria-hidden="true" className={menuIconClass} />
+                <span className="flex-1">Create pull request</span>
+                {publishPullRequest ? (
+                  <Check aria-hidden="true" className={menuCheckClass} />
+                ) : null}
+              </button>
+
+              <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">
+                <span className="text-xs text-[var(--muted-foreground-1)]">Agent harness</span>
+                <div className="flex flex-col gap-1">
+                  {harnessOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={opt.value === harness}
+                      className={`flex items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
+                        opt.value === harness ? "bg-[var(--secondary-hover)] font-medium text-[var(--fg)]" : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"
+                      }`}
+                      onClick={() => {
+                        onHarnessChange(opt.value);
+                      }}
+                    >
+                      <Bot aria-hidden="true" className="size-3.5 text-[var(--icon-muted)] shrink-0" />
+                      <span className="flex-1 truncate">{opt.label}</span>
+                      {opt.value === harness ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </Popover>
         </div>
 
-        <div className="flex-1" aria-hidden="true" />
-
-        {/* Agent harness — Devin's agent slot */}
-        <div className="relative">
-          <Tooltip content={currentHarness?.desc ?? "Sandbox coding harness"} side="top">
-            <button
-              type="button"
-              id={idFor("harness-button")}
-              aria-haspopup="menu"
-              aria-expanded={open === "harness"}
-              aria-label={`Agent: ${currentHarness?.label ?? harness}`}
-              onClick={() => toggle("harness")}
-              className={pillClass}
-            >
-              <Bot aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
-              <span className={pillLabelClass}>{currentHarness?.label ?? harness}</span>
-              {chevron}
-            </button>
-          </Tooltip>
-          <Popover
-            kind="harness"
-            open={open === "harness"}
-            onClose={close}
-            labelledBy={idFor("harness-button")}
-            className="right-0 w-64"
-          >
-            <div className="py-1">
-              {harnessOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={option.value === harness}
-                  className={menuRowClass}
-                  onClick={() => {
-                    onHarnessChange(option.value);
-                    setOpen(null);
-                  }}
-                >
-                  <Bot aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1 min-w-0">
-                    <span className="block truncate">{option.label}</span>
-                    <span className="block text-[10px] text-[#6a6f63] truncate">
-                      {option.desc}
-                    </span>
-                  </span>
-                  {option.value === harness ? (
-                    <Check aria-hidden="true" className={menuCheckClass} />
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          </Popover>
-        </div>
-
-        {/* Model — Devin's model pill; "Auto" keeps the deployment default.
-            Ready connections ride along as the route section. */}
+        {/* Model Chip (Provider icon + Model name + Chevron) */}
         <div className="relative">
           <Tooltip
             content={
               routing.codingModel
-                ? `Coding model: ${routing.codingModel}${currentConnection ? ` via ${currentConnection.label}` : ""}`
+                ? `Model: ${routing.codingModel}${currentConnection ? ` via ${currentConnection.label}` : ""}`
                 : "Coding model — deployment default"
             }
             side="top"
@@ -720,13 +760,19 @@ export function TaskComposer({
               id={idFor("model-button")}
               aria-haspopup="menu"
               aria-expanded={open === "model"}
-              aria-label={`Model: ${routing.codingModel || "auto"}`}
+              aria-label={`Model: ${routing.codingModel || "Claude Opus 5.5"}`}
               onClick={() => toggle("model")}
-              className={pillClass}
+              className={`${pillClass} border border-[var(--border-1)] bg-[var(--card)] hover:bg-[var(--secondary)] text-[var(--fg)]`}
             >
-              <Cpu aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
+              {routing.codingModel.toLowerCase().includes("claude") ||
+              routing.codingModel.toLowerCase().includes("anthropic") ||
+              routing.codingModel === "" ? (
+                <AnthropicIcon className="size-3.5 text-[#cc785c] shrink-0" />
+              ) : (
+                <Cpu aria-hidden="true" className="size-3.5 text-[var(--icon-muted)] shrink-0" />
+              )}
               <span className={`${pillLabelClass} font-mono`}>
-                {routing.codingModel ? modelTail(routing.codingModel) : "Auto"}
+                {routing.codingModel ? modelTail(routing.codingModel) : "Claude Opus 5.5"}
               </span>
               {chevron}
             </button>
@@ -736,17 +782,17 @@ export function TaskComposer({
             open={open === "model"}
             onClose={close}
             labelledBy={idFor("model-button")}
-            className="right-0 w-72"
+            className="left-0 w-72"
           >
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-[#e0ded5]">
-              <Search aria-hidden="true" className="w-3.5 h-3.5 text-[#6a6f63]" />
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-1)]">
+              <Search aria-hidden="true" className="size-3.5 text-[var(--icon-muted)]" />
               <input
                 type="text"
                 value={modelFilter}
                 onChange={(event) => setModelFilter(event.target.value)}
                 placeholder="Search models…"
                 aria-label="Search models"
-                className="flex-1 bg-transparent text-xs text-[#222320] placeholder-[#6a6f63]/60 focus:outline-none"
+                className="flex-1 bg-transparent text-xs text-[var(--fg)] placeholder-[var(--muted-foreground-3)] focus:outline-none"
               />
             </div>
             <div className="max-h-64 overflow-y-auto py-1">
@@ -761,14 +807,14 @@ export function TaskComposer({
                 }}
               >
                 <Cpu aria-hidden="true" className={menuIconClass} />
-                <span className="flex-1">Auto — deployment default</span>
+                <span className="flex-1 font-medium">Auto — deployment default</span>
                 {routing.codingModel === "" ? (
                   <Check aria-hidden="true" className={menuCheckClass} />
                 ) : null}
               </button>
               {filteredModels.length > 0 ? (
                 <>
-                  <div className="mx-3 my-1 border-t border-[#e0ded5]" aria-hidden="true" />
+                  <div className="mx-3 my-1 border-t border-[var(--border-1)]" aria-hidden="true" />
                   {filteredModels.map((model) => (
                     <button
                       key={model}
@@ -791,8 +837,8 @@ export function TaskComposer({
               ) : null}
               {connections.length > 0 ? (
                 <>
-                  <div className="mx-3 my-1 border-t border-[#e0ded5]" aria-hidden="true" />
-                  <p className={`px-3.5 pt-1 pb-0.5 ${sectionLabelClass}`}>Route via</p>
+                  <div className="mx-3 my-1 border-t border-[var(--border-1)]" aria-hidden="true" />
+                  <p className={`px-3 pt-1.5 pb-0.5 ${sectionLabelClass}`}>Route via</p>
                   <button
                     type="button"
                     role="menuitemradio"
@@ -823,7 +869,7 @@ export function TaskComposer({
                 </>
               ) : null}
             </div>
-            <div className="border-t border-[#e0ded5] px-3 py-2.5 flex flex-col gap-2">
+            <div className="border-t border-[var(--border-1)] px-3 py-2.5 flex flex-col gap-2">
               <label htmlFor={idFor("model-input")} className={sectionLabelClass}>
                 Custom model
               </label>
@@ -846,13 +892,13 @@ export function TaskComposer({
                   type="button"
                   disabled={!modelDraft.trim()}
                   onClick={applyCustomModel}
-                  className="text-xs font-medium px-2 py-1.5 border border-[#e0ded5] text-[#6a6f63] hover:text-[#222320] hover:border-[#d3d2c8] rounded-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-xs font-medium px-2 py-1.5 border border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Use
                 </button>
               </div>
               {!modelKnown ? (
-                <p className="text-[10px] text-[#6a6f63]">
+                <p className="text-[10px] text-[var(--muted-foreground-2)]">
                   Current: <span className="font-mono">{routing.codingModel}</span> (custom)
                 </p>
               ) : null}
@@ -860,119 +906,74 @@ export function TaskComposer({
           </Popover>
         </div>
 
-        {/* Run on — the deployment's real access boundary: the isolated
-            container or, when a daemon is paired, this computer. */}
-        {onRunTargetChange ? (
-          <div className="relative">
-            <Tooltip content="Where the run executes" side="top">
-              <button
-                type="button"
-                id={idFor("access-button")}
-                aria-haspopup="menu"
-                aria-expanded={open === "access"}
-                aria-label={`Run on: ${runTarget === "local" ? "this computer" : "sandbox"}`}
-                onClick={() => toggle("access")}
-                className={pillClass}
-              >
-                {runTarget === "local" ? (
-                  <Laptop aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
-                ) : (
-                  <Container aria-hidden="true" className="w-3.5 h-3.5 shrink-0" />
-                )}
-                <span className={pillLabelClass}>
-                  {runTarget === "local" ? "This computer" : "Sandbox"}
-                </span>
-                {chevron}
-              </button>
-            </Tooltip>
-            <Popover
-              kind="access"
-              open={open === "access"}
-              onClose={close}
-              labelledBy={idFor("access-button")}
-              className="right-0 w-64"
+        {/* Effort Chip (Label + Chevron) */}
+        <div className="relative">
+          <Tooltip content="Reasoning effort" side="top">
+            <button
+              type="button"
+              id={idFor("effort-button")}
+              aria-haspopup="menu"
+              aria-expanded={open === "effort"}
+              aria-label={`Effort: ${effortLevel}`}
+              onClick={() => toggle("effort")}
+              className={`${pillClass} border border-[var(--border-1)] bg-[var(--card)] hover:bg-[var(--secondary)] text-[var(--fg)]`}
             >
-              <div className="py-1">
+              <span className={pillLabelClass}>{effortLevel}</span>
+              {chevron}
+            </button>
+          </Tooltip>
+          <Popover
+            kind="effort"
+            open={open === "effort"}
+            onClose={close}
+            labelledBy={idFor("effort-button")}
+            className="left-0 w-36"
+          >
+            <div className="py-1">
+              {(["Low", "Medium", "High"] as const).map((lvl) => (
                 <button
+                  key={lvl}
                   type="button"
                   role="menuitemradio"
-                  aria-checked={runTarget === "sandbox"}
+                  aria-checked={effortLevel === lvl}
                   className={menuRowClass}
                   onClick={() => {
-                    onRunTargetChange("sandbox");
+                    setEffortLevel(lvl);
                     setOpen(null);
                   }}
                 >
-                  <Container aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1 min-w-0">
-                    <span className="block">Sandbox</span>
-                    <span className="block text-[10px] text-[#6a6f63]">
-                      Isolated container — approval-gated
-                    </span>
-                  </span>
-                  {runTarget === "sandbox" ? (
+                  <span className="flex-1 font-medium">{lvl}</span>
+                  {effortLevel === lvl ? (
                     <Check aria-hidden="true" className={menuCheckClass} />
                   ) : null}
                 </button>
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={runTarget === "local"}
-                  disabled={!localRunAvailable}
-                  className={`${menuRowClass} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  onClick={() => {
-                    onRunTargetChange("local");
-                    setOpen(null);
-                  }}
-                >
-                  <Laptop aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1 min-w-0">
-                    <span className="block">This computer</span>
-                    <span className="block text-[10px] text-[#6a6f63]">
-                      {localRunAvailable
-                        ? "Paired daemon runs the harness locally"
-                        : "Pair a computer in Remote Access first"}
-                    </span>
-                  </span>
-                  {runTarget === "local" ? (
-                    <Check aria-hidden="true" className={menuCheckClass} />
-                  ) : null}
-                </button>
-              </div>
-            </Popover>
-          </div>
-        ) : null}
+              ))}
+            </div>
+          </Popover>
+        </div>
 
-        {/* Send — Devin's arrow submit */}
+        <div className="flex-1" aria-hidden="true" />
+
+        {/* Voice Input Button */}
+        <Tooltip content="Voice input" side="top">
+          <button
+            type="button"
+            aria-label="Voice input"
+            className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
+          >
+            <Mic aria-hidden="true" className="size-4" />
+          </button>
+        </Tooltip>
+
+        {/* Teal Send Button */}
         <Tooltip content="Submit task to coding agent" shortcut="⌘↵" side="top">
           <button
             type="submit"
             disabled={sendDisabled || isSubmitting}
             aria-label={isSubmitting ? "Sending…" : "Send task"}
-            className="inline-flex items-center justify-center w-7 h-7 touch:min-h-11 touch:w-11 bg-[#0000a8] hover:bg-[#1c1cc8] text-white rounded-none transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[2px_2px_0_var(--paper-shadow)] active:translate-y-px"
+            className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 bg-[var(--primary)] hover:opacity-90 text-[var(--primary-text)] rounded-[var(--radius-button)] transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[var(--sh-plate)] active:scale-95"
           >
-            <ArrowUp aria-hidden="true" className="w-4 h-4" strokeWidth={2.5} />
-          </button>
-        </Tooltip>
-      </div>
-
-      <div className="flex items-center justify-between gap-3 pt-1 border-t border-black/[0.04]">
-        <span className="min-w-0 text-[11px] text-[#6a6f63]/80 font-mono flex items-center gap-1">
-          <span className="text-[#0000a8]/80">●</span>
-          <span className="truncate">
-            approval-gated ·{" "}
-            {runTarget === "local" ? "runs on this computer" : "container isolated"}
-            {publishPullRequest ? " · opens a PR" : ""}
-          </span>
-        </span>
-        <Tooltip content="Clear task description and reset inputs" side="top">
-          <button
-            type="button"
-            onClick={onClear}
-            disabled={clearing || busy}
-            className="text-[11px] text-[#6a6f63]/80 hover:text-[#222320] font-mono py-1 px-1.5 touch:min-h-11 rounded-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-          >
-            {clearing ? "Clearing…" : "Clear"}
+            <ArrowUp aria-hidden="true" className="size-4" strokeWidth={2.5} />
           </button>
         </Tooltip>
       </div>
@@ -981,25 +982,12 @@ export function TaskComposer({
 
   if (!hero) return form;
 
-  const heroRepoSlug = repoSlug || "your repo";
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-2xl flex flex-col items-center gap-6">
-        <div className="text-center">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#222320]">
-            What should we build?
-          </h1>
-          <p className="mt-2 text-sm text-[#6a6f63]">
-            Describe the task — your agent works in an isolated sandbox against{" "}
-            <span className="font-mono text-xs">{heroRepoSlug}</span> and can open a PR when it's
-            done.
-          </p>
-        </div>
+    <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center justify-center px-4 py-8 relative dot-grid">
+      <div className="w-full max-w-[640px] flex flex-col items-center gap-4 z-10">
         {form}
-        <p className="text-[11px] text-[#6a6f63]/80 font-mono">
-          approval-gated · container isolated · everything lands in Activity
-        </p>
       </div>
     </div>
   );
 }
+

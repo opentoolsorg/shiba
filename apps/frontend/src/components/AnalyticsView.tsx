@@ -44,10 +44,10 @@ function formatDuration(ms: number): string {
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub: string }): JSX.Element {
   return (
-    <div className="rounded-none border border-[#e0ded5] bg-[#fffef8] p-4 shadow-[2px_2px_0_var(--paper-shadow)]">
-      <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">{label}</p>
-      <p className="mt-1.5 font-display text-2xl text-[#222320]">{value}</p>
-      <p className="mt-0.5 text-[11px] text-[#6a6f63]">{sub}</p>
+    <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)]">
+      <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">{label}</p>
+      <p className="mt-1.5 font-sans text-2xl text-[var(--fg)]">{value}</p>
+      <p className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">{sub}</p>
     </div>
   );
 }
@@ -66,27 +66,27 @@ function BreakdownCard({
 }): JSX.Element {
   const max = Math.max(1, ...rows.map((row) => row.count));
   return (
-    <section className="rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[2px_2px_0_var(--paper-shadow)]">
-      <header className="border-b border-[#e0ded5] px-4 py-2.5">
-        <h3 className="text-xs font-semibold text-[#222320]">{title}</h3>
-        <p className="text-[11px] text-[#6a6f63]">{hint}</p>
+    <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
+      <header className="border-b border-[var(--border-1)] px-4 py-2.5">
+        <h3 className="text-xs font-semibold text-[var(--fg)]">{title}</h3>
+        <p className="text-[11px] text-[var(--muted-foreground-2)]">{hint}</p>
       </header>
       {rows.length === 0 ? (
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">{empty}</div>
+        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">{empty}</div>
       ) : (
         <div className="flex flex-col gap-2 px-4 py-3">
           {rows.map((row) => (
             <div key={row.label} className="flex items-center gap-3">
-              <span className="w-36 shrink-0 truncate font-mono text-[11px] text-[#222320]" title={row.label}>
+              <span className="w-36 shrink-0 truncate font-mono text-[11px] text-[var(--fg)]" title={row.label}>
                 {row.label}
               </span>
-              <div className="h-2.5 flex-1 bg-[#e0ded5]/60">
+              <div className="h-2.5 flex-1 bg-[var(--secondary)]">
                 <div
-                  className="h-full bg-[#0000a8]"
+                  className="h-full bg-[var(--primary)]"
                   style={{ width: `${Math.round((row.count / max) * 100)}%` }}
                 />
               </div>
-              <span className="w-10 shrink-0 text-right font-mono text-[11px] text-[#6a6f63]">{row.count}</span>
+              <span className="w-10 shrink-0 text-right font-mono text-[11px] text-[var(--muted-foreground-2)]">{row.count}</span>
             </div>
           ))}
         </div>
@@ -159,13 +159,13 @@ export function AnalyticsView({
   );
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-      <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
             <span>Analytics</span>
           </h2>
-          <p className="text-xs text-[#6a6f63]">
+          <p className="text-xs text-[var(--muted-foreground-2)]">
             Usage and outcomes across the retained run registry — computed from what runs actually record.
           </p>
         </div>
@@ -224,11 +224,11 @@ export function AnalyticsView({
 
           <UsageSection sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
 
-          <section className="rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <header className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5">
+          <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
+            <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5">
               <div>
-                <h3 className="text-xs font-semibold text-[#222320]">Runs</h3>
-                <p className="text-[11px] text-[#6a6f63]">
+                <h3 className="text-xs font-semibold text-[var(--fg)]">Runs</h3>
+                <p className="text-[11px] text-[var(--muted-foreground-2)]">
                   {tableRuns.length === runs.length
                     ? `${runs.length} run${runs.length === 1 ? "" : "s"}`
                     : `Latest ${tableRuns.length} of ${runs.length}`}
@@ -238,12 +238,12 @@ export function AnalyticsView({
             </header>
             {tableRuns.length === 0 ? (
               <div className="px-4 py-10 text-center">
-                <p className="text-sm text-[#6a6f63]">No runs yet — nothing to measure.</p>
+                <p className="text-sm text-[var(--muted-foreground-2)]">No runs yet — nothing to measure.</p>
                 {onNavigate ? (
                   <button
                     type="button"
                     onClick={() => onNavigate("tasks")}
-                    className="mt-3 text-[13px] font-semibold text-[#0000a8] transition-colors hover:text-[#1c1cc8]"
+                    className="mt-3 text-[13px] font-semibold text-[var(--primary)] transition-colors hover:text-[var(--primary)]"
                   >
                     Delegate your first task →
                   </button>
@@ -253,7 +253,7 @@ export function AnalyticsView({
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-[#e0ded5] text-[10px] font-mono uppercase tracking-[0.1em] text-[#6a6f63]">
+                    <tr className="border-b border-[var(--border-1)] text-[10px] font-mono uppercase tracking-[0.1em] text-[var(--muted-foreground-2)]">
                       <th className="px-4 py-2 font-semibold">Run</th>
                       <th className="px-4 py-2 font-semibold">Repository</th>
                       <th className="px-4 py-2 font-semibold">Status</th>
@@ -268,37 +268,37 @@ export function AnalyticsView({
                     {tableRuns.map((run) => {
                       const duration = runDurationMs(run);
                       return (
-                        <tr key={run.runId} className="border-b border-[#e0ded5]/60 last:border-b-0">
+                        <tr key={run.runId} className="border-b border-[var(--border-1)] last:border-b-0">
                           <td className="px-4 py-2">
-                            <div className="font-mono text-[11px] text-[#222320]">{run.runId.slice(0, 8)}</div>
-                            <div className="max-w-56 truncate text-[11px] text-[#6a6f63]" title={run.task}>
+                            <div className="font-mono text-[11px] text-[var(--fg)]">{run.runId.slice(0, 8)}</div>
+                            <div className="max-w-56 truncate text-[11px] text-[var(--muted-foreground-2)]" title={run.task}>
                               {run.task}
                             </div>
                           </td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[#6a6f63]">{parseRepoName(run.repoUrl)}</td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{parseRepoName(run.repoUrl)}</td>
                           <td className="px-4 py-2">
-                            <span className={`inline-block rounded-none border px-2 py-0.5 text-[11px] font-medium ${statusChipClass(run.status)}`}>
+                            <span className={`inline-block rounded-[var(--radius-button)] border px-2 py-0.5 text-[11px] font-medium ${statusChipClass(run.status)}`}>
                               {statusLabel(run.status)}
                             </span>
                           </td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[#6a6f63]">{run.route?.harness ?? "—"}</td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[#6a6f63]">{run.runtime ?? "sandbox"}</td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[#6a6f63]">
+                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{run.route?.harness ?? "—"}</td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{run.runtime ?? "sandbox"}</td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">
                             {duration !== null ? formatDuration(duration) : run.status === "running" || run.status === "pending" ? "in flight" : "—"}
                           </td>
-                          <td className="px-4 py-2 font-mono text-[11px] text-[#6a6f63]">{formatTimeAgo(run.createdAt)}</td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{formatTimeAgo(run.createdAt)}</td>
                           <td className="px-4 py-2">
                             {run.pullUrl ? (
                               <a
                                 href={run.pullUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="font-mono text-[11px] font-medium text-[#1c1cc8] hover:text-[#0000a8]"
+                                className="font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
                               >
                                 open →
                               </a>
                             ) : (
-                              <span className="font-mono text-[11px] text-[#6a6f63]">—</span>
+                              <span className="font-mono text-[11px] text-[var(--muted-foreground-2)]">—</span>
                             )}
                           </td>
                         </tr>
@@ -310,7 +310,7 @@ export function AnalyticsView({
             )}
           </section>
 
-          <p className="text-[11px] text-[#6a6f63]">
+          <p className="text-[11px] text-[var(--muted-foreground-2)]">
             Statuses roll up the registry vocabulary — <ToneChip tone="ok" label="completed" /> counts toward the
             success rate; error, aborted, cancelled, and unknown count toward the error family.
           </p>
@@ -387,11 +387,11 @@ function UsageSection({
 }): JSX.Element {
   const usage = useUsageReport(sessionId, sessionApiAvailable);
   return (
-    <section className="rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[2px_2px_0_var(--paper-shadow)]">
-      <header className="flex items-center justify-between gap-3 border-b border-[#e0ded5] px-4 py-2.5">
+    <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
+      <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5">
         <div>
-          <h3 className="text-xs font-semibold text-[#222320]">Token usage &amp; budget</h3>
-          <p className="text-[11px] text-[#6a6f63]">
+          <h3 className="text-xs font-semibold text-[var(--fg)]">Token usage &amp; budget</h3>
+          <p className="text-[11px] text-[var(--muted-foreground-2)]">
             Daily harness-reported usage — UTC buckets over the retained run store.
           </p>
         </div>
@@ -399,14 +399,14 @@ function UsageSection({
           <button
             type="button"
             onClick={usage.reload}
-            className="text-[11px] font-mono font-medium text-[#1c1cc8] transition-colors hover:text-[#0000a8]"
+            className="text-[11px] font-mono font-medium text-[var(--primary)] transition-colors hover:text-[var(--primary)]"
           >
             Refresh →
           </button>
         ) : null}
       </header>
       {usage.state.kind === "loading" ? (
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">Loading usage…</div>
+        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Loading usage…</div>
       ) : usage.state.kind === "error" ? (
         <div className="px-4 py-3">
           <LoadErrorState message={usage.state.message} onRetry={usage.reload} />
@@ -436,7 +436,7 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
   if (report.days.length === 0) {
     return (
       <div className="px-4 py-6 text-center">
-        <p className="text-xs text-[#6a6f63]">
+        <p className="text-xs text-[var(--muted-foreground-2)]">
           No retained run has reported token usage yet. opencode, claude-code, and codex streams carry it;
           devin, grok, cursor, and antigravity runs don&apos;t — their runs keep contributing only run counts.
         </p>
@@ -470,44 +470,44 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
       </div>
 
       {budget !== null ? (
-        <div className="rounded-none border border-[#e0ded5] bg-[#f6f4ed] px-4 py-3">
+        <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] px-4 py-3">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-xs font-semibold text-[#222320]">Daily budget</span>
-            <span className="font-mono text-[11px] text-[#6a6f63]">
+            <span className="text-xs font-semibold text-[var(--fg)]">Daily budget</span>
+            <span className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
               {spentToday === undefined ? "no spend reported" : usdCost(spentToday)} of {usdCost(budget)}
             </span>
           </div>
-          <div className="mt-2 h-2 border border-[#e0ded5] bg-[#e0ded5]/60">
+          <div className="mt-2 h-2 border border-[var(--border-1)] bg-[var(--secondary)]">
             <div
-              className={`h-full ${spentToday !== undefined && spentToday > budget ? "bg-[#fb2c36]" : "bg-[#1c1cc8]"}`}
+              className={`h-full ${spentToday !== undefined && spentToday > budget ? "bg-[#fb2c36]" : "bg-[var(--primary-soft-hover)]"}`}
               style={{ width: `${spentPct}%` }}
             />
           </div>
-          <p className="mt-1.5 text-[11px] text-[#6a6f63]">
+          <p className="mt-1.5 text-[11px] text-[var(--muted-foreground-2)]">
             USAGE_BUDGET_USD — today&apos;s reported cost against the configured daily budget.
           </p>
         </div>
       ) : null}
 
       <div>
-        <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+        <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
           Per harness · last 7 days
         </p>
         <div className="mt-2 flex flex-col gap-2">
           {groups.length === 0 ? (
-            <p className="text-xs text-[#6a6f63]">No usage in the last 7 days.</p>
+            <p className="text-xs text-[var(--muted-foreground-2)]">No usage in the last 7 days.</p>
           ) : (
             groups.map((group) => (
               <div
                 key={`${group.harness ?? ""}/${group.provider ?? ""}/${group.role ?? ""}`}
-                className="flex items-baseline justify-between gap-3 border-b border-[#e0ded5]/60 pb-2 last:border-b-0"
+                className="flex items-baseline justify-between gap-3 border-b border-[var(--border-1)] pb-2 last:border-b-0"
               >
-                <span className="font-mono text-[11px] text-[#222320]">
+                <span className="font-mono text-[11px] text-[var(--fg)]">
                   {group.harness ?? "not recorded"}
-                  {group.provider !== null ? <span className="text-[#6a6f63]"> · {group.provider}</span> : null}
-                  {group.role !== null ? <span className="text-[#6a6f63]"> · {group.role}</span> : null}
+                  {group.provider !== null ? <span className="text-[var(--muted-foreground-2)]"> · {group.provider}</span> : null}
+                  {group.role !== null ? <span className="text-[var(--muted-foreground-2)]"> · {group.role}</span> : null}
                 </span>
-                <span className="text-right font-mono text-[11px] text-[#6a6f63]">
+                <span className="text-right font-mono text-[11px] text-[var(--muted-foreground-2)]">
                   {tokenTotalLabel(group.inputTokens, group.outputTokens)}
                   {group.costUsd !== undefined ? ` · ${usdCost(group.costUsd)}` : ""}
                   {` · ${group.runs} run${group.runs === 1 ? "" : "s"}`}

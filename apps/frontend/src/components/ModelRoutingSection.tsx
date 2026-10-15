@@ -71,7 +71,7 @@ export function PurposeRoutingCard(): JSX.Element {
   if (state.kind === "loading") {
     return (
       <Card>
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">Reading model routing…</div>
+        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading model routing…</div>
       </Card>
     );
   }
@@ -84,15 +84,15 @@ export function PurposeRoutingCard(): JSX.Element {
   }
   return (
     <Card>
-      <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+      <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
         Purpose routing — which model does which job
       </div>
-      <div className="divide-y divide-[#e0ded5]/60">
+      <div className="divide-y divide-[var(--border-1)]/60">
         {EDITABLE_PURPOSES.map((purpose) => (
           <div key={purpose.id} className="px-4 py-2.5 flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium text-[#222320]">{purpose.label}</div>
-              <div className="text-[11px] text-[#6a6f63]">{purpose.hint}</div>
+              <div className="text-xs font-medium text-[var(--fg)]">{purpose.label}</div>
+              <div className="text-[11px] text-[var(--muted-foreground-2)]">{purpose.hint}</div>
             </div>
             <input
               type="text"
@@ -108,33 +108,33 @@ export function PurposeRoutingCard(): JSX.Element {
               }}
               placeholder="@cf/… (deployment default)"
               aria-label={`${purpose.label} model`}
-              className="w-56 font-mono text-[11px] bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2 py-1.5 focus:outline-none focus:border-[#1c1cc8] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[#6a6f63]/60"
+              className="w-56 font-mono text-[11px] bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[var(--muted-foreground-3)]/60"
             />
           </div>
         ))}
         {FIXED_PURPOSES.map((purpose) => (
           <div key={purpose.id} className="px-4 py-2.5 flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium text-[#222320]">{purpose.label}</div>
-              <div className="text-[11px] text-[#6a6f63]">{purpose.note}</div>
+              <div className="text-xs font-medium text-[var(--fg)]">{purpose.label}</div>
+              <div className="text-[11px] text-[var(--muted-foreground-2)]">{purpose.note}</div>
             </div>
-            <span className="font-mono text-[10px] text-[#6a6f63]/70 uppercase tracking-[0.08em]">
+            <span className="font-mono text-[10px] text-[var(--muted-foreground-2)] uppercase tracking-[0.08em]">
               fixed
             </span>
           </div>
         ))}
       </div>
-      <div className="border-t border-[#e0ded5] px-4 py-2.5 flex items-center gap-3">
+      <div className="border-t border-[var(--border-1)] px-4 py-2.5 flex items-center gap-3">
         <button
           type="button"
           onClick={save}
           disabled={saving || draft === null}
-          className="bg-[#0000a8] hover:bg-[#1c1cc8] text-white font-semibold py-1.5 px-3 rounded-none text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white font-semibold py-1.5 px-3 rounded-[var(--radius-button)] text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {saving ? "Saving…" : "Save routing"}
         </button>
-        {feedback ? <span className="text-xs text-[#6a6f63]">{feedback}</span> : null}
-        <span className="ml-auto font-mono text-[10px] text-[#6a6f63]/70">
+        {feedback ? <span className="text-xs text-[var(--muted-foreground-2)]">{feedback}</span> : null}
+        <span className="ml-auto font-mono text-[10px] text-[var(--muted-foreground-2)]">
           {state.kind === "data" && state.data.policy.updatedAt > 0
             ? `v${state.data.policy.version} · ${new Date(state.data.policy.updatedAt).toLocaleString()}`
             : "no overrides"}
@@ -187,7 +187,7 @@ export function ConnectionsCard(): JSX.Element {
   if (state.kind === "loading") {
     return (
       <Card>
-        <div className="px-4 py-6 text-center text-xs text-[#6a6f63]">Reading connections…</div>
+        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading connections…</div>
       </Card>
     );
   }
@@ -201,21 +201,21 @@ export function ConnectionsCard(): JSX.Element {
   const connections = state.data.connections;
   return (
     <Card>
-      <div className="border-b border-[#e0ded5] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+      <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
         Model connections — named credentials a run can route through
       </div>
       {connections.length === 0 ? (
-        <div className="px-4 py-4 text-xs text-[#6a6f63]">
+        <div className="px-4 py-4 text-xs text-[var(--muted-foreground-2)]">
           None registered — runs fall back to the deployment default. Add one to name a specific
           AI Gateway BYOK alias or Worker secret for a provider.
         </div>
       ) : (
-        <ol className="divide-y divide-[#e0ded5]/60">
+        <ol className="divide-y divide-[var(--border-1)]/60">
           {connections.map((connection) => (
             <li key={connection.id} className="px-4 py-2.5 flex items-center gap-3">
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-[#222320]">{connection.displayName}</div>
-                <div className="font-mono text-[10px] text-[#6a6f63]">
+                <div className="text-xs font-medium text-[var(--fg)]">{connection.displayName}</div>
+                <div className="font-mono text-[10px] text-[var(--muted-foreground-2)]">
                   {connection.service}
                   {connection.credentialRef ? ` · ${connection.credentialRef}` : ""}
                 </div>
@@ -225,7 +225,7 @@ export function ConnectionsCard(): JSX.Element {
                   connection.status === "ready"
                     ? "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30"
                     : connection.status === "disabled"
-                      ? "text-[#6a6f63] bg-black/[0.04] border-[#e0ded5]"
+                      ? "text-[var(--muted-foreground-2)] bg-black/[0.04] border-[var(--border-1)]"
                       : "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40"
                 }`}
               >
@@ -236,7 +236,7 @@ export function ConnectionsCard(): JSX.Element {
                   type="button"
                   disabled={busy}
                   onClick={() => void call(`/connections/${connection.id}`, { method: "DELETE" }, "Connection disabled.")}
-                  className="text-xs text-[#6a6f63] hover:text-[#fb2c36] border border-[#e0ded5] px-2 py-1 transition-colors"
+                  className="text-xs text-[var(--muted-foreground-2)] hover:text-[#fb2c36] border border-[var(--border-1)] px-2 py-1 transition-colors"
                 >
                   Disable
                 </button>
@@ -250,7 +250,7 @@ export function ConnectionsCard(): JSX.Element {
                       body: JSON.stringify({ status: "ready", markChecked: true }),
                     }, "Connection marked ready.")
                   }
-                  className="text-xs text-[#1c1cc8] hover:text-[#0000a8] border border-[#e0ded5] px-2 py-1 transition-colors"
+                  className="text-xs text-[var(--primary)] hover:text-[var(--primary)] border border-[var(--border-1)] px-2 py-1 transition-colors"
                 >
                   Mark ready
                 </button>
@@ -259,12 +259,12 @@ export function ConnectionsCard(): JSX.Element {
           ))}
         </ol>
       )}
-      <div className="border-t border-[#e0ded5] px-4 py-3 flex flex-wrap items-center gap-2">
+      <div className="border-t border-[var(--border-1)] px-4 py-3 flex flex-wrap items-center gap-2">
         <select
           value={service}
           onChange={(event) => setService(event.target.value)}
           aria-label="Service"
-          className="bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2 py-1.5 text-xs focus:outline-none focus:border-[#1c1cc8]"
+          className="bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)]"
         >
           {CONNECTION_SERVICES.map((entry) => (
             <option key={entry} value={entry}>
@@ -278,7 +278,7 @@ export function ConnectionsCard(): JSX.Element {
           onChange={(event) => setDisplayName(event.target.value)}
           placeholder="Display name (e.g. Team Anthropic)"
           aria-label="Connection display name"
-          className="flex-1 min-w-[140px] bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2 py-1.5 text-xs focus:outline-none focus:border-[#1c1cc8] placeholder-[#6a6f63]/60"
+          className="flex-1 min-w-[140px] bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] placeholder-[var(--muted-foreground-3)]/60"
         />
         <input
           type="text"
@@ -286,18 +286,18 @@ export function ConnectionsCard(): JSX.Element {
           onChange={(event) => setCredentialRef(event.target.value)}
           placeholder="Credential alias (never a key)"
           aria-label="Credential reference"
-          className="flex-1 min-w-[140px] font-mono bg-[#f1efe6] border border-[#e0ded5] rounded-none text-[#222320] px-2 py-1.5 text-xs focus:outline-none focus:border-[#1c1cc8] placeholder-[#6a6f63]/60"
+          className="flex-1 min-w-[140px] font-mono bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] placeholder-[var(--muted-foreground-3)]/60"
         />
         <button
           type="button"
           disabled={busy || displayName.trim() === ""}
           onClick={() => void register()}
-          className="bg-[#0000a8] hover:bg-[#1c1cc8] text-white font-semibold py-1.5 px-3 rounded-none text-xs transition-colors disabled:opacity-40"
+          className="bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white font-semibold py-1.5 px-3 rounded-[var(--radius-button)] text-xs transition-colors disabled:opacity-40"
         >
           Add connection
         </button>
       </div>
-      {feedback ? <div className="px-4 pb-3 text-xs text-[#6a6f63]">{feedback}</div> : null}
+      {feedback ? <div className="px-4 pb-3 text-xs text-[var(--muted-foreground-2)]">{feedback}</div> : null}
     </Card>
   );
 }

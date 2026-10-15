@@ -38,37 +38,37 @@ export interface SessionsSidebarProps {
 
 export function statusDotClass(session: SessionItem): string {
   if (session.live || session.status === "live" || session.status === "running") {
-    return "bg-[#0000a8] animate-pulse-subtle";
+    return "bg-[var(--primary)] animate-pulse-subtle";
   }
   if (session.status === "waiting-approval" || session.status === "pending") {
-    return "bg-[#f99c00]";
+    return "bg-[var(--warning-fg)]";
   }
   if (session.status === "completed") {
-    return "bg-[#15803d]";
+    return "bg-[var(--success)]";
   }
   // Amber, not red: an ambiguous outcome is not a known failure.
   if (session.status === "unknown") {
-    return "bg-[#b45309]";
+    return "bg-[var(--orange)]";
   }
   if (
     session.status === "error" ||
     session.status === "aborted" ||
     session.status === "cancelled"
   ) {
-    return "bg-[#fb2c36]";
+    return "bg-[var(--destructive)]";
   }
-  return "bg-[#6a6f63]";
+  return "bg-[var(--muted-foreground-3)]";
 }
 
 function connectionDotClass(tone: SessionsSidebarProps["connectionTone"]): string {
-  if (tone === "ok") return "bg-[#15803d]";
-  if (tone === "pending") return "bg-[#f99c00] animate-pulse-subtle";
-  return "bg-[#fb2c36]";
+  if (tone === "ok") return "bg-[var(--success)]";
+  if (tone === "pending") return "bg-[var(--warning-fg)] animate-pulse-subtle";
+  return "bg-[var(--destructive)]";
 }
 
 function GroupLabel({ children }: { children: string }) {
   return (
-    <h3 className="px-3 pt-3.5 pb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.1em] text-[#6a6f63] select-none">
+    <h3 className="px-3 pt-3.5 pb-1.5 text-[10px] font-mono font-semibold uppercase tracking-[0.1em] text-[var(--muted-foreground-2)] select-none">
       {children}
     </h3>
   );
@@ -91,8 +91,8 @@ function SessionRow({
         type="button"
         onClick={() => onSelect(session.id)}
         aria-current={selected ? "true" : undefined}
-        className={`group w-full text-left rounded-none px-3 py-2 flex items-start gap-2.5 transition-colors ${
-          selected ? "bg-[#e0ded5] text-[#222320] shadow-[2px_2px_0_var(--paper-shadow)]" : "hover:bg-black/[0.04] text-[#222320]"
+        className={`group w-full text-left rounded-[var(--radius-button)] px-3 py-2 flex items-start gap-2.5 transition-colors ${
+          selected ? "bg-[var(--secondary)] text-[var(--fg)]" : "hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)]"
         }`}
       >
         <span
@@ -102,12 +102,12 @@ function SessionRow({
         <span className="min-w-0 flex-1">
           <span
             className={`block text-[13px] font-medium truncate leading-snug ${
-              session.live ? "text-[#1c1cc8]" : "text-[#222320]"
+              session.live ? "text-[var(--primary)]" : "text-[var(--fg)]"
             }`}
           >
             {session.title || "Untitled session"}
           </span>
-          <span className="block text-[11px] font-mono text-[#6a6f63]/80 truncate mt-0.5 tabular-nums">
+          <span className="block text-[11px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5 tabular-nums">
             {session.repoName} · {statusLabel(session.status)} ·{" "}
             {formatTimeAgo(session.updatedAt)}
           </span>
@@ -124,7 +124,7 @@ function AgentRow({ agent }: { agent: AgentPrincipal }) {
   return (
     <Tooltip content={tooltipText} side="right" align="start" delayMs={400}>
       <div
-        className="group w-full text-left rounded-none px-3 py-2 flex items-start gap-2.5 text-[#222320]"
+        className="group w-full text-left rounded-[var(--radius-button)] px-3 py-2 flex items-start gap-2.5 text-[var(--fg)]"
       >
         <span
           className={`mt-[7px] size-1.5 rounded-full shrink-0 ${
@@ -136,7 +136,7 @@ function AgentRow({ agent }: { agent: AgentPrincipal }) {
           <span className="block text-[13px] font-medium truncate leading-snug">
             {agent.principal}
           </span>
-          <span className="block text-[11px] font-mono text-[#6a6f63]/80 truncate mt-0.5 tabular-nums">
+          <span className="block text-[11px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5 tabular-nums">
             {scopeLabel}
           </span>
         </span>
@@ -176,16 +176,16 @@ export function SessionsSidebar({
 
   return (
     <aside
-      className="w-[280px] shrink-0 h-full flex flex-col bg-[#f1efe6] border-r border-[#e0ded5]"
+      className="w-[280px] shrink-0 h-full flex flex-col bg-[var(--chrome)] border-r border-[var(--border-1)]"
       aria-label="Sessions"
     >
       {/* Header with collapse button */}
       <div className="flex items-center justify-between px-3.5 pt-3.5 pb-2.5">
         <div className="flex items-center gap-2">
-          <h2 className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+          <h2 className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
             Sessions
           </h2>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-none bg-[#fffef8] border border-black/[0.06] text-[#6a6f63] tabular-nums">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[var(--card)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] tabular-nums">
             {sessions.length}
           </span>
         </div>
@@ -196,7 +196,7 @@ export function SessionsSidebar({
               type="button"
               onClick={onToggleCollapse}
               aria-label={isMobileDrawer ? "Close sessions" : "Collapse sidebar"}
-              className="size-7 rounded-none flex items-center justify-center text-[#6a6f63] hover:text-[#222320] hover:bg-black/[0.06] transition-colors"
+              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-black/[0.06] transition-colors"
             >
               {isMobileDrawer ? (
                 <X aria-hidden="true" className="size-4" strokeWidth={2} />
@@ -214,7 +214,7 @@ export function SessionsSidebar({
           <button
             type="button"
             onClick={onNewTask}
-            className="primary-action w-full inline-flex min-h-11 items-center justify-center gap-1.5 font-semibold text-[13px] px-3 rounded-none"
+            className="w-full inline-flex min-h-9 items-center justify-center gap-1.5 font-medium text-[13px] px-3 rounded-[var(--radius-button)] bg-[var(--primary)] text-[var(--primary-text)] hover:opacity-95 transition-opacity"
           >
             <Plus aria-hidden="true" className="size-4" strokeWidth={2.5} />
             New task
@@ -227,7 +227,7 @@ export function SessionsSidebar({
         <div className="relative">
           <Search
             aria-hidden="true"
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-[#6a6f63]/60 pointer-events-none"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-[var(--muted-foreground-2)]/60 pointer-events-none"
             strokeWidth={2}
           />
           <input
@@ -236,14 +236,14 @@ export function SessionsSidebar({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search sessions…"
             aria-label="Search sessions"
-            className="w-full h-8 bg-[#fffef8] border border-transparent rounded-none pl-8 pr-7 text-[13px] text-[#222320] placeholder:text-[#6a6f63]/50 focus:border-[#1c1cc8]/40 focus:outline-none transition-colors"
+            className="w-full h-8 bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] pl-8 pr-7 text-[13px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus:border-[var(--ring)] focus:outline-none transition-colors"
           />
           {query ? (
             <button
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[#6a6f63] hover:text-[#222320] text-xs"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground-2)] hover:text-[var(--fg)] text-xs"
             >
               ✕
             </button>
@@ -254,7 +254,7 @@ export function SessionsSidebar({
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         {filtered.length === 0 ? (
-          <p className="text-[#6a6f63] text-xs px-3 py-8 text-center text-pretty">
+          <p className="text-[var(--muted-foreground-2)] text-xs px-3 py-8 text-center text-pretty">
             {sessions.length === 0
               ? "No sessions yet — start a task."
               : "No sessions match your search."}
@@ -307,14 +307,14 @@ export function SessionsSidebar({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-[#e0ded5] px-3 py-3 flex flex-col gap-2.5 bg-[#f6f4ed]/50">
+      <div className="border-t border-[var(--border-1)] px-3 py-3 flex flex-col gap-2.5 bg-[var(--chrome)]">
         <Tooltip content={setupComplete ? "All 6 setup steps verified" : `${setupDone ?? 0} of ${setupTotal} setup steps complete`} side="top">
           <button
             type="button"
             onClick={onOpenSetup}
-            className={`inline-flex items-center gap-2 text-xs font-semibold rounded-none px-2.5 py-1.5 border transition-colors w-fit ${
+            className={`inline-flex items-center gap-2 text-xs font-semibold rounded-[var(--radius-button)] px-2.5 py-1.5 border transition-colors w-fit ${
               setupComplete
-                ? "text-[#1c1cc8] border-[#0000a8]/40 bg-[#0000a8]/10 hover:bg-[#0000a8]/20"
+                ? "text-[var(--primary)] border-[var(--primary)]/40 bg-[var(--primary-soft)] hover:bg-[var(--primary-soft-hover)]"
                 : "text-[#b45309] border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/20"
             }`}
           >
@@ -325,14 +325,14 @@ export function SessionsSidebar({
           <Tooltip content="Documentation & API guides" side="top">
             <a
               href="/docs"
-              className="text-xs text-[#6a6f63] hover:text-[#222320] transition-colors shrink-0"
+              className="text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)] transition-colors shrink-0"
             >
               Docs
             </a>
           </Tooltip>
           <Tooltip content={`Agent State: ${connectionLabel}`} side="top">
             <span
-              className="inline-flex items-center gap-1.5 text-[11px] text-[#6a6f63] min-w-0 cursor-default"
+              className="inline-flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground-2)] min-w-0 cursor-default"
             >
               <span
                 className={`size-1.5 rounded-full shrink-0 ${connectionDotClass(connectionTone)}`}

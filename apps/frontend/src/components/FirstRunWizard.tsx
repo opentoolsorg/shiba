@@ -54,24 +54,24 @@ function WizardShell({
         role="dialog"
         aria-modal="true"
         aria-label="Welcome setup"
-        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[4px_4px_0_var(--paper-shadow)]"
+        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-[var(--radius-overlay)] border border-[var(--border-1)] bg-[var(--card)] shadow-[4px_4px_0_var(--sh-card)]"
       >
-        <div className="shrink-0 border-b border-[#e0ded5] px-5 py-4">
+        <div className="shrink-0 border-b border-[var(--border-1)] px-5 py-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[#1c1cc8]">
+              <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
                 Welcome — {step + 1} of {STEPS.length}
               </div>
-              <h2 className="mt-0.5 text-base font-semibold text-[#222320]">
+              <h2 className="mt-0.5 text-base font-semibold text-[var(--text)]">
                 {current.title}
               </h2>
-              <p className="mt-0.5 text-xs text-[#6a6f63]">{current.blurb}</p>
+              <p className="mt-0.5 text-xs text-[var(--muted-foreground-2)]">{current.blurb}</p>
             </div>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close setup"
-              className="size-8 shrink-0 rounded-none text-[#6a6f63] hover:bg-[#e0ded5] hover:text-[#222320]"
+              className="size-8 shrink-0 rounded-[var(--radius-button)] text-[var(--muted-foreground-2)] hover:bg-[var(--border-1)] hover:text-[var(--text)]"
             >
               ✕
             </button>
@@ -80,13 +80,13 @@ function WizardShell({
             {STEPS.map((s, i) => (
               <span
                 key={s.id}
-                className={`h-1 flex-1 rounded-none ${i <= step ? "bg-[#0000a8]" : "bg-[#e0ded5]"}`}
+                className={`h-1 flex-1 rounded-full ${i <= step ? "bg-[var(--primary)]" : "bg-[var(--border-1)]"}`}
               />
             ))}
           </div>
         </div>
         <div className="min-h-0 max-h-[60vh] overflow-y-auto px-5 py-4">{children}</div>
-        <div className="shrink-0 border-t border-[#e0ded5] px-5 py-4">{footer}</div>
+        <div className="shrink-0 border-t border-[var(--border-1)] px-5 py-4">{footer}</div>
       </div>
     </div>
   );
@@ -107,7 +107,7 @@ function Footer({
       <button
         type="button"
         onClick={onFinish}
-        className="font-mono text-[11px] text-[#6a6f63] hover:text-[#222320]"
+        className="font-mono text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
       >
         Skip setup
       </button>
@@ -116,7 +116,7 @@ function Footer({
           <button
             type="button"
             onClick={() => setStep(step - 1)}
-            className="rounded-none border border-[#e0ded5] bg-[#fffef8] px-3 py-1.5 font-mono text-[11px] font-medium text-[#6a6f63] hover:border-[#d3d2c8] hover:text-[#222320]"
+            className="rounded-[var(--radius-overlay)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-1.5 font-mono text-[11px] font-medium text-[var(--muted-foreground-2)] hover:border-[var(--border-2)] hover:text-[var(--text)]"
           >
             Back
           </button>
@@ -124,7 +124,7 @@ function Footer({
         <button
           type="button"
           onClick={() => (last ? onFinish() : setStep(step + 1))}
-          className="rounded-none bg-[#0000a8] px-4 py-1.5 font-mono text-[11px] font-semibold text-white shadow-[2px_2px_0_var(--paper-shadow)] transition-colors hover:bg-[#1c1cc8] active:translate-y-px"
+          className="rounded-[var(--radius-button)] bg-[var(--primary)] px-4 py-1.5 font-mono text-[11px] font-semibold text-[var(--primary-text)] shadow-[2px_2px_0_var(--sh-card)] transition-colors hover:bg-[var(--primary)] active:translate-y-px"
         >
           {last ? "Finish" : "Next"}
         </button>
@@ -143,10 +143,10 @@ function ChannelRow({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-[#e0ded5]/60 py-2.5 last:border-b-0">
+    <div className="flex items-start justify-between gap-3 border-b border-[var(--border-1)]/60 py-2.5 last:border-b-0">
       <div className="min-w-0">
-        <div className="text-[13px] font-medium text-[#222320]">{name}</div>
-        <div className="mt-0.5 text-[11px] leading-snug text-[#6a6f63]">{children}</div>
+        <div className="text-[13px] font-medium text-[var(--text)]">{name}</div>
+        <div className="mt-0.5 text-[11px] leading-snug text-[var(--muted-foreground-2)]">{children}</div>
       </div>
       <div className="shrink-0 pt-0.5">{status}</div>
     </div>
@@ -167,11 +167,11 @@ function AgentRow({
   const spec = SUBSCRIPTION_AUTH[id];
   const credential = agentCredential ?? spec.credential;
   return (
-    <div className="border-b border-[#e0ded5]/60 py-3 last:border-b-0">
+    <div className="border-b border-[var(--border-1)]/60 py-3 last:border-b-0">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[13px] font-medium text-[#222320]">{spec.label}</div>
-          <div className="mt-0.5 text-[11px] text-[#6a6f63]">{spec.blurb}</div>
+          <div className="text-[13px] font-medium text-[var(--text)]">{spec.label}</div>
+          <div className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">{spec.blurb}</div>
         </div>
         <div className="shrink-0">{subscriptionChip(status)}</div>
       </div>
@@ -247,14 +247,14 @@ export function FirstRunWizard({
         <>
           <Footer step={step} setStep={setStep} onFinish={finish} />
           {onOpenChecklist ? (
-            <p className="mt-3 border-t border-[#e0ded5]/60 pt-3">
+            <p className="mt-3 border-t border-[var(--border-1)]/60 pt-3">
               <button
                 type="button"
                 onClick={() => {
                   onClose();
                   onOpenChecklist();
                 }}
-                className="font-mono text-[10px] text-[#6a6f63] hover:text-[#222320]"
+                className="font-mono text-[10px] text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
               >
                 Operator? Open the deployment checklist →
               </button>
@@ -280,7 +280,7 @@ export function FirstRunWizard({
             tone={connectedProviders > 0 ? "ok" : "neutral"}
             label={`${connectedProviders} subscription provider${connectedProviders === 1 ? "" : "s"} connected`}
           />
-          <p className="text-[11px] leading-relaxed text-[#6a6f63]">
+          <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
             {checkingProviders
               ? "Checking subscription connections…"
               : providerCheckFailed
@@ -352,7 +352,7 @@ export function FirstRunWizard({
             Inbound triage and approved sends.
             {status !== undefined && !status.mailbox.sendEnabled ? " Outbound sending is not enabled." : ""}
           </ChannelRow>
-          <p className="mt-3 text-[11px] leading-relaxed text-[#6a6f63]">
+          <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
             Configuration does not confirm live delivery. Channel setup is managed by your
             deployment administrator; review details on the Integrations page.
           </p>
@@ -363,7 +363,7 @@ export function FirstRunWizard({
                 finish();
                 onNavigate("integrations");
               }}
-              className="mt-2 font-mono text-[11px] font-medium text-[#1c1cc8] hover:text-[#0000a8]"
+              className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
             >
               Open Integrations →
             </button>
@@ -381,7 +381,7 @@ export function FirstRunWizard({
             onStatus={(next) => setSubscriptions((current) => ({ ...current, [id]: next }))}
           />
         ))}
-        <p className="mt-3 text-[11px] leading-relaxed text-[#6a6f63]">
+        <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
           Connect a subscription provider if your model routing requires one. You can add or
           switch providers later in Settings → Providers.
         </p>
@@ -390,7 +390,7 @@ export function FirstRunWizard({
       {step === 2 ? (
         <div ref={routingRef} tabIndex={-1}>
           {setup.state.kind === "error" ? (
-            <div className="space-y-2 text-[11px] text-[#b45309]">
+            <div className="space-y-2 text-[11px] text-[var(--warning-fg)]">
               <p>Model routing could not be loaded. You can continue setup and check it later.</p>
               <button
                 ref={retryButtonRef}
@@ -402,15 +402,15 @@ export function FirstRunWizard({
                   }
                 }}
                 aria-disabled={setup.inFlight}
-                className="font-mono text-[#1c1cc8] hover:text-[#0000a8] aria-disabled:cursor-wait aria-disabled:opacity-60 aria-disabled:hover:text-[#1c1cc8]"
+                className="font-mono text-[var(--primary)] hover:text-[var(--primary)] aria-disabled:cursor-wait aria-disabled:opacity-60 aria-disabled:hover:text-[var(--primary)]"
               >
                 Retry routing check
               </button>
             </div>
           ) : setup.inFlight ? (
-            <p className="text-[11px] text-[#6a6f63]">Checking model routing…</p>
+            <p className="text-[11px] text-[var(--muted-foreground-2)]">Checking model routing…</p>
           ) : roles.length === 0 ? (
-            <p className="text-[11px] text-[#6a6f63]">
+            <p className="text-[11px] text-[var(--muted-foreground-2)]">
               This deployment has not reported per-role routing. Ask your administrator to
               check the model configuration.
             </p>
@@ -419,13 +419,13 @@ export function FirstRunWizard({
               {roles.map((row) => (
                 <div
                   key={row.role}
-                  className="border-b border-[#e0ded5]/60 py-2 last:border-b-0"
+                  className="border-b border-[var(--border-1)]/60 py-2 last:border-b-0"
                 >
-                  <div className="text-[13px] font-medium text-[#222320]">{row.role}</div>
-                  <div className="mt-0.5 break-words font-mono text-[10px] text-[#6a6f63]">
+                  <div className="text-[13px] font-medium text-[var(--text)]">{row.role}</div>
+                  <div className="mt-0.5 break-words font-mono text-[10px] text-[var(--muted-foreground-2)]">
                     harness: {row.harness || "Not resolved"}
                   </div>
-                  <div className="break-words font-mono text-[10px] text-[#6a6f63]">
+                  <div className="break-words font-mono text-[10px] text-[var(--muted-foreground-2)]">
                     model: {row.model || "Not resolved"}
                   </div>
                   {row.error ? (
@@ -437,7 +437,7 @@ export function FirstRunWizard({
               ))}
             </div>
           )}
-          <p className="mt-3 text-[11px] leading-relaxed text-[#6a6f63]">
+          <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
             Routing decides which agent handles each task role. Tune it any time in
             Settings → Models.
           </p>
@@ -448,7 +448,7 @@ export function FirstRunWizard({
                 finish();
                 onOpenModels();
               }}
-              className="mt-2 font-mono text-[11px] font-medium text-[#1c1cc8] hover:text-[#0000a8]"
+              className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
             >
               Open Settings → Models
             </button>

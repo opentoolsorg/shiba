@@ -78,7 +78,7 @@ export const ERROR_FAMILY_STATUSES: ReadonlySet<string> = new Set([
 // future pane that renders run/session status pills.
 export const STATUS_CHIP_CLASSES: Record<string, string> = {
   completed: "text-[#15803d] border-[#15803d]/30 bg-[#15803d]/10",
-  running: "text-[#0000a8] border-[#0000a8]/30 bg-[#0000a8]/10",
+  running: "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)]",
   pending: "text-[#b45309] border-[#f99c00]/40 bg-[#f99c00]/10",
   "waiting-approval": "text-[#b45309] border-[#f99c00]/40 bg-[#f99c00]/10",
   error: "text-[#fb2c36] border-[#fb2c36]/30 bg-[#fb2c36]/10",
@@ -89,7 +89,7 @@ export const STATUS_CHIP_CLASSES: Record<string, string> = {
 };
 
 export function statusChipClass(status: string): string {
-  return STATUS_CHIP_CLASSES[status] ?? "text-[#6a6f63] border-[#e0ded5] bg-[#fffef8]";
+  return STATUS_CHIP_CLASSES[status] ?? "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]";
 }
 
 // Diff output for completed live runs. The orchestrator surfaces the unified

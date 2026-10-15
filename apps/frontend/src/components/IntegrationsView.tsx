@@ -28,21 +28,21 @@ function IntegrationRow({
 }): JSX.Element {
   return (
     <div
-      className={`flex flex-col gap-2 border-b border-[#e0ded5] px-4 py-3.5 last:border-b-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${muted ? "opacity-60" : ""}`}
+      className={`flex flex-col gap-2 border-b border-[var(--border-1)] px-4 py-3.5 last:border-b-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${muted ? "opacity-60" : ""}`}
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[13px] font-semibold text-[#222320]">{name}</span>
+          <span className="text-[13px] font-semibold text-[var(--fg)]">{name}</span>
           {status}
         </div>
-        <div className="mt-1 text-xs leading-relaxed text-[#6a6f63]">{children}</div>
+        <div className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{children}</div>
       </div>
       {action?.href ? (
         <a
           href={action.href}
           target="_blank"
           rel="noreferrer"
-          className="shrink-0 self-start rounded-none border border-[#e0ded5] bg-[#fffef8] px-2.5 py-1 text-[11px] font-mono font-medium text-[#1c1cc8] transition-colors hover:border-[#0000a8]/40 hover:bg-[#0000a8]/5 sm:self-center"
+          className="shrink-0 self-start rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1 text-[11px] font-mono font-medium text-[var(--primary)] transition-colors hover:border-[var(--primary)]/40 hover:bg-[var(--primary)]/5 sm:self-center"
         >
           {action.label}
         </a>
@@ -50,7 +50,7 @@ function IntegrationRow({
         <button
           type="button"
           onClick={action.onClick}
-          className="shrink-0 self-start rounded-none border border-[#e0ded5] bg-[#fffef8] px-2.5 py-1 text-[11px] font-mono font-medium text-[#1c1cc8] transition-colors hover:border-[#0000a8]/40 hover:bg-[#0000a8]/5 sm:self-center"
+          className="shrink-0 self-start rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1 text-[11px] font-mono font-medium text-[var(--primary)] transition-colors hover:border-[var(--primary)]/40 hover:bg-[var(--primary)]/5 sm:self-center"
         >
           {action.label}
         </button>
@@ -70,11 +70,11 @@ function IntegrationGroup({
 }): JSX.Element {
   return (
     <section>
-      <p className="mb-1 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63]">
+      <p className="mb-1 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
         {title}
       </p>
-      <p className="mb-2 text-xs text-[#6a6f63]">{hint}</p>
-      <div className="rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[2px_2px_0_var(--paper-shadow)]">
+      <p className="mb-2 text-xs text-[var(--muted-foreground-2)]">{hint}</p>
+      <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
         {children}
       </div>
     </section>
@@ -124,13 +124,13 @@ export function IntegrationsView({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f6f4ed] text-[#222320]">
-      <div className="border-b border-[#e0ded5] bg-[#f1efe6] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-[#222320] flex items-center gap-2">
+          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
             <span>Integrations</span>
           </h2>
-          <p className="text-xs text-[#6a6f63]">
+          <p className="text-xs text-[var(--muted-foreground-2)]">
             Third-party apps and channels your agents can reach — connect once, use everywhere.
           </p>
         </div>

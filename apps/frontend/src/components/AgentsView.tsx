@@ -80,11 +80,11 @@ export function AgentsView(): JSX.Element {
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-5xl px-6 py-8 space-y-8">
         <div>
-          <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-none bg-[#0000a8]/10 border border-[#0000a8]/20 text-[10px] font-mono text-[#1c1cc8] uppercase tracking-wider mb-2 font-bold">
+          <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-[var(--radius-button)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 text-[10px] font-mono text-[var(--primary)] uppercase tracking-wider mb-2 font-bold">
             Capability Plane · Model Context Protocol
           </div>
-          <h2 className="text-xl font-bold text-[#222320]">MCP Gateway</h2>
-          <p className="mt-1 text-xs text-[#6a6f63] leading-relaxed max-w-2xl font-mono">
+          <h2 className="text-xl font-bold text-[var(--fg)]">MCP Gateway</h2>
+          <p className="mt-1 text-xs text-[var(--muted-foreground-2)] leading-relaxed max-w-2xl font-mono">
             Connect any AI agent to your account&apos;s unified MCP gateway. Shiba gives external
             agents (Claude Desktop, Cursor, OpenCode, Devin) memory, email, sandboxes, and audit
             logging on your own Cloudflare infrastructure.
@@ -92,31 +92,31 @@ export function AgentsView(): JSX.Element {
         </div>
 
         {error ? (
-          <div className="rounded-none border border-[#fb2c36]/30 bg-[#fb2c36]/10 px-4 py-3 text-sm text-[#fb2c36] font-mono text-xs">
+          <div className="rounded-[var(--radius-button)] border border-[#fb2c36]/30 bg-[#fb2c36]/10 px-4 py-3 text-sm text-[#fb2c36] font-mono text-xs">
             {error}
           </div>
         ) : null}
 
-        <div className="border border-[#e0ded5] bg-[#fffef8] p-5 rounded-none shadow-[2px_2px_0_var(--paper-shadow)] space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#e0ded5] pb-3">
+        <div className="border border-[var(--border-1)] bg-[var(--card)] p-5 rounded-[var(--radius-button)] shadow-[var(--sh-card)] space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border-1)] pb-3">
             <div>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-[#6a6f63] font-bold">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)] font-bold">
                 Unified Gateway Endpoint
               </span>
               <div className="flex items-center gap-2 mt-0.5">
-                <code className="text-xs font-mono font-bold text-[#0000a8] bg-[#f6f4ed] border border-[#e0ded5] px-2 py-0.5">
+                <code className="text-xs font-mono font-bold text-[var(--primary)] bg-[var(--bg)] border border-[var(--border-1)] px-2 py-0.5">
                   {mcpEndpoint}
                 </code>
                 <button
                   type="button"
                   onClick={() => copyToClipboard(mcpEndpoint, "endpoint")}
-                  className="text-[11px] font-mono text-[#6a6f63] hover:text-[#222320] border border-[#e0ded5] bg-[#fffef8] px-2 py-0.5 transition-colors"
+                  className="text-[11px] font-mono text-[var(--muted-foreground-2)] hover:text-[var(--fg)] border border-[var(--border-1)] bg-[var(--card)] px-2 py-0.5 transition-colors"
                 >
                   {copiedSnippet === "endpoint" ? "Copied ✓" : "Copy URL"}
                 </button>
               </div>
             </div>
-            <span className="text-[11px] font-mono text-[#6a6f63]">
+            <span className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
               MCP endpoint; connection not verified here
             </span>
           </div>
@@ -129,8 +129,8 @@ export function AgentsView(): JSX.Element {
                   onClick={() => setMcpTab("claude")}
                   className={`px-2.5 py-1 border transition-colors ${
                     mcpTab === "claude"
-                      ? "border-[#0000a8] bg-[#0000a8] text-white font-bold"
-                      : "border-[#e0ded5] bg-[#f6f4ed] text-[#6a6f63] hover:text-[#222320]"
+                      ? "border-[var(--primary)] bg-[var(--primary)] text-white font-bold"
+                      : "border-[var(--border-1)] bg-[var(--bg)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
                   }`}
                 >
                   Claude Desktop
@@ -140,8 +140,8 @@ export function AgentsView(): JSX.Element {
                   onClick={() => setMcpTab("cursor")}
                   className={`px-2.5 py-1 border transition-colors ${
                     mcpTab === "cursor"
-                      ? "border-[#0000a8] bg-[#0000a8] text-white font-bold"
-                      : "border-[#e0ded5] bg-[#f6f4ed] text-[#6a6f63] hover:text-[#222320]"
+                      ? "border-[var(--primary)] bg-[var(--primary)] text-white font-bold"
+                      : "border-[var(--border-1)] bg-[var(--bg)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
                   }`}
                 >
                   Cursor
@@ -151,8 +151,8 @@ export function AgentsView(): JSX.Element {
                   onClick={() => setMcpTab("cli")}
                   className={`px-2.5 py-1 border transition-colors ${
                     mcpTab === "cli"
-                      ? "border-[#0000a8] bg-[#0000a8] text-white font-bold"
-                      : "border-[#e0ded5] bg-[#f6f4ed] text-[#6a6f63] hover:text-[#222320]"
+                      ? "border-[var(--primary)] bg-[var(--primary)] text-white font-bold"
+                      : "border-[var(--border-1)] bg-[var(--bg)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
                   }`}
                 >
                   Mint Token CLI
@@ -170,24 +170,24 @@ export function AgentsView(): JSX.Element {
                         : mintCommand;
                   copyToClipboard(text, "snippet");
                 }}
-                className="text-[11px] font-mono text-[#0000a8] hover:underline"
+                className="text-[11px] font-mono text-[var(--primary)] hover:underline"
               >
                 {copiedSnippet === "snippet" ? "Copied ✓" : "Copy Configuration"}
               </button>
             </div>
 
-            <pre className="p-3 bg-[#0b0e10] text-[#eef4f2] text-xs font-mono overflow-x-auto border border-white/10 rounded-none leading-relaxed">
+            <pre className="p-3 bg-[#0b0e10] text-[#eef4f2] text-xs font-mono overflow-x-auto border border-white/10 rounded-[var(--radius-button)] leading-relaxed">
               {mcpTab === "claude"
                 ? claudeConfig
                 : mcpTab === "cursor"
                   ? cursorConfig
                   : mintCommand}
             </pre>
-            <p className="mt-2 text-[11px] text-[#6a6f63]">
+            <p className="mt-2 text-[11px] text-[var(--muted-foreground-2)]">
               Replace <code>scout</code> with the exact principal assigned in Inbox. Minting without
               --write only prints a token; it cannot authenticate until its hash is stored in the
               deployed AGENT_TOKENS namespace. Never paste the token into a mailbox or a public log.{" "}
-              <a href="/docs/mcp/" className="text-[#0000a8] hover:underline">
+              <a href="/docs/mcp/" className="text-[var(--primary)] hover:underline">
                 Connection guide
               </a>
             </p>
@@ -196,36 +196,36 @@ export function AgentsView(): JSX.Element {
 
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[#6a6f63]">
+            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
               Custom Agents (KV: AGENT_TOKENS)
             </h3>
-            <span className="text-[11px] font-mono text-[#6a6f63]">
+            <span className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
               {principals.length} registered principal{principals.length === 1 ? "" : "s"}
             </span>
           </div>
 
           {principals.length === 0 ? (
-            <div className="border border-dashed border-[#e0ded5] bg-[#fffef8] p-6 text-center rounded-none font-mono">
-              <p className="text-xs font-bold text-[#222320] mb-1">
+            <div className="border border-dashed border-[var(--border-1)] bg-[var(--card)] p-6 text-center rounded-[var(--radius-button)] font-mono">
+              <p className="text-xs font-bold text-[var(--fg)] mb-1">
                 No agent bearer tokens registered yet
               </p>
-              <p className="text-[11px] text-[#6a6f63] max-w-md mx-auto mb-3">
+              <p className="text-[11px] text-[var(--muted-foreground-2)] max-w-md mx-auto mb-3">
                 Mint a token to allow Claude Desktop, Cursor, or your custom background worker to
                 access Shiba&apos;s capability plane.
               </p>
-              <code className="text-[10px] bg-[#f6f4ed] border border-[#e0ded5] px-2.5 py-1 text-[#0000a8]">
+              <code className="text-[10px] bg-[var(--bg)] border border-[var(--border-1)] px-2.5 py-1 text-[var(--primary)]">
                 {mintCommand}
               </code>
               <div className="mt-3">
-                <a href="/?tab=inbox" className="text-[#0000a8] hover:underline">
+                <a href="/?tab=inbox" className="text-[var(--primary)] hover:underline">
                   Open Inbox setup →
                 </a>
               </div>
             </div>
           ) : (
-            <div className="border border-[#e0ded5] bg-[#fffef8] rounded-none overflow-x-auto font-mono text-xs">
+            <div className="border border-[var(--border-1)] bg-[var(--card)] rounded-[var(--radius-button)] overflow-x-auto font-mono text-xs">
               <table className="w-full text-left">
-                <thead className="bg-[#f6f4ed] border-b border-[#e0ded5] text-[10px] uppercase text-[#6a6f63]">
+                <thead className="bg-[var(--bg)] border-b border-[var(--border-1)] text-[10px] uppercase text-[var(--muted-foreground-2)]">
                   <tr>
                     <th className="p-2.5 font-bold">Principal Name</th>
                     <th className="p-2.5 font-bold">Granted Scopes</th>
@@ -233,11 +233,11 @@ export function AgentsView(): JSX.Element {
                     <th className="p-2.5 font-bold text-right">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#e0ded5]">
+                <tbody className="divide-y divide-[var(--border-1)]">
                   {principals.map((p) => (
-                    <tr key={p.principal} className="hover:bg-[#f6f4ed]/50 transition-colors">
-                      <td className="p-2.5 font-bold text-[#222320] flex items-center gap-2">
-                        <span className="size-1.5 rounded-full bg-[#0000a8]" />
+                    <tr key={p.principal} className="hover:bg-[var(--secondary)] transition-colors">
+                      <td className="p-2.5 font-bold text-[var(--fg)] flex items-center gap-2">
+                        <span className="size-1.5 rounded-full bg-[var(--primary)]" />
                         <span>{p.principal}</span>
                       </td>
                       <td className="p-2.5">
@@ -245,14 +245,14 @@ export function AgentsView(): JSX.Element {
                           {p.scopes.map((s) => (
                             <span
                               key={s}
-                              className="px-1.5 py-0.5 bg-[#0000a8]/10 text-[#0000a8] text-[10px] border border-[#0000a8]/20 font-semibold"
+                              className="px-1.5 py-0.5 bg-[var(--primary-soft)] text-[var(--primary)] text-[10px] border border-[var(--primary)]/20 font-semibold"
                             >
                               {s}
                             </span>
                           ))}
                         </div>
                       </td>
-                      <td className="p-2.5 text-[#6a6f63] text-[11px]">
+                      <td className="p-2.5 text-[var(--muted-foreground-2)] text-[11px]">
                         {formatTimeAgo(p.created)}
                       </td>
                       <td className="p-2.5 text-right">
