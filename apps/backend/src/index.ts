@@ -151,13 +151,12 @@ export default {
         return Response.json(
           {
             error: "Authentication required.",
-            ...(!isAccessConfigured(env)
-              ? {
-                  code: isBetterAuthConfigured(env)
-                    ? "better_auth"
-                    : "access_not_configured",
-                }
-              : {}),
+            // better_auth wins even with Access on, so the dashboard still offers email sign-in.
+            ...(isBetterAuthConfigured(env)
+              ? { code: "better_auth" }
+              : !isAccessConfigured(env)
+                ? { code: "access_not_configured" }
+                : {}),
           },
           { status: 401 },
         );
