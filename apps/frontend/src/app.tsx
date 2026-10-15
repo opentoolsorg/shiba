@@ -1733,34 +1733,6 @@ export function App(): React.JSX.Element {
             />
           ) : mainView === "tasks" ? (
             <div className="flex-1 flex overflow-hidden">
-              {/* LEFT: Devin-style sessions rail with collapse / expand */}
-              <div
-                className={`hidden lg:block self-stretch transition-all duration-200 ease-out overflow-hidden shrink-0 ${
-                  sessionsCollapsed ? "w-0 opacity-0 pointer-events-none" : "w-[280px] opacity-100"
-                }`}
-                aria-hidden={sessionsCollapsed}
-              >
-                <SessionsSidebar
-                  sessions={sessions}
-                  agents={agentPrincipals}
-                  selectedId={selectedRunId ?? selectedSessionId}
-                  onSelect={handleSelectSession}
-                  onNewTask={handleNewTask}
-                  connectionLabel={connectionState}
-                  connectionTone={
-                    identityError || agent.connectionError
-                      ? "error"
-                      : agent.identified
-                        ? "ok"
-                        : "pending"
-                  }
-                  setupDone={setupDone}
-                  setupTotal={SETUP_TOTAL_STEPS}
-                  onOpenSetup={() => setShowFirstRun(true)}
-                  onToggleCollapse={toggleSessionsCollapsed}
-                />
-              </div>
-
               {/* Mobile sessions drawer (below lg) */}
               {mobileSessionsOpen ? (
                 <div className="fixed inset-0 z-40 lg:hidden">
