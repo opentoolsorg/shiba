@@ -1,21 +1,5 @@
 /**
- * AppNavRail — Capy-style left rail (~232px, bg --chrome, border-r --border-1).
- *
- * Information Architecture:
- * 1. Top row banner: Logo mark + spacer + Search icon-btn (⌘K) + Collapse icon-btn (⌘B)
- * 2. Nav "Main":
- *    - New thread (⇧⌘O, pill active state)
- *    - Threads (links to tasks/threads)
- *    - Pull requests (links to diff)
- *    - Automations
- *    - More button (popover menu with remaining views: dashboard, activity, analytics, approvals, swarm, agents, inbox, memory, providers, skills, integrations, remote, settings)
- * 3. Nav "Threads" section:
- *    - Header: small muted label "Threads" + Search threads icon-btn + Options icon-btn
- *    - Search input (collapsible or filtered)
- *    - Session rows: title + mono meta + Capy status dot (teal/amber/green/red/orange)
- * 4. Status region & footer card:
- *    - Status dot + connection state label
- *    - Workspace card: avatar + user/email + workspace label + chevron -> opens account menu
+ * AppNavRail — Modern clean navigation rail matching screenshot reference.
  */
 import { useState, useMemo, useRef, useEffect, type JSX } from "react";
 import {
@@ -33,30 +17,27 @@ import {
   HelpCircle,
   SlidersHorizontal,
   SunMoon,
-  ChevronsLeft,
+  PanelLeft,
   Cpu,
   GitCompareArrows,
   Inbox,
   LayoutDashboard,
+  List,
   LogOut,
-  MessageSquare,
-  MessageSquarePlus,
   Monitor,
-  Moon,
   MoreHorizontal,
-  Plus,
   Search,
   Settings,
   ShieldCheck,
   SquareCheckBig,
-  Sun,
+  SquarePen,
   Terminal,
   X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
 import type { SessionItem } from "./SessionsSidebar";
-import { formatTimeAgo, statusLabel } from "../ui-helpers";
+import { formatTimeAgo } from "../ui-helpers";
 import { Tooltip } from "./Tooltip";
 
 export type AppNavView =
@@ -117,7 +98,6 @@ export interface AppNavRailProps {
   onClose?: () => void;
   accountEmail?: string | null;
   onSignOut?: () => void;
-  // Session integration into unified rail
   sessions?: SessionItem[];
   selectedSessionId?: string | null;
   onSelectSession?: (id: string) => void;
@@ -131,7 +111,7 @@ export interface AppNavRailProps {
 
 const ICONS: Record<AppNavView, LucideIcon> = {
   dashboard: LayoutDashboard,
-  tasks: MessageSquare,
+  tasks: List,
   activity: Activity,
   analytics: BarChart3,
   diff: GitCompareArrows,
@@ -148,7 +128,6 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   swarm: SquareCheckBig,
 };
 
-// Capy semantic status dots
 export function capyStatusDotClass(status: string, live?: boolean): string {
   if (live || status === "live" || status === "running") {
     return "bg-[var(--primary)] animate-pulse-subtle";
@@ -160,7 +139,7 @@ export function capyStatusDotClass(status: string, live?: boolean): string {
     return "bg-[var(--success)]";
   }
   if (status === "unknown") {
-    return "bg-[var(--orange)] bg-[#b45309]";
+    return "bg-[#b45309]";
   }
   if (status === "error" || status === "aborted" || status === "cancelled") {
     return "bg-[var(--destructive)]";
@@ -194,15 +173,12 @@ export function AppNavRail({
 }: AppNavRailProps): JSX.Element {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [orgSubmenuOpen, setOrgSubmenuOpen] = useState(false);
   const [appearanceSubmenuOpen, setAppearanceSubmenuOpen] = useState(false);
-  const [supportSubmenuOpen, setSupportSubmenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [threadQuery, setThreadQuery] = useState("");
   const moreRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
 
-  // Close menus on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
@@ -210,9 +186,7 @@ export function AppNavRail({
       }
       if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
         setAccountMenuOpen(false);
-        setOrgSubmenuOpen(false);
         setAppearanceSubmenuOpen(false);
-        setSupportSubmenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -250,51 +224,36 @@ export function AppNavRail({
     <aside
       className={
         variant === "sheet"
-          ? "w-[240px] max-w-[85vw] h-full flex flex-col bg-[var(--chrome)] border-r border-[var(--border-1)] px-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] select-none overflow-hidden"
-          : "transition-all duration-200 ease-out h-full flex flex-col bg-[var(--chrome)] z-30 select-none overflow-hidden " + (collapsed ? "w-0 opacity-0 pointer-events-none border-r-0 p-0" : "w-[232px] shrink-0 border-r border-[var(--border-1)] py-2.5 px-2.5")
+          ? "w-[240px] max-w-[85vw] h-full flex flex-col bg-[#0d0d0f] text-[#ececed] px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] select-none overflow-hidden"
+          : "transition-all duration-200 ease-out h-full flex flex-col bg-[#0d0d0f] text-[#ececed] z-30 select-none overflow-hidden " + (collapsed ? "w-0 opacity-0 pointer-events-none p-0" : "w-[240px] shrink-0 py-3 px-3")
       }
       aria-label="Primary Left Rail"
       aria-hidden={variant === "rail" && collapsed ? true : undefined}
     >
-      <div className="sr-only" aria-hidden="true">
-        <span>Dashboard</span>
-        <span>Tasks</span>
-        <span>Runs</span>
-        <span>Diff</span>
-        <span>Approvals</span>
-        <span>Mailbox</span>
-        <span>Memory</span>
-        <span>Automations</span>
-        <span>Providers</span>
-        <span>Integrations</span>
-        <span>Setup Guide</span>
-        <span>Sessions</span>
-      </div>
-      {/* 1. TOP BANNER: Logo mark + spacer + Search icon-btn + Collapse icon-btn */}
-      <div className="flex items-center justify-between gap-1.5 px-1.5 pb-2 mb-1 border-b border-[var(--border-1)]">
+      {/* TOP HEADER: Shiba logo mark + Search icon + Sidebar collapse icon */}
+      <div className="flex items-center justify-between px-1 pb-3 mb-1.5">
         <a
           href="/"
           className="flex items-center gap-2 group focus:outline-none min-w-0"
-          aria-label="Capy Shiba Home"
+          aria-label="Shiba Home"
         >
-          <img
-            src="/assets/mascot/pet-logo.png"
-            alt="Shiba"
-            className="size-6 rounded-[var(--radius-inner)] bg-[var(--card)] object-contain border border-[var(--border-1)] transition-transform duration-150 group-hover:scale-105"
-          />
-          <span className="font-semibold text-[13px] tracking-tight text-[var(--fg)] truncate">
-            Shiba
-          </span>
+          <div className="size-6 rounded-full bg-[#18181b] flex items-center justify-center p-0.5 border border-[#27272a]/60 transition-transform duration-150 group-hover:scale-105">
+            <img
+              src="/assets/mascot/pet-logo.png"
+              alt="Shiba"
+              className="size-full object-contain rounded-full"
+            />
+          </div>
         </a>
 
-        <div className="flex items-center gap-0.5 ml-auto">
+        <div className="flex items-center gap-1 ml-auto">
           {onOpenSearch ? (
             <Tooltip content="Search" shortcut="⌘K" side="bottom">
               <button
                 type="button"
                 onClick={onOpenSearch}
                 aria-label="Search"
-                className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                className="size-6 rounded flex items-center justify-center text-[#71717a] hover:text-[#d4d4d8] hover:bg-[#27272a]/50 transition-colors"
               >
                 <Search className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
               </button>
@@ -306,9 +265,9 @@ export function AppNavRail({
               type="button"
               onClick={onClose}
               aria-label="Close sidebar"
-              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+              className="size-6 rounded flex items-center justify-center text-[#71717a] hover:text-[#d4d4d8] hover:bg-[#27272a]/50 transition-colors"
             >
-              <X className="size-4" strokeWidth={1.8} aria-hidden="true" />
+              <X className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
             </button>
           ) : onToggleCollapse ? (
             <Tooltip content="Collapse sidebar" shortcut="⌘B" side="bottom">
@@ -316,115 +275,79 @@ export function AppNavRail({
                 type="button"
                 onClick={onToggleCollapse}
                 aria-label="Collapse sidebar"
-                className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                className="size-6 rounded flex items-center justify-center text-[#71717a] hover:text-[#d4d4d8] hover:bg-[#27272a]/50 transition-colors"
               >
-                <ChevronsLeft className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
+                <PanelLeft className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
               </button>
             </Tooltip>
           ) : null}
         </div>
       </div>
 
-      {/* 2. NAV MAIN: New thread ⇧⌘O | Threads | Pull requests | Automations | More */}
-      <nav aria-label="Main" className="flex flex-col gap-0.5 pt-1 pb-2 border-b border-[var(--border-1)]">
-        {/* New thread button */}
+      {/* TOP ACTIONS: New thread (full capsule button) */}
+      <div className="mb-2 px-0.5">
         <button
           type="button"
           onClick={() => {
             if (onNewTask) onNewTask();
             else onNavigate("tasks");
           }}
-          aria-label="New thread ⇧⌘O"
-          className="group w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+          aria-label="New thread"
+          className="w-full flex items-center gap-2.5 rounded-lg bg-[#27272a]/70 hover:bg-[#27272a] text-[#f4f4f5] px-2.5 py-1.5 text-[13px] font-medium transition-colors border border-[#3f3f46]/30 shadow-sm"
         >
-          <MessageSquarePlus className="size-4 text-[var(--primary)]" strokeWidth={1.8} aria-hidden="true" />
-          <span className="flex-1 text-left truncate">New thread</span>
-          <kbd className="font-mono text-[10px] text-[var(--muted-foreground-3)] bg-[var(--section)] px-1.5 py-0.5 rounded-[var(--radius-kbd)] border border-[var(--border-1)]">
-            ⇧⌘O
-          </kbd>
+          <SquarePen className="size-3.5 text-[#a1a1aa]" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate leading-none">New thread</span>
         </button>
+      </div>
 
-        {/* Threads */}
+      {/* NAV ITEMS: Threads, Pull requests, Automations, More */}
+      <nav aria-label="Main" className="flex flex-col gap-0.5 mb-4 px-0.5">
         <button
           type="button"
           onClick={() => onNavigate("tasks")}
           aria-current={activeView === "tasks" ? "page" : undefined}
           className={
-            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+            "w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-normal transition-colors " +
             (activeView === "tasks"
-              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
-              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+              ? "text-[#f4f4f5] bg-[#27272a]/40"
+              : "text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]/30")
           }
         >
-          <MessageSquare className="size-4" strokeWidth={1.8} aria-hidden="true" />
-          <span className="flex-1 text-left truncate">Threads</span>
+          <List className="size-3.5 shrink-0 text-[#71717a]" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate leading-none">Threads</span>
         </button>
 
-        {/* Pull requests */}
         <button
           type="button"
           onClick={() => onNavigate("diff")}
           aria-current={activeView === "diff" ? "page" : undefined}
           className={
-            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+            "w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-normal transition-colors " +
             (activeView === "diff"
-              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
-              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+              ? "text-[#f4f4f5] bg-[#27272a]/40"
+              : "text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]/30")
           }
         >
-          <GitCompareArrows className="size-4" strokeWidth={1.8} aria-hidden="true" />
-          <span className="flex-1 text-left truncate">Pull requests</span>
+          <GitCompareArrows className="size-3.5 shrink-0 text-[#71717a]" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate leading-none">Pull requests</span>
         </button>
 
-        {/* Automations */}
         <button
           type="button"
           onClick={() => onNavigate("automations")}
           aria-current={activeView === "automations" ? "page" : undefined}
           className={
-            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+            "w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-normal transition-colors " +
             (activeView === "automations"
-              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
-              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+              ? "text-[#f4f4f5] bg-[#27272a]/40"
+              : "text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]/30")
           }
         >
-          <Zap className="size-4" strokeWidth={1.8} aria-hidden="true" />
-          <span className="flex-1 text-left truncate">Automations</span>
+          <Zap className="size-3.5 shrink-0 text-[#71717a]" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate leading-none">Automations</span>
         </button>
 
-        {/* Mailbox */}
-        <button
-          type="button"
-          onClick={() => onNavigate("inbox")}
-          aria-current={activeView === "inbox" ? "page" : undefined}
-          className={
-            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
-            (activeView === "inbox"
-              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
-              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
-          }
-        >
-          <Inbox className="size-4" strokeWidth={1.8} aria-hidden="true" />
-          <span className="flex-1 text-left truncate">Mailbox</span>
-        </button>
-
-        {/* Memory */}
-        <button
-          type="button"
-          onClick={() => onNavigate("memory")}
-          aria-current={activeView === "memory" ? "page" : undefined}
-          className={
-            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
-            (activeView === "memory"
-              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
-              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
-          }
-        >
-          <Brain className="size-4" strokeWidth={1.8} aria-hidden="true" />
-          <span className="flex-1 text-left truncate">Memory</span>
-        </button>
-
-        {/* More popover button */}
+        {/* More popover */}
         <div ref={moreRef} className="relative">
           <button
             type="button"
@@ -432,14 +355,14 @@ export function AppNavRail({
             aria-expanded={moreMenuOpen}
             aria-haspopup="true"
             className={
-              "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+              "w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-normal transition-colors " +
               (isMoreViewActive
-                ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
-                : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+                ? "text-[#f4f4f5] bg-[#27272a]/40"
+                : "text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]/30")
             }
           >
-            <MoreHorizontal className="size-4" strokeWidth={1.8} aria-hidden="true" />
-            <span className="flex-1 text-left truncate">
+            <MoreHorizontal className="size-3.5 shrink-0 text-[#71717a]" strokeWidth={1.8} aria-hidden="true" />
+            <span className="flex-1 text-left truncate leading-none">
               {isMoreViewActive
                 ? APP_NAV_ITEMS.find((item) => item.id === activeView)?.label ?? "More"
                 : "More"}
@@ -449,13 +372,12 @@ export function AppNavRail({
                 {pendingApprovalCount}
               </span>
             ) : null}
-            <ChevronDown className="size-3 text-[var(--muted-foreground-3)]" strokeWidth={1.8} aria-hidden="true" />
           </button>
 
           {moreMenuOpen ? (
             <div
               role="menu"
-              className="absolute left-0 top-full mt-1 w-52 py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50 max-h-80 overflow-y-auto animate-enter"
+              className="absolute left-0 top-full mt-1 w-52 py-1 bg-[#18181b] border border-[#27272a] rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto animate-enter text-[13px]"
             >
               {moreViews.map((id) => {
                 const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
@@ -472,13 +394,13 @@ export function AppNavRail({
                       setMoreMenuOpen(false);
                     }}
                     className={
-                      "w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] transition-colors " +
+                      "w-full flex items-center gap-2.5 px-3 py-1.5 transition-colors " +
                       (active
-                        ? "bg-[var(--secondary)] text-[var(--fg)] font-medium"
-                        : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+                        ? "bg-[#27272a] text-[#f4f4f5] font-medium"
+                        : "text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]/60")
                     }
                   >
-                    <Icon className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} aria-hidden="true" />
+                    <Icon className="size-4 shrink-0 text-[#71717a]" strokeWidth={1.8} aria-hidden="true" />
                     <span className="flex-1 text-left truncate">{item.label}</span>
                     {id === "approvals" && pendingApprovalCount > 0 ? (
                       <span className="min-w-4 h-4 px-1 rounded-full bg-[var(--warning-fg)] text-[var(--bg)] text-[10px] font-bold flex items-center justify-center">
@@ -493,20 +415,20 @@ export function AppNavRail({
         </div>
       </nav>
 
-      {/* 3. NAV THREADS SECTION: Header + Search/Options + Session rows */}
-      <div className="flex-1 flex flex-col min-h-0 pt-2 pb-1 overflow-hidden">
-        <div className="flex items-center justify-between px-1.5 pb-1.5">
-          <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">
+      {/* THREADS LIST SECTION */}
+      <div className="flex-1 flex flex-col min-h-0 pt-1 pb-1 overflow-hidden">
+        <div className="flex items-center justify-between px-1 pb-2">
+          <span className="text-[12px] text-[#71717a] font-normal leading-none">
             Threads
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setSearchOpen((prev) => !prev)}
               aria-label="Search threads"
-              className="size-5 rounded-[var(--radius-xs)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+              className="size-5 rounded flex items-center justify-center text-[#71717a] hover:text-[#d4d4d8] hover:bg-[#27272a]/50 transition-colors"
             >
-              <Search className="size-3" strokeWidth={1.8} aria-hidden="true" />
+              <Search className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -514,15 +436,15 @@ export function AppNavRail({
                 if (onNewTask) onNewTask();
               }}
               aria-label="Thread options"
-              className="size-5 rounded-[var(--radius-xs)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+              className="size-5 rounded flex items-center justify-center text-[#71717a] hover:text-[#d4d4d8] hover:bg-[#27272a]/50 transition-colors"
             >
-              <Plus className="size-3" strokeWidth={2} aria-hidden="true" />
+              <MoreHorizontal className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
             </button>
           </div>
         </div>
 
         {searchOpen ? (
-          <div className="px-1 pb-2">
+          <div className="px-0.5 pb-2">
             <div className="relative">
               <input
                 type="search"
@@ -530,14 +452,14 @@ export function AppNavRail({
                 onChange={(e) => setThreadQuery(e.target.value)}
                 placeholder="Filter threads…"
                 aria-label="Filter threads"
-                className="w-full h-7 bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] pl-2 pr-6 text-[12px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus:outline-none focus:border-[var(--ring)] transition-colors"
+                className="w-full h-7 bg-[#18181b] border border-[#27272a] rounded-md pl-2 pr-6 text-[12px] text-[#ececed] placeholder:text-[#52525b] focus:outline-none focus:border-[#3f3f46] transition-colors"
               />
               {threadQuery ? (
                 <button
                   type="button"
                   onClick={() => setThreadQuery("")}
                   aria-label="Clear filter"
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground-3)] hover:text-[var(--fg)] text-xs"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#71717a] hover:text-[#d4d4d8] text-xs"
                 >
                   ✕
                 </button>
@@ -549,9 +471,11 @@ export function AppNavRail({
         {/* Scrollable thread rows */}
         <div className="flex-1 overflow-y-auto px-0.5 space-y-0.5">
           {filteredSessions.length === 0 ? (
-            <p className="text-[var(--muted-foreground-3)] text-[12px] px-2 py-4 text-center">
-              {sessions.length === 0 ? "No threads yet" : "No threads match"}
-            </p>
+            <div className="py-6 text-center">
+              <p className="text-[#52525b] text-[12px]">
+                {sessions.length === 0 ? "No threads yet" : "No threads match"}
+              </p>
+            </div>
           ) : (
             filteredSessions.map((s) => {
               const isSelected = s.id === selectedSessionId;
@@ -563,27 +487,22 @@ export function AppNavRail({
                     if (onSelectSession) onSelectSession(s.id);
                   }}
                   className={
-                    "w-full text-left rounded-[var(--radius-button)] px-2 py-1.5 flex items-start gap-2 transition-colors " +
+                    "w-full text-left rounded-md px-2 py-1.5 flex items-center gap-2.5 transition-colors " +
                     (isSelected
-                      ? "bg-[var(--secondary)] text-[var(--fg)]"
-                      : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)] hover:text-[var(--fg)]")
+                      ? "bg-[#27272a]/60 text-[#f4f4f5]"
+                      : "text-[#a1a1aa] hover:bg-[#27272a]/30 hover:text-[#ececed]")
                   }
                 >
                   <span
                     className={
-                      "mt-1.5 size-1.5 rounded-full shrink-0 " +
+                      "size-1.5 rounded-full shrink-0 " +
                       capyStatusDotClass(s.status, s.live)
                     }
                     aria-hidden="true"
                   />
-                  <div className="min-w-0 flex-1">
-                    <span className="block text-[12px] font-medium truncate leading-tight">
-                      {s.title || "Untitled thread"}
-                    </span>
-                    <span className="block text-[10px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5">
-                      {s.repoName} · {formatTimeAgo(s.updatedAt)}
-                    </span>
-                  </div>
+                  <span className="block text-[13px] font-normal truncate leading-tight flex-1">
+                    {s.title || "Untitled thread"}
+                  </span>
                 </button>
               );
             })
@@ -591,67 +510,33 @@ export function AppNavRail({
         </div>
       </div>
 
-      {/* 4. STATUS REGION & FOOTER CARD */}
-      <div className="pt-2 mt-auto border-t border-[var(--border-1)] flex flex-col gap-1.5">
-        {/* Status region */}
-        <div className="flex items-center justify-between px-2 text-[11px] text-[var(--muted-foreground-2)]">
-          <span className="inline-flex items-center gap-1.5 min-w-0">
-            <span
-              className={
-                "size-1.5 rounded-full shrink-0 " +
-                (connectionTone === "ok"
-                  ? "bg-[var(--success)]"
-                  : connectionTone === "pending"
-                    ? "bg-[var(--warning-fg)] animate-pulse"
-                    : "bg-[var(--destructive)]")
-              }
-              aria-hidden="true"
-            />
-            <span className="truncate">{connectionLabel}</span>
-          </span>
-          {setupDone !== null && setupDone < setupTotal ? (
-            <button
-              type="button"
-              onClick={onOpenSetup}
-              className="text-[10px] font-mono text-[var(--warning-fg)] hover:underline"
-            >
-              Setup {setupDone}/{setupTotal}
-            </button>
-          ) : null}
-        </div>
-
-        {/* Footer account card */}
+      {/* FOOTER USER / WORKSPACE CARD */}
+      <div className="pt-2 mt-auto border-t border-[#27272a]/60 flex flex-col gap-1">
         <div ref={accountRef} className="relative">
           <button
             type="button"
             onClick={() => setAccountMenuOpen((prev) => !prev)}
             aria-expanded={accountMenuOpen}
             aria-haspopup="true"
-            aria-label={accountEmail ? `${accountEmail} · ${accountEmail.split("@")[0]}'s workspace` : "Workspace profile and account settings"}
-            className="w-full flex items-center gap-2 p-1.5 rounded-[var(--radius-button)] hover:bg-[var(--secondary)] transition-colors text-left"
+            aria-label={accountEmail ? `${accountEmail} · workspace` : "Workspace profile"}
+            className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-[#27272a]/40 transition-colors text-left group"
           >
-            <div className="size-7 rounded-full bg-[var(--card)] border border-[var(--border-2)] flex items-center justify-center text-[11px] font-bold text-[var(--primary)] shrink-0 shadow-sm">
-              {accountEmail ? accountEmail.slice(0, 2).toUpperCase() : "SH"}
-            </div>
+            <div className="size-5 rounded-sm bg-[#eab308] flex items-center justify-center shrink-0 shadow-sm" />
             <div className="min-w-0 flex-1 leading-tight">
-              <span className="block text-[12px] font-medium text-[var(--fg)] truncate">
-                {accountEmail ?? "Shiba Workspace"}
+              <span className="block text-[12px] font-medium text-[#f4f4f5] truncate">
+                {accountEmail ? accountEmail.split("@")[0] : "prince pal"}
               </span>
-              <span className="block text-[10px] text-[var(--muted-foreground-3)] truncate">
-                {accountEmail ? `${accountEmail.split("@")[0]}'s workspace` : "Personal Workspace"}
+              <span className="block text-[10px] text-[#71717a] truncate mt-0.5">
+                {accountEmail ? `${accountEmail.split("@")[0]}'s workspace` : "prince's workspace"}
               </span>
             </div>
-            {accountMenuOpen ? (
-              <ChevronUp className="size-3 text-[var(--muted-foreground-3)] shrink-0" strokeWidth={1.8} aria-hidden="true" />
-            ) : (
-              <ChevronDown className="size-3 text-[var(--muted-foreground-3)] shrink-0" strokeWidth={1.8} aria-hidden="true" />
-            )}
+            <ChevronUp className="size-3.5 text-[#71717a] shrink-0 group-hover:text-[#a1a1aa] transition-colors" strokeWidth={1.8} aria-hidden="true" />
           </button>
 
           {accountMenuOpen ? (
             <div
               role="menu"
-              className="absolute left-0 bottom-full mb-1.5 w-[220px] py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50 animate-enter text-[13px]"
+              className="absolute left-0 bottom-full mb-1.5 w-[220px] py-1 bg-[#18181b] border border-[#27272a] rounded-lg shadow-xl z-50 animate-enter text-[13px]"
             >
               {onOpenSetup ? (
                 <button
@@ -661,9 +546,9 @@ export function AppNavRail({
                     onOpenSetup();
                     setAccountMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a] transition-colors"
                 >
-                  <SlidersHorizontal className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                  <SlidersHorizontal className="size-4 shrink-0 text-[#71717a]" strokeWidth={1.8} />
                   <span className="flex-1 text-left">Finish setting up</span>
                 </button>
               ) : null}
@@ -675,11 +560,11 @@ export function AppNavRail({
                   setAccountMenuOpen(false);
                   onNavigate("settings");
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a] transition-colors"
               >
-                <Settings className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                <Settings className="size-4 shrink-0 text-[#71717a]" strokeWidth={1.8} />
                 <span className="flex-1 text-left">Settings</span>
-                <kbd className="text-[10px] font-mono text-[var(--muted-foreground-3)] bg-[var(--secondary)] px-1 py-0.5 rounded-[var(--radius-xs)]">⌘,</kbd>
+                <kbd className="text-[10px] font-mono text-[#71717a] bg-[#27272a] px-1 py-0.5 rounded">⌘,</kbd>
               </button>
 
               <button
@@ -689,9 +574,9 @@ export function AppNavRail({
                   setAccountMenuOpen(false);
                   onNavigate("analytics");
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a] transition-colors"
               >
-                <Clock className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                <Clock className="size-4 shrink-0 text-[#71717a]" strokeWidth={1.8} />
                 <span className="flex-1 text-left">Usage</span>
               </button>
 
@@ -702,40 +587,35 @@ export function AppNavRail({
                   setAccountMenuOpen(false);
                   onNavigate("remote");
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a] transition-colors"
               >
-                <Monitor className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                <Monitor className="size-4 shrink-0 text-[#71717a]" strokeWidth={1.8} />
                 <span className="flex-1 text-left">Open desktop app</span>
               </button>
 
-              {/* Appearance submenu */}
               <div className="relative">
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => {
-                    setAppearanceSubmenuOpen((prev) => !prev);
-                    setOrgSubmenuOpen(false);
-                    setSupportSubmenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                  onClick={() => setAppearanceSubmenuOpen((prev) => !prev)}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a] transition-colors"
                 >
-                  <SunMoon className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                  <SunMoon className="size-4 shrink-0 text-[#71717a]" strokeWidth={1.8} />
                   <span className="flex-1 text-left">Appearance</span>
-                  <ChevronRight className="size-3.5 text-[var(--muted-foreground-3)]" />
+                  <ChevronRight className="size-3.5 text-[#71717a]" />
                 </button>
                 {appearanceSubmenuOpen && onToggleTheme ? (
-                  <div className="absolute left-full bottom-0 ml-1 w-44 py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50">
+                  <div className="absolute left-full bottom-0 ml-1 w-44 py-1 bg-[#18181b] border border-[#27272a] rounded-lg shadow-xl z-50">
                     <button
                       type="button"
                       onClick={() => {
                         if (theme !== "light") onToggleTheme();
                         setAccountMenuOpen(false);
                       }}
-                      className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                      className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
                     >
                       <span>Light</span>
-                      {theme === "light" ? <Check className="size-3.5 text-[var(--primary)]" /> : null}
+                      {theme === "light" ? <Check className="size-3.5 text-[#eab308]" /> : null}
                     </button>
                     <button
                       type="button"
@@ -743,108 +623,16 @@ export function AppNavRail({
                         if (theme !== "dark") onToggleTheme();
                         setAccountMenuOpen(false);
                       }}
-                      className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                      className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
                     >
                       <span>Dark</span>
-                      {theme === "dark" ? <Check className="size-3.5 text-[var(--primary)]" /> : null}
+                      {theme === "dark" ? <Check className="size-3.5 text-[#eab308]" /> : null}
                     </button>
                   </div>
                 ) : null}
               </div>
 
-              {/* Support submenu */}
-              <div className="relative">
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setSupportSubmenuOpen((prev) => !prev);
-                    setOrgSubmenuOpen(false);
-                    setAppearanceSubmenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
-                >
-                  <HelpCircle className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
-                  <span className="flex-1 text-left">Support</span>
-                  <ChevronRight className="size-3.5 text-[var(--muted-foreground-3)]" />
-                </button>
-                {supportSubmenuOpen ? (
-                  <div className="absolute left-full bottom-0 ml-1 w-44 py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50">
-                    <a
-                      href="/docs"
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
-                    >
-                      <BookOpen className="size-3.5" />
-                      <span>Documentation</span>
-                    </a>
-                    {onOpenShortcuts ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onOpenShortcuts();
-                          setAccountMenuOpen(false);
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
-                      >
-                        <span className="text-[11px] font-mono font-bold leading-none w-3.5">?</span>
-                        <span>Shortcuts</span>
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="h-px bg-[var(--border-1)] my-1" />
-
-              {/* Switch organization item & flyout */}
-              <div className="relative">
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setOrgSubmenuOpen((prev) => !prev);
-                    setAppearanceSubmenuOpen(false);
-                    setSupportSubmenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
-                >
-                  <GitCompareArrows className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
-                  <span className="flex-1 text-left">Switch organization</span>
-                  <ChevronRight className="size-3.5 text-[var(--muted-foreground-3)]" />
-                </button>
-
-                {orgSubmenuOpen ? (
-                  <div className="absolute left-full bottom-0 ml-1 w-56 py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50 animate-enter text-[13px]">
-                    <button
-                      type="button"
-                      onClick={() => setAccountMenuOpen(false)}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
-                    >
-                      <div className="size-5 rounded bg-[var(--card)] border border-[var(--border-2)] flex items-center justify-center text-[10px] font-mono font-bold text-[var(--muted-foreground-1)] shrink-0">
-                        {accountEmail ? accountEmail.slice(0, 2).toUpperCase() : "PW"}
-                      </div>
-                      <span className="flex-1 text-left truncate">
-                        {accountEmail ? accountEmail.split("@")[0] + "'s workspace" : "prince's workspace"}
-                      </span>
-                      <Check className="size-4 text-[var(--fg)] shrink-0" strokeWidth={2} />
-                    </button>
-
-                    <div className="h-px bg-[var(--border-1)] my-1" />
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAccountMenuOpen(false);
-                        onNavigate("settings");
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
-                    >
-                      <Plus className="size-4 text-[var(--muted-foreground-2)] shrink-0" strokeWidth={1.8} />
-                      <span className="flex-1 text-left truncate">Create or join organization</span>
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              <div className="h-px bg-[#27272a] my-1" />
 
               {onSignOut ? (
                 <button
@@ -854,7 +642,7 @@ export function AppNavRail({
                     onSignOut();
                     setAccountMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--destructive)] hover:bg-[var(--destructive-soft)] transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[#ef4444] hover:bg-[#27272a] transition-colors"
                 >
                   <LogOut className="size-4 shrink-0" strokeWidth={1.8} />
                   <span className="flex-1 text-left">Log out</span>
