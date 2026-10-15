@@ -204,7 +204,14 @@ body {
   overflow-x: hidden;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1, h2 {
+  font-family: var(--font-display);
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+h3, h4, h5, h6 {
   font-family: var(--font-sans);
   font-style: normal;
   font-weight: 500;
@@ -213,6 +220,10 @@ h1, h2, h3, h4, h5, h6 {
 
 code, pre, kbd, samp, .font-mono {
   font-family: var(--font-mono);
+}
+
+.font-display {
+  font-family: var(--font-display);
 }
 
 /* Dot-grid background utility */
