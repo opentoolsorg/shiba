@@ -1092,7 +1092,10 @@ export function App(): React.JSX.Element {
         return;
       }
       if (isEditableTarget(e.target)) return;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "o" || e.key === "O")) {
+        e.preventDefault();
+        handleNewTaskRef.current();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandMenuOpen((prev) => !prev);
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
@@ -1119,6 +1122,7 @@ export function App(): React.JSX.Element {
     settingsModalOpen,
   ]);
 
+  const handleNewTaskRef = useRef<() => void>(() => {});
   // First-seen time per live run: a stable createdAt so ordering doesn't churn.
   const firstSeen = useRef(new Map<string, number>());
   const seenAt = useCallback((runId: string) => {
@@ -1502,7 +1506,7 @@ export function App(): React.JSX.Element {
           : null;
 
   return (
-    <div className="h-dvh overflow-hidden bg-[#f6f4ed] text-[#222320] font-sans selection:bg-[#0000a8] selection:text-white flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div className="h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
         activeView={mainView}
@@ -1517,6 +1521,20 @@ export function App(): React.JSX.Element {
         onOpenShortcuts={() => setShowShortcutsModal(true)}
         accountEmail={authMode === "better-auth" ? orchestratorName : null}
         onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
+        sessions={sessions}
+        selectedSessionId={selectedRunId ?? selectedSessionId}
+        onSelectSession={handleSelectSession}
+        onNewTask={handleNewTask}
+        onOpenSearch={() => setCommandMenuOpen(true)}
+        onToggleCollapse={toggleSessionsCollapsed}
+        connectionLabel={connectionState}
+        connectionTone={
+          identityError || agent.connectionError
+            ? "error"
+            : agent.identified
+              ? "ok"
+              : "pending"
+        }
       />
 
       {mobileNavOpen ? (
@@ -1553,21 +1571,43 @@ export function App(): React.JSX.Element {
               accountEmail={authMode === "better-auth" ? orchestratorName : null}
               onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
               onClose={() => setMobileNavOpen(false)}
+              sessions={sessions}
+              selectedSessionId={selectedRunId ?? selectedSessionId}
+              onSelectSession={(id) => {
+                handleSelectSession(id);
+                setMobileNavOpen(false);
+              }}
+              onNewTask={() => {
+                handleNewTask();
+                setMobileNavOpen(false);
+              }}
+              onOpenSearch={() => {
+                setMobileNavOpen(false);
+                setCommandMenuOpen(true);
+              }}
+              connectionLabel={connectionState}
+              connectionTone={
+                identityError || agent.connectionError
+                  ? "error"
+                  : agent.identified
+                    ? "ok"
+                    : "pending"
+              }
             />
           </div>
         </div>
       ) : null}
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* NAVY TOP BAR — bezalel-style breadcrumb + quick actions */}
-        <header className="h-[calc(2.75rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-[#0000a8] text-white flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
+        {/* TOP BAR — Capy subtle chrome header */}
+        <header className="h-[calc(2.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-[var(--chrome)] border-b border-[var(--border-1)] text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
           <button
             type="button"
             ref={mobileNavTriggerRef}
             onClick={() => setMobileNavOpen(true)}
             aria-label="Open navigation"
             aria-expanded={mobileNavOpen}
-            className="lg:hidden size-11 -my-1 shrink-0 rounded-none flex items-center justify-center text-white/90 hover:bg-white/15 transition-colors"
+            className="lg:hidden size-9 -my-1 shrink-0 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
           >
             <svg
               aria-hidden="true"
@@ -1581,14 +1621,14 @@ export function App(): React.JSX.Element {
             </svg>
           </button>
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-white/60">
+            <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
               Shiba
             </span>
-            <span className="text-white/40 text-xs" aria-hidden="true">
+            <span className="text-[var(--muted-foreground-3)] text-xs" aria-hidden="true">
               /
             </span>
-            <span className="text-[13px] font-medium truncate">
-              {APP_NAV_ITEMS.find((item) => item.id === mainView)?.label ?? "Tasks"}
+            <span className="text-[13px] font-medium text-[var(--fg)] truncate">
+              {APP_NAV_ITEMS.find((item) => item.id === mainView)?.label ?? "Threads"}
             </span>
           </nav>
           <div className="ml-auto flex items-center gap-1.5">
@@ -1597,7 +1637,7 @@ export function App(): React.JSX.Element {
                 type="button"
                 onClick={() => setCommandMenuOpen(true)}
                 aria-label="Open command menu"
-                className="h-7 touch:h-9 touch:min-w-11 justify-center rounded-none border border-white/20 bg-white/10 text-white/90 hover:bg-white/20 hover:text-white flex items-center gap-1.5 px-2 text-[11px] font-medium transition-colors"
+                className="h-7 touch:h-8 touch:min-w-10 justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] flex items-center gap-1.5 px-2 text-[11px] font-medium transition-colors"
               >
                 <svg
                   aria-hidden="true"
