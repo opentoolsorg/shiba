@@ -417,7 +417,7 @@ export function SubscriptionConnect({
                 onChange={(event) => setPasteUrl(event.target.value)}
                 placeholder="http://127.0.0.1:…/?code=…&state=…"
                 aria-label="Pasted OAuth redirect URL"
-                className="min-w-0 flex-1 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] px-2.5 py-1.5 font-mono text-xs text-[var(--fg)] transition-colors placeholder-[var(--muted-foreground-3)]/60 focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[#1c1cc8]/40"
+                className="min-w-0 flex-1 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] px-2.5 py-1.5 font-mono text-xs text-[var(--fg)] transition-colors placeholder-[var(--muted-foreground-3)]/60 focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
               />
               <button
                 type="button"

@@ -711,7 +711,7 @@ function RepositoriesSection(): JSX.Element {
             onChange={(event) => setDraft(event.target.value)}
             placeholder="https://github.com/owner/repo"
             aria-label="New repository URL"
-            className="flex-1 bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors"
+            className="flex-1 bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors"
           />
           <button
             type="button"

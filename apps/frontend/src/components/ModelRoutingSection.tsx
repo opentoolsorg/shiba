@@ -108,7 +108,7 @@ export function PurposeRoutingCard(): JSX.Element {
               }}
               placeholder="@cf/… (deployment default)"
               aria-label={`${purpose.label} model`}
-              className="w-56 font-mono text-[11px] bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[#1c1cc8]/40 placeholder-[var(--muted-foreground-3)]/60"
+              className="w-56 font-mono text-[11px] bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60"
             />
           </div>
         ))}

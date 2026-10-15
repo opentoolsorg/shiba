@@ -256,7 +256,7 @@ export function AutomationsView(): JSX.Element {
             <LoadErrorState message={loadError} onRetry={refresh} />
           ) : automations === null ? (
             <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground-2)] font-mono py-2">
-              <span className="animate-spin inline-block w-3 h-3 border-2 border-[#6a6f63] border-t-transparent rounded-full" />
+              <span className="animate-spin inline-block w-3 h-3 border-2 border-[var(--muted-foreground-2)] border-t-transparent rounded-full" />
               <span>Loading…</span>
             </div>
           ) : automations.length === 0 ? (
