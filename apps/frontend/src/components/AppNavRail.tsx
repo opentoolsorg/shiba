@@ -25,7 +25,14 @@ import {
   BookMarked,
   BookOpen,
   Brain,
+  Check,
   ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Clock,
+  HelpCircle,
+  SlidersHorizontal,
+  SunMoon,
   ChevronsLeft,
   Cpu,
   GitCompareArrows,
@@ -185,6 +192,9 @@ export function AppNavRail({
 }: AppNavRailProps): JSX.Element {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [orgSubmenuOpen, setOrgSubmenuOpen] = useState(false);
+  const [appearanceSubmenuOpen, setAppearanceSubmenuOpen] = useState(false);
+  const [supportSubmenuOpen, setSupportSubmenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [threadQuery, setThreadQuery] = useState("");
   const moreRef = useRef<HTMLDivElement>(null);
@@ -198,6 +208,9 @@ export function AppNavRail({
       }
       if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
         setAccountMenuOpen(false);
+        setOrgSubmenuOpen(false);
+        setAppearanceSubmenuOpen(false);
+        setSupportSubmenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -374,6 +387,38 @@ export function AppNavRail({
         >
           <Zap className="size-4" strokeWidth={1.8} aria-hidden="true" />
           <span className="flex-1 text-left truncate">Automations</span>
+        </button>
+
+        {/* Mailbox */}
+        <button
+          type="button"
+          onClick={() => onNavigate("inbox")}
+          aria-current={activeView === "inbox" ? "page" : undefined}
+          className={
+            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+            (activeView === "inbox"
+              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
+              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+          }
+        >
+          <Inbox className="size-4" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate">Mailbox</span>
+        </button>
+
+        {/* Memory */}
+        <button
+          type="button"
+          onClick={() => onNavigate("memory")}
+          aria-current={activeView === "memory" ? "page" : undefined}
+          className={
+            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+            (activeView === "memory"
+              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
+              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+          }
+        >
+          <Brain className="size-4" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate">Memory</span>
         </button>
 
         {/* More popover button */}
@@ -593,13 +638,17 @@ export function AppNavRail({
                 {accountEmail ? `${accountEmail.split("@")[0]}'s workspace` : "Personal Workspace"}
               </span>
             </div>
-            <ChevronDown className="size-3 text-[var(--muted-foreground-3)] shrink-0" strokeWidth={1.8} aria-hidden="true" />
+            {accountMenuOpen ? (
+              <ChevronUp className="size-3 text-[var(--muted-foreground-3)] shrink-0" strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <ChevronDown className="size-3 text-[var(--muted-foreground-3)] shrink-0" strokeWidth={1.8} aria-hidden="true" />
+            )}
           </button>
 
           {accountMenuOpen ? (
             <div
               role="menu"
-              className="absolute left-0 bottom-full mb-1 w-full py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50 animate-enter"
+              className="absolute left-0 bottom-full mb-1.5 w-[220px] py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50 animate-enter text-[13px]"
             >
               {onOpenSetup ? (
                 <button
@@ -609,55 +658,190 @@ export function AppNavRail({
                     onOpenSetup();
                     setAccountMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
                 >
-                  <SquareCheckBig className="size-3.5" strokeWidth={1.8} />
-                  <span>Setup Guide</span>
+                  <SlidersHorizontal className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                  <span className="flex-1 text-left">Finish setting up</span>
                 </button>
               ) : null}
 
-              <a
-                href="/docs"
+              <button
+                type="button"
                 role="menuitem"
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  onNavigate("settings");
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
               >
-                <BookOpen className="size-3.5" strokeWidth={1.8} />
-                <span>Documentation</span>
-              </a>
+                <Settings className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                <span className="flex-1 text-left">Settings</span>
+                <kbd className="text-[10px] font-mono text-[var(--muted-foreground-3)] bg-[var(--secondary)] px-1 py-0.5 rounded-[var(--radius-xs)]">⌘,</kbd>
+              </button>
 
-              {onOpenShortcuts ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  onNavigate("analytics");
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+              >
+                <Clock className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                <span className="flex-1 text-left">Usage</span>
+              </button>
+
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  onNavigate("remote");
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+              >
+                <Monitor className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                <span className="flex-1 text-left">Open desktop app</span>
+              </button>
+
+              {/* Appearance submenu */}
+              <div className="relative">
                 <button
                   type="button"
                   role="menuitem"
                   onClick={() => {
-                    onOpenShortcuts();
-                    setAccountMenuOpen(false);
+                    setAppearanceSubmenuOpen((prev) => !prev);
+                    setOrgSubmenuOpen(false);
+                    setSupportSubmenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
                 >
-                  <span className="text-[11px] font-mono font-bold leading-none w-3.5 text-center">?</span>
-                  <span>Shortcuts</span>
+                  <SunMoon className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                  <span className="flex-1 text-left">Appearance</span>
+                  <ChevronRight className="size-3.5 text-[var(--muted-foreground-3)]" />
                 </button>
-              ) : null}
+                {appearanceSubmenuOpen && onToggleTheme ? (
+                  <div className="absolute left-full bottom-0 ml-1 w-44 py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (theme !== "light") onToggleTheme();
+                        setAccountMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                    >
+                      <span>Light</span>
+                      {theme === "light" ? <Check className="size-3.5 text-[var(--primary)]" /> : null}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (theme !== "dark") onToggleTheme();
+                        setAccountMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                    >
+                      <span>Dark</span>
+                      {theme === "dark" ? <Check className="size-3.5 text-[var(--primary)]" /> : null}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
 
-              {onToggleTheme ? (
+              {/* Support submenu */}
+              <div className="relative">
                 <button
                   type="button"
                   role="menuitem"
                   onClick={() => {
-                    onToggleTheme();
-                    setAccountMenuOpen(false);
+                    setSupportSubmenuOpen((prev) => !prev);
+                    setOrgSubmenuOpen(false);
+                    setAppearanceSubmenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
                 >
-                  {theme === "light" ? (
-                    <Moon className="size-3.5" strokeWidth={1.8} />
-                  ) : (
-                    <Sun className="size-3.5" strokeWidth={1.8} />
-                  )}
-                  <span>{theme === "light" ? "Dark Theme" : "Light Theme"}</span>
+                  <HelpCircle className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                  <span className="flex-1 text-left">Support</span>
+                  <ChevronRight className="size-3.5 text-[var(--muted-foreground-3)]" />
                 </button>
-              ) : null}
+                {supportSubmenuOpen ? (
+                  <div className="absolute left-full bottom-0 ml-1 w-44 py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50">
+                    <a
+                      href="/docs"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                    >
+                      <BookOpen className="size-3.5" />
+                      <span>Documentation</span>
+                    </a>
+                    {onOpenShortcuts ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenShortcuts();
+                          setAccountMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                      >
+                        <span className="text-[11px] font-mono font-bold leading-none w-3.5">?</span>
+                        <span>Shortcuts</span>
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="h-px bg-[var(--border-1)] my-1" />
+
+              {/* Switch organization item & flyout */}
+              <div className="relative">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOrgSubmenuOpen((prev) => !prev);
+                    setAppearanceSubmenuOpen(false);
+                    setSupportSubmenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                >
+                  <GitCompareArrows className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} />
+                  <span className="flex-1 text-left">Switch organization</span>
+                  <ChevronRight className="size-3.5 text-[var(--muted-foreground-3)]" />
+                </button>
+
+                {orgSubmenuOpen ? (
+                  <div className="absolute left-full bottom-0 ml-1 w-56 py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50 animate-enter text-[13px]">
+                    <button
+                      type="button"
+                      onClick={() => setAccountMenuOpen(false)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                    >
+                      <div className="size-5 rounded bg-[var(--card)] border border-[var(--border-2)] flex items-center justify-center text-[10px] font-mono font-bold text-[var(--muted-foreground-1)] shrink-0">
+                        {accountEmail ? accountEmail.slice(0, 2).toUpperCase() : "PW"}
+                      </div>
+                      <span className="flex-1 text-left truncate">
+                        {accountEmail ? accountEmail.split("@")[0] + "'s workspace" : "prince's workspace"}
+                      </span>
+                      <Check className="size-4 text-[var(--fg)] shrink-0" strokeWidth={2} />
+                    </button>
+
+                    <div className="h-px bg-[var(--border-1)] my-1" />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        onNavigate("settings");
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+                    >
+                      <Plus className="size-4 text-[var(--muted-foreground-2)] shrink-0" strokeWidth={1.8} />
+                      <span className="flex-1 text-left truncate">Create or join organization</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
 
               {onSignOut ? (
                 <button
@@ -667,10 +851,10 @@ export function AppNavRail({
                     onSignOut();
                     setAccountMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--destructive)] hover:bg-[var(--destructive-soft)]"
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[var(--destructive)] hover:bg-[var(--destructive-soft)] transition-colors"
                 >
-                  <LogOut className="size-3.5" strokeWidth={1.8} />
-                  <span>Sign out</span>
+                  <LogOut className="size-4 shrink-0" strokeWidth={1.8} />
+                  <span className="flex-1 text-left">Log out</span>
                 </button>
               ) : null}
             </div>
