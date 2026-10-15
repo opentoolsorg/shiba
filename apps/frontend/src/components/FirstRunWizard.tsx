@@ -49,7 +49,7 @@ function WizardShell({
 }): JSX.Element {
   const current = STEPS[step] ?? STEPS[0];
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--warning)]lack/60 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4">
       <div
         role="dialog"
         aria-modal="true"

@@ -53,13 +53,13 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
 
   return (
     <div className="h-dvh bg-[var(--bg)] dark:bg-[#191a18] text-[var(--fg)] dark:text-[#eae8e1] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      <div className="bg-[var(--card)] dark:bg-[#22231f] border border-[var(--border-1)] dark:border-[#3b3d36] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-[var(--success)]enter gap-3">
+      <div className="bg-[var(--card)] dark:bg-[#22231f] border border-[var(--border-1)] dark:border-[#3b3d36] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
         <img
           src="/assets/mascot/pet-logo.png"
           alt="Shiba"
           className="size-14 rounded-full bg-white object-contain border border-[var(--primary)]/40"
         />
-        <h1 className="text-[var(--success)]xl">
+        <h1 className="text-xl">
           {mode === "signup" ? "Create the dashboard account" : "Sign in to continue"}
         </h1>
         <p className="text-sm text-[var(--muted-foreground-2)] dark:text-[#aaa99f] leading-relaxed">

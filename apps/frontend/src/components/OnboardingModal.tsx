@@ -232,7 +232,7 @@ export function OnboardingModal({
 
   return (
     <div
-      className="fixed inset-0 bg-[var(--warning)]lack/60 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 bg-[var(--overlay)] z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby={modalTitleId}
@@ -365,7 +365,7 @@ export function OnboardingModal({
         {/* Step-by-Step Checklist */}
         <div className="py-3 flex flex-col gap-2.5 max-h-[55dvh] overflow-y-auto pr-1 flex-1 min-h-0">
           {filteredSteps.length === 0 ? (
-            <div className="text-[var(--success)]enter py-8 text-xs text-[var(--muted-foreground-2)] border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)]">
+            <div className="text-center py-8 text-xs text-[var(--muted-foreground-2)] border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)]">
               No steps match this filter.
             </div>
           ) : (

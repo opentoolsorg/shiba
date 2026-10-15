@@ -167,7 +167,7 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
   if (!status) {
     return (
       <Card>
-        <div role="status" className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -178,7 +178,7 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
     <>
       <Card>
         {rows.length === 0 ? (
-          <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+          <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
             This deployment doesn't report per-role routing — update the backend.
           </div>
         ) : (
@@ -213,7 +213,7 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
   if (!status) {
     return (
       <Card>
-        <div role="status" className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -359,7 +359,7 @@ function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX
           <LoadErrorState message={whoami.state.message} onRetry={whoami.reload} />
         </div>
       ) : !identity ? (
-        <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">Reading /api/whoami…</div>
+        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading /api/whoami…</div>
       ) : (
         <>
           <div className="flex items-center gap-3 border-b border-[var(--border-1)] px-4 py-3.5">
@@ -524,7 +524,7 @@ function LiveSettingsSectionBody({
       )
     ) : (
       <Card>
-        <div role="status" className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -723,7 +723,7 @@ function RepositoriesSection(): JSX.Element {
         {error ? <span className="text-[11px] text-[var(--destructive)]">{error}</span> : null}
       </div>
       {repos.length === 0 ? (
-        <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
           None saved yet — repos you run tasks against are saved automatically too.
         </div>
       ) : (

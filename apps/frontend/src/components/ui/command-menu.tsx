@@ -24,7 +24,7 @@ function CommandDialog({
       <button
         type="button"
         aria-label="Close command menu"
-        className="absolute inset-0 bg-[var(--warning)]lack/60"
+        className="absolute inset-0 bg-[var(--overlay)]"
         onClick={onClose}
       />
       <div
@@ -57,7 +57,7 @@ export function CommandMenu({
           className="w-full bg-transparent px-4 py-3 text-sm text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] border-b border-[var(--border-1)] focus:outline-none"
         />
         <Command.List className="max-h-72 overflow-y-auto py-1.5">
-          <Command.Empty className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+          <Command.Empty className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
             No matching commands.
           </Command.Empty>
           {commands.map((item) => (

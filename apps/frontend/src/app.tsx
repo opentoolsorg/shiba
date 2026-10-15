@@ -1460,13 +1460,13 @@ export function App(): React.JSX.Element {
     const accessUnconfigured = identityIssue === "unconfigured";
     return (
       <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-[var(--success)]enter gap-3">
+        <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
           <img
             src="/assets/mascot/pet-logo.png"
             alt="Shiba"
             className="size-14 rounded-full bg-white object-contain border border-[var(--primary)]/40"
           />
-          <h1 className="text-[var(--success)]xl text-[var(--fg)]">
+          <h1 className="text-xl text-[var(--fg)]">
             {accessUnconfigured ? "Dashboard access isn't configured" : "Sign in to continue"}
           </h1>
           <p className="text-sm text-[var(--muted-foreground-2)] leading-relaxed">
@@ -1542,7 +1542,7 @@ export function App(): React.JSX.Element {
           <button
             type="button"
             aria-label="Close navigation"
-            className="absolute inset-0 bg-[var(--warning)]lack/60"
+            className="absolute inset-0 bg-[var(--overlay)]"
             onClick={() => setMobileNavOpen(false)}
           />
           <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] animate-enter-x">
@@ -1768,7 +1768,7 @@ export function App(): React.JSX.Element {
                   <button
                     type="button"
                     aria-label="Close sessions"
-                    className="absolute inset-0 bg-[var(--warning)]lack/60"
+                    className="absolute inset-0 bg-[var(--overlay)]"
                     onClick={() => setMobileSessionsOpen(false)}
                   />
                   <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] bg-[var(--bg)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
@@ -2250,7 +2250,7 @@ export function App(): React.JSX.Element {
 
           {/* CLEAR HISTORY CONFIRMATION MODAL */}
           {showClearModal ? (
-            <div className="fixed inset-0 bg-[var(--warning)]lack/60 z-50 flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-[var(--overlay)] z-50 flex items-center justify-center p-4">
               <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
                 <h3 className="text-lg font-bold text-[var(--fg)] mb-2">
                   Clear Conversation & Runs?
@@ -2304,7 +2304,7 @@ export function App(): React.JSX.Element {
 
           {/* KEYBOARD SHORTCUTS MODAL */}
           {showShortcutsModal ? (
-            <div className="fixed inset-0 bg-[var(--warning)]lack/60 z-50 flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-[var(--overlay)] z-50 flex items-center justify-center p-4">
               <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-base font-bold text-[var(--fg)]">Keyboard Shortcuts</h3>

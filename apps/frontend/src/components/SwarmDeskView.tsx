@@ -159,7 +159,7 @@ export function SwarmDeskView({
 
                 <div className="p-3 bg-[var(--card)] flex flex-col gap-3 min-h-[140px]">
                   {cards.length === 0 ? (
-                    <div className="py-8 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+                    <div className="py-8 text-center text-xs text-[var(--muted-foreground-2)]">
                       Nothing in this lane.
                     </div>
                   ) : (

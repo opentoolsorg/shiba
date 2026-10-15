@@ -858,12 +858,12 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
       {filterView !== "drafts" ? (
         <section aria-label="Inbox messages">
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] px-4 text-[var(--success)]enter">
+            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] px-4 text-center">
               <div className="size-5 border-2 border-[var(--primary)] border-t-transparent rounded-[var(--radius-button)] animate-spin mb-2" />
               <p className="text-[var(--muted-foreground-2)] text-xs font-mono">Loading mail…</p>
             </div>
           ) : displayedEmails.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] px-4 text-[var(--success)]enter">
+            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] px-4 text-center">
               <span className="text-xl mb-1 text-[var(--muted-foreground-2)]">✉</span>
               <p className="text-[var(--fg)] text-xs font-medium">
                 {mailboxes !== null && mailboxes.length === 0

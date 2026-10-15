@@ -64,11 +64,11 @@ export function ActivityView({
               Event log
             </div>
             {state.kind === "loading" ? (
-              <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">Reading the spine…</div>
+              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading the spine…</div>
             ) : state.kind === "error" ? (
               <LoadErrorState message={state.message} onRetry={reload} />
             ) : events.length === 0 ? (
-              <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
                 No decisions yet — queue a task and the spine records every step here.
               </div>
             ) : (
@@ -90,7 +90,7 @@ export function ActivityView({
               Outbox — owed side effects
             </div>
             {outbox.length === 0 ? (
-              <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
                 Nothing owed — every post-back that should happen has been delivered.
               </div>
             ) : (
@@ -138,7 +138,7 @@ function eventSummary(event: SpineEventWire): string {
 }
 
 function EventRow({ event }: { event: SpineEventWire }): JSX.Element {
-  const tone = KIND_TONE[event.kind] ?? "text-[var(--muted-foreground-2)] bg-[var(--warning)]lack/[0.04] border-[var(--border-1)]";
+  const tone = KIND_TONE[event.kind] ?? "text-[var(--muted-foreground-2)] bg-[var(--section)] border-[var(--border-1)]";
   const summary = eventSummary(event);
   return (
     <li className="px-4 py-2.5 flex items-baseline gap-3">

@@ -260,7 +260,7 @@ export function AutomationsView(): JSX.Element {
               <span>Loading…</span>
             </div>
           ) : automations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] text-[var(--success)]enter px-4">
+            <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] text-center px-4">
               <p className="text-[var(--muted-foreground-2)] text-xs">None yet — deploy a recipe above or POST /api/automations.</p>
             </div>
           ) : (

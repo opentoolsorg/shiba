@@ -119,7 +119,7 @@ export function DashboardView({
             <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Total runs
             </div>
-            <div className="mt-1.5 text-[var(--success)]xl font-bold font-sans tabular-nums">{runs.length}</div>
+            <div className="mt-1.5 text-xl font-bold font-sans tabular-nums">{runs.length}</div>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
               {stats.prRequested} requested a PR
             </div>
@@ -134,7 +134,7 @@ export function DashboardView({
             <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Active sandboxes
             </div>
-            <div className="mt-1.5 text-[var(--success)]xl font-bold font-sans tabular-nums text-[var(--primary)]">
+            <div className="mt-1.5 text-xl font-bold font-sans tabular-nums text-[var(--primary)]">
               {stats.active.length}
             </div>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
@@ -151,7 +151,7 @@ export function DashboardView({
             <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Pending approvals
             </div>
-            <div className={`mt-1.5 text-[var(--success)]xl font-bold font-sans tabular-nums ${approvalCount > 0 ? "text-[var(--warning-fg)]" : ""}`}>
+            <div className={`mt-1.5 text-xl font-bold font-sans tabular-nums ${approvalCount > 0 ? "text-[var(--warning-fg)]" : ""}`}>
               {approvalCount}
             </div>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
@@ -168,7 +168,7 @@ export function DashboardView({
             <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Success rate
             </div>
-            <div className="mt-1.5 text-[var(--success)]xl font-bold font-sans tabular-nums text-[var(--success)]">
+            <div className="mt-1.5 text-xl font-bold font-sans tabular-nums text-[var(--success)]">
               {stats.successRate !== null ? `${stats.successRate}%` : "—"}
             </div>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
@@ -226,7 +226,7 @@ export function DashboardView({
               </button>
             </header>
             {recentRuns.length === 0 ? (
-              <div className="px-4 py-10 text-[var(--success)]enter">
+              <div className="px-4 py-10 text-center">
                 <p className="text-sm text-[var(--muted-foreground-2)]">No runs yet.</p>
                 <button
                   type="button"

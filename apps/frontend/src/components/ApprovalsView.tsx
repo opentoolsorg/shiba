@@ -114,7 +114,7 @@ export function ApprovalsView({
             </div>
 
             {totalPending === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-[var(--success)]enter p-6">
+              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-center p-6">
                 <div className="w-10 h-10 rounded-full bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] flex items-center justify-center mb-2">
                   <Check aria-hidden="true" className="w-5 h-5" strokeWidth={2} />
                 </div>
@@ -176,7 +176,7 @@ export function ApprovalsView({
               </div>
 
               {filteredDecided.length === 0 ? (
-                <p className="border border-dashed border-[var(--border-1)] bg-[var(--card)] px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
+                <p className="border border-dashed border-[var(--border-1)] bg-[var(--card)] px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
                   No decided actions match the “{outcomeFilter}” filter.
                 </p>
               ) : (

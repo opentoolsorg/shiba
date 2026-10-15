@@ -444,11 +444,11 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
           </div>
 
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
+            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
               <p className="text-[var(--muted-foreground-2)] text-xs">Loading memory…</p>
             </div>
           ) : visibleFacts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
+            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
               <p className="text-[var(--muted-foreground-2)] text-xs">
                 {searchActive
                   ? `Nothing recalled for "${lastRecallQuery}".`
@@ -578,7 +578,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
           </div>
 
           {!loading && visibleSessions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
+            <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
               <p className="text-[var(--muted-foreground-2)] text-xs">
                 {agentFilter !== "all"
                   ? "No sessions recorded for selected agent."

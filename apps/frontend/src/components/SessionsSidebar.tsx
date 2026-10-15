@@ -196,7 +196,7 @@ export function SessionsSidebar({
               type="button"
               onClick={onToggleCollapse}
               aria-label={isMobileDrawer ? "Close sessions" : "Collapse sidebar"}
-              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--warning)]lack/[0.06] transition-colors"
+              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
             >
               {isMobileDrawer ? (
                 <X aria-hidden="true" className="size-4" strokeWidth={2} />
@@ -254,7 +254,7 @@ export function SessionsSidebar({
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         {filtered.length === 0 ? (
-          <p className="text-[var(--muted-foreground-2)] text-xs px-3 py-8 text-[var(--success)]enter text-pretty">
+          <p className="text-[var(--muted-foreground-2)] text-xs px-3 py-8 text-center text-pretty">
             {sessions.length === 0
               ? "No sessions yet — start a task."
               : "No sessions match your search."}

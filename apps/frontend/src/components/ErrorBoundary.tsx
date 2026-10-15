@@ -28,7 +28,7 @@ export class ErrorBoundary extends Component<
       return (
         <div
           role="alert"
-          className="min-h-dvh flex flex-col items-center justify-center gap-4 bg-[var(--bg)] text-[var(--fg)] p-6 text-[var(--success)]enter"
+          className="min-h-dvh flex flex-col items-center justify-center gap-4 bg-[var(--bg)] text-[var(--fg)] p-6 text-center"
         >
           <p className="text-lg font-semibold">Something went wrong.</p>
           <p className="text-sm text-[var(--muted-foreground-2)] max-w-md break-words">

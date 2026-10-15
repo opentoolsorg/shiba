@@ -155,7 +155,7 @@ export function SettingsModal({
         type="button"
         aria-hidden="true"
         tabIndex={-1}
-        className="absolute inset-0 size-full cursor-default bg-[var(--warning)]lack/60"
+        className="absolute inset-0 size-full cursor-default bg-[var(--overlay)]"
         onClick={onClose}
       />
       <div

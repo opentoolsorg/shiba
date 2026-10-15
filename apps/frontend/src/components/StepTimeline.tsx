@@ -84,7 +84,7 @@ export function StepTimeline({
 }: StepTimelineProps) {
   if (messages.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--panel)]/40 px-6 text-[var(--success)]enter animate-enter">
+      <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--panel)]/40 px-6 text-center animate-enter">
         <img
           src="/assets/mascot/shiba-sticker-hero.webp"
           alt="Shiba illustration mascot"

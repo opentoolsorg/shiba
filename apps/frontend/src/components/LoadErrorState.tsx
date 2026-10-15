@@ -11,7 +11,7 @@ export function LoadErrorState({
   return (
     <div
       role="alert"
-      className="flex flex-col items-center justify-center gap-3 py-8 border border-dashed border-[color-mix(in_oklch,var(--destructive)_40%,transparent)] rounded-[var(--radius-button)] bg-[var(--destructive)]/5 text-[var(--success)]enter px-4"
+      className="flex flex-col items-center justify-center gap-3 py-8 border border-dashed border-[color-mix(in_oklch,var(--destructive)_40%,transparent)] rounded-[var(--radius-button)] bg-[var(--destructive)]/5 text-center px-4"
     >
       <p className="text-xs text-[var(--destructive)] break-words">{message}</p>
       <button

@@ -205,7 +205,7 @@ export function AgentsView(): JSX.Element {
           </div>
 
           {principals.length === 0 ? (
-            <div className="border border-dashed border-[var(--border-1)] bg-[var(--card)] p-6 text-[var(--success)]enter rounded-[var(--radius-button)] font-mono">
+            <div className="border border-dashed border-[var(--border-1)] bg-[var(--card)] p-6 text-center rounded-[var(--radius-button)] font-mono">
               <p className="text-xs font-bold text-[var(--fg)] mb-1">
                 No agent bearer tokens registered yet
               </p>

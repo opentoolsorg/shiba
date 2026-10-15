@@ -68,11 +68,11 @@ export function AuditPanel(): JSX.Element {
       ) : null}
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
+        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
           <p className="text-[var(--muted-foreground-2)] text-xs">Loading audit log…</p>
         </div>
       ) : entries.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
+        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
           <p className="text-[var(--muted-foreground-2)] text-xs">No audited tool calls yet.</p>
         </div>
       ) : (

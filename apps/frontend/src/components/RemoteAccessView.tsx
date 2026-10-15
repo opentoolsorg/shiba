@@ -57,7 +57,7 @@ function PairingModal({ pairing, onClose }: { pairing: PairingTokenResponse; onC
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--warning)]lack/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4">
       <div
         role="dialog"
         aria-modal="true"
@@ -304,11 +304,11 @@ export function RemoteAccessView(): JSX.Element {
             </div>
 
             {fleet.kind === "loading" ? (
-              <p className="text-xs text-[var(--muted-foreground-2)] py-6 text-[var(--success)]enter">Loading fleet…</p>
+              <p className="text-xs text-[var(--muted-foreground-2)] py-6 text-center">Loading fleet…</p>
             ) : fleet.kind === "error" ? (
               <LoadErrorState message={fleet.message} onRetry={() => void load()} />
             ) : fleet.kind === "disabled" || computers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-[var(--success)]enter p-6">
+              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-center p-6">
                 <h4 className="text-sm font-semibold text-[var(--fg)]">
                   {fleet.kind === "disabled" ? "Local runtime is disabled" : "No computers paired"}
                 </h4>
