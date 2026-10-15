@@ -201,7 +201,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
   return (
     <div className={`flex flex-col gap-3.5 ${className}`}>
-      {/* Header & Activity Summary (Bezalel-inspired settings & privacy rationale) */}
+      {/* Header & Activity Summary (settings & privacy rationale) */}
       <header className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] p-3.5 shadow-[var(--sh-card)]">
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <div>
