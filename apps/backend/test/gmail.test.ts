@@ -8,7 +8,8 @@ import { beginGmailConnect, decryptGmailToken, disconnectGmail, encryptGmailToke
   finishGmailConnect, GMAIL_BASE, GMAIL_SCOPE, gmailStatus, grantGmail, readGmail,
   revokeGmailGrant, searchGmail } from "../src/gmail.js";
 import { gmailOwner, handleGmail } from "../src/gmail-routes.js";
-import { createToolRegistry } from "../src/mcp-gateway.js";
+import { createToolRegistry, principalFor } from "../src/mcp-gateway.js";
+import worker from "../src/index.js";
 import { registerGmailTools } from "../src/mcp-gmail-tools.js";
 import { ORCHESTRATOR_PRINCIPAL } from "../src/codemode.js";
 
@@ -16,9 +17,26 @@ const { session } = vi.hoisted(() => ({ session: vi.fn() }));
 vi.mock("../src/better-auth.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/better-auth.js")>(),
   ensureBetterAuthSchema: vi.fn(),
+  handleBetterAuth: async () => null,
   betterAuthFor: () => ({ api: { getSession: session } }),
   resolveBetterAuthUserId: async () => (await session())?.user?.email ?? null,
 }));
+// Worker-entry E2E: same stubs as mcp-gateway.test.ts; the MCP transport records
+// the verified request so the test reads the exact principal tools would see.
+const served = vi.hoisted(() => ({ requests: [] as Request[] }));
+vi.mock("agents/mcp", () => ({
+  createMcpHandler: () => ({
+    fetch: async (request: Request) => { served.requests.push(request); return Response.json({ mcp: "served" }); },
+    notify: {},
+  }),
+}));
+vi.mock("@cloudflare/sandbox", () => ({
+  ContainerProxy: class {}, Sandbox: class {}, proxyToSandbox: async () => null, getSandbox: () => ({ destroy: async () => {} }),
+}));
+vi.mock("agents/routing", () => ({ getAgentByName: async () => ({ fetch: async () => new Response("{}", { status: 404 }) }), routeAgentRequest: async () => null }));
+vi.mock("@cloudflare/think", () => ({ Think: class { onStart() {} getTools() { return {}; } onRequest() { return new Response(null, { status: 404 }); } } }));
+vi.mock("agents/agent-tools", () => ({ agentTool: () => ({ execute: vi.fn() }) }));
+vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 
 const BASE = "https://shiba.test";
 const KEY = "a1".repeat(32);
@@ -542,6 +560,50 @@ describe("Gmail explicit grants, bounded tools, disconnect", () => {
     expect((await gmailStatus(env, OWNER)).grants).toHaveLength(0);
   });
 
+  it("E2E through the Worker entry: sign in, connect, grant by token, agent reads over /mcp, revoke, disconnect", async () => {
+    const { env } = environment();
+    const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
+    const call = (path: string, method = "GET", body?: unknown, headers: Record<string, string> = {}) =>
+      worker.fetch(new Request(`${BASE}${path}`, { method, headers: { origin: BASE, "content-type": "application/json", ...headers },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), env, ctx);
+    expect((await call(GMAIL_BASE)).status).toBe(401); // signed out
+    signIn();
+    const google = mockGoogle();
+    vi.stubGlobal("fetch", google);
+    const start = await (await call(`${GMAIL_BASE}/connect`, "POST")).json() as { authorizationUrl: string };
+    const state = new URL(start.authorizationUrl).searchParams.get("state")!;
+    const callback = await call(`${GMAIL_BASE}/callback?code=mock-code&state=${state}`);
+    expect(callback.status).toBe(200);
+    expect(((await callback.json()) as { connection: { email: string } }).connection.email).toBe("mailbox@example.test");
+
+    const { token } = await createToken(env, "e2e-reader", ["gmail:read"]);
+    expect((await call(`${GMAIL_BASE}/grants`, "POST", { token })).status).toBe(200);
+    const status = await (await call(GMAIL_BASE)).json() as { connection: unknown; grants: { principal: string }[] };
+    expect(status.grants.map((g) => g.principal)).toEqual(["e2e-reader"]);
+    expect(JSON.stringify(status)).not.toContain(token);
+
+    // The agent authenticates to /mcp with its own bearer; tools see only the verified principal.
+    served.requests.length = 0;
+    expect((await call("/mcp", "POST", {}, { authorization: `Bearer ${token}` })).status).toBe(200);
+    const principal = principalFor(served.requests[0])!;
+    expect(principal.principal).toBe("e2e-reader");
+    const registry = createToolRegistry(env);
+    registerGmailTools(registry);
+    const found = await registry.invoke("gmail_search", { query: "invoice", limit: 5 }, principal);
+    expect(JSON.parse((found.content[0] as { text: string }).text)).toEqual({ messages: [{ id: "abc123", threadId: "def456" }] });
+    const read = await registry.invoke("gmail_read", { messageIds: ["abc123"] }, principal);
+    expect(read.isError).not.toBe(true);
+    expect((read.content[0] as { text: string }).text).toContain("UNTRUSTED");
+
+    expect((await call(`${GMAIL_BASE}/grants/e2e-reader`, "DELETE")).status).toBe(200);
+    expect((await registry.invoke("gmail_search", { query: "invoice" }, principal)).isError).toBe(true);
+    expect(await (await call(GMAIL_BASE, "DELETE")).json()).toEqual({ disconnected: true, revoke: "revoked" });
+    expect((await (await call(GMAIL_BASE)).json() as { connection: unknown }).connection).toBeNull();
+    // Only the token/profile/search/read/revoke endpoints were ever contacted; all via mocks.
+    expect([...new Set(google.mock.calls.map(([url]) => new URL(String(url)).host))].sort())
+      .toEqual(["gmail.googleapis.com", "oauth2.googleapis.com"]);
+  });
+
   it("guards source against Gmail write endpoints/scopes and Code Mode registration", () => {
     const source = readFileSync(new URL("../src/gmail.ts", import.meta.url), "utf8") +
       readFileSync(new URL("../src/mcp-gmail-tools.ts", import.meta.url), "utf8");
@@ -549,6 +611,7 @@ describe("Gmail explicit grants, bounded tools, disconnect", () => {
     expect(source).not.toMatch(/messages\/(?:send|batchModify|batchDelete|import|insert)|\/(?:trash|untrash|modify|drafts)(?:["'`/?]|$)/);
     expect(source).not.toMatch(/method:\s*["'](?:PUT|PATCH|DELETE)["']/);
     expect(readFileSync(new URL("../src/codemode.ts", import.meta.url), "utf8")).not.toContain("registerGmailTools");
+    expect(readFileSync(new URL("../src/mcp-gateway.ts", import.meta.url), "utf8")).toContain("registerGmailTools(registry)");
     const entry = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
     expect(entry.indexOf("!(await isAuthorizedRequest(request, env))")).toBeLessThan(entry.indexOf("await handleGmail(request, env)"));
   });
