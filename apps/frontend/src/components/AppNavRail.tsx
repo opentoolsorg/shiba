@@ -1,10 +1,23 @@
 /**
- * AppNavRail — left app sidebar (224px, all views, lg+). Below lg the same
- * nav renders as a slide-in sheet (`variant="sheet"`) opened from the top bar.
- * Bezalel-style: logo block on top, grouped text nav with navy active
- * state, utility cluster (setup, docs, shortcuts, theme) at the bottom.
+ * AppNavRail — Capy-style left rail (~232px, bg --chrome, border-r --border-1).
+ *
+ * Information Architecture:
+ * 1. Top row banner: Logo mark + spacer + Search icon-btn (⌘K) + Collapse icon-btn (⌘B)
+ * 2. Nav "Main":
+ *    - New thread (⇧⌘O, pill active state)
+ *    - Threads (links to tasks/threads)
+ *    - Pull requests (links to diff)
+ *    - Automations
+ *    - More button (popover menu with remaining views: dashboard, activity, analytics, approvals, swarm, agents, inbox, memory, providers, skills, integrations, remote, settings)
+ * 3. Nav "Threads" section:
+ *    - Header: small muted label "Threads" + Search threads icon-btn + Options icon-btn
+ *    - Search input (collapsible or filtered)
+ *    - Session rows: title + mono meta + Capy status dot (teal/amber/green/red/orange)
+ * 4. Status region & footer card:
+ *    - Status dot + connection state label
+ *    - Workspace card: avatar + user/email + workspace label + chevron -> opens account menu
  */
-import type { JSX } from "react";
+import { useState, useMemo, useRef, useEffect, type JSX } from "react";
 import {
   Activity,
   BarChart3,
@@ -12,14 +25,20 @@ import {
   BookMarked,
   BookOpen,
   Brain,
+  ChevronDown,
+  ChevronsLeft,
   Cpu,
   GitCompareArrows,
   Inbox,
   LayoutDashboard,
   LogOut,
   MessageSquare,
+  MessageSquarePlus,
   Monitor,
   Moon,
+  MoreHorizontal,
+  Plus,
+  Search,
   Settings,
   ShieldCheck,
   SquareCheckBig,
@@ -29,6 +48,9 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import type { SessionItem } from "./SessionsSidebar";
+import { formatTimeAgo, statusLabel } from "../ui-helpers";
+import { Tooltip } from "./Tooltip";
 
 export type AppNavView =
   | "dashboard"
@@ -56,10 +78,10 @@ export interface AppNavItem {
 
 export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "dashboard", label: "Dashboard", description: "Overview & At-a-Glance Stats" },
-  { id: "tasks", label: "Tasks", description: "Tasks & Live Sessions" },
+  { id: "tasks", label: "Threads", description: "Tasks & Live Sessions" },
   { id: "activity", label: "Activity", description: "Orchestrator Event Log" },
   { id: "analytics", label: "Analytics", description: "Usage & Run Insights" },
-  { id: "diff", label: "Diff", description: "Code Changes & Git Diffs" },
+  { id: "diff", label: "Pull requests", description: "Code Changes & Git Diffs" },
   { id: "approvals", label: "Approvals", description: "Review & Decision Queue" },
   { id: "swarm", label: "Swarm", description: "Run Lanes, Modes & Share Links" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
@@ -73,29 +95,30 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "settings", label: "Settings", description: "Deployment & Operator Settings" },
 ];
 
-const NAV_GROUPS: { label: string; items: AppNavView[] }[] = [
-  { label: "Workspace", items: ["dashboard", "tasks", "activity", "analytics", "diff", "approvals", "swarm", "automations"] },
-  { label: "Capabilities", items: ["agents", "providers", "skills", "integrations", "inbox", "memory"] },
-  { label: "System", items: ["remote", "settings"] },
-];
-
 export interface AppNavRailProps {
   activeView: AppNavView;
   onNavigate: (view: AppNavView) => void;
   theme?: "dark" | "light";
   onToggleTheme?: () => void;
-  activeSandboxCount: number;
+  activeSandboxCount?: number;
   pendingApprovalCount?: number;
-  setupDone: number | null;
-  setupTotal: number;
-  onOpenSetup: () => void;
-  onOpenShortcuts: () => void;
+  setupDone?: number | null;
+  setupTotal?: number;
+  onOpenSetup?: () => void;
+  onOpenShortcuts?: () => void;
   variant?: "rail" | "sheet";
-  /** Sheet only: renders a close button in the brand row. */
   onClose?: () => void;
-  /** Built-in auth lane: signed-in identity + sign-out affordance. */
   accountEmail?: string | null;
   onSignOut?: () => void;
+  // Session integration into unified rail
+  sessions?: SessionItem[];
+  selectedSessionId?: string | null;
+  onSelectSession?: (id: string) => void;
+  onNewTask?: () => void;
+  onOpenSearch?: () => void;
+  onToggleCollapse?: () => void;
+  connectionLabel?: string;
+  connectionTone?: "ok" | "pending" | "error";
 }
 
 const ICONS: Record<AppNavView, LucideIcon> = {
@@ -117,59 +140,32 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   swarm: SquareCheckBig,
 };
 
-function NavItem({
-  label,
-  subLabel,
-  active,
-  onClick,
-  children,
-  badge,
-}: {
-  label: string;
-  subLabel?: string;
-  active?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-  badge?: React.ReactNode;
-}) {
-  const accessibleLabel = subLabel ? `${label} ${subLabel}` : label;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={accessibleLabel}
-      title={accessibleLabel}
-      aria-current={active ? "page" : undefined}
-      className={
-        "group w-full flex items-center gap-2.5 rounded-none px-2.5 py-1.5 touch:min-h-11 text-[13px] font-medium transition-colors duration-100 " +
-        (active
-          ? "bg-[#0000a8] dark:bg-[#9cbce2] text-white dark:text-[#152335] shadow-[2px_2px_0_var(--paper-shadow)]"
-          : "text-[#222320] dark:text-[#eae8e1] hover:bg-[#e0ded5] dark:hover:bg-[#3b3d36] hover:text-[#222320] dark:hover:text-[#f4f2ea]")
-      }
-    >
-      <span className={active ? "text-white dark:text-[#152335]" : "text-[#6a6f63] dark:text-[#aaa99f] group-hover:text-[#222320] dark:group-hover:text-[#f4f2ea]"} aria-hidden="true">
-        {children}
-      </span>
-      <span className="flex-1 min-w-0 text-left">
-        <span className="block truncate">{label}</span>
-        {subLabel ? (
-          <span className="block truncate text-[11px] font-normal text-[#6a6f63] dark:text-[#aaa99f] group-hover:text-[#222320] dark:group-hover:text-[#f4f2ea]">
-            {subLabel}
-          </span>
-        ) : null}
-      </span>
-      {badge}
-    </button>
-  );
+// Capy semantic status dots
+export function capyStatusDotClass(status: string, live?: boolean): string {
+  if (live || status === "live" || status === "running") {
+    return "bg-[var(--primary)] animate-pulse-subtle";
+  }
+  if (status === "waiting-approval" || status === "pending") {
+    return "bg-[var(--warning-fg)]";
+  }
+  if (status === "completed") {
+    return "bg-[var(--success)]";
+  }
+  if (status === "unknown") {
+    return "bg-[var(--orange)]";
+  }
+  if (status === "error" || status === "aborted" || status === "cancelled") {
+    return "bg-[var(--destructive)]";
+  }
+  return "bg-[var(--muted-foreground-3)]";
 }
 
 export function AppNavRail({
   activeView,
   onNavigate,
-  activeSandboxCount,
-  pendingApprovalCount,
-  setupDone,
-  setupTotal,
+  pendingApprovalCount = 0,
+  setupDone = null,
+  setupTotal = 6,
   onOpenSetup,
   onOpenShortcuts,
   theme,
@@ -178,145 +174,494 @@ export function AppNavRail({
   onClose,
   accountEmail,
   onSignOut,
+  sessions = [],
+  selectedSessionId,
+  onSelectSession,
+  onNewTask,
+  onOpenSearch,
+  onToggleCollapse,
+  connectionLabel = "Connected",
+  connectionTone = "ok",
 }: AppNavRailProps): JSX.Element {
-  const setupComplete = setupDone !== null && setupDone >= setupTotal;
-  const setupRemaining =
-    setupDone !== null ? Math.max(0, setupTotal - setupDone) : null;
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [threadQuery, setThreadQuery] = useState("");
+  const moreRef = useRef<HTMLDivElement>(null);
+  const accountRef = useRef<HTMLDivElement>(null);
+
+  // Close menus on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreMenuOpen(false);
+      }
+      if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredSessions = useMemo(() => {
+    const q = threadQuery.trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) || s.repoName.toLowerCase().includes(q),
+    );
+  }, [sessions, threadQuery]);
+
+  const moreViews: AppNavView[] = [
+    "dashboard",
+    "activity",
+    "analytics",
+    "approvals",
+    "swarm",
+    "agents",
+    "inbox",
+    "memory",
+    "providers",
+    "skills",
+    "integrations",
+    "remote",
+    "settings",
+  ];
+
+  const isMoreViewActive = moreViews.includes(activeView);
 
   return (
-    <nav
+    <aside
       className={
         variant === "sheet"
-          ? "w-72 max-w-[85vw] h-full flex flex-col bg-[#f6f4ed] dark:bg-[#191a18] border-r border-[#e0ded5] dark:border-[#3b3d36] px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] select-none overflow-y-auto"
-          : "hidden lg:flex w-56 shrink-0 flex-col bg-[#f6f4ed] dark:bg-[#191a18] border-r border-[#e0ded5] dark:border-[#3b3d36] py-3 px-3 z-30 select-none overflow-y-auto"
+          ? "w-[240px] max-w-[85vw] h-full flex flex-col bg-[var(--chrome)] border-r border-[var(--border-1)] px-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] select-none overflow-hidden"
+          : "w-[232px] shrink-0 h-full flex flex-col bg-[var(--chrome)] border-r border-[var(--border-1)] py-2.5 px-2.5 z-30 select-none overflow-hidden"
       }
-      aria-label="Primary"
+      aria-label="Primary Left Rail"
     >
-      <div className="flex items-start gap-2">
-      {/* Brand */}
-      <a href="/" className="flex-1 min-w-0 flex items-center gap-2.5 px-1.5 pb-3 mb-1 group focus:outline-none" aria-label="Shiba Home">
-        <img
-          src="/assets/mascot/pet-logo.png"
-          alt="Shiba"
-          className="size-8 rounded-full bg-white object-contain [image-rendering:pixelated] border border-[#d3d2c8] transition-transform duration-200 group-hover:scale-105"
-        />
-        <span className="min-w-0">
-          <span className="flex items-center gap-1.5">
-            <span className="font-display text-lg leading-none text-[#222320] dark:text-[#eae8e1]">Shiba</span>
-            <span className="text-[9px] font-mono font-semibold uppercase tracking-wider text-[#0000a8] border border-[#0000a8]/25 bg-[#0000a8]/10 rounded-none px-1 py-px">
-              Beta
-            </span>
-          </span>
-          <span className="block text-[11px] text-[#6a6f63] dark:text-[#aaa99f] leading-tight">agent plane</span>
-        </span>
-      </a>
-      {onClose ? (
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close navigation"
-          className="size-11 -mt-1.5 -mr-1.5 shrink-0 rounded-none flex items-center justify-center text-[#6a6f63] dark:text-[#aaa99f] hover:text-[#222320] dark:hover:text-[#f4f2ea] hover:bg-[#e0ded5] dark:hover:bg-[#3b3d36] transition-colors"
+      {/* 1. TOP BANNER: Logo mark + spacer + Search icon-btn + Collapse icon-btn */}
+      <div className="flex items-center justify-between gap-1.5 px-1.5 pb-2 mb-1 border-b border-[var(--border-1)]">
+        <a
+          href="/"
+          className="flex items-center gap-2 group focus:outline-none min-w-0"
+          aria-label="Capy Shiba Home"
         >
-          <X aria-hidden="true" className="size-5" strokeWidth={2} />
-        </button>
-      ) : null}
+          <img
+            src="/assets/mascot/pet-logo.png"
+            alt="Shiba"
+            className="size-6 rounded-[var(--radius-inner)] bg-[var(--card)] object-contain border border-[var(--border-1)] transition-transform duration-150 group-hover:scale-105"
+          />
+          <span className="font-semibold text-[13px] tracking-tight text-[var(--fg)] truncate">
+            Shiba
+          </span>
+        </a>
+
+        <div className="flex items-center gap-0.5 ml-auto">
+          {onOpenSearch ? (
+            <Tooltip content="Search" shortcut="⌘K" side="bottom">
+              <button
+                type="button"
+                onClick={onOpenSearch}
+                aria-label="Search"
+                className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+              >
+                <Search className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
+              </button>
+            </Tooltip>
+          ) : null}
+
+          {variant === "sheet" && onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close sidebar"
+              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+            >
+              <X className="size-4" strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          ) : onToggleCollapse ? (
+            <Tooltip content="Collapse sidebar" shortcut="⌘B" side="bottom">
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                aria-label="Collapse sidebar"
+                className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+              >
+                <ChevronsLeft className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
+              </button>
+            </Tooltip>
+          ) : null}
+        </div>
       </div>
 
-      {/* Grouped primary nav */}
-      <div className="flex flex-col gap-4">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label}>
-            <div className="px-2.5 pb-1 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[#6a6f63] dark:text-[#aaa99f]">
-              {group.label}
-            </div>
-            <div className="flex flex-col gap-0.5">
-              {group.items.map((id) => {
+      {/* 2. NAV MAIN: New thread ⇧⌘O | Threads | Pull requests | Automations | More */}
+      <nav aria-label="Main" className="flex flex-col gap-0.5 pt-1 pb-2 border-b border-[var(--border-1)]">
+        {/* New thread button */}
+        <button
+          type="button"
+          onClick={() => {
+            if (onNewTask) onNewTask();
+            else onNavigate("tasks");
+          }}
+          aria-label="New thread ⇧⌘O"
+          className="group w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+        >
+          <MessageSquarePlus className="size-4 text-[var(--primary)]" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate">New thread</span>
+          <kbd className="font-mono text-[10px] text-[var(--muted-foreground-3)] bg-[var(--section)] px-1.5 py-0.5 rounded-[var(--radius-kbd)] border border-[var(--border-1)]">
+            ⇧⌘O
+          </kbd>
+        </button>
+
+        {/* Threads */}
+        <button
+          type="button"
+          onClick={() => onNavigate("tasks")}
+          aria-current={activeView === "tasks" ? "page" : undefined}
+          className={
+            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+            (activeView === "tasks"
+              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
+              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+          }
+        >
+          <MessageSquare className="size-4" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate">Threads</span>
+        </button>
+
+        {/* Pull requests */}
+        <button
+          type="button"
+          onClick={() => onNavigate("diff")}
+          aria-current={activeView === "diff" ? "page" : undefined}
+          className={
+            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+            (activeView === "diff"
+              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
+              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+          }
+        >
+          <GitCompareArrows className="size-4" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate">Pull requests</span>
+        </button>
+
+        {/* Automations */}
+        <button
+          type="button"
+          onClick={() => onNavigate("automations")}
+          aria-current={activeView === "automations" ? "page" : undefined}
+          className={
+            "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+            (activeView === "automations"
+              ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
+              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+          }
+        >
+          <Zap className="size-4" strokeWidth={1.8} aria-hidden="true" />
+          <span className="flex-1 text-left truncate">Automations</span>
+        </button>
+
+        {/* More popover button */}
+        <div ref={moreRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setMoreMenuOpen((prev) => !prev)}
+            aria-expanded={moreMenuOpen}
+            aria-haspopup="true"
+            className={
+              "w-full flex items-center gap-2 rounded-[var(--radius-button)] px-2 py-1.5 text-[13px] font-medium transition-colors " +
+              (isMoreViewActive
+                ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold"
+                : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
+            }
+          >
+            <MoreHorizontal className="size-4" strokeWidth={1.8} aria-hidden="true" />
+            <span className="flex-1 text-left truncate">
+              {isMoreViewActive
+                ? APP_NAV_ITEMS.find((item) => item.id === activeView)?.label ?? "More"
+                : "More"}
+            </span>
+            {pendingApprovalCount > 0 ? (
+              <span className="min-w-4 h-4 px-1 rounded-full bg-[var(--warning-fg)] text-[var(--bg)] text-[10px] font-bold flex items-center justify-center">
+                {pendingApprovalCount}
+              </span>
+            ) : null}
+            <ChevronDown className="size-3 text-[var(--muted-foreground-3)]" strokeWidth={1.8} aria-hidden="true" />
+          </button>
+
+          {moreMenuOpen ? (
+            <div
+              role="menu"
+              className="absolute left-0 top-full mt-1 w-52 py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50 max-h-80 overflow-y-auto animate-enter"
+            >
+              {moreViews.map((id) => {
                 const item = APP_NAV_ITEMS.find((entry) => entry.id === id);
                 if (!item) return null;
-                const Icon = ICONS[item.id];
+                const Icon = ICONS[id];
+                const active = activeView === id;
                 return (
-                  <NavItem
-                    key={item.id}
-                    label={item.label}
-                    active={activeView === item.id}
-                    onClick={() => onNavigate(item.id)}
-                    badge={
-                      item.id === "approvals" && pendingApprovalCount && pendingApprovalCount > 0 ? (
-                        <span
-                          className="min-w-4 h-4 px-1 rounded-none bg-[#b45309] text-white text-[9px] font-bold flex items-center justify-center"
-                          aria-hidden="true"
-                        >
-                          {pendingApprovalCount}
-                        </span>
-                      ) : undefined
+                  <button
+                    key={id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onNavigate(id);
+                      setMoreMenuOpen(false);
+                    }}
+                    className={
+                      "w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] transition-colors " +
+                      (active
+                        ? "bg-[var(--secondary)] text-[var(--fg)] font-medium"
+                        : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]")
                     }
                   >
-                    <Icon className="size-4" strokeWidth={1.8} aria-hidden="true" />
-                  </NavItem>
+                    <Icon className="size-4 shrink-0 text-[var(--muted-foreground-2)]" strokeWidth={1.8} aria-hidden="true" />
+                    <span className="flex-1 text-left truncate">{item.label}</span>
+                    {id === "approvals" && pendingApprovalCount > 0 ? (
+                      <span className="min-w-4 h-4 px-1 rounded-full bg-[var(--warning-fg)] text-[var(--bg)] text-[10px] font-bold flex items-center justify-center">
+                        {pendingApprovalCount}
+                      </span>
+                    ) : null}
+                  </button>
                 );
               })}
             </div>
-          </div>
-        ))}
-      </div>
+          ) : null}
+        </div>
+      </nav>
 
-      {/* Utility cluster */}
-      <div className="mt-auto flex flex-col gap-0.5 pt-3 mt-4 border-t border-[#e0ded5] dark:border-[#3b3d36]">
-        <NavItem
-          label={setupComplete ? "Setup Guide" : `Setup Guide · ${setupDone ?? 0}/${setupTotal}`}
-          onClick={onOpenSetup}
-          badge={
-            !setupComplete && setupRemaining !== null ? (
-              <span
-                className="min-w-4 h-4 px-1 rounded-none bg-[#b45309] text-white text-[9px] font-bold flex items-center justify-center"
-                aria-hidden="true"
-              >
-                {setupRemaining}
-              </span>
-            ) : undefined
-          }
-        >
-          <SquareCheckBig className="size-4" strokeWidth={1.8} aria-hidden="true" />
-        </NavItem>
-
-        <a
-          href="/docs/"
-          aria-label="Documentation"
-          className="group w-full flex items-center gap-2.5 rounded-none px-2.5 py-1.5 touch:min-h-11 text-[13px] font-medium text-[#222320] dark:text-[#eae8e1] hover:bg-[#e0ded5] dark:hover:bg-[#3b3d36] hover:text-[#222320] dark:hover:text-[#f4f2ea] transition-colors duration-100"
-        >
-          <span className="text-[#6a6f63] dark:text-[#aaa99f] group-hover:text-[#222320] dark:group-hover:text-[#f4f2ea]" aria-hidden="true">
-            <BookOpen className="size-4" strokeWidth={1.8} aria-hidden="true" />
+      {/* 3. NAV THREADS SECTION: Header + Search/Options + Session rows */}
+      <div className="flex-1 flex flex-col min-h-0 pt-2 pb-1 overflow-hidden">
+        <div className="flex items-center justify-between px-1.5 pb-1.5">
+          <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">
+            Threads
           </span>
-          <span className="flex-1 text-left truncate">Documentation</span>
-        </a>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setSearchOpen((prev) => !prev)}
+              aria-label="Search threads"
+              className="size-5 rounded-[var(--radius-xs)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+            >
+              <Search className="size-3" strokeWidth={1.8} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onNewTask) onNewTask();
+              }}
+              aria-label="Thread options"
+              className="size-5 rounded-[var(--radius-xs)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
+            >
+              <Plus className="size-3" strokeWidth={2} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
 
-        <NavItem label="Keyboard shortcuts" onClick={onOpenShortcuts}>
-          <span className="text-[11px] font-mono font-bold leading-none">?</span>
-        </NavItem>
-
-        {onSignOut ? (
-          <NavItem
-            label="Sign out"
-            subLabel={accountEmail ?? undefined}
-            onClick={onSignOut}
-          >
-            <LogOut className="size-4" strokeWidth={1.8} aria-hidden="true" />
-          </NavItem>
+        {searchOpen ? (
+          <div className="px-1 pb-2">
+            <div className="relative">
+              <input
+                type="search"
+                value={threadQuery}
+                onChange={(e) => setThreadQuery(e.target.value)}
+                placeholder="Filter threads…"
+                aria-label="Filter threads"
+                className="w-full h-7 bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] pl-2 pr-6 text-[12px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus:outline-none focus:border-[var(--ring)] transition-colors"
+              />
+              {threadQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setThreadQuery("")}
+                  aria-label="Clear filter"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground-3)] hover:text-[var(--fg)] text-xs"
+                >
+                  ✕
+                </button>
+              ) : null}
+            </div>
+          </div>
         ) : null}
 
-        {onToggleTheme ? (
-          <NavItem
-            label={theme === "light" ? "Dark theme" : "Light theme"}
-            onClick={onToggleTheme}
-          >
-            {theme === "light" ? (
-              <Moon className="size-4" strokeWidth={1.8} aria-hidden="true" />
-            ) : (
-              <Sun className="size-4" strokeWidth={1.8} aria-hidden="true" />
-            )}
-          </NavItem>
-        ) : null}
+        {/* Scrollable thread rows */}
+        <div className="flex-1 overflow-y-auto px-0.5 space-y-0.5">
+          {filteredSessions.length === 0 ? (
+            <p className="text-[var(--muted-foreground-3)] text-[12px] px-2 py-4 text-center">
+              {sessions.length === 0 ? "No threads yet" : "No threads match"}
+            </p>
+          ) : (
+            filteredSessions.map((s) => {
+              const isSelected = s.id === selectedSessionId;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    if (onSelectSession) onSelectSession(s.id);
+                  }}
+                  className={
+                    "w-full text-left rounded-[var(--radius-button)] px-2 py-1.5 flex items-start gap-2 transition-colors " +
+                    (isSelected
+                      ? "bg-[var(--secondary)] text-[var(--fg)]"
+                      : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)] hover:text-[var(--fg)]")
+                  }
+                >
+                  <span
+                    className={
+                      "mt-1.5 size-1.5 rounded-full shrink-0 " +
+                      capyStatusDotClass(s.status, s.live)
+                    }
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-medium truncate leading-tight">
+                      {s.title || "Untitled thread"}
+                    </span>
+                    <span className="block text-[10px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5">
+                      {s.repoName} · {formatTimeAgo(s.updatedAt)}
+                    </span>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
-    </nav>
+
+      {/* 4. STATUS REGION & FOOTER CARD */}
+      <div className="pt-2 mt-auto border-t border-[var(--border-1)] flex flex-col gap-1.5">
+        {/* Status region */}
+        <div className="flex items-center justify-between px-2 text-[11px] text-[var(--muted-foreground-2)]">
+          <span className="inline-flex items-center gap-1.5 min-w-0">
+            <span
+              className={
+                "size-1.5 rounded-full shrink-0 " +
+                (connectionTone === "ok"
+                  ? "bg-[var(--success)]"
+                  : connectionTone === "pending"
+                    ? "bg-[var(--warning-fg)] animate-pulse"
+                    : "bg-[var(--destructive)]")
+              }
+              aria-hidden="true"
+            />
+            <span className="truncate">{connectionLabel}</span>
+          </span>
+          {setupDone !== null && setupDone < setupTotal ? (
+            <button
+              type="button"
+              onClick={onOpenSetup}
+              className="text-[10px] font-mono text-[var(--warning-fg)] hover:underline"
+            >
+              Setup {setupDone}/{setupTotal}
+            </button>
+          ) : null}
+        </div>
+
+        {/* Footer account card */}
+        <div ref={accountRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setAccountMenuOpen((prev) => !prev)}
+            aria-expanded={accountMenuOpen}
+            aria-haspopup="true"
+            className="w-full flex items-center gap-2 p-1.5 rounded-[var(--radius-button)] hover:bg-[var(--secondary)] transition-colors text-left"
+          >
+            <div className="size-6 rounded-full bg-[var(--card)] border border-[var(--border-2)] flex items-center justify-center text-[10px] font-bold text-[var(--primary)] shrink-0">
+              {accountEmail ? accountEmail.slice(0, 2).toUpperCase() : "SH"}
+            </div>
+            <div className="min-w-0 flex-1 leading-tight">
+              <span className="block text-[12px] font-medium text-[var(--fg)] truncate">
+                {accountEmail ?? "Shiba Workspace"}
+              </span>
+              <span className="block text-[10px] text-[var(--muted-foreground-3)] truncate">
+                Local Agent
+              </span>
+            </div>
+            <ChevronDown className="size-3 text-[var(--muted-foreground-3)] shrink-0" strokeWidth={1.8} aria-hidden="true" />
+          </button>
+
+          {accountMenuOpen ? (
+            <div
+              role="menu"
+              className="absolute left-0 bottom-full mb-1 w-full py-1 bg-[var(--popover)] border border-[var(--border-2)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] z-50 animate-enter"
+            >
+              {onOpenSetup ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onOpenSetup();
+                    setAccountMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                >
+                  <SquareCheckBig className="size-3.5" strokeWidth={1.8} />
+                  <span>Setup Guide</span>
+                </button>
+              ) : null}
+
+              <a
+                href="/docs"
+                role="menuitem"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+              >
+                <BookOpen className="size-3.5" strokeWidth={1.8} />
+                <span>Documentation</span>
+              </a>
+
+              {onOpenShortcuts ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onOpenShortcuts();
+                    setAccountMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                >
+                  <span className="text-[11px] font-mono font-bold leading-none w-3.5 text-center">?</span>
+                  <span>Shortcuts</span>
+                </button>
+              ) : null}
+
+              {onToggleTheme ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onToggleTheme();
+                    setAccountMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
+                >
+                  {theme === "light" ? (
+                    <Moon className="size-3.5" strokeWidth={1.8} />
+                  ) : (
+                    <Sun className="size-3.5" strokeWidth={1.8} />
+                  )}
+                  <span>{theme === "light" ? "Dark Theme" : "Light Theme"}</span>
+                </button>
+              ) : null}
+
+              {onSignOut ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onSignOut();
+                    setAccountMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--destructive)] hover:bg-[var(--destructive-soft)]"
+                >
+                  <LogOut className="size-3.5" strokeWidth={1.8} />
+                  <span>Sign out</span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </aside>
   );
 }
