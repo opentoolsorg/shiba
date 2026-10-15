@@ -128,6 +128,12 @@ export interface GitHubAutomationEvent {
   labels?: string[];
   /** `x-github-delivery` header value — the command-receipt key (T41). */
   deliveryId?: string;
+  /** pull_request head SHA — the review lane pins the run to this commit. */
+  headSha?: string;
+  /** Diff reference the reviewer fetches (`pull_request.diff_url` or the .diff URL). */
+  diffRef?: string;
+  /** pull_request number for the review lane's thread key. */
+  pullNumber?: number;
 }
 
 export interface SlackAutomationEvent {

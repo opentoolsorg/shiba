@@ -37,6 +37,7 @@ export type AppNavView =
   | "analytics"
   | "diff"
   | "approvals"
+  | "swarm"
   | "agents"
   | "inbox"
   | "memory"
@@ -60,6 +61,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "analytics", label: "Analytics", description: "Usage & Run Insights" },
   { id: "diff", label: "Diff", description: "Code Changes & Git Diffs" },
   { id: "approvals", label: "Approvals", description: "Review & Decision Queue" },
+  { id: "swarm", label: "Swarm", description: "Run Lanes, Modes & Share Links" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
   { id: "agents", label: "Agents & MCP", description: "MCP Gateway & Agent Tokens" },
@@ -72,7 +74,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
 ];
 
 const NAV_GROUPS: { label: string; items: AppNavView[] }[] = [
-  { label: "Workspace", items: ["dashboard", "tasks", "activity", "analytics", "diff", "approvals", "automations"] },
+  { label: "Workspace", items: ["dashboard", "tasks", "activity", "analytics", "diff", "approvals", "swarm", "automations"] },
   { label: "Capabilities", items: ["agents", "providers", "skills", "integrations", "inbox", "memory"] },
   { label: "System", items: ["remote", "settings"] },
 ];
@@ -112,6 +114,7 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   skills: BookMarked,
   settings: Settings,
   remote: Monitor,
+  swarm: SquareCheckBig,
 };
 
 function NavItem({

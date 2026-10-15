@@ -121,16 +121,25 @@ export function revalidateCodingRoute(snapshot: ModelConfigSnapshot, route: Appr
 
 /**
  * The Workers AI model a non-coding purpose runs on. Policy wins over the
- * deployment var; the checked-in default is the floor. `coding` has no
- * Workers AI resolution — it routes through connections.
+ * purpose's deployment var; the checked-in default is the floor. `coding`
+ * has no Workers AI resolution — it routes through connections.
  */
 /** @public */
 export function resolvePurposeModel(
   policy: PurposePolicy,
   purpose: Exclude<Purpose, "coding" | "intent" | "quality">,
-  env: Pick<Env, "ORCHESTRATOR_MODEL">,
+  env: { ORCHESTRATOR_MODEL?: string; REVIEW_MODEL?: string; PLAN_MODEL?: string; UI_MODEL?: string },
 ): string {
-  return policy.models[purpose] ?? env.ORCHESTRATOR_MODEL ?? DEFAULT_ORCHESTRATOR_MODEL;
+  const PURPOSE_ENV_KEYS = {
+    orchestrator: "ORCHESTRATOR_MODEL",
+    automation_gate: "ORCHESTRATOR_MODEL",
+    distillation: "ORCHESTRATOR_MODEL",
+    review: "REVIEW_MODEL",
+    plan: "PLAN_MODEL",
+    ui: "UI_MODEL",
+  } as const;
+  const envKey = PURPOSE_ENV_KEYS[purpose];
+  return policy.models[purpose] ?? env[envKey] ?? env.ORCHESTRATOR_MODEL ?? DEFAULT_ORCHESTRATOR_MODEL;
 }
 
 /** Harness names the catalog may reference — re-exported for route modules. */

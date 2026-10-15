@@ -78,6 +78,7 @@ export default defineConfig({
 					label: 'Operate',
 					items: [
 						{ label: 'Tasks & Runs Dashboard', slug: 'docs/dashboard' },
+						{ label: 'Swarm desk', slug: 'docs/swarm-desk' },
 						{ label: 'Configuration & Secrets', slug: 'docs/configuration' },
 						{ label: 'Local development', slug: 'docs/local-development' },
 						{ label: 'Deployment', slug: 'docs/deployment' },
