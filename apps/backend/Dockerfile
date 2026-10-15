@@ -17,7 +17,7 @@ FROM docker.io/cloudflare/sandbox:0.12.9-opencode@sha256:7b84b0163bd93f090504daf
 # `--acp` natively; opencode ≥1.18.34 ships the `acp` subcommand; the Devin
 # CLI ships `acp` at 3000.11.3. `command -v` probes below fail the build if
 # an adapter renames its bin.
-RUN npm i -g opencode-ai@1.18.34 @anthropic-ai/claude-code@2.1.277 @openai/codex@0.155.0 @xai-official/grok@1.0.41 \
+RUN npm i -g opencode-ai@1.18.34 @anthropic-ai/claude-code@2.1.284 @openai/codex@0.157.1 @xai-official/grok@1.0.41 \
     @agentclientprotocol/claude-agent-acp@0.86.0 @agentclientprotocol/codex-acp@2.1.1 @google/gemini-cli@0.62.0 \
   && opencode --version && claude --version && codex --version && grok --version && gemini --version \
   && command -v claude-agent-acp codex-acp && opencode acp --help >/dev/null \

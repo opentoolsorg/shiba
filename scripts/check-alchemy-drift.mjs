@@ -594,11 +594,13 @@ const literalsIn = (text, name) => {
 const bypassPaths = literalsIn(alchemyText, "ACCESS_BYPASS_PATHS");
 const signaturePaths = new Set(literalsIn(indexText, "SIGNATURE_AUTHENTICATED"));
 const hasMcpRule = /isMcpPath\s*\(/.test(indexText);
+const hasLocalRuntimeRule = /isLocalRuntimePath\s*\(/.test(indexText);
 const hasAutomationRule = /parseAutomationWebhookPath\s*\(/.test(indexText);
 const hasPublicWaitlistRule = /isPublicRequest\s*\(/.test(indexText);
 for (const path of bypassPaths) {
   if (signaturePaths.has(path)) continue;
   if ((path === "/mcp" || path === "/mcp/*") && hasMcpRule) continue;
+  if ((path === "/api/local" || path === "/api/local/*") && hasLocalRuntimeRule) continue;
   if (path === "/api/automations/*/trigger" && hasAutomationRule) continue;
   if (path === "/api/waitlist" && hasPublicWaitlistRule) continue;
   drift.push(`ACCESS_BYPASS_PATHS "${path}" has no Worker auth exemption in apps/backend/src/index.ts`);
