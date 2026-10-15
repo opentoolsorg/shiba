@@ -429,7 +429,7 @@ export function FirstRunWizard({
                     model: {row.model || "Not resolved"}
                   </div>
                   {row.error ? (
-                    <p className="mt-1 break-words text-[11px] text-[#b91c1c]">
+                    <p className="mt-1 break-words text-[11px] text-[var(--destructive)]">
                       Routing needs attention: {row.error}
                     </p>
                   ) : null}
