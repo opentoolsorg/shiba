@@ -7,6 +7,7 @@ import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
+import { ActivityReportView } from "./components/ActivityReportView";
 import { SwarmDeskView } from "./components/SwarmDeskView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
@@ -2104,11 +2105,20 @@ export function App(): React.JSX.Element {
           ) : mainView === "activity" ? (
             // Remount on session switch so the previous session's spine never
             // renders as the new one's while its first fetch is in flight.
-            <ActivityView
-              key={selectedSessionId}
-              sessionId={selectedSessionId}
-              sessionApiAvailable={sessionApiAvailable}
-            />
+            <div className="flex-1 overflow-y-auto">
+              <ActivityReportView
+                key={selectedSessionId}
+                sessionId={selectedSessionId}
+                sessionApiAvailable={sessionApiAvailable}
+              />
+              <div className="flex h-[max(520px,70vh)] flex-col">
+                <ActivityView
+                  key={selectedSessionId}
+                  sessionId={selectedSessionId}
+                  sessionApiAvailable={sessionApiAvailable}
+                />
+              </div>
+            </div>
           ) : mainView === "analytics" ? (
             <AnalyticsView
               runs={retainedRuns}
