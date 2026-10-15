@@ -36,6 +36,7 @@ import { TaskComposer } from "./components/TaskComposer";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
 import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavRail";
 import { AuthScreen } from "./components/AuthScreen";
 import { authClient } from "./auth-client";
@@ -279,6 +280,31 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 
 type MainView = AppNavView;
 
+const VIEW_ALIASES: Record<string, AppNavView> = {
+  "run-registry": "analytics",
+  orchestrator: "activity",
+  mailbox: "inbox",
+};
+
+// Each sidebar view owns a root path (/dashboard/, /skills/ …); legacy ?tab=/?view=/?run= still resolve.
+function viewFromUrl(): AppNavView | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("run")) return "dashboard";
+  const toView = (raw: string | null) => {
+    const view = raw ? (VIEW_ALIASES[raw] ?? raw) : null;
+    return APP_NAV_ITEMS.some((item) => item.id === view) ? (view as AppNavView) : null;
+  };
+  return (
+    toView(window.location.pathname.split("/")[1] ?? null) ??
+    toView(params.get("tab") || params.get("view"))
+  );
+}
+
+function pathForView(view: MainView): string {
+  return view === "tasks" ? "/" : `/${view}/`;
+}
+
 const SETUP_TOTAL_STEPS = 6;
 
 const STARTER_TEMPLATES = [
@@ -336,13 +362,19 @@ export function App(): React.JSX.Element {
     if (notice) toast(notice);
   }, [notice]);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [mainView, setMainView] = useState<MainView>("tasks");
+  const [mainView, setMainView] = useState<MainView>(() => {
+    const view = viewFromUrl();
+    return view && view !== "settings" ? view : "tasks";
+  });
   // Settings is a Kosuke-style popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
+  const [settingsInitialSection, setSettingsInitialSection] = useState<"account" | "models">("account");
   const openView = useCallback((view: AppNavView) => {
-    if (view === "settings") setSettingsModalOpen(true);
-    else setMainView(view);
+    if (view === "settings") {
+      setSettingsInitialSection("account");
+      setSettingsModalOpen(true);
+    } else setMainView(view);
   }, []);
   // Once visited, the mailbox stays mounted (hidden) — its local state
   // (search text, selected thread, drafts) survives nav switches.
@@ -420,43 +452,32 @@ export function App(): React.JSX.Element {
     };
   }, [showOnboardingModal]);
 
+  // The view itself is read in the useState initializers; only the run pick needs an effect.
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const tabParam = params.get("tab") || params.get("view");
-      const runParam = params.get("run");
-      if (runParam) {
-        setSelectedRunId(runParam);
-        setMainView("dashboard");
-        setMainView("dashboard");
-      } else if (tabParam === "analytics" || tabParam === "run-registry") {
-        setMainView("analytics");
-      } else if (tabParam === "activity" || tabParam === "orchestrator") {
-        setMainView("activity");
-      } else if (tabParam === "diff") {
-        setMainView("diff");
-      } else if (tabParam === "approvals") {
-        setMainView("approvals");
-      } else if (tabParam === "inbox" || tabParam === "mailbox") {
-        setMainView("inbox");
-      } else if (tabParam === "memory") {
-        setMainView("memory");
-      } else if (tabParam === "automations") {
-        setMainView("automations");
-      } else if (tabParam === "agents") {
-        setMainView("agents");
-      } else if (tabParam === "providers") {
-        setMainView("providers");
-      } else if (tabParam === "skills") {
-        setMainView("skills");
-      } else if (tabParam === "integrations") {
-        setMainView("integrations");
-      } else if (tabParam === "remote") {
-        setMainView("remote");
-      } else if (tabParam === "settings") {
-        setSettingsModalOpen(true);
-      }
-    }
+    const runParam = new URLSearchParams(window.location.search).get("run");
+    if (runParam) setSelectedRunId(runParam);
+  }, []);
+
+  // The first sync rewrites a legacy /app/ URL in place (query kept for any reader); later view changes are history steps.
+  const router = useRouter();
+  const urlSynced = useRef(false);
+  useEffect(() => {
+    const path = pathForView(mainView);
+    const first = !urlSynced.current;
+    urlSynced.current = true;
+    if (window.location.pathname === path) return;
+    if (first) router.history.replace(path + window.location.search);
+    else router.history.push(path);
+  }, [mainView, router]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const view = viewFromUrl();
+      if (view === "settings") setSettingsModalOpen(true);
+      else setMainView(view ?? "tasks");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   const submitFailed = useRef(false);
@@ -1181,12 +1202,15 @@ export function App(): React.JSX.Element {
 
   // Connections/agents can change in Settings — refetch each time the user
   // returns to the composer so the pickers never serve a stale snapshot.
+  // Depend on the stable reload callbacks: the hook results are new objects every render, which looped.
+  const reloadModelConfig = modelConfig.reload;
+  const reloadAgentsDirectory = agentsDirectory.reload;
   useEffect(() => {
     if (mainView === "tasks") {
-      modelConfig.reload();
-      agentsDirectory.reload();
+      reloadModelConfig();
+      reloadAgentsDirectory();
     }
-  }, [mainView, modelConfig, agentsDirectory]);
+  }, [mainView, reloadModelConfig, reloadAgentsDirectory]);
 
   const repoSuggestions = useMemo(() => {
     const merged = [...savedRepos, ...allRuns.map((run) => run.repoUrl)];
@@ -2152,6 +2176,7 @@ export function App(): React.JSX.Element {
           {settingsModalOpen ? (
             <SettingsModal
               isOpen
+              initialSection={settingsInitialSection}
               onClose={() => setSettingsModalOpen(false)}
               onFocusRestore={() => {
                 if (window.matchMedia("(max-width: 1023px)").matches) {
@@ -2219,6 +2244,10 @@ export function App(): React.JSX.Element {
             open={showFirstRun}
             onClose={() => setShowFirstRun(false)}
             onNavigate={openView}
+            onOpenModels={() => {
+              setSettingsInitialSection("models");
+              setSettingsModalOpen(true);
+            }}
             onOpenChecklist={() => setShowOnboardingModal(true)}
           />
 

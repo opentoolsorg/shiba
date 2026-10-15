@@ -9,7 +9,6 @@
 
 import type { AuthSnapshot } from "@shiba/shared";
 import { type JSX, useEffect, useRef, useState } from "react";
-import { Tooltip } from "./Tooltip";
 
 export interface AgentCliCredential {
   kind: "ai-gateway-byok" | "worker-secret" | "oauth-signin";
@@ -119,6 +118,7 @@ export const SUBSCRIPTION_AUTH: Record<
 
 export type SubscriptionStatus =
   | { kind: "loading" }
+  | { kind: "error" }
   | { kind: "unavailable" }
   | { kind: "snapshot"; snapshot: AuthSnapshot };
 
@@ -152,6 +152,7 @@ export function chip(tone: keyof typeof CHIP_TONES, label: string): JSX.Element 
 /** The card chip reflects the live auth-flow phase, not credential presence. */
 export function subscriptionChip(status: SubscriptionStatus | undefined): JSX.Element {
   if (status?.kind === "unavailable") return chip("neutral", "Unavailable");
+  if (status?.kind === "error") return chip("pending", "Could not check");
   const phase = status?.kind === "snapshot" ? status.snapshot.phase : undefined;
   switch (phase) {
     case "succeeded":
@@ -235,6 +236,7 @@ export function SubscriptionConnect({
     if (!response.ok) {
       throw new Error(body.error ?? `Auth request failed: ${response.status}`);
     }
+    if (body.snapshot === undefined) throw new Error("The connection status could not be read. Try again.");
     applySnapshot(body.snapshot);
     return body.snapshot;
   };
@@ -245,7 +247,9 @@ export function SubscriptionConnect({
       markUnavailable();
       return;
     }
+    if (!response.ok) throw new Error("The connection status could not be checked. Try again.");
     const body = (await response.json().catch(() => ({}))) as { snapshot?: AuthSnapshot };
+    if (body.snapshot === undefined) throw new Error("The connection status could not be read. Try again.");
     applySnapshot(body.snapshot);
   };
 
@@ -262,13 +266,18 @@ export function SubscriptionConnect({
           }
           return;
         }
+        if (!response.ok) throw new Error("Connection status is unavailable.");
         const body = (await response.json().catch(() => ({}))) as { snapshot?: AuthSnapshot };
-        if (!cancelled && body.snapshot !== undefined) {
+        if (body.snapshot === undefined) throw new Error("Connection status was not reported.");
+        if (!cancelled) {
           setSnapshot(body.snapshot);
           onStatusRef.current({ kind: "snapshot", snapshot: body.snapshot });
         }
       } catch {
-        // The card still renders; connect attempts surface their own error.
+        if (!cancelled) {
+          setFlowError("We could not check this connection. Try connecting again, or contact your administrator if this continues.");
+          onStatusRef.current({ kind: "error" });
+        }
       }
     })();
     return () => {
@@ -285,7 +294,7 @@ export function SubscriptionConnect({
       await work();
     } catch (err) {
       setFlowError(err instanceof Error ? err.message : String(err));
-      await refresh().catch(() => undefined);
+      await refresh().catch(() => onStatusRef.current({ kind: "error" }));
     } finally {
       setBusy(false);
     }
@@ -294,6 +303,7 @@ export function SubscriptionConnect({
   const connect = () =>
     void run(async () => {
       const snap = await callFlow("begin");
+      if (snap === undefined) return;
       if (spec.oauthRedirect) {
         setCallbackSent(false);
         // Popup blockers can refuse an async open — the waiting panel always
@@ -352,19 +362,14 @@ export function SubscriptionConnect({
   return (
     <div className="mt-3 space-y-2 border-t border-[#e0ded5]/60 pt-3">
       {unavailable ? (
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[11px] text-[#6a6f63]">Subscription auth is off</span>
-          <Tooltip
-            content={`Enable ${spec.flag}=1 on the Worker to use this flow`}
-            side="top"
-            align="end"
-          >
-            <span className="inline-flex">
-              <button type="button" disabled className={CONNECT_PRIMARY}>
-                Connect
-              </button>
-            </span>
-          </Tooltip>
+        <div className="space-y-2">
+          <p className="border border-[#f99c00]/30 bg-[#f99c00]/10 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#b45309]">
+            {spec.label} subscription sign-in is not enabled on this deployment. Ask your
+            administrator to enable it, or choose another provider.
+          </p>
+          <button type="button" disabled className={CONNECT_PRIMARY}>
+            Connect
+          </button>
         </div>
       ) : phase === "waiting" ? (
         <div className="space-y-2">
@@ -468,26 +473,23 @@ export function SubscriptionConnect({
                 Check again
               </button>
             ) : null}
-            <Tooltip
-              disabled={!needsSecret}
-              content={credential.setupHint ?? "Provision the credential first."}
-              side="top"
-              align="end"
+            <button
+              type="button"
+              onClick={connect}
+              disabled={busy || needsSecret}
+              className={CONNECT_PRIMARY}
             >
-              <span className="inline-flex">
-                <button
-                  type="button"
-                  onClick={connect}
-                  disabled={busy || needsSecret}
-                  className={CONNECT_PRIMARY}
-                >
-                  {busy ? "Connecting…" : phase === "failed" ? "Retry connect" : "Connect"}
-                </button>
-              </span>
-            </Tooltip>
+              {busy ? "Connecting…" : phase === "failed" ? "Retry connect" : "Connect"}
+            </button>
           </div>
         </div>
       )}
+      {!unavailable && needsSecret && phase !== "succeeded" ? (
+        <p className="border border-[#f99c00]/30 bg-[#f99c00]/10 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#b45309]">
+          This provider needs a deployment credential before you can connect. Ask your
+          administrator to configure it, or choose another provider.
+        </p>
+      ) : null}
       {flowError !== null ? (
         <div className="border border-[#fb2c36]/30 bg-[#fb2c36]/10 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#fb2c36]">
           {flowError}

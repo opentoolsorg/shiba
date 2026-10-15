@@ -1,8 +1,7 @@
 /**
  * FirstRunWizard — the post-signup onboarding flow. Three steps:
- *   1. Channels  — pick the surfaces you want tasks & approvals on
- *      (Slack/Telegram/Discord/Email/GitHub; status is live, setup itself is
- *      deployment-provisioned and the row says where).
+ *   1. Channels  — review deployment-reported configuration for the surfaces
+ *      that carry tasks & approvals (Slack/Telegram/Discord/Email/GitHub).
  *   2. Your agent — connect one AI provider via the shared
  *      SubscriptionConnect control.
  *   3. Model routing — the deployment's role→harness map, read-only, with a
@@ -11,13 +10,14 @@
  * (`shiba-onboarding-v1` in localStorage) and can be reopened from Setup
  * Guide. Steps never block: "Skip" always works, "Finish" marks it done.
  */
-import { useMemo, useState, type JSX } from "react";
+import { useState, type JSX } from "react";
 import type { AppNavView } from "./AppNavRail";
 import { ToneChip } from "./ToneChip";
 import {
   SUBSCRIPTION_AUTH,
   SubscriptionConnect,
   subscriptionChip,
+  type AgentCliCredential,
   type SubscriptionId,
   type SubscriptionStatus,
 } from "./SubscriptionConnect";
@@ -28,6 +28,7 @@ import {
 } from "../live-status";
 
 export const ONBOARDING_STORAGE_KEY = "shiba-onboarding-v1";
+const SUBSCRIPTION_IDS = Object.keys(SUBSCRIPTION_AUTH) as SubscriptionId[];
 
 const STEPS = [
   { id: "channels", title: "Your channels", blurb: "Where tasks and approvals reach you" },
@@ -39,10 +40,12 @@ function WizardShell({
   step,
   onClose,
   children,
+  footer,
 }: {
   step: number;
   onClose: () => void;
   children: React.ReactNode;
+  footer: React.ReactNode;
 }): JSX.Element {
   const current = STEPS[step] ?? STEPS[0];
   return (
@@ -51,9 +54,9 @@ function WizardShell({
         role="dialog"
         aria-modal="true"
         aria-label="Welcome setup"
-        className="w-full max-w-lg rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[4px_4px_0_var(--paper-shadow)]"
+        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-none border border-[#e0ded5] bg-[#fffef8] shadow-[4px_4px_0_var(--paper-shadow)]"
       >
-        <div className="border-b border-[#e0ded5] px-5 py-4">
+        <div className="shrink-0 border-b border-[#e0ded5] px-5 py-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[#1c1cc8]">
@@ -82,7 +85,8 @@ function WizardShell({
             ))}
           </div>
         </div>
-        <div className="max-h-[60vh] overflow-y-auto px-5 py-4">{children}</div>
+        <div className="min-h-0 max-h-[60vh] overflow-y-auto px-5 py-4">{children}</div>
+        <div className="shrink-0 border-t border-[#e0ded5] px-5 py-4">{footer}</div>
       </div>
     </div>
   );
@@ -99,7 +103,7 @@ function Footer({
 }): JSX.Element {
   const last = step === STEPS.length - 1;
   return (
-    <div className="flex items-center justify-between gap-3 pt-4">
+    <div className="flex items-center justify-between gap-3">
       <button
         type="button"
         onClick={onFinish}
@@ -149,10 +153,19 @@ function ChannelRow({
   );
 }
 
-function AgentRow({ id, agentCredential }: { id: SubscriptionId; agentCredential?: { kind: string; label: string; configured: boolean | null; setupHint: string | null } }): JSX.Element {
+function AgentRow({
+  id,
+  agentCredential,
+  status,
+  onStatus,
+}: {
+  id: SubscriptionId;
+  agentCredential?: AgentCliCredential;
+  status: SubscriptionStatus | undefined;
+  onStatus: (status: SubscriptionStatus) => void;
+}): JSX.Element {
   const spec = SUBSCRIPTION_AUTH[id];
-  const credential = (agentCredential as never) ?? spec.credential;
-  const [status, setStatus] = useState<SubscriptionStatus>({ kind: "loading" });
+  const credential = agentCredential ?? spec.credential;
   return (
     <div className="border-b border-[#e0ded5]/60 py-3 last:border-b-0">
       <div className="flex items-center justify-between gap-3">
@@ -162,7 +175,7 @@ function AgentRow({ id, agentCredential }: { id: SubscriptionId; agentCredential
         </div>
         <div className="shrink-0">{subscriptionChip(status)}</div>
       </div>
-      <SubscriptionConnect spec={spec} credential={credential} onStatus={setStatus} />
+      <SubscriptionConnect spec={spec} credential={credential} onStatus={onStatus} />
     </div>
   );
 }
@@ -171,14 +184,17 @@ export function FirstRunWizard({
   open,
   onClose,
   onNavigate,
+  onOpenModels,
   onOpenChecklist,
 }: {
   open: boolean;
   onClose: () => void;
   onNavigate?: (view: AppNavView) => void;
+  onOpenModels?: () => void;
   onOpenChecklist?: () => void;
 }): JSX.Element | null {
   const [step, setStep] = useState(0);
+  const [subscriptions, setSubscriptions] = useState<Partial<Record<SubscriptionId, SubscriptionStatus>>>({});
   const directory = useAgentsDirectory();
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
@@ -186,7 +202,15 @@ export function FirstRunWizard({
   const agents = directory.state.kind === "data" ? directory.state.data.agents : [];
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
   const mailboxList = mailboxes.state.kind === "data" ? mailboxes.state.data.mailboxes : undefined;
-  const subscriptionIds = useMemo(() => Object.keys(SUBSCRIPTION_AUTH) as SubscriptionId[], []);
+  const roles = status?.models.roles ?? [];
+  const connectedProviders = SUBSCRIPTION_IDS.filter((id) => {
+    const subscription = subscriptions[id];
+    return subscription?.kind === "snapshot" && subscription.snapshot.phase === "succeeded";
+  }).length;
+  const checkingProviders = SUBSCRIPTION_IDS.some((id) =>
+    subscriptions[id] === undefined || subscriptions[id]?.kind === "loading",
+  );
+  const providerCheckFailed = SUBSCRIPTION_IDS.some((id) => subscriptions[id]?.kind === "error");
 
   if (!open) return null;
 
@@ -200,16 +224,59 @@ export function FirstRunWizard({
   };
 
   return (
-    <WizardShell step={step} onClose={finish}>
+    <WizardShell
+      step={step}
+      onClose={finish}
+      footer={
+        <>
+          <Footer step={step} setStep={setStep} onFinish={finish} />
+          {onOpenChecklist ? (
+            <p className="mt-3 border-t border-[#e0ded5]/60 pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenChecklist();
+                }}
+                className="font-mono text-[10px] text-[#6a6f63] hover:text-[#222320]"
+              >
+                Operator? Open the deployment checklist →
+              </button>
+            </p>
+          ) : null}
+        </>
+      }
+    >
+      {step > 0 ? (
+        <div role="status" className="mb-3 space-y-1.5">
+          <ToneChip
+            tone={connectedProviders > 0 ? "ok" : "pending"}
+            label={`${connectedProviders} subscription provider${connectedProviders === 1 ? "" : "s"} connected`}
+          />
+          <p className="text-[11px] leading-relaxed text-[#6a6f63]">
+            {checkingProviders
+              ? "Checking subscription connections…"
+              : providerCheckFailed
+                ? "Some connections could not be checked. Only confirmed connections are counted."
+                : connectedProviders === 0
+                  ? "No provider connected yet. You can continue setup, but running tasks needs a configured provider."
+                  : "Connection status is reported by the deployment; model routing is configured separately."}
+          </p>
+        </div>
+      ) : null}
       {step === 0 ? (
         <div>
           <ChannelRow
             name="GitHub"
             status={
-              status === undefined ? (
+              setup.state.kind === "error" ? (
+                <ToneChip tone="pending" label="Could not check" />
+              ) : status === undefined ? (
                 <ToneChip tone="neutral" label="Checking…" />
-              ) : status.github.token ? (
-                <ToneChip tone="ok" label="Connected" />
+              ) : status.github.token && status.github.webhookSecret ? (
+                <ToneChip tone="ok" label="Configured" />
+              ) : status.github.token || status.github.webhookSecret ? (
+                <ToneChip tone="pending" label="Partly configured" />
               ) : (
                 <ToneChip tone="neutral" label="Not set up" />
               )
@@ -220,10 +287,14 @@ export function FirstRunWizard({
           <ChannelRow
             name="Slack"
             status={
-              status === undefined ? (
+              setup.state.kind === "error" ? (
+                <ToneChip tone="pending" label="Could not check" />
+              ) : status === undefined ? (
                 <ToneChip tone="neutral" label="Checking…" />
-              ) : status.slack.signingSecret && status.slack.botToken ? (
-                <ToneChip tone="ok" label="Connected" />
+              ) : status.slack.signingSecret && status.slack.botToken && status.slack.approvers > 0 ? (
+                <ToneChip tone="ok" label="Configured" />
+              ) : status.slack.signingSecret || status.slack.botToken ? (
+                <ToneChip tone="pending" label="Partly configured" />
               ) : (
                 <ToneChip tone="neutral" label="Not set up" />
               )
@@ -231,29 +302,32 @@ export function FirstRunWizard({
           >
             Approve runs in chat.
           </ChannelRow>
-          <ChannelRow name="Telegram" status={<ToneChip tone="neutral" label="Optional" />}>
-            Task intake through a bot.
+          <ChannelRow name="Telegram" status={<ToneChip tone="neutral" label="Not reported" />}>
+            Task intake through a bot. This deployment does not report connection status here.
           </ChannelRow>
-          <ChannelRow name="Discord" status={<ToneChip tone="neutral" label="Optional" />}>
-            Commands and progress posts.
+          <ChannelRow name="Discord" status={<ToneChip tone="neutral" label="Not reported" />}>
+            Commands and progress posts. This deployment does not report connection status here.
           </ChannelRow>
           <ChannelRow
             name="Email"
             status={
-              mailboxList === undefined ? (
+              mailboxes.state.kind === "error" ? (
+                <ToneChip tone="pending" label="Could not check" />
+              ) : mailboxList === undefined ? (
                 <ToneChip tone="neutral" label="Checking…" />
               ) : mailboxList.length > 0 ? (
-                <ToneChip tone="ok" label="Connected" />
+                <ToneChip tone="ok" label="Mailbox available" />
               ) : (
                 <ToneChip tone="neutral" label="Not set up" />
               )
             }
           >
             Inbound triage and approved sends.
+            {status !== undefined && !status.mailbox.sendEnabled ? " Outbound sending is not enabled." : ""}
           </ChannelRow>
           <p className="mt-3 text-[11px] leading-relaxed text-[#6a6f63]">
-            Channel setup is done in your deployment settings. Anything not set up can be added
-            later from the Integrations page.
+            Configuration does not confirm live delivery. Channel setup is managed by your
+            deployment administrator; review details on the Integrations page.
           </p>
           {onNavigate ? (
             <button
@@ -270,13 +344,15 @@ export function FirstRunWizard({
         </div>
       ) : null}
 
-      {step === 1 ? (
-        <div>
-          {subscriptionIds.map((id) => (
+      {step > 0 ? (
+        <div hidden={step !== 1}>
+          {SUBSCRIPTION_IDS.map((id) => (
             <AgentRow
               key={id}
               id={id}
               agentCredential={agents.find((a) => a.id === id)?.credential}
+              status={subscriptions[id]}
+              onStatus={(next) => setSubscriptions((current) => ({ ...current, [id]: next }))}
             />
           ))}
           <p className="mt-3 text-[11px] leading-relaxed text-[#6a6f63]">
@@ -288,23 +364,39 @@ export function FirstRunWizard({
 
       {step === 2 ? (
         <div>
-          {agents.length === 0 ? (
+          {setup.state.kind === "loading" ? (
+            <p role="status" className="text-[11px] text-[#6a6f63]">Checking model routing…</p>
+          ) : setup.state.kind === "error" ? (
+            <div className="space-y-2 text-[11px] text-[#b45309]">
+              <p>Model routing could not be loaded. You can continue setup and check it later.</p>
+              <button type="button" onClick={setup.reload} className="font-mono text-[#1c1cc8] hover:text-[#0000a8]">
+                Retry routing check
+              </button>
+            </div>
+          ) : roles.length === 0 ? (
             <p className="text-[11px] text-[#6a6f63]">
-              No agent catalog reported yet — routing falls back to the deployment default.
+              This deployment has not reported per-role routing. Ask your administrator to
+              check the model configuration.
             </p>
           ) : (
             <div className="space-y-1.5">
-              {agents.slice(0, 6).map((agent) => (
+              {roles.map((row) => (
                 <div
-                  key={agent.id}
-                  className="flex items-center justify-between gap-3 border-b border-[#e0ded5]/60 py-2 last:border-b-0"
+                  key={row.role}
+                  className="border-b border-[#e0ded5]/60 py-2 last:border-b-0"
                 >
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-medium text-[#222320]">{agent.label}</div>
-                    <div className="font-mono text-[10px] text-[#6a6f63]">
-                      default model: {agent.defaultModel}
-                    </div>
+                  <div className="text-[13px] font-medium text-[#222320]">{row.role}</div>
+                  <div className="mt-0.5 break-words font-mono text-[10px] text-[#6a6f63]">
+                    harness: {row.harness || "Not resolved"}
                   </div>
+                  <div className="break-words font-mono text-[10px] text-[#6a6f63]">
+                    model: {row.model || "Not resolved"}
+                  </div>
+                  {row.error ? (
+                    <p className="mt-1 break-words text-[11px] text-[#b91c1c]">
+                      Routing needs attention: {row.error}
+                    </p>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -313,37 +405,21 @@ export function FirstRunWizard({
             Routing decides which agent handles each task role. Tune it any time in
             Settings → Models.
           </p>
-          {onNavigate ? (
+          {onOpenModels ? (
             <button
               type="button"
               onClick={() => {
                 finish();
-                onNavigate("settings");
+                onOpenModels();
               }}
               className="mt-2 font-mono text-[11px] font-medium text-[#1c1cc8] hover:text-[#0000a8]"
             >
-              Open Settings →
+              Open Settings → Models
             </button>
           ) : null}
         </div>
       ) : null}
 
-      <Footer step={step} setStep={setStep} onFinish={finish} />
-
-      {onOpenChecklist ? (
-        <p className="mt-3 border-t border-[#e0ded5]/60 pt-3">
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onOpenChecklist();
-            }}
-            className="font-mono text-[10px] text-[#6a6f63] hover:text-[#222320]"
-          >
-            Operator? Open the deployment checklist →
-          </button>
-        </p>
-      ) : null}
     </WizardShell>
   );
 }

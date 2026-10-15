@@ -74,6 +74,38 @@ export { handleWebSessions } from "./sessions-routes.js";
 // a non-throwing call, so a still-retired id keeps failing every request.
 let codingModelVerified = false;
 
+// The landing site lives on tryshiba.dev; the app host only serves the dashboard.
+const MARKETING_SECTIONS = new Set([
+  "docs",
+  "blog",
+  "why-shiba",
+  "open-source-devin-alternative",
+  "privacy",
+  "terms",
+  "waitlist",
+  "welcome",
+]);
+// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the tasks home.
+export const DASHBOARD_VIEWS = new Set([
+  "",
+  "dashboard",
+  "tasks",
+  "activity",
+  "analytics",
+  "diff",
+  "approvals",
+  "swarm",
+  "agents",
+  "inbox",
+  "memory",
+  "automations",
+  "providers",
+  "integrations",
+  "skills",
+  "remote",
+  "settings",
+]);
+
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
@@ -147,6 +179,16 @@ export default {
       // request. The gate then composes both identity systems.
       const betterAuthResponse = await handleBetterAuth(request, env);
       if (betterAuthResponse) return betterAuthResponse;
+      if (request.method === "GET" || request.method === "HEAD") {
+        const section = url.pathname.split("/")[1] ?? "";
+        if (MARKETING_SECTIONS.has(section)) {
+          return Response.redirect(`https://tryshiba.dev${url.pathname}${url.search}`, 301);
+        }
+        // The shell is static and shows sign-in itself; single segment so /agents/<do>/… still routes.
+        if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
+      }
       if (!isPublicRequest(request) && !(await isAuthorizedRequest(request, env))) {
         return Response.json(
           {

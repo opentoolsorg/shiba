@@ -32,7 +32,7 @@ export default defineConfig({
       "/api": "http://localhost:8788",
       "/agents": { target: "http://localhost:8788", ws: true },
     },
-    open: "/app/",
+    open: "/",
   },
   plugins: [
     tanstackStart({
