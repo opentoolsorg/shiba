@@ -23,7 +23,6 @@ import {
   GitPullRequest,
   Home,
   Laptop,
-  Mic,
   Plus,
   Search,
   SlidersHorizontal,
@@ -94,7 +93,7 @@ const LOCAL_HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = 
   { value: "codex", label: "Codex", desc: "OpenAI Codex CLI" },
 ];
 
-type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "access" | "config" | "effort" | null;
+type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "access" | "config" | null;
 
 /** owner/repo from a GitHub URL; falls back to the trimmed raw value. */
 function repoSlugOf(repoUrl: string): string {
@@ -222,7 +221,6 @@ export function TaskComposer({
   const [modelFilter, setModelFilter] = useState("");
   const [modelDraft, setModelDraft] = useState("");
   const [branchDraft, setBranchDraft] = useState("");
-  const [effortLevel, setEffortLevel] = useState<"Low" | "Medium" | "High">("Medium");
   const baseId = useId();
   const idFor = (name: string) => `${baseId}-${name}`;
 
@@ -537,7 +535,7 @@ export function TaskComposer({
         </fieldset>
       ) : null}
 
-      {/* Bottom control row: + add menu, sliders thread-config, model chip, effort chip, spacer, teal CTA */}
+      {/* Bottom control row: + add menu, sliders thread-config, model chip, spacer, teal CTA */}
       <div className="flex items-center gap-1.5 flex-wrap pt-1">
         {/* + button (add context / tools) */}
         <div className="relative">
@@ -907,64 +905,7 @@ export function TaskComposer({
           </Popover>
         </div>
 
-        {/* Effort Chip (Label + Chevron) */}
-        <div className="relative">
-          <Tooltip content="Reasoning effort" side="top">
-            <button
-              type="button"
-              id={idFor("effort-button")}
-              aria-haspopup="menu"
-              aria-expanded={open === "effort"}
-              aria-label={`Effort: ${effortLevel}`}
-              onClick={() => toggle("effort")}
-              className={`${pillClass} border border-[var(--border-1)] bg-[var(--card)] hover:bg-[var(--secondary)] text-[var(--fg)]`}
-            >
-              <span className={pillLabelClass}>{effortLevel}</span>
-              {chevron}
-            </button>
-          </Tooltip>
-          <Popover
-            kind="effort"
-            open={open === "effort"}
-            onClose={close}
-            labelledBy={idFor("effort-button")}
-            className="left-0 w-36"
-          >
-            <div className="py-1">
-              {(["Low", "Medium", "High"] as const).map((lvl) => (
-                <button
-                  key={lvl}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={effortLevel === lvl}
-                  className={menuRowClass}
-                  onClick={() => {
-                    setEffortLevel(lvl);
-                    setOpen(null);
-                  }}
-                >
-                  <span className="flex-1 font-medium">{lvl}</span>
-                  {effortLevel === lvl ? (
-                    <Check aria-hidden="true" className={menuCheckClass} />
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          </Popover>
-        </div>
-
         <div className="flex-1" aria-hidden="true" />
-
-        {/* Voice Input Button */}
-        <Tooltip content="Voice input" side="top">
-          <button
-            type="button"
-            aria-label="Voice input"
-            className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
-          >
-            <Mic aria-hidden="true" className="size-4" />
-          </button>
-        </Tooltip>
 
         {/* Teal Send Button */}
         <Tooltip content="Submit task to coding agent" shortcut="⌘↵" side="top">
