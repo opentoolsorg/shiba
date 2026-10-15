@@ -38,6 +38,7 @@ import {
   ComputerPreviewAdapter,
   MAX_FILE_CHARS,
   MAX_PROGRESS_EVENTS,
+  MAX_STREAM_LINE_CHARS,
   SandboxRuntimeAdapter,
   buildOpencodeArgv,
   buildOpencodeConfig,
@@ -855,5 +856,66 @@ describe("unescapePorcelainPath", () => {
     // Latin-1, not the octal escape git actually quotes.
     const bytes = [..."\u65e5\u672c\u8a9e.md"].flatMap((c) => [...new TextEncoder().encode(c)]).map((b) => `\\${b.toString(8).padStart(3, "0")}`);
     expect(unescapePorcelainPath(`"${bytes.join("")}"`)).toBe("\u65e5\u672c\u8a9e.md");
+  });
+});
+
+describe("streamed output buffering", () => {
+  it("parses an event line split across arbitrary chunk boundaries", async () => {
+    const ops = makeFakeOps();
+    ops.exec = async (_command, opts) => {
+      const line = `${JSON.stringify({ type: "log", part: "hello split world" })}\n`;
+      for (const ch of line) {
+        opts?.onOutput?.("stdout", ch);
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const events: string[] = [];
+    const adapter = new SandboxRuntimeAdapter();
+    const result = await adapter.runCodingTask(ops, INPUT, (event) => {
+      if (event.message.startsWith("[opencode]")) events.push(event.message);
+    });
+    expect(result.status).toBe("completed");
+    expect(events.some((message) => message.includes("hello split world"))).toBe(true);
+  });
+
+  it("drops an oversized pending line honestly and keeps parsing later events", async () => {
+    const ops = makeFakeOps();
+    ops.exec = async (_command, opts) => {
+      const big = "x".repeat(MAX_STREAM_LINE_CHARS + 512);
+      for (let i = 0; i < big.length; i += 8192) {
+        opts?.onOutput?.("stdout", big.slice(i, i + 8192));
+      }
+      opts?.onOutput?.("stdout", "\n");
+      opts?.onOutput?.("stdout", `${JSON.stringify({ type: "log", part: "after overflow" })}\n`);
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const events: string[] = [];
+    const adapter = new SandboxRuntimeAdapter();
+    const result = await adapter.runCodingTask(ops, INPUT, (event) => {
+      events.push(event.message);
+    });
+    expect(result.status).toBe("completed");
+    expect(events.some((message) => message.includes("oversized output line dropped"))).toBe(true);
+    expect(events.some((message) => message.includes("after overflow"))).toBe(true);
+  });
+
+  it("keeps parsing usage and error events after the progress cap", async () => {
+    const ops = makeFakeOps();
+    ops.exec = async (_command, opts) => {
+      for (let i = 0; i < MAX_PROGRESS_EVENTS + 10; i += 1) {
+        opts?.onOutput?.("stdout", `${JSON.stringify({ type: "log", part: `line ${i}` })}\n`);
+      }
+      opts?.onOutput?.(
+        "stdout",
+        `${JSON.stringify({ type: "step_finish", part: { tokens: { input: 7, output: 3 }, cost: 0.5 } })}\n`,
+      );
+      opts?.onOutput?.("stdout", `${JSON.stringify({ type: "error", message: "late failure" })}\n`);
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const adapter = new SandboxRuntimeAdapter();
+    const result = await adapter.runCodingTask(ops, INPUT, () => {});
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("late failure");
+    expect(result.usage?.inputTokens).toBe(7);
   });
 });

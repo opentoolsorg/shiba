@@ -40,6 +40,10 @@ const API_BASE = "https://api.github.com";
 const USER_AGENT = "shiba";
 const API_TIMEOUT_MS = 30_000;
 
+/** Independent blob uploads run through a bounded pool — unlimited
+ * Promise.all would fan the whole file list at once. */
+const MAX_PARALLEL_BLOB_UPLOADS = 4;
+
 function authHeaders(token: string): Record<string, string> {
   return {
     Accept: "application/vnd.github+json",
@@ -87,6 +91,13 @@ export async function publishFilesAsPullRequest(
   if (request.files.length === 0) {
     throw new Error("Nothing to publish: the coding run produced no changed files.");
   }
+  // Validate every path before any request so an unsafe entry fails the
+  // publish before a single byte is uploaded.
+  for (const file of request.files) {
+    if (!file.path || file.path.startsWith("/") || file.path.split("/").includes("..")) {
+      throw new Error(`Refusing to publish unsafe file path: ${file.path}`);
+    }
+  }
   const resolved: Required<GitHubDeps> = {
     // workerd's global fetch is illegal to call detached (this !== globalThis),
     // so the default must keep a bound call rather than the bare reference.
@@ -111,22 +122,36 @@ export async function publishFilesAsPullRequest(
     headers,
   });
 
-  const treeEntries: Array<{ path: string; mode?: string; type?: string; sha: string | null }> = [];
-  for (const file of request.files) {
-    if (!file.path || file.path.startsWith("/") || file.path.split("/").includes("..")) {
-      throw new Error(`Refusing to publish unsafe file path: ${file.path}`);
-    }
-    // Null content = deletion: a null-sha tree entry removes the path from the tree.
+  // Deletions need no blob: a null-sha tree entry removes the path.
+  const treeEntries = new Array<{ path: string; mode?: string; type?: string; sha: string | null }>(
+    request.files.length,
+  );
+  const uploads: Array<{ index: number; file: CapturedFile }> = [];
+  request.files.forEach((file, index) => {
     if (file.content === null) {
-      treeEntries.push({ path: file.path, mode: "100644", type: "blob", sha: null });
-      continue;
+      treeEntries[index] = { path: file.path, mode: "100644", type: "blob", sha: null };
+    } else {
+      uploads.push({ index, file });
     }
-    const blob = await api<{ sha: string }>(resolved, `/repos/${owner}/${repo}/git/blobs`, json({
-      content: file.content,
-      encoding: file.encoding === "base64" ? "base64" : "utf-8",
-    }));
-    treeEntries.push({ path: file.path, mode: "100644", type: "blob", sha: blob.sha });
-  }
+  });
+  // Blob uploads are independent, so they run through a bounded pool;
+  // results land by index so the tree keeps the input order. Any rejected
+  // upload propagates before the dependent tree/commit/ref writes below.
+  let cursor = 0;
+  const uploadNext = async (): Promise<void> => {
+    while (cursor < uploads.length) {
+      const item = uploads[cursor];
+      cursor += 1;
+      const blob = await api<{ sha: string }>(resolved, `/repos/${owner}/${repo}/git/blobs`, json({
+        content: item.file.content,
+        encoding: item.file.encoding === "base64" ? "base64" : "utf-8",
+      }));
+      treeEntries[item.index] = { path: item.file.path, mode: "100644", type: "blob", sha: blob.sha };
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(MAX_PARALLEL_BLOB_UPLOADS, uploads.length) }, () => uploadNext()),
+  );
 
   const tree = await api<{ sha: string }>(resolved, `/repos/${owner}/${repo}/git/trees`, json({
     base_tree: baseCommit.tree.sha,
