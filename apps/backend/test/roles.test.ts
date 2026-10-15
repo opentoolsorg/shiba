@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import type { Env } from "../src/env.js";
-import { describeRoleModels, resolveRoleModel } from "../src/agents/roles.js";
+import { describeRoleModels, RETIRED_MODELS, resolveRoleModel } from "../src/agents/roles.js";
+import { AGENT_ROLES } from "@shiba/shared";
+import { resolveHarness } from "../src/harness/index.js";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { parseAgentToolInput, formatAgentToolInput, type CodingTaskInput } from "../src/opencode-input.js";
@@ -115,6 +118,28 @@ describe("resolveRoleModel", () => {
         "reviewer",
       ),
     ).toEqual({ harness: "claude-subscription", model: "anthropic-subscription/claude-sonnet-4-6" });
+  });
+
+  it("rejects a pin naming a retired model, from either source", () => {
+    // Uses a synthetic id: the shipped orchestrator pin is not in the set until it is swapped.
+    RETIRED_MODELS.add("openai/gpt-retired");
+    try {
+      expect(() => resolveRoleModel(env({ ROLE_MODEL__FIXER: "codex/openai/gpt-retired" }), "fixer")).toThrow(
+        /openai\/gpt-retired is retired/,
+      );
+      const map = JSON.stringify({ orchestrator: { harness: "codex", model: "openai/gpt-retired" } });
+      expect(() => resolveRoleModel(env({ ROLE_MODEL_MAP: map }), "orchestrator")).toThrow(/retired/);
+      const row = describeRoleModels(env({ ROLE_MODEL_MAP: map })).find((r) => r.role === "orchestrator");
+      expect(row?.error).toMatch(/retired/);
+    } finally {
+      RETIRED_MODELS.delete("openai/gpt-retired");
+    }
+  });
+
+  it("the shipped pin names no retired model", () => {
+    for (const { model } of Object.values(JSON.parse(shippedVar("ROLE_MODEL_MAP") as string) as Record<string, { model: string }>)) {
+      expect(RETIRED_MODELS.has(model), `${model} is retired`).toBe(false);
+    }
   });
 
   it.each([
@@ -271,3 +296,97 @@ describe("coding-task envelope", () => {
     ).toThrow();
   });
 });
+
+/**
+ * T57 (PLAN.md §19.3) — the SHIPPED role map, not a copy.
+ *
+ * The seam was correct and tested while no deployment pinned anything, so
+ * every role silently fell through to the deployment default. A test that
+ * asserts against a literal in this file would have passed the whole time.
+ * These read `wrangler.jsonc` itself, so a shipped-map regression fails a
+ * test instead of degrading routing invisibly.
+ */
+const WRANGLER = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+
+/** Extract a top-level `vars` string entry from the raw jsonc text. */
+function shippedVar(name: string): string | undefined {
+  // Strip `//` comments first: scanning the raw text lets a commented-out pin
+  // keep these suites green, which is exactly the regression they exist to
+  // catch. The CI drift guard parses the file properly; this matches it.
+  const uncommented = WRANGLER.replace(/^\s*\/\/.*$/gm, "");
+  const match = new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(uncommented);
+  if (match === null) return undefined;
+  // The file is JSON with comments; the value itself is a JSON string, so
+  // decode it through JSON.parse rather than hand-unrolling the escapes.
+  return JSON.parse(`"${match[1]}"`) as string;
+}
+
+describe("shipped ROLE_MODEL_MAP (PLAN.md §19)", () => {
+  const raw = shippedVar("ROLE_MODEL_MAP");
+
+  it("is actually pinned in wrangler.jsonc vars", () => {
+    expect(raw, "ROLE_MODEL_MAP must be present in wrangler.jsonc vars").toBeDefined();
+    expect(raw).not.toBe("");
+  });
+
+  it("is valid JSON with exactly the five roles", () => {
+    const map = JSON.parse(raw as string) as Record<string, unknown>;
+    expect(Object.keys(map).sort()).toEqual(
+      ["designer", "explorer", "fixer", "orchestrator", "reviewer"],
+    );
+  });
+
+  it("resolves every role through the real seam to a supported harness+model", () => {
+    const shipped = env({ ROLE_MODEL_MAP: raw });
+    for (const role of AGENT_ROLES) {
+      const resolved = resolveRoleModel(shipped, role);
+      expect(resolved, `role ${role} must resolve`).not.toBeNull();
+      // Same validation the run path applies at intake — this is the
+      // assertion that would have caught an unpinned deployment.
+      const harness = resolveHarness(resolved!.harness, shipped);
+      expect(harness.supportedProviders).toContain(resolved!.model.split("/")[0]);
+    }
+  });
+
+  it("pins the intended routing", () => {
+    const shipped = env({ ROLE_MODEL_MAP: raw });
+    expect(resolveRoleModel(shipped, "orchestrator")).toEqual({
+      harness: "codex",
+      model: "openai/gpt-6-sol",
+    });
+    expect(resolveRoleModel(shipped, "explorer")).toEqual({
+      harness: "devin",
+      model: "devin/swe-2-medium",
+    });
+    expect(resolveRoleModel(shipped, "fixer")).toEqual({
+      harness: "claude-code",
+      model: "anthropic/claude-sonnet-5-5",
+    });
+    expect(resolveRoleModel(shipped, "reviewer")).toEqual({
+      harness: "opencode",
+      model: "opencode-go/gpt-6.1-sol",
+    });
+    expect(resolveRoleModel(shipped, "designer")).toEqual({
+      harness: "claude-code",
+      model: "anthropic/claude-opus-5-5",
+    });
+  });
+
+  it("reports the shipped pin as source role-map, not the deployment default", () => {
+    const rows = describeRoleModels(env({ ROLE_MODEL_MAP: raw }));
+    expect(rows).toHaveLength(AGENT_ROLES.length);
+    for (const row of rows) {
+      expect(row.source, `role ${row.role} fell through to the default`).toBe("role-map");
+      expect(row.error).toBeUndefined();
+      expect(row.harness).not.toBe("");
+      expect(row.model).not.toBe("");
+    }
+  });
+
+  it("rejects the retired gpt-5.6-sol at intake, so a stale override cannot reach a container", () => {
+    // PLAN.md §20.2: gpt-5.6-sol retires from Codex on 2026-10-14.
+    const stale = env({ ROLE_MODEL_MAP: JSON.stringify({ orchestrator: { harness: "codex", model: "openai/gpt-5.6-sol" } }) });
+    expect(() => resolveRoleModel(stale, "orchestrator")).toThrow(/retired/);
+  });
+});
+
