@@ -565,9 +565,10 @@ export function AppNavRail({
             onClick={() => setAccountMenuOpen((prev) => !prev)}
             aria-expanded={accountMenuOpen}
             aria-haspopup="true"
+            aria-label={accountEmail ? `${accountEmail} · ${accountEmail.split("@")[0]}'s workspace` : "Workspace profile and account settings"}
             className="w-full flex items-center gap-2 p-1.5 rounded-[var(--radius-button)] hover:bg-[var(--secondary)] transition-colors text-left"
           >
-            <div className="size-6 rounded-full bg-[var(--card)] border border-[var(--border-2)] flex items-center justify-center text-[10px] font-bold text-[var(--primary)] shrink-0">
+            <div className="size-7 rounded-full bg-[var(--card)] border border-[var(--border-2)] flex items-center justify-center text-[11px] font-bold text-[var(--primary)] shrink-0 shadow-sm">
               {accountEmail ? accountEmail.slice(0, 2).toUpperCase() : "SH"}
             </div>
             <div className="min-w-0 flex-1 leading-tight">
@@ -575,7 +576,7 @@ export function AppNavRail({
                 {accountEmail ?? "Shiba Workspace"}
               </span>
               <span className="block text-[10px] text-[var(--muted-foreground-3)] truncate">
-                Local Agent
+                {accountEmail ? `${accountEmail.split("@")[0]}'s workspace` : "Personal Workspace"}
               </span>
             </div>
             <ChevronDown className="size-3 text-[var(--muted-foreground-3)] shrink-0" strokeWidth={1.8} aria-hidden="true" />
