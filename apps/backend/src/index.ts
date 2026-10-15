@@ -24,6 +24,7 @@ import { handleAudit } from "./audit-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
+import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
 import { handleInbox } from "./inbox-routes.js";
 import { handleLocalAdapter, isLocalRuntimePath } from "./local-routes.js";
@@ -203,6 +204,8 @@ export default {
           { status: 401 },
         );
       }
+      const gmailResponse = await handleGmail(request, env);
+      if (gmailResponse) return gmailResponse;
       const oauthResponse = await handleOAuth(request, env, await resolveUserId(request, env));
       if (oauthResponse) return oauthResponse;
       const waitlistResponse = await handleWaitlist(request, env);

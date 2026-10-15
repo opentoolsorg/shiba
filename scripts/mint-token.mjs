@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 // Mirrors agent-tokens.ts; apps/backend/test/mint-token.test.ts fails on drift.
 const SCOPES = [
+  "gmail:read",
   "email:read",
   "email:draft",
   "email:send",
