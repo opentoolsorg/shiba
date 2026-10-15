@@ -122,6 +122,20 @@ function parseRecord(value: unknown): TokenRecord | null {
 }
 
 /**
+ * Listing-safe projection stored as KV key metadata. It intentionally contains
+ * only the same non-secret fields as the value record; callers must still read
+ * the value for verification and revocation decisions.
+ */
+function tokenMetadata(record: TokenRecord): TokenRecord {
+  return {
+    principal: record.principal,
+    scopes: [...record.scopes],
+    created: record.created,
+    revoked: record.revoked,
+  };
+}
+
+/**
  * KV read that fails closed: a store outage resolves to `null` (a miss),
  * never a thrown error — auth callers deny instead of surfacing a 500.
  * The warning keeps the outage visible in logs.
@@ -172,7 +186,9 @@ export async function createToken(
     created: nowMs ?? Date.now(),
     revoked: false,
   };
-  await env.AGENT_TOKENS.put(await tokenKey(token), JSON.stringify(record));
+  await env.AGENT_TOKENS.put(await tokenKey(token), JSON.stringify(record), {
+    metadata: tokenMetadata(record),
+  });
   return { token, record };
 }
 
@@ -217,7 +233,9 @@ export async function revokeToken(
   if (!record.revoked) {
     record.revoked = true;
     try {
-      await env.AGENT_TOKENS.put(key, JSON.stringify(record));
+      await env.AGENT_TOKENS.put(key, JSON.stringify(record), {
+        metadata: tokenMetadata(record),
+      });
     } catch (error: unknown) {
       console.warn(
         `agent-tokens: KV put failed during revoke: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
@@ -240,7 +258,10 @@ export async function listTokens(env: AgentTokensEnv): Promise<TokenRecord[]> {
     do {
       const page = await env.AGENT_TOKENS.list({ prefix: TOKEN_PREFIX, cursor });
       for (const key of page.keys) {
-        const record = parseRecord(await kvGet(env, key.name));
+        // Prefer the listing projection written atomically with the value.
+        // Legacy rows and malformed metadata retain the older value-read path.
+        const record =
+          parseRecord(key.metadata) ?? parseRecord(await kvGet(env, key.name));
         if (record) {
           records.push(record);
         }

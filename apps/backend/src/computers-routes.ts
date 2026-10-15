@@ -11,7 +11,7 @@ import { LOCAL_ADAPTER_TOKEN_ENV, LOCAL_PAIRING_TTL_MS, LOCAL_RUNTIME_FLAG, type
 import type { Env } from "./env.js";
 import { localDispatchStub } from "./local-dispatch.js";
 import { randomHex } from "./mailbox-store.js";
-import { isAuthenticated } from "./request-auth.js";
+import { isAuthorizedRequest } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 
 /** PAIRING_SECRET, else the deployment's daemon bearer — single-tenant acceptable. */
@@ -66,7 +66,7 @@ export async function handleComputers(request: Request, env: Env): Promise<Respo
   if (url.pathname !== "/api/computers" && !url.pathname.startsWith("/api/computers/")) {
     return null;
   }
-  if (!isAuthenticated(request, env)) {
+  if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
   }
   if (env[LOCAL_RUNTIME_FLAG] !== "1" || env.LocalDispatch === undefined) {

@@ -39,13 +39,13 @@ const capabilities = [
   <section class="shell home-hero" aria-labelledby="home-title">
     <div class="hero-copy">
       <p class="eyebrow">OPEN-SOURCE DEVIN CLOUD ALTERNATIVE</p>
-      <h1 id="home-title">It asks before<br /><em>it writes code.</em></h1>
+      <h1 id="home-title">It asks before<br /><em>it writes code.</em><span class="hero-caret" aria-hidden="true"></span></h1>
       <p class="hero-lead">Give Shiba a repo and a task. Review, approve, inspect the diff. Everything stays in your Cloudflare account.</p>
       <div class="hero-actions">
         <a class="button" href="https://github.com/princepal9120/shiba">Explore the source <span aria-hidden="true">↗</span></a>
         <a class="button button-outline" href="/docs/getting-started/">Read the docs</a>
       </div>
-		<p class="hero-note">No hosted black box. Every task is approval-gated before a sandbox starts.</p>
+      <p class="hero-note">No hosted black box. Every task is approval-gated before a sandbox starts.</p>
     </div>
 
     <figure class="hero-showcase" aria-label="Illustration of shiba.workspace">
@@ -74,10 +74,27 @@ const capabilities = [
       })();
     </script>
   </section>
+  <script is:inline>
+    // Reveal is opt-in on JS so content never stays hidden if the script fails.
+    (function() {
+      if (!('IntersectionObserver' in window)) return;
+      document.documentElement.classList.add('js-reveal');
+      var io = new IntersectionObserver(function(entries) {
+        entries.forEach(function(e) { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
+      }, { rootMargin: '0px 0px -12% 0px' });
+      function watch() {
+        document.querySelectorAll('.harness-grid, .channels-grid, .capability-grid, .steps-grid').forEach(function(g) {
+          Array.prototype.forEach.call(g.children, function(c, i) { c.style.setProperty('--i', i); });
+        });
+        document.querySelectorAll('[data-reveal]').forEach(function(el) { io.observe(el); });
+      }
+      document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', watch) : watch();
+    })();
+  </script>
 
   <div class="shell compatibility" aria-label="Ways to use Shiba"><span>USE FROM</span><span>Web</span><span>Slack</span><span>Telegram</span><span>Discord</span><span>GitHub</span><span class="compatibility-end">Mobile web is available; native iPhone app is on the roadmap.</span></div>
 
-  <section id="harnesses" class="shell harness-section" aria-labelledby="harness-title">
+  <section id="harnesses" class="shell harness-section" data-reveal aria-labelledby="harness-title">
     <p class="eyebrow">TOOLS &amp; MODEL PROVIDERS</p>
     <h2 id="harness-title">Bring your tools. Keep control.</h2>
     <p class="harness-lead">Six harnesses are supported. Pick OpenCode, Claude Code, Codex, Devin CLI, Cursor, or Antigravity, and run them with your own provider credentials.</p>
@@ -94,7 +111,7 @@ const capabilities = [
 
   <ReachAnywhere />
 
-  <section id="channels" class="shell home-section channels-section" aria-labelledby="channels-title">
+  <section id="channels" class="shell home-section channels-section" data-reveal aria-labelledby="channels-title">
     <div class="section-head">
       <h2 id="channels-title">Start where you work.<br /><em>Stay in control.</em></h2>
       <p class="micro">SLACK · MOBILE WEB · TELEGRAM · DISCORD</p>
@@ -157,12 +174,12 @@ const capabilities = [
     </div>
   </section>
 
-  <section class="shell home-section" aria-labelledby="why-title">
+  <section class="shell home-section" data-reveal aria-labelledby="why-title">
     <div class="section-head"><h2 id="why-title">The agent does the work.<br /><em>You keep the keys.</em></h2><p class="micro">ONE DEPLOYMENT · ONE CONTROL PLANE</p></div>
     <div class="section-copy"><p>Your infrastructure. Your approval. An inspectable diff. Shiba runs in your Cloudflare account, keeps provider credentials outside the sandbox, and waits for human approval before coding tasks execute.</p><a class="text-link" href="/why-shiba/">Why we built it <span aria-hidden="true">↗</span></a></div>
   </section>
 
-  <section class="shell home-section compare" aria-labelledby="compare-title">
+  <section class="shell home-section compare" data-reveal aria-labelledby="compare-title">
     <div class="section-head"><h2 id="compare-title">Why switch off a hosted agent.</h2><p class="micro">SHIBA VS A MANAGED CLOUD AGENT</p></div>
     <div class="compare-grid" role="table" aria-label="Shiba compared with a managed cloud coding agent">
       <div class="compare-row compare-head" role="row">
@@ -180,14 +197,14 @@ const capabilities = [
     </div>
   </section>
 
-  <section class="shell home-section capabilities" aria-labelledby="capabilities-title">
+  <section class="shell home-section capabilities" data-reveal aria-labelledby="capabilities-title">
     <div class="section-head"><h2 id="capabilities-title">What Shiba gives you</h2><p class="micro">SIX PRACTICAL CAPABILITIES</p></div>
     <div class="capability-grid">
       {capabilities.map((item) => <article class="capability-card"><div class="capability-top"><span class="capability-icon" aria-hidden="true">{item.symbol}</span><span class="micro">{item.number}</span></div><h3>{item.title}</h3><p>{item.detail}</p></article>)}
     </div>
   </section>
 
-  <section class="shell home-section steps" aria-labelledby="steps-title">
+  <section class="shell home-section steps" data-reveal aria-labelledby="steps-title">
     <div class="section-head"><h2 id="steps-title">From task to inspectable diff</h2><p class="micro">THE APPROVAL GATE IS THE WORKFLOW</p></div>
     <div class="steps-grid">
       <div class="step-card">
@@ -219,7 +236,7 @@ const capabilities = [
     </div>
   </section>
 
-  <section class="shell closing" aria-labelledby="closing-title"><div><h2 id="closing-title">Put an AI engineer in your cloud.</h2><p>Open source, self-hosted, and yours to fork. Configure your Cloudflare account, deploy Shiba, and bring a repository you own.</p></div><div class="closing-actions"><a class="button" href="/waitlist/">Run it on your repo <span aria-hidden="true">↗</span></a></div></section>
+  <section class="shell closing" data-reveal aria-labelledby="closing-title"><img class="closing-mascot" src="/assets/mascot/shiba-sticker-hero.webp" alt="" width="512" height="512" loading="lazy" aria-hidden="true" /><div><h2 id="closing-title">Put an AI engineer in your cloud.</h2><p>Open source, self-hosted, and yours to fork. Configure your Cloudflare account, deploy Shiba, and bring a repository you own.</p></div><div class="closing-actions"><a class="button" href="/waitlist/">Run it on your repo <span aria-hidden="true">↗</span></a></div></section>
 </MarketingPage>
 
 <style>
@@ -240,6 +257,8 @@ const capabilities = [
   .hero-note { display:flex; align-items:flex-start; gap:8px; margin-top:var(--hero-gap-sm); font:10px 'Geist Mono',monospace; letter-spacing:.02em; }
   .hero-note::before { content:''; flex:none; width:6px; height:6px; margin-top:4px; background:var(--navy); }
   .hero-showcase { border:1px solid var(--line-2); background:var(--panel-2); padding:4px; box-shadow:6px 6px 0 var(--paper-shadow); transition:transform 220ms ease, box-shadow 220ms ease; animation:hero-arrive 680ms 100ms cubic-bezier(.2,.7,.2,1) both; margin:0; }
+  .hero-caret { display:inline-block; width:.08em; height:.78em; margin-left:.08em; vertical-align:-.04em; background:var(--navy); animation:caret-blink 1.1s steps(1) infinite; }
+  @keyframes caret-blink { 50% { opacity:0; } }
   .hero-showcase:hover, .hero-showcase:focus-within { transform:translateY(-2px); box-shadow:8px 8px 0 var(--paper-shadow); }
   .hero-showcase-img { display:block; width:100%; height:auto; image-rendering:pixelated; border:1px solid var(--line-2); }
   @media (max-width:900px) {
@@ -248,7 +267,22 @@ const capabilities = [
   }
   @keyframes approval-pulse { 0%, 100% { opacity:1; } 50% { opacity:.58; } }
   @keyframes hero-arrive { from { opacity:0; translate:0 14px; } to { opacity:1; translate:0 0; } }
+  /* Scroll reveal: section fades up, then grid children stagger in. */
+  :global(.js-reveal) [data-reveal] { opacity:0; translate:0 18px; transition:opacity 520ms cubic-bezier(.23,1,.32,1), translate 520ms cubic-bezier(.23,1,.32,1); }
+  :global(.js-reveal) [data-reveal].is-in { opacity:1; translate:0 0; }
+  :global(.js-reveal) [data-reveal] :is(.harness-grid, .channels-grid, .capability-grid, .steps-grid) > * { opacity:0; translate:0 10px; transition:opacity 420ms cubic-bezier(.23,1,.32,1), translate 420ms cubic-bezier(.23,1,.32,1), background 150ms ease; transition-delay:calc(120ms + var(--i, 0) * 60ms); }
+  :global(.js-reveal) [data-reveal].is-in :is(.harness-grid, .channels-grid, .capability-grid, .steps-grid) > * { opacity:1; translate:0 0; }
+  @media (hover: hover) and (pointer: fine) {
+    .harness-icon, .capability-icon { transition:transform 200ms cubic-bezier(.23,1,.32,1); }
+    .harness-item:hover .harness-icon { transform:translateY(-3px) rotate(-4deg); }
+    .capability-card:hover .capability-icon { transform:translateX(3px); }
+    .closing:hover .closing-mascot { rotate:-2deg; translate:0 -4px; }
+  }
+  .closing-mascot { flex:none; width:112px; height:auto; rotate:-7deg; filter:drop-shadow(3px 4px 0 var(--paper-shadow)); transition:rotate 260ms cubic-bezier(.23,1,.32,1), translate 260ms cubic-bezier(.23,1,.32,1); }
+  .closing > div:not(.closing-actions) { flex:1; }
   @media (prefers-reduced-motion: reduce) {
+    .hero-caret { animation:none; }
+    :global(.js-reveal) [data-reveal], :global(.js-reveal) [data-reveal] * { translate:none !important; transition-property:opacity !important; }
     .hero-copy, .hero-showcase { animation:none; }
     .hero-showcase { transition:none; }
     .step-dither-screen { transition:none; }
@@ -360,6 +394,7 @@ const capabilities = [
   .closing-actions { flex:none; margin:0; }
   @media(max-width:980px) { .channels-grid { grid-template-columns:repeat(2,1fr); } .home-hero { gap:28px; } .compatibility-end { margin-left:0; } }
   @media(max-width:760px) { .home-hero { grid-template-columns:minmax(0,1fr); min-height:0; padding-block:28px 32px; } .home-section { padding-top:75px; } .section-head { align-items:start; flex-direction:column; gap:10px; } .section-copy { grid-template-columns:1fr; gap:18px; } .capability-grid { grid-template-columns:repeat(2,1fr); } .steps-grid { grid-template-columns:1fr; } .closing { flex-direction:column; align-items:start; margin-top:75px; } }
+  @media(max-width:760px) { .closing-mascot { width:84px; } }
   @media(max-width:500px) { .channels-grid { grid-template-columns:1fr; } .capability-grid { grid-template-columns:1fr; } .capability-card { min-height:0; } .hero-actions .button { width:100%; } .closing { padding:22px; } .closing-actions { width:100%; } .closing-actions .button { width:100%; } }
   /* Stacked on narrow screens: each comparison point becomes a labelled block
      so no column is squeezed below readability. */

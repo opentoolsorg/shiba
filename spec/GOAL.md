@@ -28,6 +28,7 @@ A user must be able to:
 12. Optionally configure a Slack app: mention @shiba in any thread to start a task. The bot posts an approval card in-thread before any container starts; only SLACK_APPROVERS can approve from Slack.
 13. Use the /shiba slash command to start a task from Slack without an existing thread.
 14. Create automations with schedule (cron), GitHub event, Slack, webhook, or manual triggers. Each automation has an optional run_when plain-language condition (evaluated by TypeSafe Noul when TYPESAFE_API_KEY is set, else Workers AI). Automated runs require approval by default; opt-in unattended mode is available only for pull-request-only mutations on an explicit repo allowlist.
+15. Optionally install Shiba Desktop (macOS): the same dashboard as an app, plus one-click pairing that runs approved local tasks on this machine. It adds no ingress surface and no approval path.
 
 The dashboard is one inbound surface of two. Slack (`@shiba` mentions and `/shiba`) is a supported entry point: thread prose is turned into structured `delegate_coding_task` by the orchestrator LLM. Prose never crosses the child boundary (`parseAgentToolInput`). The mention → card → approve → run flow gates on two settings: `SLACK_CHANNEL_REPOS` maps a channel to its repository so a mention resolves `repoUrl` without the user typing one, and `SLACK_APPROVERS` gates who may approve the card; an empty approver list means nobody can approve from Slack, and a channel missing from the map means the task must state the repository explicitly.
 

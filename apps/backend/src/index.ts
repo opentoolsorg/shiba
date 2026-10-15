@@ -18,6 +18,7 @@ import { MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
 import { Memory } from "./memory-do.js";
 import { Sandbox } from "./sandbox.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
+import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
@@ -272,6 +273,10 @@ export default {
       const usageResponse = await handleUsage(request, env);
       if (usageResponse) {
         return usageResponse;
+      }
+      const activityResponse = await handleActivity(request, env);
+      if (activityResponse) {
+        return activityResponse;
       }
       const screenshotResponse = await handleScreenshot(request, env);
       if (screenshotResponse) {

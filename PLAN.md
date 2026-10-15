@@ -76,6 +76,14 @@
 | T53 pairing tokens + daemon connect | **Done (2026-10-06).** `computers-routes.ts` — dashboard-auth `POST /api/computers/pairing-token` mints `base64url({n,exp}).hmac_sha256` (key: `PAIRING_SECRET` else `LOCAL_ADAPTER_TOKEN`); `POST /api/local/pair` (no bearer — the token IS the credential) verifies HMAC+expiry, burns the DO nonce (single-use), mints the 32-byte adapter token. Daemon `--connect <url> --pair <token>` writes `~/.shiba-local/config.json` (0600) + persistent `machine-id`, probes harness CLIs, then heartbeats every 30s; 401 → exit 78; network errors retry. Env-var mode unchanged. Live smoke: mint→pair→heartbeat→list→revoke→401 all verified. |
 | T54 Remote Access dashboard view | **Done (2026-10-06).** `RemoteAccessView.tsx` (328 lines) — connections status (`/api/whoami`), Add-computer modal (copyable connect command + TTL countdown, no QR dep), fleet list (hostname/platform/harness pills/status dot/last-seen/Revoke+confirm), 10s poll while mounted, 404 → disabled empty state, actionable toast on pairing-token 503. `AppNavRail` gains "Remote Access" under "Sandbox & Safety"; `app.tsx` wires the view. No new frontend deps. |
 | T55 remote-access operator docs | **Done (2026-10-06).** `apps/web/src/content/docs/docs/remote-access.md` — pairing flow, `~/.shiba-local` layout, heartbeat cadence/offline thresholds, revocation, security model (approval gate unchanged, dashboard-only intake, zero credential transit). Builds clean; check-docs denylist clean (48 pages verified). |
+| T59 spec, ADR, tracker rows | **Done (2026-10-08).** `spec/GOAL.md` item 15 (Shiba Desktop); `apps/web/docs/adr/0001-desktop-shell-electron.md` (Electron over Tauri 2 / GPUI / gpuix); §21 Phase P11 below. Docs only. |
+| T60 desktop shell + login spike | **Built, unit-verified; not run under a live Electron window (2026-10-08).** `apps/desktop` shell (setup flow, navigation allowlist, preload bridge, permission handler, controller + main.ts wiring); desktop unit suite green per evidence. Login spike (STOP A) needs a real deployment — **blocked-for-manual.** Evidence: `apps/web/docs/evidence/desktop/T60-shell.md`, `apps/web/docs/evidence/desktop/T60-wiring.md`. |
+| T61 backend auth fix + daemon hardening | **Done (2026-10-08).** `computers-routes.ts` accepts the better-auth session; `/api/local/*` added to the Access bypass list; daemon gains `daemon.lock` (exit 75), graceful stop (143/130) and a `report` hook. Backend `local-fleet`/`local-runtime` tests and `daemon.test.ts` pass; real-Access `/api/local/*` bypass unverified. Evidence: `apps/web/docs/evidence/desktop/T61-backend-daemon.md`. |
+| T62 supervisor, tray, start at login | **Modules built, unit-verified (2026-10-08).** `shell-env`, `supervisor`, `logs`, `tray` + shared `desktop-bridge` types. Tray icons now shipped in `apps/desktop/assets/` (see T65). Credential spike (claude/codex subscription logins) **not done — blocked-for-manual.** Evidence: `apps/web/docs/evidence/desktop/T62-modules.md`. |
+| T63 one-click pairing | **Built, unit-verified (2026-10-08).** `pairing.ts` IPC (D3/D4/D7), "Connect this computer" in `RemoteAccessView`, "Run on" select in `TaskComposer`; 12 pairing tests. End-to-end "This computer · idle" needs a running shell + deployment (T66). Evidence: `apps/web/docs/evidence/desktop/T63-pairing.md`. |
+| T64 approvals + run notifications | **Built, unit-verified (2026-10-08).** `approvals-poller.ts` (GET-only, D1) and `run-notify.ts` (title + owner/repo only, D7). Not exercised against a live deployment. Evidence: `apps/web/docs/evidence/desktop/T64-T65-static.md`. |
+| T65 packaging, CI, assets | **Unsigned local build config only (2026-10-08).** `electron-builder.yml` (fuses per D8), `.github/workflows/desktop.yml`, `smoke.e2e.ts`, and icon/tray assets (`icon.png`, `icon.icns`, `trayTemplate.png`/`@2x`) from the mascot SVG. Signed/notarized build **pending human secrets.** Evidence: `apps/web/docs/evidence/desktop/T64-T65-static.md`, `apps/web/docs/evidence/desktop/T65-assets-bookkeeping.md`. |
+| T66 desktop docs + acceptance | **Docs written; acceptance remains "local prototype" (2026-10-08).** `remote-access.md` "Desktop app" section added. DESKTOP-PLAN §7 manual acceptance has no real-deployment dated entry yet — **blocked-for-manual.** Evidence: `apps/web/docs/evidence/desktop/T66-docs.md`. |
 
 ### 2.1 Shipped beyond the tracker (2026-10-05 note)
 
@@ -1316,6 +1324,128 @@ Dashboard-auth `POST /api/computers/pairing-token` mints a 15-min single-use tok
 **Prohibitions (phase-specific):** no new dependencies (no QR lib — copyable command instead); no inbound ports/tunnels on the operator machine; no chat-surface intake for fleet endpoints; no relaxation of the approval gate; no credential transit beyond the one-time pairing exchange; the persistent adapter token is never logged or returned after the pair response; no new zod in shared for this surface.
 
 **Success criteria.** T52: heartbeat upserts, stale→offline, 7d prune, revoke ⇒ next heartbeat 401 — all in `local-fleet.test.ts`. T53: pairing token rejects expired/reused/badly-signed; daemon writes config 0600 and heartbeats on a clean run; env-var mode unbroken. T54: fleet renders live state with the runtime-off empty state; no new deps in apps/frontend/package.json. T55: docs page builds, check-docs denylist clean. Gate: `pnpm typecheck && pnpm lint && pnpm test` green.
+
+## 20. Phase P10 — Role model routing, pinned and proven (T56–T58)
+
+**Status: implemented.** The role seam shipped in T52 (`agents/roles.ts`: `ROLE_MODEL_MAP`,
+`ROLE_MODEL__<ROLE>`, `resolveRoleModel`, `describeRoleModels`). It resolved correctly and had
+tests, but **no deployment pinned anything**, so every role fell through to the deployment default
+(`opencode` + `google/gemini-3.5-flash-lite`). §20 pins the intended routing and proves it.
+
+### 20.0 Model IDs verified before pinning (2026-10-06)
+
+Two IDs in the original brief do not exist and were corrected rather than pinned.
+
+| Role | Harness | Model id | Verified against |
+|---|---|---|---|
+| `orchestrator` | `codex` | `openai/gpt-6-sol` | Replaces `gpt-5.6-sol` ([OpenAI GPT-5.6](https://openai.com/index/gpt-5-6/)), which retires from Codex 2026-10-14 — see §20.2 |
+| `explorer` | `devin` | `devin/swe-2-medium` | [Cognition SWE-2](https://cognition.com/blog/swe-2) — Devin-only, no standalone API |
+| `fixer` | `claude-code` | `anthropic/claude-sonnet-5-5` | [Anthropic Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview) — `claude-sonnet-5-5` |
+| `reviewer` | `claude-code` | `anthropic/claude-opus-5-5` | Claude 5.5 family (Opus 5.5 precedes Sonnet 5.5) |
+| `designer` | `claude-code` | `anthropic/claude-opus-5-5` | same |
+
+**Corrections recorded, not silently applied:**
+
+- **`sol-6-1` does not exist.** The real OpenAI model is `gpt-5.6-sol`. A pin naming `sol-6-1`
+  would throw at intake through `assertSupportedModel` — correct behaviour, but the run would
+  never start, so the brief's ID was replaced with the verified one.
+- **`gpt-5.6-sol` retires from Codex on 2026-10-14.** Per [ChatGPT model docs](https://learn.chatgpt.com/docs/models),
+  GPT-5.5 retires from ChatGPT/Codex on that date; GPT-6 Sol (`gpt-6-sol`) is the replacement.
+  The orchestrator was first pinned to `gpt-5.6-sol` on `@openai/codex@0.155.0`; it moved to
+  `gpt-6-sol` on 2026-10-09 with the CLI at 0.157.1. See §20.2.
+- **`@anthropic-ai/claude-code` was pinned at 2.1.277**, below 2.1.284 where the `sonnet` alias
+  starts resolving to Sonnet 5.5. Explicit model ids work on either version, but T58 bumps the
+  pin so alias resolution matches the pinned ids.
+
+### 20.1 What the pin is
+
+`ROLE_MODEL_MAP` is one JSON object, read at intake by `rolePin()`, resolved through
+`resolveHarness` + `assertSupportedModel`. A bad pin throws **before the approval card**, never
+inside a container.
+
+```json
+{
+  "orchestrator": { "harness": "codex",       "model": "openai/gpt-6-sol" },
+  "explorer":     { "harness": "devin",       "model": "devin/swe-2-medium" },
+  "fixer":        { "harness": "claude-code", "model": "anthropic/claude-sonnet-5-5" },
+  "reviewer":     { "harness": "claude-code", "model": "anthropic/claude-opus-5-5" },
+  "designer":     { "harness": "claude-code", "model": "anthropic/claude-opus-5-5" }
+}
+```
+
+Declared in `wrangler.jsonc` `vars` (live default) and available through alchemy `configVars`
+(already listed). `ROLE_MODEL_MAP` in `.env` overrides; per-harness `*_MODEL` vars override a bare
+harness pin; a role pin beats a per-run `codingModel` (`orchestrator.ts` `rolePick?.model ||`).
+
+### 20.2 The retirement hazard (must be handled, not documented away)
+
+`gpt-5.6-sol` became invalid in Codex on 2026-10-14. Two consequences:
+
+1. **`gpt-6-sol` is the forward pin.** It is the documented replacement for GPT-5.5-class Codex
+   models and is available on Plus and above. It should be adopted when the account's Codex
+   version supports it (`--model gpt-6-sol` / `-m gpt-6-sol`).
+2. **A retired id must fail loudly, not silently.** `assertSupportedModel` validates the *provider*
+   (`openai`), not the *model id* — a retired id passes intake and then dies inside the container
+   as a CLI error. That is an honest failure (non-zero exit, stderr folded into the summary), not
+   a fake success, so the existing contract holds. §20.3's test pins the *provider* check; model-id
+   liveness is an account-side fact this repo cannot assert.
+
+**Decision (2026-10-06):** pin `openai/gpt-5.6-sol` while it worked with the shipped CLI, and
+record `gpt-6-sol` as the dated replacement.
+
+**Swapped 2026-10-09.** The orchestrator pin is now `openai/gpt-6-sol` (`wrangler.jsonc`,
+`alchemy.run.ts`). The Codex CLI moved from 0.155.0 to **0.157.1** (`apps/backend/Dockerfile:20`,
+`harness/catalog.ts:54-55`). Evidence: the shipped `codex` linux-x64 binary was searched for the
+model id per release — 0.155.0 and 0.156.0 contain no `gpt-6-sol`; 0.156.1 is the first that does
+(5 refs), 0.157.0+ carry 7. 0.157.1 (published 2026-09-26) was chosen over the newest 0.162.0 for
+age. Not yet proven: a live Codex run against `gpt-6-sol` (same status as every harness, §T10), and
+whether 0.155→0.157 changed the CLI's stream format (unit parsers pass; no live run).
+
+**Retired-model guard.** `RETIRED_MODELS` in `agents/roles.ts` contains `openai/gpt-5.6-sol`, checked
+in `resolvePin`, so a stale override (`.env` `ROLE_MODEL_MAP` / `ROLE_MODEL__ORCHESTRATOR`) throws at
+intake (HTTP 400, no approval minted) instead of dying in the container. It is blocked five days
+before the provider cutoff on purpose. `roles-e2e.test.ts` parses the real `wrangler.jsonc`
+`vars.ROLE_MODEL_MAP` and resolves every role through `resolveRoleModel`, so a typo'd pin fails CI.
+
+### 20.3 T56–T58
+
+| Task | State |
+|---|---|
+| **T56** pin the role map | **Done.** `ROLE_MODEL_MAP` in `wrangler.jsonc` vars; `.dev.vars.example` documents the shape and the override chain. |
+| **T57** prove the routing end to end | **Done.** Two suites. `roles.test.ts` parses the *shipped* map (read from `wrangler.jsonc`, not a copy), resolves all five roles through the real seam, and asserts harness + model + that every provider is in the harness's `supportedProviders`. `roles-e2e.test.ts` drives the real `CodingOrchestrator`: POST a role-carrying run, read the approval record the DO minted, assert the pinned harness + `route.modelId` were **frozen onto it** — the failure mode §18.0 caught once already (a field resolved and tested only at the unit level is dead). Both carry negative controls: with the pin removed, 5 + 2 tests fail with `role <x> fell through to the default` / `role <x> harness not frozen`. |
+| **T58** CLI pin alignment | **Done.** `@anthropic-ai/claude-code` 2.1.277 → 2.1.284 so the `sonnet` alias resolves to Sonnet 5.5, matching the pinned ids. |
+
+### 20.4 What "end to end" means here, and what it does not
+
+**Proven by test:** the shipped map parses, every pin resolves to the intended harness + model,
+every model's provider is supported by its harness, and the resolution path is the same one
+`delegate.execute` takes at intake.
+
+**Not proven:** a live model call. `VERIFICATION.md` records the furthest-ever run dying at an
+**AI Gateway 401** — a credential/account gap, not a code gap. Role routing does not change that:
+the pins are validated before dispatch, and the model call still needs a working gateway
+credential or a BYO provider key on the `default` gateway. **No live end-to-end run is claimed
+for §20.** Do not read this section as a substitute for the P2 acceptance bar in §15.
+
+**Prohibitions:** no new dependency; no new Durable Object; no change to the approval gate; no
+change to the credential invariant (the container still gets `DUMMY_PROVIDER_KEY` and the real key
+is still swapped at egress); no model id pinned that was not verified against a primary source.
+
+## 21. Phase P11 — Shiba Desktop (T59–T66)
+
+**Status: planned.** The full plan is `DESKTOP-PLAN.md` (decisions A1–A9, tasks §5, backend flows §11,
+manual acceptance §7); the framework choice is `apps/web/docs/adr/0001-desktop-shell-electron.md`.
+macOS-only Electron shell that loads `<origin>/app/` and supervises `scripts/shiba-local-daemon.mjs`.
+
+**Invariants (D1–D8):**
+- D1 the approval gate is unchanged; notifications and the tray only open `/app/?tab=approvals`.
+- D2 no inbound listener; outbound connections only.
+- D3 pairing targets only the configured origin; a URL never comes from the renderer.
+- D4 only the configured origin gets the `shibaDesktop` bridge; every IPC handler checks `senderFrame.url`.
+- D5 the renderer gets no Node (`sandbox`, `contextIsolation`, no `nodeIntegration`/`webviewTag`).
+- D6 navigation is allowlisted; other https URLs open in the system browser, everything else is denied.
+- D7 no secret leaves its home: no adapter token or task text in IPC, logs, notifications or URLs.
+- D8 hardened binary: Electron fuses, hardened runtime, only `clipboard-sanitized-write` permitted.
 
 ## References
 
