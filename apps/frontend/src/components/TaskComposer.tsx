@@ -984,7 +984,8 @@ export function TaskComposer({
   if (!hero) return form;
 
   return (
-    <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center justify-center px-4 py-8 relative dot-grid">
+    <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center justify-center px-4 py-8 relative">
+      <div className="absolute inset-0 dot-grid pointer-events-none" aria-hidden="true" />
       <div className="w-full max-w-[640px] flex flex-col items-center gap-4 z-10">
         {form}
       </div>
