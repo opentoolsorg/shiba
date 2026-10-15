@@ -32,7 +32,6 @@ import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
-import { SettingsView } from "./components/SettingsView";
 import { TaskComposer } from "./components/TaskComposer";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
@@ -372,6 +371,12 @@ export function App(): React.JSX.Element {
   const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
   const [settingsInitialSection, setSettingsInitialSection] = useState<"account" | "models">("account");
   const openView = useCallback((view: AppNavView) => {
+    // Settings is a popup, not a routable view — every nav path opens the modal.
+    if (view === "settings") {
+      setSettingsInitialSection("account");
+      setSettingsModalOpen(true);
+      return;
+    }
     setMainView(view);
   }, []);
   // Once visited, the mailbox stays mounted (hidden) — its local state
@@ -2181,13 +2186,6 @@ export function App(): React.JSX.Element {
             <IntegrationsView onNavigate={openView} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
-          ) : mainView === "settings" ? (
-            <SettingsView
-              onNavigate={openView}
-              onBack={() => openView("tasks")}
-              accountEmail={authMode === "better-auth" ? orchestratorName : null}
-              onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
-            />
           ) : null}
 
           {/* SETTINGS — Kosuke-style popup over the current view */}
