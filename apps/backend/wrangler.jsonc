@@ -3,10 +3,10 @@
   "name": "shiba-ai-coworker",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "legacy_module_registry"],
   "assets": {
     "binding": "ASSETS",
-    "directory": "../../public",
+    "directory": "../../app-public",
     "not_found_handling": "404-page",
   },
   // Version preview URLs are reachable without a Cloudflare Access policy;
@@ -35,6 +35,7 @@
     // mint sandbox preview URLs and absolute screenshot links for PRs.
     // Empty = PR screenshot capture disabled (capture fails safe, never fails the run).
     "WORKER_HOSTNAME": "app.tryshiba.dev",
+    "BETTER_AUTH_URL": "https://app.tryshiba.dev",
     // T48 opt-ins, set per-deploy via `wrangler secret put`/var overrides or
     // the alchemy configVars list (deliberately absent here = feature dark):
     //   SHIBA_CLAUDE_SUBSCRIPTION=1  registers the claude-subscription harness
@@ -165,5 +166,6 @@
     // alchemy deploy left this tag on the published script; wrangler must
     // see it so it doesn't re-apply already-existing DO migrations.
     { "tag": "alchemy:v10" },
+    { "tag": "alchemy:v11" },
   ],
 }
