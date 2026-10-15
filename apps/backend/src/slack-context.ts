@@ -187,7 +187,7 @@ const MUTE_PATTERN = /^\s*mute\b/i;
 const UNMUTE_PATTERN = /^\s*unmute\b/i;
 
 /**
- * Apply Capy-style thread controls: `aside …` messages are excluded from
+ * Apply thread controls: `aside …` messages are excluded from
  * processing entirely; `mute` stops replies to non-mention messages until
  * `unmute`. Command messages themselves are kept so the transcript reads.
  */
