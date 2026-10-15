@@ -126,6 +126,7 @@ export interface AppNavRailProps {
   onToggleCollapse?: () => void;
   connectionLabel?: string;
   connectionTone?: "ok" | "pending" | "error";
+  collapsed?: boolean;
 }
 
 const ICONS: Record<AppNavView, LucideIcon> = {
@@ -189,6 +190,7 @@ export function AppNavRail({
   onToggleCollapse,
   connectionLabel = "Connected",
   connectionTone = "ok",
+  collapsed = false,
 }: AppNavRailProps): JSX.Element {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -249,9 +251,10 @@ export function AppNavRail({
       className={
         variant === "sheet"
           ? "w-[240px] max-w-[85vw] h-full flex flex-col bg-[var(--chrome)] border-r border-[var(--border-1)] px-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] select-none overflow-hidden"
-          : "w-[232px] shrink-0 h-full flex flex-col bg-[var(--chrome)] border-r border-[var(--border-1)] py-2.5 px-2.5 z-30 select-none overflow-hidden"
+          : "transition-all duration-200 ease-out h-full flex flex-col bg-[var(--chrome)] z-30 select-none overflow-hidden " + (collapsed ? "w-0 opacity-0 pointer-events-none border-r-0 p-0" : "w-[232px] shrink-0 border-r border-[var(--border-1)] py-2.5 px-2.5")
       }
       aria-label="Primary Left Rail"
+      aria-hidden={variant === "rail" && collapsed ? true : undefined}
     >
       <div className="sr-only" aria-hidden="true">
         <span>Dashboard</span>
