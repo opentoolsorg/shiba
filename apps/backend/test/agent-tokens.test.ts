@@ -264,7 +264,7 @@ describe("listTokens", () => {
   it("uses key metadata without value reads and never exposes extra metadata fields", async () => {
     const env = makeEnv();
     await createToken(env, "meta-agent", ["email:read"], 100);
-    const [key] = [...env.kv.map.keys()];
+    const [key = ""] = [...env.kv.map.keys()];
     env.kv.metadata.set(key, {
       principal: "meta-agent",
       scopes: ["email:read"],
@@ -336,12 +336,10 @@ describe("listTokens", () => {
     env.kv.failOnListCall = 3;
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const records = await listTokens(env);
-    expect(records.map((r) => r.principal)).toEqual([
-      "p0-agent",
-      "p1-agent",
-      "p2-agent",
-      "p3-agent",
-    ]);
+    // Keys are token hashes, so which record sat on the failed page is random.
+    const created = records.map((r) => r.created);
+    expect(created).toHaveLength(4);
+    expect(created).toEqual([...created].sort((a, b) => a - b));
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
