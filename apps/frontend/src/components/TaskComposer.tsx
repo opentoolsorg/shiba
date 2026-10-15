@@ -332,7 +332,7 @@ export function TaskComposer({
               aria-expanded={open === "repo"}
               aria-label={`Project: ${repoSlug || "Select repository"}`}
               onClick={() => toggle("repo")}
-              className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans border-[var(--warning-fg)] text-[var(--fg)]`}
+              className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans text-[var(--fg)]`}
             >
               <Home aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
               <span className={pillLabelClass}>{repoSlug || "Home"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
@@ -428,7 +428,7 @@ export function TaskComposer({
                 aria-expanded={open === "access"}
                 aria-label={`Run on: ${runTarget === "local" ? "Local" : "Cloud"}`}
                 onClick={() => toggle("access")}
-                className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans border-[var(--warning-fg)] text-[var(--fg)]`}
+                className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans text-[var(--fg)]`}
               >
                 {runTarget === "local" ? (
                   <Laptop aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
@@ -991,4 +991,3 @@ export function TaskComposer({
     </div>
   );
 }
-
