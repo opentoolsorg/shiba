@@ -8,12 +8,17 @@ export interface DiffViewProps {
   runs: VMRun[];
   selectedRunId?: string | null;
   onSelectRun?: (runId: string) => void;
+  /** Full run payload still loading — empty/"no diff" claims are premature. */
+  loading?: boolean;
+  error?: string | null;
 }
 
 export function DiffView({
   runs,
   selectedRunId,
   onSelectRun,
+  loading = false,
+  error = null,
 }: DiffViewProps): JSX.Element {
   const [internalSelectedId, setInternalSelectedId] = useState<string>(
     selectedRunId || runs[0]?.runId || ""
@@ -68,7 +73,7 @@ export function DiffView({
               className="text-xs font-mono bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-2.5 py-1.5 text-[var(--fg)] focus:border-[var(--primary)] focus:outline-none max-w-xs truncate"
             >
               {runs.map((r) => {
-                const hasDiff = Boolean(extractCompletedDiff(r) ?? r.diff);
+                const hasDiff = Boolean(extractCompletedDiff(r) ?? r.diff) || r.hasDiff === true;
                 return (
                   <option key={r.runId} value={r.runId}>
                     {hasDiff ? "● " : "○ "}
@@ -83,7 +88,19 @@ export function DiffView({
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-        {!activeRun ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
+            <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">Loading run details…</h3>
+            <p className="text-xs text-[var(--muted-foreground-2)] max-w-md">
+              Fetching the full diff payload for these runs.
+            </p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
+            <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">Run details unavailable</h3>
+            <p className="text-xs text-[var(--muted-foreground-2)] max-w-md break-words">{error}</p>
+          </div>
+        ) : !activeRun ? (
           <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
             <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 text-[var(--primary)] flex items-center justify-center mb-3">
               <GitCompareArrows aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
