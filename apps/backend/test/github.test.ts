@@ -238,3 +238,147 @@ describe("publishFilesAsPullRequest", () => {
     expect(cleanup).toBeDefined();
   });
 });
+
+describe("bounded blob uploads", () => {
+  it("fails before any request when any file path is unsafe", async () => {
+    const calls: RecordedCall[] = [];
+    await expect(
+      publishFilesAsPullRequest(
+        {
+          repoUrl: "https://github.com/owner/repo",
+          baseBranch: "main",
+          newBranch: "b",
+          title: "t",
+          body: "b",
+          files: [
+            { path: "ok.ts", content: "x", encoding: "utf8" },
+            { path: "nested/../escape.ts", content: "x", encoding: "utf8" },
+          ],
+          token: SECRET,
+          message: "m",
+        },
+        { fetchImpl: makeFetch(calls) },
+      ),
+    ).rejects.toThrow(/unsafe file path/);
+    // No ref lookup, blob upload, or write happens once validation fails.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("uploads blobs with bounded concurrency and preserves input order", async () => {
+    const calls: RecordedCall[] = [];
+    let inflight = 0;
+    let maxInflight = 0;
+    const pending: Array<() => void> = [];
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const fetchImpl = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      calls.push({ url, init });
+      if (url.endsWith("/git/blobs")) {
+        inflight += 1;
+        maxInflight = Math.max(maxInflight, inflight);
+        return new Promise<Response>((resolve) => {
+          pending.push(() => {
+            inflight -= 1;
+            const body = JSON.parse(String(init?.body)) as { content: string };
+            resolve(json({ sha: `sha-${body.content}` }));
+          });
+        });
+      }
+      if (url.endsWith("/git/ref/heads/main")) return Promise.resolve(json({ object: { sha: "base-sha" } }));
+      if (url.endsWith("/git/commits/base-sha")) return Promise.resolve(json({ tree: { sha: "base-tree" } }));
+      if (url.endsWith("/git/trees")) return Promise.resolve(json({ sha: "new-tree" }));
+      if (url.endsWith("/git/commits")) return Promise.resolve(json({ sha: "new-commit" }));
+      if (url.endsWith("/git/refs")) return Promise.resolve(json({}));
+      if (url.endsWith("/pulls")) {
+        return Promise.resolve(json({ html_url: "https://github.com/owner/repo/pull/7", number: 7 }));
+      }
+      return Promise.resolve(json({ message: "not found" }, 404));
+    });
+    const files = Array.from({ length: 9 }, (_, i) => ({
+      path: `f${i}.ts`,
+      content: `content-${i}`,
+      encoding: "utf8" as const,
+    }));
+    const publish = publishFilesAsPullRequest(
+      {
+        repoUrl: "https://github.com/owner/repo",
+        baseBranch: "main",
+        newBranch: "b",
+        title: "t",
+        body: "b",
+        files,
+        token: SECRET,
+        message: "m",
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    // The pool starts at most four blob uploads before any resolves.
+    expect(pending.length).toBe(4);
+    // Release each deferred upload; the pool tops up until inputs run out.
+    while (pending.length > 0) {
+      pending.shift()!();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const result = await publish;
+    expect(result.pullNumber).toBe(7);
+    expect(maxInflight).toBeLessThanOrEqual(4);
+    const treeCall = calls.find((call) => call.url.endsWith("/git/trees"));
+    const body = JSON.parse(String(treeCall?.init?.body)) as {
+      tree: Array<{ path: string; sha: string | null }>;
+    };
+    expect(body.tree).toEqual(
+      files.map((file) => ({ path: file.path, mode: "100644", type: "blob", sha: `sha-${file.content}` })),
+    );
+  });
+
+  it("creates no tree or commit when a blob upload fails", async () => {
+    const calls: RecordedCall[] = [];
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const fetchImpl = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      calls.push({ url, init });
+      if (url.endsWith("/git/blobs")) {
+        const body = JSON.parse(String(init?.body)) as { content: string };
+        if (body.content === "doomed") {
+          return Promise.resolve(json({ message: "blob rejected" }, 422));
+        }
+        return Promise.resolve(json({ sha: `sha-${body.content}` }));
+      }
+      if (url.endsWith("/git/ref/heads/main")) return Promise.resolve(json({ object: { sha: "base-sha" } }));
+      if (url.endsWith("/git/commits/base-sha")) return Promise.resolve(json({ tree: { sha: "base-tree" } }));
+      if (url.endsWith("/git/trees")) return Promise.resolve(json({ sha: "new-tree" }));
+      if (url.endsWith("/git/commits")) return Promise.resolve(json({ sha: "new-commit" }));
+      if (url.endsWith("/git/refs")) return Promise.resolve(json({}));
+      if (url.endsWith("/pulls")) {
+        return Promise.resolve(json({ html_url: "https://github.com/owner/repo/pull/7", number: 7 }));
+      }
+      return Promise.resolve(json({ message: "not found" }, 404));
+    });
+    await expect(
+      publishFilesAsPullRequest(
+        {
+          repoUrl: "https://github.com/owner/repo",
+          baseBranch: "main",
+          newBranch: "b",
+          title: "t",
+          body: "b",
+          files: [
+            { path: "a.ts", content: "ok", encoding: "utf8" },
+            { path: "b.ts", content: "doomed", encoding: "utf8" },
+            { path: "c.ts", content: "ok2", encoding: "utf8" },
+          ],
+          token: SECRET,
+          message: "m",
+        },
+        { fetchImpl: fetchImpl as unknown as typeof fetch },
+      ),
+    ).rejects.toThrow(/422/);
+    expect(calls.some((call) => call.url.endsWith("/git/trees"))).toBe(false);
+    expect(
+      calls.some((call) => call.url.endsWith("/git/commits") && call.init?.method === "POST"),
+    ).toBe(false);
+  });
+});
