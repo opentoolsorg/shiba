@@ -14,7 +14,7 @@
     "dev": "turbo run dev",
     "dev:all": "turbo run dev",
     "dev:website": "turbo run dev --filter=@shiba/web",
-    "dev:dashboard": "turbo run dev --filter=@shiba/frontend",
+    "dev:app": "turbo run dev --filter=@shiba/frontend",
     "dev:backend": "turbo run dev --filter=@shiba/backend",
     "docs:build": "turbo run build --filter=@shiba/web",
     "docs:check": "pnpm -C apps/web check",
