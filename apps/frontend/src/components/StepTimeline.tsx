@@ -67,8 +67,8 @@ function RailIcon({ kind }: { kind: "tool" | "text" | "approval" }) {
 }
 
 function statusChipClass(rejected: boolean, waiting: boolean): string {
-  if (rejected) return "text-[#b91c1c] border-[#fb2c36]/30 bg-[#fb2c36]/10";
-  if (waiting) return "text-[#b45309] border-[#b45309]/30 bg-[#b45309]/10";
+  if (rejected) return "text-[var(--destructive)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)]";
+  if (waiting) return "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning-fg)_30%,transparent)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)]";
   return "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--panel)]";
 }
 
@@ -84,7 +84,7 @@ export function StepTimeline({
 }: StepTimelineProps) {
   if (messages.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--panel)]/40 px-6 text-center animate-enter">
+      <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--panel)]/40 px-6 text-[var(--success)]enter animate-enter">
         <img
           src="/assets/mascot/shiba-sticker-hero.webp"
           alt="Shiba illustration mascot"
@@ -192,7 +192,7 @@ export function StepTimeline({
                       <span
                         className={`absolute -left-9 top-0.5 w-6 h-6 rounded-[var(--radius-button)] bg-[var(--panel)] border flex items-center justify-center ${
                           waiting
-                            ? "border-[#b45309]/60 text-[#b45309]"
+                            ? "border-[var(--warning-fg)]/60 text-[var(--warning-fg)]"
                             : "border-[var(--border-1)] text-[var(--muted-foreground-2)]"
                         }`}
                       >

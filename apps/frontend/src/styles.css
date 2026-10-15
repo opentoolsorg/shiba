@@ -309,9 +309,3 @@ button:focus-visible,
   animation: enter-slide-x var(--dur-fast) var(--ease-out) both;
 }
 
-/* Glass panel utility */
-.glass-panel {
-  background: color-mix(in oklch, var(--panel) 85%, transparent);
-  border-color: var(--border-1);
-  box-shadow: var(--sh-card);
-}

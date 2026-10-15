@@ -15,7 +15,7 @@ const GHOST_BUTTON =
 const ACCENT_BUTTON =
   "text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/20 text-[var(--primary)] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
 const DANGER_BUTTON =
-  "text-[11px] bg-[#fb2c36]/10 hover:bg-[#fb2c36]/20 border border-[#fb2c36]/50 text-[#fb2c36] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
+  "text-[11px] bg-[var(--destructive-soft)] hover:bg-[var(--destructive)]/20 border border-[var(--destructive)]/50 text-[var(--destructive)] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed";
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -32,7 +32,7 @@ export function sourceChipClass(source: string): string {
     case "run":
       return "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)]";
     case "email":
-      return "text-[#b45309] border-[#f99c00]/40 bg-[#f99c00]/10";
+      return "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)]";
     default:
       return "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]";
   }
@@ -382,12 +382,12 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
       {/* Notifications & Error Feedback */}
       {notice !== null ? (
-        <div className="text-[11px] text-[#15803d] bg-[#15803d]/10 border border-[#15803d]/20 rounded-[var(--radius-button)] px-2.5 py-2 flex items-center justify-between gap-2">
+        <div className="text-[11px] text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border border-[var(--success)]/20 rounded-[var(--radius-button)] px-2.5 py-2 flex items-center justify-between gap-2">
           <span>{notice}</span>
           <button
             type="button"
             onClick={() => setNotice(null)}
-            className="text-[#15803d] hover:text-[#15803d]/80 text-[10px] font-semibold"
+            className="text-[var(--success)] hover:text-[var(--success)]/80 text-[10px] font-semibold"
           >
             Dismiss
           </button>
@@ -395,12 +395,12 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
       ) : null}
 
       {error !== null ? (
-        <div className="text-[11px] text-[#fb2c36] bg-[#fb2c36]/10 border border-[#fb2c36]/20 rounded-[var(--radius-button)] px-2.5 py-2 flex items-center justify-between gap-2">
+        <div className="text-[11px] text-[var(--destructive)] bg-[var(--destructive-soft)] border border-[var(--destructive)]/20 rounded-[var(--radius-button)] px-2.5 py-2 flex items-center justify-between gap-2">
           <span className="flex-1">{error}</span>
           <button
             type="button"
             onClick={() => void load()}
-            className="text-[#fb2c36] underline hover:no-underline font-semibold text-[10px]"
+            className="text-[var(--destructive)] underline hover:no-underline font-semibold text-[10px]"
           >
             Retry
           </button>
@@ -444,11 +444,11 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
           </div>
 
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
               <p className="text-[var(--muted-foreground-2)] text-xs">Loading memory…</p>
             </div>
           ) : visibleFacts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+            <div className="flex flex-col items-center justify-center py-8 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
               <p className="text-[var(--muted-foreground-2)] text-xs">
                 {searchActive
                   ? `Nothing recalled for "${lastRecallQuery}".`
@@ -526,8 +526,8 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
                     {/* Explicit Two-Step Confirmation Prompt */}
                     {isConfirming ? (
-                      <div className="mt-1 bg-[#fb2c36]/5 border border-[#fb2c36]/25 rounded-[var(--radius-button)] p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-1.5 text-[11px] text-[#fb2c36]">
+                      <div className="mt-1 bg-[var(--destructive)]/5 border border-[var(--destructive)]/25 rounded-[var(--radius-button)] p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-1.5 text-[11px] text-[var(--destructive)]">
                           <svg aria-hidden="true"  className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
                               strokeLinecap="round"
@@ -578,7 +578,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
           </div>
 
           {!loading && visibleSessions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+            <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
               <p className="text-[var(--muted-foreground-2)] text-xs">
                 {agentFilter !== "all"
                   ? "No sessions recorded for selected agent."

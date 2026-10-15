@@ -10,7 +10,7 @@ import type { StoredApproval } from "../types";
 const ACCENT_BUTTON =
   "text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-[var(--radius-button)] transition-colors";
 const DANGER_BUTTON =
-  "text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[#fb2c36]/50 text-[#b91c1c] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-[var(--radius-button)] transition-colors";
+  "text-[11px] bg-transparent hover:bg-[var(--destructive-soft)] border border-[var(--destructive)]/50 text-[var(--destructive)] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-[var(--radius-button)] transition-colors";
 
 /** Kind-aware label for a stored approval pointer; unknown kinds render raw. */
 export function storedApprovalKind(approval: StoredApproval): string {
@@ -67,7 +67,7 @@ export function StoredApprovalCard({
   return (
     <div className="border border-[var(--border-1)] border-l-2 border-l-[#b45309] rounded-[var(--radius-button)] bg-[var(--bg)] p-3">
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[#b45309]">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--warning-fg)]">
           {storedApprovalKind(approval)}
         </span>
         <span className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
@@ -141,7 +141,7 @@ export function DecidedApprovalRow({ approval }: { approval: StoredApproval }): 
       </p>
       <p className="text-[11px] text-[var(--fg)] font-medium break-words">{approval.task}</p>
       {approval.execution?.error !== undefined ? (
-        <p className="text-[10px] text-[#b91c1c] mt-1 break-words">{approval.execution.error}</p>
+        <p className="text-[10px] text-[var(--destructive)] mt-1 break-words">{approval.execution.error}</p>
       ) : null}
       <p className="text-[10px] text-[var(--muted-foreground-2)] font-mono mt-1">
         {formatTimeAgo(approval.decidedAt ?? approval.createdAt)}

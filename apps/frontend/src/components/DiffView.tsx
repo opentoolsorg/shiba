@@ -84,7 +84,7 @@ export function DiffView({
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         {!activeRun ? (
-          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
+          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-[var(--success)]enter">
             <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 text-[var(--primary)] flex items-center justify-center mb-3">
               <GitCompareArrows aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
             </div>
@@ -130,7 +130,7 @@ export function DiffView({
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
+          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-[var(--success)]enter">
             <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--bg)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] flex items-center justify-center mb-3">
               <FileText aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
             </div>

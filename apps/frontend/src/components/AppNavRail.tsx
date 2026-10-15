@@ -487,7 +487,7 @@ export function AppNavRail({
         {/* Scrollable thread rows */}
         <div className="flex-1 overflow-y-auto px-0.5 space-y-0.5">
           {filteredSessions.length === 0 ? (
-            <p className="text-[var(--muted-foreground-3)] text-[12px] px-2 py-4 text-center">
+            <p className="text-[var(--muted-foreground-3)] text-[12px] px-2 py-4 text-[var(--success)]enter">
               {sessions.length === 0 ? "No threads yet" : "No threads match"}
             </p>
           ) : (
@@ -621,7 +621,7 @@ export function AppNavRail({
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)]"
                 >
-                  <span className="text-[11px] font-mono font-bold leading-none w-3.5 text-center">?</span>
+                  <span className="text-[11px] font-mono font-bold leading-none w-3.5 text-[var(--success)]enter">?</span>
                   <span>Shortcuts</span>
                 </button>
               ) : null}

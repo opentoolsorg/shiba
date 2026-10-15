@@ -15,9 +15,9 @@ type FleetState =
 type Identity = { kind: "checking" } | { kind: "ok"; agent: string } | { kind: "down"; message: string };
 
 const STATUS_DOT: Record<ComputerStatus, string> = {
-  idle: "bg-[#15803d]",
-  busy: "bg-[#f99c00] animate-pulse",
-  offline: "bg-[#6a6f63]/50",
+  idle: "bg-[var(--success)]",
+  busy: "bg-[var(--warning)] animate-pulse",
+  offline: "bg-[var(--muted-foreground-3)]/50",
 };
 
 function ago(ms: number): string {
@@ -57,7 +57,7 @@ function PairingModal({ pairing, onClose }: { pairing: PairingTokenResponse; onC
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--warning)]lack/40 p-4">
       <div
         role="dialog"
         aria-modal="true"
@@ -84,7 +84,7 @@ function PairingModal({ pairing, onClose }: { pairing: PairingTokenResponse; onC
           {pairing.connectCommand}
         </pre>
         <div className="flex items-center justify-between gap-3">
-          <span className={`text-xs font-mono ${expired ? "text-[#b91c1c]" : "text-[var(--muted-foreground-2)]"}`} aria-live="polite">
+          <span className={`text-xs font-mono ${expired ? "text-[var(--destructive)]" : "text-[var(--muted-foreground-2)]"}`} aria-live="polite">
             {expired ? "Token expired — close and generate a new one" : `Expires in ${countdown(remaining)}`}
           </span>
           <button
@@ -236,7 +236,7 @@ export function RemoteAccessView(): JSX.Element {
           <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
             <span>Remote Access</span>
             {fleet.kind === "ready" ? (
-              <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[#15803d]/10 text-[#15803d] border border-[#15803d]/30">
+              <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
                 {online}/{computers.length} online
               </span>
             ) : null}
@@ -280,7 +280,7 @@ export function RemoteAccessView(): JSX.Element {
             <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] shadow-[var(--sh-card)] grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div className="flex items-center gap-2">
                 <span
-                  className={`size-2 rounded-full ${identity.kind === "ok" ? "bg-[#15803d]" : identity.kind === "down" ? "bg-[#fb2c36]" : "bg-[#6a6f63]/50"}`}
+                  className={`size-2 rounded-full ${identity.kind === "ok" ? "bg-[var(--success)]" : identity.kind === "down" ? "bg-[var(--destructive)]" : "bg-[var(--muted-foreground-3)]/50"}`}
                   aria-hidden="true"
                 />
                 <span className="text-[var(--muted-foreground-2)]">Worker endpoint</span>
@@ -304,11 +304,11 @@ export function RemoteAccessView(): JSX.Element {
             </div>
 
             {fleet.kind === "loading" ? (
-              <p className="text-xs text-[var(--muted-foreground-2)] py-6 text-center">Loading fleet…</p>
+              <p className="text-xs text-[var(--muted-foreground-2)] py-6 text-[var(--success)]enter">Loading fleet…</p>
             ) : fleet.kind === "error" ? (
               <LoadErrorState message={fleet.message} onRetry={() => void load()} />
             ) : fleet.kind === "disabled" || computers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-center p-6">
+              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-[var(--success)]enter p-6">
                 <h4 className="text-sm font-semibold text-[var(--fg)]">
                   {fleet.kind === "disabled" ? "Local runtime is disabled" : "No computers paired"}
                 </h4>
@@ -333,7 +333,7 @@ export function RemoteAccessView(): JSX.Element {
                       <span className={`size-2 rounded-full shrink-0 ${STATUS_DOT[c.status]}`} title={c.status} aria-hidden="true" />
                       <span className="text-sm font-semibold text-[var(--fg)] truncate flex-1">{c.hostname}</span>
                       {desktopStatus?.machineId === c.machineId ? (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[#15803d]/10 text-[#15803d] border border-[#15803d]/30">
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-[var(--radius-button)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
                           This computer
                         </span>
                       ) : null}
@@ -361,7 +361,7 @@ export function RemoteAccessView(): JSX.Element {
                     <div className="flex justify-end gap-2 pt-1">
                       {confirmRevoke === c.machineId ? (
                         <>
-                          <span className="text-[11px] text-[#b91c1c] self-center">Revoke {c.hostname}?</span>
+                          <span className="text-[11px] text-[var(--destructive)] self-center">Revoke {c.hostname}?</span>
                           <button
                             type="button"
                             onClick={() => setConfirmRevoke(null)}
@@ -372,7 +372,7 @@ export function RemoteAccessView(): JSX.Element {
                           <button
                             type="button"
                             onClick={() => void revoke(c)}
-                            className="text-xs font-semibold text-white bg-[#b91c1c] hover:bg-[#fb2c36] px-2.5 py-1 rounded-[var(--radius-button)]"
+                            className="text-xs font-semibold text-white bg-[#b91c1c] hover:bg-[var(--destructive)] px-2.5 py-1 rounded-[var(--radius-button)]"
                           >
                             Confirm revoke
                           </button>
@@ -381,7 +381,7 @@ export function RemoteAccessView(): JSX.Element {
                         <button
                           type="button"
                           onClick={() => setConfirmRevoke(c.machineId)}
-                          className="text-xs text-[#b91c1c] border border-[#fb2c36]/30 bg-[#fb2c36]/5 hover:bg-[#fb2c36]/10 px-2.5 py-1 rounded-[var(--radius-button)]"
+                          className="text-xs text-[var(--destructive)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive)]/5 hover:bg-[var(--destructive-soft)] px-2.5 py-1 rounded-[var(--radius-button)]"
                         >
                           Revoke
                         </button>

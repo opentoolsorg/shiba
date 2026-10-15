@@ -37,9 +37,9 @@ function emailChipClass(status: string): string {
     case "unread":
       return "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)] font-semibold";
     case "sent":
-      return "text-[#15803d] border-[#15803d]/30 bg-[#15803d]/10";
+      return "text-[var(--success)] border-[color-mix(in_oklch,var(--success)_30%,transparent)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)]";
     case "deleted":
-      return "text-[#fb2c36] border-[#fb2c36]/30 bg-[#fb2c36]/10";
+      return "text-[var(--destructive)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)]";
     default:
       return "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]";
   }
@@ -48,11 +48,11 @@ function emailChipClass(status: string): string {
 function draftChipClass(status: string): string {
   switch (status) {
     case "draft":
-      return "text-[#b45309] border-[#f99c00]/40 bg-[#f99c00]/10";
+      return "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)]";
     case "queued":
       return "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)]";
     case "sent":
-      return "text-[#15803d] border-[#15803d]/30 bg-[#15803d]/10";
+      return "text-[var(--success)] border-[color-mix(in_oklch,var(--success)_30%,transparent)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)]";
     default:
       return "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]";
   }
@@ -374,7 +374,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]">Drafts:</span>
-              <span className="font-mono text-xs font-semibold text-[#b45309]">
+              <span className="font-mono text-xs font-semibold text-[var(--warning-fg)]">
                 {pendingDraftsCount}
                 {queuedDraftsCount > 0 ? (
                   <span className="text-[10px] font-normal text-[var(--primary)] ml-1">({queuedDraftsCount} queued)</span>
@@ -385,10 +385,10 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
 
           <div className="flex items-center gap-2 ml-auto">
             <span
-              className="text-[10px] font-mono text-[#15803d] bg-[#15803d]/10 border border-[#15803d]/20 px-2 py-0.5 rounded-[var(--radius-button)] inline-flex items-center gap-1"
+              className="text-[10px] font-mono text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border border-[var(--success)]/20 px-2 py-0.5 rounded-[var(--radius-button)] inline-flex items-center gap-1"
               title="Cloudflare Email Routing + Mailbox Durable Objects"
             >
-              <span className="size-1.5 rounded-[var(--radius-button)] bg-[#15803d]" />
+              <span className="size-1.5 rounded-[var(--radius-button)] bg-[var(--success)]" />
               Approval-Gated Send
             </span>
             <button
@@ -443,7 +443,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                       className="flex items-center justify-between gap-2 text-[11px] bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-2.5 py-1.5"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="size-2 rounded-[var(--radius-button)] bg-[#15803d]" />
+                        <span className="size-2 rounded-[var(--radius-button)] bg-[var(--success)]" />
                         <span className="font-mono font-medium text-[var(--fg)] truncate">{mb.address}</span>
                         {mb.label ? (
                           <span className="text-[10px] text-[var(--muted-foreground-2)] bg-[var(--bg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-1.5 py-0.2">
@@ -467,7 +467,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                   {pairingStep === 1 ? "Step 1: Define Mailbox Identity" : "Step 2: Security & Privacy Verification"}
                 </span>
                 <div className="flex items-center gap-1 text-[10px] font-mono text-[var(--muted-foreground-2)]">
-                  <span className={`size-2 rounded-[var(--radius-button)] ${pairingStep === 1 ? "bg-[var(--primary)]" : "bg-[#15803d]"}`} />
+                  <span className={`size-2 rounded-[var(--radius-button)] ${pairingStep === 1 ? "bg-[var(--primary)]" : "bg-[var(--success)]"}`} />
                   <span>Step {pairingStep} of 2</span>
                 </div>
               </div>
@@ -523,7 +523,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                   </div>
 
                   {registerError !== null ? (
-                    <p role="alert" className="text-[11px] text-[#fb2c36]">
+                    <p role="alert" className="text-[11px] text-[var(--destructive)]">
                       {registerError}
                     </p>
                   ) : null}
@@ -563,7 +563,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                   </div>
 
                   {registerError !== null ? (
-                    <p role="alert" className="text-[11px] text-[#fb2c36]">
+                    <p role="alert" className="text-[11px] text-[var(--destructive)]">
                       {registerError}
                     </p>
                   ) : null}
@@ -592,7 +592,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
         ) : null}
 
         {registerNotice !== null ? (
-          <p role="status" className="mt-2 text-[11px] text-[#15803d] bg-[#15803d]/10 border border-[#15803d]/20 rounded-[var(--radius-button)] px-2.5 py-1.5">
+          <p role="status" className="mt-2 text-[11px] text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border border-[var(--success)]/20 rounded-[var(--radius-button)] px-2.5 py-1.5">
             {registerNotice}
           </p>
         ) : null}
@@ -717,10 +717,10 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
       {notice !== null ? (
         <div
           role="status"
-          className="text-[11px] text-[#15803d] bg-[#15803d]/10 border border-[#15803d]/20 rounded-[var(--radius-button)] p-3 flex items-center justify-between gap-3 shadow-[var(--sh-card)]"
+          className="text-[11px] text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border border-[var(--success)]/20 rounded-[var(--radius-button)] p-3 flex items-center justify-between gap-3 shadow-[var(--sh-card)]"
         >
           <div className="flex items-center gap-2 min-w-0">
-            <span className="size-2 rounded-[var(--radius-button)] bg-[#15803d] shrink-0" />
+            <span className="size-2 rounded-[var(--radius-button)] bg-[var(--success)] shrink-0" />
             <span className="font-medium truncate">{notice}</span>
           </div>
           <button
@@ -736,13 +736,13 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
       {error !== null ? (
         <div
           role="alert"
-          className="text-[11px] text-[#fb2c36] bg-[#fb2c36]/10 border border-[#fb2c36]/20 rounded-[var(--radius-button)] p-3 flex items-center justify-between gap-3"
+          className="text-[11px] text-[var(--destructive)] bg-[var(--destructive-soft)] border border-[var(--destructive)]/20 rounded-[var(--radius-button)] p-3 flex items-center justify-between gap-3"
         >
           <span>{error}</span>
           <button
             type="button"
             onClick={() => setError(null)}
-            className="text-[#fb2c36] hover:opacity-75"
+            className="text-[var(--destructive)] hover:opacity-75"
           >
             Dismiss
           </button>
@@ -753,13 +753,13 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
       {(filterView === "all" || filterView === "drafts") && drafts.length > 0 ? (
         <section
           aria-label="Drafts requiring human approval"
-          className="border-2 border-[#f99c00]/60 rounded-[var(--radius-button)] bg-[var(--card)] p-3.5 shadow-[var(--sh-card)] flex flex-col gap-3"
+          className="border-2 border-[var(--warning)]/60 rounded-[var(--radius-button)] bg-[var(--card)] p-3.5 shadow-[var(--sh-card)] flex flex-col gap-3"
         >
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <span className="text-sm">🔒</span>
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[#b45309]">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--warning-fg)]">
                   Approval Boundary: Outbound Transmissions
                 </h3>
                 <p className="text-[11px] text-[var(--muted-foreground-2)]">
@@ -858,12 +858,12 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
       {filterView !== "drafts" ? (
         <section aria-label="Inbox messages">
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] px-4 text-center">
+            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] px-4 text-[var(--success)]enter">
               <div className="size-5 border-2 border-[var(--primary)] border-t-transparent rounded-[var(--radius-button)] animate-spin mb-2" />
               <p className="text-[var(--muted-foreground-2)] text-xs font-mono">Loading mail…</p>
             </div>
           ) : displayedEmails.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] px-4 text-center">
+            <div className="flex flex-col items-center justify-center py-12 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] px-4 text-[var(--success)]enter">
               <span className="text-xl mb-1 text-[var(--muted-foreground-2)]">✉</span>
               <p className="text-[var(--fg)] text-xs font-medium">
                 {mailboxes !== null && mailboxes.length === 0
@@ -912,7 +912,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                         <span
                           className={`text-[10px] font-mono uppercase px-1.5 py-0.2 rounded-[var(--radius-button)] border shrink-0 ${
                             isInbound
-                              ? "bg-[#15803d]/10 text-[#15803d] border-[#15803d]/20"
+                              ? "bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border-[var(--success)]/20"
                               : "bg-[var(--primary-soft)] text-[var(--primary)] border-[var(--primary)]/20"
                           }`}
                         >
@@ -939,7 +939,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                       </div>
 
                       <h4
-                        className={`text-xs truncate pl-4 font-medium font-serif ${
+                        className={`text-xs truncate pl-4 font-medium ${
                           isUnread ? "text-[var(--fg)]" : "text-[var(--muted-foreground-1)]"
                         }`}
                       >
@@ -1046,7 +1046,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                                         <span>·</span>
                                         <span>{formatTimeAgo(item.created_at)}</span>
                                       </div>
-                                      <p className="text-[var(--fg)] text-xs font-serif mt-0.5">{item.subject}</p>
+                                      <p className="text-[var(--fg)] text-xs mt-0.5">{item.subject}</p>
                                     </li>
                                   ))}
                                 </ol>
@@ -1069,7 +1069,7 @@ export function InboxTab({ onOpenApprovals }: InboxTabProps): JSX.Element {
                                     <span className="text-[var(--muted-foreground-2)] ml-2">from </span>
                                     <span className="font-semibold text-[var(--primary)]">{replyMailbox(detail, mailbox) || "(selected mailbox)"}</span>
                                   </div>
-                                  <span className="text-[10px] font-mono text-[#b45309] bg-[#f99c00]/10 border border-[#f99c00]/30 rounded-[var(--radius-button)] px-2 py-0.5">
+                                  <span className="text-[10px] font-mono text-[var(--warning-fg)] bg-[var(--warning-subtle)] border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] rounded-[var(--radius-button)] px-2 py-0.5">
                                     🔒 Approval Gate
                                   </span>
                                 </div>

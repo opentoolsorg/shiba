@@ -71,7 +71,7 @@ export function PurposeRoutingCard(): JSX.Element {
   if (state.kind === "loading") {
     return (
       <Card>
-        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading model routing…</div>
+        <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">Reading model routing…</div>
       </Card>
     );
   }
@@ -187,7 +187,7 @@ export function ConnectionsCard(): JSX.Element {
   if (state.kind === "loading") {
     return (
       <Card>
-        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading connections…</div>
+        <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">Reading connections…</div>
       </Card>
     );
   }
@@ -225,7 +225,7 @@ export function ConnectionsCard(): JSX.Element {
                   connection.status === "ready"
                     ? "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30"
                     : connection.status === "disabled"
-                      ? "text-[var(--muted-foreground-2)] bg-black/[0.04] border-[var(--border-1)]"
+                      ? "text-[var(--muted-foreground-2)] bg-[var(--warning)]lack/[0.04] border-[var(--border-1)]"
                       : "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40"
                 }`}
               >
@@ -236,7 +236,7 @@ export function ConnectionsCard(): JSX.Element {
                   type="button"
                   disabled={busy}
                   onClick={() => void call(`/connections/${connection.id}`, { method: "DELETE" }, "Connection disabled.")}
-                  className="text-xs text-[var(--muted-foreground-2)] hover:text-[#fb2c36] border border-[var(--border-1)] px-2 py-1 transition-colors"
+                  className="text-xs text-[var(--muted-foreground-2)] hover:text-[var(--destructive)] border border-[var(--border-1)] px-2 py-1 transition-colors"
                 >
                   Disable
                 </button>

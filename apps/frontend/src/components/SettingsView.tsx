@@ -103,7 +103,7 @@ function ChecklistRow({
         aria-hidden="true"
         className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[var(--radius-button)] border text-[10px] font-bold ${
           ok
-            ? "border-[#15803d]/40 bg-[#15803d]/10 text-[#15803d]"
+            ? "border-[var(--success)]/40 bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)]"
             : "border-[var(--border-2)] bg-[var(--secondary)] text-[var(--muted-foreground-2)]"
         }`}
       >
@@ -155,7 +155,7 @@ function RoleModelRow({ row }: { row: RoleModelWire }): JSX.Element {
           <div className="break-all font-mono text-xs text-[var(--fg)]">{row.model || "Default"}</div>
         </div>
       </div>
-      {row.error ? <div className="mt-1.5 text-[11px] text-[#b91c1c]">{row.error}</div> : null}
+      {row.error ? <div className="mt-1.5 text-[11px] text-[var(--destructive)]">{row.error}</div> : null}
       <div className="mt-1.5 font-mono text-[11px] text-[var(--muted-foreground-2)]">
         set via ROLE_MODEL_MAP["{row.role}"] or {roleVar}
       </div>
@@ -167,7 +167,7 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
   if (!status) {
     return (
       <Card>
-        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+        <div role="status" className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -178,7 +178,7 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
     <>
       <Card>
         {rows.length === 0 ? (
-          <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+          <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
             This deployment doesn't report per-role routing — update the backend.
           </div>
         ) : (
@@ -213,7 +213,7 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
   if (!status) {
     return (
       <Card>
-        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+        <div role="status" className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -359,7 +359,7 @@ function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX
           <LoadErrorState message={whoami.state.message} onRetry={whoami.reload} />
         </div>
       ) : !identity ? (
-        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading /api/whoami…</div>
+        <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">Reading /api/whoami…</div>
       ) : (
         <>
           <div className="flex items-center gap-3 border-b border-[var(--border-1)] px-4 py-3.5">
@@ -399,7 +399,7 @@ function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX
                 type="button"
                 onClick={() => void signOut()}
                 disabled={signingOut}
-                className="shrink-0 rounded-[var(--radius-button)] border border-[#fb2c36]/50 bg-[#fb2c36]/10 px-3 py-1.5 text-[11px] font-semibold text-[#fb2c36] transition-colors hover:bg-[#fb2c36]/20 disabled:opacity-60"
+                className="shrink-0 rounded-[var(--radius-button)] border border-[var(--destructive)]/50 bg-[var(--destructive-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/20 disabled:opacity-60"
               >
                 {signingOut ? "Signing out…" : "Sign out"}
               </button>
@@ -524,7 +524,7 @@ function LiveSettingsSectionBody({
       )
     ) : (
       <Card>
-        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+        <div role="status" className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
           Reading /api/setup/status…
         </div>
       </Card>
@@ -720,10 +720,10 @@ function RepositoriesSection(): JSX.Element {
             Save repo
           </button>
         </div>
-        {error ? <span className="text-[11px] text-[#fb2c36]">{error}</span> : null}
+        {error ? <span className="text-[11px] text-[var(--destructive)]">{error}</span> : null}
       </div>
       {repos.length === 0 ? (
-        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+        <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
           None saved yet — repos you run tasks against are saved automatically too.
         </div>
       ) : (
@@ -737,7 +737,7 @@ function RepositoriesSection(): JSX.Element {
               type="button"
               onClick={() => removeRepo(repo)}
               aria-label={`Remove ${repo}`}
-              className="shrink-0 text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[var(--border-1)] hover:border-[#fb2c36]/50 text-[var(--muted-foreground-2)] hover:text-[#fb2c36] font-medium py-1 px-2.5 rounded-[var(--radius-button)] transition-colors"
+              className="shrink-0 text-[11px] bg-transparent hover:bg-[var(--destructive-soft)] border border-[var(--border-1)] hover:border-[var(--destructive)]/50 text-[var(--muted-foreground-2)] hover:text-[var(--destructive)] font-medium py-1 px-2.5 rounded-[var(--radius-button)] transition-colors"
             >
               Remove
             </button>

@@ -46,7 +46,7 @@ function MetricCard({ label, value, sub }: { label: string; value: string; sub: 
   return (
     <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)]">
       <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">{label}</p>
-      <p className="mt-1.5 font-sans text-2xl text-[var(--fg)]">{value}</p>
+      <p className="mt-1.5 font-sans text-[var(--success)]xl text-[var(--fg)]">{value}</p>
       <p className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">{sub}</p>
     </div>
   );
@@ -72,7 +72,7 @@ function BreakdownCard({
         <p className="text-[11px] text-[var(--muted-foreground-2)]">{hint}</p>
       </header>
       {rows.length === 0 ? (
-        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">{empty}</div>
+        <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">{empty}</div>
       ) : (
         <div className="flex flex-col gap-2 px-4 py-3">
           {rows.map((row) => (
@@ -237,7 +237,7 @@ export function AnalyticsView({
 
             </header>
             {tableRuns.length === 0 ? (
-              <div className="px-4 py-10 text-center">
+              <div className="px-4 py-10 text-[var(--success)]enter">
                 <p className="text-sm text-[var(--muted-foreground-2)]">No runs yet — nothing to measure.</p>
                 {onNavigate ? (
                   <button
@@ -406,7 +406,7 @@ function UsageSection({
         ) : null}
       </header>
       {usage.state.kind === "loading" ? (
-        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Loading usage…</div>
+        <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">Loading usage…</div>
       ) : usage.state.kind === "error" ? (
         <div className="px-4 py-3">
           <LoadErrorState message={usage.state.message} onRetry={usage.reload} />
@@ -435,7 +435,7 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
 
   if (report.days.length === 0) {
     return (
-      <div className="px-4 py-6 text-center">
+      <div className="px-4 py-6 text-[var(--success)]enter">
         <p className="text-xs text-[var(--muted-foreground-2)]">
           No retained run has reported token usage yet. opencode, claude-code, and codex streams carry it;
           devin, grok, cursor, and antigravity runs don&apos;t — their runs keep contributing only run counts.
@@ -479,7 +479,7 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
           </div>
           <div className="mt-2 h-2 border border-[var(--border-1)] bg-[var(--secondary)]">
             <div
-              className={`h-full ${spentToday !== undefined && spentToday > budget ? "bg-[#fb2c36]" : "bg-[var(--primary-soft-hover)]"}`}
+              className={`h-full ${spentToday !== undefined && spentToday > budget ? "bg-[var(--destructive)]" : "bg-[var(--primary-soft-hover)]"}`}
               style={{ width: `${spentPct}%` }}
             />
           </div>

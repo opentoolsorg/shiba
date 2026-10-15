@@ -64,11 +64,11 @@ export function ActivityView({
               Event log
             </div>
             {state.kind === "loading" ? (
-              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading the spine…</div>
+              <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">Reading the spine…</div>
             ) : state.kind === "error" ? (
               <LoadErrorState message={state.message} onRetry={reload} />
             ) : events.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+              <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
                 No decisions yet — queue a task and the spine records every step here.
               </div>
             ) : (
@@ -90,7 +90,7 @@ export function ActivityView({
               Outbox — owed side effects
             </div>
             {outbox.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+              <div className="px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
                 Nothing owed — every post-back that should happen has been delivered.
               </div>
             ) : (
@@ -109,12 +109,12 @@ export function ActivityView({
 
 const KIND_TONE: Record<string, string> = {
   "run.completed": "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30",
-  "run.failed": "text-[#fb2c36] bg-[#fb2c36]/10 border-[#fb2c36]/30",
+  "run.failed": "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
   "run.cancelled": "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40",
-  "run.rejected": "text-[#fb2c36] bg-[#fb2c36]/10 border-[#fb2c36]/30",
+  "run.rejected": "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
   "approval.answered": "text-[var(--primary)] bg-[var(--primary-soft)] border-[var(--primary)]/30",
   "approval.requested": "text-[var(--primary)] bg-[var(--primary-soft)] border-[var(--primary)]/30",
-  "side_effect.failed": "text-[#fb2c36] bg-[#fb2c36]/10 border-[#fb2c36]/30",
+  "side_effect.failed": "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]",
 };
 
 function eventSummary(event: SpineEventWire): string {
@@ -138,7 +138,7 @@ function eventSummary(event: SpineEventWire): string {
 }
 
 function EventRow({ event }: { event: SpineEventWire }): JSX.Element {
-  const tone = KIND_TONE[event.kind] ?? "text-[var(--muted-foreground-2)] bg-black/[0.04] border-[var(--border-1)]";
+  const tone = KIND_TONE[event.kind] ?? "text-[var(--muted-foreground-2)] bg-[var(--warning)]lack/[0.04] border-[var(--border-1)]";
   const summary = eventSummary(event);
   return (
     <li className="px-4 py-2.5 flex items-baseline gap-3">
@@ -175,7 +175,7 @@ function OutboxRow({ entry }: { entry: OutboxEntryWire }): JSX.Element {
     entry.status === "dispatched"
       ? "text-[#146c2e] bg-[#146c2e]/10 border-[#146c2e]/30"
       : entry.status === "failed"
-        ? "text-[#fb2c36] bg-[#fb2c36]/10 border-[#fb2c36]/30"
+        ? "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]"
         : "text-[#8a5a00] bg-[#f4b400]/15 border-[#f4b400]/40";
   return (
     <li className="px-4 py-2.5 flex flex-col gap-1">
@@ -191,7 +191,7 @@ function OutboxRow({ entry }: { entry: OutboxEntryWire }): JSX.Element {
         {entry.summary ? ` — ${entry.summary}` : ""}
       </div>
       {entry.lastError ? (
-        <div className="text-[10px] text-[#fb2c36] truncate">{entry.lastError}</div>
+        <div className="text-[10px] text-[var(--destructive)] truncate">{entry.lastError}</div>
       ) : null}
     </li>
   );

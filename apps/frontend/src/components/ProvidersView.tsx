@@ -35,15 +35,15 @@ function statusChip(configured: boolean | null): JSX.Element {
   }
   if (configured === false) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-[#f99c00]/30 bg-[#f99c00]/10 px-2 py-0.5 text-[11px] font-medium text-[#b45309]">
-        <span className="size-1.5 rounded-full bg-[#f99c00]" />
+      <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-2 py-0.5 text-[11px] font-medium text-[var(--warning-fg)]">
+        <span className="size-1.5 rounded-full bg-[var(--warning)]" />
         Needs secret
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted-foreground-2)]">
-      <span className="size-1.5 rounded-full bg-[#6a6f63]" />
+      <span className="size-1.5 rounded-full bg-[var(--muted-foreground-3)]" />
       AI Gateway
     </span>
   );
@@ -96,7 +96,7 @@ export function ProvidersView(): JSX.Element {
         </div>
 
         {error ? (
-          <div className="rounded-[var(--radius-button)] border border-[#fb2c36]/30 bg-[#fb2c36]/10 px-4 py-3 text-sm text-[#fb2c36] font-mono text-xs">
+          <div className="rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-4 py-3 text-sm text-[var(--destructive)] font-mono text-xs">
             {error}
           </div>
         ) : null}
@@ -182,7 +182,7 @@ export function ProvidersView(): JSX.Element {
             <div className="border border-[var(--border-1)] bg-[var(--card)] p-3.5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-[var(--fg)]">Memory</span>
-                <span className="text-[10px] text-[#15803d] font-semibold">Vectorize</span>
+                <span className="text-[10px] text-[var(--success)] font-semibold">Vectorize</span>
               </div>
               <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">
                 Semantic fact banking &amp; recall. Scopes: <code>memory:read</code>,{" "}
@@ -196,7 +196,7 @@ export function ProvidersView(): JSX.Element {
             <div className="border border-[var(--border-1)] bg-[var(--card)] p-3.5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-[var(--fg)]">Mailbox</span>
-                <span className="text-[10px] text-[#15803d] font-semibold">Email + R2</span>
+                <span className="text-[10px] text-[var(--success)] font-semibold">Email + R2</span>
               </div>
               <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">
                 Inbound mail &amp; approval-gated sends. Scopes: <code>email:read</code>,{" "}
@@ -210,7 +210,7 @@ export function ProvidersView(): JSX.Element {
             <div className="border border-[var(--border-1)] bg-[var(--card)] p-3.5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-[var(--fg)]">Sandbox</span>
-                <span className="text-[10px] text-[#15803d] font-semibold">Containers</span>
+                <span className="text-[10px] text-[var(--success)] font-semibold">Containers</span>
               </div>
               <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">
                 Ephemeral containers for code. Scopes: <code>sandbox:exec</code>,{" "}
@@ -224,7 +224,7 @@ export function ProvidersView(): JSX.Element {
             <div className="border border-[var(--border-1)] bg-[var(--card)] p-3.5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-[var(--fg)]">Audit Trail</span>
-                <span className="text-[10px] text-[#15803d] font-semibold">D1 Database</span>
+                <span className="text-[10px] text-[var(--success)] font-semibold">D1 Database</span>
               </div>
               <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">
                 Every MCP call logged with SHA-256 argument hash fingerprints.
@@ -287,7 +287,7 @@ export function ProvidersView(): JSX.Element {
                   </dl>
 
                   {agent.credential.configured === false && agent.credential.setupHint ? (
-                    <div className="mt-3 rounded-[var(--radius-button)] border border-[#f99c00]/20 bg-[#f99c00]/5 px-2.5 py-1.5 font-mono text-[11px] text-[#b45309]/90">
+                    <div className="mt-3 rounded-[var(--radius-button)] border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-2.5 py-1.5 font-mono text-[11px] text-[var(--warning-fg)]/90">
                       {agent.credential.setupHint}
                     </div>
                   ) : null}

@@ -123,19 +123,19 @@ export type SubscriptionStatus =
   | { kind: "snapshot"; snapshot: AuthSnapshot };
 
 const CHIP_TONES = {
-  ok: "border-[#15803d]/30 bg-[#15803d]/10 text-[#15803d]",
-  danger: "border-[#fb2c36]/30 bg-[#fb2c36]/10 text-[#fb2c36]",
-  pending: "border-[#f99c00]/30 bg-[#f99c00]/10 text-[#b45309]",
+  ok: "border-[color-mix(in_oklch,var(--success)_30%,transparent)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)]",
+  danger: "border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] text-[var(--destructive)]",
+  pending: "border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
   navy: "border-[var(--primary)]/30 bg-[var(--primary-soft)] text-[var(--primary)]",
   neutral: "border-[var(--border-2)] bg-[var(--secondary)] text-[var(--muted-foreground-2)]",
 } as const;
 
 const CHIP_DOTS = {
-  ok: "bg-[#15803d]",
-  danger: "bg-[#fb2c36]",
-  pending: "bg-[#f99c00]",
+  ok: "bg-[var(--success)]",
+  danger: "bg-[var(--destructive)]",
+  pending: "bg-[var(--warning)]",
   navy: "bg-[var(--primary)]",
-  neutral: "bg-[#6a6f63]",
+  neutral: "bg-[var(--muted-foreground-3)]",
 } as const;
 
 export function chip(tone: keyof typeof CHIP_TONES, label: string): JSX.Element {
@@ -363,7 +363,7 @@ export function SubscriptionConnect({
     <div className="mt-3 space-y-2 border-t border-[var(--border-1)] pt-3">
       {unavailable ? (
         <div className="space-y-2">
-          <p className="border border-[#f99c00]/30 bg-[#f99c00]/10 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#b45309]">
+          <p className="border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--warning-fg)]">
             {spec.label} subscription sign-in is not enabled on this deployment. Ask your
             administrator to enable it, or choose another provider.
           </p>
@@ -442,7 +442,7 @@ export function SubscriptionConnect({
         </div>
       ) : phase === "succeeded" ? (
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-mono text-[11px] text-[#15803d]">
+          <span className="truncate font-mono text-[11px] text-[var(--success)]">
             account: {account}
             {owner !== undefined ? ` · ${owner}` : ""}
             {snapshot?.expiresAt !== undefined
@@ -485,13 +485,13 @@ export function SubscriptionConnect({
         </div>
       )}
       {!unavailable && needsSecret && phase !== "succeeded" ? (
-        <p className="border border-[#f99c00]/30 bg-[#f99c00]/10 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#b45309]">
+        <p className="border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--warning-fg)]">
           This provider needs a deployment credential before you can connect. Ask your
           administrator to configure it, or choose another provider.
         </p>
       ) : null}
       {flowError !== null ? (
-        <div className="border border-[#fb2c36]/30 bg-[#fb2c36]/10 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#fb2c36]">
+        <div className="border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--destructive)]">
           {flowError}
         </div>
       ) : null}

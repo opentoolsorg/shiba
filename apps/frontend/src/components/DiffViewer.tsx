@@ -33,8 +33,8 @@ function classifyLine(line: string): LineKind {
 const LINE_CLASSES: Record<LineKind, string> = {
   file: "font-bold text-[var(--fg)] bg-[var(--primary-soft)] border-y border-[var(--primary)]/10 py-1 px-2 rounded-[var(--radius-button)] block font-mono text-[11px]",
   hunk: "text-[var(--primary)] font-mono text-[11px] bg-[var(--primary)]/5 py-0.5 px-2 block my-0.5 rounded-[var(--radius-button)]",
-  add: "text-[#15803d] bg-[#15803d]/10 block w-full px-2 -mx-2 border-l-2 border-[#15803d]",
-  del: "text-[#b91c1c] bg-[#fb2c36]/10 block w-full px-2 -mx-2 border-l-2 border-[#fb2c36]",
+  add: "text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] block w-full px-2 -mx-2 border-l-2 border-[var(--success)]",
+  del: "text-[var(--destructive)] bg-[var(--destructive-soft)] block w-full px-2 -mx-2 border-l-2 border-[var(--destructive)]",
   context: "text-[var(--muted-foreground-2)] block px-2",
 };
 
@@ -95,8 +95,8 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
               {stats.files} file{stats.files === 1 ? "" : "s"}
             </span>
           ) : null}
-          <span className="text-[#15803d] font-semibold">+{stats.additions}</span>
-          <span className="text-[#b91c1c] font-semibold">-{stats.deletions}</span>
+          <span className="text-[var(--success)] font-semibold">+{stats.additions}</span>
+          <span className="text-[var(--destructive)] font-semibold">-{stats.deletions}</span>
         </div>
         <div className="flex items-center gap-2">
           <Tooltip content={copied ? "Diff copied to clipboard!" : "Copy unified diff to clipboard"} side="top">
@@ -107,8 +107,8 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
             >
               {copied ? (
                 <>
-                  <Check aria-hidden="true" className="w-3.5 h-3.5 text-[#15803d]" strokeWidth={2} />
-                  <span className="text-[#15803d] font-medium">Copied</span>
+                  <Check aria-hidden="true" className="w-3.5 h-3.5 text-[var(--success)]" strokeWidth={2} />
+                  <span className="text-[var(--success)] font-medium">Copied</span>
                 </>
               ) : (
                 <>

@@ -20,8 +20,8 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Muted default; non-ok outcomes get a quiet status tint. */
 function outcomeClass(outcome: string): string {
-  if (outcome === "error") return "text-[#fb2c36]";
-  if (outcome === "denied") return "text-[#b45309]";
+  if (outcome === "error") return "text-[var(--destructive)]";
+  if (outcome === "denied") return "text-[var(--warning-fg)]";
   return "text-[var(--muted-foreground-2)]";
 }
 
@@ -62,17 +62,17 @@ export function AuditPanel(): JSX.Element {
       </h4>
 
       {error !== null ? (
-        <p className="text-[11px] text-[#fb2c36] bg-[#fb2c36]/10 border border-[#fb2c36]/20 rounded-[var(--radius-button)] px-2.5 py-2">
+        <p className="text-[11px] text-[var(--destructive)] bg-[var(--destructive-soft)] border border-[var(--destructive)]/20 rounded-[var(--radius-button)] px-2.5 py-2">
           {error}
         </p>
       ) : null}
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
           <p className="text-[var(--muted-foreground-2)] text-xs">Loading audit log…</p>
         </div>
       ) : entries.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-center">
+        <div className="flex flex-col items-center justify-center py-6 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] px-4 text-[var(--success)]enter">
           <p className="text-[var(--muted-foreground-2)] text-xs">No audited tool calls yet.</p>
         </div>
       ) : (

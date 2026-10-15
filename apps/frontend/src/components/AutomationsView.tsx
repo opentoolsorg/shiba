@@ -179,7 +179,7 @@ export function AutomationsView(): JSX.Element {
         </div>
 
         {notice ? (
-          <div className="text-xs font-mono text-[#b45309] bg-[#b45309]/10 border border-[#b45309]/30 rounded-[var(--radius-button)] px-3 py-2">
+          <div className="text-xs font-mono text-[var(--warning-fg)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)] border border-[color-mix(in_oklch,var(--warning-fg)_30%,transparent)] rounded-[var(--radius-button)] px-3 py-2">
             {notice}
           </div>
         ) : null}
@@ -260,7 +260,7 @@ export function AutomationsView(): JSX.Element {
               <span>Loading…</span>
             </div>
           ) : automations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] text-center px-4">
+            <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] text-[var(--success)]enter px-4">
               <p className="text-[var(--muted-foreground-2)] text-xs">None yet — deploy a recipe above or POST /api/automations.</p>
             </div>
           ) : (
@@ -273,7 +273,7 @@ export function AutomationsView(): JSX.Element {
                       <span
                         className={`text-[10px] font-mono px-1.5 py-0.5 rounded-[var(--radius-button)] border ${
                           a.enabled
-                            ? "text-[#15803d] border-[#15803d]/30 bg-[#15803d]/10"
+                            ? "text-[var(--success)] border-[color-mix(in_oklch,var(--success)_30%,transparent)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)]"
                             : "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]"
                         }`}
                       >
@@ -322,7 +322,7 @@ export function AutomationsView(): JSX.Element {
                 </svg>
                 <span>GitHub Webhooks</span>
               </div>
-              <span className="text-[10px] font-mono uppercase bg-[#15803d]/15 text-[#15803d] border border-[#15803d]/30 px-2 py-0.5 rounded-[var(--radius-button)]">
+              <span className="text-[10px] font-mono uppercase bg-[var(--success)]/15 text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)] px-2 py-0.5 rounded-[var(--radius-button)]">
                 Signature Verified
               </span>
             </div>
@@ -396,7 +396,7 @@ export function AutomationsView(): JSX.Element {
               </svg>
               <span>Automations Durable Object Engine</span>
             </h3>
-            <span className="text-[11px] font-mono text-[#15803d]">Active & Bound</span>
+            <span className="text-[11px] font-mono text-[var(--success)]">Active & Bound</span>
           </div>
 
           <p className="text-xs text-[var(--muted-foreground-2)] leading-relaxed">

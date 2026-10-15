@@ -1460,13 +1460,13 @@ export function App(): React.JSX.Element {
     const accessUnconfigured = identityIssue === "unconfigured";
     return (
       <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
+        <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-[var(--success)]enter gap-3">
           <img
             src="/assets/mascot/pet-logo.png"
             alt="Shiba"
             className="size-14 rounded-full bg-white object-contain border border-[var(--primary)]/40"
           />
-          <h1 className="text-2xl text-[var(--fg)]">
+          <h1 className="text-[var(--success)]xl text-[var(--fg)]">
             {accessUnconfigured ? "Dashboard access isn't configured" : "Sign in to continue"}
           </h1>
           <p className="text-sm text-[var(--muted-foreground-2)] leading-relaxed">
@@ -1542,7 +1542,7 @@ export function App(): React.JSX.Element {
           <button
             type="button"
             aria-label="Close navigation"
-            className="absolute inset-0 bg-black/60"
+            className="absolute inset-0 bg-[var(--warning)]lack/60"
             onClick={() => setMobileNavOpen(false)}
           />
           <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] animate-enter-x">
@@ -1662,10 +1662,10 @@ export function App(): React.JSX.Element {
         {bannerMessage ? (
           <div
             role="alert"
-            className="shrink-0 flex items-center gap-3 px-4 py-2 bg-[#fb2c36]/10 border-b border-[#fb2c36]/30 text-xs text-[#b91c1c]"
+            className="shrink-0 flex items-center gap-3 px-4 py-2 bg-[var(--destructive-soft)] border-b border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] text-xs text-[var(--destructive)]"
           >
             <span
-              className="size-2 shrink-0 rounded-full bg-[#fb2c36] animate-pulse"
+              className="size-2 shrink-0 rounded-full bg-[var(--destructive)] animate-pulse"
               aria-hidden="true"
             />
             <span className="flex-1 min-w-0 break-words">
@@ -1680,7 +1680,7 @@ export function App(): React.JSX.Element {
                 if (identityIssue) retryIdentity();
                 else agent.reconnect();
               }}
-              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-[var(--radius-button)] border border-[#fb2c36]/40 bg-[var(--card)] text-[#b91c1c] font-medium hover:bg-[#fb2c36]/10 transition-colors"
+              className="shrink-0 touch:min-h-11 px-3 py-1 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_40%,transparent)] bg-[var(--card)] text-[var(--destructive)] font-medium hover:bg-[var(--destructive-soft)] transition-colors"
             >
               Retry now
             </button>
@@ -1768,7 +1768,7 @@ export function App(): React.JSX.Element {
                   <button
                     type="button"
                     aria-label="Close sessions"
-                    className="absolute inset-0 bg-black/60"
+                    className="absolute inset-0 bg-[var(--warning)]lack/60"
                     onClick={() => setMobileSessionsOpen(false)}
                   />
                   <div className="absolute inset-y-0 left-0 shadow-[var(--sh-overlay)] bg-[var(--bg)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] animate-enter-x">
@@ -1901,7 +1901,7 @@ export function App(): React.JSX.Element {
                         <span
                           className={
                             pendingApprovals.length + visibleStoredApprovals.length > 0
-                              ? "font-bold text-[#f99c00]"
+                              ? "font-bold text-[var(--warning-fg)]"
                               : "font-bold text-[var(--muted-foreground-2)]"
                           }
                         >
@@ -1936,14 +1936,14 @@ export function App(): React.JSX.Element {
                       aria-live="polite"
                     >
                       {pendingApprovals.length + visibleStoredApprovals.length > 0 ? (
-                        <span className="flex items-center gap-2 text-[#b45309]">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#b45309] animate-pulse" />
+                        <span className="flex items-center gap-2 text-[var(--warning-fg)]">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[var(--warning-fg)] animate-pulse" />
                           {pendingApprovals.length + visibleStoredApprovals.length} task
                           {pendingApprovals.length + visibleStoredApprovals.length === 1 ? "" : "s"}{" "}
                           waiting for your approval.
                         </span>
                       ) : (
-                        <span className="text-[#15803d] flex items-center gap-2">
+                        <span className="text-[var(--success)] flex items-center gap-2">
                           <svg
                             aria-hidden="true"
                             className="w-4 h-4"
@@ -1966,7 +1966,7 @@ export function App(): React.JSX.Element {
                       <button
                         type="button"
                         onClick={() => setMainView("approvals")}
-                        className="shrink-0 text-xs font-semibold text-[#b45309] border border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/15 rounded-[var(--radius-button)] px-3 py-1.5 touch:min-h-11 transition-colors"
+                        className="shrink-0 text-xs font-semibold text-[var(--warning-fg)] border border-[color-mix(in_oklch,var(--warning-fg)_40%,transparent)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)] hover:bg-[var(--warning-fg)]/15 rounded-[var(--radius-button)] px-3 py-1.5 touch:min-h-11 transition-colors"
                       >
                         Review
                       </button>
@@ -2003,11 +2003,11 @@ export function App(): React.JSX.Element {
                     {chat.error ? (
                       <div
                         role="alert"
-                        className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-[var(--radius-button)] border border-[#fb2c36]/30 flex items-start gap-2"
+                        className="text-xs text-[var(--destructive)] bg-[var(--destructive-soft)] p-3 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] flex items-start gap-2"
                       >
                         <svg
                           aria-hidden="true"
-                          className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5"
+                          className="w-4 h-4 text-[var(--destructive)] shrink-0 mt-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -2023,10 +2023,10 @@ export function App(): React.JSX.Element {
                       </div>
                     ) : null}
                     {runsError ? (
-                      <div className="text-xs text-[#fb2c36] bg-[#fb2c36]/10 p-3 rounded-[var(--radius-button)] border border-[#fb2c36]/30 flex items-start gap-2">
+                      <div className="text-xs text-[var(--destructive)] bg-[var(--destructive-soft)] p-3 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] flex items-start gap-2">
                         <svg
                           aria-hidden="true"
-                          className="w-4 h-4 text-[#fb2c36] shrink-0 mt-0.5"
+                          className="w-4 h-4 text-[var(--destructive)] shrink-0 mt-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -2250,7 +2250,7 @@ export function App(): React.JSX.Element {
 
           {/* CLEAR HISTORY CONFIRMATION MODAL */}
           {showClearModal ? (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-[var(--warning)]lack/60 z-50 flex items-center justify-center p-4">
               <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
                 <h3 className="text-lg font-bold text-[var(--fg)] mb-2">
                   Clear Conversation & Runs?
@@ -2269,7 +2269,7 @@ export function App(): React.JSX.Element {
                   </button>
                   <button
                     type="button"
-                    className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-semibold text-white bg-[#fb2c36] hover:bg-[#fb2c36]/90 transition-colors shadow-[var(--sh-card)]"
+                    className="px-4 py-2 rounded-[var(--radius-button)] text-sm font-semibold text-white bg-[var(--destructive)] hover:bg-[var(--destructive)]/90 transition-colors shadow-[var(--sh-card)]"
                     onClick={confirmClearAll}
                   >
                     Yes, Clear History
@@ -2304,7 +2304,7 @@ export function App(): React.JSX.Element {
 
           {/* KEYBOARD SHORTCUTS MODAL */}
           {showShortcutsModal ? (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-[var(--warning)]lack/60 z-50 flex items-center justify-center p-4">
               <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-base font-bold text-[var(--fg)]">Keyboard Shortcuts</h3>

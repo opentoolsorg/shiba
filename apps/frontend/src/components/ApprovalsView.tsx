@@ -59,11 +59,11 @@ export function ApprovalsView({
           <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
             <span>Approvals & Decision Center</span>
             {totalPending > 0 ? (
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-[var(--radius-button)] bg-[#b45309] text-white">
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-[var(--radius-button)] bg-[var(--warning-fg)] text-white">
                 {totalPending} waiting
               </span>
             ) : (
-              <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[#15803d]/10 text-[#15803d] border border-[#15803d]/30">
+              <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
                 0 pending · all clear
               </span>
             )}
@@ -93,8 +93,8 @@ export function ApprovalsView({
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {storedApprovalsError !== null ? (
-            <div className="text-xs text-[#b91c1c] bg-[#fb2c36]/10 border border-[#fb2c36]/30 rounded-[var(--radius-button)] p-3.5 flex items-start gap-2">
-              <TriangleAlert aria-hidden="true" className="w-4 h-4 text-[#b91c1c] shrink-0 mt-0.5" strokeWidth={2} />
+            <div className="text-xs text-[var(--destructive)] bg-[var(--destructive-soft)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] rounded-[var(--radius-button)] p-3.5 flex items-start gap-2">
+              <TriangleAlert aria-hidden="true" className="w-4 h-4 text-[var(--destructive)] shrink-0 mt-0.5" strokeWidth={2} />
               <span>Approval queue sync error: {storedApprovalsError}</span>
             </div>
           ) : null}
@@ -105,7 +105,7 @@ export function ApprovalsView({
               <h3 id="pending-approvals-heading" className="text-sm font-semibold text-[var(--fg)] flex items-center gap-2">
                 <span>Pending Approvals</span>
                 {totalPending > 0 ? (
-                  <span className="size-2 rounded-full bg-[#b45309]" aria-hidden="true" />
+                  <span className="size-2 rounded-full bg-[var(--warning-fg)]" aria-hidden="true" />
                 ) : null}
               </h3>
               <span className="text-xs font-mono text-[var(--muted-foreground-2)]">
@@ -114,8 +114,8 @@ export function ApprovalsView({
             </div>
 
             {totalPending === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-center p-6">
-                <div className="w-10 h-10 rounded-full bg-[#15803d]/10 text-[#15803d] flex items-center justify-center mb-2">
+              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-[var(--success)]enter p-6">
+                <div className="w-10 h-10 rounded-full bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] flex items-center justify-center mb-2">
                   <Check aria-hidden="true" className="w-5 h-5" strokeWidth={2} />
                 </div>
                 <h4 className="text-sm font-semibold text-[var(--fg)]">All Clear</h4>
@@ -176,7 +176,7 @@ export function ApprovalsView({
               </div>
 
               {filteredDecided.length === 0 ? (
-                <p className="border border-dashed border-[var(--border-1)] bg-[var(--card)] px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+                <p className="border border-dashed border-[var(--border-1)] bg-[var(--card)] px-4 py-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
                   No decided actions match the “{outcomeFilter}” filter.
                 </p>
               ) : (

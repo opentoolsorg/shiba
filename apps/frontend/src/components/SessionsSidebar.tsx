@@ -128,7 +128,7 @@ function AgentRow({ agent }: { agent: AgentPrincipal }) {
       >
         <span
           className={`mt-[7px] size-1.5 rounded-full shrink-0 ${
-            agent.live ? "bg-[#15803d] animate-pulse-subtle" : "bg-[#6a6f63]"
+            agent.live ? "bg-[var(--success)] animate-pulse-subtle" : "bg-[var(--muted-foreground-3)]"
           }`}
           aria-hidden="true"
         />
@@ -196,7 +196,7 @@ export function SessionsSidebar({
               type="button"
               onClick={onToggleCollapse}
               aria-label={isMobileDrawer ? "Close sessions" : "Collapse sidebar"}
-              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-black/[0.06] transition-colors"
+              className="size-7 rounded-[var(--radius-button)] flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--warning)]lack/[0.06] transition-colors"
             >
               {isMobileDrawer ? (
                 <X aria-hidden="true" className="size-4" strokeWidth={2} />
@@ -254,7 +254,7 @@ export function SessionsSidebar({
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         {filtered.length === 0 ? (
-          <p className="text-[var(--muted-foreground-2)] text-xs px-3 py-8 text-center text-pretty">
+          <p className="text-[var(--muted-foreground-2)] text-xs px-3 py-8 text-[var(--success)]enter text-pretty">
             {sessions.length === 0
               ? "No sessions yet — start a task."
               : "No sessions match your search."}
@@ -315,7 +315,7 @@ export function SessionsSidebar({
             className={`inline-flex items-center gap-2 text-xs font-semibold rounded-[var(--radius-button)] px-2.5 py-1.5 border transition-colors w-fit ${
               setupComplete
                 ? "text-[var(--primary)] border-[var(--primary)]/40 bg-[var(--primary-soft)] hover:bg-[var(--primary-soft-hover)]"
-                : "text-[#b45309] border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/20"
+                : "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning-fg)_40%,transparent)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)] hover:bg-[var(--warning-fg)]/20"
             }`}
           >
             {setupComplete ? "Setup Guide" : `Setup ${setupDone ?? 0}/${setupTotal}`}

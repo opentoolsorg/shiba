@@ -29,9 +29,9 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
       ? rawTestCommand.join(" ")
       : undefined;
   return (
-    <div className="border border-[#b45309]/60 bg-[var(--panel)] rounded-[var(--radius-button)] shadow-[var(--sh-overlay)] overflow-hidden">
-      <div className="flex items-center justify-between bg-[#f99c00]/15 border-b border-[#b45309]/40 px-3 py-1.5 min-h-[31px]">
-        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#b45309]">approval.gate</span>
+    <div className="border border-[var(--warning-fg)]/60 bg-[var(--panel)] rounded-[var(--radius-button)] shadow-[var(--sh-overlay)] overflow-hidden">
+      <div className="flex items-center justify-between bg-[var(--warning-subtle)] border-b border-[color-mix(in_oklch,var(--warning-fg)_40%,transparent)] px-3 py-1.5 min-h-[31px]">
+        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--warning-fg)]">approval.gate</span>
         <span className="bez-marks" aria-hidden="true"><i /><i /><i /></span>
       </div>
       <div className="p-4 flex flex-col gap-3">
@@ -41,7 +41,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
             <img
               src="/assets/mascot/pet-logo.png"
               alt="Shiba Guard"
-              className="w-5 h-5 rounded-full bg-white object-contain border border-[#f99c00]/50 shrink-0 cursor-default"
+              className="w-5 h-5 rounded-full bg-white object-contain border border-[var(--warning)]/50 shrink-0 cursor-default"
             />
           </Tooltip>
           <span className="truncate">{approval.tool}</span>
@@ -49,13 +49,13 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         {decided && decision !== undefined ? (
           <span className={`text-[10px] uppercase tracking-wider font-bold border px-2 py-0.5 rounded-[var(--radius-button)] shrink-0 ${
             decision
-              ? "bg-[#15803d]/15 border-[#15803d]/30 text-[#15803d]"
-              : "bg-[#b91c1c]/15 border-[#b91c1c]/30 text-[#b91c1c]"
+              ? "bg-[var(--success)]/15 border-[color-mix(in_oklch,var(--success)_30%,transparent)] text-[var(--success)]"
+              : "bg-[#b91c1c]/15 border-[#b91c1c]/30 text-[var(--destructive)]"
           }`}>
             {decision ? "Approved" : "Rejected"}
           </span>
         ) : (
-          <span className="text-[10px] uppercase tracking-wider font-bold bg-[#b45309]/15 border border-[#b45309]/30 text-[#b45309] px-2 py-0.5 rounded-[var(--radius-button)] shrink-0">
+          <span className="text-[10px] uppercase tracking-wider font-bold bg-[var(--warning-fg)]/15 border border-[color-mix(in_oklch,var(--warning-fg)_30%,transparent)] text-[var(--warning-fg)] px-2 py-0.5 rounded-[var(--radius-button)] shrink-0">
             Action Required
           </span>
         )}
@@ -85,7 +85,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <Tooltip content="Approve tool execution inside isolated container" side="top">
           <button
             type="button"
-            className="bg-[#15803d] hover:bg-[#166534] text-[var(--card)] font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm shadow-[var(--sh-card)] flex items-center gap-1.5 active:scale-[0.98]"
+            className="bg-[var(--success)] hover:bg-[#166534] text-[var(--card)] font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm shadow-[var(--sh-card)] flex items-center gap-1.5 active:scale-[0.98]"
             disabled={decided}
             onClick={() => onDecideApproval(approval.approvalId, true)}
           >
@@ -97,7 +97,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <Tooltip content="Reject tool execution and cancel operation" side="top">
           <button
             type="button"
-            className="bg-transparent border border-[#b91c1c] text-[#b91c1c] hover:bg-[#b91c1c]/10 font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm flex items-center gap-1.5 active:scale-[0.98]"
+            className="bg-transparent border border-[#b91c1c] text-[var(--destructive)] hover:bg-[#b91c1c]/10 font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm flex items-center gap-1.5 active:scale-[0.98]"
             disabled={decided}
             onClick={() => onDecideApproval(approval.approvalId, false)}
           >

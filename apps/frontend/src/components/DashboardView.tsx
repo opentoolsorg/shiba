@@ -40,9 +40,9 @@ function formatDuration(ms: number): string {
 }
 
 const TONE_DOT: Record<"ok" | "pending" | "error", string> = {
-  ok: "bg-[#15803d]",
-  pending: "bg-[#b45309]",
-  error: "bg-[#fb2c36]",
+  ok: "bg-[var(--success)]",
+  pending: "bg-[var(--warning-fg)]",
+  error: "bg-[var(--destructive)]",
 };
 
 export function DashboardView({
@@ -101,7 +101,7 @@ export function DashboardView({
           <button
             type="button"
             onClick={onNewTask}
-            className="primary-action min-h-11 rounded-[var(--radius-button)] text-[13px] font-semibold px-4 flex items-center gap-2"
+            className="bg-[var(--primary)] text-[var(--primary-text)] hover:bg-[color-mix(in_oklch,var(--primary)_88%,black)] min-h-11 rounded-[var(--radius-button)] text-[13px] font-semibold px-4 flex items-center gap-2"
           >
             <Plus aria-hidden="true" className="size-4" strokeWidth={2} />
             New Task
@@ -119,7 +119,7 @@ export function DashboardView({
             <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Total runs
             </div>
-            <div className="mt-1.5 text-2xl font-bold font-sans tabular-nums">{runs.length}</div>
+            <div className="mt-1.5 text-[var(--success)]xl font-bold font-sans tabular-nums">{runs.length}</div>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
               {stats.prRequested} requested a PR
             </div>
@@ -134,7 +134,7 @@ export function DashboardView({
             <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Active sandboxes
             </div>
-            <div className="mt-1.5 text-2xl font-bold font-sans tabular-nums text-[var(--primary)]">
+            <div className="mt-1.5 text-[var(--success)]xl font-bold font-sans tabular-nums text-[var(--primary)]">
               {stats.active.length}
             </div>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
@@ -145,13 +145,13 @@ export function DashboardView({
           <button
             type="button"
             onClick={() => onNavigate("approvals")}
-            className="relative text-left bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] p-4 hover:border-[#f99c00]/40 hover:shadow-[var(--sh-card)] transition-all"
+            className="relative text-left bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] p-4 hover:border-[color-mix(in_oklch,var(--warning)_40%,transparent)] hover:shadow-[var(--sh-card)] transition-all"
           >
             <span className="absolute top-2 right-2 text-[10px] font-mono text-[var(--muted-foreground-3)]">03</span>
             <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Pending approvals
             </div>
-            <div className={`mt-1.5 text-2xl font-bold font-sans tabular-nums ${approvalCount > 0 ? "text-[#b45309]" : ""}`}>
+            <div className={`mt-1.5 text-[var(--success)]xl font-bold font-sans tabular-nums ${approvalCount > 0 ? "text-[var(--warning-fg)]" : ""}`}>
               {approvalCount}
             </div>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
@@ -162,13 +162,13 @@ export function DashboardView({
           <button
             type="button"
             onClick={() => onNavigate("analytics")}
-            className="relative text-left bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] p-4 hover:border-[#15803d]/30 hover:shadow-[var(--sh-card)] transition-all"
+            className="relative text-left bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] p-4 hover:border-[color-mix(in_oklch,var(--success)_30%,transparent)] hover:shadow-[var(--sh-card)] transition-all"
           >
             <span className="absolute top-2 right-2 text-[10px] font-mono text-[var(--muted-foreground-3)]">04</span>
             <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
               Success rate
             </div>
-            <div className="mt-1.5 text-2xl font-bold font-sans tabular-nums text-[#15803d]">
+            <div className="mt-1.5 text-[var(--success)]xl font-bold font-sans tabular-nums text-[var(--success)]">
               {stats.successRate !== null ? `${stats.successRate}%` : "—"}
             </div>
             <div className="mt-1 text-[11px] text-[var(--muted-foreground-2)]">
@@ -178,7 +178,7 @@ export function DashboardView({
         </div>
 
         {runsError ? (
-          <p role="alert" className="border border-[#fb2c36]/30 bg-[#fb2c36]/10 px-3 py-2 text-xs text-[#b91c1c]">
+          <p role="alert" className="border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-3 py-2 text-xs text-[var(--destructive)]">
             Run history is unavailable: {runsError}
           </p>
         ) : null}
@@ -226,7 +226,7 @@ export function DashboardView({
               </button>
             </header>
             {recentRuns.length === 0 ? (
-              <div className="px-4 py-10 text-center">
+              <div className="px-4 py-10 text-[var(--success)]enter">
                 <p className="text-sm text-[var(--muted-foreground-2)]">No runs yet.</p>
                 <button
                   type="button"
@@ -277,7 +277,7 @@ export function DashboardView({
               <header className="bez-titlebar">
                 <h3 className="text-[11px] font-mono tracking-[0.08em]">approvals.queue</h3>
                 {approvalCount > 0 ? (
-                  <span className="min-w-5 h-5 px-1.5 rounded-[var(--radius-button)] bg-[#b45309] text-white text-[10px] font-mono flex items-center justify-center">
+                  <span className="min-w-5 h-5 px-1.5 rounded-[var(--radius-button)] bg-[var(--warning-fg)] text-white text-[10px] font-mono flex items-center justify-center">
                     {approvalCount}
                   </span>
                 ) : (
@@ -285,7 +285,7 @@ export function DashboardView({
                 )}
               </header>
               {approvalCount === 0 ? (
-                <div className="px-4 py-6 flex items-center gap-2.5 text-[13px] text-[#15803d]">
+                <div className="px-4 py-6 flex items-center gap-2.5 text-[13px] text-[var(--success)]">
                   <Check aria-hidden="true" className="size-4 shrink-0" strokeWidth={2} />
                   Nothing waiting on you.
                 </div>
@@ -312,7 +312,7 @@ export function DashboardView({
                   <button
                     type="button"
                     onClick={() => onNavigate("approvals")}
-                    className="w-full min-h-9 rounded-[var(--radius-button)] border border-[#b45309]/40 bg-[#b45309]/10 hover:bg-[#b45309]/15 text-[#b45309] text-xs font-semibold transition-colors"
+                    className="w-full min-h-9 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--warning-fg)_40%,transparent)] bg-[color-mix(in_oklch,var(--warning-fg)_10%,transparent)] hover:bg-[var(--warning-fg)]/15 text-[var(--warning-fg)] text-xs font-semibold transition-colors"
                   >
                     Review Approvals
                   </button>
@@ -336,7 +336,7 @@ export function DashboardView({
                   {agents.slice(0, 5).map((agent) => (
                     <li key={agent.principal} className="px-4 py-2.5 flex items-center gap-2.5">
                       <span
-                        className={`size-1.5 rounded-full shrink-0 ${agent.live ? "bg-[#15803d]" : "bg-[#6a6f63]/40"}`}
+                        className={`size-1.5 rounded-full shrink-0 ${agent.live ? "bg-[var(--success)]" : "bg-[var(--muted-foreground-3)]/40"}`}
                         aria-hidden="true"
                       />
                       <span className="flex-1 min-w-0 text-[13px] font-medium truncate">{agent.principal}</span>

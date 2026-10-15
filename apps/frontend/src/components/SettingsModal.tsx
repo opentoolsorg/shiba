@@ -155,7 +155,7 @@ export function SettingsModal({
         type="button"
         aria-hidden="true"
         tabIndex={-1}
-        className="absolute inset-0 size-full cursor-default bg-black/60"
+        className="absolute inset-0 size-full cursor-default bg-[var(--warning)]lack/60"
         onClick={onClose}
       />
       <div
@@ -197,7 +197,7 @@ export function SettingsModal({
               <fieldset
                 key={group.heading}
                 aria-labelledby={`${navigationId}-${group.heading}`}
-                className="m-0 flex w-max shrink-0 gap-0.5 border-0 p-0 sm:mb-3 sm:block sm:w-auto sm:last:mb-0"
+                className="m-0 flex w-max shrink-0 gap-0.5 border-[var(--warning-fg)] p-0 sm:mb-3 sm:block sm:w-auto sm:last:mb-0"
               >
                 <legend
                   id={`${navigationId}-${group.heading}`}

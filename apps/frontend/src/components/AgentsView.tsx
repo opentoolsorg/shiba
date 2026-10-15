@@ -92,7 +92,7 @@ export function AgentsView(): JSX.Element {
         </div>
 
         {error ? (
-          <div className="rounded-[var(--radius-button)] border border-[#fb2c36]/30 bg-[#fb2c36]/10 px-4 py-3 text-sm text-[#fb2c36] font-mono text-xs">
+          <div className="rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-4 py-3 text-sm text-[var(--destructive)] font-mono text-xs">
             {error}
           </div>
         ) : null}
@@ -205,7 +205,7 @@ export function AgentsView(): JSX.Element {
           </div>
 
           {principals.length === 0 ? (
-            <div className="border border-dashed border-[var(--border-1)] bg-[var(--card)] p-6 text-center rounded-[var(--radius-button)] font-mono">
+            <div className="border border-dashed border-[var(--border-1)] bg-[var(--card)] p-6 text-[var(--success)]enter rounded-[var(--radius-button)] font-mono">
               <p className="text-xs font-bold text-[var(--fg)] mb-1">
                 No agent bearer tokens registered yet
               </p>
@@ -257,11 +257,11 @@ export function AgentsView(): JSX.Element {
                       </td>
                       <td className="p-2.5 text-right">
                         {p.live ? (
-                          <span className="text-[#15803d] font-bold text-[10px] bg-[#15803d]/10 px-2 py-0.5 border border-[#15803d]/30">
+                          <span className="text-[var(--success)] font-bold text-[10px] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] px-2 py-0.5 border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
                             Active
                           </span>
                         ) : (
-                          <span className="text-[#fb2c36] font-bold text-[10px] bg-[#fb2c36]/10 px-2 py-0.5 border border-[#fb2c36]/30">
+                          <span className="text-[var(--destructive)] font-bold text-[10px] bg-[var(--destructive-soft)] px-2 py-0.5 border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]">
                             Revoked
                           </span>
                         )}

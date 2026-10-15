@@ -86,12 +86,12 @@ export function SkillsView(): JSX.Element {
               >
                 Save skill
               </button>
-              {error ? <span className="text-[11px] text-[#fb2c36]">{error}</span> : null}
+              {error ? <span className="text-[11px] text-[var(--destructive)]">{error}</span> : null}
             </div>
           </div>
 
           {skills.length === 0 ? (
-            <div className="rounded-[var(--radius-button)] border border-dashed border-[var(--border-2)] bg-[#f9f8f2] p-6 text-center text-xs text-[var(--muted-foreground-2)]">
+            <div className="rounded-[var(--radius-button)] border border-dashed border-[var(--border-2)] bg-[#f9f8f2] p-6 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
               No skills saved yet — add one above, or open the task composer to pick skills when you run a task.
             </div>
           ) : (
@@ -114,7 +114,7 @@ export function SkillsView(): JSX.Element {
                     type="button"
                     onClick={() => removeSkill(skill.id)}
                     aria-label={`Remove ${skill.name}`}
-                    className="shrink-0 text-[11px] bg-transparent hover:bg-[#fb2c36]/10 border border-[var(--border-1)] hover:border-[#fb2c36]/50 text-[var(--muted-foreground-2)] hover:text-[#fb2c36] font-medium py-1 px-2.5 rounded-[var(--radius-button)] transition-colors"
+                    className="shrink-0 text-[11px] bg-transparent hover:bg-[var(--destructive-soft)] border border-[var(--border-1)] hover:border-[var(--destructive)]/50 text-[var(--muted-foreground-2)] hover:text-[var(--destructive)] font-medium py-1 px-2.5 rounded-[var(--radius-button)] transition-colors"
                   >
                     Remove
                   </button>

@@ -119,7 +119,7 @@ export function SwarmDeskView({
               type="button"
               onClick={handleApply}
               disabled={isApplyDisabled}
-              className="primary-action min-h-9 rounded-[var(--radius-button)] text-xs font-semibold px-4 py-1.5 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none"
+              className="bg-[var(--primary)] text-[var(--primary-text)] hover:bg-[color-mix(in_oklch,var(--primary)_88%,black)] min-h-9 rounded-[var(--radius-button)] text-xs font-semibold px-4 py-1.5 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none"
             >
               Use as task
             </button>
@@ -159,7 +159,7 @@ export function SwarmDeskView({
 
                 <div className="p-3 bg-[var(--card)] flex flex-col gap-3 min-h-[140px]">
                   {cards.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-[var(--muted-foreground-2)]">
+                    <div className="py-8 text-[var(--success)]enter text-xs text-[var(--muted-foreground-2)]">
                       Nothing in this lane.
                     </div>
                   ) : (
@@ -226,17 +226,17 @@ export function SwarmDeskView({
                             </div>
 
                             {shareUrl ? (
-                              <div className="text-[11px] font-mono text-[#15803d] bg-[#15803d]/10 border border-[#15803d]/30 px-2 py-1 rounded-[var(--radius-button)] break-all select-all">
+                              <div className="text-[11px] font-mono text-[var(--success)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)] px-2 py-1 rounded-[var(--radius-button)] break-all select-all">
                                 {shareUrl}
                               </div>
                             ) : null}
 
                             {shareError ? (
-                              <div className="text-[11px] font-mono text-[#b91c1c] bg-[#fb2c36]/10 border border-[#fb2c36]/30 px-2 py-1 rounded-[var(--radius-button)] break-all">
+                              <div className="text-[11px] font-mono text-[var(--destructive)] bg-[var(--destructive-soft)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] px-2 py-1 rounded-[var(--radius-button)] break-all">
                                 {shareError}
                               </div>
                             ) : null}
-                            {resolveErrors[card.runId] ? <div role="alert" className="text-[11px] font-mono text-[#b91c1c] border border-[#fb2c36]/30 px-2 py-1 break-all">{resolveErrors[card.runId]}</div> : null}
+                            {resolveErrors[card.runId] ? <div role="alert" className="text-[11px] font-mono text-[var(--destructive)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] px-2 py-1 break-all">{resolveErrors[card.runId]}</div> : null}
                           </div>
                         </article>
                       );
