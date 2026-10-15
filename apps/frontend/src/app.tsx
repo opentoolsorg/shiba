@@ -7,6 +7,7 @@ import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
+import { ActivityReportView } from "./components/ActivityReportView";
 import { SwarmDeskView } from "./components/SwarmDeskView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
@@ -14,7 +15,8 @@ import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
 import { RemoteAccessView } from "./components/RemoteAccessView";
-import { useSavedRepos, useSavedSkills, saveRepo } from "./saved";
+import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
+import { useSocketLiveness } from "./socket-liveness";
 import {
   codingModelOptions,
   readyConnectionOptions,
@@ -32,7 +34,7 @@ import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
-import { SettingsView } from "./components/SettingsView";
+import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
@@ -389,8 +391,15 @@ export function App(): React.JSX.Element {
   // Settings is a Kosuke-style popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
   const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
-  const [settingsInitialSection, setSettingsInitialSection] = useState<"account" | "models">("account");
+  // Last section the user had open in the settings modal — reopening lands
+  // where they left off; deep links (e.g. the wizard's Models step) override it.
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>("account");
   const openView = useCallback((view: AppNavView) => {
+    // Settings is a popup, not a routable view — every nav path opens the modal.
+    if (view === "settings") {
+      setSettingsModalOpen(true);
+      return;
+    }
     setMainView(view);
   }, []);
   // Once visited, the mailbox stays mounted (hidden) — its local state
@@ -400,6 +409,33 @@ export function App(): React.JSX.Element {
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
+  // Per-session composer draft: a scope change loads that scope's draft
+  // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
+  const draftScope = useRef<string | null>(null);
+  const pendingDraft = useRef<{ scope: string; text: string } | null>(null);
+  const flushDraft = useCallback(() => {
+    const pending = pendingDraft.current;
+    pendingDraft.current = null;
+    if (pending) writeDraft(pending.scope, pending.text);
+  }, []);
+  useEffect(() => {
+    if (draftScope.current !== selectedSessionId) {
+      flushDraft(); // the old scope's unwritten keystrokes land before switching
+      draftScope.current = selectedSessionId;
+      setTask(readDraft(selectedSessionId));
+      return;
+    }
+    pendingDraft.current = { scope: selectedSessionId, text: task };
+    // An emptied composer (submit or clear) flushes now; typing waits for 300 ms idle.
+    if (!task.trim()) return flushDraft();
+    const timer = window.setTimeout(flushDraft, 300);
+    return () => window.clearTimeout(timer);
+  }, [selectedSessionId, task, flushDraft]);
+  // A failed submit restores its text only into the session it came from.
+  const restoreDraft = useCallback((scope: string, text: string) => {
+    if (draftScope.current === scope) setTask((current) => (current === "" ? text : current));
+    else writeDraft(scope, text);
+  }, []);
   // T63 — "Run on: This computer" is offered only while the desktop shell
   // reports a paired, reachable daemon (idle or busy).
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
@@ -491,7 +527,10 @@ export function App(): React.JSX.Element {
     const onPop = () => {
       const view = viewFromUrl();
       if (view === "settings") setSettingsModalOpen(true);
-      else setMainView(view ?? "tasks");
+      else {
+        setMainView(view ?? "tasks");
+        setSettingsModalOpen(false);
+      }
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -499,6 +538,8 @@ export function App(): React.JSX.Element {
 
   const submitFailed = useRef(false);
   const submitInFlight = useRef(false);
+  // Same request body => same commandId, so a retried POST dedupes server-side.
+  const runCommand = useRef<{ key: string; id: string } | null>(null);
   const clearInFlight = useRef(false);
   const [decisions, setDecisions] = useState<Record<string, boolean>>({});
   const [approvalAnnouncement, setApprovalAnnouncement] = useState("");
@@ -570,6 +611,26 @@ export function App(): React.JSX.Element {
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
 
+  const refreshRuns = useCallback(() => setRefreshToken((token) => token + 1), []);
+  // DO state broadcasts hint that runs/approvals changed: trailing 150 ms debounce,
+  // at most one refetch per second, and a steady burst still fires within ~1 s.
+  const invalidateTimer = useRef<number | undefined>(undefined);
+  const invalidateSince = useRef<number | undefined>(undefined);
+  const lastInvalidateRefresh = useRef(0);
+  const invalidateSoon = useCallback(() => {
+    const now = Date.now();
+    invalidateSince.current ??= now;
+    window.clearTimeout(invalidateTimer.current);
+    const due = Math.max(lastInvalidateRefresh.current + 1000, Math.min(now + 150, invalidateSince.current + 1000));
+    invalidateTimer.current = window.setTimeout(() => {
+      invalidateTimer.current = undefined;
+      invalidateSince.current = undefined;
+      lastInvalidateRefresh.current = Date.now();
+      refreshRuns();
+    }, due - now);
+  }, [refreshRuns]);
+  useEffect(() => () => window.clearTimeout(invalidateTimer.current), []);
+
   const activeWebSession = webSessions.find((session) => session.id === selectedSessionId);
   const agent = useAgent({
     agent: ORCHESTRATOR_AGENT,
@@ -578,7 +639,11 @@ export function App(): React.JSX.Element {
     // produces a 403 burst on every load.
     name: activeWebSession?.agentName ?? orchestratorName ?? "identity-pending",
     enabled: orchestratorName !== null,
+    onStateUpdate: invalidateSoon,
+    minReconnectionDelay: 1000,
+    maxReconnectionDelay: 30_000,
   });
+  useSocketLiveness(agent, orchestratorName !== null, invalidateSoon);
   const chat = useAgentChat({
     agent,
     // Skip the /get-messages prefetch while the DO name is the pending
@@ -671,8 +736,6 @@ export function App(): React.JSX.Element {
 
   const decidedRef = useRef<Set<string>>(new Set());
   const decidedStoredRef = useRef<Set<string>>(new Set());
-
-  const refreshRuns = useCallback(() => setRefreshToken((token) => token + 1), []);
 
   // Waking from background or regaining network: reconnect now instead of
   // waiting out the socket's backoff, and refetch runs/approvals/identity.
@@ -835,14 +898,6 @@ export function App(): React.JSX.Element {
     [refreshRuns],
   );
 
-  useEffect(() => {
-    if (chat.status === "streaming" || chat.isStreaming) {
-      const timer = window.setTimeout(refreshRuns, 3000);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
-  }, [chat.status, chat.isStreaming, chat.messages.length, refreshRuns]);
-
   const submitTask = useCallback(
     async (event?: React.FormEvent) => {
       if (event) event.preventDefault();
@@ -863,6 +918,23 @@ export function App(): React.JSX.Element {
         // and the approval card appears like any other run. HTTP-only, so the
         // chat-socket identity guards below don't apply. Skills have no
         // /api/runs field and are not sent for local runs.
+        const fields = {
+          repoUrl: repoUrl.trim(),
+          task: task.trim(),
+          baseBranch: branch,
+          ...(harness ? { harness } : {}),
+          ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
+          ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+          publishPullRequest,
+        };
+        const body = { ...fields, runtime: "local", ...targetMachineFields(desktopStatus) };
+        // Keyed on user-editable fields only, so a daemon re-pair doesn't mint a new commandId for a retry.
+        const key = JSON.stringify(fields);
+        if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID() };
+        const commandId = runCommand.current.id;
+        const draft = task;
+        const draftSession = selectedSessionId;
+        setTask("");
         submitInFlight.current = true;
         setIsSubmitting(true);
         try {
@@ -873,28 +945,19 @@ export function App(): React.JSX.Element {
             {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                repoUrl: repoUrl.trim(),
-                task: task.trim(),
-                baseBranch: branch,
-                ...(harness ? { harness } : {}),
-                ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
-                ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
-                runtime: "local",
-                ...targetMachineFields(desktopStatus),
-                publishPullRequest,
-              }),
+              body: JSON.stringify({ ...body, commandId }),
             },
           );
           if (!res.ok) {
             const detail = (await res.text().catch(() => "")).slice(0, 200);
             throw new Error(`Run request failed with ${res.status}${detail ? `: ${detail}` : ""}`);
           }
+          runCommand.current = null;
           saveRepo(repoUrl.trim());
-          setTask((current) => (current === task ? "" : current));
           setNotice("Queued — approve the run card to execute on this computer.");
           refreshRuns();
         } catch (error) {
+          restoreDraft(draftSession, draft);
           setNotice(
             `Run could not be queued: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -941,17 +1004,38 @@ export function App(): React.JSX.Element {
         "",
         `Task: ${task.trim()}`,
       ].join("\n");
+      const draft = task;
+      const draftSession = selectedSessionId;
+      setTask("");
       submitInFlight.current = true;
       submitFailed.current = false;
       setIsSubmitting(true);
       try {
-        await chat.sendMessage({ text });
-        if (!submitFailed.current) {
+        // Structured copy of the composer fields so the approval card doesn't
+        // depend on the LLM echoing them back from `text`.
+        await chat.sendMessage({
+          text,
+          metadata: {
+            shibaTask: {
+              repoUrl: repoUrl.trim(),
+              task: task.trim(),
+              baseBranch: branch,
+              harness,
+              publishPullRequest,
+              ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
+              ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+            },
+          },
+        });
+        // onError already surfaces chat.error in the notice banner.
+        if (submitFailed.current) {
+          restoreDraft(draftSession, draft);
+        } else {
           saveRepo(repoUrl.trim());
-          setTask((current) => (current === task ? "" : current));
           refreshRuns();
         }
       } catch (error) {
+        restoreDraft(draftSession, draft);
         setNotice(
           `Task could not be sent: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -979,6 +1063,7 @@ export function App(): React.JSX.Element {
       sessionApiAvailable,
       selectedSessionId,
       desktopStatus,
+      restoreDraft,
     ],
   );
 
@@ -1085,6 +1170,11 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (settingsModalOpen) {
+        if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+          e.preventDefault();
+          setSettingsModalOpen(false);
+          return;
+        }
         if (
           e.key.toLowerCase() === "d" &&
           !e.metaKey &&
@@ -1122,6 +1212,9 @@ export function App(): React.JSX.Element {
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
         toggleSessionsCollapsed();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setSettingsModalOpen(true);
       } else if (e.key.toLowerCase() === "d" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         toggleTheme();
       } else if (e.key === "[") {
@@ -2110,11 +2203,20 @@ export function App(): React.JSX.Element {
           ) : mainView === "activity" ? (
             // Remount on session switch so the previous session's spine never
             // renders as the new one's while its first fetch is in flight.
-            <ActivityView
-              key={selectedSessionId}
-              sessionId={selectedSessionId}
-              sessionApiAvailable={sessionApiAvailable}
-            />
+            <div className="flex-1 overflow-y-auto">
+              <ActivityReportView
+                key={selectedSessionId}
+                sessionId={selectedSessionId}
+                sessionApiAvailable={sessionApiAvailable}
+              />
+              <div className="flex h-[max(520px,70vh)] flex-col">
+                <ActivityView
+                  key={selectedSessionId}
+                  sessionId={selectedSessionId}
+                  sessionApiAvailable={sessionApiAvailable}
+                />
+              </div>
+            </div>
           ) : mainView === "analytics" ? (
             <AnalyticsView
               runs={retainedRuns}
@@ -2207,13 +2309,6 @@ export function App(): React.JSX.Element {
             <IntegrationsView onNavigate={openView} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
-          ) : mainView === "settings" ? (
-            <SettingsView
-              onNavigate={openView}
-              onBack={() => openView("tasks")}
-              accountEmail={authMode === "better-auth" ? orchestratorName : null}
-              onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
-            />
           ) : null}
 
           {/* SETTINGS — Kosuke-style popup over the current view */}
@@ -2221,6 +2316,7 @@ export function App(): React.JSX.Element {
             <SettingsModal
               isOpen
               initialSection={settingsInitialSection}
+              onSectionChange={setSettingsInitialSection}
               onClose={() => setSettingsModalOpen(false)}
               onFocusRestore={() => {
                 if (window.matchMedia("(max-width: 1023px)").matches) {
@@ -2350,6 +2446,12 @@ export function App(): React.JSX.Element {
                     <span className="text-[var(--muted-foreground-2)]">Command Menu</span>
                     <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
                       ⌘ / Ctrl + K
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
+                    <span className="text-[var(--muted-foreground-2)]">Open Settings</span>
+                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
+                      ⌘ / Ctrl + ,
                     </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
