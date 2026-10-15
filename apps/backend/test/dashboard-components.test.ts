@@ -145,8 +145,10 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain("task-composer");
     expect(html).toContain("princepal9120/shiba");
     expect(html).toContain("Fix the inbox badge");
-    expect(html).toContain("opens a PR");
-    expect(html).toContain("OpenCode");
+    expect(html).toContain('aria-label="Thread configuration"');
+    expect(html).toContain('aria-label="Add to message"');
+    expect(html).toContain('aria-label="Voice input"');
+    expect(html).toContain("Ask anything, / for commands, @ for context");
   });
 
   it("ApprovalCard renders the approve/reject gate for a pending tool call", () => {
@@ -182,12 +184,13 @@ describe("dashboard components SSR (T14 sweep)", () => {
         onOpenShortcuts: () => {},
       })
     );
-    expect(html).toContain("Diff");
-    expect(html).toContain("Approvals");
-    expect(html).toContain("Mailbox");
-    expect(html).toContain("Memory");
+    expect(html).toContain("New thread");
+    expect(html).toContain("Threads");
+    expect(html).toContain("Pull requests");
+    expect(html).toContain("Automations");
+    expect(html).toContain("More");
     expect(html).not.toContain("Architecture");
-    expect(html).toContain("3"); // Pending approval badge
+    expect(html).toContain("3"); // Pending approval badge on the More button
     expect(html).toContain("aria-current");
   });
 
