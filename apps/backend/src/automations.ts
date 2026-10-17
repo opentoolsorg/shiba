@@ -1,14 +1,14 @@
 /**
  * Automation trigger engine (PLAN T18).
  *
- * Capy's model: 1–20 triggers OR'd together, at most one run per event.
+ * Trigger model: 1–20 triggers OR'd together, at most one run per event.
  * An automation holds `{id, prompt, triggers[], repoUrl, enabled, runAs,
  * lastTriggeredAt, runCount}`. The `Automations` Durable Object owns these
  * records; Worker `scheduled()` fans out due schedules via {@link collectDueSchedules}.
  *
  * Trigger kinds:
- * - schedule — five-field cron, floor of one run per 5 minutes (matching
- *   Capy). Missed occurrences coalesce into one run, never a backlog.
+ * - schedule — five-field cron, floor of one run per 5 minutes.
+ *   Missed occurrences coalesce into one run, never a backlog.
  * - github — matched against the existing `/api/github/webhook` event
  *   (PR opened/pushed/merged, comments, reviews, labels, check runs).
  * - slack — matched against the P3 events endpoint; reuses burst grouping

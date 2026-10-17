@@ -147,7 +147,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain("Fix the inbox badge");
     expect(html).toContain('aria-label="Thread configuration"');
     expect(html).toContain('aria-label="Add to message"');
-    expect(html).toContain('aria-label="Voice input"');
+    expect(html).not.toContain('aria-label="Voice input"');
     expect(html).toContain("Ask anything, / for commands, @ for context");
   });
 

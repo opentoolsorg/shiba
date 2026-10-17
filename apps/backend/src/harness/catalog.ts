@@ -49,10 +49,10 @@ const CATALOG_META: Record<
   { label: string; binary: string; version: string; docsUrl: string }
 > = {
   opencode: { label: "OpenCode", binary: "opencode", version: "1.18.34", docsUrl: "https://opencode.ai/docs/" },
-  "claude-code": { label: "Claude Code", binary: "claude", version: "2.1.277", docsUrl: "https://docs.anthropic.com/en/docs/claude-code" },
-  "claude-subscription": { label: "Claude Code (subscription)", binary: "claude", version: "2.1.277", docsUrl: "https://docs.anthropic.com/en/docs/claude-code" },
-  codex: { label: "Codex", binary: "codex", version: "0.155.0", docsUrl: "https://github.com/openai/codex" },
-  "codex-subscription": { label: "Codex (subscription)", binary: "codex", version: "0.155.0", docsUrl: "https://github.com/openai/codex" },
+  "claude-code": { label: "Claude Code", binary: "claude", version: "2.1.284", docsUrl: "https://docs.anthropic.com/en/docs/claude-code" },
+  "claude-subscription": { label: "Claude Code (subscription)", binary: "claude", version: "2.1.284", docsUrl: "https://docs.anthropic.com/en/docs/claude-code" },
+  codex: { label: "Codex", binary: "codex", version: "0.157.1", docsUrl: "https://github.com/openai/codex" },
+  "codex-subscription": { label: "Codex (subscription)", binary: "codex", version: "0.157.1", docsUrl: "https://github.com/openai/codex" },
   devin: { label: "Devin", binary: "devin", version: "3000.11.3", docsUrl: "https://cli.devin.ai/docs" },
   grok: { label: "Grok", binary: "grok", version: "1.0.41", docsUrl: "https://docs.x.ai" },
   cursor: { label: "Cursor", binary: "cursor-agent", version: "0.50.0", docsUrl: "https://docs.cursor.com" },

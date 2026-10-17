@@ -22,14 +22,19 @@ import { InputError } from "../src/security.js";
  */
 class FakeKV {
   readonly map = new Map<string, string>();
+  readonly metadata = new Map<string, unknown>();
   /**
    * Keys per list() page — small by default so every listing test walks
    * the cursor loop the way real KV does (opaque cursor = next offset).
    */
   pageSize = 2;
   listCalls = 0;
+  getCalls = 0;
+  putCalls = 0;
+  failOnListCall = 0;
 
   async get(key: string, opts?: { type?: string }): Promise<unknown> {
+    this.getCalls += 1;
     const value = this.map.get(key);
     if (value === undefined) {
       return null;
@@ -37,18 +42,29 @@ class FakeKV {
     return opts?.type === "json" ? JSON.parse(value) : value;
   }
 
-  async put(key: string, value: string): Promise<void> {
+  async put(key: string, value: string, opts?: { metadata?: unknown }): Promise<void> {
+    this.putCalls += 1;
     this.map.set(key, value);
+    if (opts && "metadata" in opts) {
+      this.metadata.set(key, opts.metadata);
+    } else {
+      this.metadata.delete(key);
+    }
   }
 
   async list(opts?: { prefix?: string; cursor?: string; limit?: number }) {
     this.listCalls += 1;
+    if (this.failOnListCall === this.listCalls) {
+      throw new Error("kv list page failed");
+    }
     const names = [...this.map.keys()]
       .filter((name) => name.startsWith(opts?.prefix ?? ""))
       .sort();
     const start = opts?.cursor ? Number.parseInt(opts.cursor, 10) : 0;
     const limit = opts?.limit ?? this.pageSize;
-    const keys = names.slice(start, start + limit).map((name) => ({ name }));
+    const keys = names
+      .slice(start, start + limit)
+      .map((name) => ({ name, metadata: this.metadata.get(name) }));
     const complete = start + limit >= names.length;
     return {
       keys,
@@ -93,6 +109,11 @@ describe("createToken", () => {
     expect(key.startsWith(TOKEN_PREFIX)).toBe(true);
     expect(key.slice(TOKEN_PREFIX.length)).toBe(await hashToken(token));
     expect(value).not.toContain(token);
+    expect(env.kv.metadata.get(key)).toEqual(record);
+    expect(JSON.stringify(env.kv.metadata.get(key))).not.toContain(token);
+    expect(JSON.stringify(env.kv.metadata.get(key))).not.toContain(
+      key.slice(TOKEN_PREFIX.length),
+    );
   });
 
   it("dedupes scopes and validates them against SCOPES", async () => {
@@ -146,9 +167,13 @@ describe("revokeToken", () => {
     const revoked = await revokeToken(env, token);
     expect(revoked?.principal).toBe("scout");
     expect(revoked?.revoked).toBe(true);
+    const key = TOKEN_PREFIX + (await hashToken(token));
+    expect(env.kv.metadata.get(key)).toEqual(revoked);
     // A second revoke is a no-op returning the same record — no KV write,
     // no error, and the entry still counts in listTokens.
+    const writesAfterFirstRevoke = env.kv.putCalls;
     expect(await revokeToken(env, token)).toEqual(revoked);
+    expect(env.kv.putCalls).toBe(writesAfterFirstRevoke);
     expect(env.kv.map.size).toBe(1);
   });
 
@@ -156,6 +181,19 @@ describe("revokeToken", () => {
     const env = makeEnv();
     expect(await revokeToken(env, WELL_FORMED_UNKNOWN)).toBeNull();
     expect(await revokeToken(env, "garbage")).toBeNull();
+  });
+
+  it("returns null when the revoke write fails, without claiming revocation", async () => {
+    const env = makeEnv();
+    const { token } = await createToken(env, "scout", ["email:read"]);
+    const key = TOKEN_PREFIX + (await hashToken(token));
+    env.kv.put = async () => {
+      throw new Error("kv write unavailable");
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await revokeToken(env, token)).toBeNull();
+    expect(JSON.parse(env.kv.map.get(key)!)).toMatchObject({ revoked: false });
+    warn.mockRestore();
   });
 });
 
@@ -221,6 +259,89 @@ describe("listTokens", () => {
       "p3-agent",
       "p4-agent",
     ]);
+  });
+
+  it("uses key metadata without value reads and never exposes extra metadata fields", async () => {
+    const env = makeEnv();
+    await createToken(env, "meta-agent", ["email:read"], 100);
+    const [key = ""] = [...env.kv.map.keys()];
+    env.kv.metadata.set(key, {
+      principal: "meta-agent",
+      scopes: ["email:read"],
+      created: 100,
+      revoked: false,
+      bearer: "shb_must_not_leak",
+      tokenHash: "hash_must_not_leak",
+    });
+    env.kv.getCalls = 0;
+    const records = await listTokens(env);
+    expect(env.kv.getCalls).toBe(0);
+    expect(records).toEqual([
+      { principal: "meta-agent", scopes: ["email:read"], created: 100, revoked: false },
+    ]);
+    expect(JSON.stringify(records)).not.toContain("must_not_leak");
+  });
+
+  it("falls back to value reads only for legacy or malformed metadata", async () => {
+    const env = makeEnv();
+    env.kv.pageSize = 10;
+    const legacyValue = JSON.stringify({
+      principal: "legacy-agent",
+      scopes: ["runs:read"],
+      created: 90,
+      revoked: true,
+    });
+    const malformedValue = JSON.stringify({
+      principal: "malformed-agent",
+      scopes: ["memory:read"],
+      created: 80,
+      revoked: false,
+    });
+    env.kv.map.set(TOKEN_PREFIX + "legacy", legacyValue);
+    env.kv.map.set(TOKEN_PREFIX + "malformed", malformedValue);
+    env.kv.metadata.set(TOKEN_PREFIX + "malformed", { principal: 42, extra: true });
+    await createToken(env, "new-agent", ["email:send"], 100);
+
+    env.kv.getCalls = 0;
+    const records = await listTokens(env);
+    expect(env.kv.getCalls).toBe(2);
+    expect(records.map((r) => r.principal)).toEqual([
+      "malformed-agent",
+      "legacy-agent",
+      "new-agent",
+    ]);
+    expect(records[1]?.revoked).toBe(true);
+  });
+
+  it("keeps verification value-backed when listing metadata is stale", async () => {
+    const env = makeEnv();
+    const { token } = await createToken(env, "scout", ["email:read"]);
+    await revokeToken(env, token);
+    const key = TOKEN_PREFIX + (await hashToken(token));
+    env.kv.metadata.set(key, {
+      principal: "scout",
+      scopes: ["email:read"],
+      created: 1,
+      revoked: false,
+    });
+    expect(await verifyToken(env, token)).toBeNull();
+  });
+
+  it("returns records already collected when a later page fails", async () => {
+    const env = makeEnv();
+    env.kv.pageSize = 2;
+    for (let i = 0; i < 5; i += 1) {
+      await createToken(env, "p" + i + "-agent", ["email:read"], 100 + i);
+    }
+    env.kv.failOnListCall = 3;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const records = await listTokens(env);
+    // Keys are token hashes, so which record sat on the failed page is random.
+    const created = records.map((r) => r.created);
+    expect(created).toHaveLength(4);
+    expect(created).toEqual([...created].sort((a, b) => a - b));
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("returns an empty list on a fresh namespace", async () => {

@@ -117,53 +117,35 @@ export function removeSkill(id: string): void {
   writeList(SKILLS_KEY, skillsCache);
 }
 
-// ---------------------------------------------------------------------------
-// Composer drafts — one in-flight draft per composer scope (task, reply, …),
-// kept in localStorage so a reload or view switch never loses typed text.
-// -----------------------------------------------------------------------------
-
+// Unsent composer text per scope (session id); newest 100 kept.
 const DRAFTS_KEY = "shiba-composer-drafts-v1";
-const DRAFTS_MAX = 100;
+type Drafts = Record<string, { text: string; updatedAt: number }>;
 
-/** The stored map; null-proto so scope names like "__proto__" stay inert. */
-function readDrafts(): Record<string, string> {
+function readDrafts(): Drafts {
   try {
-    const raw = localStorage.getItem(DRAFTS_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return {};
-    }
-    const out: Record<string, string> = Object.create(null);
-    for (const [scope, text] of Object.entries(parsed)) {
-      if (typeof text === "string") out[scope] = text;
-    }
-    return out;
+    const parsed = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}") as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Drafts) : {};
   } catch {
     return {};
   }
 }
 
 export function readDraft(scope: string): string {
-  return readDrafts()[scope] ?? "";
+  const text = readDrafts()[scope]?.text;
+  return typeof text === "string" ? text : "";
 }
 
 export function writeDraft(scope: string, text: string): void {
-  const drafts = readDrafts();
-  // Re-insert on write so insertion order tracks recency for eviction.
-  delete drafts[scope];
-  if (text.trim() !== "") {
-    drafts[scope] = text;
-    const keys = Object.keys(drafts);
-    if (keys.length > DRAFTS_MAX) {
-      for (const stale of keys.slice(0, keys.length - DRAFTS_MAX)) {
-        delete drafts[stale];
-      }
-    }
-  }
   try {
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    const drafts = readDrafts();
+    // Stored oldest-first and re-inserted on write, so the stable sort breaks same-ms ties by recency.
+    delete drafts[scope];
+    if (text.trim()) drafts[scope] = { text, updatedAt: Date.now() };
+    const newest = Object.entries(drafts)
+      .sort(([, a], [, b]) => (a?.updatedAt ?? 0) - (b?.updatedAt ?? 0))
+      .slice(-100);
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(newest)));
   } catch {
-    // Storage full/blocked — the draft just isn't persisted this session.
+    // Storage full or blocked: the draft lives only in component state.
   }
 }

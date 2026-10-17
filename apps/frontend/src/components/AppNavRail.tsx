@@ -67,7 +67,7 @@ export interface AppNavItem {
 export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "dashboard", label: "Dashboard", description: "Overview & At-a-Glance Stats" },
   { id: "tasks", label: "Threads", description: "Tasks & Live Sessions" },
-  { id: "activity", label: "Activity", description: "Orchestrator Event Log" },
+  { id: "activity", label: "Activity", description: "Workspace activity & event log" },
   { id: "analytics", label: "Analytics", description: "Usage & Run Insights" },
   { id: "diff", label: "Pull requests", description: "Code Changes & Git Diffs" },
   { id: "approvals", label: "Approvals", description: "Review & Decision Queue" },
@@ -128,7 +128,7 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   swarm: SquareCheckBig,
 };
 
-export function capyStatusDotClass(status: string, live?: boolean): string {
+export function navStatusDotClass(status: string, live?: boolean): string {
   if (live || status === "live" || status === "running") {
     return "bg-[var(--primary)] animate-pulse-subtle";
   }
@@ -496,7 +496,7 @@ export function AppNavRail({
                   <span
                     className={
                       "size-1.5 rounded-full shrink-0 " +
-                      capyStatusDotClass(s.status, s.live)
+                      navStatusDotClass(s.status, s.live)
                     }
                     aria-hidden="true"
                   />
