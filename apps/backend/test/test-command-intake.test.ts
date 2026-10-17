@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
@@ -128,5 +129,23 @@ describe("testCommand intake", () => {
     const approved = await approveRun(instance, approvalId);
     expect(approved.status).toBe(200);
     expect(await dispatchedEnvelope()).not.toHaveProperty("testCommand");
+  });
+});
+
+describe("local targetMachineId intake", () => {
+  it("threads the pinned machine and the local runtime through approval into the dispatched envelope", async () => {
+    const instance = Object.assign(agent({ SHIBA_LOCAL_RUNTIME: "1" } as Partial<Env>), { name: "dashboard-session" });
+    mocks.execute.mockResolvedValue("ok");
+    const queued = await instance.onRequest(
+      new Request("https://internal/api/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD },
+        body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "fix", runtime: "local", harness: "opencode", targetMachineId: "m-a" }),
+      }),
+    );
+    expect(queued.status).toBe(200);
+    const { approvalId } = (await queued.json()) as { approvalId: string };
+    expect((await approveRun(instance, approvalId)).status).toBe(200);
+    expect(await dispatchedEnvelope()).toMatchObject({ runtime: "local", targetMachineId: "m-a" });
   });
 });

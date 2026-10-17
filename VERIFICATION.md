@@ -1011,3 +1011,40 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
 - Unverified (credential-gated): a real sandbox run executing a registry
   agent (image rebuild + install-step wiring is the follow-up seam, same
   status as the computer-use tools).
+## 2026-10-08 — Shiba Desktop (T59–T66): local-prototype verification
+
+**Status: local prototype. Not accepted against a real deployment.** Per-task evidence lives in `apps/web/docs/evidence/desktop/`; this entry only summarizes it.
+
+### Verified so far (unit / integration / static)
+- T59 (`T59-docs.md`): `spec/GOAL.md` item 15, ADR 0001, PLAN §21 + tracker row; `pnpm docs:verify` passed (49 pages, 2479 links).
+- T60 (`T60-shell.md`, `T60-wiring.md`): `apps/desktop` typecheck, eslint and build clean; desktop vitest 104 tests pass after the REVIEW1 fixes (F1–F3).
+- T61 (`T61-backend-daemon.md`): backend `local-fleet` + `local-runtime` 38 tests pass; `daemon.test.ts` 2 pass; `check-alchemy-drift` in sync (25 declared, 24 env entries).
+- T62 (`T62-modules.md`): shell-env, supervisor, logs, tray — 17 unit tests pass.
+- T63 (`T63-pairing.md`): 12 pairing tests; frontend typecheck and lint pass.
+- T64/T65 static (`T64-T65-static.md`): poller/notify/updater modules, `electron-builder.yml` fuses = D8 list, desktop CI workflow written; biome clean on those files.
+- D1–D8 static review (`REVIEW1-d1-d8.md`): all PASS after F1–F3; F4–F6 are INFO notes.
+- T65 assets (`T65-assets-bookkeeping.md`): `apps/desktop/assets/` icon.png (1024², transparent corners), icon.icns, trayTemplate.png (22²) + @2x (44²), rendered from the mascot SVG.
+
+### Not verified / remaining
+- ~~Full repo gate~~ **Passed 2026-10-08** (typecheck, lint, lint:imports, test, build, test:built, check:ci all exit 0; 123 desktop and 1807 backend tests).
+- **Real-deployment acceptance** (DESKTOP-PLAN §7, STOP D): no live run of pairing → "This computer · idle" → local run → notification. A dated entry is required before this is called accepted.
+- **Live Electron run:** `pnpm --filter @shiba/desktop test:e2e` passes (2/2: setup page, bridge present, no Node in renderer, foreign navigation not kept in-app) against a stub origin. Tray, notifications and quit dialog are still unexercised.
+
+### Live backend integration (2026-10-08, local `wrangler dev`, SHIBA_LOCAL_RUNTIME=1)
+- Real daemon paired with a minted token; `config.json` mode 600; fleet showed the machine `idle` with harnesses; a second daemon exited 75; revoking the machine made the daemon exit 78 and release its lock.
+- Dev loop needs `--local-upstream localhost:8788` (custom-domain route otherwise rewrites the host, 401 `access_not_configured`) and `--enable-containers=false` without Docker. Noted in DESKTOP-PLAN.md.
+- `release/mac-arm64/Shiba.app` fuses match D8 (`@electron/fuses read`).
+- Run lifecycle, partly exercised (stub `claude` shim, local git repo via `insteadOf`): a named session, `POST /api/runs` with `runtime:"local"` (200), the pending approval carrying `runtime:"local"`, and `POST /api/approvals` approve (200) all worked against the real Worker, and the paired daemon polled claim/heartbeat. The daemon never claimed the run: with `--enable-containers=false` the Sandbox DO throws "Containers have not been enabled"; with Docker enabled, wrangler 4.118.0's dev proxy died ("Network connection lost") during dispatch. So claim → result and the mid-run SIGTERM "daemon stopped" path remain unverified end to end (unit-covered only).
+- Not covered: Access-fronted bypass, tray/notifications/quit dialog, login and credential spikes, signing.
+
+### Follow-up fixes (2026-10-08)
+- Re-pair now revokes the old machineId once the new pairing lands (§11.3; revoking first would leave a failed re-pair `revoked`), 5 tests; opus review found no blockers; frontend indentation and unrelated TaskComposer restyle reverted to T63-only.
+- **Real Access behavior** of the `/api/local/*` bypass (needs an Access-fronted stage).
+- **Signing and notarization:** pending human secrets; only an unsigned local build is in scope. `npx @electron/fuses read --app <path>` is still to be run on a built app.
+- **Credential spike** (T62): needs real claude/codex subscription logins.
+- **Login spike result** (STOP A): recorded in `apps/web/docs/evidence/desktop/STOP-A-login-spike.md` — Docker absent so backend dev needed `--local-upstream localhost:8788 --enable-containers=false`; vite :5173 served /app/ 200; Electron dev-mode ran clean for 20s; no credentials/sign-in performed (local prototype boundary).
+
+### REVIEW3 round (2026-10-08, after final independent audit)
+- REVIEW3-final-audit.md verdict was BLOCKED with 14 findings. All applied (`REVIEW3-fixes.md`): run-finished notification now keys on `state:"settled"` (F1); tray icon resolves inside the asar (F2); `electron-updater` moved to dependencies so the updater actually ships (F3); CI builds `dist/` before packaging (F4); revoke falls back to on-disk machineId and honors non-OK revoke responses; tray hides Disconnect under `conflict` (F5/F6); probe no longer respawns a daemon latched revoked/conflict/crashed (F7); `offline` needs 2 consecutive failed heartbeats (F8); pairing watchdog kills a hung fork at 30s (F9); `unpair` returns PairResult on the bridge contract (F10); wrangler/Access bypass documented (F12); the approvals poller keeps `seen` across suspend/resume (F13).
+- **Packaged-only defects found by actually launching the unsigned .app** (REVIEW3-fixes.md P1–P4): unsigned fused binaries are kernel-killed on arm64 until re-signed ad-hoc inside-out (`scripts/adhoc-sign.sh`, wired as `pnpm dist:local`); `file://` can't see inside app.asar on Electron 44, so setup.html/setup.js ship via `asarUnpack`; `app.setName("Shiba")` pins userData to the documented path; the electron-updater import needed the CJS `.default` interop fallback.
+- Post-fix artifact: `release/Shiba-0.1.0-{arm64,}*.dmg/.zip` + `release/mac-arm64/Shiba.app` — fuses re-verified = D8 on both arches; `pnpm test` 119/119 and `test:e2e` 2/2 after the fixes; the re-signed .app launches with no load errors.

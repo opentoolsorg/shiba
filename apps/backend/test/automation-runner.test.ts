@@ -307,3 +307,126 @@ describe("fan-out", () => {
     expect(automations.find((a) => a.id === "idle")?.runCount).toBe(0);
   });
 });
+
+describe("run_when predicate fan-out", () => {
+  const githubEvent = {
+    kind: "github" as const,
+    event: "pull_request",
+    action: "opened",
+    repo: "owner/repo",
+  };
+
+  function gatedAutomation(id: string, runWhen = "it is a bug report"): Automation {
+    return createAutomation({
+      id,
+      prompt: `Triage ${id}`,
+      repoUrl: REPO,
+      triggers: [
+        {
+          kind: "github",
+          events: ["pull_request:opened"],
+          repos: ["owner/repo"],
+          runWhen,
+        },
+      ],
+    }).automation;
+  }
+
+  function deferredAi() {
+    const pending: { resolve: (value: unknown) => void }[] = [];
+    const ai = {
+      run: vi.fn(() => new Promise<unknown>((resolve) => pending.push({ resolve }))),
+    };
+    return { ai, pending };
+  }
+
+  async function flush(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it("evaluates run_when predicates concurrently but queues commits in input order", async () => {
+    const { ai, pending } = deferredAi();
+    const d = deps({ ai });
+    const automations = [gatedAutomation("a1"), gatedAutomation("a2"), gatedAutomation("a3")];
+    const promise = fireMatchingAutomations(automations, githubEvent, d);
+    // All three predicate calls must be in flight before any verdict resolves.
+    await flush();
+    expect(ai.run).toHaveBeenCalledTimes(3);
+    // Resolve out of order — commits must still follow input order.
+    pending[2]!.resolve({ response: "YES" });
+    pending[0]!.resolve({ response: "YES" });
+    pending[1]!.resolve({ response: "YES" });
+    const { results } = await promise;
+    expect(results.every((r) => r.fired)).toBe(true);
+    expect(d.queueRun).toHaveBeenCalledTimes(3);
+    expect(d.queueRun.mock.calls.map((call) => call[0]!.task)).toEqual([
+      "Triage a1",
+      "Triage a2",
+      "Triage a3",
+    ]);
+    expect(d.queueRun.mock.calls.map((call) => call[0]!.threadKey)).toEqual([
+      "automation:a1",
+      "automation:a2",
+      "automation:a3",
+    ]);
+  });
+
+  it("bounds run_when predicate concurrency", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const ai = {
+      run: vi.fn(async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        return { response: "YES" };
+      }),
+    };
+    const d = deps({ ai });
+    const automations = Array.from({ length: 8 }, (_, i) => gatedAutomation(`b${i}`));
+    const { results } = await fireMatchingAutomations(automations, githubEvent, d);
+    expect(results.every((r) => r.fired)).toBe(true);
+    expect(ai.run).toHaveBeenCalledTimes(8);
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+  });
+
+  it("keeps per-item skip semantics when verdicts resolve out of order", async () => {
+    const { ai, pending } = deferredAi();
+    const d = deps({ ai });
+    const automations = [gatedAutomation("c1"), gatedAutomation("c2"), gatedAutomation("c3")];
+    const promise = fireMatchingAutomations(automations, githubEvent, d);
+    await flush();
+    expect(ai.run).toHaveBeenCalledTimes(3);
+    pending[1]!.resolve({ response: "NO" });
+    pending[0]!.resolve({ response: "YES" });
+    pending[2]!.resolve({ response: "YES" });
+    const { results } = await promise;
+    expect(results.map((r) => r.fired)).toEqual([true, false, true]);
+    expect(results[1]!.automation.id).toBe("c2");
+    expect(results[1]!.reason).toMatch(/did not match/i);
+    // Only the YES verdicts queued, and in input order.
+    expect(d.queueRun).toHaveBeenCalledTimes(2);
+    expect(d.queueRun.mock.calls.map((call) => call[0]!.threadKey)).toEqual([
+      "automation:c1",
+      "automation:c3",
+    ]);
+  });
+
+  it("fails closed on a predicate error without dropping later commits", async () => {
+    const { ai, pending } = deferredAi();
+    const d = deps({ ai });
+    const automations = [gatedAutomation("d1"), gatedAutomation("d2")];
+    const promise = fireMatchingAutomations(automations, githubEvent, d);
+    await flush();
+    expect(ai.run).toHaveBeenCalledTimes(2);
+    pending[0]!.resolve(Promise.reject(new Error("model down")));
+    pending[1]!.resolve({ response: "YES" });
+    const { results } = await promise;
+    expect(results[0]!.fired).toBe(false);
+    expect(results[0]!.reason).toMatch(/model down/);
+    expect(results[1]!.fired).toBe(true);
+    expect(d.queueRun).toHaveBeenCalledTimes(1);
+  });
+});

@@ -15,6 +15,7 @@ import {
   type Automation,
   type AutomationMatchEvent,
   type GitHubAutomationEvent,
+  type MatchedTrigger,
   type RunWhenAi,
   type SlackAutomationEvent,
   type TypeSafeNoulFetch,
@@ -167,34 +168,62 @@ export function automationThreadKey(automationId: string): string {
 }
 
 /**
- * One automation, one event. Match, gate, authorize, then queue (and
- * auto-approve only when T20 unattended is granted).
+ * Bound on concurrent run_when predicate calls during fan-out. Predicates
+ * are pure reads (match, burst check, model/TypeSafe verdict); only the
+ * ordered authorization/queue commits below may mutate, so they stay
+ * sequential.
  */
-export async function fireAutomation(
+export const RUN_WHEN_PREDICATE_CONCURRENCY = 4;
+
+type FirePredicate =
+  | { status: "skip"; result: FireAutomationResult }
+  | { status: "proceed"; matched: MatchedTrigger };
+
+/**
+ * The burst-window suppression (PLAN T13): a matched Slack event inside the
+ * trigger's burst window of the previous firing is suppressed. Pure read,
+ * safe to run before any model call and again before side effects.
+ */
+function burstWindowReason(
+  automation: Automation,
+  trigger: MatchedTrigger["trigger"],
+  nowMs: number,
+): string | null {
+  if (trigger.kind !== "slack" || automation.lastTriggeredAt === undefined) {
+    return null;
+  }
+  const windowMs =
+    clampBurstWindowSeconds(trigger.burstWindowSeconds ?? DEFAULT_BURST_WINDOW_SECONDS) * 1000;
+  if (nowMs - automation.lastTriggeredAt < windowMs) {
+    return "Burst window: a matching run already fired.";
+  }
+  return null;
+}
+
+/**
+ * Phase 1, the pure predicate: match, cheap burst suppression, and the
+ * run_when verdict. No queueing, no approvals, no state writes; the only
+ * awaited work is the model/TypeSafe call, so it is safe to run with bounded
+ * concurrency across automations.
+ */
+async function evaluateFirePredicate(
   automation: Automation,
   event: AutomationMatchEvent,
   deps: FireAutomationDeps,
-): Promise<FireAutomationResult> {
-  const nowMs = deps.nowMs ?? Date.now();
+  nowMs: number,
+): Promise<FirePredicate> {
   const matched = matchAutomationEvent(automation, event);
   if (!matched) {
-    return { fired: false, automation, reason: "No matching trigger." };
+    return { status: "skip", result: { fired: false, automation, reason: "No matching trigger." } };
   }
 
-  // One run per burst (PLAN T13): a matched Slack event inside the trigger's
-  // burst window of the previous firing is suppressed — cheap check before
-  // any run_when model call.
-  if (
-    matched.trigger.kind === "slack" &&
-    automation.lastTriggeredAt !== undefined
-  ) {
-    const windowMs =
-      clampBurstWindowSeconds(matched.trigger.burstWindowSeconds ?? DEFAULT_BURST_WINDOW_SECONDS) *
-      1000;
-    if (nowMs - automation.lastTriggeredAt < windowMs) {
-      const skipped = recordSkip(automation, "Burst window: a matching run already fired.", nowMs);
-      return { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? "burst" };
-    }
+  const burst = burstWindowReason(automation, matched.trigger, nowMs);
+  if (burst !== null) {
+    const skipped = recordSkip(automation, burst, nowMs);
+    return {
+      status: "skip",
+      result: { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? "burst" },
+    };
   }
 
   const runWhen = matched.trigger.runWhen?.trim() ?? "";
@@ -209,8 +238,35 @@ export async function fireAutomation(
     );
     if (!verdict.run) {
       const skipped = recordSkip(automation, verdict.reason, nowMs);
-      return { fired: false, automation: skipped, reason: verdict.reason };
+      return { status: "skip", result: { fired: false, automation: skipped, reason: verdict.reason } };
     }
+  }
+
+  return { status: "proceed", matched };
+}
+
+/**
+ * Phase 2, the ordered commit. Rechecks the match/burst ordering gates
+ * against the freshest automation state, then the T20 authorization, before
+ * any side effect (queue plus optional unattended resolve). Called
+ * sequentially so mutating calls never overlap.
+ */
+async function commitAutomationFire(
+  automation: Automation,
+  event: AutomationMatchEvent,
+  deps: FireAutomationDeps,
+  nowMs: number,
+): Promise<FireAutomationResult> {
+  // Recheck the ordering gates: the predicate verdict ran concurrently and
+  // the automation state may have moved before this commit slot.
+  const recheck = matchAutomationEvent(automation, event);
+  if (!recheck) {
+    return { fired: false, automation, reason: "No matching trigger." };
+  }
+  const burst = burstWindowReason(automation, recheck.trigger, nowMs);
+  if (burst !== null) {
+    const skipped = recordSkip(automation, burst, nowMs);
+    return { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? "burst" };
   }
 
   // No GITHUB_TOKEN: degrade to a no-PR run (the orchestrator 400s a PR
@@ -250,7 +306,7 @@ export async function fireAutomation(
         threadKey,
         approvalId: queued.approvalId,
         approved: true,
-        decidedBy: `automation:${automation.id}`,
+        decidedBy: "automation:" + automation.id,
       });
     }
     return {
@@ -261,9 +317,49 @@ export async function fireAutomation(
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    const skipped = recordSkip(automation, `Queue failed: ${detail}`, nowMs);
+    const skipped = recordSkip(automation, "Queue failed: " + detail, nowMs);
     return { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? detail };
   }
+}
+
+/**
+ * One automation, one event. Match, gate, authorize, then queue (and
+ * auto-approve only when T20 unattended is granted).
+ */
+export async function fireAutomation(
+  automation: Automation,
+  event: AutomationMatchEvent,
+  deps: FireAutomationDeps,
+): Promise<FireAutomationResult> {
+  const nowMs = deps.nowMs ?? Date.now();
+  const predicate = await evaluateFirePredicate(automation, event, deps, nowMs);
+  if (predicate.status === "skip") {
+    return predicate.result;
+  }
+  return commitAutomationFire(automation, event, deps, nowMs);
+}
+
+/** Bounded mapper used for predicate evaluation only, never for mutating calls. */
+async function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(limit, 1), items.length) },
+    async () => {
+      while (true) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= items.length) return;
+        results[index] = await fn(items[index] as T, index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 export async function fireMatchingAutomations(
@@ -271,13 +367,47 @@ export async function fireMatchingAutomations(
   event: AutomationMatchEvent,
   deps: FireAutomationDeps,
 ): Promise<{ results: FireAutomationResult[]; automations: Automation[] }> {
+  const nowMs = deps.nowMs ?? Date.now();
+  // Phase 1: run the pure predicates (including run_when model calls) with
+  // bounded concurrency. Predicate failures fail closed per item so one bad
+  // verdict can neither reorder commits nor escape as an unhandled rejection.
+  const predicates = await mapBounded(
+    automations,
+    RUN_WHEN_PREDICATE_CONCURRENCY,
+    async (automation) => {
+      try {
+        return await evaluateFirePredicate(automation, event, deps, nowMs);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const skipped = recordSkip(automation, "run_when gate failed closed: " + detail, nowMs);
+        return {
+          status: "skip" as const,
+          result: {
+            fired: false,
+            automation: skipped,
+            reason: skipped.lastSkip?.reason ?? detail,
+          },
+        };
+      }
+    },
+  );
+  // Phase 2: commit in input order, ordering recheck then authorization,
+  // queue, optional unattended resolve, so mutating calls stay sequential.
   const next = new Map(automations.map((item) => [item.id, item]));
   const results: FireAutomationResult[] = [];
-  for (const automation of automations) {
-    const result = await fireAutomation(automation, event, deps);
+  for (let index = 0; index < automations.length; index++) {
+    const predicate = predicates[index];
+    const current = next.get((automations[index] as Automation).id) ?? (automations[index] as Automation);
+    let result: FireAutomationResult;
+    if (predicate === undefined) {
+      result = { fired: false, automation: current, reason: "No matching trigger." };
+    } else if (predicate.status === "skip") {
+      result = predicate.result;
+    } else {
+      result = await commitAutomationFire(current, event, deps, nowMs);
+    }
     results.push(result);
     next.set(result.automation.id, result.automation);
   }
   return { results, automations: [...next.values()] };
 }
-

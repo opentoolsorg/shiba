@@ -47,6 +47,22 @@
     // Empty = PR screenshot capture disabled (capture fails safe, never fails the run).
     "WORKER_HOSTNAME": "app.tryshiba.dev",
     "BETTER_AUTH_URL": "https://app.tryshiba.dev",
+    // T56 role routing pin (agents/roles.ts, PLAN.md §19). One JSON object;
+    // a run carrying `role` resolves harness + model from here before any
+    // per-call or deployment default. Validated at intake through
+    // resolveHarness + assertSupportedModel — a bad pin throws before the
+    // approval card, never inside a container.
+    //
+    // Model ids verified against primary sources 2026-10-06 (PLAN.md §19.0):
+    //   gpt-6-sol          OpenAI GPT-6 Sol; needs Codex CLI >= 0.156.1 (pinned 0.157.1)
+    //   swe-2-medium       Cognition SWE-2, Devin-only (cognition.com/blog/swe-2)
+    //   claude-sonnet-5-5  Anthropic, released 2026-09-28
+    //   claude-opus-5-5    Claude 5.5 family flagship
+    //   opencode-go/gpt-6.1-sol  reviewer: #99's Sol review lane (opencode-go gateway)
+    //
+    // gpt-5.6-sol retires from Codex 2026-10-14; it is in RETIRED_MODELS
+    // (agents/roles.ts) so a stale override throws at intake (PLAN.md §20.2).
+    "ROLE_MODEL_MAP": "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"devin\",\"model\":\"devin/swe-2-medium\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}",
     // T48: Claude subscription harness stays registered by default; its
     // Wrangler secret is still required before runs can authenticate.
     //   SHIBA_CLAUDE_SUBSCRIPTION=1  registers the claude-subscription harness
@@ -88,12 +104,19 @@
     //   BETTER_AUTH_URL        canonical dashboard URL for cookie scope;
     //   unset = each request's own origin.
     // T52 per-role routing pins (agents/roles.ts) — plain vars, never
-    // secrets; absent = every role resolves through the deployment default:
+    // secrets; absent = every role resolves through the deployment default.
+    // Pinned for real in `vars` above (PLAN.md §19); this block documents
+    // the override chain and the per-role shorthand.
     //   ROLE_MODEL_MAP          JSON {"<role>":{"harness":"...","model":"..."}}
+    //                           (wins over the per-role vars below)
     //   ROLE_MODEL__ORCHESTRATOR / __EXPLORER / __FIXER / __REVIEWER /
-    //   __DESIGNER              "harness/model" or bare "harness" per role
+    //   __DESIGNER              "harness/model" or bare "harness" per role;
+    //                           a bare harness inherits its *_MODEL var, then
+    //                           HARNESS_DEFAULT_MODELS
     //   PAIRING_SECRET          optional HMAC key for dashboard-minted
     //   pairing tokens (T52); falls back to LOCAL_ADAPTER_TOKEN.
+    // Precedence: ROLE_MODEL_MAP > ROLE_MODEL__<ROLE> (a pin beats per-run codingModel)
+    //             > per-run codingModel > per-harness *_MODEL > deployment default.
   }, 
   "ai": {
     "binding": "AI",

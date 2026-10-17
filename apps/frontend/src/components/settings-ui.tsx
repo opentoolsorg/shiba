@@ -1,4 +1,4 @@
-/** Shared chrome for Settings surfaces — Capy token-based card. */
+/** Shared chrome for Settings surfaces — token-based card. */
 import type { JSX, ReactNode } from "react";
 
 export function Card({ children }: { children: ReactNode }): JSX.Element {

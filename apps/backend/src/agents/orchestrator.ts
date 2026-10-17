@@ -262,6 +262,19 @@ export const delegateInputSchema = z.object({
 
 type DelegateInput = z.infer<typeof delegateInputSchema>;
 
+// Composer fields a chat message may pin via metadata.shibaTask. Declared without
+// .default() (zod 4 re-injects defaults under .partial()); runtime/role/authAccount/testCommand are never read.
+// Per-field .catch: one bad field drops only itself, not the whole pin.
+const composerPinSchema = z.object({
+  repoUrl: z.string().min(1).optional().catch(undefined),
+  task: z.string().min(1).optional().catch(undefined),
+  baseBranch: z.string().min(1).optional().catch(undefined),
+  publishPullRequest: z.boolean().optional().catch(undefined),
+  harness: z.enum(HARNESS_IDS).optional().catch(undefined),
+  codingModel: z.string().min(1).optional().catch(undefined),
+  connectionId: z.string().min(1).optional().catch(undefined),
+});
+
 /**
  * Floor between full-mailbox stale-draft sweeps. The sweep is a
  * backstop, not a per-poll job — the dashboard polls approvals every
@@ -399,10 +412,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         .filter((input) => input.kind === "approval.requested" || input.kind === "approval.answered")
         .map((input) => `${input.kind}:${input.approvalId}`),
     );
+    const priorApprovals = new Map<string, Map<string, PendingApproval>>();
+    for (const approval of before) {
+      let thread = priorApprovals.get(approval.threadKey);
+      if (!thread) {
+        thread = new Map();
+        priorApprovals.set(approval.threadKey, thread);
+      }
+      // Preserve Array.find's first-match behavior for legacy duplicates.
+      if (!thread.has(approval.approvalId)) thread.set(approval.approvalId, approval);
+    }
     for (const approval of after) {
-      const prior = before.find(
-        (a) => a.approvalId === approval.approvalId && a.threadKey === approval.threadKey,
-      );
+      const prior = priorApprovals.get(approval.threadKey)?.get(approval.approvalId);
       if (prior === undefined) {
         if (!logged.has(`approval.requested:${approval.approvalId}`)) {
           inputs.push(
@@ -539,6 +560,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   override async onStart(): Promise<void> {
     await super.onStart();
+    // Client liveness ping, answered by the runtime without waking a hibernated DO.
+    if (typeof this.ctx === "object" && this.ctx !== null && "setWebSocketAutoResponse" in this.ctx) {
+      this.ctx.setWebSocketAutoResponse(
+        new WebSocketRequestResponsePair('{"type":"shiba:ping"}', '{"type":"shiba:pong"}'),
+      );
+    }
     const interrupted = this.approvals
       .filter((approval) => approval.status === "approved")
       .map((approval) => this.store.get(`agent-tool:${approval.approvalId}`))
@@ -726,7 +753,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         "Requires human approval before anything runs.",
       inputSchema: delegateInputSchema,
       needsApproval: async (input: DelegateInput, options: { toolCallId: string }) => {
-        await this.mintChatGateApproval(input, options.toolCallId);
+        await this.mintChatGateApproval({ ...input, ...this.composerPin() }, options.toolCallId);
         return true;
       },
       execute: async (
@@ -745,6 +772,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const runCode = createRunCodeTool(this.env);
     if (runCode) tools.run_code = runCode;
     return tools;
+  }
+
+  /** The latest user message's composer fields, so the card freezes what was typed, not the LLM's paraphrase. */
+  // Known gap: a turn with several delegate_coding_task calls pins the same composer `task` on each card.
+  private composerPin(): Partial<DelegateInput> {
+    const last = this.messages?.filter((m) => m.role === "user").at(-1);
+    const parsed = composerPinSchema.safeParse((last?.metadata as { shibaTask?: unknown } | undefined)?.shibaTask);
+    if (!parsed.success) return {};
+    return Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined));
   }
 
   private resolveHarnessAndModel(input: DelegateInput): { harness: string; codingModel: string } {
@@ -1174,7 +1210,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               slackRunFailed({
                 repoUrl: fullInput.repoUrl,
                 userMessage: runErrorWire(failure.code).userMessage,
-                detail: message.slice(0, 1000),
+                detail: redactSecrets(message).slice(0, 1000),
                 unknown: failureStatus === "unknown",
               }),
             );
@@ -2404,7 +2440,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // re-drive it.
     this.setState({ ...this.state });
     this.inFlightEffects.add(effectId);
-    this.ctx.waitUntil(
+    this.holdOpen(
       send
         .then(() => {
           this.emitSpine(
@@ -3289,6 +3325,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         agentPrincipal === null
           ? this.store.list()
           : this.store.list().filter((run) => run.queuedBy === agentPrincipal);
+      const summary = url.searchParams.get("view") === "summary";
+      const project = (run: DelegatedRun) => {
+        const serialized = this.serializeRun(run);
+        if (!summary) return serialized;
+        // Lists are a projection only. Full detail and persisted approval/
+        // receipt state remain untouched and available from GET /runs/:id.
+        const item = { ...serialized, hasDiff: Boolean(serialized.diff) };
+        delete item.diff;
+        delete item.receipts;
+        delete item.signals;
+        delete item.steering;
+        return item;
+      };
       const limitParam = url.searchParams.get("limit");
       if (limitParam !== null) {
         const limit = Number(limitParam);
@@ -3300,10 +3349,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           runs: visible
             .slice(-Math.min(limit, 500))
             .reverse()
-            .map((run) => this.serializeRun(run)),
+            .map(project),
         });
       }
-      return Response.json({ runs: visible.map((run) => this.serializeRun(run)) });
+      return Response.json({ runs: visible.map(project) });
     }
     if (request.method === "DELETE" && id === null) {
       // Registry clear is an operator action — never agent-bulk-deletable.
