@@ -47,14 +47,43 @@ export const ANTIGRAVITY_REMOVED_ENV_KEYS: readonly string[] = [
   "ELECTRON_RUN_AS_NODE",
 ];
 
+/** Line prefix the BROWSER helper prints the sign-in URL under (stderr). */
+export const ANTIGRAVITY_AUTH_BROWSER_MARKER = "__SHIBA_ANTIGRAVITY_AUTH_URL__";
+
 /**
- * `node -e` snippet set as the profile's BROWSER command — the ACP opens
- * the sign-in page through it; it writes the URL and exits 0 (EPIPE must
- * still exit 0 or Python falls back to an OS browser). Source kept free
- * of colons and semicolons — verbatim from t3code.
+ * Helper path inside the container. A file (not `node -e`): the ACP's
+ * BROWSER parsing mangles inline quoting, so the helper lands on disk and
+ * the command is a plain `node <path> %s` — the URL arrives as argv[2].
+ */
+export const ANTIGRAVITY_BROWSER_HELPER_PATH = "/tmp/shiba-agy-browser.js";
+
+/**
+ * BROWSER helper body — the ACP opens the sign-in page through it; it
+ * writes the URL under the marker and exits 0 (EPIPE must still exit 0
+ * or Python falls back to an OS browser).
  */
 export const ANTIGRAVITY_BROWSER_HELPER_SOURCE =
-  'process.stderr.on("error",()=>process.exit(0)).write("__SHIBA_ANTIGRAVITY_AUTH_URL__"+JSON.stringify(process.argv[1])+"\\n",()=>process.exit(0))';
+  `process.stderr.on("error",()=>process.exit(0)).write("${ANTIGRAVITY_AUTH_BROWSER_MARKER}"+JSON.stringify(process.argv[2])+"\\n",()=>process.exit(0));`;
+
+/**
+ * Hosts the auth sandbox's egress gate must admit for a full sign-in:
+ * the loopback callback never leaves the container, but the token
+ * exchange (oauth2.googleapis.com), token validation (www.googleapis.com),
+ * and the Antigravity backend liveness check (cloudcode-pa.googleapis.com)
+ * all go through the HTTPS interceptor — unlisted hosts get a refused
+ * connection and agy reports "stored credentials are unusable".
+ * generativelanguage.googleapis.com + dl.google.com match the run-time
+ * ANTIGRAVITY_SUBSCRIPTION_HOSTS surface.
+ */
+export const ANTIGRAVITY_AUTH_HOSTS = [
+  "oauth2.googleapis.com",
+  "oauthaccountmanager.googleapis.com",
+  "accounts.google.com",
+  "www.googleapis.com",
+  "cloudcode-pa.googleapis.com",
+  "generativelanguage.googleapis.com",
+  "dl.google.com",
+] as const;
 
 export class AntigravityCallbackError extends Error {
   readonly code = "antigravity_callback";
@@ -92,11 +121,17 @@ export function antigravitySubscriptionProfileDir(input: { authAccount?: string 
 }
 
 /**
- * The BROWSER command t3code installs: `node -e <helper> -- %s` — the ACP
- * opens the sign-in page through it; the helper prints the URL and exits.
+ * The BROWSER command the profile installs: `node <helper-file> %s` —
+ * the ACP opens the sign-in page through it; the helper prints the URL
+ * and exits. File-based because agy's BROWSER tokenization cannot be
+ * trusted with an inline `-e` string (observed SyntaxError: quotes and
+ * escapes stripped before node saw them).
  */
-export function antigravityBrowserCommand(nodeExecutable = "node"): string {
-  return `${nodeExecutable} -e ${ANTIGRAVITY_BROWSER_HELPER_SOURCE} -- %s`;
+export function antigravityBrowserCommand(
+  nodeExecutable = "node",
+  helperPath = ANTIGRAVITY_BROWSER_HELPER_PATH,
+): string {
+  return `${nodeExecutable} ${helperPath} %s`;
 }
 
 /**

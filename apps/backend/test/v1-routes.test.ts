@@ -13,7 +13,7 @@ function fixture(result: unknown = { run }, status = 200) {
   const scopes: URL[] = [];
   const deps: V1RouteDeps = {
     isAuthorized: async () => true,
-    resolveTarget: async (_request, _env, url) => { scopes.push(url); return { agentName: "caller" }; },
+    resolveTarget: async (_request, _env, url) => { scopes.push(url); return { agentName: "caller", userId: "u1" }; },
     getStub: async (_env, name) => {
       expect(name).toBe("caller");
       return { fetch: async (request) => { calls.push(request); return Response.json(result, { status }); } };

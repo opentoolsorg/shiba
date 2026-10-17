@@ -108,6 +108,21 @@ describe("probe rule — only verify() sets succeeded", () => {
     await expect(controller.verify("sess-A")).rejects.toMatchObject({ reason: "invalid_phase" });
   });
 
+  it("a throwing onBegin rolls the flow to failed with the real reason — never stuck at starting", async () => {
+    const { env } = makeEnv();
+    const controller = createAuthController<TestEnv>(env, ID, hooks({
+      onBegin: async () => { throw new Error("SECRET_TOKEN is not set"); },
+    }).h);
+    await expect(controller.begin("sess-A")).rejects.toThrow("SECRET_TOKEN is not set");
+    const snap = await controller.snapshot();
+    expect(snap.phase).toBe("failed");
+    expect(snap.message).toContain("SECRET_TOKEN is not set");
+    // A failed flow is begin-able again — retry is not locked out.
+    const ok = createAuthController<TestEnv>(env, ID, hooks().h);
+    await ok.begin("sess-A");
+    expect((await ok.snapshot()).phase).toBe("starting");
+  });
+
   it("waiting: a provider's onBegin may park the flow (T50); verify still gates succeeded", async () => {
     const { env } = makeEnv();
     const controller = createAuthController<TestEnv>(env, ID, hooks({

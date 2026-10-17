@@ -39,6 +39,7 @@ jobs:
           SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_APPROVERS: ${{ secrets.SLACK_APPROVERS }}
+          DASHBOARD_APPROVERS: ${{ secrets.DASHBOARD_APPROVERS }}
           SLACK_CHANNEL_REPOS: ${{ secrets.SLACK_CHANNEL_REPOS }}
           SLACK_APPROVALS_CHANNEL: ${{ secrets.SLACK_APPROVALS_CHANNEL }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}

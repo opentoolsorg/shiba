@@ -100,6 +100,7 @@ export class Automations {
       typeSafeApiKey: this.env.TYPESAFE_API_KEY,
       nowMs,
       globalEnabled: automationsEnabled(this.env.AUTOMATIONS_ENABLED),
+      canPublishPullRequest: Boolean(this.env.GITHUB_TOKEN),
       queueRun: (input) => queueOnOrchestrator(orchestrator, input),
       resolveApproval: (input) => resolveOnOrchestrator(orchestrator, input),
     };
@@ -250,7 +251,7 @@ export class Automations {
       const queued = await queueOnOrchestrator(await this.orchestrator(), {
         repoUrl,
         task,
-        publishPullRequest: true,
+        publishPullRequest: Boolean(this.env.GITHUB_TOKEN),
         threadKey: `sentry:${eventId}`,
         commandId: `sentry:${eventId}`,
       });
@@ -320,6 +321,47 @@ export class Automations {
         const message = error instanceof InputError ? error.message : "Invalid automation.";
         return Response.json({ error: message }, { status: 400 });
       }
+    }
+    // Update (enabled/prompt only) and delete, used by the /api/v1 automations facade.
+    const itemId = /^\/api\/automations\/([^/]+)\/?$/.exec(url.pathname)?.[1];
+    if (itemId && (request.method === "PATCH" || request.method === "DELETE")) {
+      let id: string;
+      try {
+        id = decodeURIComponent(itemId);
+      } catch {
+        return Response.json({ error: "Automation not found." }, { status: 404 });
+      }
+      const store = await this.load();
+      const automation = store.get(id);
+      if (!automation) {
+        return Response.json({ error: "Automation not found." }, { status: 404 });
+      }
+      if (request.method === "DELETE") {
+        store.remove(id);
+        await this.save(store);
+        return Response.json({ ok: true, id });
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+      }
+      const patch = (typeof body === "object" && body !== null ? body : {}) as { enabled?: unknown; prompt?: unknown };
+      if (
+        (patch.enabled !== undefined && typeof patch.enabled !== "boolean") ||
+        (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim()))
+      ) {
+        return Response.json({ error: "enabled must be a boolean; prompt a non-empty string." }, { status: 400 });
+      }
+      const updated: Automation = {
+        ...automation,
+        ...(typeof patch.enabled === "boolean" ? { enabled: patch.enabled } : {}),
+        ...(typeof patch.prompt === "string" ? { prompt: patch.prompt.trim() } : {}),
+      };
+      store.upsert(updated);
+      await this.save(store);
+      return Response.json({ automation: publicAutomation(updated) });
     }
     const manualId = /^\/api\/automations\/([^/]+)\/run\/?$/.exec(url.pathname)?.[1];
     if (manualId && request.method === "POST") {

@@ -29,6 +29,10 @@ import {
   antigravitySubscriptionProfileDir,
   parseAntigravityAuthorizationUrl,
   validateAntigravityCallbackUrl,
+  ANTIGRAVITY_AUTH_HOSTS,
+  ANTIGRAVITY_BROWSER_HELPER_PATH,
+  ANTIGRAVITY_BROWSER_HELPER_SOURCE,
+  ANTIGRAVITY_AUTH_BROWSER_MARKER,
   ANTIGRAVITY_AUTH_STDOUT_PREFIX,
 } from "@shiba/shared";
 import { shellJoin } from "@shiba/shared";
@@ -42,6 +46,10 @@ export interface AntigravityAuthSandbox {
     exitCode: number;
   }>;
   writeFile(path: string, content: string): Promise<void>;
+  /** Keep the container awake — the DO's default sleepAfter (1m) is shorter than a human OAuth round-trip. */
+  setSleepAfter?(sleepAfter: string | number): Promise<void>;
+  /** Egress allowlist — the default sandbox gates deny the Google OAuth/API hosts the exchange needs. */
+  setAllowedHosts?(hosts: string[]): Promise<void>;
   destroy?(): Promise<void>;
 }
 
@@ -64,6 +72,32 @@ export interface AntigravityAuthEnv {
 
 const AUTH_SANDBOX_PREFIX = "agy-auth-";
 const AUTH_LOG_PATH = "/tmp/agy-auth.log";
+const AUTH_HANDSHAKE_PATH = "/tmp/agy-handshake.ndjson";
+
+/**
+ * The ACP handshake the server answers with the Google sign-in URL:
+ * `initialize` then `authenticate` with the personal OAuth method — the
+ * same eager-authenticate sequence a real ACP client (Zed, t3code) drives.
+ * Without it the process prints nothing and the flow would time out.
+ */
+const AUTH_HANDSHAKE = [
+  JSON.stringify({
+    jsonrpc: "2.0",
+    id: 0,
+    method: "initialize",
+    params: {
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      clientInfo: { name: "shiba-ai-coworker", version: "0.1.0" },
+    },
+  }),
+  JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "authenticate",
+    params: { methodId: "oauth-personal" },
+  }),
+];
 
 function sandboxIdFor(instanceId: string): string {
   return `${AUTH_SANDBOX_PREFIX}${instanceId.slice("agy-sub:".length)}`;
@@ -78,6 +112,11 @@ async function spawnAuthProcess(
   sandbox: AntigravityAuthSandbox,
   profileDir: string,
 ): Promise<void> {
+  // The OAuth round-trip is human-paced (account chooser, consent, paste).
+  // The class sleepAfter (1m) would stop the container — and with it the
+  // ACP listener and its PKCE verifier — while the operator is still on
+  // the Google page. 30m bounds the window; the flow must land inside it.
+  await sandbox.setSleepAfter?.("30m");
   const paths = antigravityProfilePaths(profileDir);
   const mkdir = await sandbox.exec(
     shellJoin(["mkdir", "-p", paths.acpDirectory, paths.tempDirectory]),
@@ -89,15 +128,27 @@ async function spawnAuthProcess(
   if (chmod.exitCode !== 0) {
     throw new Error(`profile setup failed: ${chmod.stderr.trim() || `exit ${chmod.exitCode}`}`);
   }
+  // The token exchange leaves the container through the HTTPS
+  // interceptor; without the Google OAuth/backend hosts it is refused
+  // (520) and agy ends the flow with "credentials are unusable".
+  await sandbox.setAllowedHosts?.([...ANTIGRAVITY_AUTH_HOSTS]);
   await sandbox.writeFile(paths.settingsPath, antigravityProfileSettings());
+  // File-based BROWSER helper — agy's command tokenization corrupts an
+  // inline node -e string (observed SyntaxError in the auth log).
+  await sandbox.writeFile(ANTIGRAVITY_BROWSER_HELPER_PATH, ANTIGRAVITY_BROWSER_HELPER_SOURCE);
   const env = antigravityEnvironment(paths, {}, antigravityBrowserCommand());
   const assignments = Object.entries(env)
     .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
     .join(" ");
+  // stdin carries the NDJSON handshake, then a sleep keeps the pipe open —
+  // stdin EOF would end the ACP server (and its loopback listener) before
+  // the operator's redirect can be delivered.
+  await sandbox.writeFile(AUTH_HANDSHAKE_PATH, AUTH_HANDSHAKE.join("\n") + "\n");
   // Detached: the process keeps listening on its loopback port after exec
-  // returns; stdout carries the sign-in URL once it is ready.
+  // returns; stderr (merged into the log) carries the sign-in URL once the
+  // authenticate call lands.
   const spawn = await sandbox.exec(
-    `${assignments} nohup agy --uid= > ${AUTH_LOG_PATH} 2>&1 </dev/null & echo started`,
+    `{ cat ${AUTH_HANDSHAKE_PATH}; sleep 86400; } | ${assignments} nohup agy --uid= > ${AUTH_LOG_PATH} 2>&1 & echo started`,
   );
   if (spawn.exitCode !== 0 || !spawn.stdout.includes("started")) {
     throw new Error("the Antigravity sign-in process failed to start.");
@@ -117,10 +168,24 @@ async function readAuthorizationUrl(
       stderr: "",
       exitCode: 1,
     }));
+    // The URL arrives either as the server's native prefix line or through
+    // the BROWSER helper marker (JSON-encoded URL) — stderr is merged into
+    // the same log, so one scan sees both.
     const line = log.stdout
       .split("\n")
-      .find((entry) => entry.startsWith(ANTIGRAVITY_AUTH_STDOUT_PREFIX));
+      .find(
+        (entry) =>
+          entry.startsWith(ANTIGRAVITY_AUTH_STDOUT_PREFIX) ||
+          entry.startsWith(ANTIGRAVITY_AUTH_BROWSER_MARKER),
+      );
     if (line !== undefined) {
+      if (line.startsWith(ANTIGRAVITY_AUTH_BROWSER_MARKER)) {
+        const decoded: unknown = JSON.parse(line.slice(ANTIGRAVITY_AUTH_BROWSER_MARKER.length));
+        if (typeof decoded !== "string") {
+          throw new Error("the Antigravity sign-in URL was not readable.");
+        }
+        return decoded;
+      }
       return line.slice(ANTIGRAVITY_AUTH_STDOUT_PREFIX.length).trim();
     }
     if (attempt + 1 < attempts) {

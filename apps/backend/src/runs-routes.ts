@@ -9,6 +9,7 @@ import type { Env } from "./env.js";
 import { signInternalRequest } from "./edge-identity.js";
 
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 import {
   buildSessionAgentName,
@@ -26,7 +27,7 @@ export async function resolveRunStoreTarget(
   request: Request,
   env: Env,
   url: URL,
-): Promise<{ agentName: string } | { error: Response }> {
+): Promise<{ agentName: string; userId: string } | { error: Response }> {
   // Local development shares the same fallback as the dashboard identity endpoint.
   const userId = (await resolveUserId(request, env)) ?? "default";
   const sessionParam = url.searchParams.get("session") || url.searchParams.get("sessionId");
@@ -44,9 +45,47 @@ export async function resolveRunStoreTarget(
     if (!sessionCheck.ok) {
       return { error: Response.json({ error: "Failed to verify session." }, { status: sessionCheck.status }) };
     }
-    return { agentName: buildSessionAgentName(userId, sessionParam) };
+    return { agentName: buildSessionAgentName(userId, sessionParam), userId };
   }
-  return { agentName: userId };
+  return { agentName: userId, userId };
+}
+
+type RunSummary = { runId: string; createdAt?: number };
+
+/**
+ * Automations, the review lane, Sentry and Slash runs live on the shared
+ * "default" DO. Unscoped run reads by a DASHBOARD_APPROVERS member (the set
+ * that can approve those runs) also read it; everyone else sees only their
+ * own DO, so one user's runs never leak into another's list.
+ */
+async function withSharedRuns(
+  env: Env,
+  own: Response,
+  runId: string | null,
+  limitParam: string | null,
+): Promise<Response> {
+  const shared = await getAgentByName(env.CodingOrchestrator, ORCHESTRATOR_NAME);
+  if (runId !== null) {
+    if (own.status !== 404) return own;
+    const fallback = await shared.fetch(`https://internal/api/runs/${encodeURIComponent(runId)}`);
+    return fallback.ok ? fallback : own;
+  }
+  if (!own.ok) return own;
+  const sharedRes = await shared.fetch(
+    `https://internal/api/runs${limitParam !== null ? `?limit=${encodeURIComponent(limitParam)}` : ""}`,
+  );
+  if (!sharedRes.ok) return own;
+  const mine = ((await own.json().catch(() => ({}))) as { runs?: RunSummary[] }).runs ?? [];
+  const theirs = ((await sharedRes.json().catch(() => ({}))) as { runs?: RunSummary[] }).runs ?? [];
+  const seen = new Set(mine.map((run) => run.runId));
+  const merged = [...mine, ...theirs.filter((run) => !seen.has(run.runId))];
+  // Same order contract as the DO: oldest-first, or newest-first when bounded.
+  if (limitParam === null) {
+    merged.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    return Response.json({ runs: merged });
+  }
+  merged.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  return Response.json({ runs: merged.slice(0, Math.min(Number(limitParam), 500)) });
 }
 
 export async function handleRuns(request: Request, env: Env): Promise<Response | null> {
@@ -102,5 +141,23 @@ export async function handleRuns(request: Request, env: Env): Promise<Response |
   // Edge identity: sign the stamped intake voucher so the DO can verify the
   // Worker minted it (no-op until INTERNAL_SIGNING_KEY is configured).
   await signInternalRequest(rewritten, env);
-  return stub.fetch(rewritten);
+  const response = await stub.fetch(rewritten);
+  const runMatch = url.pathname.match(/^\/api\/runs(?:\/([^/]+))?$/);
+  if (
+    !isSpine &&
+    request.method === "GET" &&
+    runMatch &&
+    targetAgentName === resolved.userId &&
+    targetAgentName !== ORCHESTRATOR_NAME &&
+    isApprover(resolved.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS))
+  ) {
+    let runId: string | null;
+    try {
+      runId = runMatch[1] ? decodeURIComponent(runMatch[1]) : null;
+    } catch {
+      return response;
+    }
+    return withSharedRuns(env, response, runId, url.searchParams.get("limit"));
+  }
+  return response;
 }

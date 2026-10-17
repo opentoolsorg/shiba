@@ -177,6 +177,11 @@ export const Worker = Cloudflare.Worker("Worker", {
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
     SHIBA_CLAUDE_SUBSCRIPTION: "1",
+    // Dark by default; configVars() below overrides from the deploy env.
+    SHIBA_CODEX_SUBSCRIPTION: "0",
+    SHIBA_CURSOR_SUBSCRIPTION: "0",
+    SHIBA_DEVIN_SUBSCRIPTION: "0",
+    SHIBA_ANTIGRAVITY_SUBSCRIPTION: "0",
     // Must match the Sandbox container's instanceType.
     INSTANCE_TYPE: "standard-1",
     // Public hostname for preview URLs + absolute screenshot links (T33).
@@ -260,6 +265,9 @@ export const Worker = Cloudflare.Worker("Worker", {
       "GITHUB_WEBHOOK_SECRET",
       "SLACK_SIGNING_SECRET",
       "SLACK_APPROVERS",
+      // Dashboard emails allowed to resolve shared ("default" DO) approvals:
+      // automations, review lane, Sentry, email. Unset = nobody.
+      "DASHBOARD_APPROVERS",
       "SLACK_BOT_TOKEN",
       "SLACK_CHANNEL_REPOS",
       "TYPESAFE_API_KEY",
