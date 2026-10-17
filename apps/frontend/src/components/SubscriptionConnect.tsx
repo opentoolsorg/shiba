@@ -454,34 +454,41 @@ export function SubscriptionConnect({
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-mono text-[11px] text-[var(--muted-foreground-2)]">
-            {phase === "starting" || phase === "verifying"
-              ? "Connecting…"
-              : phase === "failed"
-                ? "Connection failed"
-                : "Subscription account"}
-          </span>
-          <div className="flex items-center gap-2">
-            {spec.oauthRedirect && phase === "failed" ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate font-mono text-[11px] text-[var(--muted-foreground-2)]">
+              {phase === "starting" || phase === "verifying"
+                ? "Connecting…"
+                : phase === "failed"
+                  ? "Connection failed"
+                  : "Subscription account"}
+            </span>
+            <div className="flex items-center gap-2">
+              {spec.oauthRedirect && phase === "failed" ? (
+                <button
+                  type="button"
+                  onClick={verifyAgain}
+                  disabled={busy}
+                  className={CONNECT_SECONDARY}
+                >
+                  Check again
+                </button>
+              ) : null}
               <button
                 type="button"
-                onClick={verifyAgain}
-                disabled={busy}
-                className={CONNECT_SECONDARY}
+                onClick={connect}
+                disabled={busy || needsSecret}
+                className={CONNECT_PRIMARY}
               >
-                Check again
+                {busy ? "Connecting…" : phase === "failed" ? "Retry connect" : "Connect"}
               </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={connect}
-              disabled={busy || needsSecret}
-              className={CONNECT_PRIMARY}
-            >
-              {busy ? "Connecting…" : phase === "failed" ? "Retry connect" : "Connect"}
-            </button>
+            </div>
           </div>
+          {phase === "failed" && snapshot?.message !== undefined ? (
+            <p className="font-mono text-[11px] leading-relaxed text-[var(--destructive)]">
+              {snapshot.message}
+            </p>
+          ) : null}
         </div>
       )}
       {!unavailable && needsSecret && phase !== "succeeded" ? (

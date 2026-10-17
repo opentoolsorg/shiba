@@ -65,6 +65,17 @@ async function probeCodexSubscription<Env extends AuthControllerEnv>(
     const response = await forward(request, env, { params: { account } });
     if (response.status === 200) return { ok: true, message: "auth.json reached the ChatGPT backend." };
     if (response.status === 401 || response.status === 403) {
+      // chatgpt.com sits behind a bot gate that refuses Cloudflare datacenter
+      // egress entirely — the answer is a Cloudflare HTML challenge, not an
+      // API verdict. Report that honestly instead of blaming the credential.
+      const contentType = response.headers.get("content-type") ?? "";
+      if (response.status === 403 && contentType.includes("text/html")) {
+        return {
+          ok: false,
+          message:
+            "chatgpt.com refused the connection with a bot challenge, not a credential check — it blocks Cloudflare datacenter egress, so this deployment cannot reach the ChatGPT subscription backend.",
+        };
+      }
       return { ok: false, message: `credential rejected (${response.status}) — renew it with \`codex login\` and re-store the secret.` };
     }
     return { ok: false, message: `probe returned ${response.status}.` };

@@ -375,6 +375,30 @@ describe("worker wiring", () => {
     expect(response.headers.get("www-authenticate")).toContain("oauth-protected-resource");
   });
 
+  it("redirects a signed-out browser on /oauth/authorize to sign-in with a return path", async () => {
+    const { env } = makeEnv();
+    const query = "response_type=code&client_id=c1&state=s1";
+    const response = await worker.fetch(
+      new Request(`${ORIGIN}/oauth/authorize?${query}`, { headers: { accept: "text/html,*/*" } }),
+      env, ctx,
+    );
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("location")!);
+    expect(location.origin).toBe(ORIGIN);
+    expect(location.pathname).toBe("/");
+    expect(location.searchParams.get("next")).toBe(`/oauth/authorize?${query}`);
+  });
+
+  it("keeps the JSON 401 on /oauth/authorize for non-browser callers", async () => {
+    const { env } = makeEnv();
+    const response = await worker.fetch(
+      new Request(`${ORIGIN}/oauth/authorize?client_id=c1`, { headers: { accept: "application/json" } }),
+      env, ctx,
+    );
+    expect(response.status).toBe(401);
+    expect(((await response.json()) as Record<string, unknown>).error).toBe("Authentication required.");
+  });
+
   it("serves discovery documents through the worker unauthenticated", async () => {
     const { env } = makeEnv();
     const response = await worker.fetch(

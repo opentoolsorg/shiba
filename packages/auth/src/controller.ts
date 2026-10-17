@@ -182,7 +182,17 @@ export function createAuthController<Env extends AuthKvEnv>(
       await writeFlow(env, instanceId, started);
       // Provider begin work (e.g. record the credential) may elect to wait
       // for an out-of-band artifact — only T50's flow returns `wait`.
-      const outcome = await hooks.onBegin?.(env, instanceId, ownerSessionId);
+      let outcome: Awaited<ReturnType<NonNullable<typeof hooks.onBegin>>>;
+      try {
+        outcome = await hooks.onBegin?.(env, instanceId, ownerSessionId);
+      } catch (error) {
+        // A begin that throws after "starting" was recorded must not leave the
+        // flow parked — the dashboard would show "Connecting" forever. Roll to
+        // failed with the real reason, then surface the throw to the caller.
+        const message = error instanceof Error ? error.message : String(error);
+        await writeFlow(env, instanceId, { phase: "failed", ownerSessionId, message });
+        throw error;
+      }
       if (outcome?.wait !== undefined) {
         const waiting: FlowRecord = { phase: "waiting", ownerSessionId, message: outcome.wait };
         if (outcome.authorizationUrl !== undefined) waiting.authorizationUrl = outcome.authorizationUrl;

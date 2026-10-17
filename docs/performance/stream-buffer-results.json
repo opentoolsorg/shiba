@@ -1,0 +1,31 @@
+{
+  "kind": "synthetic-source-extract",
+  "node": "v24.13.0",
+  "workload": "1 KiB stdout fragments without a newline; three trials, median",
+  "samples": [
+    {
+      "chunks": 256,
+      "inputBytes": 262144,
+      "rescannedCharacters": 33685504,
+      "medianMs": 4.683
+    },
+    {
+      "chunks": 512,
+      "inputBytes": 524288,
+      "rescannedCharacters": 134479872,
+      "medianMs": 22.614
+    },
+    {
+      "chunks": 1024,
+      "inputBytes": 1048576,
+      "rescannedCharacters": 537395200,
+      "medianMs": 81.738
+    },
+    {
+      "chunks": 2048,
+      "inputBytes": 2097152,
+      "rescannedCharacters": 2148532224,
+      "medianMs": 329.052
+    }
+  ]
+}

@@ -191,6 +191,16 @@ export default {
         }
       }
       if (!isPublicRequest(request) && !(await isAuthorizedRequest(request, env))) {
+        // A signed-out browser on the consent screen goes to sign-in and
+        // comes back; MCP clients and fetch() keep the JSON 401.
+        if (
+          request.method === "GET" &&
+          url.pathname === "/oauth/authorize" &&
+          (request.headers.get("Accept") ?? "").includes("text/html")
+        ) {
+          const next = encodeURIComponent(`${url.pathname}${url.search}`);
+          return Response.redirect(new URL(`/?next=${next}`, url).toString(), 302);
+        }
         return Response.json(
           {
             error: "Authentication required.",

@@ -116,3 +116,54 @@ export function removeSkill(id: string): void {
   skillsCache = getSavedSkills().filter((skill) => skill.id !== id);
   writeList(SKILLS_KEY, skillsCache);
 }
+
+// ---------------------------------------------------------------------------
+// Composer drafts — one in-flight draft per composer scope (task, reply, …),
+// kept in localStorage so a reload or view switch never loses typed text.
+// -----------------------------------------------------------------------------
+
+const DRAFTS_KEY = "shiba-composer-drafts-v1";
+const DRAFTS_MAX = 100;
+
+/** The stored map; null-proto so scope names like "__proto__" stay inert. */
+function readDrafts(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(DRAFTS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    const out: Record<string, string> = Object.create(null);
+    for (const [scope, text] of Object.entries(parsed)) {
+      if (typeof text === "string") out[scope] = text;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function readDraft(scope: string): string {
+  return readDrafts()[scope] ?? "";
+}
+
+export function writeDraft(scope: string, text: string): void {
+  const drafts = readDrafts();
+  // Re-insert on write so insertion order tracks recency for eviction.
+  delete drafts[scope];
+  if (text.trim() !== "") {
+    drafts[scope] = text;
+    const keys = Object.keys(drafts);
+    if (keys.length > DRAFTS_MAX) {
+      for (const stale of keys.slice(0, keys.length - DRAFTS_MAX)) {
+        delete drafts[stale];
+      }
+    }
+  }
+  try {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    // Storage full/blocked — the draft just isn't persisted this session.
+  }
+}

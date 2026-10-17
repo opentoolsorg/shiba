@@ -40,6 +40,8 @@ export interface FireAutomationDeps {
   fetchImpl?: TypeSafeNoulFetch;
   nowMs?: number;
   globalEnabled: boolean;
+  /** False when GITHUB_TOKEN is unset: runs still queue, without a pull request. */
+  canPublishPullRequest?: boolean;
   queueRun: (input: QueueAutomationRunInput) => Promise<{ approvalId: string }>;
   resolveApproval?: (input: {
     threadKey: string;
@@ -211,12 +213,18 @@ export async function fireAutomation(
     }
   }
 
-  const request = { publishPullRequest: true };
+  // No GITHUB_TOKEN: degrade to a no-PR run (the orchestrator 400s a PR
+  // request). Unattended needs PR-only, so this also forces approval.
+  const publishPullRequest = deps.canPublishPullRequest !== false;
+  const request = { publishPullRequest };
   const auth = authorizeAutomationRun(automation, request, nowMs, deps.globalEnabled);
   if (!auth.allowed) {
     const skipped = recordSkip(automation, auth.reason, nowMs);
     return { fired: false, automation: skipped, reason: auth.reason };
   }
+  const reason = publishPullRequest
+    ? auth.reason
+    : `${auth.reason} GITHUB_TOKEN is not configured, so the run will not open a pull request.`;
 
   const threadKey = automationThreadKey(automation.id);
   try {
@@ -224,7 +232,7 @@ export async function fireAutomation(
     const queued = await deps.queueRun({
       repoUrl: automation.repoUrl,
       task: automation.prompt,
-      publishPullRequest: true,
+      publishPullRequest,
       threadKey,
       ...(commandId !== undefined ? { commandId } : {}),
     });
@@ -248,7 +256,7 @@ export async function fireAutomation(
     return {
       fired: true,
       automation: next,
-      reason: auth.reason,
+      reason,
       approvalId: queued.approvalId,
     };
   } catch (error) {
