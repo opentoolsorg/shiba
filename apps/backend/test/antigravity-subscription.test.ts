@@ -141,7 +141,7 @@ describe("harness shape", () => {
     expect(env.AGY_ACP_FORCE_FILE_STORAGE).toBe("1");
     expect(env.PYTHONUNBUFFERED).toBe("1");
     expect(env.ELECTRON_RUN_AS_NODE).toBe("1");
-    expect(env.BROWSER).toContain("-e ");
+    expect(env.BROWSER).toContain("node /tmp/shiba-agy-browser.js %s");
     // The removed list also contains the keys the launch env re-adds
     // (GEMINI_HOME, BROWSER, ...) — those are present by design; every
     // other removed key must stay absent.
@@ -267,6 +267,8 @@ class FakeSandbox implements AntigravityAuthSandbox {
   readonly commands: string[] = [];
   readonly files = new Map<string, string>();
   destroyed = false;
+  sleepAfter: string | number | undefined;
+  allowedHosts: string[] | undefined;
   private queue: { stdout: string; stderr: string; exitCode: number }[] = [];
   next(result: { stdout?: string; stderr?: string; exitCode?: number }): void {
     this.queue.push({ stdout: result.stdout ?? "", stderr: result.stderr ?? "", exitCode: result.exitCode ?? 0 });
@@ -277,6 +279,12 @@ class FakeSandbox implements AntigravityAuthSandbox {
   }
   async writeFile(path: string, content: string): Promise<void> {
     this.files.set(path, content);
+  }
+  async setSleepAfter(sleepAfter: string | number): Promise<void> {
+    this.sleepAfter = sleepAfter;
+  }
+  async setAllowedHosts(hosts: string[]): Promise<void> {
+    this.allowedHosts = hosts;
   }
   async destroy(): Promise<void> {
     this.destroyed = true;
@@ -318,6 +326,42 @@ describe("T50 waiting flow — pending record + delivered callback (§18.12)", (
     expect(sandbox.files.get("/root/.shiba/antigravity/default/antigravity-acp/settings.json")).toContain(
       "oauth-personal",
     );
+    // The ACP handshake is piped into the process — authenticate is what
+    // makes the server emit the sign-in URL; stdin is held open so EOF
+    // cannot kill the listener before the callback lands.
+    const handshake = sandbox.files.get("/tmp/agy-handshake.ndjson");
+    expect(handshake).toContain('"method":"initialize"');
+    expect(handshake).toContain('"method":"authenticate"');
+    expect(handshake).toContain('"methodId":"oauth-personal"');
+    expect(spawn).toContain("cat /tmp/agy-handshake.ndjson");
+    expect(spawn).toContain("sleep");
+    // The OAuth round-trip is human-paced: the sandbox's 1m sleepAfter
+    // would kill the ACP listener mid-consent. begin widens it.
+    expect(sandbox.sleepAfter).toBe("30m");
+    // The token exchange goes through the HTTPS interceptor — the auth
+    // sandbox must admit the Google OAuth + Antigravity backend hosts or
+    // the exchange is refused and agy reports "credentials unusable".
+    expect(sandbox.allowedHosts).toContain("oauth2.googleapis.com");
+    expect(sandbox.allowedHosts).toContain("cloudcode-pa.googleapis.com");
+    // The BROWSER helper lands as a file — agy's tokenization mangles an
+    // inline node -e string.
+    expect(sandbox.files.get("/tmp/shiba-agy-browser.js")).toContain(
+      "__SHIBA_ANTIGRAVITY_AUTH_URL__",
+    );
+    expect(spawn).toContain("BROWSER=\"node /tmp/shiba-agy-browser.js %s\"");
+  });
+
+  it("the browser-helper marker line resolves the sign-in URL too", async () => {
+    const kv = new FakeKV();
+    const sandbox = new FakeSandbox();
+    const env = { AGENT_TOKENS: kv as unknown as KVNamespace, Sandbox: {} as DurableObjectNamespace };
+    sandbox.next({ exitCode: 0 }); // mkdir
+    sandbox.next({ exitCode: 0 }); // chmod
+    sandbox.next({ stdout: "started", exitCode: 0 }); // spawn
+    sandbox.next({ stdout: `__SHIBA_ANTIGRAVITY_AUTH_URL__${JSON.stringify(AUTH_URL)}\n`, exitCode: 0 }); // helper marker
+    const controller = antigravitySubscriptionAuth(env, "agy-sub:default", { sandboxFor: () => sandbox, pollAttempts: 2, pollIntervalMs: 0 });
+    await controller.begin("sess-A");
+    expect((await controller.snapshot()).authorizationUrl).toBe(AUTH_URL);
   });
 
   it("a delivered callback stays waiting — only the probe sets succeeded", async () => {

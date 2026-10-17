@@ -58,6 +58,9 @@ Slack lane **[LANE]**:
 - [ ] `SLACK_APPROVERS` — comma-separated Slack user ids; empty = nobody can approve.
 - [ ] `SLACK_CHANNEL_REPOS` — JSON `{channelId: "https://github.com/owner/repo"}`.
 - [ ] `SLACK_APPROVALS_CHANNEL` (var, not secret) — channel for email-kind cards.
+- [ ] `DASHBOARD_APPROVERS` — comma-separated dashboard sign-in emails allowed to
+      approve shared runs (automations, PR review lane, Sentry, email); empty =
+      nobody, so those cards 403 from the dashboard.
 
 GitHub webhook **[LANE]**:
 
@@ -100,7 +103,7 @@ Already pinned identical in both: `GATEWAY_ID=default`,
       `MEMORY_ENABLED`, `AGENT_MAILBOX`, `BETTER_AUTH_URL`,
       `ROLE_MODEL_MAP` / `ROLE_MODEL__*`, model overrides
       (`CLAUDE_CODE_MODEL`, `CODEX_MODEL`, `DEVIN_MODEL`, `GROK_MODEL`, `ACP_MODEL`).
-      ⚠ `SLACK_AGENT_HARNESS`, `USAGE_BUDGET_USD`, `DASHBOARD_APPROVERS` are
+      ⚠ `SLACK_AGENT_HARNESS`, `USAGE_BUDGET_USD` are
       read by the worker but absent from alchemy `configVars()`.
 
 ## 4. Cloudflare Access on app.tryshiba.dev
@@ -192,7 +195,7 @@ npx wrangler tail --status error
    `DEVIN_SUBSCRIPTION_TOKEN_<ACCOUNT>`) — egress resolves them by name, but
    alchemy only binds exact listed names. Multi-account is wrangler-only.
 4. Worker-read vars missing from alchemy `configVars()`: `SLACK_AGENT_HARNESS`,
-   `USAGE_BUDGET_USD`, `DASHBOARD_APPROVERS`.
+   `USAGE_BUDGET_USD`.
 5. `AGENT_MAILBOX` appears twice in alchemy `configVars()` (harmless duplicate).
 6. Access apps: alchemy binds Access destinations to the workers.dev hostname
    that live stages disable — app.tryshiba.dev is never covered by the
