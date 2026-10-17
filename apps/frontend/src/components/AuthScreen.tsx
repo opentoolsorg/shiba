@@ -9,6 +9,7 @@
  */
 import { useState, type FormEvent, type JSX } from "react";
 import { authClient } from "../auth-client";
+import { signInReturnPath } from "../auth-next";
 
 export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Element {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -41,6 +42,12 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
               ? "Sign-up failed — an account may already exist."
               : "Sign-in failed — check the email and password."),
         );
+        return;
+      }
+      // Back to the OAuth consent screen that sent us here, if any.
+      const next = signInReturnPath(window.location.search);
+      if (next !== null) {
+        window.location.assign(next);
         return;
       }
       onSignedIn();

@@ -16,6 +16,10 @@
   // public host. (With `routes` present wrangler defaults this to false;
   // stated explicitly so the alchemy workersDev parity is unmissable.)
   "workers_dev": false,
+  // Keep dashboard-set plain vars (e.g. GMAIL_CLIENT_ID, AUTOMATIONS_ENABLED)
+  // across `wrangler deploy`. Vars declared below still win over the
+  // dashboard. alchemy has no equivalent: an alchemy deploy binds only its list.
+  "keep_vars": true,
   // Single public host: app.tryshiba.dev serves the Worker (dashboard +
   // /api/* same-origin). Custom domain auto-manages DNS + edge TLS — the
   // tryshiba.dev zone lives on this account. tryshiba.dev itself stays on
@@ -30,6 +34,12 @@
     "CODING_MODEL": "google/gemini-3.5-flash-lite",
     "RUNTIME": "sandbox",
     "SHIBA_CLAUDE_SUBSCRIPTION": "1",
+    // Dark until the operator flips one to "1" here — wrangler deploy resets
+    // dashboard-set vars, so the toggle lives in this file.
+    "SHIBA_CODEX_SUBSCRIPTION": "0",
+    "SHIBA_CURSOR_SUBSCRIPTION": "0",
+    "SHIBA_DEVIN_SUBSCRIPTION": "0",
+    "SHIBA_ANTIGRAVITY_SUBSCRIPTION": "0",
     // Must match containers.instance_type. Cloudbox-style deploy-time size knob.
     "INSTANCE_TYPE": "standard-1",
     // Public hostname of this Worker (e.g. "shiba.example.com") — used to
@@ -82,6 +92,9 @@
     //   LOCAL_ADAPTER_TOKEN     bearer the `shiba local` daemon presents on
     //   /api/local/* — a Wrangler secret; unset = the surface is dark even
     //   with the flag on.
+    //   DASHBOARD_APPROVERS     comma-separated dashboard sign-in emails
+    //   allowed to resolve shared approvals (automations, review lane,
+    //   Sentry, email) — a Wrangler secret; unset = nobody can approve them.
     //   AGENT_MAILBOX          agent mailbox identity for the MCP
     //   latest_verification default — unset = dev@tryshiba.dev. Register
     //   the address in the Inbox and assign it to the agent principal.

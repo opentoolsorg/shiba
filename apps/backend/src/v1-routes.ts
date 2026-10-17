@@ -4,6 +4,19 @@ import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { resolveRunStoreTarget } from "./runs-routes.js";
+import type { V1Context } from "./v1/context.js";
+import { handleAutomations } from "./v1/automations.js";
+import { handleBilling } from "./v1/billing.js";
+import { handleMcp } from "./v1/mcp.js";
+import { handleRepositories } from "./v1/repositories.js";
+import { handleDiffs } from "./v1/diffs.js";
+import { handleEvents } from "./v1/events.js";
+import { handleMessages } from "./v1/messages.js";
+import { handlePreviews } from "./v1/previews.js";
+import { handlePulls } from "./v1/pulls.js";
+import { handleRuns } from "./v1/runs.js";
+import { handleSystem } from "./v1/system.js";
+import { handleThreads } from "./v1/threads.js";
 
 export interface V1RouteDeps {
   isAuthorized?: (request: Request, env: Env) => Promise<boolean>;
@@ -32,6 +45,26 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
   if (!url.pathname.startsWith("/api/v1/")) return null;
   if (!(await (deps.isAuthorized ?? isAuthorizedRequest)(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
+  }
+  // Hoplite-shape groups first; each returns null when the path is not theirs.
+  if (request.method === "POST") url.pathname = url.pathname.replace(/^(\/api\/v1\/threads\/[^/]+)\/messages$/, "$1/message");
+  const ctx: V1Context = { request, env, url, forward: async (method, path, input) => {
+    const resolved = await (deps.resolveTarget ?? resolveRunStoreTarget)(request, env, url);
+    if ("error" in resolved) return resolved.error;
+    const stub = await (deps.getStub ?? (async (bindings, name) => getAgentByName(bindings.CodingOrchestrator, name)))(env, resolved.agentName);
+    const headers = new Headers(request.headers);
+    headers.set(LOCAL_INTAKE_HEADER, LOCAL_INTAKE_DASHBOARD);
+    headers.delete(AGENT_PRINCIPAL_HEADER);
+    headers.delete("content-length");
+    if (input) headers.set("content-type", "application/json");
+    const internal = new Request(new URL(path, request.url), { method, headers, ...(input ? { body: JSON.stringify(input) } : {}) });
+    await signInternalRequest(internal, env);
+    return stub.fetch(internal);
+  } };
+  for (const group of [handleSystem, handleThreads, handleMessages, handleRuns, handleDiffs, handlePulls, handlePreviews, handleBilling, handleEvents, handleRepositories, handleMcp, handleAutomations]) {
+    // Handlers read the body; give each its own copy so the legacy path below still can.
+    const handled = await group({ ...ctx, request: request.clone() as typeof request });
+    if (handled) return handled;
   }
   const match = url.pathname.match(/^\/api\/v1\/(threads|reviews)(?:\/([^/]+)(?:\/(message|interrupt|archive|tasks))?)?$/);
   if (!match || (match[1] === "reviews" && match[2])) return Response.json({ error: "Not found." }, { status: 404 });

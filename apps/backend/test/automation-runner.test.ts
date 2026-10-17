@@ -165,6 +165,22 @@ describe("automation fire path", () => {
     expect(result.automation.lastSkip?.reason).toMatch(/orchestrator down/);
   });
 
+  it("queues without a pull request when GITHUB_TOKEN is unset instead of failing", async () => {
+    const d = deps({ canPublishPullRequest: false });
+    const result = await fireAutomation(scheduleAutomation(), { kind: "schedule", nowMs: d.nowMs! }, d);
+    expect(result.fired).toBe(true);
+    expect(d.queueRun.mock.calls[0]![0]).toMatchObject({ publishPullRequest: false });
+    expect(result.reason).toMatch(/GITHUB_TOKEN is not configured/);
+  });
+
+  it("does not auto-approve an unattended run that cannot publish a PR", async () => {
+    const automation = scheduleAutomation({ unattended: true, unattendedRepos: ["owner/repo"] });
+    const d = deps({ canPublishPullRequest: false });
+    const result = await fireAutomation(automation, { kind: "schedule", nowMs: d.nowMs! }, d);
+    expect(result.fired).toBe(true);
+    expect(d.resolveApproval).not.toHaveBeenCalled();
+  });
+
   it("honors the global kill switch", async () => {
     const d = deps({ globalEnabled: false });
     const result = await fireAutomation(scheduleAutomation(), { kind: "schedule", nowMs: d.nowMs! }, d);
