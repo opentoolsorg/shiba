@@ -1,11 +1,70 @@
+import { sandboxFeatureMatrix } from "@shiba/shared";
+import type { SandboxInstance } from "@shiba/sandbox";
 import { getSandbox } from "./sandbox/client.js";
 import type { Env } from "./env.js";
+import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { redactSecrets } from "./security.js";
+import { getSandboxInstance, resolveSandboxProviderForSelection } from "./sandbox/provider.js";
+import { resolveSandboxSelection, type SandboxSelectionContext } from "./sandbox/selection.js";
 
 const SAFE_SANDBOX_ID_RE = /^[a-zA-Z0-9_.-]{1,128}$/;
 
 export function isValidSandboxId(id: string): boolean {
   return SAFE_SANDBOX_ID_RE.test(id);
+}
+
+function selectionForOrg(orgId: string, url: URL): SandboxSelectionContext {
+  const taskProviderId = url.searchParams.get("provider")?.trim() || undefined;
+  const customAgentProviderId = url.searchParams.get("customAgentProvider")?.trim() || undefined;
+  return {
+    orgId,
+    ...(taskProviderId ? { taskProviderId } : {}),
+    ...(customAgentProviderId ? { customAgentProviderId } : {}),
+  };
+}
+
+async function resolveDebugSandbox(
+  env: Env,
+  sandboxId: string,
+  ctx: SandboxSelectionContext,
+): Promise<{ instance: SandboxInstance; providerId: string; selectionSource: string }> {
+  const selection = await resolveSandboxSelection(env, ctx);
+  const provider = await resolveSandboxProviderForSelection(env, ctx);
+  const instance = await getSandboxInstance(env, sandboxId, ctx);
+  return { instance, providerId: provider.id, selectionSource: selection.source };
+}
+
+async function listFilesViaProvider(
+  env: Env,
+  sandboxId: string,
+  targetPath: string,
+  ctx: SandboxSelectionContext,
+): Promise<unknown[]> {
+  const { instance, providerId } = await resolveDebugSandbox(env, sandboxId, ctx);
+  if (providerId === "cloudflare" && env.Sandbox) {
+    try {
+      const result = await getSandbox(env.Sandbox, sandboxId).listFiles(targetPath);
+      const files = (result as { files?: unknown }).files ?? result;
+      return Array.isArray(files) ? files : [];
+    } catch {
+      // Fall through to exec-based listing.
+    }
+  }
+  const quoted = targetPath.replace(/'/g, `'\\''`);
+  const result = await instance.exec(`ls -la '${quoted}'`, {
+    cwd: "/",
+    timeoutMs: 15_000,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || `ls failed (${result.exitCode})`);
+  }
+  const lines = result.stdout.split("\n").filter((line) => line.trim() && !line.startsWith("total "));
+  return lines.map((line) => {
+    const parts = line.trim().split(/\s+/);
+    const name = parts.slice(8).join(" ") || line;
+    const isDirectory = line.startsWith("d");
+    return { name, path: `${targetPath.replace(/\/$/, "")}/${name}`, isDirectory, raw: line };
+  });
 }
 
 export async function handleSandboxRoutes(request: Request, env: Env): Promise<Response | null> {
@@ -32,29 +91,61 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
     return Response.json({ error: "Invalid sandbox ID format." }, { status: 400 });
   }
 
-  const sandbox = getSandbox(env.Sandbox, sandboxId);
+  const auth = await resolveOrgForApiRequest(request, env);
+  if (auth instanceof Response) return auth;
+  const selectionCtx = selectionForOrg(auth.orgId, url);
 
   try {
     if (action === "info" && request.method === "GET") {
       let placementId: string | null | undefined = null;
       let processes: unknown[] = [];
-      let reachable = true;
+      let reachable = false;
+      let providerId = "cloudflare";
+      let selectionSource = "deployment";
+      let capabilities = sandboxFeatureMatrix({
+        edgeEgressEnforcement: false,
+        previewUrls: false,
+        snapshots: false,
+        backgroundProcesses: false,
+      });
       try {
-        placementId = await sandbox.getContainerPlacementId();
+        const resolved = await resolveDebugSandbox(env, sandboxId, selectionCtx);
+        providerId = resolved.providerId;
+        selectionSource = resolved.selectionSource;
+        capabilities = sandboxFeatureMatrix(resolved.instance.capabilities);
+        await resolved.instance.exec("true", { timeoutMs: 5_000 });
+        reachable = true;
+        if (providerId === "cloudflare" && env.Sandbox) {
+          try {
+            const rpc = getSandbox(env.Sandbox, sandboxId);
+            placementId = await rpc.getContainerPlacementId();
+            try {
+              processes = await rpc.listProcesses();
+            } catch {
+              processes = [];
+            }
+          } catch {
+            // Optional debug fields only.
+          }
+        }
       } catch {
-        // Not reachable or offline
         reachable = false;
-      }
-      if (reachable) {
         try {
-          processes = await sandbox.listProcesses();
+          const selection = await resolveSandboxSelection(env, selectionCtx);
+          const provider = await resolveSandboxProviderForSelection(env, selectionCtx);
+          providerId = provider.id;
+          selectionSource = selection.source;
+          capabilities = sandboxFeatureMatrix(provider.capabilities);
         } catch {
-          // ignore process list error
+          // Keep defaults.
         }
       }
       return Response.json({
         sandboxId,
         available: reachable,
+        providerId,
+        selectionSource,
+        capabilities,
         placementId: placementId ?? null,
         processes: processes ?? [],
         defaultPort: 3000,
@@ -72,22 +163,26 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
     if (action === "files" && request.method === "GET") {
       const targetPath = url.searchParams.get("path") || "/workspace";
       try {
-        const result = await sandbox.listFiles(targetPath);
-        const files = (result as { files?: unknown }).files ?? result;
+        const files = await listFilesViaProvider(env, sandboxId, targetPath, selectionCtx);
         return Response.json({
           sandboxId,
           path: targetPath,
           files,
         });
       } catch (error) {
-        return Response.json({
-          sandboxId,
-          path: targetPath,
-          error: redactSecrets(error instanceof Error ? error.message : String(error)),
-          files: [],
-        }, { status: 404 });
+        return Response.json(
+          {
+            sandboxId,
+            path: targetPath,
+            error: redactSecrets(error instanceof Error ? error.message : String(error)),
+            files: [],
+          },
+          { status: 404 },
+        );
       }
     }
+
+    const { instance } = await resolveDebugSandbox(env, sandboxId, selectionCtx);
 
     if (action === "file" && request.method === "GET") {
       const targetPath = url.searchParams.get("path");
@@ -95,19 +190,22 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
         return Response.json({ error: "Path parameter is required." }, { status: 400 });
       }
       try {
-        const result = await sandbox.readFile(targetPath);
-        const content = (result as { content?: unknown }).content ?? result;
+        const result = await instance.readFile(targetPath);
+        const content = result.kind === "utf8" ? result.content : result.content;
         return Response.json({
           sandboxId,
           path: targetPath,
           content: typeof content === "string" ? content : String(content),
         });
       } catch (error) {
-        return Response.json({
-          sandboxId,
-          path: targetPath,
-          error: redactSecrets(error instanceof Error ? error.message : String(error)),
-        }, { status: 404 });
+        return Response.json(
+          {
+            sandboxId,
+            path: targetPath,
+            error: redactSecrets(error instanceof Error ? error.message : String(error)),
+          },
+          { status: 404 },
+        );
       }
     }
 
@@ -127,9 +225,9 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
       }
       const safeCwd = typeof cwd === "string" && cwd.trim() ? cwd.trim() : "/workspace";
       try {
-        const result = await sandbox.exec(command, {
+        const result = await instance.exec(command, {
           cwd: safeCwd,
-          timeout: 30000,
+          timeoutMs: 30_000,
         });
         return Response.json({
           sandboxId,
@@ -141,58 +239,73 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
           success: result.exitCode === 0,
         });
       } catch (error) {
-        return Response.json({
-          sandboxId,
-          command,
-          cwd: safeCwd,
-          error: redactSecrets(error instanceof Error ? error.message : String(error)),
-          exitCode: -1,
-          stdout: "",
-          stderr: String(error),
-          success: false,
-        }, { status: 500 });
+        return Response.json(
+          {
+            sandboxId,
+            command,
+            cwd: safeCwd,
+            error: redactSecrets(error instanceof Error ? error.message : String(error)),
+            exitCode: -1,
+            stdout: "",
+            stderr: String(error),
+            success: false,
+          },
+          { status: 500 },
+        );
       }
     }
 
     if (action === "diff" && request.method === "GET") {
       try {
-        const result = await sandbox.exec("git diff HEAD", {
+        const result = await instance.exec("git diff HEAD", {
           cwd: "/workspace",
-          timeout: 15000,
+          timeoutMs: 15_000,
         });
         return Response.json({
           sandboxId,
           diff: result.stdout ?? "",
         });
       } catch (error) {
-        return Response.json({
-          sandboxId,
-          error: redactSecrets(error instanceof Error ? error.message : String(error)),
-          diff: "",
-        }, { status: 500 });
+        return Response.json(
+          {
+            sandboxId,
+            error: redactSecrets(error instanceof Error ? error.message : String(error)),
+            diff: "",
+          },
+          { status: 500 },
+        );
       }
     }
 
     if (action === "processes" && request.method === "GET") {
       try {
-        const processes = await sandbox.listProcesses();
-        return Response.json({
-          sandboxId,
-          processes: processes ?? [],
-        });
+        if (env.Sandbox) {
+          const processes = await getSandbox(env.Sandbox, sandboxId).listProcesses();
+          return Response.json({
+            sandboxId,
+            processes: processes ?? [],
+          });
+        }
+        return Response.json({ sandboxId, processes: [] });
       } catch (error) {
-        return Response.json({
-          sandboxId,
-          error: redactSecrets(error instanceof Error ? error.message : String(error)),
-          processes: [],
-        }, { status: 500 });
+        return Response.json(
+          {
+            sandboxId,
+            error: redactSecrets(error instanceof Error ? error.message : String(error)),
+            processes: [],
+          },
+          { status: 500 },
+        );
       }
     }
 
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   } catch (error) {
-    return Response.json({
-      error: redactSecrets(error instanceof Error ? error.message : String(error)),
-    }, { status: 500 });
+    return Response.json(
+      {
+        error: redactSecrets(error instanceof Error ? error.message : String(error)),
+      },
+      { status: 500 },
+    );
   }
 }

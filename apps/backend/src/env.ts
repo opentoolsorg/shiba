@@ -205,6 +205,13 @@ export interface Env {
    * (e2b, modal, daytona, …). Requires a Node/Bun control plane — not Worker edge.
    */
   SHIBA_COMPUTESDK_PROVIDER?: string;
+  /**
+   * When set, the Worker proxies ComputeSDK sandbox ops to this Node/Bun runner
+   * (`scripts/computesdk-runner.mjs`) instead of loading computesdk in-process.
+   */
+  SHIBA_COMPUTESDK_RUNNER_URL?: string;
+  /** Bearer token for the ComputeSDK runner — never logged. */
+  SHIBA_COMPUTESDK_RUNNER_TOKEN?: string;
   /** ComputeSDK / E2B — never logged. */
   E2B_API_KEY?: string;
   MODAL_TOKEN_ID?: string;

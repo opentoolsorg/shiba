@@ -83,13 +83,18 @@ export async function handleSendMessage(ctx: V1Context): Promise<Response | null
     return Response.json({ id: `adm_${queued.approvalId ?? "pending"}`, deduped: false, approvalId: queued.approvalId });
   }
   const threadRun = run as typeof run & { threadKey?: string; continuationKey?: string };
-  const queued = await ctx.forward("POST", "/api/runs", {
-    repoUrl: run.repoUrl,
-    task: `Follow-up on run ${id}:\n${text}`,
-    ...(threadRun.threadKey ? { threadKey: threadRun.threadKey } : {}),
-    ...(threadRun.continuationKey ? { continuesKey: threadRun.continuationKey } : {}),
-    ...(clientKey ? { commandId: `v1:msg:${id}:${clientKey}` } : {}),
-  });
+  const { v1RunQueueBody } = await import("./run-intake.js");
+  const queued = await ctx.forward(
+    "POST",
+    "/api/runs",
+    v1RunQueueBody(ctx.principal, {
+      repoUrl: run.repoUrl,
+      task: `Follow-up on run ${id}:\n${text}`,
+      ...(threadRun.threadKey ? { threadKey: threadRun.threadKey } : {}),
+      ...(threadRun.continuationKey ? { continuesKey: threadRun.continuationKey } : {}),
+      ...(clientKey ? { commandId: `v1:msg:${id}:${clientKey}` } : {}),
+    }),
+  );
   if (!queued.ok) return queued;
   const result = await queued.json() as { approvalId?: string; deduped?: boolean };
   return Response.json({

@@ -35,5 +35,8 @@ export * from "./desktop-bridge.js";
 export * from "./swarm-desk.js";
 export * from "./swarm-share.js";
 export * from "./subagent.js";
+export * from "./custom-agents.js";
+export * from "./sandbox-features.js";
+export * from "./den.js";
 export * from "./captain.js";
 export * from "./container-budget.js";

@@ -37,10 +37,12 @@ import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleApiKeys } from "./api-keys-routes.js";
+import { handleCustomAgents } from "./custom-agents-routes.js";
+import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
-import { handleCaptainRoutes } from "./captain-routes.js";
+import { handleDenRoutes } from "./den-routes.js";
 import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
@@ -110,6 +112,7 @@ const MARKETING_SECTIONS = new Set([
 ]);
 // Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the tasks home.
 export const DASHBOARD_VIEWS = new Set([
+  // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
   "",
   "dashboard",
   "tasks",
@@ -125,6 +128,7 @@ export const DASHBOARD_VIEWS = new Set([
   "providers",
   "integrations",
   "skills",
+  "custom-agents",
   "remote",
   "settings",
 ]);
@@ -255,6 +259,10 @@ export default {
       if (metaResponse) return metaResponse;
       const apiKeysResponse = await handleApiKeys(request, env);
       if (apiKeysResponse) return apiKeysResponse;
+      const customAgentsResponse = await handleCustomAgents(request, env);
+      if (customAgentsResponse) return customAgentsResponse;
+      const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
+      if (orgSandboxResponse) return orgSandboxResponse;
       const userOpenAiSubscriptionResponse = await handleUserOpenAiSubscription(request, env);
       if (userOpenAiSubscriptionResponse) return userOpenAiSubscriptionResponse;
       const subscriptionAuthResponse = await handleSubscriptionAuth(request, env);
@@ -295,9 +303,9 @@ export default {
       if (sandboxResponse) {
         return sandboxResponse;
       }
-      const captainResponse = await handleCaptainRoutes(request, env);
-      if (captainResponse) {
-        return captainResponse;
+      const denResponse = await handleDenRoutes(request, env);
+      if (denResponse) {
+        return denResponse;
       }
       const runsResponse = await handleRuns(request, env);
       if (runsResponse) {

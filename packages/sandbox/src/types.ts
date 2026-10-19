@@ -15,6 +15,8 @@ export interface SandboxCapabilities {
   backgroundProcesses: boolean;
   /** `raw()` exposes the provider-native handle (e.g. ComputeSDK `Instance`). */
   rawProviderHandle: boolean;
+  /** Durable attachable storage beyond the container filesystem (optional). */
+  persistentVolumes?: boolean;
 }
 
 export type BuiltinSandboxProviderId = "cloudflare" | "docker-local" | "e2b" | "computesdk";
