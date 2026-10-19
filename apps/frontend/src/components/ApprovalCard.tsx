@@ -39,7 +39,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
       <div className="p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <div className="font-mono font-bold text-sm text-[var(--fg)] flex items-center gap-2 min-w-0">
-          <Tooltip content="Sacred Approval Gate — Zero Trust Security" side="bottom">
+          <Tooltip content="Nothing runs until you approve" side="bottom">
             <img
               src="/assets/mascot/pet-logo.png"
               alt="Shiba Guard"
@@ -90,7 +90,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
       ) : null}
 
       <p className="text-xs text-[var(--muted-foreground-2)] leading-relaxed">
-        Approving starts an isolated sandbox run. Rejecting stops the tool call.
+        Approve to run this in an isolated sandbox with the payload above. Reject to cancel — no container starts.
       </p>
 
       <div className="flex flex-wrap items-center gap-3 pt-1">
