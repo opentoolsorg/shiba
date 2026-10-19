@@ -17,7 +17,7 @@ After the first message in a session, the timeline footer shows run outcome pane
 | --- | --- |
 | **Run progress** | Registry status (`pending`, `running`, `completed`, error family). Includes a direct **Open pull request** link when `pullUrl` is on the run row. |
 | **Pull request** | Live GitHub status from `GET /api/v1/threads/:id/pr/status`, with a waiting state while publish is in flight and a fallback link from `pullUrl` when GitHub status is not ready. |
-| **Review findings** | Review round from `GET /api/v1/threads/:id/pr/review` when **Read-only review after publish** was frozen at approval. Failed rounds expose **Retry review post** (`POST …/pr/review/retry`). |
+| **Review findings** | Review round from `GET /api/v1/threads/:id/pr/review` when **Read-only review after publish** was frozen at approval. Failed rounds expose **Retry review** (`POST …/pr/review/retry`), which re-runs the reviewer unless the only failure was posting an already finished review. |
 
 The composer shows **Sending task…** while a submit is in flight and **Planner responding** while the orchestrator is still streaming — the Send button stays disabled in both cases.
 

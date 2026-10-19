@@ -137,10 +137,24 @@ describe("v1 P2 handlers", () => {
     expect((await handlePulls(fixture("/threads/r1/pr/status").ctx))!.status).toBe(404);
   });
 
-  it("has no review loop and refuses to configure one", async () => {
-    expect(await (await handlePulls(fixture("/threads/r1/pr/review-loop").ctx))!.json()).toEqual({ ok: true, reviewLoop: null });
+  it("persists review-loop settings through the orchestrator", async () => {
+    const listed = fixture("/threads/r1/pr/review-loop");
+    listed.forward.mockImplementation(async (verb: string, route: string) =>
+      route.endsWith("/review-loop")
+        ? Response.json({ ok: true, reviewLoop: null })
+        : Response.json(verb === "POST" ? { ok: true } : { run }),
+    );
+    expect(await (await handlePulls(listed.ctx))!.json()).toEqual({ ok: true, reviewLoop: null });
+    expect(listed.forward).toHaveBeenCalledWith("GET", "/api/runs/r1/review-loop", undefined);
     expect((await handlePulls(fixture("/threads/r1/pr/review-loop", "PATCH", { enabled: "yes" }).ctx))!.status).toBe(400);
-    expect((await handlePulls(fixture("/threads/r1/pr/review-loop", "PATCH", { enabled: true }).ctx))!.status).toBe(501);
+    const patched = fixture("/threads/r1/pr/review-loop", "PATCH", { enabled: true, autoMerge: false });
+    patched.forward.mockImplementation(async (_verb: string, route: string, body?: Record<string, unknown>) =>
+      route.endsWith("/review-loop")
+        ? Response.json({ ok: true, reviewLoop: { threadId: "r1", enabled: true, autoMerge: false, updatedAt: 1 } })
+        : Response.json({ run }),
+    );
+    expect((await handlePulls(patched.ctx))!.status).toBe(200);
+    expect(patched.forward).toHaveBeenCalledWith("PATCH", "/api/runs/r1/review-loop", { enabled: true, autoMerge: false });
   });
 
   it("reports previews as unsupported and refuses to start one", async () => {
