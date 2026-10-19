@@ -102,6 +102,15 @@ try {
     await page.goto(`${url}?tab=runs`, { waitUntil: "domcontentloaded" });
     await shot("06-runs");
   }
+  if (feature === "captain-subagents") {
+    const captain = await page.request.get(`http://127.0.0.1:${port}/api/captains/verify-captain`);
+    result.captainStatus = captain.status();
+    result.captainBody = await captain.json().catch(() => null);
+    await shot("06-captain-snapshot");
+    await page.goto(`${url}?tab=diff`, { waitUntil: "domcontentloaded" });
+    result.subagentTreeVisible = (await page.getByTestId("subagent-tree").count()) > 0;
+    await shot("07-diff-subagent-tree");
+  }
   const after = dockerIds();
   result.dockerBefore = before;
   result.dockerAfter = after;
