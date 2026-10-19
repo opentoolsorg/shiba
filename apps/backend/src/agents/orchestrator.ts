@@ -804,13 +804,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined));
   }
 
-  private resolveHarnessAndModel(input: DelegateInput): { harness: string; codingModel: string } {
+  private resolveHarnessAndModel(
+    input: DelegateInput,
+    dashboardRolePins?: import("../model-connections.js").PurposePolicy["rolePins"],
+  ): { harness: string; codingModel: string } {
     // T52: a delegation carrying `role` resolves through the operator's
-    // role pins (ROLE_MODEL_MAP, then ROLE_MODEL__<ROLE>) before any
-    // per-call or deployment default; an unpinned role falls through to
+    // role pins (dashboard, ROLE_MODEL_MAP, then ROLE_MODEL__<ROLE>) before
+    // any per-call or deployment default; an unpinned role falls through to
     // the chain below unchanged. A pinned role's model is authoritative —
     // a per-call codingModel cannot override what the operator pinned.
-    const rolePick = input.role !== undefined ? resolveRoleModel(this.env, input.role) : null;
+    const rolePick =
+      input.role !== undefined ? resolveRoleModel(this.env, input.role, dashboardRolePins) : null;
     const harnessName =
       rolePick?.harness ?? input.harness ?? this.env.AGENT_HARNESS?.trim() ?? "opencode";
     const harness = resolveHarness(harnessName, this.env);
@@ -838,8 +842,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private async resolveRoute(
     input: DelegateInput,
   ): Promise<{ harness: string; codingModel: string; route: ApprovedRoute }> {
-    const { harness, codingModel } = this.resolveHarnessAndModel(input);
     const snapshot = await readModelConfig(this.env);
+    const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins);
     const route = resolveCodingRoute(snapshot, {
       connectionId: input.connectionId?.trim() || null,
       model: codingModel,
