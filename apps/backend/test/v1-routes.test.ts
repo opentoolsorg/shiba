@@ -3,6 +3,7 @@ import type { DelegatedRun } from "@shiba/shared";
 import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_HEADER } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { handleV1, type V1RouteDeps } from "../src/v1-routes.js";
+import { reviewerTask } from "../src/review/prompt.js";
 
 const run: DelegatedRun = {
   runId: "r1", sandboxId: "s1", repoUrl: "https://github.com/acme/repo", task: "ENG-12: Fix\nDetails",
@@ -95,7 +96,7 @@ describe("v1 routes", () => {
     await f.send("/api/v1/reviews", "POST", { repoUrl: run.repoUrl, pullNumber: 12, headSha: "abc" }, { REVIEW_RUN_MODEL: model });
     expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, publishPullRequest: false,
       role: "reviewer", codingModel: model ?? "opencode-go/gpt-6.1-sol", commandId: `v1review:${run.repoUrl}:12:abc`,
-      task: `Review the pull request diff and post findings. Do not modify code.\nPurpose: review\nRepository: ${run.repoUrl}\nPull request: #12\nHead SHA: abc\nDiff: ${run.repoUrl}/pull/12.diff`,
+      task: reviewerTask({ repoUrl: run.repoUrl, pullNumber: 12, headSha: "abc", diffUrl: `${run.repoUrl}/pull/12.diff` }),
     });
   });
   it("returns 400, 404, and 405 for invalid requests", async () => {
