@@ -2,6 +2,7 @@ import { sandboxFeatureMatrix } from "@shiba/shared";
 import type { SandboxInstance } from "@shiba/sandbox";
 import { getSandbox } from "./sandbox/client.js";
 import type { Env } from "./env.js";
+import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { redactSecrets } from "./security.js";
 import { getSandboxInstance, resolveSandboxProviderForSelection } from "./sandbox/provider.js";
 import { resolveSandboxSelection, type SandboxSelectionContext } from "./sandbox/selection.js";
@@ -12,8 +13,7 @@ export function isValidSandboxId(id: string): boolean {
   return SAFE_SANDBOX_ID_RE.test(id);
 }
 
-function selectionFromRequest(url: URL): SandboxSelectionContext {
-  const orgId = url.searchParams.get("orgId")?.trim() || "self-hosted";
+function selectionForOrg(orgId: string, url: URL): SandboxSelectionContext {
   const taskProviderId = url.searchParams.get("provider")?.trim() || undefined;
   const customAgentProviderId = url.searchParams.get("customAgentProvider")?.trim() || undefined;
   return {
@@ -91,7 +91,9 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
     return Response.json({ error: "Invalid sandbox ID format." }, { status: 400 });
   }
 
-  const selectionCtx = selectionFromRequest(url);
+  const auth = await resolveOrgForApiRequest(request, env);
+  if (auth instanceof Response) return auth;
+  const selectionCtx = selectionForOrg(auth.orgId, url);
 
   try {
     if (action === "info" && request.method === "GET") {

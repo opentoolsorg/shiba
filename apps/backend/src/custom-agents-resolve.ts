@@ -1,4 +1,4 @@
-import type { CustomAgentRecord } from "@shiba/shared";
+import type { CustomAgentApprovalPolicy, CustomAgentRecord } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { getCustomAgentById, getCustomAgentBySlug } from "./custom-agents-store.js";
 
@@ -11,6 +11,7 @@ export interface CustomAgentRunOverrides {
   instructions?: string;
   customAgentId: string;
   customAgentVersion: number;
+  approvalPolicy?: CustomAgentApprovalPolicy;
 }
 
 export async function resolveCustomAgentForRun(
@@ -35,5 +36,6 @@ export function overridesFromCustomAgent(agent: CustomAgentRecord): CustomAgentR
     ...(cfg.defaultRepoUrl ? { repoUrl: cfg.defaultRepoUrl } : {}),
     ...(cfg.sandboxProvider ? { sandboxProvider: cfg.sandboxProvider } : {}),
     ...(cfg.instructions ? { instructions: cfg.instructions } : {}),
+    ...(cfg.approvalPolicy ? { approvalPolicy: cfg.approvalPolicy } : {}),
   };
 }
