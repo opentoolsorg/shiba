@@ -7,7 +7,7 @@ description: Install and validate the local project, then review account deploym
 
 Use Node.js 22.13.0 or newer and pnpm 10 or newer. Account deployment requires a Cloudflare Workers Paid plan, Cloudflare account access to Workers, Durable Objects, Containers, KV, R2, D1, Vectorize, and Access, plus a running Docker-compatible engine. Run commands from the repository root. Read [Readiness](/docs/readiness/) before provisioning.
 
-For the shortest path to `wrangler dev` + Docker, see [Local development → Worker and sandbox quickstart](/docs/local-development/#worker-and-sandbox-quickstart). For production in your own account, see [Self-hosting on Cloudflare](/docs/self-hosting/).
+For the shortest path to local `wrangler dev` + Docker, run **`pnpm shiba dev`** — see [Local development → Worker and sandbox quickstart](/docs/local-development/#worker-and-sandbox-quickstart). For production in your own account, see [Self-hosting on Cloudflare](/docs/self-hosting/).
 
 ## Install and check locally
 
