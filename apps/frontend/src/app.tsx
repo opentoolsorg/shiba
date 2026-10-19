@@ -36,6 +36,8 @@ import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
 import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
+import { PullRequestCard } from "./components/PullRequestCard";
+import { ReviewFindings } from "./components/ReviewFindings";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
@@ -1262,6 +1264,11 @@ export function App(): React.JSX.Element {
     return at;
   }, []);
 
+  const reviewThreadId = useMemo(() => {
+    const newest = [...retainedRuns].sort((a, b) => b.updatedAt - a.updatedAt);
+    return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
+  }, [retainedRuns]);
+
   const allRuns: VMRun[] = useMemo(() => {
     const map = new Map<string, VMRun>();
     for (const r of retainedRuns) {
@@ -2163,6 +2170,12 @@ export function App(): React.JSX.Element {
                       if (!repoUrl) setRepoUrl("https://github.com/cloudflare/ai-chat");
                     }}
                   />
+                  {reviewThreadId ? (
+                    <div className="mt-4 flex flex-col gap-3">
+                      <PullRequestCard threadId={reviewThreadId} />
+                      <ReviewFindings threadId={reviewThreadId} />
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* COMPOSER — hero when the session is empty, docked once the run is going */}
