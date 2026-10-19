@@ -114,6 +114,7 @@ import {
   reclaimStaleRuns,
   recordReceipt,
 } from "../runs.js";
+import { handleSteeringRequest } from "../steering.js";
 import {
   acquireSandboxOps,
   destroyManagedContainer,
@@ -2591,6 +2592,38 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return updated;
   }
 
+  private async steerRun(
+    runId: string,
+    body: unknown,
+    agentPrincipal: string | null,
+  ): Promise<Response> {
+    const host = {
+      listRuns: () => this.store.list(),
+      writeRuns: (runs: DelegatedRun[]) => {
+        this.setState({ ...this.state, runs });
+      },
+      listApprovals: () => this.approvals,
+      writeApprovals: (approvals: PendingApproval[]) => {
+        this.writeApprovals(approvals);
+      },
+      cancelRun: (id: string) => this.cancelRun(id),
+      resolveRoute: (input: {
+        repoUrl: string;
+        task: string;
+        baseBranch: string;
+        publishPullRequest: boolean;
+        harness?: string;
+        codingModel?: string;
+        connectionId?: string;
+      }) => this.resolveRoute(input as DelegateInput),
+      githubTokenConfigured: Boolean(this.env.GITHUB_TOKEN),
+    };
+    const result = await handleSteeringRequest(host, runId, body, {
+      steeredBy: agentPrincipal ?? undefined,
+    });
+    return Response.json(result.body, { status: result.status });
+  }
+
   /**
    * Chat post-back: thread-keyed orchestrators (`slack:{team}:{channel}:{ts}`,
    * `telegram:{chat}`, `discord:{channel}`) relay run start + terminal outcome
@@ -3620,6 +3653,29 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const reviewMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review(?:\/(retry))?$/);
     if (reviewMatch) return this.handleReviewRoute(request, reviewMatch);
+    const steerMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/steer$/);
+    if (steerMatch !== null) {
+      if (request.method !== "POST") {
+        return Response.json({ error: "Method not allowed." }, { status: 405 });
+      }
+      let steerBody: unknown;
+      try {
+        steerBody = await request.json();
+      } catch {
+        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+      }
+      let steerRunId: string;
+      try {
+        steerRunId = decodeURIComponent(steerMatch[1]!);
+      } catch {
+        return Response.json({ error: "Invalid run ID." }, { status: 400 });
+      }
+      const existing = this.store.get(steerRunId);
+      if (!existing || (agentPrincipal !== null && existing.queuedBy !== agentPrincipal)) {
+        return Response.json({ error: "Run not found." }, { status: 404 });
+      }
+      return this.steerRun(steerRunId, steerBody, agentPrincipal);
+    }
     const subagentMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/subagents$/);
     if (subagentMatch && request.method === "POST") {
       let body: unknown;

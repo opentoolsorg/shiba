@@ -34,7 +34,10 @@ function fixture(path: string, method = "GET", body?: unknown, env: Partial<Env>
   const request = new Request(`https://worker.test/api/v1${path}`, { method,
     headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const forward = vi.fn(async () => new Response("unused", { status: 500 }));
-  const ctx: V1Context = { request, url: new URL(request.url), env: env as Env, forward };
+  const ctx: V1Context = {
+    request, url: new URL(request.url), env: env as Env, forward,
+    principal: { principal: "test", orgId: "self-hosted", scopes: ["api:read", "api:write", "api:keys:admin"] },
+  };
   return { ctx, forward };
 }
 
