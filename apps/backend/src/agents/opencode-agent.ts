@@ -6,6 +6,7 @@
  */
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import { getSandboxInstance } from "../sandbox/provider.js";
+import type { SandboxSelectionContext } from "../sandbox/selection.js";
 import type { SandboxInstance } from "@shiba/sandbox";
 import {
   createUIMessageStream,
@@ -65,8 +66,9 @@ export async function pinSandboxEgress(
   repoUrl: string,
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
+  selection: SandboxSelectionContext = {},
 ): Promise<void> {
-  const instance = await getSandboxInstance(env, sandboxId);
+  const instance = await getSandboxInstance(env, sandboxId, selection);
   if (!instance.pinEgress) {
     throw new Error(
       `Sandbox provider "${env.SHIBA_SANDBOX_PROVIDER ?? "cloudflare"}" cannot pin egress at the edge.`,
@@ -102,10 +104,16 @@ function createSlackProgress(env: Env, thread?: CodingTaskInput["slackThread"]):
   );
 }
 
-export function createSandboxOps(env: Env, sandboxId: string, egressHosts?: string[], egressOverrides?: EgressOverride[]): SandboxOps {
+export function createSandboxOps(
+  env: Env,
+  sandboxId: string,
+  egressHosts?: string[],
+  egressOverrides?: EgressOverride[],
+  selection: SandboxSelectionContext = {},
+): SandboxOps {
   let instancePromise: Promise<SandboxInstance> | undefined;
   const instance = () => {
-    instancePromise ??= getSandboxInstance(env, sandboxId);
+    instancePromise ??= getSandboxInstance(env, sandboxId, selection);
     return instancePromise;
   };
   return {
@@ -115,7 +123,7 @@ export function createSandboxOps(env: Env, sandboxId: string, egressHosts?: stri
       // GitHub credential scoped to this one repo (B6). The pin + clone pair
       // is one retried unit — a half-pinned sandbox must not be reused.
       await withRetry(HARNESS_RETRY, async () => {
-        await pinSandboxEgress(env, sandboxId, repoUrl, egressHosts, egressOverrides);
+        await pinSandboxEgress(env, sandboxId, repoUrl, egressHosts, egressOverrides, selection);
         await (await instance()).gitCheckout(repoUrl, { branch: opts.branch, targetDir: opts.targetDir });
       });
     },
@@ -290,7 +298,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             }
             const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
             const overrides = harness.egressOverrides?.(runInput);
-            const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides);
+            const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides, {
+              orgId: "self-hosted",
+              taskProviderId: runInput.sandboxProvider,
+            });
             result = await adapter.runCodingTask(ops, runInput, emit, {
               signal,
               signals: runSignals,

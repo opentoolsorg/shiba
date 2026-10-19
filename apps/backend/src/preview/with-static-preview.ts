@@ -1,4 +1,5 @@
-import { getSandbox } from "../sandbox/client.js";
+import { getSandboxInstance } from "../sandbox/provider.js";
+import { instanceToPreviewSandbox } from "../sandbox/preview-bridge.js";
 import puppeteer from "@cloudflare/puppeteer";
 import type { Env } from "../env.js";
 import { isValidSandboxId } from "../sandbox-routes.js";
@@ -22,8 +23,11 @@ export interface StaticPreviewContext {
   workdir: string;
 }
 
+import type { SandboxSelectionContext } from "../sandbox/selection.js";
+
 export interface StaticPreviewDeps extends PreviewBrowserDeps {
   sandbox?: PreviewSandbox;
+  selection?: SandboxSelectionContext;
 }
 
 /**
@@ -42,10 +46,7 @@ export async function withStaticPreview<T>(
 
   const raw =
     deps.sandbox ??
-    (getSandbox(env.Sandbox, input.sandboxId) as unknown as PreviewSandbox & {
-      exposePort(port: number, options: { hostname: string }): Promise<{ url: string }>;
-      unexposePort(port: number): Promise<void>;
-    });
+    instanceToPreviewSandbox(await getSandboxInstance(env, input.sandboxId, deps.selection ?? {}));
   const portSource = raw as PreviewSandbox & SandboxPortForwardSource;
   const portGateway =
     typeof raw.expose === "function" ? raw : createSandboxPortGateway(portSource);

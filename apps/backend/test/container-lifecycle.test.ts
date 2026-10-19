@@ -716,7 +716,7 @@ describe("acquireSandboxOps", () => {
     const ops = fakeOps();
     mocks.createSandboxOps.mockReturnValueOnce(ops);
     const result = await acquireSandboxOps(env, "sbx-acq", ["api.anthropic.com"]);
-    expect(mocks.createSandboxOps).toHaveBeenCalledWith(env, "sbx-acq", ["api.anthropic.com"], undefined);
+    expect(mocks.createSandboxOps).toHaveBeenCalledWith(env, "sbx-acq", ["api.anthropic.com"], undefined, undefined);
     expect(result).toBe(ops);
   });
 
@@ -734,6 +734,7 @@ describe("acquireSandboxOps", () => {
       "sbx-acq",
       ["api.anthropic.com"],
       overrides,
+      undefined,
     );
     expect(result).toBe(ops);
   });

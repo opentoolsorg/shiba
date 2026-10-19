@@ -76,7 +76,7 @@ describe("swarm desk projection", () => {
 
 describe("swarm modes", () => {
   it.each([
-    ["orchestrator", "captain"],
+    ["orchestrator", "den"],
     ["reviewer", "review"],
     ["fixer", "build"],
     ["explorer", "build"],
@@ -87,6 +87,7 @@ describe("swarm modes", () => {
   });
 
   it.each([
+    ["den", "orchestrator"],
     ["captain", "orchestrator"],
     ["build", "fixer"],
     ["review", "reviewer"],
