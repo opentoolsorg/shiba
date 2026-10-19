@@ -97,7 +97,7 @@ async function subscriptionController(
   return { controller: null, message: `${provider.label} has no subscription sign-in.` };
 }
 
-export async function inspectProviderOauth(
+async function inspectProviderOauth(
   env: Env,
   provider: ProviderDefinition,
   _org: string,
@@ -115,7 +115,7 @@ export async function inspectProviderOauth(
   };
 }
 
-export async function confirmProviderOauth(
+async function confirmProviderOauth(
   env: Env,
   provider: ProviderDefinition,
   org: string,
