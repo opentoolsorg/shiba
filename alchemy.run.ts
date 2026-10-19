@@ -115,6 +115,7 @@ export const ACCESS_BYPASS_PATHS = [
   "/api/telegram/webhook",
   "/api/discord/interactions",
   "/api/github/webhook",
+  "/api/linear/webhook",
   // Sentry issue alerts authenticate in-Worker via the hook signature or
   // shared-secret token (sentry-webhook-routes.ts) and cannot complete an
   // Access login — same machine-caller class as the GitHub webhook.
@@ -263,7 +264,15 @@ export const Worker = Cloudflare.Worker("Worker", {
 
     ...secrets([
       "GITHUB_TOKEN",
+      "GITHUB_APP_ID",
+      "GITHUB_APP_PRIVATE_KEY",
+      "GITHUB_APP_INSTALLATION_ID",
+      "GITHUB_APP_REPO_INSTALLATIONS",
       "GITHUB_WEBHOOK_SECRET",
+      "LINEAR_WEBHOOK_SECRET",
+      "LINEAR_API_KEY",
+      "LINEAR_OAUTH_ACCESS_TOKEN",
+      "LINEAR_DEFAULT_REPO_URL",
       "SLACK_SIGNING_SECRET",
       "SLACK_APPROVERS",
       // Dashboard emails allowed to resolve shared ("default" DO) approvals:
@@ -343,6 +352,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "CODEX_MODEL",
       "DEVIN_MODEL",
       "GROK_MODEL",
+      "PI_MODEL",
       // T52: per-role routing pins (agents/roles.ts) — absent = roles
       // resolve through the deployment default chain.
       "ROLE_MODEL_MAP",

@@ -135,3 +135,41 @@ export function selectPostable(
   }
   return { inline, bodyOnly };
 }
+
+const TRIAGE_VALUES = new Set<FindingTriage>(["open", "resolved", "irrelevant"]);
+
+export function isFindingTriage(value: unknown): value is FindingTriage {
+  return typeof value === "string" && TRIAGE_VALUES.has(value as FindingTriage);
+}
+
+/** Update one finding's triage on a round; returns null when the id is missing. */
+export function patchFindingTriage(
+  round: ReviewRound,
+  findingId: string,
+  triage: FindingTriage,
+): ReviewRound | null {
+  let touched = false;
+  const findings = round.findings.map((finding) => {
+    if (finding.id !== findingId) return finding;
+    touched = true;
+    return { ...finding, triage };
+  });
+  if (!touched) return null;
+  return { ...round, findings };
+}
+
+/** Latest round for a coding run, preferring the highest headSha round when multiple exist. */
+export function latestRoundForCodingRun(rounds: ReviewRound[], codingRunId: string): ReviewRound | undefined {
+  const mine = rounds.filter((round) => round.codingRunId === codingRunId);
+  if (mine.length === 0) return undefined;
+  return mine.reduce((best, round) => (round.postedAt ?? 0) >= (best.postedAt ?? 0) ? round : best);
+}
+
+export function roundForHead(rounds: ReviewRound[], codingRunId: string, headSha: string): ReviewRound | undefined {
+  return rounds.find((round) => round.codingRunId === codingRunId && round.pull.headSha === headSha);
+}
+
+export function parseInlineSeverityThreshold(raw: string | undefined): FindingSeverity {
+  if (raw === "high" || raw === "medium" || raw === "low") return raw;
+  return "medium";
+}

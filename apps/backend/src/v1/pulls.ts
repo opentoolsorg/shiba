@@ -35,7 +35,31 @@ async function jsonBody(ctx: V1Context): Promise<Record<string, unknown> | Respo
 const optionalOperationId = (value: unknown) =>
   value === undefined || (typeof value === "string" && value.length > 0 && value.length <= 64);
 
+export async function handlePullReviewTriage(ctx: V1Context): Promise<Response | null> {
+  const match = ctx.url.pathname.match(
+    /^\/api\/v1\/threads\/([^/]+)\/pr\/review\/findings\/([^/]+)\/triage$/,
+  );
+  if (!match || ctx.request.method !== "PATCH") return null;
+  let threadId: string;
+  let findingId: string;
+  try {
+    threadId = decodeURIComponent(match[1]!);
+    findingId = decodeURIComponent(match[2]!);
+  } catch {
+    return Response.json({ ok: false, error: "invalid_id" }, { status: 400 });
+  }
+  const body = await jsonBody(ctx);
+  if (body instanceof Response) return body;
+  return ctx.forward(
+    "PATCH",
+    `/api/runs/${encodeURIComponent(threadId)}/review/findings/${encodeURIComponent(findingId)}/triage`,
+    body as Record<string, unknown>,
+  );
+}
+
 export async function handlePulls(ctx: V1Context): Promise<Response | null> {
+  const triage = await handlePullReviewTriage(ctx);
+  if (triage) return triage;
   const match = ctx.url.pathname.match(/^\/api\/v1\/threads\/([^/]+)\/pr(?:\/(ready|status|comments|merge|review-loop|review)(?:\/(retry))?)?$/);
   if (!match) return null;
   const action = match[2] ?? "create";
@@ -71,8 +95,9 @@ export async function handlePulls(ctx: V1Context): Promise<Response | null> {
   }
   const run = await readRun(ctx, id);
   if (run instanceof Response) return run;
-  // Merging is outward-facing: it must ride an approval, and ApprovalKind has no pr_merge kind yet.
-  if (action === "merge") return notImplemented("PR merge requires a pr_merge approval kind; shiba never merges without an approval.");
+  if (action === "merge") {
+    return ctx.forward("POST", `/api/runs/${encodeURIComponent(id)}/merge`, body as Record<string, unknown>);
+  }
   if (action === "review") {
     return ctx.forward(method, `/api/runs/${encodeURIComponent(id)}/review${retry ? "/retry" : ""}`);
   }

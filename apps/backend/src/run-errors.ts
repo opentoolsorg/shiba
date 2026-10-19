@@ -63,6 +63,8 @@ const HARNESS_ERROR_NAMES = new Set([
   "CodexErrorEvent",
   "DevinErrorEvent",
   "GrokErrorEvent",
+  "PiErrorEvent",
+  "PiEventError",
   "CursorErrorEvent",
   "AntigravityErrorEvent",
 ]);

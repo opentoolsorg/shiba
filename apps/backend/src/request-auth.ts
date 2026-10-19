@@ -40,6 +40,7 @@ export const SIGNATURE_AUTHENTICATED = [
   "/api/telegram/webhook",
   "/api/discord/interactions",
   "/api/github/webhook",
+  "/api/linear/webhook",
   // Sentry issue alerts self-authenticate with the shared secret — the
   // handler verifies the hook signature / token before anything queues.
   "/api/sentry/webhook",

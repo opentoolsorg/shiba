@@ -4,13 +4,13 @@
  * /api/agents, and /api/whoami, /api/auth/*) rather than duplicating
  * internals; sections with no real data source are omitted, not stubbed.
  */
-import { type JSX, type ReactNode, useState } from "react";
+import { type JSX, type ReactNode, useEffect, useState } from "react";
 import { version as dashboardVersion } from "../../package.json";
 import { authClient } from "../auth-client";
 import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
-import { ConnectionsCard, PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
+import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
@@ -18,6 +18,7 @@ import { useSavedRepos, saveRepo, removeRepo } from "../saved";
 
 export type SettingsSectionId =
   | "account"
+  | "api-keys"
   | "appearance"
   | "repositories"
   | "automations"
@@ -31,6 +32,7 @@ export type SettingsSectionId =
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string; blurb: string }> =
   {
     account: { label: "Account", blurb: "Identity, auth lane & sign out" },
+    "api-keys": { label: "API keys", blurb: "Org-scoped /api/v1 bearer keys" },
     appearance: { label: "Appearance", blurb: "Theme" },
     repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
     automations: { label: "Automations", blurb: "Kill switch & TypeSafe key" },
@@ -190,7 +192,6 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
         )}
       </Card>
       <PurposeRoutingCard />
-      <ConnectionsCard />
     </>
   );
 }
@@ -226,16 +227,6 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         label="Slack channel→repo map"
         ok={status.slack.channelRepos}
         detail="SLACK_CHANNEL_REPOS — repo for bare mentions"
-      />
-      <ChecklistRow
-        label="GitHub token"
-        ok={status.github.token}
-        detail="GITHUB_TOKEN — opens pull requests"
-      />
-      <ChecklistRow
-        label="GitHub webhook secret"
-        ok={status.github.webhookSecret}
-        detail="GITHUB_WEBHOOK_SECRET — verifies deliveries"
       />
       <ChecklistRow
         label="AI Gateway token"
@@ -289,27 +280,6 @@ const KILL_SWITCHES: { flag: string; effect: string }[] = [
   },
 ];
 
-/** Row used by the Account section: a label, a live value, and an optional chip. */
-function AccountRow({
-  label,
-  value,
-  chip,
-}: {
-  label: string;
-  value: string;
-  chip?: ReactNode;
-}): JSX.Element {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5 last:border-b-0">
-      <div className="min-w-0">
-        <div className="text-xs font-medium text-[var(--fg)]">{label}</div>
-        <div className="font-mono text-[11px] text-[var(--muted-foreground-2)] truncate">{value}</div>
-      </div>
-      {chip}
-    </div>
-  );
-}
-
 const AUTH_LANE_LABEL: Record<string, string> = {
   "better-auth": "Built-in dashboard login",
   access: "Cloudflare Access",
@@ -318,8 +288,6 @@ const AUTH_LANE_LABEL: Record<string, string> = {
 
 /** Account — the identity the Worker proves via /api/whoami plus sign-out. */
 function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX.Element {
-  const setup = useSetupStatus();
-  const status = setup.state.kind === "data" ? setup.state.data : undefined;
   const whoami = useWhoami();
   const [signingOut, setSigningOut] = useState(false);
   const identity = whoami.state.kind === "data" ? whoami.state.data : undefined;
@@ -364,18 +332,6 @@ function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX
               </div>
             </div>
           </div>
-          <AccountRow
-            label="GitHub"
-            value="GITHUB_TOKEN — opens pull requests"
-            chip={
-              status ? (
-                <ToneChip
-                  tone={status.github.token ? "ok" : "neutral"}
-                  label={status.github.token ? "Configured" : "Not configured"}
-                />
-              ) : undefined
-            }
-          />
           {identity.auth === "better-auth" ? (
             <div className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="text-xs text-[var(--muted-foreground-2)]">
@@ -548,6 +504,141 @@ function LiveSettingsSectionBody({
   );
 }
 
+type ApiKeyRow = {
+  keyId: string;
+  label: string;
+  principal: string;
+  scopes: string[];
+  createdAt: number;
+  revoked: boolean;
+};
+
+function ApiKeysSettingsSection(): JSX.Element {
+  const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [label, setLabel] = useState("integration");
+  const [mintedToken, setMintedToken] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const reload = async () => {
+    const response = await fetch("/api/api-keys");
+    if (!response.ok) throw new Error(`API keys request failed: ${response.status}`);
+    const body = (await response.json()) as { keys?: ApiKeyRow[] };
+    setKeys(Array.isArray(body.keys) ? body.keys : []);
+  };
+
+  useEffect(() => {
+    void reload().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  }, []);
+
+  const mint = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/api-keys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label, scopes: ["api:read", "api:write"] }),
+      });
+      if (!response.ok) throw new Error(`Mint failed: ${response.status}`);
+      const body = (await response.json()) as { token?: string };
+      setMintedToken(body.token ?? null);
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (keyId: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/api-keys?keyId=${encodeURIComponent(keyId)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`Revoke failed: ${response.status}`);
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionShell
+      title="API keys"
+      description="Mint org-scoped bearer keys for /api/v1. Keys are shown once at creation; store them like passwords."
+    >
+      <div data-testid="api-keys-settings" className="space-y-4">
+        {error ? (
+          <div className="rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-4 py-3 text-xs text-[var(--destructive)] font-mono">
+            {error}
+          </div>
+        ) : null}
+        <Card>
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-end">
+            <label className="flex-1 text-xs font-mono text-[var(--muted-foreground-2)]">
+              Label
+              <input
+                aria-label="API key label"
+                className="mt-1 w-full border border-[var(--border-1)] bg-[var(--bg)] px-2 py-1.5 text-sm text-[var(--fg)]"
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              aria-label="Mint API key"
+              disabled={busy || !label.trim()}
+              onClick={() => void mint()}
+              className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-mono hover:bg-[var(--bg)] disabled:opacity-50"
+            >
+              Mint key
+            </button>
+          </div>
+          {mintedToken ? (
+            <div className="border-t border-[var(--border-1)] px-4 py-3 text-xs font-mono text-[var(--primary)] break-all">
+              New key (copy now): {mintedToken}
+            </div>
+          ) : null}
+        </Card>
+        <Card>
+          {keys.length === 0 ? (
+            <div className="px-4 py-6 text-xs font-mono text-[var(--muted-foreground-2)]">No API keys yet.</div>
+          ) : (
+            keys.map((key) => (
+              <div
+                key={key.keyId}
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] px-4 py-3 last:border-b-0"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-[var(--fg)]">{key.label}</div>
+                  <div className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
+                    {key.keyId} · {key.scopes.join(", ")}
+                    {key.revoked ? " · revoked" : ""}
+                  </div>
+                </div>
+                {!key.revoked ? (
+                  <button
+                    type="button"
+                    aria-label={`Revoke ${key.label}`}
+                    disabled={busy}
+                    onClick={() => void revoke(key.keyId)}
+                    className="text-[11px] font-mono border border-[var(--border-1)] px-2 py-1"
+                  >
+                    Revoke
+                  </button>
+                ) : null}
+              </div>
+            ))
+          )}
+        </Card>
+      </div>
+    </SectionShell>
+  );
+}
+
 function ModelsSettingsSection(): JSX.Element {
   const setup = useSetupStatus();
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
@@ -590,6 +681,8 @@ export function SettingsSectionBody({
       </SectionShell>
     );
   }
+
+  if (section === "api-keys") return <ApiKeysSettingsSection />;
 
   if (section === "appearance") {
     return (
@@ -733,4 +826,3 @@ function RepositoriesSection(): JSX.Element {
     </Card>
   );
 }
-

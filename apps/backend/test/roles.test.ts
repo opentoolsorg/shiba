@@ -104,6 +104,18 @@ describe("resolveRoleModel", () => {
       .toEqual({ harness: "devin", model: "devin/swe-2-medium" });
   });
 
+  it("Pi uses its own default instead of inheriting CODING_MODEL", () => {
+    expect(resolveRoleModel(
+      env({ ROLE_MODEL__FIXER: "pi", CODING_MODEL: "google/gemini-3.5-flash-lite" }),
+      "fixer",
+    )).toEqual({ harness: "pi", model: "anthropic/claude-sonnet-4-6" });
+  });
+
+  it("Pi honors its PI_MODEL deployment override", () => {
+    const piOverrideEnv = Object.assign(env({ ROLE_MODEL__FIXER: "pi" }), { PI_MODEL: "openai/gpt-5" });
+    expect(resolveRoleModel(piOverrideEnv, "fixer")).toEqual({ harness: "pi", model: "openai/gpt-5" });
+  });
+
   it("rejects a model whose provider has no known API host", () => {
     expect(() =>
       resolveRoleModel(env({ ROLE_MODEL__FIXER: "opencode/nosuchprovider/model" }), "fixer"),
@@ -401,4 +413,3 @@ describe("shipped ROLE_MODEL_MAP (PLAN.md §19)", () => {
     expect(() => resolveRoleModel(stale, "orchestrator")).toThrow(/retired/);
   });
 });
-

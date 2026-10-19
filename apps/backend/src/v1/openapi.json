@@ -1,0 +1,91 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Shiba public API",
+    "version": "1.0.0",
+    "description": "Self-hosted /api/v1 surface aligned with Capy resource names where practical. Authentication uses org-scoped API keys (Bearer shk_…) minted in the dashboard."
+  },
+  "servers": [{ "url": "/api/v1" }],
+  "security": [{ "bearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API key"
+      }
+    },
+    "schemas": {
+      "AdmitReceipt": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "deduped": { "type": "boolean" },
+          "approvalId": { "type": "string" },
+          "status": { "type": "string", "enum": ["queued"] }
+        }
+      },
+      "CreateThreadRequest": {
+        "type": "object",
+        "required": ["requestId"],
+        "properties": {
+          "requestId": { "type": "string", "maxLength": 191 },
+          "projectId": { "type": "string", "description": "Repository URL in self-hosted shiba." },
+          "repoUrl": { "type": "string" },
+          "message": { "type": "string" },
+          "task": { "type": "string" },
+          "publishPullRequest": { "type": "boolean" }
+        }
+      },
+      "SendMessageRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string" },
+          "delivery": { "type": "string", "enum": ["queue", "steer", "interrupt"] },
+          "clientKey": { "type": "string", "maxLength": 64 }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/threads": {
+      "get": { "summary": "List threads", "responses": { "200": { "description": "Thread list" } } },
+      "post": {
+        "summary": "Create thread (idempotent requestId)",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateThreadRequest" } } }
+        },
+        "responses": { "200": { "description": "Thread or approval receipt" } }
+      }
+    },
+    "/threads/{threadId}/message": {
+      "post": {
+        "summary": "Send message",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SendMessageRequest" } } }
+        },
+        "responses": { "200": { "description": "AdmitReceipt" } }
+      }
+    },
+    "/threads/{threadId}/interrupt": {
+      "post": { "summary": "Interrupt active run (legacy alias)", "responses": { "200": { "description": "Cancelled thread" } } }
+    },
+    "/threads/{threadId}/stream": {
+      "get": { "summary": "SSE stream for thread events", "responses": { "200": { "description": "text/event-stream" } } }
+    },
+    "/threads/{threadId}/subagents": {
+      "get": { "summary": "List subagents (read-only; empty until subagent tree ships)", "responses": { "200": { "description": "Subagent page" } } }
+    },
+    "/subagents/{subagentId}": {
+      "get": { "summary": "Get subagent", "responses": { "404": { "description": "Not available yet" } } }
+    },
+    "/events/stream": {
+      "get": { "summary": "Org event stream (SSE)", "responses": { "200": { "description": "text/event-stream" } } }
+    },
+    "/openapi.json": {
+      "get": { "summary": "This document", "security": [], "responses": { "200": { "description": "OpenAPI JSON" } } }
+    }
+  }
+}

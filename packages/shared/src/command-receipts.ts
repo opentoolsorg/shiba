@@ -90,6 +90,15 @@ export function automationCommandId(
       const nowMs = typeof e.nowMs === "number" ? e.nowMs : Date.now();
       return `automation:${automationId}:sched:${new Date(nowMs).toISOString().slice(0, 16)}`;
     }
+    case "linear": {
+      const sessionId = typeof (e as { sessionId?: unknown }).sessionId === "string"
+        ? (e as { sessionId: string }).sessionId
+        : "";
+      return `automation:${automationId}:linear:${sessionId || stableHash(event as JsonValue)}`;
+    }
+    case "webhook": {
+      return `automation:${automationId}:webhook:${stableHash(event as JsonValue)}`;
+    }
     default:
       return undefined;
   }

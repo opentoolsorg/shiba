@@ -62,7 +62,7 @@ try {
   const urlBox = page.locator("input[type=url]");
   await urlBox.first().fill("https://github.com/cloudflare/ai-chat");
   await page.getByRole("button", { name: "Use" }).click();
-  if (feature === "pr-publish" || feature === "review-findings") {
+  if (feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle") {
     await page.getByRole("button", { name: "Thread configuration" }).click();
     const pr = page.getByRole("menuitemcheckbox", { name: /Create pull request/ });
     if ((await pr.getAttribute("aria-checked")) !== "true") await pr.click();
@@ -115,7 +115,7 @@ try {
     await shot("05-rejected");
     result.rejected = true;
   }
-  if (feature === "sandbox-run-and-diff" || feature === "pr-publish" || feature === "review-findings") {
+  if (feature === "sandbox-run-and-diff" || feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle") {
     if (result.approvalVisible) {
       // Several cards can be pending; approve the one that states the review.
       const reviewCard = page.locator("div").filter({ hasText: /read-only review/i }).filter({ has: page.getByRole("button", { name: "Approve" }) }).last();
@@ -124,6 +124,24 @@ try {
       await page.waitForTimeout(4000);
       await shot("05-approved");
       result.approved = true;
+    }
+  }
+  if (feature === "review-lifecycle") {
+    const findings = page.getByTestId("review-findings");
+    if (await findings.count()) {
+      const triage = findings.locator("[data-finding-id]").first().getByLabel(/Triage/);
+      if (await triage.count()) {
+        await triage.selectOption("resolved");
+        await shot("06-triage");
+        result.triageExercised = true;
+      }
+    }
+    const mergeBtn = page.getByTestId("pr-merge-request");
+    if (await mergeBtn.count()) {
+      await mergeBtn.click();
+      await page.waitForTimeout(1000);
+      await shot("07-merge-request");
+      result.mergeRequested = true;
     }
   }
   if (feature === "byo-models-ux") {
@@ -151,6 +169,21 @@ try {
   if (feature === "run-registry-status") {
     await page.goto(`${url}?tab=runs`, { waitUntil: "domcontentloaded" });
     await shot("06-runs");
+  }
+  if (feature === "phase5-integrations-automations") {
+    await page.goto(`${url}?tab=integrations`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("integration-linear").waitFor({ timeout: 30000 });
+    await shot("06-integrations-linear");
+    const apiBase = `http://127.0.0.1:${port}`;
+    const slackVerify = await page.request.post(`${apiBase}/api/integrations/slack/verify`);
+    result.slackVerifyStatus = slackVerify.status();
+    try {
+      result.slackVerify = await slackVerify.json();
+    } catch {
+      result.slackVerify = null;
+    }
+    const ghStatus = await page.request.get(`${apiBase}/api/integrations/github/status`);
+    result.githubStatus = ghStatus.ok() ? await ghStatus.json() : null;
   }
   if (feature === "captain-subagents") {
     const captain = await page.request.get(`http://127.0.0.1:${port}/api/captains/verify-captain`);

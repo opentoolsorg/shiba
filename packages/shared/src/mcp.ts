@@ -20,6 +20,7 @@ export const HARNESS_IDS = [
   "devin",
   "devin-subscription",
   "grok",
+  "pi",
   "antigravity-subscription",
   "cursor-subscription",
   // ACP lanes — every Agent Client Protocol agent the image ships.
