@@ -48,4 +48,5 @@ jobs:
       - run: pnpm test:built
       - run: node scripts/check-alchemy-drift.mjs
       - run: node scripts/check-env-types.mjs
+      - run: node scripts/check-dev-vars-example.mjs
       - run: pnpm env:load && pnpm env:scan

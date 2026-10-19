@@ -251,6 +251,23 @@ describe("validate-credentials", () => {
   });
 });
 
+describe("check-dev-vars-example", () => {
+  it("exits 0 when the repo example matches env.ts and .env.schema", () => {
+    const out = run("check-dev-vars-example.mjs");
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("documents");
+  });
+
+  it("exits 1 when a required secret is missing from the example file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dev-vars-check-"));
+    const example = join(dir, ".dev.vars.example");
+    writeFileSync(example, "# GITHUB_TOKEN=\n");
+    const out = run("check-dev-vars-example.mjs", [`--example=${example}`]);
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain("missing");
+  });
+});
+
 describe("scripts/ built-ins-only guard (L6)", () => {
   const NODE_CORE = new Set([
     "assert", "buffer", "child_process", "cluster", "console", "constants", "crypto",
@@ -270,6 +287,7 @@ describe("scripts/ built-ins-only guard (L6)", () => {
 
   const SCRIPTS = [
     "check-env-types.mjs",
+    "check-dev-vars-example.mjs",
     "plan-deploy.mjs",
     "ephemeral-stack.mjs",
     "validate-credentials.mjs",
