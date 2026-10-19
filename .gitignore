@@ -46,3 +46,4 @@ audit/
 !.env.schema
 .hermes/
 graphify-out/
+.verify/

@@ -43,7 +43,7 @@ export interface JsonObject {
  * written before email approvals existed carry no `kind` — readers treat
  * absent as `"run"`.
  */
-export type ApprovalKind = "run" | "email_send" | "email_delete";
+export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
 
 /** Runtime check that `value` is JSON-serializable — the shape a JSON body parse produces. */
 export function isJsonValue(value: unknown): value is JsonValue {

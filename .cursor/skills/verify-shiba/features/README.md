@@ -10,6 +10,9 @@ Drive these from the real dashboard UI at http://localhost:$PORT/app/.
 | review-findings | Chained reviewer posts one COMMENT review; findings list matches |
 | run-registry-status | Runs view shows status chips and registry counts |
 | browser-e2e-evidence | Publish run stores E2E frames + manifest in R2; PR body links manifest |
+| review-lifecycle | Finding triage PATCH, PR merge approval request (mock GitHub in cloud stand-in) |
+| phase5-integrations-automations | Integrations Linear row; Slack verify + GitHub status probes (mock) |
+| public-api-keys | Settings mints shk_ keys; OpenAPI at /api/v1/openapi.json |
 | captain-subagents | Captain snapshot API + subagent tree UI (Phase 2b) |
 | byo-models-ux | Settings Models: ordered connections, test connection, role pins; run usage when reported |
 

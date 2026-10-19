@@ -30,8 +30,13 @@ import {
   sideEffectResultInput,
   spineInputsFromDecider,
   testCommandSchema,
+  isFindingTriage,
+  latestRoundForCodingRun,
+  parseInlineSeverityThreshold,
   parseReviewEnvelope,
+  patchFindingTriage,
   runInputHash,
+  type FindingSeverity,
   type ReviewRound,
   canStartRunWithBudget,
   parseCaptainAgentName,
@@ -60,6 +65,7 @@ import {
 } from "../email-approvals.js";
 import { carriesVouchedHeaders, verifyInternalRequest } from "../edge-identity.js";
 import type { Env } from "../env.js";
+import { isGitHubPublishConfigured, resolveGitHubCredential } from "../github-auth.js";
 import {
   allowedHostsFor,
   HARNESS_DEFAULT_MODELS,
@@ -88,9 +94,12 @@ import {
   resolvePendingApproval,
 } from "../pending-approvals.js";
 import { makeReceipt } from "../receipts.js";
+import { fetchAgentsMd } from "../review/agents-md.js";
 import { decideChain } from "../review/chain.js";
+import { mergePullRequest, type MergeMethod } from "../review/merge.js";
 import { reviewerTask } from "../review/prompt.js";
 import { postReview } from "../review/publish.js";
+import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
   classifyExecutorError,
@@ -113,6 +122,7 @@ import {
   reclaimStaleRuns,
   recordReceipt,
 } from "../runs.js";
+import { handleSteeringRequest } from "../steering.js";
 import {
   acquireSandboxOps,
   destroyManagedContainer,
@@ -179,6 +189,8 @@ export interface OrchestratorState {
   commandReceipts?: Record<string, CommandReceipt>;
   /** Review rounds for this thread. GitHub is the system of record for the posted review. */
   reviewRounds?: ReviewRound[];
+  /** `owner/repo#n` → coding run that opened the PR (webhook wake target). */
+  prBindings?: Record<string, string>;
   /**
    * P9 spine: the append-only event log. Every mutation routes through
    * `decide → appendEvents → apply` — the events below are the durable
@@ -942,7 +954,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           return toTaggedError(code, message);
         },
       });
-      if (input.publishPullRequest && !this.env.GITHUB_TOKEN) {
+      if (input.publishPullRequest && !isGitHubPublishConfigured(this.env)) {
         return yield* Effect.fail(toTaggedError("internal_error",
           "publishPullRequest was requested but GITHUB_TOKEN is not configured. " +
             "Set the GITHUB_TOKEN secret or retry without requesting a pull request.",
@@ -1431,6 +1443,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (kind === "email_send" || kind === "email_delete") {
       return this.queueEmailApprovalRecord(kind, input);
     }
+    if (kind === "pr_merge") {
+      return this.queuePrMergeApproval(input);
+    }
     if (kind !== "run") {
       return Response.json({ error: `Unknown approval kind "${kind}".` }, { status: 400 });
     }
@@ -1485,7 +1500,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
     }
     const publishPullRequest = input.publishPullRequest === true;
-    if (publishPullRequest && !this.env.GITHUB_TOKEN) {
+    if (publishPullRequest && !isGitHubPublishConfigured(this.env)) {
       return Response.json(
         { error: "publishPullRequest was requested but GITHUB_TOKEN is not configured." },
         { status: 400 },
@@ -2063,16 +2078,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
       // Email-kind approvals skip every run gate — no sandbox capacity,
       // no repo URL, no publish flag. They execute a mailbox payload.
-      const isEmail =
-        record !== undefined && (record.kind === "email_send" || record.kind === "email_delete");
-      if (!isEmail) {
+      const isSideEffect =
+        record !== undefined &&
+        (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge");
+      if (!isSideEffect) {
         if (!this.canScheduleRun()) {
           return Response.json(
             { error: "All coding runs are busy. Approve again when a slot frees." },
             { status: 409 },
           );
         }
-        if (record && record.publishPullRequest && !this.env.GITHUB_TOKEN) {
+        if (record && record.publishPullRequest && !isGitHubPublishConfigured(this.env)) {
           return Response.json(
             { error: "publishPullRequest was requested but GITHUB_TOKEN is not configured." },
             { status: 400 },
@@ -2113,9 +2129,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               approval.kind === "email_send",
           )
         : undefined;
-    const isEmailRecord =
-      record !== undefined && (record.kind === "email_send" || record.kind === "email_delete");
-    const run = record && !isEmailRecord ? this.mintApprovedRun(record) : undefined;
+    const isSideEffectRecord =
+      record !== undefined &&
+      (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge");
+    const run = record && !isSideEffectRecord ? this.mintApprovedRun(record) : undefined;
     // One state write reserves capacity, records the decision, and
     // commits the command receipt — a redelivery after this point
     // answers from the receipt, never re-dispatches (T41).
@@ -2137,8 +2154,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (run) {
       this.dispatchApprovedRun(run, record, approvalId);
     }
-    if (record && isEmailRecord) {
+    if (record && (record.kind === "email_send" || record.kind === "email_delete")) {
       this.dispatchApprovedEmail(record);
+    }
+    if (record && record.kind === "pr_merge") {
+      this.dispatchApprovedMerge(record);
     }
     // Rejecting frees the queued draft back to `draft`, and expired
     // email approvals leave their queued drafts the same way — without
@@ -2266,69 +2286,83 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return { owner: match[1], repo: match[2], number: Number(match[3]) };
   }
 
-  /** A terminal round with a newer generation wins. A late result is dropped. */
-  private writeRound(round: ReviewRound): boolean {
-    const rounds = this.state.reviewRounds ?? [];
-    const current = rounds.find((item) => item.roundId === round.roundId);
-    if (
-      current &&
-      (current.status === "posted" || current.status === "failed" || current.status === "skipped") &&
-      round.generation !== undefined &&
-      current.generation !== undefined &&
-      round.generation < current.generation
-    ) {
-      return false;
-    }
-    const next = current
-      ? rounds.map((item) => (item.roundId === round.roundId ? round : item))
-      : [...rounds, round];
-    this.setState({ ...this.state, reviewRounds: next });
-    const coding = this.store.get(round.codingRunId);
-    if (coding && coding.reviewRoundId !== round.roundId) {
-      this.store.replace(round.codingRunId, { ...coding, reviewRoundId: round.roundId });
-    }
-    return true;
+  private prBindingKey(owner: string, repo: string, number: number): string {
+    return `${owner}/${repo}#${number}`;
   }
 
-  private async pullHeadSha(owner: string, repo: string, number: number): Promise<string> {
-    const token = this.env.GITHUB_TOKEN;
-    if (!token) return "head";
-    const response = await fetch(`${this.githubApiBase()}/repos/${owner}/${repo}/pulls/${number}`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "User-Agent": "shiba",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
+  private registerPrBinding(run: DelegatedRun): void {
+    if (!run.pullUrl) return;
+    const pull = this.parsePull(run.pullUrl);
+    if (!pull) return;
+    const key = this.prBindingKey(pull.owner, pull.repo, pull.number);
+    const next = { ...(this.state.prBindings ?? {}), [key]: run.runId };
+    this.setState({ ...this.state, prBindings: next });
+  }
+
+  private inlineReviewThreshold(): FindingSeverity {
+    return parseInlineSeverityThreshold(this.env.REVIEW_INLINE_THRESHOLD);
+  }
+
+  private async reviewerTaskForPull(input: {
+    repoUrl: string;
+    pullNumber: number;
+    headSha: string;
+    diffUrl: string;
+    headBranch?: string;
+    owner: string;
+    repo: string;
+  }): Promise<string> {
+    let agentsMd: string | null = null;
+    if (this.env.GITHUB_TOKEN) {
+      agentsMd = await fetchAgentsMd(
+        input.owner,
+        input.repo,
+        this.env.GITHUB_TOKEN,
+        this.env.GITHUB_API_BASE,
+      );
+    }
+    return reviewerTask({
+      repoUrl: input.repoUrl,
+      pullNumber: input.pullNumber,
+      headSha: input.headSha,
+      diffUrl: input.diffUrl,
+      headBranch: input.headBranch,
+      agentsMd,
+      inlineSeverityFloor: this.inlineReviewThreshold(),
     });
-    if (!response.ok) return "head";
-    const body = await response.json() as { head?: { sha?: string } };
-    return body.head?.sha || "head";
   }
 
-  private async afterRunSettled(run: DelegatedRun, output: string): Promise<void> {
-    try {
-      if (run.reviewOf) await this.settleReviewer(run, output);
-      else await this.queueChainedReview(run);
-    } catch (error) {
-      console.error("review chain failed", redactSecrets(error instanceof Error ? error.message : String(error)));
+  private findCodingRunForPull(repoFullName: string, pullNumber: number): DelegatedRun | undefined {
+    const key = `${repoFullName}#${pullNumber}`;
+    const bound = this.state.prBindings?.[key];
+    if (bound) {
+      const run = this.store.get(bound);
+      if (run) return run;
     }
+    return this.store
+      .list()
+      .find(
+        (run) =>
+          run.pullUrl?.includes(`/pull/${pullNumber}`) &&
+          run.repoUrl.replace(/^https:\/\/github\.com\//, "").startsWith(repoFullName),
+      );
   }
 
-  private async queueChainedReview(parent: DelegatedRun): Promise<void> {
-    const existing = (this.state.reviewRounds ?? []).find((round) => round.codingRunId === parent.runId);
-    if (decideChain(parent, existing).kind !== "queue_review") return;
+  private async queueReviewForCodingRun(parent: DelegatedRun, headSha: string): Promise<void> {
+    const rounds = this.state.reviewRounds ?? [];
+    if (decideChain(parent, rounds, headSha).kind !== "queue_review") return;
     const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
     if (!pull || !parent.pullUrl) return;
-    const headSha = await this.pullHeadSha(pull.owner, pull.repo, pull.number);
     const roundId = `${parent.runId}:${headSha}`;
-    const task = reviewerTask({
+    const task = await this.reviewerTaskForPull({
       repoUrl: parent.repoUrl,
       pullNumber: pull.number,
       headSha,
       diffUrl: `${parent.repoUrl.replace(/\/$/, "")}/pull/${pull.number}.diff`,
+      owner: pull.owner,
+      repo: pull.repo,
     });
-    const callId = `chain-review:${parent.runId}`;
+    const callId = `chain-review:${parent.runId}:${headSha}`;
     const fields = {
       repoUrl: parent.repoUrl,
       task,
@@ -2364,6 +2398,219 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.dispatchApprovedRun(reviewRun, undefined, callId);
   }
 
+  private async handlePrLifecycleWake(body: Record<string, unknown>): Promise<Response> {
+    const githubEvent = typeof body.githubEvent === "string" ? body.githubEvent : "unknown";
+    const mapped =
+      typeof body.mapped === "object" && body.mapped !== null
+        ? (body.mapped as { event?: string; action?: string; repo?: string; pullNumber?: number; headSha?: string })
+        : {};
+    const wake = decidePrWake(githubEvent, {
+      event: mapped.event ?? githubEvent,
+      action: mapped.action,
+      repo: mapped.repo,
+      headSha: mapped.headSha,
+      pullNumber: mapped.pullNumber,
+    });
+    if (wake.kind === "none") return Response.json({ ok: true, wake: "none" });
+    const repo = mapped.repo;
+    let pullNumber = mapped.pullNumber;
+    if ((pullNumber === undefined || pullNumber === 0) && body.payload) {
+      pullNumber = pullNumberFromCheckPayload(body.payload) ?? pullNumber;
+    }
+    if (!repo || pullNumber === undefined || pullNumber === 0) {
+      return Response.json({ ok: true, wake: wake.kind, skipped: "no_pull" });
+    }
+    const coding = this.findCodingRunForPull(repo, pullNumber);
+    if (!coding) return Response.json({ ok: true, wake: wake.kind, skipped: "no_owner_run" });
+    if (wake.reusePublishApproval && wake.kind === "synchronize_re_review") {
+      const headSha =
+        typeof mapped.headSha === "string" && mapped.headSha !== ""
+          ? mapped.headSha
+          : await this.pullHeadSha(repo.split("/")[0]!, repo.split("/")[1]!, pullNumber);
+      await this.queueReviewForCodingRun(coding, headSha);
+      return Response.json({ ok: true, wake: wake.kind, queued: "review" });
+    }
+    const task = wakeFollowUpTask(wake.kind, { repo, pullNumber, headSha: mapped.headSha });
+    const approvalId = `wake:${wake.kind}:${repo}:${pullNumber}:${Date.now()}`;
+    const threadKey = coding.runId;
+    try {
+      const approvals = createPendingApproval(this.approvals, {
+        threadKey,
+        approvalId,
+        repoUrl: coding.repoUrl,
+        task,
+        baseBranch: coding.baseBranch,
+        publishPullRequest: false,
+        createdAt: Date.now(),
+      });
+      this.writeApprovals(approvals);
+      return Response.json({ ok: true, wake: wake.kind, approvalId });
+    } catch (error) {
+      return Response.json(
+        { ok: false, error: error instanceof Error ? error.message : String(error) },
+        { status: 409 },
+      );
+    }
+  }
+
+  private async queuePrMergeApproval(input: Record<string, unknown>): Promise<Response> {
+    const payload = input.payload;
+    if (!isJsonObject(payload)) {
+      return Response.json({ error: "pr_merge requires a JSON object payload." }, { status: 400 });
+    }
+    const owner = typeof payload.owner === "string" ? payload.owner : "";
+    const repo = typeof payload.repo === "string" ? payload.repo : "";
+    const number = typeof payload.number === "number" ? payload.number : 0;
+    const expectedHeadSha = typeof payload.expectedHeadSha === "string" ? payload.expectedHeadSha : "";
+    if (!owner || !repo || !number || !/^[a-fA-F0-9]{40,64}$/.test(expectedHeadSha)) {
+      return Response.json({ error: "payload requires owner, repo, number, expectedHeadSha." }, { status: 400 });
+    }
+    const mergeMethod = payload.mergeMethod;
+    if (
+      mergeMethod !== undefined &&
+      mergeMethod !== "merge" &&
+      mergeMethod !== "squash" &&
+      mergeMethod !== "rebase"
+    ) {
+      return Response.json({ error: "mergeMethod must be merge, squash, or rebase." }, { status: 400 });
+    }
+    const threadKey =
+      typeof input.threadKey === "string" && input.threadKey.trim() ? input.threadKey.trim() : "default";
+    const approvalId =
+      typeof input.approvalId === "string" && input.approvalId.trim()
+        ? input.approvalId.trim()
+        : `pr-merge:${owner}/${repo}#${number}`;
+    const repoUrl = `https://github.com/${owner}/${repo}`;
+    const task = `Merge pull request #${number} at ${expectedHeadSha.slice(0, 7)} (${mergeMethod ?? "squash"}).`;
+    try {
+      const approvals = createPendingApproval(this.approvals, {
+        threadKey,
+        approvalId,
+        repoUrl,
+        task,
+        baseBranch: "main",
+        publishPullRequest: false,
+        kind: "pr_merge",
+        payload,
+        createdAt: Date.now(),
+      });
+      this.writeApprovals(approvals);
+      return Response.json({ ok: true, approvalId });
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        { status: 409 },
+      );
+    }
+  }
+
+  private dispatchApprovedMerge(record: PendingApproval): void {
+    const { approvalId, threadKey } = record;
+    const dispatch = async () => {
+      try {
+        const payload = record.payload;
+        if (!isJsonObject(payload)) throw new Error("merge payload missing");
+        const owner = String(payload.owner);
+        const repo = String(payload.repo);
+        const number = Number(payload.number);
+        const expectedHeadSha = String(payload.expectedHeadSha);
+        const mergeMethod = payload.mergeMethod as MergeMethod | undefined;
+        const token = this.env.GITHUB_TOKEN;
+        if (!token) throw new Error("GITHUB_TOKEN is not configured.");
+        await mergePullRequest(
+          {
+            owner,
+            repo,
+            number,
+            expectedHeadSha,
+            mergeMethod,
+            commitTitle: typeof payload.commitTitle === "string" ? payload.commitTitle : undefined,
+            commitMessage: typeof payload.commitMessage === "string" ? payload.commitMessage : undefined,
+          },
+          token,
+          { apiBase: this.env.GITHUB_API_BASE },
+        );
+        this.writeApprovals(
+          recordApprovalExecution(this.approvals, {
+            threadKey,
+            approvalId,
+            execution: { status: "executed", executedAt: Date.now() },
+          }),
+        );
+      } catch (error) {
+        const message = redactSecrets(String(error)).slice(0, 4000);
+        console.error(`PR merge approval ${approvalId} failed`, message);
+        this.writeApprovals(
+          recordApprovalExecution(this.approvals, {
+            threadKey,
+            approvalId,
+            execution: { status: "failed", error: message, executedAt: Date.now() },
+          }),
+        );
+      }
+    };
+    void dispatch();
+  }
+
+  /** A terminal round with a newer generation wins. A late result is dropped. */
+  private writeRound(round: ReviewRound): boolean {
+    const rounds = this.state.reviewRounds ?? [];
+    const current = rounds.find((item) => item.roundId === round.roundId);
+    if (
+      current &&
+      (current.status === "posted" || current.status === "failed" || current.status === "skipped") &&
+      round.generation !== undefined &&
+      current.generation !== undefined &&
+      round.generation < current.generation
+    ) {
+      return false;
+    }
+    const next = current
+      ? rounds.map((item) => (item.roundId === round.roundId ? round : item))
+      : [...rounds, round];
+    this.setState({ ...this.state, reviewRounds: next });
+    const coding = this.store.get(round.codingRunId);
+    if (coding && coding.reviewRoundId !== round.roundId) {
+      this.store.replace(round.codingRunId, { ...coding, reviewRoundId: round.roundId });
+    }
+    return true;
+  }
+
+  private async pullHeadSha(owner: string, repo: string, number: number): Promise<string> {
+    const cred = await resolveGitHubCredential(this.env, `https://github.com/${owner}/${repo}`);
+    if (!cred) return "head";
+    const response = await fetch(`${cred.apiBase}/repos/${owner}/${repo}/pulls/${number}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${cred.token}`,
+        "User-Agent": "shiba",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) return "head";
+    const body = await response.json() as { head?: { sha?: string } };
+    return body.head?.sha || "head";
+  }
+
+  private async afterRunSettled(run: DelegatedRun, output: string): Promise<void> {
+    try {
+      if (run.reviewOf) await this.settleReviewer(run, output);
+      else {
+        if (run.pullUrl) this.registerPrBinding(run);
+        await this.queueChainedReview(run);
+      }
+    } catch (error) {
+      console.error("review chain failed", redactSecrets(error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  private async queueChainedReview(parent: DelegatedRun): Promise<void> {
+    const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
+    if (!pull || !parent.pullUrl) return;
+    const headSha = await this.pullHeadSha(pull.owner, pull.repo, pull.number);
+    await this.queueReviewForCodingRun(parent, headSha);
+  }
+
   private async settleReviewer(run: DelegatedRun, output: string): Promise<void> {
     const parent = run.reviewOf ? this.store.get(run.reviewOf) : null;
     const pull = parent?.pullUrl ? this.parsePull(parent.pullUrl) : null;
@@ -2386,13 +2633,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       summary: envelope.summary,
       generation: run.generation,
     };
-    if (!pull || !parent?.pullUrl || !this.env.GITHUB_TOKEN) {
+    const repoUrl = pull ? `https://github.com/${pull.owner}/${pull.repo}` : undefined;
+    const githubCred = repoUrl ? await resolveGitHubCredential(this.env, repoUrl) : null;
+    if (!pull || !parent?.pullUrl || !githubCred) {
       this.writeRound({ ...round, status: "failed", error: "github_not_configured" });
       return;
     }
     if (!this.writeRound(round)) return;
     try {
-      const posted = await postReview(round, this.env.GITHUB_TOKEN, { apiBase: this.env.GITHUB_API_BASE });
+      const posted = await postReview(round, githubCred.token, {
+        apiBase: githubCred.apiBase,
+        inlineThreshold: this.inlineReviewThreshold(),
+      });
       this.writeRound({ ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() });
     } catch (error) {
       this.writeRound({
@@ -2587,6 +2839,38 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.postToThread(slackRunCancelled({ repoUrl: run.repoUrl }));
     await this.releaseSandboxForRun(run);
     return updated;
+  }
+
+  private async steerRun(
+    runId: string,
+    body: unknown,
+    agentPrincipal: string | null,
+  ): Promise<Response> {
+    const host = {
+      listRuns: () => this.store.list(),
+      writeRuns: (runs: DelegatedRun[]) => {
+        this.setState({ ...this.state, runs });
+      },
+      listApprovals: () => this.approvals,
+      writeApprovals: (approvals: PendingApproval[]) => {
+        this.writeApprovals(approvals);
+      },
+      cancelRun: (id: string) => this.cancelRun(id),
+      resolveRoute: (input: {
+        repoUrl: string;
+        task: string;
+        baseBranch: string;
+        publishPullRequest: boolean;
+        harness?: string;
+        codingModel?: string;
+        connectionId?: string;
+      }) => this.resolveRoute(input as DelegateInput),
+      githubTokenConfigured: Boolean(this.env.GITHUB_TOKEN),
+    };
+    const result = await handleSteeringRequest(host, runId, body, {
+      steeredBy: agentPrincipal ?? undefined,
+    });
+    return Response.json(result.body, { status: result.status });
   }
 
   /**
@@ -3422,17 +3706,26 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let runId: string;
     try { runId = decodeURIComponent(match[1] ?? ""); }
     catch { return Response.json({ ok: false, error: "invalid_thread" }, { status: 400 }); }
-    const round = (this.state.reviewRounds ?? []).find(
-      (item) => item.codingRunId === runId || item.reviewRunId === runId,
-    ) ?? null;
+    const rounds = this.state.reviewRounds ?? [];
+    const round =
+      latestRoundForCodingRun(rounds, runId) ??
+      rounds.find((item) => item.codingRunId === runId || item.reviewRunId === runId) ??
+      null;
     if (request.method === "GET" && match[2] !== "retry") {
-      return Response.json({ ok: true, round });
+      return Response.json({ ok: true, round, rounds });
     }
     if (request.method === "POST" && match[2] === "retry") {
       if (!round) return Response.json({ ok: false, error: "round_not_found" }, { status: 404 });
-      if (!this.env.GITHUB_TOKEN) return Response.json({ ok: false, error: "github_not_configured" }, { status: 503 });
+      const cred = await resolveGitHubCredential(
+        this.env,
+        round.pull ? `https://github.com/${round.pull.owner}/${round.pull.repo}` : undefined,
+      );
+      if (!cred) return Response.json({ ok: false, error: "github_not_configured" }, { status: 503 });
       try {
-        const posted = await postReview(round, this.env.GITHUB_TOKEN, { apiBase: this.env.GITHUB_API_BASE });
+        const posted = await postReview(round, cred.token, {
+          apiBase: cred.apiBase,
+          inlineThreshold: this.inlineReviewThreshold(),
+        });
         const next: ReviewRound = { ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() };
         this.writeRound(next);
         return Response.json({ ok: true, round: next });
@@ -3477,6 +3770,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (request.method === "POST" && url.pathname === "/internal/sweep-drafts") {
       this.sweepStaleDrafts(true);
       return Response.json({ ok: true });
+    }
+    if (request.method === "POST" && url.pathname === "/internal/pr-lifecycle") {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "invalid_json" }, { status: 400 });
+      }
+      const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+      return this.handlePrLifecycleWake(record);
     }
     if (url.pathname.startsWith("/internal/web-sessions")) {
       return this.handleInternalWebSessions(request, url);
@@ -3612,8 +3915,97 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return run ? Response.json({ run: this.serializeRun(run) })
         : Response.json({ error: "Run not found." }, { status: 404 });
     }
+    const triageMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review\/findings\/([^/]+)\/triage$/);
+    if (triageMatch && request.method === "PATCH") {
+      let runId: string;
+      let findingId: string;
+      try {
+        runId = decodeURIComponent(triageMatch[1] ?? "");
+        findingId = decodeURIComponent(triageMatch[2] ?? "");
+      } catch {
+        return Response.json({ ok: false, error: "invalid_id" }, { status: 400 });
+      }
+      const rounds = this.state.reviewRounds ?? [];
+      const round =
+        latestRoundForCodingRun(rounds, runId) ??
+        rounds.find((item) => item.codingRunId === runId || item.reviewRunId === runId);
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ ok: false, error: "invalid_json" }, { status: 400 });
+      }
+      const triage =
+        typeof body === "object" && body !== null && !Array.isArray(body)
+          ? (body as { triage?: unknown }).triage
+          : undefined;
+      if (!isFindingTriage(triage) || !round) {
+        return Response.json({ ok: false, error: "invalid_request" }, { status: 400 });
+      }
+      const next = patchFindingTriage(round, findingId, triage);
+      if (!next) return Response.json({ ok: false, error: "finding_not_found" }, { status: 404 });
+      this.writeRound(next);
+      return Response.json({ ok: true, round: next });
+    }
+    const mergeMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/merge$/);
+    if (mergeMatch && request.method === "POST") {
+      let mergeBody: unknown;
+      try {
+        mergeBody = await request.json();
+      } catch {
+        return Response.json({ error: "invalid_json" }, { status: 400 });
+      }
+      const record =
+        typeof mergeBody === "object" && mergeBody !== null ? (mergeBody as Record<string, unknown>) : {};
+      let runId: string;
+      try {
+        runId = decodeURIComponent(mergeMatch[1] ?? "");
+      } catch {
+        return Response.json({ error: "invalid_thread" }, { status: 400 });
+      }
+      const run = this.store.get(runId);
+      const pull = run?.pullUrl ? this.parsePull(run.pullUrl) : null;
+      if (!pull) return Response.json({ error: "pull_request_not_found" }, { status: 404 });
+      const expectedHeadSha =
+        typeof record.expectedHeadSha === "string" ? record.expectedHeadSha : pull ? await this.pullHeadSha(pull.owner, pull.repo, pull.number) : "";
+      return this.queuePrMergeApproval({
+        threadKey: runId,
+        payload: {
+          owner: pull.owner,
+          repo: pull.repo,
+          number: pull.number,
+          expectedHeadSha,
+          ...(typeof record.mergeMethod === "string" ? { mergeMethod: record.mergeMethod } : {}),
+          ...(typeof record.commitTitle === "string" ? { commitTitle: record.commitTitle } : {}),
+          ...(typeof record.commitMessage === "string" ? { commitMessage: record.commitMessage } : {}),
+        },
+      });
+    }
     const reviewMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review(?:\/(retry))?$/);
     if (reviewMatch) return this.handleReviewRoute(request, reviewMatch);
+    const steerMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/steer$/);
+    if (steerMatch !== null) {
+      if (request.method !== "POST") {
+        return Response.json({ error: "Method not allowed." }, { status: 405 });
+      }
+      let steerBody: unknown;
+      try {
+        steerBody = await request.json();
+      } catch {
+        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+      }
+      let steerRunId: string;
+      try {
+        steerRunId = decodeURIComponent(steerMatch[1]!);
+      } catch {
+        return Response.json({ error: "Invalid run ID." }, { status: 400 });
+      }
+      const existing = this.store.get(steerRunId);
+      if (!existing || (agentPrincipal !== null && existing.queuedBy !== agentPrincipal)) {
+        return Response.json({ error: "Run not found." }, { status: 404 });
+      }
+      return this.steerRun(steerRunId, steerBody, agentPrincipal);
+    }
     const subagentMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/subagents$/);
     if (subagentMatch && request.method === "POST") {
       let body: unknown;
