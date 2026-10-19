@@ -106,7 +106,7 @@ export function createSandboxOAuthRunner(env: Pick<Env, "Sandbox">): SandboxOAut
     async exchange(discovery, body, userId) {
       const safeUser = userId.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 48);
       const sandboxId = `siwc-oauth-${safeUser}-${crypto.randomUUID().slice(0, 8)}`;
-      const { getSandbox } = await import("@cloudflare/sandbox");
+      const { getSandbox } = await import("../sandbox/client.js");
       const sandbox = getSandbox(env.Sandbox, sandboxId) as unknown as SandboxOAuthExecSurface;
       try {
         return await runSandboxOAuthExchange(sandbox, discovery, body);

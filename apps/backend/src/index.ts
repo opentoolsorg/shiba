@@ -16,6 +16,7 @@ import { Mailbox } from "./mailbox-do.js";
 import { MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
 import { Memory } from "./memory-do.js";
 import { Sandbox, SandboxOutbound, proxyToSandbox } from "./sandbox.js";
+import { ContainerProxy } from "./sandbox/npm-shim.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";

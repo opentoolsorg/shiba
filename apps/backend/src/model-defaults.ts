@@ -15,6 +15,10 @@ import type { ModelConfigSnapshot } from "./model-policy.js";
 const SERVICE_DEFAULT_CODING: Record<ConnectionService, { harness: string; model: string }> = {
   anthropic: { harness: "claude-code", model: HARNESS_DEFAULT_MODELS["claude-code"] as string },
   openai: { harness: "codex", model: HARNESS_DEFAULT_MODELS.codex as string },
+  "openai-subscription": {
+    harness: "codex-subscription",
+    model: HARNESS_DEFAULT_MODELS["codex-subscription"] as string,
+  },
   google: { harness: "opencode", model: HARNESS_DEFAULT_MODELS.opencode as string },
   grok: { harness: "grok", model: HARNESS_DEFAULT_MODELS.grok as string },
   devin: { harness: "devin", model: HARNESS_DEFAULT_MODELS.devin as string },

@@ -14,7 +14,7 @@ const baseInput: CodingTaskInput = {
   baseBranch: "main",
   publishPullRequest: true,
   sandboxId: "sb",
-  codingModel: "google/gemini-2.0-flash",
+  codingModel: "google/gemini-3.5-flash-lite",
 };
 
 describe("verify stand-in", () => {
