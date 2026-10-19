@@ -1,15 +1,3 @@
-/**
- * FirstRunWizard — the post-signup onboarding flow. Three steps:
- *   1. Channels  — review deployment-reported configuration for the surfaces
- *      that carry tasks & approvals (Slack/Telegram/Discord/Email/GitHub).
- *   2. Your agent — ACP adapter status from /api/providers, with a link
- *      to the Providers page for sign-in, test, and the org default.
- *   3. Model routing — the deployment's role→harness map, read-only, with a
- *      link into Settings → Models.
- * Opens automatically on the first authenticated session
- * (`shiba-onboarding-v1` in localStorage) and can be reopened from Setup
- * Guide. Steps never block: "Skip" always works, "Finish" marks it done.
- */
 import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { useMailboxes, useSetupStatus } from "../live-status";

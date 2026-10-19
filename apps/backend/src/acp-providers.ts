@@ -1,19 +1,3 @@
-/**
- * ACP provider registry and per-org connection state.
- *
- * The Providers page used to call `/api/auth/<provider>-subscription`.
- * Those routes 404 unless `SHIBA_*_SUBSCRIPTION=1`, so every connector
- * rendered "not enabled" and Connect was disabled. `/api/agents` is a
- * static CLI catalog: it has no connect, test, disconnect, or default.
- * This module is the replacement: a fixed registry of sandbox adapters
- * plus connection metadata in AGENT_TOKENS. Secret values never enter
- * the record or the response.
- *
- * OAuth is a device-code shaped flow (RFC 8628 fields) whose token step
- * is the existing Claude / Codex subscription probe — the same Worker
- * secret the t3code-style lanes already use. API-key mode records which
- * declared env name is present. It refuses pasted key material.
- */
 import {
   type AcpAuthMode,
   type AcpProviderCapabilities,
@@ -102,15 +86,12 @@ function capabilities(
   };
 }
 
-/**
- * Registry of providers the dashboard can connect. ACP spawn argv is the
- * lane table's own spec, so the card and the sandbox driver cannot drift.
- */
 export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
   {
     id: "claude",
     label: "Claude Code",
-    blurb: "Claude Code via the Agent Client Protocol adapter claude-agent-acp. Sign-in reuses the Claude subscription probe.",
+    blurb:
+      "Claude Code via the Agent Client Protocol adapter claude-agent-acp. Sign-in reuses the Claude subscription probe.",
     adapter: "claude-agent-acp",
     packageName: "@agentclientprotocol/claude-agent-acp",
     license: "Apache-2.0",
@@ -120,13 +101,14 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     docsUrl: "https://agentclientprotocol.com",
     oauth: true,
     subscription: "claude-subscription",
-    credentialEnv: ["CLAUDE_SUBSCRIPTION_TOKEN", "AI_GATEWAY_TOKEN"],
+    credentialEnv: ["AI_GATEWAY_TOKEN"],
     verificationUri: "https://claude.ai/login",
   },
   {
     id: "codex",
     label: "Codex",
-    blurb: "Codex via codex-acp. Sign-in reuses the ChatGPT subscription probe (Sign in with ChatGPT).",
+    blurb:
+      "Codex via codex-acp. Sign-in reuses the ChatGPT subscription probe (Sign in with ChatGPT).",
     adapter: "codex-acp",
     packageName: "@agentclientprotocol/codex-acp",
     license: "Apache-2.0",
@@ -136,7 +118,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     docsUrl: "https://agentclientprotocol.com",
     oauth: true,
     subscription: "codex-subscription",
-    credentialEnv: ["CODEX_SUBSCRIPTION_AUTH_JSON", "AI_GATEWAY_TOKEN"],
+    credentialEnv: ["AI_GATEWAY_TOKEN"],
     verificationUri: "https://chatgpt.com/",
   },
   {
@@ -158,7 +140,8 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
   {
     id: "grok",
     label: "Grok",
-    blurb: "The pinned Grok CLI speaks streaming JSON, not ACP. Tasks use the grok harness. API-key mode uses the gateway credential.",
+    blurb:
+      "The pinned Grok CLI speaks streaming JSON, not ACP. Tasks use the grok harness. API-key mode uses the gateway credential.",
     adapter: "grok",
     packageName: "@xai-official/grok",
     license: "see package",
@@ -202,7 +185,6 @@ export function acpProvider(id: string): ProviderDefinition {
   return provider;
 }
 
-/** Harness, model, and spawn for a provider whose child is an ACP server. */
 export function acpAdapterPlan(id: AcpProviderId): {
   providerId: AcpProviderId;
   harness: AgentHarnessName;
@@ -233,6 +215,7 @@ export type OauthConfirm = (
 export interface ProviderDeps {
   now?: () => number;
   confirmOauth?: OauthConfirm;
+  inspectOauth?: OauthConfirm;
 }
 
 function nowMs(deps: ProviderDeps): number {
@@ -251,7 +234,11 @@ function defaultKey(org: string): string {
   return `${DEFAULT_PREFIX}${encodeURIComponent(org)}`;
 }
 
-async function readRecord(env: Env, org: string, id: AcpProviderId): Promise<StoredConnection | null> {
+async function readRecord(
+  env: Env,
+  org: string,
+  id: AcpProviderId,
+): Promise<StoredConnection | null> {
   const kv = kvOf(env);
   if (kv === null) return null;
   let raw: string | null;
@@ -272,7 +259,12 @@ async function readRecord(env: Env, org: string, id: AcpProviderId): Promise<Sto
   }
 }
 
-async function writeRecord(env: Env, org: string, id: AcpProviderId, record: StoredConnection): Promise<void> {
+async function writeRecord(
+  env: Env,
+  org: string,
+  id: AcpProviderId,
+  record: StoredConnection,
+): Promise<void> {
   const kv = kvOf(env);
   if (kv === null) {
     throw new ProviderFlowError("Provider connection store is not configured.", 503);
@@ -341,11 +333,14 @@ function deviceCode(): string {
 
 function publicConnection(record: StoredConnection | null, now: number): AcpProviderConnection {
   if (record === null) return DISCONNECTED;
-  const expired = record.phase === "waiting" && record.expiresAt !== undefined && record.expiresAt <= now;
+  const expired =
+    record.phase === "waiting" && record.expiresAt !== undefined && record.expiresAt <= now;
   return {
     phase: expired ? "failed" : record.phase,
     authMode: record.authMode,
-    message: expired ? "The confirmation code expired. Start sign-in again." : (record.message ?? null),
+    message: expired
+      ? "The confirmation code expired. Start sign-in again."
+      : (record.message ?? null),
     userCode: expired ? null : (record.userCode ?? null),
     verificationUri: expired ? null : (record.verificationUri ?? null),
     expiresAt: record.expiresAt ?? null,
@@ -385,7 +380,11 @@ function toCard(
   };
 }
 
-export async function readProviderSnapshot(env: Env, org: string, deps: ProviderDeps = {}): Promise<AcpProvidersSnapshot> {
+export async function readProviderSnapshot(
+  env: Env,
+  org: string,
+  deps: ProviderDeps = {},
+): Promise<AcpProvidersSnapshot> {
   const now = nowMs(deps);
   const defaultId = await readDefault(env, org);
   const providers = await Promise.all(
@@ -407,7 +406,9 @@ export async function connectProvider(
   const now = nowMs(deps);
   if (mode === "oauth") {
     if (!provider.oauth || provider.verificationUri === null) {
-      throw new InputError(`${provider.label} has no sign-in flow. Connect with the API credential instead.`);
+      throw new InputError(
+        `${provider.label} has no sign-in flow. Connect with the API credential instead.`,
+      );
     }
     const code = deviceCode();
     await writeRecord(env, org, provider.id, {
@@ -416,7 +417,8 @@ export async function connectProvider(
       userCode: code,
       verificationUri: provider.verificationUri,
       expiresAt: now + DEVICE_TTL_MS,
-      message: "Open the sign-in page, then finish sign-in with this confirmation code.",
+      message:
+        "This code only confirms this page. Finish sign-in checks the subscription lane and does not send the code to the vendor.",
       updatedAt: now,
     });
     return readProviderSnapshot(env, org, deps);
@@ -435,7 +437,7 @@ export async function connectProvider(
     await writeRecord(env, org, provider.id, {
       phase: "connected",
       authMode: "api-key",
-      message: `Using ${name}. The sandbox adapter receives a dummy key; egress attaches the real credential.`,
+      message: `Using ${name}. The sandbox adapter receives a dummy key; egress attaches this credential for the ${provider.harness} harness.`,
       updatedAt: now,
     });
     return readProviderSnapshot(env, org, deps);
@@ -466,7 +468,11 @@ export async function verifyProvider(
     });
     return readProviderSnapshot(env, org, deps);
   }
-  if (typeof userCode !== "string" || userCode.trim() === "" || userCode.trim() !== record.userCode) {
+  if (
+    typeof userCode !== "string" ||
+    userCode.trim() === "" ||
+    userCode.trim() !== record.userCode
+  ) {
     throw new InputError("The confirmation code does not match this sign-in.");
   }
   const confirm = deps.confirmOauth;
@@ -504,13 +510,17 @@ export async function testProvider(
     message = ok
       ? `Credential ${name} is still present.`
       : `Credential missing. Set ${provider.credentialEnv.join(" or ")}.`;
-  } else if (deps.confirmOauth !== undefined) {
-    const verdict = await deps.confirmOauth(env, provider, org);
+  } else if (deps.inspectOauth !== undefined) {
+    const verdict = await deps.inspectOauth(env, provider, org);
     ok = verdict.ok;
     message = verdict.message;
   }
+  const fresh = await readRecord(env, org, provider.id);
+  if (fresh === null || fresh.phase !== "connected" || fresh.updatedAt !== record.updatedAt) {
+    return readProviderSnapshot(env, org, deps);
+  }
   await writeRecord(env, org, provider.id, {
-    ...record,
+    ...fresh,
     message,
     testedAt: now,
     testOk: ok,

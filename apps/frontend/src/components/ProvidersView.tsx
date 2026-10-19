@@ -325,7 +325,7 @@ export function ProvidersBoard({
               <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[var(--border-1)] pb-2">
                 <h3 className="text-sm font-semibold text-[var(--fg)]">Sandbox adapters</h3>
                 <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-                  Connect, test, disconnect, pick the org default
+                  Org default is recorded here. A run still uses the harness for that task.
                 </p>
               </div>
               {loading && snapshot === null ? (

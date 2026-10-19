@@ -1,42 +1,25 @@
-/**
- * `/api/providers` — list, connect, verify, test, disconnect, and the
- * per-org default for ACP adapters.
- *
- * Authenticated by the worker gate like every other dashboard route.
- * Bodies that carry key material are refused before any write.
- */
-import { claudeSubscriptionAuth, codexSubscriptionAuth, AuthFlowError } from "@shiba/auth";
+import type { SubscriptionForwarder } from "@shiba/auth";
+import { AuthFlowError, claudeSubscriptionAuth, codexSubscriptionAuth } from "@shiba/auth";
 import {
   connectProvider,
   disconnectProvider,
+  type OauthConfirm,
+  type ProviderDefinition,
+  type ProviderDeps,
   ProviderFlowError,
   readProviderSnapshot,
   setDefaultProvider,
   testProvider,
   verifyProvider,
-  type OauthConfirm,
-  type ProviderDefinition,
-  type ProviderDeps,
 } from "./acp-providers.js";
+import { type EgressEnv, forwardClaudeSubscription, forwardCodexSubscription } from "./egress.js";
 import type { Env } from "./env.js";
-import { forwardClaudeSubscription, forwardCodexSubscription, type EgressEnv } from "./egress.js";
 import { codexSubscriptionInstanceId } from "./harness/codex-subscription.js";
 import { resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { InputError } from "./security.js";
-import type { SubscriptionForwarder } from "@shiba/auth";
 
-const FORBIDDEN_BODY_KEYS = new Set([
-  "apikey",
-  "api_key",
-  "token",
-  "secret",
-  "authorization",
-  "password",
-  "authjson",
-  "refresh_token",
-  "access_token",
-]);
+const ALLOWED_BODY_KEYS = new Set(["mode", "usercode"]);
 
 export interface ProviderRouteDeps extends ProviderDeps {
   forwardClaude?: SubscriptionForwarder;
@@ -62,59 +45,101 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   }
   const record = body as Record<string, unknown>;
   for (const key of Object.keys(record)) {
-    if (FORBIDDEN_BODY_KEYS.has(key.toLowerCase())) {
-      throw new InputError("This API does not accept credential material. Provision a Worker secret or gateway token instead.");
+    if (!ALLOWED_BODY_KEYS.has(key.toLowerCase())) {
+      throw new InputError(
+        "This API does not accept credential material. Provision a Worker secret or gateway token instead.",
+      );
     }
   }
   return record;
 }
 
-/**
- * Token step for the device flow. When the subscription lane is enabled,
- * this is the existing T47 controller (begin, then the capability probe).
- * Otherwise the code cannot be redeemed — the page says why.
- */
+const QUIET_AUTH_PHASES = new Set(["idle", "cleared", "failed"]);
+
+async function subscriptionController(
+  env: Env,
+  provider: ProviderDefinition,
+  forwarders: { claude?: SubscriptionForwarder; codex?: SubscriptionForwarder },
+) {
+  if (provider.subscription === "claude-subscription") {
+    if (env.SHIBA_CLAUDE_SUBSCRIPTION !== "1") {
+      return {
+        controller: null,
+        message:
+          "Claude subscription sign-in is not enabled. Set SHIBA_CLAUDE_SUBSCRIPTION=1 and store CLAUDE_SUBSCRIPTION_TOKEN, or connect with the API credential.",
+      };
+    }
+    const forward =
+      forwarders.claude ??
+      ((request, e, ctx) => forwardClaudeSubscription(request, e as EgressEnv, ctx));
+    return { controller: claudeSubscriptionAuth(env, "claude-sub:default", forward), message: "" };
+  }
+  if (provider.subscription === "codex-subscription") {
+    if (env.SHIBA_CODEX_SUBSCRIPTION !== "1") {
+      return {
+        controller: null,
+        message:
+          "Codex subscription sign-in is not enabled. Set SHIBA_CODEX_SUBSCRIPTION=1 and store CODEX_SUBSCRIPTION_AUTH_JSON, or connect with the API credential.",
+      };
+    }
+    const forward =
+      forwarders.codex ??
+      ((request, e, ctx) => forwardCodexSubscription(request, e as EgressEnv, ctx));
+    return {
+      controller: codexSubscriptionAuth(
+        env,
+        codexSubscriptionInstanceId({ authAccount: "default" }),
+        forward,
+      ),
+      message: "",
+    };
+  }
+  return { controller: null, message: `${provider.label} has no subscription sign-in.` };
+}
+
+export async function inspectProviderOauth(
+  env: Env,
+  provider: ProviderDefinition,
+  _org: string,
+  forwarders: { claude?: SubscriptionForwarder; codex?: SubscriptionForwarder } = {},
+): Promise<{ ok: boolean; message: string }> {
+  const lane = await subscriptionController(env, provider, forwarders);
+  if (lane.controller === null) return { ok: false, message: lane.message };
+  const current = await lane.controller.snapshot();
+  if (current.phase === "succeeded") {
+    return { ok: true, message: current.message ?? "Subscription lane is already authenticated." };
+  }
+  return {
+    ok: false,
+    message: `Subscription lane is ${current.phase}. Test does not start or restart sign-in.`,
+  };
+}
+
 export async function confirmProviderOauth(
   env: Env,
   provider: ProviderDefinition,
   org: string,
   forwarders: { claude?: SubscriptionForwarder; codex?: SubscriptionForwarder } = {},
 ): Promise<{ ok: boolean; message: string }> {
-  if (provider.subscription === "claude-subscription") {
-    if (env.SHIBA_CLAUDE_SUBSCRIPTION !== "1") {
-      return {
-        ok: false,
-        message: "Claude subscription sign-in is not enabled. Set SHIBA_CLAUDE_SUBSCRIPTION=1 and store CLAUDE_SUBSCRIPTION_TOKEN, or connect with the API credential.",
-      };
-    }
-    const forward = forwarders.claude ?? ((request, e, ctx) => forwardClaudeSubscription(request, e as EgressEnv, ctx));
-    const controller = claudeSubscriptionAuth(env, "claude-sub:default", forward);
-    try {
-      await controller.begin(org);
-      const snapshot = await controller.verify(org);
-      return { ok: snapshot.phase === "succeeded", message: snapshot.message ?? snapshot.phase };
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "Claude sign-in failed." };
-    }
+  const lane = await subscriptionController(env, provider, forwarders);
+  if (lane.controller === null) return { ok: false, message: lane.message };
+  const current = await lane.controller.snapshot();
+  if (current.phase === "succeeded") {
+    return { ok: true, message: current.message ?? "Subscription lane is already authenticated." };
   }
-  if (provider.subscription === "codex-subscription") {
-    if (env.SHIBA_CODEX_SUBSCRIPTION !== "1") {
-      return {
-        ok: false,
-        message: "Codex subscription sign-in is not enabled. Set SHIBA_CODEX_SUBSCRIPTION=1 and store CODEX_SUBSCRIPTION_AUTH_JSON, or connect with the API credential.",
-      };
-    }
-    const forward = forwarders.codex ?? ((request, e, ctx) => forwardCodexSubscription(request, e as EgressEnv, ctx));
-    const controller = codexSubscriptionAuth(env, codexSubscriptionInstanceId({ authAccount: "default" }), forward);
-    try {
-      await controller.begin(org);
-      const snapshot = await controller.verify(org);
-      return { ok: snapshot.phase === "succeeded", message: snapshot.message ?? snapshot.phase };
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : "Codex sign-in failed." };
-    }
+  if (!QUIET_AUTH_PHASES.has(current.phase)) {
+    return {
+      ok: false,
+      message: `Subscription sign-in is ${current.phase}. This page will not interrupt it.`,
+    };
   }
-  return { ok: false, message: `${provider.label} has no subscription sign-in.` };
+  try {
+    await lane.controller.begin(org);
+    const snapshot = await lane.controller.verify(org);
+    return { ok: snapshot.phase === "succeeded", message: snapshot.message ?? snapshot.phase };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Sign-in failed." };
+  }
 }
 
 function jsonError(error: unknown): Response {
@@ -143,9 +168,16 @@ export async function handleAcpProviders(
   if (url.pathname !== "/api/providers" && !url.pathname.startsWith("/api/providers/")) {
     return null;
   }
-  const confirm: OauthConfirm = deps.confirmOauth ?? ((e, provider, org) =>
-    confirmProviderOauth(e, provider, org, { claude: deps.forwardClaude, codex: deps.forwardCodex }));
-  const flowDeps: ProviderDeps = { confirmOauth: confirm, ...(deps.now !== undefined ? { now: deps.now } : {}) };
+  const forwarders = { claude: deps.forwardClaude, codex: deps.forwardCodex };
+  const confirm: OauthConfirm =
+    deps.confirmOauth ?? ((e, provider, org) => confirmProviderOauth(e, provider, org, forwarders));
+  const inspect: OauthConfirm =
+    deps.inspectOauth ?? ((e, provider, org) => inspectProviderOauth(e, provider, org, forwarders));
+  const flowDeps: ProviderDeps = {
+    confirmOauth: confirm,
+    inspectOauth: inspect,
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+  };
   try {
     const org = await orgFor(request, env);
     if (url.pathname === "/api/providers") {
@@ -154,7 +186,9 @@ export async function handleAcpProviders(
         headers: { "Cache-Control": "no-store" },
       });
     }
-    const match = /^\/api\/providers\/([a-z0-9-]+)\/(connect|verify|test|disconnect|default)$/.exec(url.pathname);
+    const match = /^\/api\/providers\/([a-z0-9-]+)\/(connect|verify|test|disconnect|default)$/.exec(
+      url.pathname,
+    );
     if (match === null) {
       return Response.json({ error: "Not found." }, { status: 404 });
     }

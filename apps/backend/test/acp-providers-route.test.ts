@@ -1,7 +1,3 @@
-/**
- * The worker mounts `/api/providers` on the authenticated dashboard lane.
- * Loopback without Access is the same gate the other dashboard tests use.
- */
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@cloudflare/sandbox", () => ({

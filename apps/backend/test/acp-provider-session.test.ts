@@ -1,8 +1,3 @@
-/**
- * The sandbox ACP driver speaks a real JSON-RPC session to a mock agent:
- * initialize, session/new, session/set_model, session/update,
- * session/request_permission (narrowest allow), session/prompt.
- */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
