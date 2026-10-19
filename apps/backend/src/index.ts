@@ -33,6 +33,7 @@ import { LocalDispatch } from "./local-dispatch.js";
 import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
+import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
@@ -227,6 +228,10 @@ export default {
       const metaResponse = await handleMeta(request, env);
       if (metaResponse) {
         return metaResponse;
+      }
+      const acpProviderResponse = await handleAcpProviders(request, env);
+      if (acpProviderResponse) {
+        return acpProviderResponse;
       }
       const subscriptionAuthResponse = await handleSubscriptionAuth(request, env);
       if (subscriptionAuthResponse) {

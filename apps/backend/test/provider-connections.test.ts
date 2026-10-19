@@ -77,14 +77,14 @@ describe("provider and settings connection surfaces", () => {
     expect(html).not.toContain("GITHUB_WEBHOOK_SECRET");
   });
 
-  it("places model connections in Providers between Connectors and sandbox CLIs", () => {
+  it("keeps model connections on Providers, under the ACP adapter list", () => {
     const html = renderToStaticMarkup(React.createElement(ProvidersView));
-    const connectors = html.indexOf("Connectors");
+    const adapters = html.indexOf("ACP adapters");
     const modelConnections = html.indexOf("Model connections");
-    const sandboxClis = html.indexOf("Sandbox Coding CLIs");
-    expect(modelConnections).toBeGreaterThan(connectors);
-    expect(sandboxClis).toBeGreaterThan(modelConnections);
+    expect(adapters).toBeGreaterThan(-1);
+    expect(modelConnections).toBeGreaterThan(adapters);
     expect(html).toContain("Named credentials a run can route through.");
+    expect(html).toContain("Loading providers");
     expect(html).toContain('<option value="grok">grok</option>');
     expect(html).not.toContain('value="cursor"');
   });
