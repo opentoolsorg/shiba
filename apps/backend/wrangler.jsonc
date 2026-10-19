@@ -37,6 +37,8 @@
     // Dark until the operator flips one to "1" here — wrangler deploy resets
     // dashboard-set vars, so the toggle lives in this file.
     "SHIBA_CODEX_SUBSCRIPTION": "0",
+    "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH": "0",
+    "SHIBA_CODEX_DEVICE_AUTH": "0",
     "SHIBA_CURSOR_SUBSCRIPTION": "0",
     "SHIBA_DEVIN_SUBSCRIPTION": "0",
     "SHIBA_ANTIGRAVITY_SUBSCRIPTION": "0",

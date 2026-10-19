@@ -9,6 +9,8 @@ import {
   scopesIncludePlanUsage,
   type ChatGptConnectionRecord,
 } from "./siwc.js";
+import { isOAuthBotChallengeResponse } from "./oauth-bot-challenge.js";
+import type { SandboxOAuthRunner } from "./sandbox-oauth-client.js";
 
 export interface TokenResponse {
   access_token: string;
@@ -63,7 +65,16 @@ export async function exchangeToken(
     headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });
-  const raw = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  const bodyText = await response.text();
+  if (isOAuthBotChallengeResponse(response, bodyText)) {
+    throw new ChatGptOAuthError("ChatGPT OAuth endpoint returned a bot challenge.", "bot_challenge");
+  }
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(bodyText) as Record<string, unknown>;
+  } catch {
+    throw new ChatGptOAuthError("ChatGPT token exchange returned non-JSON.");
+  }
   if (!response.ok) {
     const code = typeof raw.error === "string" ? raw.error : "exchange_failed";
     const clear =
@@ -143,18 +154,46 @@ export function connectionFromTokenResponse(input: {
   };
 }
 
+export async function exchangeTokenResilient(
+  discovery: OpenIdDiscovery,
+  body: URLSearchParams,
+  options: {
+    fetchImpl?: typeof fetch;
+    sandboxRunner?: SandboxOAuthRunner | null;
+    allowSandboxFallback?: boolean;
+    userId?: string;
+  } = {},
+): Promise<TokenResponse> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  try {
+    return await exchangeToken(discovery, body, fetchImpl);
+  } catch (error) {
+    const challenge =
+      error instanceof ChatGptOAuthError && error.code === "bot_challenge";
+    if (!challenge || !options.allowSandboxFallback || !options.sandboxRunner || !options.userId) {
+      throw error;
+    }
+    return await options.sandboxRunner.exchange(discovery, body, options.userId);
+  }
+}
+
 export async function refreshConnection(
   discovery: OpenIdDiscovery,
   record: ChatGptConnectionRecord,
   fetchImpl: typeof fetch = fetch,
   now = Date.now(),
+  options: {
+    sandboxRunner?: SandboxOAuthRunner | null;
+    allowSandboxFallback?: boolean;
+    userId?: string;
+  } = {},
 ): Promise<ChatGptConnectionRecord> {
   if (!record.refreshToken) throw new ChatGptOAuthError("ChatGPT connection expired.", "no_refresh", true);
   if (record.earliestRefreshAt !== null && record.earliestRefreshAt > now && record.expiresAt > now) {
     return record;
   }
   if (record.expiresAt - now > 60_000) return record;
-  const tokens = await exchangeToken(
+  const tokens = await exchangeTokenResilient(
     discovery,
     new URLSearchParams({
       grant_type: "refresh_token",
@@ -162,7 +201,12 @@ export async function refreshConnection(
       refresh_token: record.refreshToken,
       resource: CHATGPT_RESOURCE,
     }),
-    fetchImpl,
+    {
+      fetchImpl,
+      sandboxRunner: options.sandboxRunner,
+      allowSandboxFallback: options.allowSandboxFallback,
+      userId: options.userId,
+    },
   );
   if (!tokens.refresh_token || tokens.token_type.toLowerCase() !== "bearer") {
     throw new ChatGptOAuthError("ChatGPT returned an invalid renewal.");

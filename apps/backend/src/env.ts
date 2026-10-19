@@ -314,6 +314,16 @@ export interface Env {
    */
   MODEL_CREDENTIAL_KEY?: string;
   /**
+   * When "1", ChatGptAuth may run OAuth exchange/refresh inside a short-lived
+   * auth sandbox when Worker fetches to auth.openai.com get a bot challenge.
+   */
+  SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH?: string;
+  /**
+   * When "1", users may opt into codex login --device-auth on a per-user
+   * sandbox volume instead of Worker-stored SIWC tokens.
+   */
+  SHIBA_CODEX_DEVICE_AUTH?: string;
+  /**
    * When "1", deployment-wide CODEX_SUBSCRIPTION_AUTH_JSON Worker secrets
    * remain the codex-subscription credential fallback (single-operator mode).
    */

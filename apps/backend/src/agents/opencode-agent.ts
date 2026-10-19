@@ -40,6 +40,8 @@ import {
 import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
 import { localDispatchStub } from "../local-dispatch.js";
 import { chatGptAuthStub } from "../chatgpt-auth-do.js";
+import { codexDeviceAuthDeploymentEnabled } from "../harness/codex-device-auth.js";
+import { readUserOpenAiAuthMode } from "../subscription-device-auth.js";
 import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
 import { acquireSandboxOps } from "../sandbox/lifecycle.js";
 import { HARNESS_RETRY, withRetry } from "../harness/retry.js";
@@ -304,32 +306,34 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           } else {
             adapter = createRuntimeAdapter(runtimeName, harness);
           }
-          const hosts = allowedHostsFor(harness, input.codingModel);
-          const overrides = harness.egressOverrides?.(input);
           let runInput = input;
-          if (
-            harness.name === "codex-subscription" &&
-            input.initiatorUserId &&
-            this.env.ChatGptAuth &&
-            modelCredentialKeyConfigured(this.env)
-          ) {
-            const accessResponse = await chatGptAuthStub(this.env, input.initiatorUserId).fetch(
-              "https://chatgpt-auth.internal/access",
-            );
-            if (!accessResponse.ok) {
-              const body = (await accessResponse.json().catch(() => null)) as { error?: string } | null;
-              throw new Error(body?.error ?? "ChatGPT plan access is not available for this user.");
+          if (harness.name === "codex-subscription" && input.initiatorUserId) {
+            const deviceAuth =
+              codexDeviceAuthDeploymentEnabled(this.env) &&
+              (await readUserOpenAiAuthMode(this.env, input.initiatorUserId)) === "device-auth";
+            if (deviceAuth) {
+              runInput = { ...input, codexAuthMode: "device-auth" };
+            } else if (this.env.ChatGptAuth && modelCredentialKeyConfigured(this.env)) {
+              const accessResponse = await chatGptAuthStub(this.env, input.initiatorUserId).fetch(
+                "https://chatgpt-auth.internal/access",
+              );
+              if (!accessResponse.ok) {
+                const body = (await accessResponse.json().catch(() => null)) as { error?: string } | null;
+                throw new Error(body?.error ?? "ChatGPT plan access is not available for this user.");
+              }
+              const access = (await accessResponse.json()) as {
+                accessToken: string;
+                threadId?: string | null;
+              };
+              runInput = {
+                ...input,
+                chatgptAccessToken: access.accessToken,
+                ...(access.threadId ? { chatgptThreadId: access.threadId } : {}),
+              };
             }
-            const access = (await accessResponse.json()) as {
-              accessToken: string;
-              threadId?: string | null;
-            };
-            runInput = {
-              ...input,
-              chatgptAccessToken: access.accessToken,
-              ...(access.threadId ? { chatgptThreadId: access.threadId } : {}),
-            };
           }
+          const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
+          const overrides = harness.egressOverrides?.(runInput);
           const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides);
           const result = await adapter.runCodingTask(ops, runInput, emit, {
             signal,

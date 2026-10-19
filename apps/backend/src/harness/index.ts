@@ -8,6 +8,8 @@ import { claudeSubscriptionHarness } from "./claude-subscription.js";
 import { claudeLoginHarness } from "./claude-login.js";
 import { codexHarness } from "./codex.js";
 import { codexSubscriptionHarness } from "./codex-subscription.js";
+import { CODEX_DEVICE_AUTH_HOSTS, usesCodexDeviceAuth } from "./codex-device-auth.js";
+import type { CodingTaskInput } from "../opencode-input.js";
 import { cursorHarness } from "./cursor.js";
 import { cursorSubscriptionHarness } from "./cursor-subscription.js";
 import { CONTAINER_XDG_DATA, devinCredentialsConfig, devinHarness } from "./devin.js";
@@ -253,8 +255,12 @@ export function resolveRunHarness(input: string | undefined, envDefault: string 
  * Hosts a run may reach: the SELECTED harness's provider host plus git.
  * Never the union across harnesses — deny-by-default stays deny-by-default.
  */
-export function allowedHostsFor(harness: AgentHarness, model: string): string[] {
-  return [...harness.egressHosts(model), ...GIT_EGRESS_HOSTS];
+export function allowedHostsFor(harness: AgentHarness, model: string, input?: Pick<CodingTaskInput, "codexAuthMode">): string[] {
+  const providerHosts =
+    harness.name === "codex-subscription" && input && usesCodexDeviceAuth(input)
+      ? [...CODEX_DEVICE_AUTH_HOSTS]
+      : harness.egressHosts(model);
+  return [...providerHosts, ...GIT_EGRESS_HOSTS];
 }
 
 export type { AgentHarness };
