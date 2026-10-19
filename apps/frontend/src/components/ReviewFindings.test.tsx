@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ReviewFindings } from "./ReviewFindings";
 
 afterEach(() => {
@@ -72,5 +72,36 @@ describe("ReviewFindings", () => {
     });
     expect(screen.getByTestId("review-retry")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("github_401");
+  });
+
+  it("marks a finding resolved before the triage request returns", async () => {
+    let resolvePatch: (response: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          return new Promise<Response>((resolve) => {
+            resolvePatch = resolve;
+          });
+        }
+        return Response.json({ round: sampleRound });
+      }),
+    );
+    render(<ReviewFindings threadId="run-1" reviewAfterPublish />);
+    await waitFor(() => {
+      expect(screen.getByText("Null deref")).toBeTruthy();
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Triage for Null deref" }), {
+      target: { value: "resolved" },
+    });
+    expect(screen.getByTestId("review-findings").querySelector("[data-triage]")?.getAttribute("data-triage")).toBe(
+      "resolved",
+    );
+    resolvePatch(Response.json({ round: sampleRound }));
+    await waitFor(() => {
+      expect(screen.getByTestId("review-findings").querySelector("[data-triage]")?.getAttribute("data-triage")).toBe(
+        "open",
+      );
+    });
   });
 });

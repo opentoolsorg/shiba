@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type JSX } from "react";
 import { LoaderCircle } from "lucide-react";
 import { LoadErrorState } from "./LoadErrorState";
+import { CardSkeleton } from "./surface";
 
 interface PullStatus {
   url?: string;
@@ -80,11 +81,8 @@ export function PullRequestCard({
 
   if (fetchState.kind === "loading") {
     return (
-      <section data-testid="pr-card" data-state="loading" className={panelClass}>
-        <p className="text-xs text-[var(--muted-foreground-2)] flex items-center gap-2">
-          <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[var(--primary)]" aria-hidden="true" />
-          Loading pull request status…
-        </p>
+      <section data-testid="pr-card" data-state="loading" className={panelClass} aria-busy="true">
+        <CardSkeleton label="Loading pull request status" />
       </section>
     );
   }
@@ -125,7 +123,7 @@ export function PullRequestCard({
   return (
     <section data-testid="pr-card" data-state="ready" className={panelClass}>
       <div className="flex items-center justify-between gap-2">
-        <a className="text-sm font-medium text-[var(--fg)] underline break-all" href={url}>{title}</a>
+        <a className="text-sm font-medium text-[var(--fg)] underline break-words min-w-0" href={url}>{title}</a>
         <span className="text-[10px] uppercase tracking-wider font-bold border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] shrink-0">
           {status?.state ?? "linked"}
         </span>

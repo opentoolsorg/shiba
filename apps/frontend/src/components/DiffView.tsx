@@ -14,6 +14,16 @@ export interface DiffViewProps {
   error?: string | null;
 }
 
+function runHasDiff(run: VMRun): boolean {
+  return Boolean(extractCompletedDiff(run) ?? run.diff);
+}
+
+/** Prefer the caller's run, then the newest run that actually has a patch. */
+function preferredRunId(runs: VMRun[], selected?: string | null): string {
+  if (selected && runs.some((run) => run.runId === selected)) return selected;
+  return runs.find(runHasDiff)?.runId ?? runs[0]?.runId ?? "";
+}
+
 export function DiffView({
   runs,
   selectedRunId,
@@ -21,15 +31,18 @@ export function DiffView({
   loading = false,
   error = null,
 }: DiffViewProps): JSX.Element {
-  const [internalSelectedId, setInternalSelectedId] = useState<string>(
-    selectedRunId || runs[0]?.runId || ""
+  const [internalSelectedId, setInternalSelectedId] = useState<string>(() =>
+    preferredRunId(runs, selectedRunId),
   );
 
-  const activeRunId = selectedRunId || internalSelectedId;
+  const activeRunId =
+    selectedRunId && runs.some((run) => run.runId === selectedRunId)
+      ? selectedRunId
+      : internalSelectedId || preferredRunId(runs, null);
 
   const activeRun = useMemo(
-    () => runs.find((r) => r.runId === activeRunId) || runs[0] || null,
-    [runs, activeRunId]
+    () => runs.find((r) => r.runId === activeRunId) || runs.find(runHasDiff) || runs[0] || null,
+    [runs, activeRunId],
   );
 
   const activeDiff = useMemo(() => {
@@ -52,14 +65,14 @@ export function DiffView({
       {/* Top Header */}
       <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
         <div>
-          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
-            <span>Diff & Patch Inspector</span>
+          <h2 className="text-[22px] leading-none text-[var(--fg)] flex items-center gap-2">
+            <span>Pull requests</span>
             <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[var(--card)] border border-[var(--border-1)] text-[var(--muted-foreground-2)]">
               {runsWithDiff.length} with diffs / {runs.length} total
             </span>
           </h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">
-            Review source code modifications, patch hunks, and git diffs across delegated agent runs.
+          <p className="text-xs text-[var(--muted-foreground-2)] mt-1.5">
+            Diffs recorded for each run. Open a run to read the patch.
           </p>
         </div>
 
@@ -106,9 +119,9 @@ export function DiffView({
             <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 text-[var(--primary)] flex items-center justify-center mb-3">
               <GitCompareArrows aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
             </div>
-            <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">No Task Runs Found</h3>
+            <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">No runs yet</h3>
             <p className="text-xs text-[var(--muted-foreground-2)] max-w-md">
-              Start a new task from the Tasks view. Once the agent modifies code inside the sandbox container, git diffs will appear here.
+              Start a thread. Diffs show up here after the sandbox writes files.
             </p>
           </div>
         ) : activeRun ? (
@@ -151,11 +164,11 @@ export function DiffView({
                 <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--bg)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] flex items-center justify-center mb-3">
                   <FileText aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
                 </div>
-                <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">
-                  No Git Diff Recorded for Run {activeRun.runId.slice(0, 8)}
-                </h3>
+                <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">No diff yet</h3>
                 <p className="text-xs text-[var(--muted-foreground-2)] max-w-md mb-4">
-                  Status: <span className="font-semibold">{statusLabel(activeRun.status)}</span>. This run may still be in progress, finished without file mutations, or encountered an early error before code was written.
+                  {activeRun.status === "running" || activeRun.status === "pending"
+                    ? "This run is still writing files. The patch shows up here when it finishes."
+                    : `This run is ${statusLabel(activeRun.status).toLowerCase()} and did not change any files.`}
                 </p>
               </div>
             )}
