@@ -38,7 +38,7 @@ import { handleApiKeys } from "./api-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
-import { handleCaptainRoutes } from "./captain-routes.js";
+import { handleDenRoutes } from "./den-routes.js";
 import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
