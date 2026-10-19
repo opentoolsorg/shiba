@@ -923,7 +923,17 @@ export function TaskComposer({
           </Popover>
         </div>
 
-        <div className="flex-1" aria-hidden="true" />
+        <div className="flex-1 min-w-0 flex flex-col items-end justify-center gap-0.5">
+          {isSubmitting ? (
+            <span className="text-[10px] text-[var(--primary)] font-medium" data-testid="composer-status">
+              Sending task…
+            </span>
+          ) : busy && !sendDisabled ? (
+            <span className="text-[10px] text-[var(--muted-foreground-2)]" data-testid="composer-status">
+              Planner responding — wait to send again
+            </span>
+          ) : null}
+        </div>
 
         {/* Teal Send Button */}
         <Tooltip content="Submit task to coding agent" shortcut="⌘↵" side="top">

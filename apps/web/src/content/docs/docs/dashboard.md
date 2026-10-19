@@ -7,13 +7,25 @@ Sign in at `/app/` — the first account created becomes the only account (sign-
 
 The sidebar groups surfaces for normal use: **Workspace** (Dashboard, Tasks, Activity, Analytics, Diff, Approvals, Automations), **Capabilities** (Agents & MCP, Providers, Skills, Integrations, Mailbox, Memory), and **System** (Settings). **Activity** streams the orchestrator's event spine (`GET /api/spine` — decide→append→apply events plus the side-effect outbox); **Analytics** is the run-record and usage surface (`/api/usage` aggregates). Light/dark theme follows the in-app toggle on every surface.
 
-Enter an HTTPS GitHub URL, base branch, and bounded task. Start without publishing. The planning agent proposes delegate_coding_task; review the **exact tool input**, then approve or reject it. Approval is a workflow gate, not installation authentication.
+Enter an HTTPS GitHub URL, base branch, and bounded task. Start without publishing. The planning agent proposes `delegate_coding_task`; read the **exact tool input** on the approval card, then approve or reject. The same gate applies to queued runs from **Approvals** (`POST /api/runs`). Approval is a workflow gate, not installation authentication.
+
+## Phase 1 thread panels (Tasks view)
+
+After the first message in a session, the timeline footer shows run outcome panels for the latest retained run on that thread:
+
+| Panel | Meaning |
+| --- | --- |
+| **Run progress** | Registry status (`pending`, `running`, `completed`, error family). Includes a direct **Open pull request** link when `pullUrl` is on the run row. |
+| **Pull request** | Live GitHub status from `GET /api/v1/threads/:id/pr/status`, with a waiting state while publish is in flight and a fallback link from `pullUrl` when GitHub status is not ready. |
+| **Review findings** | Review round from `GET /api/v1/threads/:id/pr/review` when **Read-only review after publish** was frozen at approval. Failed rounds expose **Retry review post** (`POST …/pr/review/retry`). |
+
+The composer shows **Sending task…** while a submit is in flight and **Planner responding** while the orchestrator is still streaming — the Send button stays disabled in both cases.
 
 ## Progress and results
 
 The SDK supplies connection state. Vite-only development has no Worker backend, so connection errors are expected there.
 
-Clone/configure/code/collect phases stream, but the runtime awaits the OpenCode process before returning its output. Token-level OpenCode streaming is not implemented. Inspect the final transcript for changes, bounded diff, errors, and any PR URL. These are not independent fields in the retained run API.
+Clone/configure/code/collect phases stream, but the runtime awaits the OpenCode process before returning its output. Token-level OpenCode streaming is not implemented. Inspect the final transcript for changes, bounded diff, errors, and any PR URL. The retained run API also stores `pullUrl`, `reviewAfterPublish`, and review round metadata for the panels above.
 
 The parent currently treats string child output as completed, including possible error text. **Read the transcript, not just a completed badge.** An empty diff is not evidence of successful edits.
 
