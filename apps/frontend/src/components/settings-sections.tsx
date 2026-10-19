@@ -124,6 +124,7 @@ const ROLE_SOURCE_LABEL: Record<RoleModelWire["source"], string> = {
   dashboard: "Dashboard pin",
   "role-map": "ROLE_MODEL_MAP",
   "role-env": "ROLE_MODEL__",
+  "connection-default": "Single connection",
   default: "Deployment default",
 };
 

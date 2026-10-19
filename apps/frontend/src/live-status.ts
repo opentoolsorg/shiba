@@ -22,6 +22,22 @@ export interface SetupStatus {
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelWire[] };
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
+  doctor: SetupDoctorWire;
+}
+
+export interface SetupDoctorWire {
+  ok: boolean;
+  checkedAt: number;
+  findings: { id: string; severity: "ok" | "warn" | "error"; message: string; fix?: string }[];
+  roles: {
+    role: string;
+    harness: string;
+    model: string;
+    connectionId: string | null;
+    ok: boolean;
+    message?: string;
+    fix?: string;
+  }[];
 }
 
 /**
@@ -31,7 +47,8 @@ export interface SetupStatus {
  */
 export interface RoleModelWire {
   role: string;
-  source: "dashboard" | "role-map" | "role-env" | "default";
+  source: "dashboard" | "role-map" | "role-env" | "connection-default" | "default";
+  connectionId?: string;
   harness: string;
   model: string;
   error?: string;
