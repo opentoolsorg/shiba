@@ -91,19 +91,17 @@ describe("Dockerfile pins", () => {
     );
   });
 
-  it("base image tag matches the @cloudflare/sandbox npm version", () => {
-    const from = DOCKERFILE.match(
-      /^FROM docker\.io\/cloudflare\/sandbox:([0-9.]+)-opencode(@sha256:[0-9a-f]{64})?$/m,
-    );
-    expect(from, "base image is not a versioned cloudflare/sandbox tag").not.toBeNull();
-    expect(
-      from![2],
-      "base image must be digest-pinned: FROM ...:tag@sha256:<64-hex>",
-    ).toBeDefined();
+  it("copies sandbox-shim from the @cloudflare/sandbox npm version", () => {
     const dep = PACKAGE_JSON.dependencies["@cloudflare/sandbox"];
     expect(dep).toBeDefined();
-    // package.json may carry a semver range (^, ~) — the image pin is exact.
-    expect(dep!.replace(/^[~^]/, "")).toBe(from![1]);
+    const version = dep!.replace(/^[~^]/, "");
+    expect(DOCKERFILE).toMatch(
+      new RegExp(`COPY --from=docker\\.io/cloudflare/sandbox:${version} /usr/local/bin/sandbox-shim`),
+    );
+    const from = DOCKERFILE.match(
+      /^FROM docker\.io\/cloudflare\/sandbox:([0-9.]+)-opencode@sha256:[0-9a-f]{64}$/m,
+    );
+    expect(from, "harness base image must stay digest-pinned").not.toBeNull();
   });
 
   it("agy ACP zip is checksum-verified per arch", () => {

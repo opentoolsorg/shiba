@@ -11,7 +11,7 @@ import type { Env } from "../src/env.js";
 // The real modules transitively import `cloudflare:*` specifiers that Node's
 // ESM loader cannot resolve; deps are injected, so the mocks only satisfy the
 // module-level bindings.
-vi.mock("@cloudflare/sandbox", () => ({ getSandbox: vi.fn() }));
+vi.mock("../src/sandbox/client.js", () => ({ getSandbox: vi.fn() }));
 vi.mock("@cloudflare/puppeteer", () => ({ default: { launch: vi.fn() } }));
 
 function makeEnv(overrides: Partial<Env> = {}): Env {

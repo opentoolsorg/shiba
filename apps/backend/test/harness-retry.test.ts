@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const sandboxMock = vi.hoisted(() => ({ getSandbox: vi.fn() }));
-vi.mock("@cloudflare/sandbox", () => ({ getSandbox: sandboxMock.getSandbox, streamFile: vi.fn() }));
+vi.mock("../src/sandbox/client.js", () => ({ getSandbox: sandboxMock.getSandbox }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
 
 import { Duration, Effect, Schedule } from "effect";
