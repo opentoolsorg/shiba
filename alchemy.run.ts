@@ -352,6 +352,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "CODEX_MODEL",
       "DEVIN_MODEL",
       "GROK_MODEL",
+      "PI_MODEL",
       // T52: per-role routing pins (agents/roles.ts) — absent = roles
       // resolve through the deployment default chain.
       "ROLE_MODEL_MAP",

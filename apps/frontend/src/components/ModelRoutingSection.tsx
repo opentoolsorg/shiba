@@ -1,8 +1,8 @@
 /**
- * ModelRoutingSection — the Settings → Models routing cards: purpose routing
- * (which model does each internal job) and model connections (named
- * credentials runs can route through). Both read/write /api/model-config via
- * useModelConfig; credentials are metadata aliases, never keys.
+ * ModelRoutingSection — model routing cards: purpose routing (which model
+ * does each internal job) in Settings and named connections in Providers.
+ * Both read/write /api/model-config via useModelConfig; credentials are
+ * metadata aliases, never keys.
  */
 import { AGENT_ROLES } from "@shiba/shared";
 import { type JSX, useState } from "react";
@@ -26,11 +26,10 @@ const CONNECTION_SERVICES = [
   "anthropic",
   "openai",
   "google",
+  "grok",
   "devin",
   "opencode-go",
-  "grok",
   "luan",
-  "cursor",
   "acp",
 ] as const;
 

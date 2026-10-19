@@ -117,6 +117,33 @@ describe("shipped role pin reaches the approval record (PLAN.md §19)", () => {
     }
   });
 
+  it("freezes Pi's own default model instead of CODING_MODEL", async () => {
+    const instance = agent({ ROLE_MODEL_MAP: undefined, CODING_MODEL: "google/gemini-3.5-flash-lite" });
+    const res = await queue(instance, {
+      repoUrl: "https://github.com/o/r",
+      task: "fix",
+      harness: "pi",
+    });
+    expect(res.status).toBe(200);
+    const record = (instance.state.pendingApprovals ?? [])[0]!;
+    expect(record.route?.harness).toBe("pi");
+    expect(record.route?.modelId).toBe("anthropic/claude-sonnet-4-6");
+  });
+
+  it("freezes the PI_MODEL deployment override", async () => {
+    const piEnv = Object.assign({ ROLE_MODEL_MAP: undefined }, { PI_MODEL: "openai/gpt-5" });
+    const instance = agent(piEnv);
+    const res = await queue(instance, {
+      repoUrl: "https://github.com/o/r",
+      task: "fix",
+      harness: "pi",
+    });
+    expect(res.status).toBe(200);
+    const record = (instance.state.pendingApprovals ?? [])[0]!;
+    expect(record.route?.harness).toBe("pi");
+    expect(record.route?.modelId).toBe("openai/gpt-5");
+  });
+
   it("freezes the deployment default route for an unpinned deployment, not the shipped pin", async () => {
     // Negative control in-process: with no pin, the DO must fall through to the
     // deployment default rather than inventing a route from the shipped map.

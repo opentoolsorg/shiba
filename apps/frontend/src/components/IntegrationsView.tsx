@@ -173,8 +173,8 @@ export function IntegrationsView({
               {status && !(status.github.publish && status.github.webhookSecret) ? (
                 <p className="mt-0.5 text-[11px]">
                   {status.github.publish
-                    ? "Publish credentials present — add GITHUB_WEBHOOK_SECRET for automations."
-                    : "Set GITHUB_TOKEN or GitHub App env vars in deployment settings."}
+                    ? "Publish credentials present — add GITHUB_WEBHOOK_SECRET for automations: npx wrangler secret put GITHUB_WEBHOOK_SECRET."
+                    : "Set GITHUB_TOKEN or GitHub App env vars in deployment settings; set GITHUB_WEBHOOK_SECRET with npx wrangler secret put GITHUB_WEBHOOK_SECRET."}
                   {status.github.app ? " App credentials detected." : null}
                 </p>
               ) : null}

@@ -10,7 +10,7 @@ import { authClient } from "../auth-client";
 import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
-import { ConnectionsCard, PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
+import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
@@ -192,7 +192,6 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
         )}
       </Card>
       <PurposeRoutingCard />
-      <ConnectionsCard />
     </>
   );
 }
@@ -228,16 +227,6 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         label="Slack channel→repo map"
         ok={status.slack.channelRepos}
         detail="SLACK_CHANNEL_REPOS — repo for bare mentions"
-      />
-      <ChecklistRow
-        label="GitHub token"
-        ok={status.github.token}
-        detail="GITHUB_TOKEN — opens pull requests"
-      />
-      <ChecklistRow
-        label="GitHub webhook secret"
-        ok={status.github.webhookSecret}
-        detail="GITHUB_WEBHOOK_SECRET — verifies deliveries"
       />
       <ChecklistRow
         label="AI Gateway token"
@@ -291,27 +280,6 @@ const KILL_SWITCHES: { flag: string; effect: string }[] = [
   },
 ];
 
-/** Row used by the Account section: a label, a live value, and an optional chip. */
-function AccountRow({
-  label,
-  value,
-  chip,
-}: {
-  label: string;
-  value: string;
-  chip?: ReactNode;
-}): JSX.Element {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5 last:border-b-0">
-      <div className="min-w-0">
-        <div className="text-xs font-medium text-[var(--fg)]">{label}</div>
-        <div className="font-mono text-[11px] text-[var(--muted-foreground-2)] truncate">{value}</div>
-      </div>
-      {chip}
-    </div>
-  );
-}
-
 const AUTH_LANE_LABEL: Record<string, string> = {
   "better-auth": "Built-in dashboard login",
   access: "Cloudflare Access",
@@ -320,8 +288,6 @@ const AUTH_LANE_LABEL: Record<string, string> = {
 
 /** Account — the identity the Worker proves via /api/whoami plus sign-out. */
 function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX.Element {
-  const setup = useSetupStatus();
-  const status = setup.state.kind === "data" ? setup.state.data : undefined;
   const whoami = useWhoami();
   const [signingOut, setSigningOut] = useState(false);
   const identity = whoami.state.kind === "data" ? whoami.state.data : undefined;
@@ -366,18 +332,6 @@ function AccountSection({ onSignOut }: { onSignOut?: () => Promise<void> }): JSX
               </div>
             </div>
           </div>
-          <AccountRow
-            label="GitHub"
-            value="GITHUB_TOKEN — opens pull requests"
-            chip={
-              status ? (
-                <ToneChip
-                  tone={status.github.token ? "ok" : "neutral"}
-                  label={status.github.token ? "Configured" : "Not configured"}
-                />
-              ) : undefined
-            }
-          />
           {identity.auth === "better-auth" ? (
             <div className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="text-xs text-[var(--muted-foreground-2)]">
@@ -872,4 +826,3 @@ function RepositoriesSection(): JSX.Element {
     </Card>
   );
 }
-
