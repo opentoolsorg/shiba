@@ -73,6 +73,12 @@ export function createRun(args: {
   testCommand?: string[];
   /** Run-fork lineage — hashed into the approved input like every field. */
   forkedFrom?: ForkLineage;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("@shiba/shared").SubagentSandboxMode;
+  captainId?: string;
+  role?: import("@shiba/shared").AgentRole;
+  subagentBudgetRemaining?: number;
   /** T40: approval evidence stamped at queue time (the resolve path). */
   approval?: ApprovalEvidence;
   now?: number;
@@ -102,6 +108,11 @@ export function createRun(args: {
       ...(args.targetMachineId !== undefined ? { targetMachineId: args.targetMachineId } : {}),
       ...(args.testCommand !== undefined ? { testCommand: args.testCommand } : {}),
       ...(args.forkedFrom !== undefined ? { forkedFrom: args.forkedFrom } : {}),
+      ...(args.parentRunId !== undefined ? { parentRunId: args.parentRunId } : {}),
+      ...(args.subagentPath !== undefined ? { subagentPath: args.subagentPath } : {}),
+      ...(args.subagentSandbox !== undefined ? { subagentSandbox: args.subagentSandbox } : {}),
+      ...(args.captainId !== undefined ? { captainId: args.captainId } : {}),
+      ...(args.role !== undefined ? { role: args.role } : {}),
     },
     ...(args.approval !== undefined ? { approval: args.approval } : {}),
     at: now,

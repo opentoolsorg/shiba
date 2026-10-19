@@ -62,6 +62,12 @@ export interface QueuedRunInput {
   testCommand?: string[];
   /** Run-fork lineage — part of the approval-hashed input. */
   forkedFrom?: ForkLineage;
+  /** Phase 2b subagent lineage — part of the approval-hashed input. */
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
+  captainId?: string;
+  role?: import("./roles.js").AgentRole;
 }
 
 export type RunCommand =
@@ -144,6 +150,11 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
       ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
       ...(run.forkedFrom !== undefined ? { forkedFrom: run.forkedFrom } : {}),
+      ...(run.parentRunId !== undefined ? { parentRunId: run.parentRunId } : {}),
+      ...(run.subagentPath !== undefined ? { subagentPath: run.subagentPath } : {}),
+      ...(run.subagentSandbox !== undefined ? { subagentSandbox: run.subagentSandbox } : {}),
+      ...(run.captainId !== undefined ? { captainId: run.captainId } : {}),
+      ...(run.role !== undefined ? { role: run.role } : {}),
     })
   );
 }
@@ -200,6 +211,11 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.targetMachineId !== undefined ? { targetMachineId: command.input.targetMachineId } : {}),
           ...(command.input.testCommand !== undefined ? { testCommand: command.input.testCommand } : {}),
           ...(command.input.forkedFrom !== undefined ? { forkedFrom: command.input.forkedFrom } : {}),
+          ...(command.input.parentRunId !== undefined ? { parentRunId: command.input.parentRunId } : {}),
+          ...(command.input.subagentPath !== undefined ? { subagentPath: command.input.subagentPath } : {}),
+          ...(command.input.subagentSandbox !== undefined ? { subagentSandbox: command.input.subagentSandbox } : {}),
+          ...(command.input.captainId !== undefined ? { captainId: command.input.captainId } : {}),
+          ...(command.input.role !== undefined ? { role: command.input.role } : {}),
           ...(approval !== undefined ? { approval } : {}),
           status: "pending",
           generation: 0,
@@ -244,7 +260,12 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.runtime === command.input.runtime &&
           run.targetMachineId === command.input.targetMachineId &&
           JSON.stringify(run.testCommand ?? []) === JSON.stringify(command.input.testCommand ?? []) &&
-          JSON.stringify(run.forkedFrom ?? null) === JSON.stringify(command.input.forkedFrom ?? null);
+          JSON.stringify(run.forkedFrom ?? null) === JSON.stringify(command.input.forkedFrom ?? null) &&
+          run.parentRunId === command.input.parentRunId &&
+          run.subagentPath === command.input.subagentPath &&
+          run.subagentSandbox === command.input.subagentSandbox &&
+          run.captainId === command.input.captainId &&
+          run.role === command.input.role;
         if (sameInput) {
           return { events: [{ type: "run.queued", commandId: command.commandId, at, run, replayed: true }] };
         }
