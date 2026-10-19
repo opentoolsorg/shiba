@@ -36,7 +36,7 @@ import { resolveHarness, SANDBOX_HARNESS_NAMES, sandboxHarnessNames } from "../s
 import { forwardClaudeSubscription, GATEWAY_PROVIDERS, type EgressEnv } from "../src/egress.js";
 import { assertHarnessAuthorized } from "../src/auth/index.js";
 import { claudeSubscriptionSecretName } from "@shiba/auth";
-import { Sandbox } from "../src/sandbox.js";
+import { outboundHandlers } from "../src/sandbox.js";
 import type { CodingTaskInput } from "../src/opencode-input.js";
 
 const ENABLED = { SHIBA_CLAUDE_SUBSCRIPTION: "1" };
@@ -117,7 +117,7 @@ describe("the token never enters the container", () => {
 describe("egress isolation", () => {
   it("api.anthropic.com stays on the gateway map — subscription rides an override branch", () => {
     expect(GATEWAY_PROVIDERS["api.anthropic.com"]).toBe("anthropic");
-    expect(Sandbox.outboundHandlers?.claudeSubscription).toBe(forwardClaudeSubscription);
+    expect(outboundHandlers.claudeSubscription).toBe(forwardClaudeSubscription);
   });
 
   it("egressOverrides pins every subscription host to the dedicated handler with the account name", () => {

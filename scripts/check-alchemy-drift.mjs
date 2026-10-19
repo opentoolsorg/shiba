@@ -547,17 +547,36 @@ for (const c of cfg.containers ?? []) {
     drift.push(`container "${c.name}": alchemy name "${cName ?? propIdent(entry, "name")}" != wrangler name "${c.name}"`);
   }
   const dockerfile = propString(entry, "dockerfile");
-  if (resolve(alchemyDir, dockerfile ?? "") !== resolve(wranglerDir, c.image)) {
-    drift.push(`container "${c.name}": alchemy dockerfile "${dockerfile}" != wrangler image "${c.image}"`);
+  const wranglerImage =
+    c.image ??
+    c.images?.sandbox?.dockerfile ??
+    c.images?.[Object.keys(c.images ?? {})[0]]?.dockerfile;
+  if (resolve(alchemyDir, dockerfile ?? "") !== resolve(wranglerDir, wranglerImage ?? "")) {
+    drift.push(
+      `container "${c.name}": alchemy dockerfile "${dockerfile}" != wrangler image "${wranglerImage ?? c.image}"`,
+    );
   }
-  if (propString(entry, "instanceType") !== c.instance_type) {
-    drift.push(`container "${c.name}": alchemy instanceType "${propString(entry, "instanceType")}" != wrangler instance_type "${c.instance_type}"`);
-  }
-  if (propNumber(entry, "maxInstances") !== c.max_instances) {
-    drift.push(`container "${c.name}": alchemy maxInstances "${propNumber(entry, "maxInstances")}" != wrangler max_instances "${c.max_instances}"`);
-  }
-  if (cfg.vars?.INSTANCE_TYPE !== undefined && c.instance_type !== cfg.vars.INSTANCE_TYPE) {
-    drift.push(`vars.INSTANCE_TYPE "${cfg.vars.INSTANCE_TYPE}" != containers[].instance_type "${c.instance_type}" (${c.name})`);
+  const doScheduled = c.scheduling_policy === "durable_object";
+  if (doScheduled) {
+    // Sandbox SDK 1.0: wrangler drops instance_type/max_instances; size lives in vars + start().
+    if (
+      cfg.vars?.INSTANCE_TYPE !== undefined &&
+      propString(entry, "instanceType") !== cfg.vars.INSTANCE_TYPE
+    ) {
+      drift.push(
+        `container "${c.name}": alchemy instanceType "${propString(entry, "instanceType")}" != vars.INSTANCE_TYPE "${cfg.vars.INSTANCE_TYPE}"`,
+      );
+    }
+  } else {
+    if (propString(entry, "instanceType") !== c.instance_type) {
+      drift.push(`container "${c.name}": alchemy instanceType "${propString(entry, "instanceType")}" != wrangler instance_type "${c.instance_type}"`);
+    }
+    if (propNumber(entry, "maxInstances") !== c.max_instances) {
+      drift.push(`container "${c.name}": alchemy maxInstances "${propNumber(entry, "maxInstances")}" != wrangler max_instances "${c.max_instances}"`);
+    }
+    if (cfg.vars?.INSTANCE_TYPE !== undefined && c.instance_type !== cfg.vars.INSTANCE_TYPE) {
+      drift.push(`vars.INSTANCE_TYPE "${cfg.vars.INSTANCE_TYPE}" != containers[].instance_type "${c.instance_type}" (${c.name})`);
+    }
   }
 }
 

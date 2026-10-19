@@ -56,7 +56,7 @@ import { resolveHarness, SANDBOX_HARNESS_NAMES, sandboxHarnessNames } from "../s
 import { forwardCodexSubscription, GATEWAY_PROVIDERS, parseCodexAuthJson, type EgressEnv } from "../src/egress.js";
 import { assertHarnessAuthorized } from "../src/auth/index.js";
 import { codexSubscriptionSecretName } from "@shiba/auth";
-import { Sandbox } from "../src/sandbox.js";
+import { outboundHandlers } from "../src/sandbox.js";
 import type { CodingTaskInput } from "../src/opencode-input.js";
 
 const ENABLED = { SHIBA_CODEX_SUBSCRIPTION: "1" };
@@ -226,7 +226,7 @@ describe("the credential never enters the container", () => {
 describe("egress isolation — own branch, deny-by-default", () => {
   it("chatgpt.com is NOT a gateway provider — the subscription rides an override branch", () => {
     expect(GATEWAY_PROVIDERS["chatgpt.com"]).toBeUndefined();
-    expect(Sandbox.outboundHandlers?.codexSubscription).toBe(forwardCodexSubscription);
+    expect(outboundHandlers.codexSubscription).toBe(forwardCodexSubscription);
   });
 
   it("egressOverrides pins chatgpt.com to the dedicated handler with the account name", () => {

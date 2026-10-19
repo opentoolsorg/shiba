@@ -1,4 +1,4 @@
-import { getSandbox } from "@cloudflare/sandbox";
+import { getSandbox } from "../sandbox/client.js";
 import puppeteer from "@cloudflare/puppeteer";
 import type { Env } from "../env.js";
 import { isValidSandboxId } from "../sandbox-routes.js";

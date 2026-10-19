@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   run: vi.fn(), publish: vi.fn(), sandbox: vi.fn(), progress: vi.fn(), decodeFile: vi.fn(), launch: vi.fn(),
 }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
-vi.mock("@cloudflare/sandbox", () => ({ getSandbox: mocks.sandbox, streamFile: mocks.decodeFile }));
+vi.mock("../src/sandbox/client.js", () => ({ getSandbox: mocks.sandbox }));
 vi.mock("@cloudflare/puppeteer", () => ({ default: { launch: mocks.launch } }));
 vi.mock("../src/runtime.js", () => ({
   createRuntimeAdapter: () => ({ runCodingTask: mocks.run }),
@@ -236,17 +236,27 @@ describe("createSandboxOps", () => {
   it.each([
     { chunks: ["hello ", "world"], expected: { kind: "utf8", content: "hello world" } },
     { chunks: [new Uint8Array([0, 255, 1])], expected: { kind: "base64", content: "AP8B" } },
-  ])("collects decoded SDK file chunks without treating SSE as content", async ({ chunks, expected }) => {
-    const stream = new ReadableStream<Uint8Array>();
+  ])("collects raw file bytes from the sandbox Files API", async ({ chunks, expected }) => {
+    const parts = chunks.map((c) => (typeof c === "string" ? new TextEncoder().encode(c) : c));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        controller.close();
+      },
+    });
     mocks.sandbox.mockReturnValue({ readFileStream: vi.fn().mockResolvedValue(stream) });
-    mocks.decodeFile.mockImplementation(async function* () { yield* chunks; });
     expect(await createSandboxOps({} as never, INPUT.sandboxId).readFile("a.txt")).toEqual(expected);
-    expect(mocks.decodeFile).toHaveBeenCalledWith(stream);
   });
 
   it("rejects oversized decoded files rather than publishing a truncated file", async () => {
-    mocks.sandbox.mockReturnValue({ readFileStream: vi.fn().mockResolvedValue(new ReadableStream()) });
-    mocks.decodeFile.mockImplementation(async function* () { yield "x".repeat(500_001); });
+    const big = new TextEncoder().encode("x".repeat(500_001));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(big);
+        controller.close();
+      },
+    });
+    mocks.sandbox.mockReturnValue({ readFileStream: vi.fn().mockResolvedValue(stream) });
     await expect(createSandboxOps({} as never, INPUT.sandboxId).readFile("large.txt")).rejects.toThrow("limit");
   });
 
