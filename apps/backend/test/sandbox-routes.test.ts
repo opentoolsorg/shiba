@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
 }));
 
-vi.mock("@cloudflare/sandbox", () => ({
+vi.mock("../src/sandbox/client.js", () => ({
   getSandbox: () => ({
     getContainerPlacementId: mocks.getContainerPlacementId,
     listProcesses: mocks.listProcesses,
