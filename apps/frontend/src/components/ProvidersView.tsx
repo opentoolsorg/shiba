@@ -5,6 +5,8 @@
  * The MCP gateway itself lives on Agents & MCP.
  */
 import { type JSX, useEffect, useState } from "react";
+import { useSetupStatus, type SetupStatus } from "../live-status";
+import { ConnectionsCard } from "./ModelRoutingSection";
 import {
   type AgentCliCredential,
   SUBSCRIPTION_AUTH,
@@ -13,6 +15,31 @@ import {
   type SubscriptionStatus,
   subscriptionChip,
 } from "./SubscriptionConnect";
+
+export function gatewayCredentialState(
+  gateway: SetupStatus["gateway"] | undefined,
+): { tone: "ok" | "warning" | "neutral"; label: string; hint: string | null } {
+  if (gateway === undefined || gateway.reachable === "unknown") {
+    return { tone: "neutral", label: "AI Gateway", hint: null };
+  }
+  if (gateway.reachable === "yes") {
+    return { tone: "ok", label: "Ready", hint: null };
+  }
+  if (gateway.reachable === "unauthorized") {
+    return {
+      tone: "warning",
+      label: "Gateway unauthorized",
+      hint: gateway.token
+        ? "AI_GATEWAY_TOKEN was rejected by the gateway — rotate it."
+        : "Set AI_GATEWAY_TOKEN: npx wrangler secret put AI_GATEWAY_TOKEN",
+    };
+  }
+  return {
+    tone: "warning",
+    label: "Gateway error",
+    hint: "The AI Gateway probe failed — check GATEWAY_ID.",
+  };
+}
 
 interface AgentCli {
   id: string;
@@ -24,12 +51,12 @@ interface AgentCli {
   docsUrl: string;
 }
 
-function statusChip(configured: boolean | null): JSX.Element {
+function statusChip(configured: boolean | null, label?: string): JSX.Element {
   if (configured === true) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--primary)]/30 bg-[var(--primary-soft)] px-2 py-0.5 text-[11px] font-medium text-[var(--primary)]">
         <span className="size-1.5 rounded-full bg-[var(--primary)]" />
-        Ready
+        {label ?? "Ready"}
       </span>
     );
   }
@@ -37,19 +64,23 @@ function statusChip(configured: boolean | null): JSX.Element {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-2 py-0.5 text-[11px] font-medium text-[var(--warning-fg)]">
         <span className="size-1.5 rounded-full bg-[var(--warning)]" />
-        Needs secret
+        {label ?? "Needs secret"}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted-foreground-2)]">
       <span className="size-1.5 rounded-full bg-[var(--muted-foreground-3)]" />
-      AI Gateway
+      {label ?? "AI Gateway"}
     </span>
   );
 }
 
 export function ProvidersView(): JSX.Element {
+  const setup = useSetupStatus();
+  const gatewayState = gatewayCredentialState(
+    setup.state.kind === "data" ? setup.state.data.gateway : undefined,
+  );
   const [agents, setAgents] = useState<AgentCli[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -173,6 +204,17 @@ export function ProvidersView(): JSX.Element {
           </div>
         </div>
 
+        <div>
+          <div className="mb-3">
+            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
+              Model connections
+            </h3>
+            <p className="mt-0.5 text-xs text-[var(--muted-foreground-2)] font-mono">
+              Named credentials a run can route through.
+            </p>
+          </div>
+          <ConnectionsCard />
+        </div>
 
         <div>
           <div className="mb-3">
@@ -207,7 +249,16 @@ export function ProvidersView(): JSX.Element {
                         {agent.binary}
                       </div>
                     </div>
-                    {statusChip(agent.credential.configured)}
+                    {agent.credential.kind === "ai-gateway-byok"
+                      ? statusChip(
+                          gatewayState.tone === "ok"
+                            ? true
+                            : gatewayState.tone === "warning"
+                              ? false
+                              : null,
+                          gatewayState.label,
+                        )
+                      : statusChip(agent.credential.configured)}
                   </div>
 
                   <dl className="mt-3 space-y-1.5 text-[12px]">
@@ -223,7 +274,13 @@ export function ProvidersView(): JSX.Element {
                     </div>
                   </dl>
 
-                  {agent.credential.configured === false && agent.credential.setupHint ? (
+                  {agent.credential.kind === "ai-gateway-byok" && gatewayState.hint ? (
+                    <div className="mt-3 rounded-[var(--radius-button)] border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-2.5 py-1.5 font-mono text-[11px] text-[var(--warning-fg)]/90">
+                      {gatewayState.hint}
+                    </div>
+                  ) : agent.credential.kind !== "ai-gateway-byok" &&
+                    agent.credential.configured === false &&
+                    agent.credential.setupHint ? (
                     <div className="mt-3 rounded-[var(--radius-button)] border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-2.5 py-1.5 font-mono text-[11px] text-[var(--warning-fg)]/90">
                       {agent.credential.setupHint}
                     </div>

@@ -24,6 +24,21 @@ export type SubscriptionId =
   | "cursor-subscription"
   | "devin-subscription";
 
+export function visibleFlowError(
+  phase: AuthSnapshot["phase"] | undefined,
+  snapshotMessage: string | undefined,
+  flowError: string | null,
+): string | null {
+  if (
+    phase === "failed" &&
+    flowError !== null &&
+    flowError.trim() === snapshotMessage?.trim()
+  ) {
+    return null;
+  }
+  return flowError;
+}
+
 export const SUBSCRIPTION_AUTH: Record<
   SubscriptionId,
   {
@@ -352,6 +367,8 @@ export function SubscriptionConnect({
 
   const phase = snapshot?.phase;
   const needsSecret = credential.kind === "worker-secret" && credential.configured === false;
+  const setupHint = credential.setupHint?.trim();
+  const renderedFlowError = visibleFlowError(phase, snapshot?.message, flowError);
   const owner =
     snapshot?.ownerSessionId !== null &&
     snapshot?.ownerSessionId !== undefined &&
@@ -491,15 +508,16 @@ export function SubscriptionConnect({
           ) : null}
         </div>
       )}
-      {!unavailable && needsSecret && phase !== "succeeded" ? (
+      {!unavailable && needsSecret && phase !== "succeeded" && phase !== "failed" ? (
         <p className="border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--warning-fg)]">
-          This provider needs a deployment credential before you can connect. Ask your
-          administrator to configure it, or choose another provider.
+          {setupHint
+            ? `Needs a deployment secret: ${setupHint}`
+            : "This provider needs a deployment credential before you can connect. Ask your administrator to configure it, or choose another provider."}
         </p>
       ) : null}
-      {flowError !== null ? (
+      {renderedFlowError !== null ? (
         <div className="border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--destructive)]">
-          {flowError}
+          {renderedFlowError}
         </div>
       ) : null}
       {notice !== null && flowError === null ? (
