@@ -10,7 +10,7 @@ import { authClient } from "../auth-client";
 import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
-import { ConnectionsCard, PurposeRoutingCard } from "./ModelRoutingSection";
+import { ConnectionsCard, PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
@@ -118,6 +118,7 @@ function ChecklistRow({
 }
 
 const ROLE_SOURCE_LABEL: Record<RoleModelWire["source"], string> = {
+  dashboard: "Dashboard pin",
   "role-map": "ROLE_MODEL_MAP",
   "role-env": "ROLE_MODEL__",
   default: "Deployment default",
@@ -175,7 +176,11 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
   const rows = status.models.roles ?? [];
   return (
     <>
+      <RolePinsCard />
       <Card>
+        <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+          Deploy-time pins (wrangler vars — overridden by dashboard pins above)
+        </div>
         {rows.length === 0 ? (
           <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
             This deployment doesn't report per-role routing — update the backend.
@@ -183,24 +188,6 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
         ) : (
           rows.map((row) => <RoleModelRow key={row.role} row={row} />)
         )}
-      </Card>
-      <Card>
-        <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-          How to pin a role (wrangler vars / secrets at deploy time)
-        </div>
-        <div className="px-4 py-3 flex flex-col gap-2">
-          <div className="font-mono text-[11px] leading-relaxed text-[var(--fg)] break-all">
-            ROLE_MODEL_MAP={'{"fixer":{"harness":"opencode","model":"opencode-go/deepseek-v3.2"}}'}
-          </div>
-          <div className="font-mono text-[11px] leading-relaxed text-[var(--fg)] break-all">
-            ROLE_MODEL__REVIEWER="claude-subscription/anthropic-subscription/claude-sonnet-4-6"
-          </div>
-          <div className="text-xs text-[var(--muted-foreground-2)]">
-            One JSON map, or a per-role {"<harness>/<provider>/<model>"} var (model optional — the
-            harness's own *_MODEL var, then its catalog default, fills it in). An unpinned role
-            resolves to the deployment default chain (AGENT_HARNESS, then opencode).
-          </div>
-        </div>
       </Card>
       <PurposeRoutingCard />
       <ConnectionsCard />

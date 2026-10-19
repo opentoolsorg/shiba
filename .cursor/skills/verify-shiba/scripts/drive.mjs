@@ -98,6 +98,28 @@ try {
       result.approved = true;
     }
   }
+  if (feature === "byo-models-ux") {
+    const settings = page.getByRole("button", { name: /Settings/i });
+    if (await settings.count()) await settings.first().click();
+    const modelsNav = page.getByRole("button", { name: "Models" });
+    if (await modelsNav.count()) await modelsNav.click();
+    await page.getByTestId("model-connections-card").waitFor({ timeout: 15000 });
+    await shot("06-models-settings");
+    const testBtn = page.getByTestId("test-connection").first();
+    if (await testBtn.count()) {
+      await testBtn.click();
+      await page.waitForTimeout(2000);
+      await shot("07-connection-tested");
+      result.connectionTestClicked = true;
+    }
+    const cfg = await page.request.get(`http://127.0.0.1:${port}/api/model-config`);
+    writeFileSync(join(outDir, "model-config.json"), await cfg.text());
+    result.modelConfigStatus = cfg.status();
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    const usage = page.getByTestId("run-usage");
+    result.runUsageVisible = (await usage.count()) > 0;
+    if (result.runUsageVisible) await shot("08-run-usage");
+  }
   if (feature === "run-registry-status") {
     await page.goto(`${url}?tab=runs`, { waitUntil: "domcontentloaded" });
     await shot("06-runs");

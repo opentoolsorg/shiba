@@ -38,6 +38,7 @@ import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
 import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
+import { RunUsageCard } from "./components/RunUsageSummary";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
@@ -2172,6 +2173,7 @@ export function App(): React.JSX.Element {
                   />
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
+                      <RunUsageCard runs={retainedRuns} />
                       <PullRequestCard threadId={reviewThreadId} />
                       <ReviewFindings threadId={reviewThreadId} />
                     </div>

@@ -308,6 +308,64 @@ describe("ModelConfig DO", () => {
     const { call } = makeDo();
     expect((await call("/nope")).status).toBe(404);
   });
+
+  it("reorders connections and tests them worker-side", async () => {
+    const env = {
+      AI: { gateway: () => ({ getUrl: async () => "https://gateway.example/anthropic" }) },
+      GATEWAY_ID: "default",
+    } as never;
+    const store = new Map<string, unknown>();
+    const ctx = {
+      storage: {
+        get: async (key: string) => store.get(key),
+        put: async (key: string, value: unknown) => void store.set(key, value),
+      },
+    };
+    const instance = new ModelConfig(ctx as never, env);
+    const call = (path: string, init?: RequestInit) =>
+      instance.fetch(new Request(`https://internal${path}`, init));
+    const first = (await (
+      await call("/connections", {
+        method: "POST",
+        body: JSON.stringify({ service: "anthropic", displayName: "A" }),
+      })
+    ).json()) as { connection: Connection };
+    const second = (await (
+      await call("/connections", {
+        method: "POST",
+        body: JSON.stringify({ service: "openai", displayName: "B" }),
+      })
+    ).json()) as { connection: Connection };
+    const orderRes = await call("/connections/order", {
+      method: "PUT",
+      body: JSON.stringify({ order: [second.connection.id, first.connection.id] }),
+    });
+    expect(orderRes.status).toBe(200);
+    const list = (await (await call("/connections")).json()) as { connections: Connection[] };
+    expect(list.connections.map((c) => c.id)).toEqual([second.connection.id, first.connection.id]);
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 200 }));
+    const testRes = await call(`/connections/${first.connection.id}/test`, { method: "POST" });
+    expect(testRes.status).toBe(200);
+    const tested = (await testRes.json()) as { ok: boolean; connection: Connection };
+    expect(tested.ok).toBe(true);
+    expect(tested.connection.status).toBe("ready");
+    vi.unstubAllGlobals();
+  });
+
+  it("stores dashboard role pins on policy PUT", async () => {
+    const { call } = makeDo();
+    const res = await call("/policy", {
+      method: "PUT",
+      body: JSON.stringify({
+        models: { orchestrator: "@cf/meta/llama-3.1-8b-instruct" },
+        rolePins: { fixer: { harness: "opencode", model: "opencode-go/deepseek-v3.2" } },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const policy = ((await (await call("/policy")).json()) as { policy: { rolePins?: Record<string, unknown> } })
+      .policy;
+    expect(policy.rolePins?.fixer).toEqual({ harness: "opencode", model: "opencode-go/deepseek-v3.2" });
+  });
 });
 
 // ── model-connections helpers ───────────────────────────────────────────
