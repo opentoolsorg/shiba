@@ -225,6 +225,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     LocalDispatch: Cloudflare.DurableObject("LocalDispatch", {
       className: "LocalDispatch",
     }),
+    ChatGptAuth: Cloudflare.DurableObject("ChatGptAuth", {
+      className: "ChatGptAuth",
+    }),
 
     // Megaplan stores — wrangler keeps `__PENDING__` ids until the resources
     // are created; alchemy provisions them on first deploy.

@@ -61,6 +61,7 @@ import { isPublicRequest } from "./public-routes.js";
 import { handleWaitlist } from "./waitlist.js";
 import { Waitlist } from "./waitlist-do.js";
 import { ModelConfig } from "./model-config-do.js";
+import { ChatGptAuth } from "./chatgpt-auth-do.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -68,7 +69,19 @@ import {
   WEB_SESSION_PREFIX,
 } from "./web-sessions.js";
 
-export { Automations, CodingOrchestrator, LocalDispatch, Mailbox, Memory, ModelConfig, OpenCodeAgent, Sandbox, ContainerProxy, Waitlist };
+export {
+  Automations,
+  ChatGptAuth,
+  CodingOrchestrator,
+  LocalDispatch,
+  Mailbox,
+  Memory,
+  ModelConfig,
+  OpenCodeAgent,
+  Sandbox,
+  ContainerProxy,
+  Waitlist,
+};
 export { assertLiveCodingModel } from "./coding-model.js";
 // Kept public for consumers that import the auth surface from the entry.
 export { isBetterAuthConfigured } from "./better-auth.js";

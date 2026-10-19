@@ -40,6 +40,8 @@ export interface Env {
   LocalDispatch?: DurableObjectNamespace;
   /** Deployment-wide model connection catalog and purpose policy. */
   ModelConfig: DurableObjectNamespace;
+  /** Per-user ChatGPT SIWC refresh + sign-in state. */
+  ChatGptAuth?: DurableObjectNamespace;
   /** Private launch/contributor registrations. */
   Waitlist: DurableObjectNamespace;
   /**

@@ -1,34 +1,33 @@
-# Feature: subscription auth (ChatGPT per user + Claude compliance)
+# Feature: ChatGPT SIWC + Claude compliance
 
 ## Preconditions
 
-- `MODEL_CREDENTIAL_KEY` set (64 hex) on the Worker for per-user ChatGPT storage.
-- Optional: `SHIBA_CODEX_SUBSCRIPTION=1` or per-user key alone registers `codex-subscription`.
-- `SHIBA_CLAUDE_SUBSCRIPTION` should remain `0` unless explicitly testing deprecated path.
+- `MODEL_CREDENTIAL_KEY` (64 hex) and `ChatGptAuth` Durable Object binding.
+- `SHIBA_CLAUDE_SUBSCRIPTION=0` (default).
 
 ## Dashboard
 
-1. **Settings → Models → ChatGPT subscription** (`data-testid="chatgpt-subscription-card"`).
-2. Paste flow: `chatgpt-subscription-paste` → `chatgpt-subscription-connect`; page must not echo secrets back.
-3. `chatgpt-subscription-disconnect` clears connection (`connected: false` on GET).
+1. **Settings → Models → ChatGPT subscription**
+2. `chatgpt-subscription-begin` → authorize link (`127.0.0.1` callback, not localhost).
+3. Paste callback into `chatgpt-subscription-callback` → `chatgpt-subscription-connect`.
+4. `chatgpt-subscription-disconnect` clears connection.
 
-## API (authenticated)
+## API
 
-- `GET /api/subscription/openai` → `{ connected, accountEmailHash?, expiresAt?, savedAt }` only.
-- `POST /api/subscription/openai/paste` `{ authJson }` → status shape; no secrets in response.
-- `DELETE /api/subscription/openai` → disconnect.
+- `GET /api/subscription/openai` — status only (no tokens).
+- `POST /api/subscription/openai/begin` — `{ authorizeUrl, redirectUri, flowId }`.
+- `POST /api/subscription/openai/complete` — `{ callbackUrl }`.
+- `POST /api/subscription/openai/paste` — **410 deprecated**.
+- `DELETE /api/subscription/openai` — revoke + delete.
 
 ## Run behavior
 
-- User-started run with `openai-subscription` connection: egress `Authorization: Bearer` on `chatgpt.com` only.
-- Automation on `default` orchestrator: must not select `openai-subscription` (clear error).
-- Container `auth.json` stub only; `auth.openai.com` denied from sandbox.
+- `codex-subscription`: `codex app-server` + `ACCESS_TOKEN` only; egress `api.openai.com`.
+- Refresh on `ChatGptAuth` DO; no refresh token in sandbox.
+- Automations without `initiatorUserId` cannot use `openai-subscription`.
 
-## Claude
+## Tests
 
-- Catalog omits `claude-subscription` when flag off.
-- `claude-login` uses distinct `CLAUDE_CONFIG_DIR` per `initiatorUserId` (volume mount blocked until Sandbox SDK #119/#123).
-
-## Automated tests
-
-`apps/backend/test/subscription-auth.test.ts` (A1–A8), `apps/frontend/src/components/chatgpt-subscription.test.tsx` (A9).
+- `apps/backend/test/chatgpt-siwc.test.ts` — callback, PKCE, id_token, refresh, app-server restart.
+- `apps/backend/test/subscription-auth.test.ts` — A1–A9.
+- `apps/frontend/src/chatgpt-subscription.test.ts` — UI wire.

@@ -39,6 +39,8 @@ import {
 } from "../runtime.js";
 import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
 import { localDispatchStub } from "../local-dispatch.js";
+import { chatGptAuthStub } from "../chatgpt-auth-do.js";
+import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
 import { acquireSandboxOps } from "../sandbox/lifecycle.js";
 import { HARNESS_RETRY, withRetry } from "../harness/retry.js";
 import type { RunSignal } from "@shiba/shared";
@@ -304,8 +306,32 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           }
           const hosts = allowedHostsFor(harness, input.codingModel);
           const overrides = harness.egressOverrides?.(input);
-          const ops = await acquireSandboxOps(this.env, input.sandboxId, hosts, overrides);
-          const result = await adapter.runCodingTask(ops, input, emit, {
+          let runInput = input;
+          if (
+            harness.name === "codex-subscription" &&
+            input.initiatorUserId &&
+            this.env.ChatGptAuth &&
+            modelCredentialKeyConfigured(this.env)
+          ) {
+            const accessResponse = await chatGptAuthStub(this.env, input.initiatorUserId).fetch(
+              "https://chatgpt-auth.internal/access",
+            );
+            if (!accessResponse.ok) {
+              const body = (await accessResponse.json().catch(() => null)) as { error?: string } | null;
+              throw new Error(body?.error ?? "ChatGPT plan access is not available for this user.");
+            }
+            const access = (await accessResponse.json()) as {
+              accessToken: string;
+              threadId?: string | null;
+            };
+            runInput = {
+              ...input,
+              chatgptAccessToken: access.accessToken,
+              ...(access.threadId ? { chatgptThreadId: access.threadId } : {}),
+            };
+          }
+          const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides);
+          const result = await adapter.runCodingTask(ops, runInput, emit, {
             signal,
             signals: runSignals,
             // T44: an oversize diff lands in R2 instead of being truncated

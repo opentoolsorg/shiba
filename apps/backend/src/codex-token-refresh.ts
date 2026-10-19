@@ -1,7 +1,4 @@
-/**
- * Worker-side Codex access-token refresh — auth.openai.com is never admitted
- * to the sandbox egress allowlist; only this module talks to it.
- */
+/** Codex access-token refresh helper (used in unit tests; live refresh runs in the sandbox). */
 import { parseCodexAuthJson } from "@shiba/shared";
 
 const REFRESH_URL = "https://auth.openai.com/oauth/token";

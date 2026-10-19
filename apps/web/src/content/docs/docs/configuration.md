@@ -53,11 +53,11 @@ OpenCode, Claude Code, Codex, and Pi provider traffic uses the account-owned AI 
 
 ### ChatGPT subscription (per user, OSS self-host)
 
-Set `MODEL_CREDENTIAL_KEY`, register an `openai-subscription` connection, and have each user paste `auth.json` under **Settings → Models**. Runs attach tokens at egress; the Worker refreshes against `auth.openai.com`. Details: [Model authentication](/docs/model-auth/).
+Set `MODEL_CREDENTIAL_KEY`, register an `openai-subscription` connection, and have each user complete **Sign in with ChatGPT** under **Settings → Models** (paste the `127.0.0.1` callback URL). Runs use `codex app-server` with a short-lived `ACCESS_TOKEN` only; refresh stays on the `ChatGptAuth` Durable Object. Details: [Model authentication](/docs/model-auth/).
 
 ### Codex subscription (opt-in)
 
-Setting `SHIBA_CODEX_SUBSCRIPTION=1` registers `codex-subscription`, which drives the same `codex` binary against the operator's own ChatGPT subscription instead of AI Gateway. Codex's credential is directory-shaped: run `codex login` on your own machine and store the resulting `~/.codex/auth.json` contents verbatim as a Worker secret — `CODEX_SUBSCRIPTION_AUTH_JSON`, or `CODEX_SUBSCRIPTION_AUTH_JSON_<ACCOUNT>` for a named account — then drive the lifecycle under `/api/auth/codex-subscription` (begin, verify, clear). In the sandbox the run's `CODEX_HOME` is a per-account shadow holding a stub `auth.json` as a real file plus symlinks into the shared home (sessions, caches, the install) — a conversation thread survives an account switch while each account revokes independently. The real tokens never enter the container: the dedicated `chatgpt.com` egress branch attaches `Bearer` + `chatgpt-account-id` at the boundary, token refresh hosts are not admitted (an expired token fails the run honestly — re-store the secret), and the credential appears in no sandbox file, argv, log, or UI response. Your own plan terms apply.
+Setting `SHIBA_CODEX_SUBSCRIPTION=1` registers `codex-subscription`, which drives the same `codex` binary against the operator's own ChatGPT subscription instead of AI Gateway. Per-user storage (`MODEL_CREDENTIAL_KEY`) or legacy `SHIBA_SINGLE_USER=1` + `CODEX_SUBSCRIPTION_AUTH_JSON` mounts real `auth.json` into each run's ephemeral `CODEX_HOME` (mode `0600`, removed at run end); the CLI refreshes from the container. Worker egress injection against `chatgpt.com` is not used (bot-challenge on Workers, 2026-10-19). Operator verify flow remains under `/api/auth/codex-subscription` (begin, verify, clear). Your own plan terms apply.
 
 ### Antigravity subscription (opt-in)
 
