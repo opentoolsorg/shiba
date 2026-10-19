@@ -98,7 +98,7 @@ export function roleForMode(mode: SwarmMode | "captain"): "orchestrator" | "fixe
     case "build":
       return "fixer";
     default: {
-      const _exhaustiveCheck: never = mode;
+      const _exhaustiveCheck: never = normalized;
       return "fixer";
     }
   }

@@ -12,6 +12,7 @@ import { validateConnectionModel } from "./model-connections.js";
 import type { ModelConfigSnapshot } from "./model-policy.js";
 import type { CodingTaskInput } from "./opencode-input.js";
 import { verifyStandinEnabled } from "@shiba/shared";
+import { assertSandboxRunPreflight, DEFAULT_CODING_RUN_FEATURES } from "./sandbox/preflight.js";
 
 export interface RunPreflightInput {
   harness: string;
@@ -20,6 +21,9 @@ export interface RunPreflightInput {
   authAccount?: string;
   repoUrl?: string;
   publishPullRequest?: boolean;
+  sandboxProvider?: string;
+  customAgentProviderId?: string;
+  orgId?: string;
 }
 
 function minimalCodingInput(params: RunPreflightInput): CodingTaskInput {
@@ -84,4 +88,14 @@ export async function assertRunPreflight(
   }
 
   await assertHarnessAuthorized(env, harness, minimalCodingInput(params));
+
+  await assertSandboxRunPreflight(
+    env,
+    {
+      orgId: params.orgId ?? "self-hosted",
+      taskProviderId: params.sandboxProvider,
+      customAgentProviderId: params.customAgentProviderId,
+    },
+    DEFAULT_CODING_RUN_FEATURES,
+  );
 }

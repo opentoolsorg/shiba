@@ -99,6 +99,23 @@ export class Shiba {
     },
   };
 
+  readonly orgAgents = {
+    list: async (): Promise<{ agents: unknown[] }> =>
+      this.#http.request("/org-agents"),
+
+    create: async (body: Record<string, unknown>): Promise<unknown> =>
+      this.#http.request("/org-agents", { method: "POST", body }),
+
+    get: async (agentId: string): Promise<unknown> =>
+      this.#http.request(`/org-agents/${encodeURIComponent(agentId)}`),
+
+    update: async (agentId: string, body: Record<string, unknown>): Promise<unknown> =>
+      this.#http.request(`/org-agents/${encodeURIComponent(agentId)}`, { method: "PATCH", body }),
+
+    delete: async (agentId: string): Promise<unknown> =>
+      this.#http.request(`/org-agents/${encodeURIComponent(agentId)}`, { method: "DELETE" }),
+  };
+
   readonly pullRequests = {
     status: async (threadId: string): Promise<unknown> =>
       this.#http.request(`/threads/${encodeURIComponent(threadId)}/pr/status`),

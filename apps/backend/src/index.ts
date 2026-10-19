@@ -37,6 +37,7 @@ import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleApiKeys } from "./api-keys-routes.js";
+import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
@@ -255,6 +256,8 @@ export default {
       if (metaResponse) return metaResponse;
       const apiKeysResponse = await handleApiKeys(request, env);
       if (apiKeysResponse) return apiKeysResponse;
+      const customAgentsResponse = await handleCustomAgents(request, env);
+      if (customAgentsResponse) return customAgentsResponse;
       const userOpenAiSubscriptionResponse = await handleUserOpenAiSubscription(request, env);
       if (userOpenAiSubscriptionResponse) return userOpenAiSubscriptionResponse;
       const subscriptionAuthResponse = await handleSubscriptionAuth(request, env);

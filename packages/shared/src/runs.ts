@@ -152,6 +152,9 @@ export interface DelegatedRun {
   captainId?: string;
   /** T52 / dispatch: role pin frozen on the run row when set at queue time. */
   role?: import("./roles.js").AgentRole;
+  /** Sandbox provider id for this run (task override frozen at queue time). */
+  sandboxProvider?: string;
+  customAgentId?: string;
 }
 
 /**

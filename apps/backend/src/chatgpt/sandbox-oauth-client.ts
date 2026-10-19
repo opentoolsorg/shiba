@@ -106,12 +106,21 @@ export function createSandboxOAuthRunner(env: Pick<Env, "Sandbox">): SandboxOAut
     async exchange(discovery, body, userId) {
       const safeUser = userId.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 48);
       const sandboxId = `siwc-oauth-${safeUser}-${crypto.randomUUID().slice(0, 8)}`;
-      const { getSandbox } = await import("../sandbox/client.js");
-      const sandbox = getSandbox(env.Sandbox, sandboxId) as unknown as SandboxOAuthExecSurface;
+      const { getSandboxInstance, destroySandboxInstance } = await import("../sandbox/provider.js");
+      const { assertSandboxRunPreflight, OAUTH_SANDBOX_FEATURES } = await import("../sandbox/preflight.js");
+      const fullEnv = env as Env;
+      await assertSandboxRunPreflight(fullEnv, {}, OAUTH_SANDBOX_FEATURES);
+      const instance = await getSandboxInstance(fullEnv, sandboxId, {});
+      const sandbox: SandboxOAuthExecSurface = {
+        writeFile: (path, content) => instance.writeFile(path, content),
+        exec: (command, opts) =>
+          instance.exec(command, opts).then((r) => ({ stdout: r.stdout, stderr: r.stderr, exitCode: r.exitCode })),
+        destroy: () => instance.destroy(),
+      };
       try {
         return await runSandboxOAuthExchange(sandbox, discovery, body);
       } finally {
-        await sandbox.destroy?.().catch(() => undefined);
+        await destroySandboxInstance(fullEnv, sandboxId, {}).catch(() => undefined);
       }
     },
   };
