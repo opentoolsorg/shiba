@@ -10,6 +10,15 @@ const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
 }));
 
+const instanceCaps = {
+  edgeEgressEnforcement: true,
+  previewUrls: true,
+  snapshots: true,
+  streamingExec: true,
+  backgroundProcesses: true,
+  rawProviderHandle: false,
+};
+
 vi.mock("../src/sandbox/client.js", () => ({
   getSandbox: () => ({
     getContainerPlacementId: mocks.getContainerPlacementId,
@@ -20,6 +29,30 @@ vi.mock("../src/sandbox/client.js", () => ({
   }),
 }));
 
+vi.mock("../src/sandbox/provider.js", () => ({
+  getSandboxInstance: vi.fn(async () => ({
+    id: "test-sb-1",
+    capabilities: instanceCaps,
+    exec: mocks.exec,
+    readFile: async (path: string) => {
+      const result = await mocks.readFile(path);
+      const content = (result as { content?: string }).content ?? String(result ?? "");
+      return { kind: "utf8", content };
+    },
+    async gitCheckout() {},
+    async writeFile() {},
+    async destroy() {},
+  })),
+  resolveSandboxProviderForSelection: vi.fn(async () => ({
+    id: "cloudflare",
+    capabilities: instanceCaps,
+  })),
+}));
+
+vi.mock("../src/sandbox/selection.js", () => ({
+  resolveSandboxSelection: vi.fn(async () => ({ providerId: "cloudflare", source: "deployment" })),
+}));
+
 function makeEnv(): Env {
   return {
     Sandbox: {} as any,
@@ -28,6 +61,7 @@ function makeEnv(): Env {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.exec.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" });
 });
 
 describe("isValidSandboxId", () => {
@@ -55,6 +89,7 @@ describe("handleSandboxRoutes", () => {
   it("handles GET /api/sandboxes/:id/info", async () => {
     mocks.getContainerPlacementId.mockResolvedValue("us-east-1");
     mocks.listProcesses.mockResolvedValue([{ pid: 1, command: "node", status: "running" }]);
+    mocks.exec.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" });
 
     const env = makeEnv();
     const req = new Request("https://internal/api/sandboxes/test-sb-1/info");
@@ -66,6 +101,8 @@ describe("handleSandboxRoutes", () => {
     expect(body.placementId).toBe("us-east-1");
     expect(body.processes).toHaveLength(1);
     expect(body.defaultPort).toBe(3000);
+    expect(body.providerId).toBe("cloudflare");
+    expect(body.capabilities).toBeTruthy();
   });
 
   it("handles GET /api/sandboxes/:id/files", async () => {
@@ -144,4 +181,3 @@ describe("handleSandboxRoutes", () => {
     expect(res?.status).toBe(400);
   });
 });
-

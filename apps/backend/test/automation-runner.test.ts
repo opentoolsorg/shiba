@@ -91,6 +91,18 @@ describe("automation fire path", () => {
     expect(result.automation.runCount).toBe(1);
   });
 
+  it("passes customAgentId through to the queued run", async () => {
+    const d = deps();
+    const automation = scheduleAutomation({ customAgentId: "agent-xyz" });
+    const result = await fireAutomation(
+      automation,
+      { kind: "schedule", nowMs: d.nowMs! },
+      d,
+    );
+    expect(result.fired).toBe(true);
+    expect(d.queueRun.mock.calls[0]![0]).toMatchObject({ customAgentId: "agent-xyz" });
+  });
+
   it("skips a non-matching event without queueing", async () => {
     const d = deps();
     const result = await fireAutomation(githubAutomation(), { kind: "manual" }, d);

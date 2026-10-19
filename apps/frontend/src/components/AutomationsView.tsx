@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from "react";
 import { LoadErrorState } from "./LoadErrorState";
+import { useCustomAgentOptions } from "./CustomAgentsView";
 
 interface AutomationRecord {
   id: string;
@@ -10,6 +11,7 @@ interface AutomationRecord {
   lastTriggeredAt?: number;
   lastSkip?: { at: number; reason: string };
   triggers: { kind: string }[];
+  customAgentId?: string;
 }
 
 /** Factory-style recipe gallery: each card is one automation ready to deploy. */
@@ -81,6 +83,8 @@ export function AutomationsView(): JSX.Element {
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
   const [automations, setAutomations] = useState<AutomationRecord[] | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
+  const [customAgentId, setCustomAgentId] = useState("");
+  const { agents: customAgents } = useCustomAgentOptions();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -123,6 +127,7 @@ export function AutomationsView(): JSX.Element {
           repoUrl: repoUrl.trim(),
           triggers: recipe.triggers,
           enabled: true,
+          ...(customAgentId ? { customAgentId } : {}),
         }),
       });
       const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -193,14 +198,29 @@ export function AutomationsView(): JSX.Element {
                 Each recipe is an agent on a trigger. Point it at a repo and deploy.
               </p>
             </div>
-            <input
-              type="text"
-              aria-label="Repository URL"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/owner/repo"
-              className="bg-[var(--card)] text-xs font-mono text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-1.5 w-72 transition-colors focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--ring)] placeholder:text-[var(--muted-foreground-3)]"
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                aria-label="Repository URL"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://github.com/owner/repo"
+                className="bg-[var(--card)] text-xs font-mono text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-1.5 w-72 transition-colors focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--ring)] placeholder:text-[var(--muted-foreground-3)]"
+              />
+              <select
+                aria-label="Custom agent for new automations"
+                value={customAgentId}
+                onChange={(e) => setCustomAgentId(e.target.value)}
+                className="bg-[var(--card)] text-xs border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1.5 max-w-[200px]"
+              >
+                <option value="">No custom agent</option>
+                {customAgents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.config.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {RECIPES.map((recipe) => {
@@ -285,6 +305,7 @@ export function AutomationsView(): JSX.Element {
                     </div>
                     <p className="text-[11px] text-[var(--muted-foreground-2)] truncate mt-0.5">
                       {a.repoUrl} · runs: {a.runCount ?? 0}
+                      {a.customAgentId ? ` · agent: ${a.customAgentId}` : ""}
                       {a.lastSkip ? ` · last skip: ${a.lastSkip.reason}` : ""}
                     </p>
                   </div>

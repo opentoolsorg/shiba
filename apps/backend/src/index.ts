@@ -38,6 +38,7 @@ import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
+import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
@@ -111,6 +112,7 @@ const MARKETING_SECTIONS = new Set([
 ]);
 // Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the tasks home.
 export const DASHBOARD_VIEWS = new Set([
+  // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
   "",
   "dashboard",
   "tasks",
@@ -126,6 +128,7 @@ export const DASHBOARD_VIEWS = new Set([
   "providers",
   "integrations",
   "skills",
+  "custom-agents",
   "remote",
   "settings",
 ]);
@@ -258,6 +261,8 @@ export default {
       if (apiKeysResponse) return apiKeysResponse;
       const customAgentsResponse = await handleCustomAgents(request, env);
       if (customAgentsResponse) return customAgentsResponse;
+      const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
+      if (orgSandboxResponse) return orgSandboxResponse;
       const userOpenAiSubscriptionResponse = await handleUserOpenAiSubscription(request, env);
       if (userOpenAiSubscriptionResponse) return userOpenAiSubscriptionResponse;
       const subscriptionAuthResponse = await handleSubscriptionAuth(request, env);

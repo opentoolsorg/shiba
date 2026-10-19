@@ -32,6 +32,7 @@ export interface QueueAutomationRunInput {
   threadKey: string;
   /** T41: deterministic per-(automation, event) id — a retried queue dedupes on it. */
   commandId?: string;
+  customAgentId?: string;
 }
 
 export interface FireAutomationDeps {
@@ -311,6 +312,7 @@ async function commitAutomationFire(
       publishPullRequest,
       threadKey,
       ...(commandId !== undefined ? { commandId } : {}),
+      ...(automation.customAgentId ? { customAgentId: automation.customAgentId } : {}),
     });
     const scheduleKey = recheck.trigger.kind === "schedule" ? `t${recheck.triggerIndex}` : undefined;
     const next = recordTrigger(automation, nowMs, scheduleKey);
