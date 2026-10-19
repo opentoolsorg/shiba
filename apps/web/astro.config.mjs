@@ -73,6 +73,8 @@ export default defineConfig({
 						{ label: 'Pull request review', slug: 'docs/review' },
 						{ label: 'Sandbox SDK 1.0', slug: 'docs/sandbox-sdk-1' },
 						{ label: 'Sandbox providers', slug: 'docs/sandbox-providers' },
+						{ label: 'Sandbox cost guide', slug: 'docs/sandbox-cheapest-provider' },
+						{ label: 'Custom sandbox provider', slug: 'docs/sandbox-custom-provider' },
 						{ label: 'Automations & Cron', slug: 'docs/automations' },
 						{ label: 'Use from Claude Code', slug: 'docs/mcp' },
 					],

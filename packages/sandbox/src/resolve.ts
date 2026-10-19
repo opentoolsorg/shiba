@@ -1,16 +1,14 @@
 import { SandboxError } from "./errors.js";
-import type { SandboxProvider, SandboxProviderId, ResolveSandboxProviderOptions } from "./types.js";
-
-const PROVIDER_IDS: SandboxProviderId[] = ["cloudflare", "docker-local", "e2b"];
+import { listRegisteredSandboxProviders } from "./registry.js";
+import type { ResolveSandboxProviderOptions, SandboxProvider, SandboxProviderId } from "./types.js";
 
 export function parseSandboxProviderId(raw: string | undefined): SandboxProviderId {
   const id = (raw ?? "cloudflare").trim().toLowerCase();
-  if (PROVIDER_IDS.includes(id as SandboxProviderId)) {
-    return id as SandboxProviderId;
-  }
+  const registered = listRegisteredSandboxProviders();
+  if (registered.includes(id)) return id;
   throw new SandboxError(
     "provider_misconfigured",
-    `Unknown SHIBA_SANDBOX_PROVIDER "${raw}". Expected one of: ${PROVIDER_IDS.join(", ")}.`,
+    `Unknown SHIBA_SANDBOX_PROVIDER "${raw}". Registered: ${registered.join(", ") || "(none — call registerBuiltinSandboxProviders())"}.`,
   );
 }
 

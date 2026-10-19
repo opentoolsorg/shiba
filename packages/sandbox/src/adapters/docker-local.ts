@@ -13,6 +13,8 @@ export interface DockerLocalSandboxProviderOptions {
   image: string;
   /** Optional host published for preview URLs (defaults to localhost). */
   previewHost?: string;
+  defaultTimeoutMs?: number;
+  execEnvPassthrough?: Record<string, string>;
   /** Run `docker` via this binary (tests may stub). */
   dockerBin?: string;
   /** Injected executor for tests; production uses real docker CLI. */
@@ -29,6 +31,7 @@ const CAPABILITIES: SandboxCapabilities = {
   snapshots: false,
   streamingExec: false,
   backgroundProcesses: true,
+  rawProviderHandle: false,
 };
 
 function defaultDockerExec(bin: string): DockerExecutor {
@@ -62,6 +65,8 @@ export function createDockerLocalSandboxProvider(
   const docker = options.dockerExec ?? defaultDockerExec(options.dockerBin ?? "docker");
   const image = options.image;
   const previewHost = options.previewHost ?? "127.0.0.1";
+  const defaultTimeoutMs = options.defaultTimeoutMs;
+  const execEnvPassthrough = options.execEnvPassthrough ?? {};
   async function ensureContainer(instanceId: string): Promise<void> {
     const name = containerName(instanceId);
     const inspect = await docker.run(["inspect", "-f", "{{.State.Running}}", name]);
@@ -148,8 +153,8 @@ export function createDockerLocalSandboxProvider(
         const name = containerName(instanceId);
         return dockerExecIn(docker, name, command, {
           cwd: opts?.cwd,
-          timeoutMs: opts?.timeoutMs,
-          env: opts?.env,
+          timeoutMs: opts?.timeoutMs ?? defaultTimeoutMs,
+          env: { ...execEnvPassthrough, ...opts?.env },
         });
       },
 
