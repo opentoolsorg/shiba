@@ -29,6 +29,7 @@ import type { Env } from "../env.js";
 import type { SandboxOps } from "../runtime.js";
 import type { EgressOverride } from "../harness/types.js";
 import { redactSecrets } from "../security.js";
+import type { SandboxSelectionContext } from "./selection.js";
 
 /** A sandbox ops call attempted after its container was released or leaked. */
 export class ContainerReleasedError extends Error {
@@ -289,7 +290,10 @@ export interface SandboxHandle {
 }
 
 /** Resolves a container handle — production default loads the SDK lazily. */
-export type SandboxHandleResolver = (binding: Env["Sandbox"], sandboxId: string) => SandboxHandle;
+export type SandboxHandleResolver = (
+  binding: DurableObjectNamespace<import("./durable-object.js").Sandbox>,
+  sandboxId: string,
+) => SandboxHandle;
 
 let sandboxHandleResolver: SandboxHandleResolver | undefined;
 
@@ -312,10 +316,15 @@ export async function destroyManagedContainer(
   env: Env,
   sandboxId: string,
   hooks?: LeakHooks,
+  selection?: SandboxSelectionContext,
 ): Promise<void> {
   try {
-    const resolve = sandboxHandleResolver ?? (await import("@cloudflare/sandbox")).getSandbox;
-    await resolve(env.Sandbox, sandboxId).destroy();
+    if (sandboxHandleResolver) {
+      await sandboxHandleResolver(env.Sandbox, sandboxId).destroy();
+    } else {
+      const { destroySandboxInstance } = await import("./provider.js");
+      await destroySandboxInstance(env, sandboxId, selection ?? {});
+    }
     forgetLeaked(sandboxId, hooks);
   } catch (error) {
     // Cleanup failure must not overwrite the recorded outcome.
@@ -330,6 +339,7 @@ export type SandboxOpsFactory = (
   sandboxId: string,
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
+  selection?: SandboxSelectionContext,
 ) => SandboxOps;
 
 let sandboxOpsFactory: SandboxOpsFactory | undefined;
@@ -345,7 +355,8 @@ export async function acquireSandboxOps(
   sandboxId: string,
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
+  selection?: SandboxSelectionContext,
 ): Promise<SandboxOps> {
   const create = sandboxOpsFactory ?? (await import("../agents/opencode-agent.js")).createSandboxOps;
-  return create(env, sandboxId, egressHosts, egressOverrides);
+  return create(env, sandboxId, egressHosts, egressOverrides, selection);
 }

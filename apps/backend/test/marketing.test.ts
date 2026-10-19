@@ -1,21 +1,55 @@
 /**
  * Guards the custom landing page against a Starlight upgrade reclaiming the
- * index route. Reads the build output, so it only runs after `pnpm build`.
+ * index route. Builds the Astro site when `apps/web/dist` is missing or older
+ * than the page sources, so `pnpm test` does not depend on a prior `pnpm build`.
  */
-import { describe, expect, test } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 
-const indexPath = join(import.meta.dirname, "..", "..", "..", "public", "index.html");
-// Skipping is honest here; passing on a missing artifact would not be.
-const built = existsSync(indexPath);
+const webRoot = join(import.meta.dirname, "..", "..", "web");
+const distRoot = join(webRoot, "dist");
+const indexPath = join(distRoot, "index.html");
 
-describe.skipIf(!built)("marketing landing page", () => {
+function newestMtime(dir: string): number {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".astro") continue;
+    const path = join(dir, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestMtime(path) : statSync(path).mtimeMs);
+  }
+  return newest;
+}
+
+function landingBuildIsCurrent(): boolean {
+  if (!existsSync(indexPath)) return false;
+  const builtAt = statSync(indexPath).mtimeMs;
+  const config = join(webRoot, "astro.config.mjs");
+  return builtAt >= newestMtime(join(webRoot, "src")) && builtAt >= statSync(config).mtimeMs;
+}
+
+function ensureLandingBuild(): void {
+  if (landingBuildIsCurrent()) return;
+  const result = spawnSync("pnpm", ["exec", "astro", "build"], {
+    cwd: webRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
+  if (result.status !== 0 || !existsSync(indexPath)) {
+    throw new Error(`astro build failed (${result.status ?? "no exit"})`);
+  }
+}
+
+ensureLandingBuild();
+
+describe("marketing landing page", () => {
   const html = () => readFileSync(indexPath, "utf-8");
 
   test("renders the custom landing page, not the Starlight splash", () => {
     const markup = html();
-    expect(markup).toContain("Shiba - Your AI software engineer");
+    expect(markup).toContain("Shiba — self-hosted AI coworker on Cloudflare");
+    expect(markup).toContain("pnpm shiba dev");
     // Hero headline as shipped: it asks before it writes code.
     expect(markup).toContain("It asks before");
     expect(markup).toContain("it writes code.");
@@ -31,9 +65,9 @@ describe.skipIf(!built)("marketing landing page", () => {
   });
 
   test("every referenced asset exists in the build output", () => {
-    const refs = [...html().matchAll(/\/assets\/[\w-]+\/[\w.-]+/g)].map((m) => m[0]);
+    const refs = [...html().matchAll(/\/assets\/[\w-]+\/[\w.-]+/g)].map((match) => match[0]);
     expect(refs.length).toBeGreaterThan(0);
-    const missing = refs.filter((ref) => !existsSync(join(import.meta.dirname, "..", "..", "..", "public", ref)));
+    const missing = refs.filter((ref) => !existsSync(join(distRoot, ref.replace(/^\//, ""))));
     expect(missing).toEqual([]);
   });
 

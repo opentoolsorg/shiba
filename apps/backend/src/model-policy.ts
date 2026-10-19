@@ -16,20 +16,25 @@ import { HARNESS_NAMES } from "./harness/index.js";
 import { modelConfigStub } from "./model-config-do.js";
 import {
   EMPTY_POLICY,
+  orderConnections,
+  reconcileConnectionOrder,
   validateConnectionModel,
   type ApprovedRoute,
   type Connection,
   type Purpose,
   type PurposePolicy,
 } from "./model-connections.js";
+import { soleReadyConnection } from "./model-defaults.js";
+import { assertConnectionEligibleForRun, type RunInitiatorContext } from "./subscription-routing.js";
 import { DEFAULT_ORCHESTRATOR_MODEL } from "./session-distill.js";
 
 export interface ModelConfigSnapshot {
   connections: Connection[];
   policy: PurposePolicy;
+  connectionOrder: string[];
 }
 
-const EMPTY_SNAPSHOT: ModelConfigSnapshot = { connections: [], policy: EMPTY_POLICY };
+const EMPTY_SNAPSHOT: ModelConfigSnapshot = { connections: [], policy: EMPTY_POLICY, connectionOrder: [] };
 
 /**
  * Read the catalog + policy. Fails open to the empty snapshot: a missing or
@@ -43,17 +48,27 @@ export async function readModelConfig(env: Pick<Env, "ModelConfig">): Promise<Mo
       stub.fetch(new Request("https://internal/policy")),
     ]);
     const connectionsBody = connectionsRes.ok
-      ? ((await connectionsRes.json().catch(() => ({}))) as { connections?: Connection[] })
+      ? ((await connectionsRes.json().catch(() => ({}))) as {
+          connections?: Connection[];
+          connectionOrder?: string[];
+        })
       : {};
     const policyBody = policyRes.ok
       ? ((await policyRes.json().catch(() => ({}))) as { policy?: PurposePolicy })
       : {};
+    const connections = Array.isArray(connectionsBody.connections) ? connectionsBody.connections : [];
+    const connectionOrder = reconcileConnectionOrder(
+      connections,
+      Array.isArray(connectionsBody.connectionOrder) ? connectionsBody.connectionOrder : [],
+    );
+    const policy =
+      policyBody.policy && typeof policyBody.policy.version === "number"
+        ? policyBody.policy
+        : EMPTY_POLICY;
     return {
-      connections: Array.isArray(connectionsBody.connections) ? connectionsBody.connections : [],
-      policy:
-        policyBody.policy && typeof policyBody.policy.version === "number"
-          ? policyBody.policy
-          : EMPTY_POLICY,
+      connections: orderConnections(connections, connectionOrder),
+      policy,
+      connectionOrder,
     };
   } catch (error) {
     console.warn(
@@ -75,8 +90,15 @@ export async function readModelConfig(env: Pick<Env, "ModelConfig">): Promise<Mo
 export function resolveCodingRoute(
   snapshot: ModelConfigSnapshot,
   requested: { connectionId?: string | null; model: string; harness: string },
+  initiator?: RunInitiatorContext,
 ): ApprovedRoute {
-  const connectionId = requested.connectionId ?? null;
+  let connectionId = requested.connectionId ?? null;
+  if (connectionId === null) {
+    const sole = soleReadyConnection(snapshot);
+    if (sole !== null && validateConnectionModel(sole, requested.model, requested.harness) === null) {
+      connectionId = sole.id;
+    }
+  }
   if (connectionId === null) {
     // The deployment's implicit default: egress binds the provider host of
     // the resolved model; the gateway's default BYOK credential applies.
@@ -96,6 +118,7 @@ export function resolveCodingRoute(
   if (problem !== null) {
     throw new Error(problem);
   }
+  assertConnectionEligibleForRun(connection, initiator ?? {});
   return {
     purpose: "coding",
     connectionId: connection.id,

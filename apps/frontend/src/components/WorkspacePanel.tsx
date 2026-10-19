@@ -16,6 +16,7 @@ const DANGER_BUTTON =
 export function storedApprovalKind(approval: StoredApproval): string {
   if (approval.kind === "email_send") return "Email send";
   if (approval.kind === "email_delete") return "Email delete";
+  if (approval.kind === "pr_merge") return "Merge pull request";
   if (approval.kind === undefined || approval.kind === "run") return "Run task";
   return approval.kind;
 }
@@ -47,10 +48,13 @@ export function storedApprovalAgent(approval: StoredApproval): string {
 export function StoredApprovalCard({
   approval,
   decided,
+  decision,
   onDecide,
 }: {
   approval: StoredApproval;
   decided: boolean;
+  /** Outcome when decided — mirrors the chat ApprovalCard. */
+  decision?: boolean;
   onDecide: (approval: StoredApproval, ok: boolean) => void;
 }): JSX.Element {
   const frozen =
@@ -61,6 +65,9 @@ export function StoredApprovalCard({
       ...(approval.baseBranch !== undefined ? { baseBranch: approval.baseBranch } : {}),
       ...(approval.publishPullRequest !== undefined
         ? { publishPullRequest: approval.publishPullRequest }
+        : {}),
+      ...(approval.reviewAfterPublish !== undefined
+        ? { reviewAfterPublish: approval.reviewAfterPublish }
         : {}),
       ...(approval.testCommand?.length ? { testCommand: approval.testCommand } : {}),
     } satisfies Record<string, unknown>);
@@ -78,6 +85,11 @@ export function StoredApprovalCard({
         via {storedApprovalAgent(approval)}
       </p>
       <p className="text-[11px] text-[var(--fg)] font-medium break-words mb-1">{approval.task}</p>
+      {approval.reviewAfterPublish ? (
+        <p className="text-[11px] text-[var(--fg)] break-words mb-1">
+          After the PR opens, a read-only review will run and Shiba will post its findings as a PR review.
+        </p>
+      ) : null}
       {approval.testCommand?.length ? (
         <p className="text-[11px] font-mono text-[var(--muted-foreground-2)] break-words mb-1">
           <span className="font-semibold text-[var(--fg)]">Tests:</span> {approval.testCommand.join(" ")}
@@ -86,6 +98,9 @@ export function StoredApprovalCard({
       <pre className="font-mono text-[10px] text-[var(--muted-foreground-2)] bg-[var(--card)] p-2 rounded-[var(--radius-button)] border border-[var(--border-1)] whitespace-pre-wrap break-words max-h-32 overflow-auto mb-2">
         {JSON.stringify(frozen, null, 2)}
       </pre>
+      <p className="text-[11px] text-[var(--muted-foreground-2)] mb-2">
+        Approve to start the run with the frozen payload above. Reject to discard it — nothing executes.
+      </p>
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -93,7 +108,7 @@ export function StoredApprovalCard({
           disabled={decided}
           onClick={() => onDecide(approval, true)}
         >
-          {decided ? "Decided" : "Approve"}
+          {decided && decision === true ? "Approved" : "Approve"}
         </button>
         <button
           type="button"
@@ -101,7 +116,7 @@ export function StoredApprovalCard({
           disabled={decided}
           onClick={() => onDecide(approval, false)}
         >
-          Reject
+          {decided && decision === false ? "Rejected" : "Reject"}
         </button>
       </div>
     </div>

@@ -1,7 +1,8 @@
 import { useState, useMemo, type JSX } from "react";
-import { Check, TriangleAlert } from "lucide-react";
 import { ApprovalCard } from "./ApprovalCard";
 import { AuditPanel } from "./AuditPanel";
+import { LoadErrorState } from "./LoadErrorState";
+import { EmptyState, PageHeader } from "./surface";
 import {
   StoredApprovalCard,
   DecidedApprovalRow,
@@ -20,6 +21,7 @@ export interface ApprovalsViewProps {
   onDecideStoredApproval: (approval: StoredApproval, ok: boolean) => void;
   orchestratorName?: string | null;
   onRefresh?: () => void;
+  reviewAfterPublishById?: Record<string, boolean>;
 }
 
 type OutcomeFilter = "all" | "approved" | "rejected" | "executed";
@@ -35,6 +37,7 @@ export function ApprovalsView({
   onDecideStoredApproval,
   orchestratorName,
   onRefresh,
+  reviewAfterPublishById,
 }: ApprovalsViewProps): JSX.Element {
   const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("all");
   const totalPending = pendingApprovals.length + storedApprovals.length;
@@ -53,57 +56,45 @@ export function ApprovalsView({
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      {/* Top Header */}
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
-        <div>
-          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
-            <span>Approvals & Decision Center</span>
-            {totalPending > 0 ? (
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-[var(--radius-button)] bg-[var(--warning-fg)] text-white">
-                {totalPending} waiting
-              </span>
-            ) : (
-              <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]">
-                0 pending · all clear
-              </span>
-            )}
-          </h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">
-            Human-in-the-loop review for sandbox tool calls, outbound communications, and cryptographic audit records.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] uppercase tracking-wider font-mono text-[var(--primary)]/80 bg-[var(--primary-soft)] border border-[var(--primary)]/20 px-2 py-1 rounded-[var(--radius-button)]">
-            Zero-Trust Boundary
-          </span>
-          {onRefresh ? (
-            <button
-              type="button"
-              onClick={onRefresh}
-              className="text-xs font-medium text-[var(--fg)] bg-[var(--card)] hover:bg-[var(--secondary)] border border-[var(--border-1)] px-3 py-1.5 rounded-[var(--radius-button)] transition-colors"
-            >
-              Refresh
-            </button>
-          ) : null}
-        </div>
-      </div>
+      <PageHeader
+        title="Approvals"
+        detail="Sandbox runs and outbound messages wait here until you approve them."
+      >
+        <span
+          className={
+            totalPending > 0
+              ? "text-xs font-mono font-bold px-2 py-0.5 border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)] text-[var(--warning-fg)]"
+              : "text-xs font-mono px-2 py-0.5 bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]"
+          }
+        >
+          {totalPending > 0 ? `${totalPending} waiting` : "0 waiting"}
+        </span>
+        {onRefresh ? (
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="text-xs font-medium text-[var(--fg)] bg-[var(--card)] hover:bg-[var(--secondary)] border border-[var(--border-1)] px-3 py-1.5 transition-colors"
+          >
+            Refresh
+          </button>
+        ) : null}
+      </PageHeader>
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {storedApprovalsError !== null ? (
-            <div className="text-xs text-[var(--destructive)] bg-[var(--destructive-soft)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] rounded-[var(--radius-button)] p-3.5 flex items-start gap-2">
-              <TriangleAlert aria-hidden="true" className="w-4 h-4 text-[var(--destructive)] shrink-0 mt-0.5" strokeWidth={2} />
-              <span>Approval queue sync error: {storedApprovalsError}</span>
-            </div>
+            <LoadErrorState
+              message={`Approval queue: ${storedApprovalsError}`}
+              onRetry={onRefresh ?? (() => {})}
+            />
           ) : null}
 
           {/* Section 1: Pending Approvals */}
           <section aria-labelledby="pending-approvals-heading" className="flex flex-col gap-3">
             <div className="flex items-center justify-between pb-1 border-b border-[var(--border-1)]">
               <h3 id="pending-approvals-heading" className="text-sm font-semibold text-[var(--fg)] flex items-center gap-2">
-                <span>Pending Approvals</span>
+                <span>Waiting</span>
                 {totalPending > 0 ? (
                   <span className="size-2 rounded-full bg-[var(--warning-fg)]" aria-hidden="true" />
                 ) : null}
@@ -114,15 +105,10 @@ export function ApprovalsView({
             </div>
 
             {totalPending === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] text-center p-6">
-                <div className="w-10 h-10 rounded-full bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] flex items-center justify-center mb-2">
-                  <Check aria-hidden="true" className="w-5 h-5" strokeWidth={2} />
-                </div>
-                <h4 className="text-sm font-semibold text-[var(--fg)]">All Clear</h4>
-                <p className="text-xs text-[var(--muted-foreground-2)] max-w-sm mt-0.5">
-                  No actions are currently awaiting your approval. Outbound communications and privileged sandbox tasks will pause here when queued.
-                </p>
-              </div>
+              <EmptyState
+                title="Nothing waiting"
+                detail="New runs and outbound messages pause here until you approve them."
+              />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Chat Tool Approvals */}
@@ -134,6 +120,7 @@ export function ApprovalsView({
                     decision={decisions[approval.approvalId]}
                     onDecideApproval={onDecideApproval}
                     agentName={orchestratorName ?? undefined}
+                    reviewAfterPublish={reviewAfterPublishById?.[approval.approvalId]}
                   />
                 ))}
 
@@ -143,6 +130,7 @@ export function ApprovalsView({
                     key={approval.approvalId}
                     approval={approval}
                     decided={storedDecisions[approval.approvalId] !== undefined}
+                    decision={storedDecisions[approval.approvalId]}
                     onDecide={onDecideStoredApproval}
                   />
                 ))}
@@ -155,7 +143,7 @@ export function ApprovalsView({
             <section aria-labelledby="recent-outcomes-heading" className="flex flex-col gap-3">
               <div className="flex items-center justify-between pb-1 border-b border-[var(--border-1)] flex-wrap gap-2">
                 <h3 id="recent-outcomes-heading" className="text-sm font-semibold text-[var(--fg)]">
-                  Recent Outcomes & Decided Actions
+                  Decided
                 </h3>
                 <div className="flex items-center gap-1 font-mono text-[11px]">
                   {(["all", "approved", "rejected", "executed"] as OutcomeFilter[]).map((f) => (
@@ -163,6 +151,7 @@ export function ApprovalsView({
                       key={f}
                       type="button"
                       onClick={() => setOutcomeFilter(f)}
+                      aria-pressed={outcomeFilter === f}
                       className={`px-2.5 py-1 border transition-colors capitalize ${
                         outcomeFilter === f
                           ? "border-[var(--primary)] bg-[var(--primary)] text-white font-bold"
@@ -189,14 +178,8 @@ export function ApprovalsView({
             </section>
           ) : null}
 
-          {/* Section 3: Cryptographic Audit Trail */}
-          <section aria-labelledby="audit-trail-heading" className="flex flex-col gap-3">
-            <div className="pb-1 border-b border-[var(--border-1)]">
-              <h3 id="audit-trail-heading" className="text-sm font-semibold text-[var(--fg)]">
-                Cryptographic Audit Log (D1 + SHA-256)
-              </h3>
-            </div>
-            <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] shadow-[var(--sh-card)]">
+          <section aria-label="Audit log" className="flex flex-col gap-3">
+            <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 shadow-[var(--sh-card)]">
               <AuditPanel />
             </div>
           </section>

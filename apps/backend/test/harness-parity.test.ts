@@ -150,11 +150,13 @@ describe("codex-subscription queue intake", () => {
     expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
   });
 
-  it("queues intake when enabled and freezes the codex-subscription route", async () => {
-    const instance = agent({ SHIBA_CODEX_SUBSCRIPTION: "1" });
+  it("refuses intake when enabled but subscription auth never succeeded", async () => {
+    const instance = agent({ SHIBA_CODEX_SUBSCRIPTION: "1", CODEX_SUBSCRIPTION_AUTH_JSON: "{}" });
     const response = await queueRun(instance, "codex-subscription");
+    const body = (await response.json()) as { error?: string };
 
-    expect(response.status).toBe(200);
-    expect((instance.state.pendingApprovals ?? [])[0]?.route?.harness).toBe("codex-subscription");
+    expect(response.status).toBe(400);
+    expect(body.error).toMatch(/no authenticated account/);
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
   });
 });

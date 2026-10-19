@@ -5,7 +5,9 @@
  * It makes no model calls of its own.
  */
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
-import { getSandbox, streamFile } from "@cloudflare/sandbox";
+import { getSandboxInstance } from "../sandbox/provider.js";
+import type { SandboxSelectionContext } from "../sandbox/selection.js";
+import type { SandboxInstance } from "@shiba/sandbox";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -37,12 +39,22 @@ import {
   type ProgressEvent,
   type SandboxOps,
 } from "../runtime.js";
-import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
+import { LOCAL_RUNTIME_FLAG, verifyStandinEnabled } from "@shiba/shared";
+import {
+  formatStandInReviewOutput,
+  isReviewerStandIn,
+  runVerifyStandInTask,
+} from "../verify-standin.js";
 import { localDispatchStub } from "../local-dispatch.js";
+import { chatGptAuthStub } from "../chatgpt-auth-do.js";
+import { codexDeviceAuthDeploymentEnabled } from "../harness/codex-device-auth.js";
+import { readUserOpenAiAuthMode } from "../subscription-device-auth.js";
+import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
 import { acquireSandboxOps } from "../sandbox/lifecycle.js";
 import { HARNESS_RETRY, withRetry } from "../harness/retry.js";
 import type { RunSignal } from "@shiba/shared";
 import { boundTail, parseGitHubRepoUrl, redactSecrets } from "../security.js";
+import { captureBrowserE2eEvidence, formatBrowserE2ePrSection } from "../browser-e2e/capture.js";
 import { captureRunPreview } from "../screenshot.js";
 import { postSlackMessage } from "../slack.js";
 import { SlackProgressReporter } from "../slack-persona.js";
@@ -54,19 +66,29 @@ export async function pinSandboxEgress(
   repoUrl: string,
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
+  selection: SandboxSelectionContext = {},
 ): Promise<void> {
-  const sandbox = getSandbox(env.Sandbox, sandboxId);
-  if (egressHosts && egressHosts.length > 0) {
-    await sandbox.approveHarnessEgress(egressHosts);
+  const instance = await getSandboxInstance(env, sandboxId, selection);
+  if (!instance.pinEgress) {
+    throw new Error(
+      `Sandbox provider "${env.SHIBA_SANDBOX_PROVIDER ?? "cloudflare"}" cannot pin egress at the edge.`,
+    );
   }
-  // T48: per-run handler swaps land inside the same pin — a subscription
-  // harness claims its provider host's handler so the token branch serves
-  // it, never the gateway's API-key path.
-  if (egressOverrides && egressOverrides.length > 0) {
-    await sandbox.approveEgressOverrides(egressOverrides);
-  }
+  const outboundByHost =
+    egressOverrides && egressOverrides.length > 0
+      ? Object.fromEntries(
+          egressOverrides.map((o) => [
+            o.host,
+            { handler: o.handler, ...(o.params ? { params: o.params } : {}) },
+          ]),
+        )
+      : undefined;
   const { owner, repo } = parseGitHubRepoUrl(repoUrl);
-  await sandbox.approveRepoScope(`/${owner}/${repo}`);
+  await instance.pinEgress({
+    allowedHosts: egressHosts ?? [],
+    ...(outboundByHost ? { outboundByHost } : {}),
+    githubRepoPath: `/${owner}/${repo}`,
+  });
 }
 
 /**
@@ -82,8 +104,18 @@ function createSlackProgress(env: Env, thread?: CodingTaskInput["slackThread"]):
   );
 }
 
-export function createSandboxOps(env: Env, sandboxId: string, egressHosts?: string[], egressOverrides?: EgressOverride[]): SandboxOps {
-  const sandbox = getSandbox(env.Sandbox, sandboxId);
+export function createSandboxOps(
+  env: Env,
+  sandboxId: string,
+  egressHosts?: string[],
+  egressOverrides?: EgressOverride[],
+  selection: SandboxSelectionContext = {},
+): SandboxOps {
+  let instancePromise: Promise<SandboxInstance> | undefined;
+  const instance = () => {
+    instancePromise ??= getSandboxInstance(env, sandboxId, selection);
+    return instancePromise;
+  };
   return {
     async gitCheckout(repoUrl, opts) {
       // The clone runs before anything else, so it is where this run's egress
@@ -91,108 +123,41 @@ export function createSandboxOps(env: Env, sandboxId: string, egressHosts?: stri
       // GitHub credential scoped to this one repo (B6). The pin + clone pair
       // is one retried unit — a half-pinned sandbox must not be reused.
       await withRetry(HARNESS_RETRY, async () => {
-        await pinSandboxEgress(env, sandboxId, repoUrl, egressHosts, egressOverrides);
-        await sandbox.gitCheckout(repoUrl, { branch: opts.branch, targetDir: opts.targetDir });
+        await pinSandboxEgress(env, sandboxId, repoUrl, egressHosts, egressOverrides, selection);
+        await (await instance()).gitCheckout(repoUrl, { branch: opts.branch, targetDir: opts.targetDir });
       });
     },
     async writeFile(path, content) {
-      await sandbox.writeFile(path, content);
+      await (await instance()).writeFile(path, content);
     },
     async exec(command, opts) {
       opts?.signal?.throwIfAborted();
-      // AbortSignal cannot cross the sandbox RPC boundary; the exec timeout
-      // bounds the remote process, and abort is raced in locally instead.
-      const execPromise = sandbox.exec(command, {
+      const execPromise = (await instance()).exec(command, {
         cwd: opts?.cwd,
-        timeout: opts?.timeoutMs,
+        timeoutMs: opts?.timeoutMs,
         env: opts?.env,
-        stream: opts?.onOutput !== undefined,
         onOutput: opts?.onOutput,
       });
-      const result = opts?.signal
-        ? await Promise.race([
-            execPromise,
-            new Promise<never>((_, reject) =>
-              opts.signal!.addEventListener(
-                "abort",
-                () => {
-                  execPromise.catch(() => {});
-                  reject(new Error("Run cancelled."));
-                },
-                { once: true },
-              ),
-            ),
-          ])
-        : await execPromise;
-      return {
-        stdout: result.stdout ?? "",
-        stderr: result.stderr ?? "",
-        exitCode: result.exitCode ?? 0,
-      };
+      if (!opts?.signal) return execPromise;
+      if (opts.signal.aborted) {
+        execPromise.catch(() => {});
+        throw new Error("Run cancelled.");
+      }
+      return Promise.race([
+        execPromise,
+        new Promise<never>((_, reject) => {
+          const onAbort = () => {
+            execPromise.catch(() => {});
+            reject(new Error("Run cancelled."));
+          };
+          opts.signal!.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
     },
     async readFile(path, opts) {
-      opts?.signal?.throwIfAborted();
-      let stream;
-      try {
-        stream = await sandbox.readFileStream(path);
-      } catch (error) {
-        throw new Error(`readFileStream RPC failed for ${path}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      let bytes;
-      try {
-        bytes = await collectStream(stream, opts?.maxBytes, opts?.signal);
-      } catch (error) {
-        throw new Error(`collectStream failed for ${path}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      const decoded = tryDecodeUtf8(bytes);
-      if (decoded !== null) {
-        return { kind: "utf8", content: decoded };
-      }
-      return { kind: "base64", content: bytesToBase64(bytes) };
+      return (await instance()).readFile(path, opts);
     },
   };
-}
-
-async function collectStream(stream: ReadableStream<Uint8Array>, maxBytes = 500_000, signal?: AbortSignal): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  // pipeThrough({ signal }) rejects non-native AbortSignals with an illegal
-  // invocation; the for-await's throwIfAborted covers cancellation instead.
-  const source = signal ? stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>()) : stream;
-  // readFileStream is SSE, not raw file bytes. Decode before collecting.
-  for await (const chunk of streamFile(source)) {
-    signal?.throwIfAborted();
-    const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
-    total += bytes.length;
-    if (total > maxBytes) throw new Error(`Captured file exceeds the ${maxBytes}-byte limit.`);
-    chunks.push(bytes);
-  }
-  signal?.throwIfAborted();
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
-function tryDecodeUtf8(bytes: Uint8Array): string | null {
-  if (bytes.includes(0)) return null;
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
 
 /**
@@ -280,41 +245,75 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           // The approval froze the harness (and model) for this run. The
           // deployment default is only the fallback for pre-harness inputs.
           slackProgress = createSlackProgress(this.env, input.slackThread);
-          const harness = resolveHarness(input.harness ?? this.env.AGENT_HARNESS, this.env);
-          // T48: subscription-authed harnesses must have a succeeded auth
-          // flow before a container spins up — assert at the admission seam,
-          // after the harness is resolved, before any sandbox work starts.
-          await assertHarnessAuthorized(this.env, harness, input);
-          // T51: the approved input's runtime wins over the deployment's
-          // RUNTIME default. "local" needs both the deployment flag and the
-          // dispatch mailbox; every other surface refused it at intake, and
-          // this is the last place a forged envelope could reach.
-          const runtimeName = input.runtime ?? resolveRuntimeName(this.env.RUNTIME);
-          let adapter;
-          if (runtimeName === "local") {
-            if (this.env[LOCAL_RUNTIME_FLAG] !== "1") {
-              throw new Error(LOCAL_DISPATCH_MESSAGE);
-            }
-            adapter = createRuntimeAdapter("local", harness, {
-              client: workerLocalDispatchClient(this.env),
-            });
+          let result: CodingTaskResult;
+          if (verifyStandinEnabled(this.env)) {
+            result = await runVerifyStandInTask(input, emit);
           } else {
-            adapter = createRuntimeAdapter(runtimeName, harness);
+            const harness = resolveHarness(input.harness ?? this.env.AGENT_HARNESS, this.env);
+            // T48: subscription-authed harnesses must have a succeeded auth
+            // flow before a container spins up — assert at the admission seam,
+            // after the harness is resolved, before any sandbox work starts.
+            await assertHarnessAuthorized(this.env, harness, input);
+            // T51: the approved input's runtime wins over the deployment's
+            // RUNTIME default. "local" needs both the deployment flag and the
+            // dispatch mailbox; every other surface refused it at intake, and
+            // this is the last place a forged envelope could reach.
+            const runtimeName = input.runtime ?? resolveRuntimeName(this.env.RUNTIME);
+            let adapter;
+            if (runtimeName === "local") {
+              if (this.env[LOCAL_RUNTIME_FLAG] !== "1") {
+                throw new Error(LOCAL_DISPATCH_MESSAGE);
+              }
+              adapter = createRuntimeAdapter("local", harness, {
+                client: workerLocalDispatchClient(this.env),
+              });
+            } else {
+              adapter = createRuntimeAdapter(runtimeName, harness);
+            }
+            let runInput = input;
+            if (harness.name === "codex-subscription" && input.initiatorUserId) {
+              const deviceAuth =
+                codexDeviceAuthDeploymentEnabled(this.env) &&
+                (await readUserOpenAiAuthMode(this.env, input.initiatorUserId)) === "device-auth";
+              if (deviceAuth) {
+                runInput = { ...input, codexAuthMode: "device-auth" };
+              } else if (this.env.ChatGptAuth && modelCredentialKeyConfigured(this.env)) {
+                const accessResponse = await chatGptAuthStub(this.env, input.initiatorUserId).fetch(
+                  "https://chatgpt-auth.internal/access",
+                );
+                if (!accessResponse.ok) {
+                  const body = (await accessResponse.json().catch(() => null)) as { error?: string } | null;
+                  throw new Error(body?.error ?? "ChatGPT plan access is not available for this user.");
+                }
+                const access = (await accessResponse.json()) as {
+                  accessToken: string;
+                  threadId?: string | null;
+                };
+                runInput = {
+                  ...input,
+                  chatgptAccessToken: access.accessToken,
+                  ...(access.threadId ? { chatgptThreadId: access.threadId } : {}),
+                };
+              }
+            }
+            const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
+            const overrides = harness.egressOverrides?.(runInput);
+            const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides, {
+              orgId: "self-hosted",
+              taskProviderId: runInput.sandboxProvider,
+            });
+            result = await adapter.runCodingTask(ops, runInput, emit, {
+              signal,
+              signals: runSignals,
+              // T44: an oversize diff lands in R2 instead of being truncated
+              // away — the settle receipt carries this key.
+              exportDiff: async (diff) => {
+                const key = `diffs/${input.sandboxId}.patch`;
+                await this.env.ATTACHMENTS.put(key, diff, { httpMetadata: { contentType: "text/plain" } });
+                return key;
+              },
+            });
           }
-          const hosts = allowedHostsFor(harness, input.codingModel);
-          const overrides = harness.egressOverrides?.(input);
-          const ops = await acquireSandboxOps(this.env, input.sandboxId, hosts, overrides);
-          const result = await adapter.runCodingTask(ops, input, emit, {
-            signal,
-            signals: runSignals,
-            // T44: an oversize diff lands in R2 instead of being truncated
-            // away — the settle receipt carries this key.
-            exportDiff: async (diff) => {
-              const key = `diffs/${input.sandboxId}.patch`;
-              await this.env.ATTACHMENTS.put(key, diff, { httpMetadata: { contentType: "text/plain" } });
-              return key;
-            },
-          });
           checkCancelled();
           // UNINTERRUPTIBLE: publish + result commit. Once the remote PR write
           // starts, an abort must not lose the outcome — a fake-failed real PR
@@ -322,11 +321,16 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           // publishResult sits before the first remote write.
           let pullUrl: string | undefined;
           let screenshotUrl: string | undefined;
+          let browserE2eManifestUrl: string | undefined;
           if (result.status === "completed" && input.publishPullRequest) {
             const published = await this.publishResult(input, result, signal);
             pullUrl = published.pullUrl;
             screenshotUrl = published.screenshotUrl;
+            browserE2eManifestUrl = published.browserE2eManifestUrl;
             if (screenshotUrl) noteSignal("screenshot.captured", screenshotUrl);
+            if (browserE2eManifestUrl) {
+              noteSignal("e2e.completed", browserE2eManifestUrl);
+            }
             noteSignal("pr.opened", pullUrl);
           }
           const safeResult = this.uiResult(result);
@@ -345,12 +349,20 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           }
           // pullUrl rides the envelope: the parent's text scrape of the
           // transcript is only a legacy fallback, never the source of truth.
-          write(formatAgentResult({
-            ...safeResult,
-            ...(pullUrl ? { pullUrl } : {}),
-            ...(screenshotUrl ? { screenshotUrl } : {}),
-            signals: runSignals,
-          }));
+          if (verifyStandinEnabled(this.env) && isReviewerStandIn(input)) {
+            write(formatStandInReviewOutput({
+              ...safeResult,
+              findings: (result as CodingTaskResult & { findings?: unknown[] }).findings ?? [],
+            }));
+          } else {
+            write(formatAgentResult({
+              ...safeResult,
+              ...(pullUrl ? { pullUrl } : {}),
+              ...(screenshotUrl ? { screenshotUrl } : {}),
+              ...(browserE2eManifestUrl ? { browserE2eManifestUrl } : {}),
+              signals: runSignals,
+            }));
+          }
           writer.write({ type: "text-end", id });
           if (safeResult.status === "error") writer.write({ type: "error", errorText: safeResult.summary });
           writer.write({ type: "finish", finishReason: safeResult.status === "error" ? "error" : "stop" });
@@ -405,7 +417,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     input: CodingTaskInput,
     result: CodingTaskResult,
     signal?: AbortSignal,
-  ): Promise<{ pullUrl: string; screenshotUrl?: string }> {
+  ): Promise<{ pullUrl: string; screenshotUrl?: string; browserE2eManifestUrl?: string }> {
     const token = this.env.GITHUB_TOKEN;
     if (!token) throw new Error("publishPullRequest was requested but GITHUB_TOKEN is not configured.");
     signal?.throwIfAborted();
@@ -413,7 +425,12 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     // it BEFORE the PR is written so the links land in the body. captureRunPreview
     // is fail-safe — it returns null rather than throwing, so a Browser Rendering
     // or sandbox problem can never lose a publish.
-    const capture = await captureRunPreview(this.env, { sandboxId: input.sandboxId });
+    const capture = verifyStandinEnabled(this.env)
+      ? null
+      : await captureRunPreview(this.env, { sandboxId: input.sandboxId });
+    const e2eCapture = verifyStandinEnabled(this.env)
+      ? null
+      : await captureBrowserE2eEvidence(this.env, { sandboxId: input.sandboxId });
     const bodyLines = [
       this.safeText(result.summary, 4000),
       "",
@@ -426,6 +443,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     // so instead of implying proof that isn't there.
     if (capture?.screenshotUrl) bodyLines.push("", `[Preview screenshot](${capture.screenshotUrl})`);
     else bodyLines.push("", "No preview captured — this change has no servable app; verify via the diff and test evidence.");
+    if (e2eCapture?.manifestUrl && e2eCapture.manifest.ok) {
+      bodyLines.push(formatBrowserE2ePrSection(e2eCapture));
+    }
     if (result.testEvidence) {
       bodyLines.push(
         "",
@@ -436,16 +456,21 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       );
     }
     // The screenshot link is served by this Worker behind the read-API auth gate.
-    const published = await publishFilesAsPullRequest({
-      repoUrl: input.repoUrl,
-      baseBranch: input.baseBranch,
-      newBranch: `shiba/${input.sandboxId}`,
-      title: `AI Coworker: ${this.safeText(input.task, 80)}`,
-      body: bodyLines.join("\n"),
-      files: result.files,
-      token,
-      message: `AI Coworker: ${this.safeText(input.task, 120)}`,
-    });
+    const published = await publishFilesAsPullRequest(
+      {
+        repoUrl: input.repoUrl,
+        baseBranch: input.baseBranch,
+        newBranch: `shiba/${input.sandboxId}`,
+        title: `AI Coworker: ${this.safeText(input.task, 80)}`,
+        body: bodyLines.join("\n"),
+        files: result.files,
+        token,
+        message: `AI Coworker: ${this.safeText(input.task, 120)}`,
+      },
+      {
+        ...(this.env.GITHUB_API_BASE ? { apiBase: this.env.GITHUB_API_BASE } : {}),
+      },
+    );
     // Board sync is best-effort and chains up to ~150s of GraphQL calls —
     // never let it delay the run's terminal transition or PR post-back.
     // this.ctx is absent on test stubs, hence the optional call.
@@ -455,6 +480,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     return {
       pullUrl: published.pullUrl,
       ...(capture?.screenshotUrl ? { screenshotUrl: capture.screenshotUrl } : {}),
+      ...(e2eCapture?.manifestUrl && e2eCapture.manifest.ok
+        ? { browserE2eManifestUrl: e2eCapture.manifestUrl }
+        : {}),
     };
   }
 

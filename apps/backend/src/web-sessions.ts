@@ -1,3 +1,5 @@
+import { parseDenAgentName } from "@shiba/shared";
+
 /**
  * Web-Session routing, lifecycle, and listing/resume primitives.
  *
@@ -273,6 +275,11 @@ export function isAuthorizedSessionAgent(
     const parsed = parseSessionAgentName(agentName);
     if (!parsed) return false;
     return parsed.userId === authenticatedUserId && isValidSessionId(parsed.sessionId);
+  }
+
+  const den = parseDenAgentName(agentName);
+  if (den) {
+    return den.userId === authenticatedUserId;
   }
 
   return false;

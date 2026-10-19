@@ -1,3 +1,4 @@
+import { fetchWithBackoff, isTimeoutError } from "../http-retry.js";
 import type { V1Context } from "./context.js";
 import { readRun } from "./runs.js";
 
@@ -11,12 +12,16 @@ const notImplemented = (detail: string) =>
   Response.json({ ok: false, error: "not_implemented", code: "not_implemented", detail }, { status: 501 });
 
 async function github<T>(ctx: V1Context, path: string, init?: { method: string; body: unknown }): Promise<T> {
-  const response = await fetch(`https://api.github.com${path}`, {
-    method: init?.method ?? "GET", signal: AbortSignal.timeout(30_000),
+  const apiBase = (ctx.env.GITHUB_API_BASE ?? "https://api.github.com").replace(/\/$/, "");
+  const timeout = AbortSignal.timeout(30_000);
+  const signal = ctx.request.signal ? AbortSignal.any([ctx.request.signal, timeout]) : timeout;
+  const response = await fetchWithBackoff(`${apiBase}${path}`, {
+    method: init?.method ?? "GET",
+    signal,
     headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${ctx.env.GITHUB_TOKEN}`,
       "User-Agent": "shiba", "X-GitHub-Api-Version": "2022-11-28", ...(init ? { "Content-Type": "application/json" } : {}) },
     ...(init ? { body: JSON.stringify(init.body) } : {}),
-  });
+  }, { signal, attempts: 3, baseDelayMs: 200 });
   // Upstream bodies can echo request detail; only the status crosses the boundary.
   if (!response.ok) throw new Error(`github_${response.status}`);
   return await response.json() as T;
@@ -34,11 +39,38 @@ async function jsonBody(ctx: V1Context): Promise<Record<string, unknown> | Respo
 const optionalOperationId = (value: unknown) =>
   value === undefined || (typeof value === "string" && value.length > 0 && value.length <= 64);
 
+export async function handlePullReviewTriage(ctx: V1Context): Promise<Response | null> {
+  const match = ctx.url.pathname.match(
+    /^\/api\/v1\/threads\/([^/]+)\/pr\/review\/findings\/([^/]+)\/triage$/,
+  );
+  if (!match || ctx.request.method !== "PATCH") return null;
+  let threadId: string;
+  let findingId: string;
+  try {
+    threadId = decodeURIComponent(match[1]!);
+    findingId = decodeURIComponent(match[2]!);
+  } catch {
+    return Response.json({ ok: false, error: "invalid_id" }, { status: 400 });
+  }
+  const body = await jsonBody(ctx);
+  if (body instanceof Response) return body;
+  return ctx.forward(
+    "PATCH",
+    `/api/runs/${encodeURIComponent(threadId)}/review/findings/${encodeURIComponent(findingId)}/triage`,
+    body as Record<string, unknown>,
+  );
+}
+
 export async function handlePulls(ctx: V1Context): Promise<Response | null> {
-  const match = ctx.url.pathname.match(/^\/api\/v1\/threads\/([^/]+)\/pr(?:\/(ready|status|comments|merge|review-loop))?$/);
+  const triage = await handlePullReviewTriage(ctx);
+  if (triage) return triage;
+  const match = ctx.url.pathname.match(/^\/api\/v1\/threads\/([^/]+)\/pr(?:\/(ready|status|comments|merge|review-loop|review)(?:\/(retry))?)?$/);
   if (!match) return null;
   const action = match[2] ?? "create";
-  const method = action === "status" || action === "comments" ? "GET" : action === "review-loop" ? (ctx.request.method === "PATCH" ? "PATCH" : "GET") : "POST";
+  const retry = match[3] === "retry";
+  const method = action === "review"
+    ? (retry ? "POST" : "GET")
+    : action === "status" || action === "comments" ? "GET" : action === "review-loop" ? (ctx.request.method === "PATCH" ? "PATCH" : "GET") : "POST";
   if (ctx.request.method !== method) return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
   let id: string;
   try { id = decodeURIComponent(match[1]!); }
@@ -67,11 +99,14 @@ export async function handlePulls(ctx: V1Context): Promise<Response | null> {
   }
   const run = await readRun(ctx, id);
   if (run instanceof Response) return run;
-  // Merging is outward-facing: it must ride an approval, and ApprovalKind has no pr_merge kind yet.
-  if (action === "merge") return notImplemented("PR merge requires a pr_merge approval kind; shiba never merges without an approval.");
+  if (action === "merge") {
+    return ctx.forward("POST", `/api/runs/${encodeURIComponent(id)}/merge`, body as Record<string, unknown>);
+  }
+  if (action === "review") {
+    return ctx.forward(method, `/api/runs/${encodeURIComponent(id)}/review${retry ? "/retry" : ""}`);
+  }
   if (action === "review-loop") {
-    if (method === "GET") return Response.json({ ok: true, reviewLoop: null });
-    return notImplemented("The PR review loop needs a persisted loop record on the orchestrator.");
+    return ctx.forward(method, `/api/runs/${encodeURIComponent(id)}/review-loop`, method === "GET" ? undefined : body as Record<string, unknown>);
   }
   const pull = run.pullUrl?.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   if (!pull) {
@@ -126,7 +161,19 @@ export async function handlePulls(ctx: V1Context): Promise<Response | null> {
     // Thread resolution is GraphQL-only; REST cannot tell resolved from unresolved.
     return Response.json({ ok: true, pullRequestComments: { number: pr.number, repoFullName, commentsAvailable: true, unresolvedCount: 0, comments } });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return Response.json({ ok: false, error: "cancelled", userMessage: "The GitHub request was cancelled." }, { status: 499 });
+    }
+    if (isTimeoutError(error) || (error instanceof Error && /status 408|timed out/i.test(error.message))) {
+      return Response.json(
+        { ok: false, error: "github_timeout", userMessage: "GitHub timed out. Retry in a moment.", timedOut: true },
+        { status: 504 },
+      );
+    }
     const status = Number((error instanceof Error ? error.message : "").replace("github_", ""));
-    return Response.json({ ok: false, error: "github_request_failed" }, { status: status === 404 ? 404 : 502 });
+    return Response.json(
+      { ok: false, error: "github_request_failed", userMessage: "GitHub could not complete that request." },
+      { status: status === 404 ? 404 : 502 },
+    );
   }
 }

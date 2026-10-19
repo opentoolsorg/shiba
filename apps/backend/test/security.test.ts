@@ -149,6 +149,17 @@ describe("redactSecrets", () => {
   it("leaves ordinary text alone", () => {
     expect(redactSecrets("hello world")).toBe("hello world");
   });
+
+  it("redacts shiba bearer tokens (shk/shb/sho)", () => {
+    const shk = `shk_${"a".repeat(16)}_${"b".repeat(48)}`;
+    const shb = `shb_${"c".repeat(16)}_${"d".repeat(48)}`;
+    const sho = `sho_${"e".repeat(16)}_${"f".repeat(48)}`;
+    const redacted = redactSecrets(`keys ${shk} ${shb} ${sho}`);
+    expect(redacted).not.toContain(shk.slice(0, 20));
+    expect(redacted).not.toContain(shb.slice(0, 20));
+    expect(redacted).not.toContain(sho.slice(0, 20));
+    expect(redacted).toContain("[redacted]");
+  });
 });
 
 describe("boundTail", () => {

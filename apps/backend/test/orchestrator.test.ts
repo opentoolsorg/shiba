@@ -713,18 +713,55 @@ describe("approval handoff recovery", () => {
     expect(crashState?.runs[0]?.status).toBe("pending");
     expect(mocks.execute).not.toHaveBeenCalled();
 
+    expect(crashState?.runs[0]?.checkpoint).toBe("dispatching");
     const restarted = agent();
     restarted.setState(JSON.parse(JSON.stringify(crashState)) as OrchestratorState);
+    mocks.execute.mockResolvedValue(formatAgentResult({
+      status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: "resumed",
+    }));
     await restarted.onStart();
-    expect(restarted.state.runs[0]?.status).toBe("unknown");
-    expect(restarted.state.runs[0]?.errorCode).toBe("outcome_unknown");
-    expect(restarted.state.runs[0]?.error).toContain("orchestrator restart");
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalled());
+    expect(restarted.state.runs[0]?.error ?? "").not.toContain("orchestrator restart");
+    expect(restarted.state.runs[0]?.status).not.toBe("unknown");
     expect(restarted.state.pendingApprovals?.[0]?.status).toBe("approved");
-    expect(mocks.destroy).toHaveBeenCalledOnce();
     // The replayed resolve answers from the committed command receipt
     // (T41) — the decision was recorded; it is not re-litigated.
     expect(await (await restarted.onRequest(request())).json()).toEqual({ result: "approved" });
     expect(restarted.state.runs).toHaveLength(1);
+    expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it("starts when the durable object has no state yet", async () => {
+    const instance = agent();
+    delete (instance as { state?: OrchestratorState }).state;
+    await instance.onStart();
+    expect(instance.state).toBeUndefined();
+  });
+
+  it("leaves an executing checkpoint unknown after restart", async () => {
+    const instance = agent();
+    const approvalId = "ap-exec";
+    const approvals = resolvePendingApproval(createPendingApproval([], {
+      threadKey: "default", approvalId, repoUrl: "https://github.com/o/r", task: "fix", createdAt: Date.now(),
+    }), { threadKey: "default", approvalId, approved: true, decidedBy: "U1" }, Date.now()).approvals;
+    instance.setState({
+      runs: [{
+        ...createRun({
+          runId: `agent-tool:${approvalId}`,
+          sandboxId: "s-exec",
+          repoUrl: "https://github.com/o/r",
+          task: "fix",
+          baseBranch: "main",
+          publishPullRequest: false,
+        }),
+        status: "running",
+        checkpoint: "executing",
+      }],
+      pendingApprovals: approvals,
+    });
+    await instance.onStart();
+    expect(instance.state.runs[0]?.status).toBe("unknown");
+    expect(instance.state.runs[0]?.error).toContain("orchestrator restart");
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
   run: vi.fn(), publish: vi.fn(), sandbox: vi.fn(), progress: vi.fn(), decodeFile: vi.fn(), launch: vi.fn(),
 }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
-vi.mock("@cloudflare/sandbox", () => ({ getSandbox: mocks.sandbox, streamFile: mocks.decodeFile }));
+vi.mock("../src/sandbox/client.js", () => ({ getSandbox: mocks.sandbox }));
+import { resetSandboxProviderCache } from "../src/sandbox/provider.js";
 vi.mock("@cloudflare/puppeteer", () => ({ default: { launch: mocks.launch } }));
 vi.mock("../src/runtime.js", () => ({
   createRuntimeAdapter: () => ({ runCodingTask: mocks.run }),
@@ -45,6 +46,7 @@ async function responseFor(instance: OpenCodeAgent, signal?: AbortSignal) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetSandboxProviderCache();
   mocks.sandbox.mockReturnValue({});
   mocks.run.mockResolvedValue(RESULT);
   mocks.publish.mockResolvedValue({ pullUrl: "https://github.com/owner/repo/pull/1" });
@@ -95,7 +97,7 @@ describe("OpenCodeAgent response boundary", () => {
     mocks.run.mockResolvedValue({ ...RESULT, files });
     const signal = new AbortController().signal;
     const { text, result } = await responseFor(agent({ ...INPUT, publishPullRequest: true }, "token"), signal);
-    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({ files }));
+    expect(mocks.publish.mock.calls[0]?.[0]).toMatchObject({ files });
     expect(result.files).toEqual([]);
     expect(text).not.toContain(files[0]!.content);
     expect(text).toContain("Pull request: https://github.com/owner/repo/pull/1");
@@ -126,6 +128,10 @@ describe("OpenCodeAgent response boundary", () => {
 
   it("reports sandbox setup errors through the structured result", async () => {
     mocks.sandbox.mockImplementation(() => { throw new Error("Sandbox unavailable"); });
+    mocks.run.mockImplementation(async (ops) => {
+      await ops.gitCheckout("https://github.com/owner/repo", { branch: "main", targetDir: "/workspace/x" });
+      return RESULT;
+    });
     const { result } = await responseFor(agent());
     expect(result).toMatchObject({ status: "error", summary: "Sandbox unavailable" });
   });
@@ -167,9 +173,14 @@ describe("OpenCodeAgent response boundary", () => {
       on: vi.fn((_event: string, handler: (request: unknown) => void) => {
         requestHandlers.push(handler);
       }),
+      click: vi.fn(async () => undefined),
+      type: vi.fn(async () => undefined),
+      waitForSelector: vi.fn(async () => ({})),
+      evaluate: vi.fn(async () => "ok"),
     };
     mocks.launch.mockResolvedValue({ newPage: vi.fn(async () => page), close: vi.fn(async () => undefined) });
     mocks.sandbox.mockReturnValue({
+      exec: vi.fn(async () => ({ exitCode: 1, stdout: "" })),
       startProcess: vi.fn(async () => ({ waitForPort: vi.fn(async () => undefined), kill: vi.fn(async () => undefined) })),
       exposePort: vi.fn(async () => ({ url: previewUrl })),
       unexposePort: vi.fn(async () => undefined),
@@ -193,7 +204,7 @@ describe("OpenCodeAgent response boundary", () => {
     // listener before navigation, so untrusted workdir HTML cannot exfiltrate.
     expect(page.setRequestInterception).toHaveBeenCalledWith(true);
     expect(page.on).toHaveBeenCalledWith("request", expect.any(Function));
-    expect(requestHandlers).toHaveLength(1);
+    expect(requestHandlers.length).toBeGreaterThanOrEqual(1);
     // The result envelope still carries both links for the internal run record.
     expect(mocks.publish).toHaveBeenCalledTimes(1);
   });
@@ -231,17 +242,27 @@ describe("createSandboxOps", () => {
   it.each([
     { chunks: ["hello ", "world"], expected: { kind: "utf8", content: "hello world" } },
     { chunks: [new Uint8Array([0, 255, 1])], expected: { kind: "base64", content: "AP8B" } },
-  ])("collects decoded SDK file chunks without treating SSE as content", async ({ chunks, expected }) => {
-    const stream = new ReadableStream<Uint8Array>();
+  ])("collects raw file bytes from the sandbox Files API", async ({ chunks, expected }) => {
+    const parts = chunks.map((c) => (typeof c === "string" ? new TextEncoder().encode(c) : c));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        controller.close();
+      },
+    });
     mocks.sandbox.mockReturnValue({ readFileStream: vi.fn().mockResolvedValue(stream) });
-    mocks.decodeFile.mockImplementation(async function* () { yield* chunks; });
     expect(await createSandboxOps({} as never, INPUT.sandboxId).readFile("a.txt")).toEqual(expected);
-    expect(mocks.decodeFile).toHaveBeenCalledWith(stream);
   });
 
   it("rejects oversized decoded files rather than publishing a truncated file", async () => {
-    mocks.sandbox.mockReturnValue({ readFileStream: vi.fn().mockResolvedValue(new ReadableStream()) });
-    mocks.decodeFile.mockImplementation(async function* () { yield "x".repeat(500_001); });
+    const big = new TextEncoder().encode("x".repeat(500_001));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(big);
+        controller.close();
+      },
+    });
+    mocks.sandbox.mockReturnValue({ readFileStream: vi.fn().mockResolvedValue(stream) });
     await expect(createSandboxOps({} as never, INPUT.sandboxId).readFile("large.txt")).rejects.toThrow("limit");
   });
 

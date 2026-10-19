@@ -1,0 +1,27 @@
+{
+  "name": "shiba-login",
+  "version": "0.1.0",
+  "description": "Local loopback helper for ChatGPT SIWC — posts the OAuth callback to your shiba instance.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "shiba-login": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "typescript": "5.9.3",
+    "vitest": "5.0.1"
+  }
+}

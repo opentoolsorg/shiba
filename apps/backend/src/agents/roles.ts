@@ -42,9 +42,12 @@
  *   designer     → claude-code              (opus-5-5)
  */
 import { AGENT_ROLES, isJsonObject, type AgentRole } from "@shiba/shared";
+import type { DashboardRolePin } from "../model-connections.js";
 import type { Env } from "../env.js";
+import { defaultCodingFromConnection, soleReadyConnection } from "../model-defaults.js";
 import { HARNESS_DEFAULT_MODELS, resolveHarness } from "../harness/index.js";
 import { assertSupportedModel, type AgentHarnessName } from "../harness/types.js";
+import type { ModelConfigSnapshot } from "../model-policy.js";
 
 /** Per-harness deployment model var — the `*_MODEL` precedence pins inherit. */
 const HARNESS_MODEL_ENV: Partial<Record<AgentHarnessName, keyof Env>> = {
@@ -81,7 +84,7 @@ interface RolePin {
   model?: string;
 }
 
-type RolePinSource = "role-map" | "role-env";
+type RolePinSource = "dashboard" | "role-map" | "role-env" | "connection-default";
 
 /** Parse `ROLE_MODEL_MAP` — throws an operator-readable message on malformed input. */
 function roleModelMap(env: Env): Partial<Record<AgentRole, RolePin>> {
@@ -127,7 +130,21 @@ function parseRolePin(raw: string, varName: string): RolePin {
 }
 
 /** The pin for a role and which source it came from; null when unpinned. */
-function rolePin(env: Env, role: AgentRole): { pin: RolePin; source: RolePinSource } | null {
+function rolePin(
+  env: Env,
+  role: AgentRole,
+  dashboardPins?: Partial<Record<AgentRole, DashboardRolePin>>,
+): { pin: RolePin; source: RolePinSource } | null {
+  const fromDashboard = dashboardPins?.[role];
+  if (fromDashboard !== undefined) {
+    return {
+      pin: {
+        harness: fromDashboard.harness,
+        ...(fromDashboard.model !== undefined ? { model: fromDashboard.model } : {}),
+      },
+      source: "dashboard",
+    };
+  }
   const fromMap = roleModelMap(env)[role];
   if (fromMap !== undefined) return { pin: fromMap, source: "role-map" };
   const varName = ROLE_MODEL_VARS[role];
@@ -162,13 +179,28 @@ function resolvePin(env: Env, pin: RolePin): { harness: AgentHarnessName; model:
  * validation reuse the run path's seams — a bad pin throws here, at
  * intake, exactly like a bad per-call harness/model would.
  */
+function connectionDefaultPick(
+  snapshot?: ModelConfigSnapshot,
+): { pin: RolePin; source: "connection-default" } | null {
+  if (snapshot === undefined) return null;
+  const sole = soleReadyConnection(snapshot);
+  if (sole === null) return null;
+  const pair = defaultCodingFromConnection(sole);
+  if (pair === null) return null;
+  return { pin: pair, source: "connection-default" };
+}
+
 export function resolveRoleModel(
   env: Env,
   role: AgentRole,
+  dashboardPins?: Partial<Record<AgentRole, DashboardRolePin>>,
+  snapshot?: ModelConfigSnapshot,
 ): { harness: AgentHarnessName; model: string } | null {
-  const pinned = rolePin(env, role);
-  if (pinned === null) return null;
-  return resolvePin(env, pinned.pin);
+  const pinned = rolePin(env, role, dashboardPins);
+  if (pinned !== null) return resolvePin(env, pinned.pin);
+  const fromConnection = connectionDefaultPick(snapshot);
+  if (fromConnection !== null) return resolvePin(env, fromConnection.pin);
+  return null;
 }
 
 /** One row of the `/api/setup/status` role table — the resolved routing the dashboard shows. */
@@ -176,6 +208,8 @@ export interface RoleModelStatus {
   role: AgentRole;
   /** Which env source supplied the pin; "default" = deployment fallback chain. */
   source: RolePinSource | "default";
+  /** Set when routing rides the sole ready model connection. */
+  connectionId?: string;
   harness: string;
   model: string;
   /** Set when the pin (or the deployment default) is broken; harness/model are empty. */
@@ -183,13 +217,29 @@ export interface RoleModelStatus {
 }
 
 /** Resolved routing for every role — Settings' Models section renders this verbatim. */
-export function describeRoleModels(env: Env): RoleModelStatus[] {
+export function describeRoleModels(
+  env: Env,
+  dashboardPins?: Partial<Record<AgentRole, DashboardRolePin>>,
+  snapshot?: ModelConfigSnapshot,
+): RoleModelStatus[] {
+  const sole = snapshot !== undefined ? soleReadyConnection(snapshot) : null;
   return AGENT_ROLES.map((role): RoleModelStatus => {
     try {
-      const pinned = rolePin(env, role);
+      const pinned = rolePin(env, role, dashboardPins);
       if (pinned !== null) {
         const resolved = resolvePin(env, pinned.pin);
         return { role, source: pinned.source, harness: resolved.harness, model: resolved.model };
+      }
+      const fromConnection = connectionDefaultPick(snapshot);
+      if (fromConnection !== null) {
+        const resolved = resolvePin(env, fromConnection.pin);
+        return {
+          role,
+          source: fromConnection.source,
+          harness: resolved.harness,
+          model: resolved.model,
+          ...(sole !== null ? { connectionId: sole.id } : {}),
+        };
       }
       const harness = resolveHarness(env.AGENT_HARNESS?.trim() ?? "opencode", env);
       return {

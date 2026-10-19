@@ -22,12 +22,12 @@ const SETTINGS_NAV_GROUPS: {
     | { view: AppNavView; label: string; blurb: string; openSessions?: boolean }
   )[];
 }[] = [
-  { heading: "Your account", items: sectionItems("account", "appearance") },
+  { heading: "Your account", items: sectionItems("account", "api-keys", "appearance") },
   {
     heading: "Workspace",
     items: [
       { view: "providers", label: "AI providers", blurb: "Connect and manage provider accounts" },
-      ...sectionItems("models", "repositories", "environments"),
+      ...sectionItems("models", "sandbox", "repositories", "environments"),
     ],
   },
   {
