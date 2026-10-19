@@ -36,6 +36,7 @@ import { handleOrgAgents } from "./v1/org-agents.js";
 import { handleThreads } from "./v1/threads.js";
 import { publicRunMessage, runTimedOut } from "./public-error.js";
 import { reviewerTask } from "./review/prompt.js";
+import { v1RunQueueBody } from "./v1/run-intake.js";
 
 export interface V1RouteDeps {
   authorize?: (request: Request, env: Env) => Promise<V1Principal | null>;
@@ -183,11 +184,16 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     if (run.status === "pending" || run.status === "running") {
       return Response.json({ error: "Only one active run per thread is allowed." }, { status: 409 });
     }
-    const queued = await forward("POST", "/api/runs", {
-      repoUrl: run.repoUrl, task: `Follow-up on run ${id}:\n${body.text}`,
-      ...(run.threadKey ? { threadKey: run.threadKey } : {}),
-      ...(run.continuationKey ? { continuesKey: run.continuationKey } : {}),
-    });
+    const queued = await forward(
+      "POST",
+      "/api/runs",
+      v1RunQueueBody(principal, {
+        repoUrl: run.repoUrl,
+        task: `Follow-up on run ${id}:\n${body.text}`,
+        ...(run.threadKey ? { threadKey: run.threadKey } : {}),
+        ...(run.continuationKey ? { continuesKey: run.continuationKey } : {}),
+      }),
+    );
     if (!queued.ok) return queued;
     return Response.json({ ...await queued.json() as object, threadId: id }, { status: queued.status });
   }
@@ -202,18 +208,23 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
       return Response.json({ error: "repoUrl and a positive pullNumber are required." }, { status: 400 });
     }
     const repo = body.repoUrl.replace(/\/$/, "");
-    return forward("POST", "/api/runs", {
-      repoUrl: body.repoUrl,
-      task: reviewerTask({
+    return forward(
+      "POST",
+      "/api/runs",
+      v1RunQueueBody(principal, {
         repoUrl: body.repoUrl,
-        pullNumber: body.pullNumber,
-        headSha: body.headSha ?? "head",
-        diffUrl: `${repo}/pull/${body.pullNumber}.diff`,
+        task: reviewerTask({
+          repoUrl: body.repoUrl,
+          pullNumber: body.pullNumber,
+          headSha: body.headSha ?? "head",
+          diffUrl: `${repo}/pull/${body.pullNumber}.diff`,
+        }),
+        publishPullRequest: false,
+        role: "reviewer",
+        codingModel: env.REVIEW_RUN_MODEL?.trim() || "opencode-go/gpt-6.1-sol",
+        commandId: `v1review:${body.repoUrl}:${body.pullNumber}:${body.headSha ?? "head"}`,
       }),
-      publishPullRequest: false, role: "reviewer",
-      codingModel: env.REVIEW_RUN_MODEL?.trim() || "opencode-go/gpt-6.1-sol",
-      commandId: `v1review:${body.repoUrl}:${body.pullNumber}:${body.headSha ?? "head"}`,
-    });
+    );
   }
   const repoUrl =
     typeof body.repoUrl === "string" && body.repoUrl.trim()
@@ -250,7 +261,7 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
   if (requestId) {
     input.commandId = await threadCreateCommandId(principal.orgId, requestId);
   }
-  const queued = await forward("POST", "/api/runs", input);
+  const queued = await forward("POST", "/api/runs", v1RunQueueBody(principal, input));
   if (!queued.ok) return queued;
   const result = await queued.json() as { approvalId?: string; deduped?: boolean; runId?: string };
   if (requestId && result.approvalId) {

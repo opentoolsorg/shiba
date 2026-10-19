@@ -53,6 +53,10 @@ vi.mock("../src/sandbox/selection.js", () => ({
   resolveSandboxSelection: vi.fn(async () => ({ providerId: "cloudflare", source: "deployment" })),
 }));
 
+vi.mock("../src/org-request-auth.js", () => ({
+  resolveOrgForApiRequest: vi.fn(async () => ({ orgId: "self-hosted", principal: null })),
+}));
+
 function makeEnv(): Env {
   return {
     Sandbox: {} as any,

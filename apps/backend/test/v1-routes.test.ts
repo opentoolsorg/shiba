@@ -58,7 +58,7 @@ describe("v1 routes", () => {
     const response = await f.send("/api/v1/threads", "POST", { repoUrl: run.repoUrl, task: "Fix", session: "s1", queuedBy: "forged" });
     expect(await response?.json()).toMatchObject({ approvalId: "a1", status: "waiting" });
     expect(f.scopes[0]?.searchParams.get("session")).toBe("s1");
-    expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Fix" });
+    expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Fix", orgId: "self-hosted" });
   });
   it("refuses messages on missing threads and interrupts active ones", async () => {
     expect((await fixture({ error: "missing" }, 404).send("/api/v1/threads/missing/message", "POST", { text: "Hi" }))?.status).toBe(404);
@@ -81,7 +81,13 @@ describe("v1 routes", () => {
     } });
     const response = await f.send("/api/v1/threads/r1/message", "POST", { text: "Again", repoUrl: "forged" });
     expect(await response?.json()).toMatchObject({ approvalId: "a2", threadId: "r1", id: "adm_a2" });
-    expect(await f.calls[1]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Follow-up on run r1:\nAgain", continuesKey: "key", threadKey: "thread" });
+    expect(await f.calls[1]?.json()).toEqual({
+      repoUrl: run.repoUrl,
+      task: "Follow-up on run r1:\nAgain",
+      continuesKey: "key",
+      threadKey: "thread",
+      orgId: "self-hosted",
+    });
   });
   it.each([["interrupt", "DELETE", "/api/runs/r1"], ["archive", "POST", "/api/runs/r1/archive"]])("forwards %s", async (action, method, path) => {
     const f = fixture();
@@ -100,9 +106,19 @@ describe("v1 routes", () => {
   it.each([undefined, "custom/reviewer"])("queues pinned reviews with model %s", async (model) => {
     const f = fixture({ ok: true, approvalId: "a1" });
     await f.send("/api/v1/reviews", "POST", { repoUrl: run.repoUrl, pullNumber: 12, headSha: "abc" }, { REVIEW_RUN_MODEL: model });
-    expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, publishPullRequest: false,
-      role: "reviewer", codingModel: model ?? "opencode-go/gpt-6.1-sol", commandId: `v1review:${run.repoUrl}:12:abc`,
-      task: reviewerTask({ repoUrl: run.repoUrl, pullNumber: 12, headSha: "abc", diffUrl: `${run.repoUrl}/pull/12.diff` }),
+    expect(await f.calls[0]?.json()).toEqual({
+      repoUrl: run.repoUrl,
+      publishPullRequest: false,
+      role: "reviewer",
+      codingModel: model ?? "opencode-go/gpt-6.1-sol",
+      commandId: `v1review:${run.repoUrl}:12:abc`,
+      orgId: "self-hosted",
+      task: reviewerTask({
+        repoUrl: run.repoUrl,
+        pullNumber: 12,
+        headSha: "abc",
+        diffUrl: `${run.repoUrl}/pull/12.diff`,
+      }),
     });
   });
   it("returns 400, 404, and 405 for invalid requests", async () => {

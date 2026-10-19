@@ -1,5 +1,7 @@
 # AI Coworker — End-to-End Completion Plan
 
+> **2026-10-19 — Product phases:** Phase 1–6 shipped scope, pluggable sandboxes, custom agents, and **what is not live-verified** are summarized in [`ROADMAP.md`](./ROADMAP.md). This file stays the historical `T<n>` tracker (rev 12 below).
+
 **Revision:** 2026-10-06 (rev 12). Adds §19, Phase P9 — Remote Access & Daemon Fleet (T52–T55): heartbeat + fleet registry, pairing-token connect flow, dashboard Remote Access view, operator docs. Schema rule for this phase: new Worker-boundary validation is Effect Schema in apps/backend; packages/shared gains pure types only (no new zod); the daemon stays dependency-free JS.
 
 **Target:** an open-source, self-hosted [Capy](https://capy.ai)/[Hoplite](https://hoplite.sh)-shaped coding agent that runs entirely on the user's own Cloudflare account. Scope is Capy's **spine plus review and automations** — not its workspace layer. See §4 for what is deliberately not being built.

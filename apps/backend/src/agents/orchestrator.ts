@@ -81,6 +81,7 @@ import {
 import { mailboxDirectoryStub, mailboxStub, registeredMailbox } from "../mailbox-do.js";
 import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
+import { orgIdFromIntake } from "../org-request-auth.js";
 import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
 import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
@@ -311,6 +312,12 @@ export const delegateInputSchema = z.object({
     .max(128)
     .optional()
     .describe("Org custom agent id from /api/custom-agents — applies harness, model, and sandbox defaults."),
+  orgId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe("Org scope for custom-agent and sandbox selection (v1 principal org; dashboard defaults to self-hosted)."),
 });
 
 type DelegateInput = z.infer<typeof delegateInputSchema>;
@@ -328,6 +335,7 @@ const composerPinSchema = z.object({
   codingModel: z.string().min(1).optional().catch(undefined),
   connectionId: z.string().min(1).optional().catch(undefined),
   customAgentId: z.string().min(1).max(128).optional().catch(undefined),
+  orgId: z.string().min(1).max(128).optional().catch(undefined),
 });
 
 /**
@@ -915,6 +923,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         authAccount: typeof input.authAccount === "string" ? input.authAccount.trim() : undefined,
         repoUrl: input.repoUrl,
         publishPullRequest: input.publishPullRequest,
+        orgId: orgIdFromIntake(input as Record<string, unknown>),
       },
       snapshot,
     );
@@ -1548,8 +1557,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
       }
     }
+    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
     let repoUrl = typeof input.repoUrl === "string" ? input.repoUrl : "";
     let task = typeof input.task === "string" ? input.task : "";
+    let autoApproveCustomAgent = false;
     let harnessOverride =
       typeof input.harness === "string" && input.harness.trim() ? input.harness.trim() : undefined;
     let codingModelOverride =
@@ -1570,11 +1581,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const { resolveCustomAgentForRun, overridesFromCustomAgent } = await import(
         "../custom-agents-resolve.js"
       );
-      const agent = await resolveCustomAgentForRun(this.env, "self-hosted", customAgentRef);
+      const agent = await resolveCustomAgentForRun(this.env, intakeOrgId, customAgentRef);
       if (!agent) {
         return Response.json({ error: "Custom agent not found." }, { status: 404 });
       }
       const overrides = overridesFromCustomAgent(agent);
+      if (overrides.approvalPolicy === "auto_approve") {
+        autoApproveCustomAgent = true;
+      }
       if (overrides.repoUrl && !repoUrl) repoUrl = overrides.repoUrl;
       harnessOverride = overrides.harness ?? harnessOverride;
       codingModelOverride = overrides.codingModel ?? codingModelOverride;
@@ -1666,6 +1680,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           repoUrl,
           publishPullRequest,
           sandboxProvider: taskSandboxProvider || undefined,
+          orgId: intakeOrgId,
         },
         snapshot,
       );
@@ -1800,12 +1815,21 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 409 },
       );
     }
+    if (autoApproveCustomAgent) {
+      await this.resolveApproval({
+        threadKey,
+        approvalId,
+        approved: true,
+        decidedBy: "custom-agent:auto_approve",
+      });
+    }
     return Response.json({
       ok: true,
       approvalId,
       repoUrl,
       task: task.slice(0, 4000),
       route: describeRoute(route),
+      ...(autoApproveCustomAgent ? { autoApproved: true } : {}),
     });
   }
 
@@ -2340,12 +2364,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let codingModel = input.codingModel;
     let connectionId = input.connectionId;
     let sandboxProvider: string | undefined;
+    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
     let customAgentId = input.customAgentId?.trim() || "";
     if (customAgentId && this.env.AGENT_AUDIT) {
       const { resolveCustomAgentForRun, overridesFromCustomAgent } = await import(
         "../custom-agents-resolve.js"
       );
-      const agent = await resolveCustomAgentForRun(this.env, "self-hosted", customAgentId);
+      const agent = await resolveCustomAgentForRun(this.env, intakeOrgId, customAgentId);
       if (agent) {
         const overrides = overridesFromCustomAgent(agent);
         if (overrides.repoUrl && !repoUrl) repoUrl = overrides.repoUrl;
@@ -2562,8 +2587,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
     if (!pull || !parent.pullUrl) return;
-    const generation = (prior?.generation ?? -1) + 1;
+    const generation =
+      prior?.status === "failed" ? (prior.generation ?? 0) + 1 : (prior?.generation ?? -1) + 1;
     // Reserve the round before any await so concurrent wakes cannot double-queue.
+    // Force skips the chain check so a retry can replace a failed round. A posted
+    // round already returned above.
     if (!opts?.force && decideChain(parent, this.state.reviewRounds ?? [], headSha, loop).kind !== "queue_review") {
       return;
     }
