@@ -557,7 +557,7 @@ describe("Providers page states", () => {
         onDefault: () => {},
       }),
     );
-    expect(html).toContain("Org default: Claude Code");
+    expect(html).toContain("Org default · Claude Code");
     expect(html).toContain("Ready");
     expect(html).toContain("ABCD-EFGH");
     expect(html).toContain("Sign-in pending");
@@ -566,5 +566,28 @@ describe("Providers page states", () => {
     expect(html).toContain("Test connection");
     expect(html).toContain("Use API credential");
     expect(html).not.toContain("Connect with sign-in</button>");
+  });
+
+  it("does not paint an empty adapter catalog when the provider request failed", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ProvidersBoard, {
+        snapshot: null,
+        loading: false,
+        error: "Providers request failed: 503",
+        busyId: null,
+        actionError: null,
+        onRetry: () => {},
+        onConnectOauth: () => {},
+        onConnectApiKey: () => {},
+        onVerify: () => {},
+        onTest: () => {},
+        onDisconnect: () => {},
+        onDefault: () => {},
+      }),
+    );
+    expect(html).toContain("Providers request failed: 503");
+    expect(html).toContain("Model connections");
+    expect(html).not.toContain(">Sandbox adapters<");
+    expect(html).not.toContain("provider-card-");
   });
 });

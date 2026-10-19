@@ -1,15 +1,8 @@
-/**
- * Providers — ACP adapters that run inside the sandbox (Claude Code,
- * Codex, Gemini CLI, Grok, OpenCode).
- *
- * The previous page called `/api/auth/<provider>-subscription`, which
- * 404s unless that provider's SHIBA_* flag is on, and `/api/agents`,
- * which is a CLI catalog with no connect verbs. This view talks only
- * to `/api/providers`.
- */
 import type { AcpProviderCard, AcpProviderConnection, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useCallback, useEffect, useState } from "react";
+import { LoadErrorState } from "./LoadErrorState";
 import { ConnectionsCard } from "./ModelRoutingSection";
+import { PageHeader, StatusNotice } from "./surface";
 import { ToneChip } from "./ToneChip";
 
 export function providerPhaseLabel(connection: Pick<AcpProviderConnection, "phase" | "testOk">): {
@@ -31,32 +24,234 @@ export function providerPhaseLabel(connection: Pick<AcpProviderConnection, "phas
 }
 
 const PRIMARY =
-  "bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white font-semibold py-1 px-3 rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-[11px] font-mono shadow-[var(--sh-card)] active:translate-y-px";
+  "inline-flex items-center bg-[var(--primary)] text-[var(--primary-text)] font-mono text-[11px] font-semibold px-3 py-1.5 shadow-[var(--sh-card)] active:translate-y-px hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed";
 const SECONDARY =
-  "text-[11px] font-mono font-medium text-[var(--muted-foreground-2)] hover:text-[var(--fg)] border border-[var(--border-1)] hover:border-[var(--border-2)] bg-[var(--card)] px-2.5 py-1 rounded-[var(--radius-button)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  "inline-flex items-center border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1.5 font-mono text-[11px] font-medium text-[var(--fg)] hover:bg-[var(--secondary)] active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed";
 
-function CapabilityList({ card }: { card: AcpProviderCard }): JSX.Element {
-  const caps = [
-    card.capabilities.acp ? "ACP" : "CLI",
-    card.capabilities.streamsText ? "streaming" : null,
-    card.capabilities.toolCalls ? "tools" : null,
-    card.capabilities.permissions ? "permissions" : null,
-    card.capabilities.setModel ? "set model" : null,
-    card.capabilities.oauth ? "OAuth" : null,
-    card.capabilities.apiKey ? "API key" : null,
-  ].filter((item): item is string => item !== null);
+function ProviderSkeleton(): JSX.Element {
   return (
-    <div className="mt-3 flex flex-wrap gap-1">
-      {caps.map((cap) => (
-        <span
-          key={cap}
-          className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--bg)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--muted-foreground-2)]"
-        >
-          {cap}
-        </span>
-      ))}
+    <div
+      className="border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]"
+      aria-hidden="true"
+    >
+      <div className="flex items-center justify-between border-b border-[var(--border-1)] bg-[var(--panel)] px-3 py-2.5">
+        <div className="skeleton h-3 w-28" />
+        <div className="skeleton h-4 w-16" />
+      </div>
+      <div className="space-y-2 px-3 py-3">
+        <div className="skeleton h-3 w-full" />
+        <div className="skeleton h-3 w-2/3" />
+        <div className="skeleton mt-3 h-7 w-36" />
+      </div>
+      <div className="border-t border-[var(--border-1)] px-3 py-2">
+        <div className="skeleton h-3 w-40" />
+      </div>
     </div>
   );
+}
+
+function Fact({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <span className="min-w-0 bg-[var(--card)] px-2.5 py-1.5" title={`${label} ${value}`}>
+      <span className="uppercase tracking-[0.12em] text-[var(--muted-foreground-3)]">{label} </span>
+      <span className="text-[var(--fg)]">{value}</span>
+    </span>
+  );
+}
+
+function ProviderCard({
+  card,
+  index,
+  busy,
+  onConnectOauth,
+  onConnectApiKey,
+  onVerify,
+  onTest,
+  onDisconnect,
+  onDefault,
+}: {
+  card: AcpProviderCard;
+  index: number;
+  busy: boolean;
+  onConnectOauth: (id: string) => void;
+  onConnectApiKey: (id: string) => void;
+  onVerify: (id: string) => void;
+  onTest: (id: string) => void;
+  onDisconnect: (id: string) => void;
+  onDefault: (id: string) => void;
+}): JSX.Element {
+  const phase = providerPhaseLabel(card.connection);
+  const connected = card.connection.phase === "connected";
+  const waiting = card.connection.phase === "waiting";
+  const ordinal = String(index + 1).padStart(2, "0");
+  return (
+    <article
+      data-testid={`provider-card-${card.id}`}
+      className="flex min-w-0 flex-col border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]"
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="font-mono text-[10px] tabular-nums text-[var(--muted-foreground-3)]">
+            {ordinal}
+          </span>
+          <h3 className="truncate text-[13px] font-semibold text-[var(--fg)]">{card.label}</h3>
+          {card.isDefault ? (
+            <span className="shrink-0 border border-[var(--primary)]/30 bg-[var(--primary-soft)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--primary)]">
+              Default
+            </span>
+          ) : null}
+        </div>
+        <span data-testid={`provider-status-${card.id}`} className="shrink-0">
+          <ToneChip tone={phase.tone} label={phase.label} />
+        </span>
+      </header>
+
+      <div className="flex flex-1 flex-col px-3 py-3">
+        <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.blurb}</p>
+
+        {card.connection.message ? (
+          <p className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]">
+            {card.connection.message}
+          </p>
+        ) : null}
+
+        {waiting && card.connection.userCode ? (
+          <div className="mt-3 border border-[var(--border-1)] bg-[var(--panel)] px-3 py-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+              Confirmation code
+            </p>
+            <p
+              data-testid={`provider-user-code-${card.id}`}
+              className="mt-1 font-mono text-lg tracking-[0.18em] text-[var(--fg)]"
+            >
+              {card.connection.userCode}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {card.connection.verificationUri ? (
+                <a
+                  href={card.connection.verificationUri}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={SECONDARY}
+                >
+                  Open sign-in
+                </a>
+              ) : null}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onVerify(card.id)}
+                className={PRIMARY}
+              >
+                {busy ? "Checking…" : "Finish sign-in"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onDisconnect(card.id)}
+                className={SECONDARY}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {!connected && card.capabilities.oauth ? (
+              <button
+                type="button"
+                data-testid={`provider-connect-oauth-${card.id}`}
+                disabled={busy}
+                onClick={() => onConnectOauth(card.id)}
+                className={PRIMARY}
+              >
+                {busy ? "Working…" : "Connect with sign-in"}
+              </button>
+            ) : null}
+            {!connected && card.capabilities.apiKey ? (
+              <button
+                type="button"
+                data-testid={`provider-connect-key-${card.id}`}
+                disabled={busy}
+                onClick={() => onConnectApiKey(card.id)}
+                className={card.capabilities.oauth ? SECONDARY : PRIMARY}
+              >
+                Use API credential
+              </button>
+            ) : null}
+            {connected ? (
+              <>
+                <button
+                  type="button"
+                  data-testid={`provider-test-${card.id}`}
+                  disabled={busy}
+                  onClick={() => onTest(card.id)}
+                  className={PRIMARY}
+                >
+                  {busy ? "Testing…" : "Test connection"}
+                </button>
+                {!card.isDefault ? (
+                  <button
+                    type="button"
+                    data-testid={`provider-default-${card.id}`}
+                    disabled={busy}
+                    onClick={() => onDefault(card.id)}
+                    className={SECONDARY}
+                  >
+                    Set as org default
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  data-testid={`provider-disconnect-${card.id}`}
+                  disabled={busy}
+                  onClick={() => onDisconnect(card.id)}
+                  className={SECONDARY}
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      <footer className="mt-auto flex min-w-0 flex-wrap gap-px border-t border-[var(--border-1)] bg-[var(--border-1)] font-mono text-[10px] text-[var(--muted-foreground-2)]">
+        <Fact label="Lane" value={card.capabilities.acp ? "ACP" : "CLI"} />
+        <Fact label="Harness" value={card.harness} />
+        <Fact label="Model" value={card.defaultModel} />
+        <a
+          href={card.docsUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="ml-auto bg-[var(--card)] px-2.5 py-1.5 uppercase tracking-[0.12em] text-[var(--primary)] hover:bg-[var(--panel)]"
+        >
+          Docs
+        </a>
+      </footer>
+    </article>
+  );
+}
+
+async function postProvider(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<AcpProvidersSnapshot> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = (await response.json().catch(() => ({}))) as AcpProvidersSnapshot & {
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(payload.error ?? `Request failed (${response.status}).`);
+  }
+  if (!Array.isArray(payload.providers)) {
+    throw new Error("Provider status was not returned.");
+  }
+  return payload;
 }
 
 export function ProvidersBoard({
@@ -86,296 +281,98 @@ export function ProvidersBoard({
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
 }): JSX.Element {
-  return (
-    <div data-testid="providers-page" className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-5xl space-y-8 px-6 py-8">
-        <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-[var(--radius-button)] border border-[var(--primary)]/20 bg-[var(--primary-soft)] px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--primary)]">
-            AI Agent Providers
-          </div>
-          <h2 className="text-xl font-bold text-[var(--fg)]">Connect your agents</h2>
-          <p className="mt-1 max-w-2xl font-mono text-xs leading-relaxed text-[var(--muted-foreground-2)]">
-            Each provider is an agent adapter that runs inside the sandbox. Claude Code and Codex
-            sign in through the subscription probe. Every provider can fall back to a Worker secret
-            or AI Gateway credential. Keys are never pasted here.
-          </p>
-          {snapshot?.defaultProviderId ? (
-            <p
-              className="mt-2 font-mono text-[11px] text-[var(--primary)]"
-              data-testid="providers-org-default"
-            >
-              Org default:{" "}
-              {snapshot.providers.find((provider) => provider.id === snapshot.defaultProviderId)
-                ?.label ?? snapshot.defaultProviderId}
-            </p>
-          ) : null}
-        </div>
+  const ready =
+    snapshot?.providers.filter((provider) => provider.connection.phase === "connected").length ?? 0;
+  const total = snapshot?.providers.length ?? 0;
+  const defaultLabel = snapshot?.defaultProviderId
+    ? (snapshot.providers.find((provider) => provider.id === snapshot.defaultProviderId)?.label ??
+      snapshot.defaultProviderId)
+    : null;
 
-        {error ? (
-          <div className="rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-4 py-3 font-mono text-xs text-[var(--destructive)]">
-            <p>{error}</p>
-            <button type="button" onClick={onRetry} className={`${SECONDARY} mt-2`}>
-              Retry
-            </button>
-          </div>
-        ) : null}
-        {actionError ? (
-          <div
-            data-testid="providers-action-error"
-            className="rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-4 py-3 font-mono text-xs text-[var(--destructive)]"
-          >
-            {actionError}
-          </div>
-        ) : null}
-
-        <div>
-          <div className="mb-3">
-            <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
-              ACP adapters
-            </h3>
-            <p className="mt-0.5 font-mono text-xs text-[var(--muted-foreground-2)]">
-              Connect, check status, test, disconnect, and pick the org default.
-            </p>
-          </div>
-          {loading && snapshot === null ? (
-            <div
-              className="font-mono text-xs text-[var(--muted-foreground-2)]"
-              data-testid="providers-loading"
-            >
-              Loading providers…
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(snapshot?.providers ?? []).map((card) => (
-                <ProviderCard
-                  key={card.id}
-                  card={card}
-                  busy={busyId === card.id}
-                  onConnectOauth={onConnectOauth}
-                  onConnectApiKey={onConnectApiKey}
-                  onVerify={onVerify}
-                  onTest={onTest}
-                  onDisconnect={onDisconnect}
-                  onDefault={onDefault}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <div className="mb-3">
-            <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
-              Model connections
-            </h3>
-            <p className="mt-0.5 font-mono text-xs text-[var(--muted-foreground-2)]">
-              Named credentials a run can route through.
-            </p>
-          </div>
-          <ConnectionsCard />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProviderCard({
-  card,
-  busy,
-  onConnectOauth,
-  onConnectApiKey,
-  onVerify,
-  onTest,
-  onDisconnect,
-  onDefault,
-}: {
-  card: AcpProviderCard;
-  busy: boolean;
-  onConnectOauth: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
-  onTest: (id: string) => void;
-  onDisconnect: (id: string) => void;
-  onDefault: (id: string) => void;
-}): JSX.Element {
-  const phase = providerPhaseLabel(card.connection);
-  const connected = card.connection.phase === "connected";
-  const waiting = card.connection.phase === "waiting";
   return (
     <div
-      data-testid={`provider-card-${card.id}`}
-      className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-4 transition-colors hover:border-[var(--border-2)]"
+      data-testid="providers-page"
+      className="flex h-full flex-1 flex-col overflow-hidden bg-[var(--bg)] text-[var(--fg)]"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-[var(--fg)]">{card.label}</span>
-            {card.isDefault ? (
-              <span className="rounded-[var(--radius-button)] border border-[var(--primary)]/30 bg-[var(--primary-soft)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--primary)]">
-                Org default
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-1 font-mono text-[11px] text-[var(--muted-foreground-2)]">
-            {card.blurb}
-          </div>
-        </div>
-        <span data-testid={`provider-status-${card.id}`}>
-          <ToneChip tone={phase.tone} label={phase.label} />
-        </span>
-      </div>
-
-      <dl className="mt-3 space-y-1.5 text-[12px]">
-        <div className="flex items-baseline gap-2">
-          <dt className="w-20 shrink-0 text-[var(--muted-foreground-2)]">Adapter</dt>
-          <dd className="truncate font-mono text-[var(--muted-foreground-2)]">{card.adapter}</dd>
-        </div>
-        <div className="flex items-baseline gap-2">
-          <dt className="w-20 shrink-0 text-[var(--muted-foreground-2)]">Harness</dt>
-          <dd className="truncate font-mono text-[var(--muted-foreground-2)]">{card.harness}</dd>
-        </div>
-        <div className="flex items-baseline gap-2">
-          <dt className="w-20 shrink-0 text-[var(--muted-foreground-2)]">Model</dt>
-          <dd className="truncate font-mono text-[var(--muted-foreground-2)]">
-            {card.defaultModel}
-          </dd>
-        </div>
-      </dl>
-      <CapabilityList card={card} />
-
-      {card.connection.message ? (
-        <p className="mt-3 font-mono text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
-          {card.connection.message}
-        </p>
-      ) : null}
-
-      {waiting && card.connection.userCode ? (
-        <div className="mt-3 space-y-2 border-t border-[var(--border-1)] pt-3">
-          <p className="font-mono text-[11px] text-[var(--fg)]">
-            Confirmation code{" "}
-            <span data-testid={`provider-user-code-${card.id}`} className="font-semibold">
-              {card.connection.userCode}
-            </span>
-          </p>
-          {card.connection.verificationUri ? (
-            <a
-              href={card.connection.verificationUri}
-              target="_blank"
-              rel="noreferrer"
-              className={`${PRIMARY} inline-flex`}
-            >
-              Open sign-in
-            </a>
-          ) : null}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onVerify(card.id)}
-              className={PRIMARY}
-            >
-              {busy ? "Checking…" : "Finish sign-in"}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onDisconnect(card.id)}
-              className={SECONDARY}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border-1)] pt-3">
-          {!connected && card.capabilities.oauth ? (
-            <button
-              type="button"
-              data-testid={`provider-connect-oauth-${card.id}`}
-              disabled={busy}
-              onClick={() => onConnectOauth(card.id)}
-              className={PRIMARY}
-            >
-              {busy ? "Working…" : "Connect with sign-in"}
-            </button>
-          ) : null}
-          {!connected && card.capabilities.apiKey ? (
-            <button
-              type="button"
-              data-testid={`provider-connect-key-${card.id}`}
-              disabled={busy}
-              onClick={() => onConnectApiKey(card.id)}
-              className={SECONDARY}
-            >
-              Use API credential
-            </button>
-          ) : null}
-          {connected ? (
-            <>
-              <button
-                type="button"
-                data-testid={`provider-test-${card.id}`}
-                disabled={busy}
-                onClick={() => onTest(card.id)}
-                className={PRIMARY}
-              >
-                {busy ? "Testing…" : "Test connection"}
-              </button>
-              {!card.isDefault ? (
-                <button
-                  type="button"
-                  data-testid={`provider-default-${card.id}`}
-                  disabled={busy}
-                  onClick={() => onDefault(card.id)}
-                  className={SECONDARY}
-                >
-                  Set as org default
-                </button>
-              ) : null}
-              <button
-                type="button"
-                data-testid={`provider-disconnect-${card.id}`}
-                disabled={busy}
-                onClick={() => onDisconnect(card.id)}
-                className={SECONDARY}
-              >
-                Disconnect
-              </button>
-            </>
-          ) : null}
-          <a
-            href={card.docsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto text-[11px] text-[var(--primary)]/80 transition-colors hover:text-[var(--primary)]"
+      <PageHeader
+        title="Providers"
+        detail="Sandbox adapters for Claude Code, Codex, Gemini, Grok, and OpenCode. Sign in, or use a worker secret. Keys are never pasted here."
+      >
+        {defaultLabel ? (
+          <span
+            data-testid="providers-org-default"
+            className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]"
           >
-            Docs
-          </a>
+            Org default · {defaultLabel}
+          </span>
+        ) : null}
+        <span className="border border-[var(--border-1)] bg-[var(--card)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+          {snapshot ? `${ready} of ${total} connected` : "—"}
+        </span>
+      </PageHeader>
+
+      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-8">
+          {error ? <LoadErrorState message={error} onRetry={onRetry} /> : null}
+          {actionError ? (
+            <div data-testid="providers-action-error">
+              <StatusNotice tone="err">{actionError}</StatusNotice>
+            </div>
+          ) : null}
+
+          {error && snapshot === null ? null : (
+            <section className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[var(--border-1)] pb-2">
+                <h3 className="text-sm font-semibold text-[var(--fg)]">Sandbox adapters</h3>
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                  Connect, test, disconnect, pick the org default
+                </p>
+              </div>
+              {loading && snapshot === null ? (
+                <div data-testid="providers-loading" className="flex flex-col gap-3">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                    Loading providers…
+                  </p>
+                  <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                    {["a", "b", "c", "d"].map((key) => (
+                      <ProviderSkeleton key={key} />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                  {(snapshot?.providers ?? []).map((card, index) => (
+                    <ProviderCard
+                      key={card.id}
+                      card={card}
+                      index={index}
+                      busy={busyId === card.id}
+                      onConnectOauth={onConnectOauth}
+                      onConnectApiKey={onConnectApiKey}
+                      onVerify={onVerify}
+                      onTest={onTest}
+                      onDisconnect={onDisconnect}
+                      onDefault={onDefault}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[var(--border-1)] pb-2">
+              <h3 className="text-sm font-semibold text-[var(--fg)]">Model connections</h3>
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                Named credentials a run can route through.
+              </p>
+            </div>
+            <ConnectionsCard />
+          </section>
         </div>
-      )}
+      </div>
     </div>
   );
-}
-
-async function postProvider(
-  path: string,
-  body: Record<string, unknown>,
-): Promise<AcpProvidersSnapshot> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = (await response.json().catch(() => ({}))) as AcpProvidersSnapshot & {
-    error?: string;
-  };
-  if (!response.ok) {
-    throw new Error(payload.error ?? `Request failed (${response.status}).`);
-  }
-  if (!Array.isArray(payload.providers)) {
-    throw new Error("Provider status was not returned.");
-  }
-  return payload;
 }
 
 export function ProvidersView(): JSX.Element {
