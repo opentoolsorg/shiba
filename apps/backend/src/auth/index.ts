@@ -13,6 +13,8 @@ import type { CodingTaskInput } from "../opencode-input.js";
 import { forwardClaudeSubscription, forwardCodexSubscription, forwardCursorSubscription, forwardDevinSubscription, type EgressEnv } from "../egress.js";
 import { chatGptAuthStub } from "../chatgpt-auth-do.js";
 import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
+import { codexDeviceAuthDeploymentEnabled } from "../harness/codex-device-auth.js";
+import { readUserOpenAiAuthMode } from "../subscription-device-auth.js";
 import type { Env as WorkerEnv } from "../env.js";
 
 interface AuthRegistryEnv {
@@ -69,6 +71,10 @@ export async function assertHarnessAuthorized<Env extends AuthRegistryEnv>(
 ): Promise<void> {
   if (harness.name === "codex-subscription" && input.initiatorUserId) {
     const workerEnv = env as unknown as WorkerEnv;
+    if (codexDeviceAuthDeploymentEnabled(workerEnv)) {
+      const mode = await readUserOpenAiAuthMode(workerEnv, input.initiatorUserId);
+      if (mode === "device-auth") return;
+    }
     if (workerEnv.ChatGptAuth && modelCredentialKeyConfigured(workerEnv)) {
       const status = await chatGptAuthStub(workerEnv, input.initiatorUserId).fetch("https://chatgpt-auth.internal/status");
       if (status.ok) {
