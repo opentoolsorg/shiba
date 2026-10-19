@@ -41,6 +41,7 @@ const setupStatus: SetupStatus = {
   models: { orchestrator: "", coding: "", harness: "", roles: [] },
   automations: { enabled: false, typeSafe: false },
   mailbox: { addressOverride: false, sendEnabled: false },
+  doctor: { ok: true, checkedAt: 0, findings: [], roles: [] },
 };
 
 const modelConfig: ModelConfigWire = {

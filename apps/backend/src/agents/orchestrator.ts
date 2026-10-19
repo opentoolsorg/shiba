@@ -77,6 +77,7 @@ import {
 import { mailboxDirectoryStub, mailboxStub, registeredMailbox } from "../mailbox-do.js";
 import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
+import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
 import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
 import { type CodingTaskInput, formatAgentToolInput, parseAgentResult } from "../opencode-input.js";
@@ -823,6 +824,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private resolveHarnessAndModel(
     input: DelegateInput,
     dashboardRolePins?: import("../model-connections.js").PurposePolicy["rolePins"],
+    snapshot?: import("../model-policy.js").ModelConfigSnapshot,
   ): { harness: string; codingModel: string } {
     // T52: a delegation carrying `role` resolves through the operator's
     // role pins (dashboard, ROLE_MODEL_MAP, then ROLE_MODEL__<ROLE>) before
@@ -830,7 +832,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // the chain below unchanged. A pinned role's model is authoritative —
     // a per-call codingModel cannot override what the operator pinned.
     const rolePick =
-      input.role !== undefined ? resolveRoleModel(this.env, input.role, dashboardRolePins) : null;
+      input.role !== undefined ? resolveRoleModel(this.env, input.role, dashboardRolePins, snapshot) : null;
     const harnessName =
       rolePick?.harness ?? input.harness ?? this.env.AGENT_HARNESS?.trim() ?? "opencode";
     const harness = resolveHarness(harnessName, this.env);
@@ -859,7 +861,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     input: DelegateInput,
   ): Promise<{ harness: string; codingModel: string; route: ApprovedRoute }> {
     const snapshot = await readModelConfig(this.env);
-    const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins);
+    const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins, snapshot);
     const route = resolveCodingRoute(
       snapshot,
       {
@@ -868,6 +870,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         harness,
       },
       { initiatorUserId: initiatorUserIdFromOrchestratorName(this.name) },
+    );
+    await assertRunPreflight(
+      this.env,
+      {
+        harness,
+        codingModel,
+        route,
+        authAccount: typeof input.authAccount === "string" ? input.authAccount.trim() : undefined,
+        repoUrl: input.repoUrl,
+        publishPullRequest: input.publishPullRequest,
+      },
+      snapshot,
     );
     return { harness, codingModel, route };
   }
