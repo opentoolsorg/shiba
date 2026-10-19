@@ -27,7 +27,7 @@ const SETTINGS_NAV_GROUPS: {
     heading: "Workspace",
     items: [
       { view: "providers", label: "AI providers", blurb: "Connect and manage provider accounts" },
-      ...sectionItems("models", "repositories", "environments"),
+      ...sectionItems("models", "sandbox", "repositories", "environments"),
     ],
   },
   {

@@ -133,6 +133,8 @@ export interface Automation {
    * each firing re-queues work only while the goal is still unsatisfied.
    */
   mission?: boolean;
+  /** Org custom agent id — resolved at queue time like dashboard intake. */
+  customAgentId?: string;
 }
 
 export interface GitHubAutomationEvent {
@@ -577,6 +579,7 @@ export interface CreateAutomationInput {
   runAs?: string;
   /** Standing-goal automation — see {@link Automation.mission}. */
   mission?: boolean;
+  customAgentId?: string;
 }
 
 export interface CreatedAutomation {
@@ -628,6 +631,7 @@ export function createAutomation(input: CreateAutomationInput): CreatedAutomatio
       enabled: input.enabled ?? true,
       ...(input.runAs !== undefined ? { runAs: input.runAs } : {}),
       ...(input.mission === true ? { mission: true } : {}),
+      ...(input.customAgentId?.trim() ? { customAgentId: input.customAgentId.trim() } : {}),
       ...(webhookSecret !== null ? { webhookSecret } : {}),
       runCount: 0,
     },

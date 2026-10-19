@@ -40,14 +40,17 @@ import {
   type FindingSeverity,
   type ReviewRound,
   canStartRunWithBudget,
-  parseCaptainAgentName,
+  denIdWireFields,
+  parseDenAgentName,
+  resolveDenId,
   parseDailyBudgetUsd,
   parseElevatedConcurrencyFlag,
   type ContainerBudgetConfig,
   resolveMaxConcurrentRuns,
 } from "@shiba/shared";
-import { buildCaptainDigest, buildCrewFromRuns } from "../captain/digest.js";
-import { mintSubagentRun, type SpawnSubagentInput } from "../captain/spawn.js";
+import { buildDenDigest, buildPackFromRuns } from "../den/digest.js";
+import { sandboxSelectionForRun } from "../sandbox/run-selection.js";
+import { mintSubagentRun, type SpawnSubagentInput } from "../den/spawn.js";
 import { shouldDestroySandboxAfterRun } from "../sandbox/release-policy.js";
 import type { Connection, ConnectionContext } from "agents";
 import { agentTool } from "agents/agent-tools";
@@ -77,6 +80,7 @@ import {
 import { mailboxDirectoryStub, mailboxStub, registeredMailbox } from "../mailbox-do.js";
 import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
+import { orgIdFromIntake } from "../org-request-auth.js";
 import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
 import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
@@ -295,6 +299,18 @@ export const delegateInputSchema = z.object({
         '"local" runs on the operator\'s machine through the local daemon. "local" ' +
         "is admissible only from the dashboard on a deployment with SHIBA_LOCAL_RUNTIME=1.",
     ),
+  customAgentId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe("Org custom agent id from /api/custom-agents — applies harness, model, and sandbox defaults."),
+  orgId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe("Org scope for custom-agent and sandbox selection (v1 principal org; dashboard defaults to self-hosted)."),
 });
 
 type DelegateInput = z.infer<typeof delegateInputSchema>;
@@ -311,6 +327,8 @@ const composerPinSchema = z.object({
   harness: z.enum(HARNESS_IDS).optional().catch(undefined),
   codingModel: z.string().min(1).optional().catch(undefined),
   connectionId: z.string().min(1).optional().catch(undefined),
+  customAgentId: z.string().min(1).max(128).optional().catch(undefined),
+  orgId: z.string().min(1).max(128).optional().catch(undefined),
 });
 
 /**
@@ -880,6 +898,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         authAccount: typeof input.authAccount === "string" ? input.authAccount.trim() : undefined,
         repoUrl: input.repoUrl,
         publishPullRequest: input.publishPullRequest,
+        orgId: orgIdFromIntake(input as Record<string, unknown>),
       },
       snapshot,
     );
@@ -1494,8 +1513,54 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
       }
     }
-    const repoUrl = typeof input.repoUrl === "string" ? input.repoUrl : "";
-    const task = typeof input.task === "string" ? input.task : "";
+    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    let repoUrl = typeof input.repoUrl === "string" ? input.repoUrl : "";
+    let task = typeof input.task === "string" ? input.task : "";
+    let autoApproveCustomAgent = false;
+    let harnessOverride =
+      typeof input.harness === "string" && input.harness.trim() ? input.harness.trim() : undefined;
+    let codingModelOverride =
+      typeof input.codingModel === "string" && input.codingModel.trim()
+        ? input.codingModel.trim()
+        : undefined;
+    let connectionIdOverride =
+      typeof input.connectionId === "string" && input.connectionId.trim()
+        ? input.connectionId.trim()
+        : undefined;
+    const customAgentRef =
+      typeof (input as { customAgentId?: unknown }).customAgentId === "string"
+        ? (input as { customAgentId: string }).customAgentId.trim()
+        : typeof (input as { orgAgentId?: unknown }).orgAgentId === "string"
+          ? (input as { orgAgentId: string }).orgAgentId.trim()
+          : "";
+    if (customAgentRef && this.env.AGENT_AUDIT) {
+      const { resolveCustomAgentForRun, overridesFromCustomAgent } = await import(
+        "../custom-agents-resolve.js"
+      );
+      const agent = await resolveCustomAgentForRun(this.env, intakeOrgId, customAgentRef);
+      if (!agent) {
+        return Response.json({ error: "Custom agent not found." }, { status: 404 });
+      }
+      const overrides = overridesFromCustomAgent(agent);
+      if (overrides.approvalPolicy === "auto_approve") {
+        autoApproveCustomAgent = true;
+      }
+      if (overrides.repoUrl && !repoUrl) repoUrl = overrides.repoUrl;
+      harnessOverride = overrides.harness ?? harnessOverride;
+      codingModelOverride = overrides.codingModel ?? codingModelOverride;
+      connectionIdOverride = overrides.connectionId ?? connectionIdOverride;
+      if (overrides.sandboxProvider) {
+        (input as { sandboxProvider?: string }).sandboxProvider = overrides.sandboxProvider;
+      }
+      if (overrides.instructions) {
+        task = `${overrides.instructions}\n\n---\n\n${task}`;
+      }
+      (input as { customAgentId?: string }).customAgentId = agent.id;
+    }
+    const taskSandboxProvider =
+      typeof (input as { sandboxProvider?: unknown }).sandboxProvider === "string"
+        ? (input as { sandboxProvider: string }).sandboxProvider.trim()
+        : "";
     try {
       parseGitHubRepoUrl(repoUrl);
     } catch (error) {
@@ -1509,8 +1574,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     // The approver must see a real agent name on the card — validate here
     // so a bad harness fails before the card, never inside a container.
-    const harness =
-      typeof input.harness === "string" && input.harness.trim() ? input.harness.trim() : undefined;
+    const harness = harnessOverride;
     if (harness !== undefined) {
       try {
         resolveHarness(harness, this.env);
@@ -1549,18 +1613,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         task,
         baseBranch: typeof input.baseBranch === "string" ? input.baseBranch : "main",
         publishPullRequest,
-        harness:
-          typeof input.harness === "string" && input.harness.trim()
-            ? (input.harness.trim() as DelegateInput["harness"])
-            : undefined,
-        codingModel:
-          typeof input.codingModel === "string" && input.codingModel.trim()
-            ? input.codingModel.trim()
-            : undefined,
-        connectionId:
-          typeof input.connectionId === "string" && input.connectionId.trim()
-            ? input.connectionId.trim()
-            : undefined,
+        harness: harnessOverride ? (harnessOverride as DelegateInput["harness"]) : undefined,
+        codingModel: codingModelOverride,
+        connectionId: connectionIdOverride,
         ...(role !== "" ? { role } : {}),
       });
       route = resolved.route;
@@ -1570,6 +1625,31 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 400 },
       );
     }
+    try {
+      const snapshot = await readModelConfig(this.env);
+      await assertRunPreflight(
+        this.env,
+        {
+          harness: route.harness,
+          codingModel: route.modelId,
+          route,
+          repoUrl,
+          publishPullRequest,
+          sandboxProvider: taskSandboxProvider || undefined,
+          orgId: intakeOrgId,
+        },
+        snapshot,
+      );
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Run preflight failed." },
+        { status: 400 },
+      );
+    }
+    const customAgentId =
+      typeof (input as { customAgentId?: unknown }).customAgentId === "string"
+        ? (input as { customAgentId: string }).customAgentId.trim()
+        : "";
     // T51 intake boundary — the sharpest edge in the plan. `runtime: "local"`
     // is admitted only when BOTH hold: the deployment opted in
     // (SHIBA_LOCAL_RUNTIME=1) AND the request arrived through the Worker's
@@ -1668,6 +1748,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(typeof input.queuedBy === "string" && input.queuedBy.trim()
             ? { queuedBy: input.queuedBy.trim().slice(0, 200) }
             : {}),
+          ...(taskSandboxProvider ? { sandboxProvider: taskSandboxProvider } : {}),
+          ...(customAgentId ? { customAgentId } : {}),
           createdAt: Date.now(),
         }),
         ...(queueCommandId !== undefined
@@ -1689,12 +1771,21 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 409 },
       );
     }
+    if (autoApproveCustomAgent) {
+      await this.resolveApproval({
+        threadKey,
+        approvalId,
+        approved: true,
+        decidedBy: "custom-agent:auto_approve",
+      });
+    }
     return Response.json({
       ok: true,
       approvalId,
       repoUrl,
       task: task.slice(0, 4000),
       route: describeRoute(route),
+      ...(autoApproveCustomAgent ? { autoApproved: true } : {}),
     });
   }
 
@@ -2223,18 +2314,55 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (this.approvals.some((a) => a.approvalId === toolCallId)) return;
     // Same flood bound as /api/approvals intake — pending records persist.
     if (this.approvals.filter((a) => a.status === "pending").length >= MAX_PENDING_APPROVALS) return;
-    const { route } = await this.resolveRoute(input);
+    let repoUrl = input.repoUrl;
+    let task = input.task;
+    let harness = input.harness;
+    let codingModel = input.codingModel;
+    let connectionId = input.connectionId;
+    let sandboxProvider: string | undefined;
+    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    let customAgentId = input.customAgentId?.trim() || "";
+    if (customAgentId && this.env.AGENT_AUDIT) {
+      const { resolveCustomAgentForRun, overridesFromCustomAgent } = await import(
+        "../custom-agents-resolve.js"
+      );
+      const agent = await resolveCustomAgentForRun(this.env, intakeOrgId, customAgentId);
+      if (agent) {
+        const overrides = overridesFromCustomAgent(agent);
+        if (overrides.repoUrl && !repoUrl) repoUrl = overrides.repoUrl;
+        harness = (overrides.harness ?? harness) as DelegateInput["harness"];
+        codingModel = overrides.codingModel ?? codingModel;
+        connectionId = overrides.connectionId ?? connectionId;
+        sandboxProvider = overrides.sandboxProvider;
+        if (overrides.instructions) {
+          task = `${overrides.instructions}\n\n---\n\n${task}`;
+        }
+        customAgentId = agent.id;
+      } else {
+        customAgentId = "";
+      }
+    }
+    const { route } = await this.resolveRoute({
+      ...input,
+      repoUrl,
+      task,
+      harness,
+      codingModel,
+      connectionId,
+    });
     this.setState({
       ...this.state,
       pendingApprovals: createPendingApproval(this.approvals, {
         threadKey: this.name ?? "default",
         approvalId: toolCallId,
-        repoUrl: input.repoUrl,
-        task: input.task.slice(0, 4000),
+        repoUrl,
+        task: task.slice(0, 4000),
         baseBranch: input.baseBranch,
         publishPullRequest: input.publishPullRequest,
         ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
         route,
+        ...(sandboxProvider ? { sandboxProvider } : {}),
+        ...(customAgentId ? { customAgentId } : {}),
         ...(typeof input.authAccount === "string" && input.authAccount.trim()
           ? { authAccount: input.authAccount.trim().slice(0, 32) }
           : {}),
@@ -2278,11 +2406,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
       ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
       ...(record.subagentBudget !== undefined ? { subagentBudgetRemaining: record.subagentBudget } : {}),
-      ...(record.captainId !== undefined ? { captainId: record.captainId } : {}),
+      ...denIdWireFields(resolveDenId(record)),
       ...(record.parentRunId !== undefined ? { parentRunId: record.parentRunId } : {}),
       ...(record.subagentPath !== undefined ? { subagentPath: record.subagentPath } : {}),
       ...(record.subagentSandbox !== undefined ? { subagentSandbox: record.subagentSandbox } : {}),
       ...(record.role !== undefined ? { role: record.role } : {}),
+      ...(record.sandboxProvider !== undefined ? { sandboxProvider: record.sandboxProvider } : {}),
+      ...(record.customAgentId !== undefined ? { customAgentId: record.customAgentId } : {}),
       ...(continuationKey !== undefined ? { continuationKey } : {}),
       decisionTap: (command, decision) => this.spineTap(command, decision),
       // T40: the run carries its approval evidence from birth — who decided,
@@ -2304,7 +2434,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.parentRunId !== undefined ? { parentRunId: record.parentRunId } : {}),
         ...(record.subagentPath !== undefined ? { subagentPath: record.subagentPath } : {}),
         ...(record.subagentSandbox !== undefined ? { subagentSandbox: record.subagentSandbox } : {}),
-        ...(record.captainId !== undefined ? { captainId: record.captainId } : {}),
+        ...denIdWireFields(resolveDenId(record)),
       }),
     });
   }
@@ -3208,24 +3338,25 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   private async releaseSandboxForRun(run: DelegatedRun): Promise<void> {
     if (shouldDestroySandboxAfterRun(run, this.store.list())) {
-      await this.destroySandbox(run.sandboxId);
+      await this.destroySandbox(run.sandboxId, run);
     }
   }
 
-  private isCaptainInstance(): boolean {
+  private isDenInstance(): boolean {
     const name = this.name ?? "";
-    return parseCaptainAgentName(name) !== null;
+    return parseDenAgentName(name) !== null;
   }
 
-  private captainSnapshot(): Response {
+  private denSnapshot(): Response {
     const runs = this.store.list();
-    const digest = buildCaptainDigest(runs, this.approvals);
-    const crew = buildCrewFromRuns(runs);
+    const digest = buildDenDigest(runs, this.approvals);
+    const pack = buildPackFromRuns(runs);
     return Response.json({
       ok: true,
       agentName: this.name,
       digest,
-      crew,
+      pack,
+      crew: pack,
       elevatedConcurrency: this.budgetConfig().elevatedConcurrency === true,
       maxConcurrentRuns: resolveMaxConcurrentRuns(this.budgetConfig()),
     });
@@ -3262,7 +3393,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       parent,
       input: spawnInput,
       callId,
-      captainId: this.isCaptainInstance() ? this.name : undefined,
+      denId: this.isDenInstance() ? this.name : undefined,
       budgetApproval:
         remaining > 0 && root.approval
           ? {
@@ -3282,7 +3413,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       this.store.replace(root.runId, { ...root, subagentBudgetRemaining: remaining - 1 });
     }
     this.store.add(minted.run);
-    this.syncCaptainCrew();
+    this.syncDenPack();
     this.dispatchApprovedRun(minted.run, undefined, minted.callId);
     return Response.json({ ok: true, run: this.serializeRun(minted.run) });
   }
@@ -3297,15 +3428,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return current;
   }
 
-  private syncCaptainCrew(): void {
-    if (!this.isCaptainInstance()) return;
-    // Digest is computed on read; crew projection is derived from runs at snapshot time.
+  private syncDenPack(): void {
+    if (!this.isDenInstance()) return;
+    // Digest is computed on read; pack projection is derived from runs at snapshot time.
   }
 
-  private async destroySandbox(sandboxId: string): Promise<void> {
-    // Release goes through the scoped lifecycle: failures are tracked as
-    // leaked containers (warn + registry) instead of only logged.
-    await destroyManagedContainer(this.env, sandboxId, this.leakHooks());
+  private async destroySandbox(sandboxId: string, run?: DelegatedRun): Promise<void> {
+    const selection = run ? sandboxSelectionForRun(run) : {};
+    await destroyManagedContainer(this.env, sandboxId, this.leakHooks(), selection);
   }
 
   /** Public: also the `schedule()` callback armed when a run starts. */
@@ -3878,8 +4008,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (url.pathname === "/internal/session-teardown") {
       return this.handleInternalSessionTeardown(request, url);
     }
-    if (url.pathname === "/internal/captain/snapshot" && request.method === "GET") {
-      return this.captainSnapshot();
+    if (
+      (url.pathname === "/internal/den/snapshot" || url.pathname === "/internal/captain/snapshot") &&
+      request.method === "GET"
+    ) {
+      return this.denSnapshot();
     }
     if (url.pathname === "/api/runs/subagents/spawn" && request.method === "POST") {
       let body: unknown;

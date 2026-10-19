@@ -11,8 +11,17 @@ export function formatRunAge(updatedAt: number, nowMs: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export const SWARM_MODES = ["captain", "build", "review"] as const;
+export const SWARM_MODES = ["den", "build", "review"] as const;
 export type SwarmMode = (typeof SWARM_MODES)[number];
+
+/** Legacy swarm desk mode label (API accepts `captain` as an alias for `den`). */
+export const SWARM_MODE_LEGACY_ALIASES: Record<string, SwarmMode> = { captain: "den" };
+
+export function normalizeSwarmMode(raw: string): SwarmMode | null {
+  const mode = raw.trim().toLowerCase();
+  if ((SWARM_MODES as readonly string[]).includes(mode)) return mode as SwarmMode;
+  return SWARM_MODE_LEGACY_ALIASES[mode] ?? null;
+}
 
 export interface SwarmRunInput {
   runId: string;
@@ -71,7 +80,7 @@ export function laneForRun(run: Pick<SwarmRunInput, "status" | "pullUrl" | "arch
 
 export function modeForRole(role: SwarmRunInput["role"]): SwarmMode {
   if (role === "orchestrator") {
-    return "captain";
+    return "den";
   }
   if (role === "reviewer") {
     return "review";
@@ -79,16 +88,17 @@ export function modeForRole(role: SwarmRunInput["role"]): SwarmMode {
   return "build";
 }
 
-export function roleForMode(mode: SwarmMode): "orchestrator" | "fixer" | "reviewer" {
-  switch (mode) {
-    case "captain":
+export function roleForMode(mode: SwarmMode | "captain"): "orchestrator" | "fixer" | "reviewer" {
+  const normalized = mode === "captain" ? "den" : mode;
+  switch (normalized) {
+    case "den":
       return "orchestrator";
     case "review":
       return "reviewer";
     case "build":
       return "fixer";
     default: {
-      const _exhaustiveCheck: never = mode;
+      const _exhaustiveCheck: never = normalized;
       return "fixer";
     }
   }
