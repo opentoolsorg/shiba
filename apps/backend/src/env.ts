@@ -166,6 +166,8 @@ export interface Env {
    * local-runtime request refuses 403 before any approval exists.
    */
   SHIBA_LOCAL_RUNTIME?: string;
+  /** verify-shiba: "1" runs deterministic publish/review without containers. */
+  SHIBA_VERIFY_STANDIN?: string;
   /**
    * T51 daemon credential: the bearer the operator's `shiba local` daemon
    * presents on /api/local/claim and /api/local/result. Unset = the
