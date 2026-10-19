@@ -1,6 +1,7 @@
 import { useState, useMemo, type JSX } from "react";
 import { FileText, GitCompareArrows } from "lucide-react";
 import { DiffViewer } from "./DiffViewer";
+import { SubagentTree } from "./SubagentTree";
 import { formatTimeAgo, parseRepoName, extractCompletedDiff, statusLabel, statusChipClass } from "../ui-helpers";
 import type { VMRun } from "../types";
 
@@ -110,9 +111,9 @@ export function DiffView({
               Start a new task from the Tasks view. Once the agent modifies code inside the sandbox container, git diffs will appear here.
             </p>
           </div>
-        ) : activeDiff ? (
+        ) : activeRun ? (
           <div className="max-w-6xl mx-auto flex flex-col gap-4">
-            {/* Run summary strip */}
+            <SubagentTree runs={runs} onSelectRun={handleSelect} />
             <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] flex items-center justify-between gap-4 flex-wrap shadow-[var(--sh-card)]">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -141,24 +142,25 @@ export function DiffView({
               </div>
             </div>
 
-            {/* Diff Viewer Card */}
-            <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] p-4 shadow-[var(--sh-card)]">
-              <DiffViewer diff={activeDiff} runId={activeRun.runId} />
-            </div>
+            {activeDiff ? (
+              <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] p-4 shadow-[var(--sh-card)]">
+                <DiffViewer diff={activeDiff} runId={activeRun.runId} />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] p-8 text-center">
+                <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--bg)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] flex items-center justify-center mb-3">
+                  <FileText aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
+                </div>
+                <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">
+                  No Git Diff Recorded for Run {activeRun.runId.slice(0, 8)}
+                </h3>
+                <p className="text-xs text-[var(--muted-foreground-2)] max-w-md mb-4">
+                  Status: <span className="font-semibold">{statusLabel(activeRun.status)}</span>. This run may still be in progress, finished without file mutations, or encountered an early error before code was written.
+                </p>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
-            <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--bg)] border border-[var(--border-1)] text-[var(--muted-foreground-2)] flex items-center justify-center mb-3">
-              <FileText aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
-            </div>
-            <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">
-              No Git Diff Recorded for Run {activeRun.runId.slice(0, 8)}
-            </h3>
-            <p className="text-xs text-[var(--muted-foreground-2)] max-w-md mb-4">
-              Status: <span className="font-semibold">{statusLabel(activeRun.status)}</span>. This run may still be in progress, finished without file mutations, or encountered an early error before code was written.
-            </p>
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

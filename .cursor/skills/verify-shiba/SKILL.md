@@ -25,7 +25,7 @@ Run `scripts/doctor.sh` (read-only). Checks: recorded PID is alive and owns the 
 
 `node scripts/drive.mjs --feature <name>` opens `http://localhost:$PORT/app/` in Playwright Chromium.
 
-Handles: Task composer, Task description, Project, Search repositories, Create pull request, Send task, Approve/Reject, pr-card, review-findings.
+Handles: Task composer, Task description, Project, Search repositories, Create pull request, Send task, Approve/Reject, pr-card, review-findings, browser E2E manifest links on published PRs (see `browser-e2e-evidence`).
 
 Features live in `features/`.
 
@@ -40,7 +40,8 @@ Features live in `features/`.
 ## Helpers
 
 - Mock boundary mode (default when SHIBA_TEST_REPO is unset): start a local GitHub stub and point the Worker at it. Evidence is not live proof.
-- Playwright is installed on demand via `npx playwright`.
+- Playwright is installed on demand via `npx playwright` under `.cursor/skills/verify-shiba/`.
+- **CI:** `scripts/run-ci.sh` with `VERIFY_GITHUB=mock`, `VERIFY_SKIP_INSTALL=1`, and `VERIFY_SKIP_BUILD=1` after `pnpm build`. Wrangler runs with `--local --enable-containers=false` (no Cloudflare token). Playwright fills the composer, then queues through `POST /api/runs` (`VERIFY_USE_RUNS_API=1`) because the chat orchestrator needs the remote AI binding. Ports default to `8788` (wrangler) and `8799` (GitHub stub). Set `PLAYWRIGHT_BROWSERS_PATH` to cache browsers. GitHub Actions job `verify-shiba` in `.github/workflows/ci.yml` uploads `.verify/evidence/` and `.verify/drive/` artifacts.
 
 ## Features
 

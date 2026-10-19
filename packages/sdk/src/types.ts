@@ -10,15 +10,38 @@ export type CreateThreadInput = Omit<
 
 export type SendMessageInput = components["schemas"]["SendMessageRequest"];
 
-export type Thread = components["schemas"]["Thread"];
+export type Thread = {
+  threadId?: string;
+  repoUrl?: string;
+  title?: string;
+  status?: string;
+  lane?: string;
+  archived?: boolean;
+  costUsd?: number | null;
+  createdAt?: number;
+  updatedAt?: number;
+  pullUrl?: string | null;
+  summary?: string | null;
+  error?: string | null;
+};
 
-export type PublicStreamEvent = components["schemas"]["PublicStreamEvent"];
+export type PublicStreamEvent = {
+  id?: string;
+  orgId?: string;
+  projectId?: string | null;
+  threadId?: string | null;
+  runId?: string | null;
+  sequence?: string;
+  type?: string;
+  data?: Record<string, unknown>;
+  occurredAt?: string;
+  publishedAt?: string;
+  cursor?: string;
+};
 
-export type ThreadListResponse =
-  paths["/threads"]["get"]["responses"][200]["content"]["application/json"];
+export type ThreadListResponse = { threads?: Thread[] };
 
-export type ThreadGetResponse =
-  paths["/threads/{threadId}"]["get"]["responses"][200]["content"]["application/json"];
+export type ThreadGetResponse = { thread?: Thread };
 
 export type CreateThreadResponse = {
   id?: string;

@@ -42,6 +42,7 @@
  *   designer     → claude-code              (opus-5-5)
  */
 import { AGENT_ROLES, isJsonObject, type AgentRole } from "@shiba/shared";
+import type { DashboardRolePin } from "../model-connections.js";
 import type { Env } from "../env.js";
 import { HARNESS_DEFAULT_MODELS, resolveHarness } from "../harness/index.js";
 import { assertSupportedModel, type AgentHarnessName } from "../harness/types.js";
@@ -55,6 +56,7 @@ const HARNESS_MODEL_ENV: Partial<Record<AgentHarnessName, keyof Env>> = {
   "codex-subscription": "CODEX_SUBSCRIPTION_MODEL",
   devin: "DEVIN_MODEL",
   grok: "GROK_MODEL",
+  pi: "PI_MODEL",
   "antigravity-subscription": "ANTIGRAVITY_SUBSCRIPTION_MODEL",
   "cursor-subscription": "CURSOR_SUBSCRIPTION_MODEL",
   "devin-subscription": "DEVIN_SUBSCRIPTION_MODEL",
@@ -80,7 +82,7 @@ interface RolePin {
   model?: string;
 }
 
-type RolePinSource = "role-map" | "role-env";
+type RolePinSource = "dashboard" | "role-map" | "role-env";
 
 /** Parse `ROLE_MODEL_MAP` — throws an operator-readable message on malformed input. */
 function roleModelMap(env: Env): Partial<Record<AgentRole, RolePin>> {
@@ -126,7 +128,21 @@ function parseRolePin(raw: string, varName: string): RolePin {
 }
 
 /** The pin for a role and which source it came from; null when unpinned. */
-function rolePin(env: Env, role: AgentRole): { pin: RolePin; source: RolePinSource } | null {
+function rolePin(
+  env: Env,
+  role: AgentRole,
+  dashboardPins?: Partial<Record<AgentRole, DashboardRolePin>>,
+): { pin: RolePin; source: RolePinSource } | null {
+  const fromDashboard = dashboardPins?.[role];
+  if (fromDashboard !== undefined) {
+    return {
+      pin: {
+        harness: fromDashboard.harness,
+        ...(fromDashboard.model !== undefined ? { model: fromDashboard.model } : {}),
+      },
+      source: "dashboard",
+    };
+  }
   const fromMap = roleModelMap(env)[role];
   if (fromMap !== undefined) return { pin: fromMap, source: "role-map" };
   const varName = ROLE_MODEL_VARS[role];
@@ -164,8 +180,9 @@ function resolvePin(env: Env, pin: RolePin): { harness: AgentHarnessName; model:
 export function resolveRoleModel(
   env: Env,
   role: AgentRole,
+  dashboardPins?: Partial<Record<AgentRole, DashboardRolePin>>,
 ): { harness: AgentHarnessName; model: string } | null {
-  const pinned = rolePin(env, role);
+  const pinned = rolePin(env, role, dashboardPins);
   if (pinned === null) return null;
   return resolvePin(env, pinned.pin);
 }
@@ -182,10 +199,13 @@ export interface RoleModelStatus {
 }
 
 /** Resolved routing for every role — Settings' Models section renders this verbatim. */
-export function describeRoleModels(env: Env): RoleModelStatus[] {
+export function describeRoleModels(
+  env: Env,
+  dashboardPins?: Partial<Record<AgentRole, DashboardRolePin>>,
+): RoleModelStatus[] {
   return AGENT_ROLES.map((role): RoleModelStatus => {
     try {
-      const pinned = rolePin(env, role);
+      const pinned = rolePin(env, role, dashboardPins);
       if (pinned !== null) {
         const resolved = resolvePin(env, pinned.pin);
         return { role, source: pinned.source, harness: resolved.harness, model: resolved.model };

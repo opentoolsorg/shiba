@@ -26,11 +26,7 @@ export type paths = {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content: {
-                        "application/json": {
-                            threads?: components["schemas"]["Thread"][];
-                        };
-                    };
+                    content?: never;
                 };
             };
         };
@@ -136,46 +132,6 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/threads/{threadId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get thread */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    threadId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Thread */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            thread?: components["schemas"]["Thread"];
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/threads/{threadId}/stream": {
         parameters: {
             query?: never;
@@ -188,9 +144,7 @@ export type paths = {
             parameters: {
                 query?: never;
                 header?: never;
-                path: {
-                    threadId: string;
-                };
+                path?: never;
                 cookie?: never;
             };
             requestBody?: never;
@@ -206,150 +160,6 @@ export type paths = {
         };
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/threads/{threadId}/pr/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Pull request CI and merge status */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    threadId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Pull request status */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/threads/{threadId}/pr/comments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Pull request review comments */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    threadId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Pull request comments */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/threads/{threadId}/pr/review": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Read automated review state for the thread */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    threadId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Review snapshot */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/threads/{threadId}/pr/ready": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mark draft pull request ready for review */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    threadId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Ready result */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
         delete?: never;
         options?: never;
         head?: never;
@@ -517,35 +327,6 @@ export type components = {
             /** @enum {string} */
             delivery?: "queue" | "steer" | "interrupt";
             clientKey?: string;
-        };
-        Thread: {
-            threadId?: string;
-            repoUrl?: string;
-            title?: string;
-            status?: string;
-            lane?: string;
-            archived?: boolean;
-            costUsd?: number | null;
-            createdAt?: number;
-            updatedAt?: number;
-            pullUrl?: string | null;
-            summary?: string | null;
-            error?: string | null;
-        };
-        PublicStreamEvent: {
-            id?: string;
-            orgId?: string;
-            projectId?: string | null;
-            threadId?: string | null;
-            runId?: string | null;
-            sequence?: string;
-            type?: string;
-            data?: {
-                [key: string]: unknown;
-            };
-            occurredAt?: string;
-            publishedAt?: string;
-            cursor?: string;
         };
     };
     responses: never;

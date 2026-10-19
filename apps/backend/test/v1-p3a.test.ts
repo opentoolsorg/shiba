@@ -184,11 +184,17 @@ describe("v1 P3a handlers", () => {
       expect((await call(`/projects/${PROJECT}/automations`, "POST", { ...create, bogus: 1 }))!.status).toBe(400);
       expect((await call(`/projects/${PROJECT}/automations`, "POST", { ...create, repoFullName: "else/where" }))!.status).toBe(400);
       expect((await call(`/projects/${PROJECT}/automations`, "POST", { ...create, schedule: { mode: "cron", expression: "* * * * *", timezone: "UTC" } }))!.status).toBe(400);
-      for (const extra of [{ modelId: "m" }, { isDraft: true }, { schedule: { mode: "interval", intervalMs: 60000 } },
-        { schedule: { mode: "cron", expression: "0 3 * * *", timezone: "Asia/Kolkata" } }]) {
+      for (const extra of [{ modelId: "m" }, { isDraft: true }, { schedule: { mode: "interval", intervalMs: 60000 } }]) {
         expect((await call(`/projects/${PROJECT}/automations`, "POST", { ...create, ...extra }))!.status).toBe(501);
       }
-      expect((await call(`/projects/${PROJECT}/automations`, "POST", { name: "x", prompt: "y", triggerKind: "webhook", eventKind: "linear.issue.created" }))!.status).toBe(501);
+      expect(
+        (await call(`/projects/${PROJECT}/automations`, "POST", {
+          name: "Linear lane",
+          prompt: "Fix the issue",
+          triggerKind: "webhook",
+          eventKind: "linear.issue.delegated",
+        }))!.status,
+      ).toBe(201);
     });
 
     it("replays an Idempotency-Key without creating twice", async () => {

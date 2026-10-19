@@ -4,6 +4,7 @@
  * Booleans only: never echo secret values or names of unrelated vars.
  */
 import type { Env } from "./env.js";
+import { isGitHubPublishConfigured } from "./github-auth.js";
 import { describeRoleModels, type RoleModelStatus } from "./agents/roles.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
 import { isAccessConfigured } from "./request-auth.js";
@@ -15,7 +16,9 @@ export interface SetupStatus {
     approvers: number;
     channelRepos: boolean;
   };
-  github: { token: boolean; webhookSecret: boolean };
+  github: { token: boolean; app: boolean; publish: boolean; webhookSecret: boolean };
+  linear: { webhookSecret: boolean; apiToken: boolean; defaultRepo: boolean };
+  slackVerification: { signingSecret: boolean };
   gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" };
   access: { required: boolean };
   betterAuth: { configured: boolean };
@@ -49,8 +52,18 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
       channelRepos: Boolean(env.SLACK_CHANNEL_REPOS),
     },
     github: {
-      token: Boolean(env.GITHUB_TOKEN),
+      token: Boolean(env.GITHUB_TOKEN?.trim()),
+      app: Boolean(env.GITHUB_APP_ID?.trim() && env.GITHUB_APP_PRIVATE_KEY?.trim()),
+      publish: isGitHubPublishConfigured(env),
       webhookSecret: Boolean(env.GITHUB_WEBHOOK_SECRET),
+    },
+    linear: {
+      webhookSecret: Boolean(env.LINEAR_WEBHOOK_SECRET?.trim()),
+      apiToken: Boolean(env.LINEAR_API_KEY?.trim() || env.LINEAR_OAUTH_ACCESS_TOKEN?.trim()),
+      defaultRepo: Boolean(env.LINEAR_DEFAULT_REPO_URL?.trim()),
+    },
+    slackVerification: {
+      signingSecret: Boolean(env.SLACK_SIGNING_SECRET?.trim()),
     },
     gateway: {
       id: env.GATEWAY_ID || "default",

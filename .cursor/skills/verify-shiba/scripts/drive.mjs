@@ -25,8 +25,10 @@ function dockerIds() {
   }
 }
 
+const headless = process.env.VERIFY_HEADLESS !== "0";
+const navigationTimeout = Number(process.env.VERIFY_DRIVE_TIMEOUT_MS || 60_000);
 const before = dockerIds();
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless });
 const context = await browser.newContext({ recordHar: { path: join(outDir, "session.har") } });
 await context.tracing.start({ screenshots: true, snapshots: true });
 const page = await context.newPage();
@@ -46,7 +48,9 @@ const result = {
   label: "mock GitHub",
 };
 try {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  page.setDefaultTimeout(navigationTimeout);
+  page.setDefaultNavigationTimeout(navigationTimeout);
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
   const skip = page.getByRole("button", { name: "Skip setup" });
   if (await skip.count()) await skip.click();
   await page.getByLabel("Task composer").waitFor({ timeout: 30000 });
@@ -58,7 +62,7 @@ try {
   const urlBox = page.locator("input[type=url]");
   await urlBox.first().fill("https://github.com/cloudflare/ai-chat");
   await page.getByRole("button", { name: "Use" }).click();
-  if (feature === "pr-publish" || feature === "review-findings") {
+  if (feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle") {
     await page.getByRole("button", { name: "Thread configuration" }).click();
     const pr = page.getByRole("menuitemcheckbox", { name: /Create pull request/ });
     if ((await pr.getAttribute("aria-checked")) !== "true") await pr.click();
@@ -68,7 +72,31 @@ try {
     }
   }
   await shot("02-composer-filled");
-  await page.getByLabel("Send task").click();
+  const useRunsApi =
+    process.env.VERIFY_USE_RUNS_API === "1" ||
+    process.env.VERIFY_ENABLE_CONTAINERS === "0";
+  if (useRunsApi) {
+    const commandId = crypto.randomUUID();
+    const queueRes = await page.request.post(`http://127.0.0.1:${port}/api/runs`, {
+      data: {
+        repoUrl: "https://github.com/cloudflare/ai-chat",
+        task: "verify-shiba: describe the README in one sentence",
+        baseBranch: "main",
+        harness: "opencode",
+        publishPullRequest:
+          feature === "pr-publish" || feature === "review-findings",
+        reviewAfterPublish: feature === "review-findings",
+        commandId,
+      },
+    });
+    if (!queueRes.ok()) {
+      throw new Error(`POST /api/runs failed: ${queueRes.status()} ${await queueRes.text()}`);
+    }
+    result.queuedViaRunsApi = true;
+    await page.goto(`${url}?tab=approvals`, { waitUntil: "domcontentloaded" });
+  } else {
+    await page.getByLabel("Send task").click();
+  }
   await shot("03-sent");
   const approve = page.getByRole("button", { name: "Approve" });
   const reject = page.getByRole("button", { name: "Reject" });
@@ -87,7 +115,7 @@ try {
     await shot("05-rejected");
     result.rejected = true;
   }
-  if (feature === "sandbox-run-and-diff" || feature === "pr-publish" || feature === "review-findings") {
+  if (feature === "sandbox-run-and-diff" || feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle") {
     if (result.approvalVisible) {
       // Several cards can be pending; approve the one that states the review.
       const reviewCard = page.locator("div").filter({ hasText: /read-only review/i }).filter({ has: page.getByRole("button", { name: "Approve" }) }).last();
@@ -98,9 +126,73 @@ try {
       result.approved = true;
     }
   }
+  if (feature === "review-lifecycle") {
+    const findings = page.getByTestId("review-findings");
+    if (await findings.count()) {
+      const triage = findings.locator("[data-finding-id]").first().getByLabel(/Triage/);
+      if (await triage.count()) {
+        await triage.selectOption("resolved");
+        await shot("06-triage");
+        result.triageExercised = true;
+      }
+    }
+    const mergeBtn = page.getByTestId("pr-merge-request");
+    if (await mergeBtn.count()) {
+      await mergeBtn.click();
+      await page.waitForTimeout(1000);
+      await shot("07-merge-request");
+      result.mergeRequested = true;
+    }
+  }
+  if (feature === "byo-models-ux") {
+    const settings = page.getByRole("button", { name: /Settings/i });
+    if (await settings.count()) await settings.first().click();
+    const modelsNav = page.getByRole("button", { name: "Models" });
+    if (await modelsNav.count()) await modelsNav.click();
+    await page.getByTestId("model-connections-card").waitFor({ timeout: 15000 });
+    await shot("06-models-settings");
+    const testBtn = page.getByTestId("test-connection").first();
+    if (await testBtn.count()) {
+      await testBtn.click();
+      await page.waitForTimeout(2000);
+      await shot("07-connection-tested");
+      result.connectionTestClicked = true;
+    }
+    const cfg = await page.request.get(`http://127.0.0.1:${port}/api/model-config`);
+    writeFileSync(join(outDir, "model-config.json"), await cfg.text());
+    result.modelConfigStatus = cfg.status();
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    const usage = page.getByTestId("run-usage");
+    result.runUsageVisible = (await usage.count()) > 0;
+    if (result.runUsageVisible) await shot("08-run-usage");
+  }
   if (feature === "run-registry-status") {
     await page.goto(`${url}?tab=runs`, { waitUntil: "domcontentloaded" });
     await shot("06-runs");
+  }
+  if (feature === "phase5-integrations-automations") {
+    await page.goto(`${url}?tab=integrations`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("integration-linear").waitFor({ timeout: 30000 });
+    await shot("06-integrations-linear");
+    const apiBase = `http://127.0.0.1:${port}`;
+    const slackVerify = await page.request.post(`${apiBase}/api/integrations/slack/verify`);
+    result.slackVerifyStatus = slackVerify.status();
+    try {
+      result.slackVerify = await slackVerify.json();
+    } catch {
+      result.slackVerify = null;
+    }
+    const ghStatus = await page.request.get(`${apiBase}/api/integrations/github/status`);
+    result.githubStatus = ghStatus.ok() ? await ghStatus.json() : null;
+  }
+  if (feature === "captain-subagents") {
+    const captain = await page.request.get(`http://127.0.0.1:${port}/api/captains/verify-captain`);
+    result.captainStatus = captain.status();
+    result.captainBody = await captain.json().catch(() => null);
+    await shot("06-captain-snapshot");
+    await page.goto(`${url}?tab=diff`, { waitUntil: "domcontentloaded" });
+    result.subagentTreeVisible = (await page.getByTestId("subagent-tree").count()) > 0;
+    await shot("07-diff-subagent-tree");
   }
   const after = dockerIds();
   result.dockerBefore = before;
