@@ -5,7 +5,7 @@ description: Drive and prove the shiba dashboard locally (task composer, approva
 
 # verify-shiba
 
-Prove dashboard behaviour from the real UI path. Never claim live GitHub success from mock boundary mode.
+Prove dashboard behaviour from the real UI path. The local CI workaround submits and approves via API; evidence labels approval as `approve (API)`, not a dashboard click. Findings are still required to render in the run-specific Diff view. Never claim live GitHub success from mock boundary mode.
 
 ## Launch
 
@@ -31,7 +31,7 @@ Features live in `features/`.
 
 ## Assert
 
-`node scripts/assert-journey.mjs` after `drive.mjs`. Polls `/api/runs`, `/api/v1/threads/:id/pr/review`, and the GitHub stub `GET /__shiba/state`. **Fails the process** on missing evidence. Container-only checks are marked `skipped` when `containers-mode` is disabled (CI path).
+`node scripts/assert-journey.mjs` after `drive.mjs`. Polls `/api/runs`, `/api/v1/threads/:id/pr/review`, and, in recorded mock mode only, the GitHub stub `GET /__shiba/state`. Live mode uses authenticated, read-only `gh api --hostname github.com --method GET` pull/review/comment read-backs (requires an existing gh login); missing or mismatched proof fails explicitly, without consulting any stub. **Fails the process** on missing evidence. Container-only checks are marked `skipped` when `containers-mode` is disabled (CI path).
 
 ## Journeys
 

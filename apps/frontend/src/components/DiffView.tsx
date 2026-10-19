@@ -1,6 +1,7 @@
 import { useState, useMemo, type JSX } from "react";
 import { FileText, GitCompareArrows } from "lucide-react";
 import { DiffViewer } from "./DiffViewer";
+import { ReviewFindings } from "./ReviewFindings";
 import { SubagentTree } from "./SubagentTree";
 import { formatTimeAgo, parseRepoName, extractCompletedDiff, statusLabel, statusChipClass } from "../ui-helpers";
 import type { VMRun } from "../types";
@@ -114,6 +115,7 @@ export function DiffView({
         ) : activeRun ? (
           <div className="max-w-6xl mx-auto flex flex-col gap-4">
             <SubagentTree runs={runs} onSelectRun={handleSelect} />
+            <ReviewFindings key={activeRun.runId} threadId={activeRun.runId} />
             <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] flex items-center justify-between gap-4 flex-wrap shadow-[var(--sh-card)]">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">

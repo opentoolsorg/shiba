@@ -119,3 +119,32 @@ export async function pollReviewRoundTerminal(port, threadId) {
     return null;
   });
 }
+
+export function githubMode() {
+  return existsSync(join(verifyDir, "github-mode"))
+    ? readFileSync(join(verifyDir, "github-mode"), "utf8").trim()
+    : "unknown";
+}
+
+// Check actual delivery, not the stub's unconditional COMMENTED response. Findings
+// may be inline or in the body, depending on REVIEW_INLINE_THRESHOLD.
+export function reviewPayloadMatches(round, payload) {
+  if (payload?.event !== "COMMENT" || payload.commit_id !== round.pull.headSha ||
+      !payload.body?.includes(`<!-- shiba-review-round:${round.roundId} -->`)) return false;
+  return (round.findings ?? []).length > 0 && round.findings.every((finding) =>
+    (payload.comments ?? []).some((comment) =>
+      comment.path === finding.path && comment.line === finding.line && comment.side === "RIGHT" &&
+      comment.body === `${finding.title}\n\n${finding.failureScenario}`) ||
+    payload.body.includes(`- ${finding.severity} ${finding.path}:${finding.line} ${finding.title}`),
+  );
+}
+
+// gh supplies its own authenticated session; no token is read, logged or written
+// into evidence. Fixed hostname + GET-only routes prevent mock/live crossover.
+export async function readLiveGithub(path) {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { stdout } = await promisify(execFile)("gh", ["api", "--hostname", "github.com", "--method", "GET", path],
+    { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
+  return JSON.parse(stdout);
+}
