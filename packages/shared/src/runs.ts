@@ -63,6 +63,8 @@ export interface DelegatedRun {
   pullUrl?: string;
   /** Absolute URL serving the stored preview PNG on this Worker (T33); null when capture failed. */
   screenshotUrl?: string | null;
+  /** Phase 3: manifest URL for browser E2E frame evidence in R2. */
+  browserE2eManifestUrl?: string | null;
   receipts?: Receipt[];
   /**
    * MCP principal that queued this run (X-Agent-Principal at intake).
@@ -205,6 +207,7 @@ export type RunPatch = {
   diff?: string;
   pullUrl?: string;
   screenshotUrl?: string | null;
+  browserE2eManifestUrl?: string | null;
   receipts?: Receipt[];
   sandboxId?: string;
   signals?: RunSignal[];

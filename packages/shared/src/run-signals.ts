@@ -20,6 +20,10 @@ export const RUN_SIGNAL_KINDS = [
   "diff.exported",
   "pr.opened",
   "screenshot.captured",
+  // Phase 3: Workers Browser Rendering E2E loop against an exposePort preview.
+  "e2e.started",
+  "e2e.completed",
+  "e2e.failed",
   // T51: the local runtime's mailbox milestones — dispatch posted, a
   // daemon claimed it, a result settled. A pending run missing
   // local.claimed is waiting on an offline daemon, not executing.
