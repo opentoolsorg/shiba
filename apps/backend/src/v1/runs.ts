@@ -121,15 +121,25 @@ export async function handleRuns(ctx: V1Context): Promise<Response | null> {
   if (key !== undefined && (typeof key !== "string" || !key.trim() || key.length > 128)) {
     return Response.json({ ok: false, error: "invalid_idempotency_key" }, { status: 400 });
   }
-  const response = await ctx.forward("POST", "/api/runs", {
-    repoUrl: run.repoUrl, task: run.task, baseBranch: run.baseBranch, publishPullRequest: run.publishPullRequest,
-    ...(run.route ? { harness: run.route.harness, codingModel: run.route.modelId, connectionId: run.route.connectionId } : {}),
-    ...(run.authAccount ? { authAccount: run.authAccount } : {}),
-    ...(run.runtime ? { runtime: run.runtime } : {}),
-    ...(run.targetMachineId ? { targetMachineId: run.targetMachineId } : {}),
-    ...(run.testCommand ? { testCommand: run.testCommand } : {}),
-    ...(key ? { commandId: `v1:retry:${id}:${key}` } : {}),
-  });
+  const { v1RunQueueBody } = await import("./run-intake.js");
+  const response = await ctx.forward(
+    "POST",
+    "/api/runs",
+    v1RunQueueBody(ctx.principal, {
+      repoUrl: run.repoUrl,
+      task: run.task,
+      baseBranch: run.baseBranch,
+      publishPullRequest: run.publishPullRequest,
+      ...(run.route
+        ? { harness: run.route.harness, codingModel: run.route.modelId, connectionId: run.route.connectionId }
+        : {}),
+      ...(run.authAccount ? { authAccount: run.authAccount } : {}),
+      ...(run.runtime ? { runtime: run.runtime } : {}),
+      ...(run.targetMachineId ? { targetMachineId: run.targetMachineId } : {}),
+      ...(run.testCommand ? { testCommand: run.testCommand } : {}),
+      ...(key ? { commandId: `v1:retry:${id}:${key}` } : {}),
+    }),
+  );
   if (!response.ok) return response;
   const queued = await response.json() as { approvalId?: string };
   return Response.json({ ok: true, result: { threadId: id, status: "waiting", approvalId: queued.approvalId } }, { status: 202 });

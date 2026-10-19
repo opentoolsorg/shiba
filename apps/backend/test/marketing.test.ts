@@ -15,7 +15,8 @@ describe.skipIf(!built)("marketing landing page", () => {
 
   test("renders the custom landing page, not the Starlight splash", () => {
     const markup = html();
-    expect(markup).toContain("Shiba - Your AI software engineer");
+    expect(markup).toContain("Shiba — self-hosted AI coworker on Cloudflare");
+    expect(markup).toContain("pnpm shiba dev");
     // Hero headline as shipped: it asks before it writes code.
     expect(markup).toContain("It asks before");
     expect(markup).toContain("it writes code.");

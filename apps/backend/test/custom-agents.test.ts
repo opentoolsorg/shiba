@@ -106,4 +106,16 @@ describe("custom agents store", () => {
     await deleteCustomAgent(env, "org-1", created.id);
     expect(await getCustomAgentById(env, "org-1", created.id)).toBeNull();
   });
+
+  it("does not return another org's agent by id", async () => {
+    const created = await createCustomAgent(env, "org-a", "scout", {
+      name: "Scout",
+      instructions: "Explore.",
+      harness: "opencode",
+    });
+    expect(await getCustomAgentById(env, "org-b", created.id)).toBeNull();
+    expect((await getCustomAgentById(env, "org-a", created.id))?.slug).toBe(
+      "scout",
+    );
+  });
 });

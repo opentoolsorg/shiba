@@ -1,28 +1,10 @@
 import { parseSandboxProviderId } from "@shiba/sandbox";
 import type { Env } from "./env.js";
-import { isAuthorizedRequest } from "./request-auth.js";
-import {
-  authorizeV1Request,
-  requireV1Read,
-  requireV1Write,
-  v1Forbidden,
-  v1Unauthorized,
-  type V1Principal,
-} from "./v1-auth.js";
+import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import { getOrgSandboxProvider, setOrgSandboxProvider } from "./org-sandbox-store.js";
 import { listSandboxProviderCatalog } from "./sandbox/provider-catalog.js";
 import { resolveSandboxSelection } from "./sandbox/selection.js";
-
-async function resolveOrgId(
-  request: Request,
-  env: Env,
-): Promise<{ orgId: string; principal: V1Principal | null } | Response> {
-  const dashboard = await isAuthorizedRequest(request, env);
-  if (dashboard) return { orgId: "self-hosted", principal: null };
-  const principal = await authorizeV1Request(request, env);
-  if (!principal) return v1Unauthorized();
-  return { orgId: principal.orgId, principal };
-}
 
 function decodePatch(body: unknown): { providerId: string; computesdkBackend?: string } | null {
   if (typeof body !== "object" || body === null) return null;
@@ -42,7 +24,7 @@ export async function handleOrgSandboxSettings(request: Request, env: Env): Prom
     return Response.json({ ok: false, error: "AGENT_AUDIT D1 binding is not configured." }, { status: 503 });
   }
 
-  const auth = await resolveOrgId(request, env);
+  const auth = await resolveOrgForApiRequest(request, env);
   if (auth instanceof Response) return auth;
   if (auth.principal) {
     if (request.method === "GET" && !requireV1Read(auth.principal)) return v1Forbidden();

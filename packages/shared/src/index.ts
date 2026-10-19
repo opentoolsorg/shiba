@@ -30,6 +30,7 @@ export * from "./local-runtime.js";
 export * from "./verify-standin.js";
 export * from "./local-fleet.js";
 export * from "./security.js";
+export * from "./sandbox-do-id.js";
 export * from "./desktop-bridge.js";
 export * from "./swarm-desk.js";
 export * from "./swarm-share.js";

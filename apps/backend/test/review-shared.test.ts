@@ -83,6 +83,10 @@ describe("reviewRoundWriteRejected", () => {
   it("allows a newer generation", () => {
     expect(reviewRoundWriteRejected(posted, { ...posted, generation: 3 })).toBe(false);
   });
+
+  it("rejects equal generation over a terminal round", () => {
+    expect(reviewRoundWriteRejected(posted, { ...posted, status: "failed", generation: 2 })).toBe(true);
+  });
 });
 
 describe("selectPostable", () => {

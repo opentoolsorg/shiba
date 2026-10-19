@@ -222,6 +222,16 @@ export class Automations {
     return true;
   }
 
+  private async releaseHeadReviewIntent(
+    repoFullName: string,
+    pullNumber: number,
+    headSha: string,
+  ): Promise<void> {
+    const key = prHeadReviewDedupeKey(repoFullName, pullNumber, headSha);
+    const storageKey = DEDUPE_PREFIX + key.slice(0, 200);
+    await this.ctx.storage.delete(storageKey);
+  }
+
   private async invokePrLifecycle(
     orchestrator: OrchestratorStub,
     githubEvent: string,
@@ -317,6 +327,7 @@ export class Automations {
         headClaimed = await this.claimHeadReviewIntent(repoFullName, pullNumber, headSha);
       }
 
+      let lifecycleCompleted = false;
       if (headClaimed) {
         try {
           const lifecycle = await this.invokePrLifecycle(
@@ -325,6 +336,7 @@ export class Automations {
             { ...mapped },
             record.payload,
           );
+          lifecycleCompleted = true;
           if (lifecycle.queuedReview) reviewQueued = true;
         } catch (error) {
           console.error(
@@ -361,6 +373,13 @@ export class Automations {
           console.error(
             `pr review lane queue failed: ${error instanceof Error ? error.message : String(error)}`,
           );
+        }
+      }
+
+      if (isPullReview && headClaimed && !reviewQueued) {
+        const shouldRelease = owner === null || !lifecycleCompleted;
+        if (shouldRelease) {
+          await this.releaseHeadReviewIntent(repoFullName, pullNumber, headSha);
         }
       }
 
