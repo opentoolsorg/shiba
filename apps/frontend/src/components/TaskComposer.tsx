@@ -48,6 +48,7 @@ export interface TaskComposerProps {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  reviewAfterPublish?: boolean;
   harness: string;
   /** T63 — desktop "Run on" control. Rendered only when the shell reports a
    *  paired, ready daemon (localRunAvailable). "sandbox" keeps the chat path. */
@@ -62,6 +63,7 @@ export interface TaskComposerProps {
   onTaskChange: (value: string) => void;
   onBaseBranchChange: (value: string) => void;
   onPublishPullRequestChange: (value: boolean) => void;
+  onReviewAfterPublishChange?: (value: boolean) => void;
   onHarnessChange: (value: string) => void;
   onSubmit: (event: SyntheticEvent) => void;
   onClear: () => void;
@@ -71,6 +73,10 @@ export interface TaskComposerProps {
   skills?: SavedSkill[];
   selectedSkillIds?: string[];
   onToggleSkill?: (id: string) => void;
+  /** Org custom agents from /api/custom-agents */
+  customAgents?: { id: string; name: string; slug: string; emoji?: string }[];
+  customAgentId?: string;
+  onCustomAgentChange?: (id: string) => void;
   /** "docked" = compact bar under the timeline; "hero" = centered empty-state card. */
   variant?: "docked" | "hero";
 }
@@ -190,6 +196,7 @@ export function TaskComposer({
   task,
   baseBranch,
   publishPullRequest,
+  reviewAfterPublish = false,
   harness,
   runTarget = "sandbox",
   onRunTargetChange,
@@ -202,6 +209,7 @@ export function TaskComposer({
   onTaskChange,
   onBaseBranchChange,
   onPublishPullRequestChange,
+  onReviewAfterPublishChange,
   onHarnessChange,
   onSubmit,
   onClear,
@@ -209,6 +217,9 @@ export function TaskComposer({
   skills = [],
   selectedSkillIds = [],
   onToggleSkill,
+  customAgents = [],
+  customAgentId = "",
+  onCustomAgentChange,
   variant = "docked",
 }: TaskComposerProps): JSX.Element {
   const sendDisabled = busy || task.trim() === "" || repoUrl.trim() === "";
@@ -291,6 +302,7 @@ export function TaskComposer({
   );
   const modelKnown = routing.codingModel === "" || modelSuggestions.includes(routing.codingModel);
   const selectedSkills = skills.filter((skill) => selectedSkillIds.includes(skill.id));
+  const selectedCustomAgent = customAgents.find((agent) => agent.id === customAgentId);
 
   const pickRepo = (url: string) => {
     onRepoUrlChange(url);
@@ -334,7 +346,7 @@ export function TaskComposer({
               className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans text-[var(--fg)]`}
             >
               <Home aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
-              <span className={pillLabelClass}>{repoSlug || "Home"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
+              <span className={pillLabelClass}>{repoSlug || "Repository"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
               {chevron}
             </button>
           </Tooltip>
@@ -505,7 +517,7 @@ export function TaskComposer({
         value={task}
         onChange={(event) => onTaskChange(event.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Ask anything, / for commands, @ for context"
+        placeholder="Describe the change in this repository"
         rows={1}
         className={`w-full resize-none bg-transparent text-base lg:text-sm text-[var(--fg)] placeholder-[var(--muted-foreground-2)] focus:outline-none overflow-y-auto leading-relaxed ${
           hero ? "min-h-[96px] max-h-64" : "min-h-[72px] max-h-48"
@@ -514,6 +526,13 @@ export function TaskComposer({
       />
 
       {/* Selected skills removable chips */}
+      {selectedCustomAgent ? (
+        <div className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
+          Custom agent: {selectedCustomAgent.emoji ? `${selectedCustomAgent.emoji} ` : ""}
+          {selectedCustomAgent.name}
+        </div>
+      ) : null}
+
       {selectedSkills.length > 0 ? (
         <fieldset className="flex items-center gap-1.5 flex-wrap" aria-label="Attached skills">
           {selectedSkills.map((skill) => (
@@ -717,6 +736,60 @@ export function TaskComposer({
                   <Check aria-hidden="true" className={menuCheckClass} />
                 ) : null}
               </button>
+              {publishPullRequest ? (
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={reviewAfterPublish}
+                  aria-label="Read-only review after publish"
+                  className="flex items-center gap-2 text-xs text-[var(--fg)] hover:bg-[var(--secondary-hover)] p-1.5 rounded-[var(--radius-button)] transition-colors cursor-pointer text-left"
+                  onClick={() => onReviewAfterPublishChange?.(!reviewAfterPublish)}
+                >
+                  <span className="flex-1">Read-only review after publish</span>
+                  {reviewAfterPublish ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                </button>
+              ) : null}
+
+              {onCustomAgentChange && customAgents.length > 0 ? (
+                <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">
+                  <span className="text-xs text-[var(--muted-foreground-1)]">Custom agent</span>
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={customAgentId === ""}
+                    className={`flex items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
+                      customAgentId === ""
+                        ? "bg-[var(--secondary-hover)] font-medium text-[var(--fg)]"
+                        : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"
+                    }`}
+                    onClick={() => onCustomAgentChange("")}
+                  >
+                    <span className="flex-1 truncate">Default (no profile)</span>
+                    {customAgentId === "" ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                  </button>
+                  {customAgents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={agent.id === customAgentId}
+                      className={`flex items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
+                        agent.id === customAgentId
+                          ? "bg-[var(--secondary-hover)] font-medium text-[var(--fg)]"
+                          : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"
+                      }`}
+                      onClick={() => onCustomAgentChange(agent.id)}
+                    >
+                      <span className="flex-1 truncate text-left">
+                        {agent.emoji ? `${agent.emoji} ` : ""}
+                        {agent.name}
+                        <span className="text-[10px] text-[var(--muted-foreground-2)] ml-1">{agent.slug}</span>
+                      </span>
+                      {agent.id === customAgentId ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
               <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">
                 <span className="text-xs text-[var(--muted-foreground-1)]">Agent harness</span>
@@ -906,9 +979,19 @@ export function TaskComposer({
           </Popover>
         </div>
 
-        <div className="flex-1" aria-hidden="true" />
+        <div className="flex-1 min-w-0 flex flex-col items-end justify-center gap-0.5">
+          {isSubmitting ? (
+            <span className="text-[10px] text-[var(--primary)] font-medium" data-testid="composer-status">
+              Sending task…
+            </span>
+          ) : busy && !sendDisabled ? (
+            <span className="text-[10px] text-[var(--muted-foreground-2)]" data-testid="composer-status">
+              Planner responding — wait to send again
+            </span>
+          ) : null}
+        </div>
 
-        {/* Teal Send Button */}
+        {/* Send */}
         <Tooltip content="Submit task to coding agent" shortcut="⌘↵" side="top">
           <button
             type="submit"
@@ -928,7 +1011,13 @@ export function TaskComposer({
   return (
     <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center justify-center px-4 py-8 relative">
       <div className="absolute inset-0 dot-grid pointer-events-none" aria-hidden="true" />
-      <div className="w-full max-w-[640px] flex flex-col items-center gap-4 z-10">
+      <div className="w-full max-w-[640px] flex flex-col items-center gap-5 z-10">
+        <div className="text-center px-2">
+          <h2 className="text-[24px] leading-[1.05] text-[var(--fg)]">What should Shiba change?</h2>
+          <p className="mt-2 text-[11px] font-mono uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            Pick a repo, describe the task, then send. The sandbox starts only after you approve.
+          </p>
+        </div>
         {form}
       </div>
     </div>

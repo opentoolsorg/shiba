@@ -24,9 +24,13 @@ const orchestratorCalls: { input: Record<string, unknown> }[] = [];
 vi.mock("agents/routing", () => ({
   getAgentByName: async () => ({
     fetch: async (request: Request) => {
-      if (new URL(request.url).pathname === "/api/runs") {
+      const path = new URL(request.url).pathname;
+      if (path === "/api/runs") {
         orchestratorCalls.push({ input: (await request.json()) as Record<string, unknown> });
         return Response.json({ approvalId: "appr_review" });
+      }
+      if (path === "/internal/pr-lifecycle") {
+        return Response.json({ ok: true, wake: "none" });
       }
       return new Response("{}", { status: 404 });
     },

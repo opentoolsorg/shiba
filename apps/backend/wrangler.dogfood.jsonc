@@ -48,7 +48,7 @@
       "name": "shiba-ai-coworker-sandbox-dogfood",
       "image": "registry.cloudflare.com/202ca2bee300067a918a67a4d17d2178/shiba-ai-coworker-sandbox-dogfood:boot",
       "instance_type": "standard-1",
-      "max_instances": 5,
+      "max_instances": 10,
     },
   ],
 }

@@ -21,21 +21,26 @@
     "docs:dev": "pnpm -C apps/web dev",
     "docs:preview": "pnpm -C apps/web preview",
     "docs:verify": "node scripts/check-docs.mjs",
+    "sdk:check-types": "pnpm -C packages/sdk check:types",
     "env:load": "varlock load",
     "env:scan": "varlock scan",
     "check": "biome check --formatter-enabled=false --assist-enabled=false .",
     "check:ci": "biome ci --formatter-enabled=false --assist-enabled=false . && knip --reporter compact --max-issues 6",
+    "check:deploy": "node scripts/check-alchemy-drift.mjs && node scripts/check-env-types.mjs",
+    "check:dev-vars": "node scripts/check-dev-vars-example.mjs",
     "format": "biome format --write .",
     "knip": "knip",
     "lint": "biome lint .",
     "lint:imports": "turbo run lint",
     "precommit": "biome check --write --formatter-enabled=false --assist-enabled=false . && knip --reporter compact --max-issues 6",
     "bootstrap": "node scripts/setup.mjs",
+    "shiba": "node scripts/shiba.mjs",
     "test": "turbo run test",
     "test:built": "cd apps/backend && pnpm test test/marketing-pages.test.ts",
     "test:ephemeral": "node scripts/ephemeral-stack.mjs --alchemy",
     "test:live": "pnpm -C apps/backend test:live",
-    "typecheck": "turbo run typecheck && tsc -b"
+    "typecheck": "turbo run typecheck && tsc -b && pnpm sdk:check-types",
+    "verify-shiba:ci": "bash .cursor/skills/verify-shiba/scripts/run-ci.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
@@ -53,7 +58,10 @@
     "typescript-eslint": "^8.70.0",
     "varlock": "1.20.0",
     "vite": "8.3.0",
-    "wrangler": "4.118.0"
+    "wrangler": "4.140.0"
+  },
+  "bin": {
+    "shiba": "./scripts/shiba.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {

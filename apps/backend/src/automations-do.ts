@@ -5,11 +5,19 @@
  */
 import { getAgentByName } from "agents/routing";
 import {
+  prHeadReviewDedupeKey,
+  prOwnerStorageKey,
+  type PrOwnerRecord,
+} from "@shiba/shared";
+import { reviewerTask } from "./review/prompt.js";
+import {
   fireMatchingAutomations,
   githubWebhookToEvent,
+  linearEventToAutomation,
   slackEventToAutomation,
   type FireAutomationDeps,
 } from "./automation-runner.js";
+import { isGitHubPublishConfigured } from "./github-auth.js";
 import {
   AutomationStore,
   automationsEnabled,
@@ -33,6 +41,7 @@ export interface OrchestratorStub {
   fetch: (request: Request) => Promise<Response>;
 }
 
+const WEBHOOK_BATCH_PREFIX = "webhook-batch:";
 const DEDUPE_PREFIX = "dedupe:";
 const DEDUPE_TTL_MS = 3_600_000;
 const DEDUPE_GC_INTERVAL_MS = 60_000;
@@ -49,6 +58,7 @@ async function queueOnOrchestrator(
     role?: string;
     codingModel?: string;
     commandId?: string;
+    customAgentId?: string;
   },
 ): Promise<{ approvalId: string }> {
   const queued = await stub.fetch(
@@ -106,7 +116,7 @@ export class Automations {
       typeSafeApiKey: this.env.TYPESAFE_API_KEY,
       nowMs,
       globalEnabled: automationsEnabled(this.env.AUTOMATIONS_ENABLED),
-      canPublishPullRequest: Boolean(this.env.GITHUB_TOKEN),
+      canPublishPullRequest: isGitHubPublishConfigured(this.env),
       queueRun: (input) => queueOnOrchestrator(orchestrator, input),
       resolveApproval: (input) => resolveOnOrchestrator(orchestrator, input),
     };
@@ -140,8 +150,10 @@ export class Automations {
 
   async tick(orchestrator: OrchestratorStub, nowMs = Date.now()): Promise<{ fired: number }> {
     const store = await this.load();
+    let fired = 0;
+    fired += await this.flushWebhookBatches(orchestrator, store, nowMs);
     const due = collectDueSchedules(store.list(), nowMs);
-    if (due.length === 0) return { fired: 0 };
+    if (due.length === 0) return { fired };
     const event: AutomationMatchEvent = { kind: "schedule", nowMs };
     const { results, automations } = await fireMatchingAutomations(
       store.list(),
@@ -151,11 +163,90 @@ export class Automations {
     const next = new AutomationStore();
     for (const item of automations) next.upsert(item);
     await this.save(next);
-    return { fired: results.filter((r) => r.fired).length };
+    return { fired: fired + results.filter((r) => r.fired).length };
+  }
+
+  private async flushWebhookBatches(
+    orchestrator: OrchestratorStub,
+    store: AutomationStore,
+    nowMs: number,
+  ): Promise<number> {
+    const batches = await this.ctx.storage.list<{ bodies: string[]; firstAt: number; windowSeconds: number }>({
+      prefix: WEBHOOK_BATCH_PREFIX,
+    });
+    let fired = 0;
+    for (const [key, batch] of batches) {
+      if (!batch || !Array.isArray(batch.bodies) || batch.bodies.length === 0) continue;
+      const deadline = batch.firstAt + batch.windowSeconds * 1000;
+      if (nowMs < deadline) continue;
+      const automationId = key.slice(WEBHOOK_BATCH_PREFIX.length);
+      const automation = store.get(automationId);
+      await this.ctx.storage.delete(key);
+      if (!automation?.webhookSecret) continue;
+      const result = await this.fireEvent(
+        { kind: "webhook", secret: automation.webhookSecret, batchedBodies: batch.bodies },
+        orchestrator,
+        nowMs,
+        automation.id,
+      );
+      fired += result.fired;
+    }
+    return fired;
   }
 
   private async orchestrator(): Promise<OrchestratorStub> {
     return getAgentByName(this.env.CodingOrchestrator, ORCHESTRATOR_NAME);
+  }
+
+  private async orchestratorForAgent(agentName: string): Promise<OrchestratorStub> {
+    return getAgentByName(this.env.CodingOrchestrator, agentName);
+  }
+
+  private async lookupPrOwner(repoFullName: string, pullNumber: number): Promise<PrOwnerRecord | null> {
+    if (!repoFullName || !Number.isInteger(pullNumber) || pullNumber < 1) return null;
+    const record = await this.ctx.storage.get<PrOwnerRecord>(prOwnerStorageKey(repoFullName, pullNumber));
+    if (!record || typeof record.agentName !== "string" || record.agentName === "") return null;
+    return record;
+  }
+
+  /** False when this head already claimed a review intent cluster-wide. */
+  private async claimHeadReviewIntent(
+    repoFullName: string,
+    pullNumber: number,
+    headSha: string,
+  ): Promise<boolean> {
+    const key = prHeadReviewDedupeKey(repoFullName, pullNumber, headSha);
+    const storageKey = DEDUPE_PREFIX + key.slice(0, 200);
+    if (await this.ctx.storage.get<number>(storageKey)) return false;
+    await this.ctx.storage.put(storageKey, Date.now());
+    return true;
+  }
+
+  private async releaseHeadReviewIntent(
+    repoFullName: string,
+    pullNumber: number,
+    headSha: string,
+  ): Promise<void> {
+    const key = prHeadReviewDedupeKey(repoFullName, pullNumber, headSha);
+    const storageKey = DEDUPE_PREFIX + key.slice(0, 200);
+    await this.ctx.storage.delete(storageKey);
+  }
+
+  private async invokePrLifecycle(
+    orchestrator: OrchestratorStub,
+    githubEvent: string,
+    mapped: object,
+    payload: unknown,
+  ): Promise<{ queuedReview: boolean }> {
+    const response = await orchestrator.fetch(
+      new Request("https://internal/internal/pr-lifecycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ githubEvent, mapped, payload }),
+      }),
+    );
+    const body = (await response.json().catch(() => ({}))) as { queued?: string };
+    return { queuedReview: body.queued === "review" };
   }
 
   /**
@@ -202,7 +293,7 @@ export class Automations {
       const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
       const githubEvent = typeof record.event === "string" ? record.event : "unknown";
       const mapped = githubWebhookToEvent(githubEvent, record.payload);
-      const orchestrator = await this.orchestrator();
+      const orchestratorDefault = await this.orchestrator();
       const result = await this.fireEvent(
         {
           kind: "github",
@@ -211,50 +302,71 @@ export class Automations {
             ? { deliveryId: record.deliveryId }
             : {}),
         },
-        orchestrator,
+        orchestratorDefault,
       );
-      // Built-in PR review lane (Review mode): a pull_request
-      // opened/synchronize delivery always queues an approval-gated review
-      // run on the "review" purpose, alongside any user automations that
-      // matched. The run carries repo + head sha + diff ref in the task so
-      // the reviewer reads the real diff, and the delivery id keeps retries
-      // idempotent. A queue failure is logged, never thrown — the webhook
-      // already answered GitHub.
-      let reviewQueued = false;
-      if (
+      const repoFullName = typeof mapped.repo === "string" ? mapped.repo : "";
+      const pullNumber = typeof mapped.pullNumber === "number" ? mapped.pullNumber : 0;
+      const headSha = typeof mapped.headSha === "string" ? mapped.headSha : "";
+      const owner =
+        repoFullName && pullNumber > 0 ? await this.lookupPrOwner(repoFullName, pullNumber) : null;
+      const targetOrchestrator = owner
+        ? await this.orchestratorForAgent(owner.agentName)
+        : orchestratorDefault;
+
+      const isPullReview =
         automationsEnabled(this.env.AUTOMATIONS_ENABLED) &&
         mapped.event === "pull_request" &&
         (mapped.action === "opened" || mapped.action === "synchronize") &&
-        typeof mapped.repo === "string" &&
-        typeof mapped.headSha === "string" &&
-        mapped.headSha !== ""
-      ) {
+        repoFullName !== "" &&
+        headSha !== "" &&
+        pullNumber > 0;
+
+      let reviewQueued = false;
+      let headClaimed = true;
+      if (isPullReview) {
+        headClaimed = await this.claimHeadReviewIntent(repoFullName, pullNumber, headSha);
+      }
+
+      let lifecycleCompleted = false;
+      if (headClaimed) {
         try {
-          const pull = mapped.pullNumber ?? 0;
-          const diffRef = mapped.diffRef ?? `https://github.com/${mapped.repo}/pull/${pull}.diff`;
-          const task = [
-            `Review the pull request diff and post findings. Do not modify code.`,
-            `Purpose: review`,
-            `Repository: https://github.com/${mapped.repo}`,
-            `Pull request: #${pull}`,
-            `Head SHA: ${mapped.headSha}`,
-            `Diff: ${diffRef}`,
-            ...(typeof mapped.branch === "string" ? [`Head branch: ${mapped.branch}`] : []),
-          ].join("\n");
-          await queueOnOrchestrator(orchestrator, {
-            repoUrl: `https://github.com/${mapped.repo}`,
+          const lifecycle = await this.invokePrLifecycle(
+            targetOrchestrator,
+            githubEvent,
+            { ...mapped },
+            record.payload,
+          );
+          lifecycleCompleted = true;
+          if (lifecycle.queuedReview) reviewQueued = true;
+        } catch (error) {
+          console.error(
+            `pr lifecycle wake failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      // Built-in lane: only for PRs with no dashboard owner index (automation-only reviews).
+      if (isPullReview && headClaimed && owner === null) {
+        try {
+          const diffRef = mapped.diffRef ?? `https://github.com/${repoFullName}/pull/${pullNumber}.diff`;
+          const task = reviewerTask({
+            repoUrl: `https://github.com/${repoFullName}`,
+            pullNumber,
+            headSha,
+            diffUrl: diffRef,
+            ...(typeof mapped.branch === "string" ? { headBranch: mapped.branch } : {}),
+          });
+          await queueOnOrchestrator(orchestratorDefault, {
+            repoUrl: `https://github.com/${repoFullName}`,
             task,
             publishPullRequest: false,
-            // Reviewer-role run pinned to Sol (opencodex gpt-6.1-sol) via the
-            // opencode-go gateway subscription; REVIEW_RUN_MODEL overrides,
-            // and ROLE_MODEL__REVIEWER still wins over this per-run id.
             role: "reviewer",
             codingModel: this.env.REVIEW_RUN_MODEL?.trim() || "opencode-go/gpt-6.1-sol",
-            threadKey: `review:${mapped.repo}#${pull}`,
+            threadKey: `review:${repoFullName}#${pullNumber}`,
             commandId:
               typeof record.deliveryId === "string" && record.deliveryId !== ""
                 ? `review:${record.deliveryId}`
-                : `review:${mapped.repo}:${mapped.headSha}`,
+                : `review:${repoFullName}:${headSha}`,
           });
           reviewQueued = true;
         } catch (error) {
@@ -263,6 +375,14 @@ export class Automations {
           );
         }
       }
+
+      if (isPullReview && headClaimed && !reviewQueued) {
+        const shouldRelease = owner === null || !lifecycleCompleted;
+        if (shouldRelease) {
+          await this.releaseHeadReviewIntent(repoFullName, pullNumber, headSha);
+        }
+      }
+
       return Response.json({ ...result, reviewQueued });
     }
     if (request.method === "POST" && url.pathname === "/internal/sentry") {
@@ -290,6 +410,39 @@ export class Automations {
         commandId: `sentry:${eventId}`,
       });
       return Response.json({ ok: true, approvalId: queued.approvalId });
+    }
+    if (url.pathname === "/internal/pr-owner") {
+      if (request.method === "PUT") {
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+        }
+        const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+        const repoFullName = typeof record.repoFullName === "string" ? record.repoFullName.trim() : "";
+        const pullNumber = typeof record.pullNumber === "number" ? record.pullNumber : 0;
+        const agentName = typeof record.agentName === "string" ? record.agentName.trim() : "";
+        const codingRunId = typeof record.codingRunId === "string" ? record.codingRunId.trim() : "";
+        const updatedAt = typeof record.updatedAt === "number" ? record.updatedAt : Date.now();
+        if (!repoFullName || !Number.isInteger(pullNumber) || pullNumber < 1 || !agentName || !codingRunId) {
+          return Response.json({ error: "repoFullName, pullNumber, agentName, codingRunId required." }, { status: 400 });
+        }
+        const owner: PrOwnerRecord = { agentName, codingRunId, updatedAt };
+        await this.ctx.storage.put(prOwnerStorageKey(repoFullName, pullNumber), owner);
+        return Response.json({ ok: true, owner });
+      }
+      if (request.method === "GET") {
+        const repoFullName = url.searchParams.get("repo")?.trim() ?? "";
+        const pullNumber = Number(url.searchParams.get("pull"));
+        if (!repoFullName || !Number.isInteger(pullNumber) || pullNumber < 1) {
+          return Response.json({ error: "repo and pull query params required." }, { status: 400 });
+        }
+        const owner = await this.lookupPrOwner(repoFullName, pullNumber);
+        if (!owner) return Response.json({ error: "not_found" }, { status: 404 });
+        return Response.json({ ok: true, owner });
+      }
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
     if (request.method === "POST" && url.pathname === "/internal/dedupe") {
       // Cross-isolate idempotency for retried Slack event deliveries:
@@ -320,6 +473,53 @@ export class Automations {
         );
       }
       return Response.json({ seen: false });
+    }
+    if (request.method === "POST" && url.pathname === "/internal/linear") {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+      }
+      const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+      const action = typeof record.event === "object" && record.event !== null
+        ? String((record.event as { action?: unknown }).action ?? "created")
+        : "created";
+      const teamKey =
+        typeof record.teamKey === "string"
+          ? record.teamKey
+          : typeof record.event === "object" &&
+              record.event !== null &&
+              typeof (record.event as { agentSession?: { issue?: { team?: { key?: string } } } }).agentSession?.issue
+                ?.team?.key === "string"
+            ? (record.event as { agentSession: { issue: { team: { key: string } } } }).agentSession.issue.team.key
+            : undefined;
+      const sessionId = typeof record.sessionId === "string" ? record.sessionId : undefined;
+      const mapped = linearEventToAutomation({ action, ...(teamKey ? { teamKey } : {}), ...(sessionId ? { sessionId } : {}) });
+      const result = await this.fireEvent({ kind: "linear", ...mapped }, await this.orchestrator());
+      const task = typeof record.task === "string" ? record.task : "";
+      const repoUrl =
+        (typeof record.repoUrl === "string" ? record.repoUrl : "") ||
+        this.env.LINEAR_DEFAULT_REPO_URL?.trim() ||
+        "";
+      let linearQueued = false;
+      if (task && repoUrl && sessionId) {
+        try {
+          await queueOnOrchestrator(await this.orchestrator(), {
+            repoUrl,
+            task,
+            publishPullRequest: isGitHubPublishConfigured(this.env),
+            threadKey: `linear:session:${sessionId}`,
+            commandId: `linear:${sessionId}:${action}`,
+          });
+          linearQueued = true;
+        } catch (error) {
+          console.error(
+            `linear session lane queue failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      return Response.json({ ...result, linearQueued });
     }
     if (request.method === "POST" && url.pathname === "/internal/slack") {
       let body: unknown;
@@ -382,17 +582,34 @@ export class Automations {
       } catch {
         return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
       }
-      const patch = (typeof body === "object" && body !== null ? body : {}) as { enabled?: unknown; prompt?: unknown };
+      const patch = (typeof body === "object" && body !== null ? body : {}) as {
+        enabled?: unknown;
+        prompt?: unknown;
+        customAgentId?: unknown;
+      };
       if (
         (patch.enabled !== undefined && typeof patch.enabled !== "boolean") ||
-        (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim()))
+        (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim())) ||
+        (patch.customAgentId !== undefined &&
+          patch.customAgentId !== null &&
+          typeof patch.customAgentId !== "string")
       ) {
-        return Response.json({ error: "enabled must be a boolean; prompt a non-empty string." }, { status: 400 });
+        return Response.json(
+          { error: "enabled must be a boolean; prompt a non-empty string; customAgentId a string or null." },
+          { status: 400 },
+        );
       }
+      const customAgentId =
+        patch.customAgentId === null
+          ? undefined
+          : typeof patch.customAgentId === "string" && patch.customAgentId.trim()
+            ? patch.customAgentId.trim()
+            : automation.customAgentId;
       const updated: Automation = {
         ...automation,
         ...(typeof patch.enabled === "boolean" ? { enabled: patch.enabled } : {}),
         ...(typeof patch.prompt === "string" ? { prompt: patch.prompt.trim() } : {}),
+        ...(patch.customAgentId !== undefined ? { customAgentId } : {}),
       };
       store.upsert(updated);
       await this.save(store);
@@ -430,12 +647,29 @@ export class Automations {
       if (!verifyWebhookSecret(automation, secret)) {
         return Response.json({ error: "Invalid automation secret." }, { status: 401 });
       }
-      // Scope the fan-out to this automation: a webhook trigger event without
-      // onlyId would match-verify against every stored automation's secret.
+      const webhookTrigger = automation.triggers.find((t) => t.kind === "webhook");
+      const batchWindow =
+        webhookTrigger?.kind === "webhook" ? webhookTrigger.batchWindowSeconds ?? 0 : 0;
+      const rawPayload = await request.text();
+      const now = Date.now();
+      if (batchWindow > 0) {
+        const storageKey = WEBHOOK_BATCH_PREFIX + automation.id;
+        const existing = await this.ctx.storage.get<{ bodies: string[]; firstAt: number; windowSeconds: number }>(
+          storageKey,
+        );
+        const bodies = [...(existing?.bodies ?? []), rawPayload.slice(0, 32_000)];
+        const firstAt = existing?.firstAt ?? now;
+        await this.ctx.storage.put(storageKey, {
+          bodies,
+          firstAt,
+          windowSeconds: Math.min(300, Math.max(1, batchWindow)),
+        });
+        return Response.json({ ok: true, id: automation.id, batched: true, pending: bodies.length });
+      }
       const result = await this.fireEvent(
-        { kind: "webhook", secret },
+        { kind: "webhook", secret, batchedBodies: rawPayload ? [rawPayload] : [] },
         await this.orchestrator(),
-        Date.now(),
+        now,
         automation.id,
       );
       return Response.json({ ok: true, id: automation.id, ...result });

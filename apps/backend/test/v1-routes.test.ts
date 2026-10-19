@@ -3,6 +3,7 @@ import type { DelegatedRun } from "@shiba/shared";
 import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_HEADER } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import { handleV1, type V1RouteDeps } from "../src/v1-routes.js";
+import { reviewerTask } from "../src/review/prompt.js";
 
 const run: DelegatedRun = {
   runId: "r1", sandboxId: "s1", repoUrl: "https://github.com/acme/repo", task: "ENG-12: Fix\nDetails",
@@ -40,6 +41,7 @@ describe("v1 routes", () => {
     expect(await (await f.send("/api/v1/threads"))?.json()).toEqual({ threads: [{
       threadId: "r1", repoUrl: run.repoUrl, title: "ENG-12: Fix", status: "completed", lane: "needs_review",
       archived: false, costUsd: null, createdAt: 1, updatedAt: 2, pullUrl: null, summary: null, error: null,
+      errorCode: null, timedOut: false, usage: null,
     }] });
     expect(f.calls[0]?.headers.get(AGENT_PRINCIPAL_HEADER)).toBeNull();
     expect(f.calls[0]?.headers.get(LOCAL_INTAKE_HEADER)).toBe("dashboard");
@@ -54,17 +56,22 @@ describe("v1 routes", () => {
   it("queues threads without inventing a run id and uses body session", async () => {
     const f = fixture({ ok: true, approvalId: "a1" });
     const response = await f.send("/api/v1/threads", "POST", { repoUrl: run.repoUrl, task: "Fix", session: "s1", queuedBy: "forged" });
-    expect(await response?.json()).toEqual({ ok: true, approvalId: "a1" });
+    expect(await response?.json()).toMatchObject({ approvalId: "a1", status: "waiting" });
     expect(f.scopes[0]?.searchParams.get("session")).toBe("s1");
-    expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Fix" });
+    expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Fix", orgId: "self-hosted" });
   });
-  it("refuses messages on missing and active threads", async () => {
+  it("refuses messages on missing threads and interrupts active ones", async () => {
     expect((await fixture({ error: "missing" }, 404).send("/api/v1/threads/missing/message", "POST", { text: "Hi" }))?.status).toBe(404);
-    for (const status of ["pending", "running"]) {
-      const f = fixture({ run: { ...run, status } });
-      expect((await f.send("/api/v1/threads/r1/message", "POST", { text: "Hi" }))?.status).toBe(409);
-      expect(f.calls).toHaveLength(1);
-    }
+    const f = fixture({ run: { ...run, status: "running" } });
+    f.deps.getStub = async () => ({
+      fetch: async (request) => {
+        f.calls.push(request);
+        if (request.method === "GET") return Response.json({ run: { ...run, status: "running" } });
+        return Response.json({ ok: true, approvalId: "steer-1" });
+      },
+    });
+    expect((await f.send("/api/v1/threads/r1/message", "POST", { text: "Hi" }))?.status).toBe(200);
+    expect(f.calls.some((call) => call.url.includes("/steer"))).toBe(true);
   });
   it("queues a follow-up with stored repository and continuation", async () => {
     const f = fixture();
@@ -73,8 +80,14 @@ describe("v1 routes", () => {
       return Response.json(request.method === "GET" ? { run: { ...run, continuationKey: "key", threadKey: "thread" } } : { ok: true, approvalId: "a2" });
     } });
     const response = await f.send("/api/v1/threads/r1/message", "POST", { text: "Again", repoUrl: "forged" });
-    expect(await response?.json()).toEqual({ ok: true, approvalId: "a2", threadId: "r1" });
-    expect(await f.calls[1]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Follow-up on run r1:\nAgain", continuesKey: "key", threadKey: "thread" });
+    expect(await response?.json()).toMatchObject({ approvalId: "a2", threadId: "r1", id: "adm_a2" });
+    expect(await f.calls[1]?.json()).toEqual({
+      repoUrl: run.repoUrl,
+      task: "Follow-up on run r1:\nAgain",
+      continuesKey: "key",
+      threadKey: "thread",
+      orgId: "self-hosted",
+    });
   });
   it.each([["interrupt", "DELETE", "/api/runs/r1"], ["archive", "POST", "/api/runs/r1/archive"]])("forwards %s", async (action, method, path) => {
     const f = fixture();
@@ -93,9 +106,19 @@ describe("v1 routes", () => {
   it.each([undefined, "custom/reviewer"])("queues pinned reviews with model %s", async (model) => {
     const f = fixture({ ok: true, approvalId: "a1" });
     await f.send("/api/v1/reviews", "POST", { repoUrl: run.repoUrl, pullNumber: 12, headSha: "abc" }, { REVIEW_RUN_MODEL: model });
-    expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, publishPullRequest: false,
-      role: "reviewer", codingModel: model ?? "opencode-go/gpt-6.1-sol", commandId: `v1review:${run.repoUrl}:12:abc`,
-      task: `Review the pull request diff and post findings. Do not modify code.\nPurpose: review\nRepository: ${run.repoUrl}\nPull request: #12\nHead SHA: abc\nDiff: ${run.repoUrl}/pull/12.diff`,
+    expect(await f.calls[0]?.json()).toEqual({
+      repoUrl: run.repoUrl,
+      publishPullRequest: false,
+      role: "reviewer",
+      codingModel: model ?? "opencode-go/gpt-6.1-sol",
+      commandId: `v1review:${run.repoUrl}:12:abc`,
+      orgId: "self-hosted",
+      task: reviewerTask({
+        repoUrl: run.repoUrl,
+        pullNumber: 12,
+        headSha: "abc",
+        diffUrl: `${run.repoUrl}/pull/12.diff`,
+      }),
     });
   });
   it("returns 400, 404, and 405 for invalid requests", async () => {

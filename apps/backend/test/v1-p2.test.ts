@@ -24,7 +24,10 @@ function fixture(path: string, method = "GET", body?: unknown, current: Delegate
     headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const forward = vi.fn(async (verb: string, _route: string, _input?: Record<string, unknown>) =>
     verb === "POST" ? Response.json({ ok: true, approvalId: "a1" }) : Response.json({ run: current }));
-  const ctx: V1Context = { request, url: new URL(request.url), env: env as Env, forward };
+  const ctx: V1Context = {
+    request, url: new URL(request.url), env: env as Env, forward,
+    principal: { principal: "test", orgId: "self-hosted", scopes: ["api:read", "api:write", "api:keys:admin"] },
+  };
   return { ctx, forward };
 }
 
@@ -84,13 +87,17 @@ describe("v1 P2 handlers", () => {
     expect((await handleDiffs(fixture("/threads/r1/checkpoints/1/restore").ctx))!.status).toBe(405);
   });
 
-  it("never merges: validates then refuses without touching GitHub", async () => {
+  it("queues merge through pr_merge approval without calling GitHub directly", async () => {
     const fetchMock = stubGitHub({});
+    const { ctx, forward } = fixture("/threads/r1/pr/merge", "POST", { expectedHeadSha: "a".repeat(40), mergeMethod: "squash" });
     expect((await handlePulls(fixture("/threads/r1/pr/merge", "POST", {}).ctx))!.status).toBe(400);
     expect((await handlePulls(fixture("/threads/r1/pr/merge", "POST", { expectedHeadSha: "a".repeat(40), extra: 1 }).ctx))!.status).toBe(400);
-    const response = await handlePulls(fixture("/threads/r1/pr/merge", "POST", { expectedHeadSha: "a".repeat(40), mergeMethod: "squash" }).ctx);
-    expect(response!.status).toBe(501);
-    expect(await response!.json()).toMatchObject({ code: "not_implemented" });
+    const response = await handlePulls(ctx);
+    expect(response!.status).toBe(200);
+    expect(forward).toHaveBeenCalledWith("POST", "/api/runs/r1/merge", {
+      expectedHeadSha: "a".repeat(40),
+      mergeMethod: "squash",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -130,10 +137,24 @@ describe("v1 P2 handlers", () => {
     expect((await handlePulls(fixture("/threads/r1/pr/status").ctx))!.status).toBe(404);
   });
 
-  it("has no review loop and refuses to configure one", async () => {
-    expect(await (await handlePulls(fixture("/threads/r1/pr/review-loop").ctx))!.json()).toEqual({ ok: true, reviewLoop: null });
+  it("persists review-loop settings through the orchestrator", async () => {
+    const listed = fixture("/threads/r1/pr/review-loop");
+    listed.forward.mockImplementation(async (verb: string, route: string) =>
+      route.endsWith("/review-loop")
+        ? Response.json({ ok: true, reviewLoop: null })
+        : Response.json(verb === "POST" ? { ok: true } : { run }),
+    );
+    expect(await (await handlePulls(listed.ctx))!.json()).toEqual({ ok: true, reviewLoop: null });
+    expect(listed.forward).toHaveBeenCalledWith("GET", "/api/runs/r1/review-loop", undefined);
     expect((await handlePulls(fixture("/threads/r1/pr/review-loop", "PATCH", { enabled: "yes" }).ctx))!.status).toBe(400);
-    expect((await handlePulls(fixture("/threads/r1/pr/review-loop", "PATCH", { enabled: true }).ctx))!.status).toBe(501);
+    const patched = fixture("/threads/r1/pr/review-loop", "PATCH", { enabled: true, autoMerge: false });
+    patched.forward.mockImplementation(async (_verb: string, route: string, body?: Record<string, unknown>) =>
+      route.endsWith("/review-loop")
+        ? Response.json({ ok: true, reviewLoop: { threadId: "r1", enabled: true, autoMerge: false, updatedAt: 1 } })
+        : Response.json({ run }),
+    );
+    expect((await handlePulls(patched.ctx))!.status).toBe(200);
+    expect(patched.forward).toHaveBeenCalledWith("PATCH", "/api/runs/r1/review-loop", { enabled: true, autoMerge: false });
   });
 
   it("reports previews as unsupported and refuses to start one", async () => {

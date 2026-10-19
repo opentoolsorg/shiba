@@ -251,6 +251,159 @@ describe("validate-credentials", () => {
   });
 });
 
+describe("shiba-dev-lib", () => {
+  it("merge dev vars mints only missing AUTO_GENERATE keys", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shiba-dev-"));
+    const example = join(dir, ".dev.vars.example");
+    writeFileSync(example, "# GITHUB_TOKEN=\nINTERNAL_SIGNING_KEY=\n");
+    const devVars = join(dir, ".dev.vars");
+    writeFileSync(devVars, "GITHUB_TOKEN=keep-me\nINTERNAL_SIGNING_KEY=existing\n", { mode: 0o600 });
+    const lib = join(ROOT, "scripts", "shiba-dev-lib.mjs");
+    const out = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { ensureDevVars, parseDevVars } from ${JSON.stringify(lib)};
+import { readFileSync } from "node:fs";
+let n = 0;
+const { appended } = ensureDevVars({
+  root: ${JSON.stringify(dir)},
+  exampleRel: ".dev.vars.example",
+  devVarsRel: ".dev.vars",
+  generate: () => "gen-" + (++n),
+});
+const parsed = parseDevVars(readFileSync(${JSON.stringify(devVars)}, "utf8"));
+console.log(JSON.stringify({
+  appended,
+  github: parsed.get("GITHUB_TOKEN"),
+  internal: parsed.get("INTERNAL_SIGNING_KEY"),
+  pairing: parsed.get("PAIRING_SECRET"),
+}));`,
+      ],
+      { encoding: "utf8" },
+    );
+    expect(out.status).toBe(0);
+    const body = JSON.parse(out.stdout.trim());
+    expect(body.appended).toContain("PAIRING_SECRET");
+    expect(body.appended).not.toContain("INTERNAL_SIGNING_KEY");
+    expect(body.github).toBe("keep-me");
+    expect(body.internal).toBe("existing");
+    expect(body.pairing).toBe("gen-1");
+  });
+
+  it("dry-run plan lists migrate, image build, and wrangler dev", () => {
+    const lib = join(ROOT, "scripts", "shiba-dev-lib.mjs");
+    const out = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { formatDryRun, planDevSteps } from ${JSON.stringify(lib)};
+const text = formatDryRun(planDevSteps({ skipInstall: true, skipBuild: true }));
+console.log(text);`,
+      ],
+      { encoding: "utf8", cwd: ROOT },
+    );
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("d1-migrate");
+    expect(out.stdout).toContain("container-build");
+    expect(out.stdout).toContain("wrangler-dev");
+    expect(out.stdout).toContain("8788/app/");
+    const cli = run("shiba.mjs", ["dev", "--dry-run", "--skip-install", "--skip-build"]);
+    expect(cli.status).toBe(0);
+    expect(cli.stdout).toContain("dry run");
+    expect(cli.stdout).toContain("GITHUB_TOKEN");
+  });
+
+  it("disables containers without dropping the migrate and dev steps", () => {
+    const lib = join(ROOT, "scripts", "shiba-dev-lib.mjs");
+    const out = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { formatDryRun, planDevSteps } from ${JSON.stringify(lib)};
+const text = formatDryRun(planDevSteps({ skipInstall: true, skipBuild: true, containers: false }));
+if (text.includes("container-build")) process.exit(2);
+if (!text.includes("--enable-containers=false")) process.exit(3);
+if (!text.includes("d1-migrate") || !text.includes("wrangler-dev")) process.exit(4);
+console.log("ok");`,
+      ],
+      { encoding: "utf8", cwd: ROOT },
+    );
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("ok");
+  });
+});
+
+describe("first-run setup wizard", () => {
+  it("walks a fresh clone with no dead ends and keeps tokens out of the record", () => {
+    const lib = join(ROOT, "scripts", "shiba-setup-lib.mjs");
+    const out = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { commitSetup, readSetupFile, setupPath, walkthroughFreshClone } from ${JSON.stringify(lib)};
+const walked = walkthroughFreshClone();
+if (!walked.ok || !walked.log.includes("result: no dead ends")) throw new Error(walked.log);
+const root = mkdtempSync(join(tmpdir(), "shiba-setup-"));
+const token = "local-token-value";
+const committed = commitSetup(root, {
+  github: { mode: "token", token },
+  model: { mode: "byom", baseUrl: "https://models.example/v1", credentialRef: "alias" },
+  sandbox: { provider: "cloudflare" },
+  testRepo: { url: "https://github.com/octocat/hello" },
+}, { dockerOk: false, devVarKeys: new Set() });
+const text = readFileSync(setupPath(root), "utf8");
+if (text.includes(token)) throw new Error("setup.json stored a token");
+if (committed.patch.GITHUB_TOKEN !== token) throw new Error("patch dropped the token");
+if (committed.record.containers !== false) throw new Error("docker-down still wants containers");
+const saved = readSetupFile(setupPath(root));
+if (saved.answers.github.token) throw new Error("token field survived");
+if (saved.answers.testRepo.url !== "https://github.com/octocat/hello") throw new Error("test repo dropped");
+console.log(walked.log);`,
+      ],
+      { encoding: "utf8", cwd: ROOT },
+    );
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("result: no dead ends");
+    expect(out.stdout).toContain("containers: disabled");
+    expect(out.stderr).toBe("");
+  });
+
+  it("setup --help and dev --dry-run do not prompt", () => {
+    const help = run("shiba.mjs", ["setup", "--help"]);
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain("setup fix");
+    const dry = run("shiba.mjs", ["setup", "--dry-run"]);
+    expect(dry.status).toBe(0);
+    expect(dry.stdout).toContain("nothing written");
+    expect(dry.stdout).toContain("guide.github");
+  });
+});
+
+describe("check-dev-vars-example", () => {
+  it("exits 0 when the repo example matches env.ts and .env.schema", () => {
+    const out = run("check-dev-vars-example.mjs");
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("documents");
+  });
+
+  it("exits 1 when a required secret is missing from the example file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dev-vars-check-"));
+    const example = join(dir, ".dev.vars.example");
+    writeFileSync(example, "# GITHUB_TOKEN=\n");
+    const out = run("check-dev-vars-example.mjs", [`--example=${example}`]);
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain("missing");
+  });
+});
+
 describe("scripts/ built-ins-only guard (L6)", () => {
   const NODE_CORE = new Set([
     "assert", "buffer", "child_process", "cluster", "console", "constants", "crypto",
@@ -270,10 +423,12 @@ describe("scripts/ built-ins-only guard (L6)", () => {
 
   const SCRIPTS = [
     "check-env-types.mjs",
+    "check-dev-vars-example.mjs",
     "plan-deploy.mjs",
     "ephemeral-stack.mjs",
     "validate-credentials.mjs",
     "check-alchemy-drift.mjs",
+    "shiba-dev-lib.mjs",
   ];
 
   for (const script of SCRIPTS) {

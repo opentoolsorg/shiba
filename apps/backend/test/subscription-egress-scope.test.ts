@@ -5,6 +5,7 @@ import { antigravitySubscriptionHarness } from "../src/harness/antigravity-subsc
 const env = {
   CLAUDE_SUBSCRIPTION_TOKEN: "real-claude-token",
   CODEX_SUBSCRIPTION_AUTH_JSON: JSON.stringify({ tokens: { access_token: "real-codex-token", account_id: "account" } }),
+  SHIBA_SINGLE_USER: "1",
 } as unknown as EgressEnv;
 
 describe("subscription credential destination scope", () => {
