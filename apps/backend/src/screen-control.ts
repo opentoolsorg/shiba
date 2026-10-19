@@ -34,7 +34,8 @@ export type ScreenAction =
   | { type: "type"; text: string }
   | { type: "scroll"; dx: number; dy: number }
   | { type: "key"; keys: string }
-  | { type: "shot" };
+  | { type: "shot" }
+  | { type: "open_url"; url: string };
 
 /** The scoped allowlist is verb-prefixed — construction below emits only these verbs. */
 export const SCREEN_EXEC_ALLOWLIST: readonly (readonly string[])[] = [
@@ -44,7 +45,12 @@ export const SCREEN_EXEC_ALLOWLIST: readonly (readonly string[])[] = [
   ["xdotool", "key"],
   ["scrot", "-o"],
   ["base64", "-w0"],
+  ["chromium", "--no-sandbox"],
+  ["chromium-browser", "--no-sandbox"],
 ];
+
+const OPEN_URL_RE = /^https?:\/\/[^\s]+$/i;
+const MAX_OPEN_URL_LEN = 2000;
 
 /** Input failed validation before it could become argv. */
 export class ScreenActionError extends Error {
@@ -135,6 +141,16 @@ export function screenActionArgv(action: ScreenAction): string[][] {
         ["scrot", "-o", SCREENSHOT_PATH],
         ["base64", "-w0", SCREENSHOT_PATH],
       ];
+    case "open_url": {
+      if (typeof action.url !== "string" || action.url.length === 0 || action.url.length > MAX_OPEN_URL_LEN) {
+        throw new ScreenActionError("url must be a non-empty http(s) URL.");
+      }
+      if (!OPEN_URL_RE.test(action.url)) {
+        throw new ScreenActionError("url must start with http:// or https://.");
+      }
+      const bin = "chromium";
+      return [[bin, "--no-sandbox", "--new-window", action.url]];
+    }
     default:
       throw new ScreenActionError("Unknown screen action.");
   }

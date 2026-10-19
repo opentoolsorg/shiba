@@ -51,6 +51,7 @@ export default defineConfig({
 						{ label: 'Architecture', slug: 'docs/architecture' },
 						{ label: 'Approval Gates', slug: 'docs/approval-gates' },
 						{ label: 'Security & credential boundaries', slug: 'docs/security' },
+						{ label: 'Live desktop', slug: 'docs/live-desktop' },
 						{ label: 'Models & costs', slug: 'docs/costs' },
 					],
 				},

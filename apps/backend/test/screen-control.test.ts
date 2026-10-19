@@ -158,6 +158,15 @@ describe("screenActionArgv", () => {
     expect(() => screenActionArgv({ type: "nope" } as never)).toThrow(ScreenActionError);
   });
 
+  it("open_url launches chromium with the URL as one argv", () => {
+    expect(screenActionArgv({ type: "open_url", url: "https://example.com/a?b=1" })[0]).toEqual([
+      "chromium",
+      "--no-sandbox",
+      "--new-window",
+      "https://example.com/a?b=1",
+    ]);
+  });
+
   it("shot emits scrot + base64", () => {
     expect(screenActionArgv({ type: "shot" })).toEqual([
       ["scrot", "-o", "/tmp/shiba-screen.png"],

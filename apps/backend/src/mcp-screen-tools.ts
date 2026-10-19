@@ -10,6 +10,7 @@ import {
   screenClickInputSchema,
   screenKeyInputSchema,
   screenScrollInputSchema,
+  screenOpenUrlInputSchema,
   screenShotInputSchema,
   screenTypeInputSchema,
 } from "@shiba/shared";
@@ -129,6 +130,25 @@ export function registerScreenTools(registry: ToolRegistry, env: Env): void {
     {
       description: `Send key names (xdotool syntax, e.g. "ctrl+s", "Return") to the run's screen. ${SCREEN_TOOL_NOTE}`,
       inputSchema: screenKeyInputSchema.shape,
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+  );
+
+  registry.registerTool(
+    "screen_open_url",
+    "sandbox:exec",
+    async (args, ctx) =>
+      jsonResult(
+        await orchestratorScreen(
+          env,
+          String(args.runId),
+          { type: "open_url", url: args.url },
+          ctx.principal.principal,
+        ),
+      ),
+    {
+      description: `Open a URL in the sandbox Chromium window. ${SCREEN_TOOL_NOTE}`,
+      inputSchema: screenOpenUrlInputSchema.shape,
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
   );
