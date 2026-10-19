@@ -9,7 +9,7 @@
  * navigation timeout, or an R2 failure all resolve to `null` — never a
  * thrown error — so capture can never fail a run or its PR publish.
  */
-import { getSandbox } from "@cloudflare/sandbox";
+import { getSandbox } from "./sandbox/client.js";
 import puppeteer from "@cloudflare/puppeteer";
 import type { Env } from "./env.js";
 import { isValidSandboxId } from "./sandbox-routes.js";

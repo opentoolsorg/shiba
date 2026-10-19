@@ -289,7 +289,10 @@ export interface SandboxHandle {
 }
 
 /** Resolves a container handle — production default loads the SDK lazily. */
-export type SandboxHandleResolver = (binding: Env["Sandbox"], sandboxId: string) => SandboxHandle;
+export type SandboxHandleResolver = (
+  binding: DurableObjectNamespace<import("./durable-object.js").Sandbox>,
+  sandboxId: string,
+) => SandboxHandle;
 
 let sandboxHandleResolver: SandboxHandleResolver | undefined;
 
@@ -314,7 +317,7 @@ export async function destroyManagedContainer(
   hooks?: LeakHooks,
 ): Promise<void> {
   try {
-    const resolve = sandboxHandleResolver ?? (await import("@cloudflare/sandbox")).getSandbox;
+    const resolve = sandboxHandleResolver ?? (await import("./client.js")).getSandbox;
     await resolve(env.Sandbox, sandboxId).destroy();
     forgetLeaked(sandboxId, hooks);
   } catch (error) {
