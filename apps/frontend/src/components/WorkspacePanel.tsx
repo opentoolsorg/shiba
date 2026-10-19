@@ -62,6 +62,9 @@ export function StoredApprovalCard({
       ...(approval.publishPullRequest !== undefined
         ? { publishPullRequest: approval.publishPullRequest }
         : {}),
+      ...(approval.reviewAfterPublish !== undefined
+        ? { reviewAfterPublish: approval.reviewAfterPublish }
+        : {}),
       ...(approval.testCommand?.length ? { testCommand: approval.testCommand } : {}),
     } satisfies Record<string, unknown>);
   return (
@@ -78,6 +81,11 @@ export function StoredApprovalCard({
         via {storedApprovalAgent(approval)}
       </p>
       <p className="text-[11px] text-[var(--fg)] font-medium break-words mb-1">{approval.task}</p>
+      {approval.reviewAfterPublish ? (
+        <p className="text-[11px] text-[var(--fg)] break-words mb-1">
+          After the PR opens, a read-only review will run and Shiba will post its findings as a PR review.
+        </p>
+      ) : null}
       {approval.testCommand?.length ? (
         <p className="text-[11px] font-mono text-[var(--muted-foreground-2)] break-words mb-1">
           <span className="font-semibold text-[var(--fg)]">Tests:</span> {approval.testCommand.join(" ")}

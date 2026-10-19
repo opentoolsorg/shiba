@@ -79,6 +79,8 @@ export interface PendingApproval {
   /** Exact delegation input frozen at queue time; executed verbatim on approve. */
   baseBranch?: string;
   publishPullRequest?: boolean;
+  /** When true, the same approval covers a read-only review after the PR opens. */
+  reviewAfterPublish?: boolean;
   /**
    * The frozen, approval-gated route: connection/model/harness ids only.
    * The human approves exactly this; dispatch revalidates it and never
@@ -156,6 +158,7 @@ export interface CreateApprovalInput {
   task: string;
   baseBranch?: string;
   publishPullRequest?: boolean;
+  reviewAfterPublish?: boolean;
   route?: ApprovedRoute;
   harness?: string;
   authAccount?: string;
@@ -189,6 +192,7 @@ export function createPendingApproval(
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
+      ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
       ...(input.route !== undefined ? { route: input.route } : {}),
       ...(input.harness !== undefined ? { harness: input.harness } : {}),
       ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
@@ -322,6 +326,9 @@ export interface RunInputFields {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  reviewAfterPublish?: boolean;
+  /** Reviewer runs name the coding run the original approval already covered. */
+  reviewOf?: string;
   route?: ApprovedRoute;
   /** T48: which subscription account — part of what the human approved. */
   authAccount?: string;
@@ -426,6 +433,8 @@ export function runInputHash(input: RunInputFields): string {
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,
+    ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
+    ...(input.reviewOf !== undefined ? { reviewOf: input.reviewOf } : {}),
     ...(input.route !== undefined ? { route: input.route as unknown as JsonValue } : {}),
     ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
     ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),

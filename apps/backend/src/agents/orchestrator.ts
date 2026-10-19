@@ -201,6 +201,10 @@ export const delegateInputSchema = z.object({
     .optional()
     .default(false)
     .describe("Open a pull request with the result. Requires GITHUB_TOKEN."),
+  reviewAfterPublish: z
+    .boolean()
+    .optional()
+    .describe("After the PR opens, run a read-only review and post findings. Covered by this approval."),
   harness: z
     .enum(HARNESS_IDS)
     .optional()
@@ -270,6 +274,7 @@ const composerPinSchema = z.object({
   task: z.string().min(1).optional().catch(undefined),
   baseBranch: z.string().min(1).optional().catch(undefined),
   publishPullRequest: z.boolean().optional().catch(undefined),
+  reviewAfterPublish: z.boolean().optional().catch(undefined),
   harness: z.enum(HARNESS_IDS).optional().catch(undefined),
   codingModel: z.string().min(1).optional().catch(undefined),
   connectionId: z.string().min(1).optional().catch(undefined),
@@ -1569,6 +1574,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               ? input.baseBranch.slice(0, 200)
               : "main",
           publishPullRequest,
+          ...(input.reviewAfterPublish === true ? { reviewAfterPublish: true } : {}),
           route,
           // T48: the approved subscription account name, frozen with the input.
           ...(typeof input.authAccount === "string" && input.authAccount.trim()
@@ -1732,6 +1738,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           task: task.slice(0, 4000),
           baseBranch: parent.baseBranch,
           publishPullRequest: parent.publishPullRequest,
+          ...(parent.reviewAfterPublish !== undefined ? { reviewAfterPublish: parent.reviewAfterPublish } : {}),
           ...(parent.route !== undefined ? { route: parent.route } : {}),
           ...(parent.authAccount !== undefined ? { authAccount: parent.authAccount } : {}),
           ...(parent.runtime !== undefined ? { runtime: parent.runtime } : {}),
@@ -2145,6 +2152,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         task: input.task.slice(0, 4000),
         baseBranch: input.baseBranch,
         publishPullRequest: input.publishPullRequest,
+        ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
         route,
         ...(typeof input.authAccount === "string" && input.authAccount.trim()
           ? { authAccount: input.authAccount.trim().slice(0, 32) }
@@ -2180,6 +2188,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       task: record.task,
       baseBranch: record.baseBranch ?? "main",
       publishPullRequest: record.publishPullRequest ?? false,
+      ...(record.reviewAfterPublish !== undefined ? { reviewAfterPublish: record.reviewAfterPublish } : {}),
       queuedBy: record.queuedBy,
       ...(record.route ? { route: record.route } : {}),
       ...(record.authAccount ? { authAccount: record.authAccount } : {}),
@@ -2196,6 +2205,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         task: record.task,
         baseBranch: record.baseBranch ?? "main",
         publishPullRequest: record.publishPullRequest ?? false,
+        ...(record.reviewAfterPublish !== undefined ? { reviewAfterPublish: record.reviewAfterPublish } : {}),
         ...(record.route ? { route: record.route } : {}),
         ...(record.authAccount ? { authAccount: record.authAccount } : {}),
         ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),

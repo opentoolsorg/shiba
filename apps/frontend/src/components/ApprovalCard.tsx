@@ -15,9 +15,11 @@ export interface ApprovalCardProps {
   onDecideApproval: (approvalId: string, approved: boolean) => void;
   /** Agent requesting the approval — the orchestrator instance driving the chat. */
   agentName?: string;
+  /** Frozen composer flag. The tool-call JSON may omit it. */
+  reviewAfterPublish?: boolean;
 }
 
-export function ApprovalCard({ approval, decided, decision, onDecideApproval, agentName }: ApprovalCardProps): JSX.Element {
+export function ApprovalCard({ approval, decided, decision, onDecideApproval, agentName, reviewAfterPublish }: ApprovalCardProps): JSX.Element {
   const rawTestCommand =
     typeof approval.input === "object" && approval.input !== null && !Array.isArray(approval.input)
       ? (approval.input as Record<string, unknown>)["testCommand"]
@@ -76,6 +78,16 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
           ? approval.input
           : JSON.stringify(approval.input, null, 2)}
       </pre>
+
+      {reviewAfterPublish ||
+      (typeof approval.input === "object" &&
+        approval.input !== null &&
+        !Array.isArray(approval.input) &&
+        (approval.input as Record<string, unknown>).reviewAfterPublish === true) ? (
+        <p className="text-xs text-[var(--fg)] leading-relaxed">
+          After the PR opens, a read-only review will run and Shiba will post its findings as a PR review.
+        </p>
+      ) : null}
 
       <p className="text-xs text-[var(--muted-foreground-2)] leading-relaxed">
         Approving starts an isolated sandbox run. Rejecting stops the tool call.

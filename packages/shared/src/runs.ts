@@ -36,6 +36,12 @@ export interface DelegatedRun {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  /** Frozen at approval. When true, a completed PR chains a read-only reviewer without a second card. */
+  reviewAfterPublish?: boolean;
+  /** Set on the reviewer run: the coding run this review covers. */
+  reviewOf?: string;
+  /** Latest review round id, stamped after the round is queued. */
+  reviewRoundId?: string;
   /**
    * Fencing token: 0 at creation, bumped by every successful transition.
    * A writer carrying a stale expectedGeneration is dropped — a late child

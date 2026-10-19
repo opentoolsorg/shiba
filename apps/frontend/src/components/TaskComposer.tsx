@@ -48,6 +48,7 @@ export interface TaskComposerProps {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  reviewAfterPublish?: boolean;
   harness: string;
   /** T63 — desktop "Run on" control. Rendered only when the shell reports a
    *  paired, ready daemon (localRunAvailable). "sandbox" keeps the chat path. */
@@ -62,6 +63,7 @@ export interface TaskComposerProps {
   onTaskChange: (value: string) => void;
   onBaseBranchChange: (value: string) => void;
   onPublishPullRequestChange: (value: boolean) => void;
+  onReviewAfterPublishChange?: (value: boolean) => void;
   onHarnessChange: (value: string) => void;
   onSubmit: (event: SyntheticEvent) => void;
   onClear: () => void;
@@ -189,6 +191,7 @@ export function TaskComposer({
   task,
   baseBranch,
   publishPullRequest,
+  reviewAfterPublish = false,
   harness,
   runTarget = "sandbox",
   onRunTargetChange,
@@ -201,6 +204,7 @@ export function TaskComposer({
   onTaskChange,
   onBaseBranchChange,
   onPublishPullRequestChange,
+  onReviewAfterPublishChange,
   onHarnessChange,
   onSubmit,
   onClear,
@@ -716,6 +720,19 @@ export function TaskComposer({
                   <Check aria-hidden="true" className={menuCheckClass} />
                 ) : null}
               </button>
+              {publishPullRequest ? (
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={reviewAfterPublish}
+                  aria-label="Read-only review after publish"
+                  className="flex items-center gap-2 text-xs text-[var(--fg)] hover:bg-[var(--secondary-hover)] p-1.5 rounded-[var(--radius-button)] transition-colors cursor-pointer text-left"
+                  onClick={() => onReviewAfterPublishChange?.(!reviewAfterPublish)}
+                >
+                  <span className="flex-1">Read-only review after publish</span>
+                  {reviewAfterPublish ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                </button>
+              ) : null}
 
               <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">
                 <span className="text-xs text-[var(--muted-foreground-1)]">Agent harness</span>
