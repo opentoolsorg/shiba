@@ -1,10 +1,22 @@
 import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
-import { type JSX, useCallback, useEffect, useState } from "react";
+import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { LoadErrorState } from "./LoadErrorState";
 import { ConnectionsCard } from "./ModelRoutingSection";
 import { providerPhaseLabel } from "./provider-phase";
 import { EmptyState, PageHeader, StatusNotice } from "./surface";
 import { ToneChip } from "./ToneChip";
+
+type CardAction = "oauth" | "api-key" | "verify" | "test" | "disconnect" | "default";
+
+function actionLabel(
+  busy: boolean,
+  action: CardAction | null,
+  expected: CardAction,
+  idle: string,
+  active: string,
+): string {
+  return busy && action === expected ? active : idle;
+}
 
 const PRIMARY =
   "inline-flex min-h-6 touch:min-h-11 items-center bg-[var(--primary)] text-[var(--primary-text)] font-mono text-[11px] font-semibold px-3 py-1.5 shadow-[var(--sh-card)] active:translate-y-px hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed";
@@ -36,7 +48,7 @@ function ProviderSkeleton(): JSX.Element {
 function Fact({ label, value }: { label: string; value: string }): JSX.Element {
   return (
     <span className="min-w-0 bg-[var(--card)] px-2.5 py-1.5" title={`${label} ${value}`}>
-      <span className="uppercase tracking-[0.12em] text-[var(--muted-foreground-3)]">{label} </span>
+      <span className="uppercase tracking-[0.12em]">{label} </span>
       <span className="text-[var(--fg)]">{value}</span>
     </span>
   );
@@ -54,11 +66,13 @@ function NewTabLabel({ children }: { children: string }): JSX.Element {
 function WaitingSignIn({
   card,
   busy,
+  action,
   onVerify,
   onDisconnect,
 }: {
   card: AcpProviderCard;
   busy: boolean;
+  action: CardAction | null;
   onVerify: (id: string) => void;
   onDisconnect: (id: string) => void;
 }): JSX.Element {
@@ -85,7 +99,7 @@ function WaitingSignIn({
           </a>
         ) : null}
         <button type="button" disabled={busy} onClick={() => onVerify(card.id)} className={PRIMARY}>
-          {busy ? "Checking…" : "Finish sign-in"}
+          {actionLabel(busy, action, "verify", "Finish sign-in", "Checking…")}
         </button>
         <button
           type="button"
@@ -93,7 +107,7 @@ function WaitingSignIn({
           onClick={() => onDisconnect(card.id)}
           className={SECONDARY}
         >
-          Cancel
+          {actionLabel(busy, action, "disconnect", "Cancel", "Working…")}
         </button>
       </div>
     </div>
@@ -103,11 +117,13 @@ function WaitingSignIn({
 function DisconnectedActions({
   card,
   busy,
+  action,
   onConnectOauth,
   onConnectApiKey,
 }: {
   card: AcpProviderCard;
   busy: boolean;
+  action: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectApiKey: (id: string) => void;
 }): JSX.Element {
@@ -121,7 +137,7 @@ function DisconnectedActions({
           onClick={() => onConnectOauth(card.id)}
           className={PRIMARY}
         >
-          {busy ? "Working…" : "Connect with sign-in"}
+          {actionLabel(busy, action, "oauth", "Connect with sign-in", "Working…")}
         </button>
       ) : null}
       {card.capabilities.apiKey ? (
@@ -132,7 +148,7 @@ function DisconnectedActions({
           onClick={() => onConnectApiKey(card.id)}
           className={card.capabilities.oauth ? SECONDARY : PRIMARY}
         >
-          Use API credential
+          {actionLabel(busy, action, "api-key", "Use API credential", "Working…")}
         </button>
       ) : null}
     </div>
@@ -142,12 +158,14 @@ function DisconnectedActions({
 function ConnectedActions({
   card,
   busy,
+  action,
   onTest,
   onDisconnect,
   onDefault,
 }: {
   card: AcpProviderCard;
   busy: boolean;
+  action: CardAction | null;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -161,7 +179,7 @@ function ConnectedActions({
         onClick={() => onTest(card.id)}
         className={PRIMARY}
       >
-        {busy ? "Testing…" : "Test connection"}
+        {actionLabel(busy, action, "test", "Test connection", "Testing…")}
       </button>
       {card.isDefault ? null : (
         <button
@@ -171,7 +189,7 @@ function ConnectedActions({
           onClick={() => onDefault(card.id)}
           className={SECONDARY}
         >
-          Set as org default
+          {actionLabel(busy, action, "default", "Set as org default", "Working…")}
         </button>
       )}
       <button
@@ -181,7 +199,7 @@ function ConnectedActions({
         onClick={() => onDisconnect(card.id)}
         className={SECONDARY}
       >
-        Disconnect
+        {actionLabel(busy, action, "disconnect", "Disconnect", "Working…")}
       </button>
     </div>
   );
@@ -190,6 +208,7 @@ function ConnectedActions({
 function ProviderActions(props: {
   card: AcpProviderCard;
   busy: boolean;
+  action: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectApiKey: (id: string) => void;
   onVerify: (id: string) => void;
@@ -197,12 +216,13 @@ function ProviderActions(props: {
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
 }): JSX.Element {
-  const { card } = props;
+  const { card, action } = props;
   if (card.connection.phase === "waiting" && card.connection.userCode) {
     return (
       <WaitingSignIn
         card={card}
         busy={props.busy}
+        action={action}
         onVerify={props.onVerify}
         onDisconnect={props.onDisconnect}
       />
@@ -213,6 +233,7 @@ function ProviderActions(props: {
       <ConnectedActions
         card={card}
         busy={props.busy}
+        action={action}
         onTest={props.onTest}
         onDisconnect={props.onDisconnect}
         onDefault={props.onDefault}
@@ -223,6 +244,7 @@ function ProviderActions(props: {
     <DisconnectedActions
       card={card}
       busy={props.busy}
+      action={action}
       onConnectOauth={props.onConnectOauth}
       onConnectApiKey={props.onConnectApiKey}
     />
@@ -233,6 +255,7 @@ function ProviderCard({
   card,
   index,
   busy,
+  action,
   onConnectOauth,
   onConnectApiKey,
   onVerify,
@@ -243,6 +266,7 @@ function ProviderCard({
   card: AcpProviderCard;
   index: number;
   busy: boolean;
+  action: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectApiKey: (id: string) => void;
   onVerify: (id: string) => void;
@@ -285,6 +309,7 @@ function ProviderCard({
         <ProviderActions
           card={card}
           busy={busy}
+          action={action}
           onConnectOauth={onConnectOauth}
           onConnectApiKey={onConnectApiKey}
           onVerify={onVerify}
@@ -335,6 +360,7 @@ function AdapterBody({
   snapshot,
   loading,
   busyId,
+  busyAction = null,
   onConnectOauth,
   onConnectApiKey,
   onVerify,
@@ -345,6 +371,7 @@ function AdapterBody({
   snapshot: AcpProvidersSnapshot | null;
   loading: boolean;
   busyId: string | null;
+  busyAction?: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectApiKey: (id: string) => void;
   onVerify: (id: string) => void;
@@ -359,7 +386,7 @@ function AdapterBody({
           Loading providers…
         </p>
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-          {["a", "b", "c", "d"].map((key) => (
+          {["a", "b", "c", "d", "e"].map((key) => (
             <ProviderSkeleton key={key} />
           ))}
         </div>
@@ -368,9 +395,7 @@ function AdapterBody({
   }
   const providers = snapshot?.providers ?? [];
   if (providers.length === 0) {
-    return (
-      <EmptyState title="No adapters" detail="The registry returned no sandbox adapters." />
-    );
+    return <EmptyState title="No adapters" detail="The registry returned no sandbox adapters." />;
   }
   return (
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -380,6 +405,7 @@ function AdapterBody({
           card={card}
           index={index}
           busy={busyId === card.id}
+          action={busyId === card.id ? busyAction : null}
           onConnectOauth={onConnectOauth}
           onConnectApiKey={onConnectApiKey}
           onVerify={onVerify}
@@ -397,6 +423,7 @@ export function ProvidersBoard({
   loading,
   error,
   busyId,
+  busyAction = null,
   actionError,
   onRetry,
   onConnectOauth,
@@ -410,6 +437,7 @@ export function ProvidersBoard({
   loading: boolean;
   error: string | null;
   busyId: string | null;
+  busyAction?: CardAction | null;
   actionError: string | null;
   onRetry: () => void;
   onConnectOauth: (id: string) => void;
@@ -470,6 +498,7 @@ export function ProvidersBoard({
                 snapshot={snapshot}
                 loading={loading}
                 busyId={busyId}
+                busyAction={busyAction}
                 onConnectOauth={onConnectOauth}
                 onConnectApiKey={onConnectApiKey}
                 onVerify={onVerify}
@@ -501,43 +530,55 @@ export function ProvidersView(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<CardAction | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const generation = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const ticket = ++generation.current;
     setLoading(true);
+    setBusyId(null);
+    setBusyAction(null);
     const reload = attempt;
     void fetch("/api/providers", { cache: reload === 0 ? "default" : "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Providers request failed: ${response.status}`);
         const body = (await response.json()) as AcpProvidersSnapshot;
-        if (!cancelled) {
-          setSnapshot(body);
-          setError(null);
-        }
+        if (ticket !== generation.current) return;
+        setSnapshot(body);
+        setError(null);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (ticket !== generation.current) return;
+        setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (ticket === generation.current) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [attempt]);
 
-  const run = useCallback(async (id: string, work: () => Promise<AcpProvidersSnapshot>) => {
-    setBusyId(id);
-    setActionError(null);
-    try {
-      setSnapshot(await work());
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusyId(null);
-    }
-  }, []);
+  const run = useCallback(
+    async (id: string, action: CardAction, work: () => Promise<AcpProvidersSnapshot>) => {
+      const ticket = ++generation.current;
+      setBusyId(id);
+      setBusyAction(action);
+      setActionError(null);
+      try {
+        const next = await work();
+        if (ticket !== generation.current) return;
+        setSnapshot(next);
+      } catch (err) {
+        if (ticket !== generation.current) return;
+        setActionError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (ticket === generation.current) {
+          setBusyId(null);
+          setBusyAction(null);
+        }
+      }
+    },
+    [],
+  );
 
   const codeFor = (id: string) =>
     snapshot?.providers.find((provider) => provider.id === id)?.connection.userCode ?? "";
@@ -548,20 +589,29 @@ export function ProvidersView(): JSX.Element {
       loading={loading}
       error={error}
       busyId={busyId}
+      busyAction={busyAction}
       actionError={actionError}
       onRetry={() => setAttempt((n) => n + 1)}
       onConnectOauth={(id) =>
-        void run(id, () => postProvider(`/api/providers/${id}/connect`, { mode: "oauth" }))
+        void run(id, "oauth", () => postProvider(`/api/providers/${id}/connect`, { mode: "oauth" }))
       }
       onConnectApiKey={(id) =>
-        void run(id, () => postProvider(`/api/providers/${id}/connect`, { mode: "api-key" }))
+        void run(id, "api-key", () =>
+          postProvider(`/api/providers/${id}/connect`, { mode: "api-key" }),
+        )
       }
       onVerify={(id) =>
-        void run(id, () => postProvider(`/api/providers/${id}/verify`, { userCode: codeFor(id) }))
+        void run(id, "verify", () =>
+          postProvider(`/api/providers/${id}/verify`, { userCode: codeFor(id) }),
+        )
       }
-      onTest={(id) => void run(id, () => postProvider(`/api/providers/${id}/test`, {}))}
-      onDisconnect={(id) => void run(id, () => postProvider(`/api/providers/${id}/disconnect`, {}))}
-      onDefault={(id) => void run(id, () => postProvider(`/api/providers/${id}/default`, {}))}
+      onTest={(id) => void run(id, "test", () => postProvider(`/api/providers/${id}/test`, {}))}
+      onDisconnect={(id) =>
+        void run(id, "disconnect", () => postProvider(`/api/providers/${id}/disconnect`, {}))
+      }
+      onDefault={(id) =>
+        void run(id, "default", () => postProvider(`/api/providers/${id}/default`, {}))
+      }
     />
   );
 }

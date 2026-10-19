@@ -120,7 +120,7 @@ export function PurposeRoutingCard(): JSX.Element {
               }}
               placeholder="@cf/… (deployment default)"
               aria-label={`${purpose.label} model`}
-              className="w-56 font-mono text-[11px] bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60"
+              className="w-56 font-mono text-[11px] bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60"
             />
           </div>
         ))}
@@ -462,7 +462,7 @@ export function ConnectionsCard(): JSX.Element {
           value={service}
           onChange={(event) => setService(event.target.value)}
           aria-label="Service"
-          className="bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)]"
+          className="bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:border-[var(--primary)]"
         >
           {CONNECTION_SERVICES.map((entry) => (
             <option key={entry} value={entry}>
@@ -476,7 +476,7 @@ export function ConnectionsCard(): JSX.Element {
           onChange={(event) => setDisplayName(event.target.value)}
           placeholder="Display name (e.g. Team Anthropic)"
           aria-label="Connection display name"
-          className="flex-1 min-w-[140px] bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] placeholder-[var(--muted-foreground-3)]/60"
+          className="flex-1 min-w-[140px] bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:border-[var(--primary)] placeholder-[var(--muted-foreground-3)]/60"
         />
         <input
           type="text"
@@ -484,7 +484,7 @@ export function ConnectionsCard(): JSX.Element {
           onChange={(event) => setCredentialRef(event.target.value)}
           placeholder="Credential alias (never a key)"
           aria-label="Credential reference"
-          className="flex-1 min-w-[140px] font-mono bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] placeholder-[var(--muted-foreground-3)]/60"
+          className="flex-1 min-w-[140px] font-mono bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2 py-1.5 text-xs focus:border-[var(--primary)] placeholder-[var(--muted-foreground-3)]/60"
         />
         <button
           type="button"
