@@ -9,7 +9,7 @@
  * navigation timeout, or an R2 failure all resolve to `null` — never a
  * thrown error — so capture can never fail a run or its PR publish.
  */
-import { getSandbox } from "./sandbox/client.js";
+import { getSandboxInstance } from "./sandbox/provider.js";
 import puppeteer from "@cloudflare/puppeteer";
 import type { Env } from "./env.js";
 import { isValidSandboxId } from "./sandbox-routes.js";
@@ -130,7 +130,8 @@ export async function captureRunPreview(
     const hostname = env.WORKER_HOSTNAME?.trim();
     if (!hostname || !isValidSandboxId(input.sandboxId)) return null;
 
-    const sandbox = deps.sandbox ?? (getSandbox(env.Sandbox, input.sandboxId) as unknown as PreviewSandbox);
+    const sandbox =
+      deps.sandbox ?? (await previewSandboxFromInstance(env, input.sandboxId));
     const workdir = input.workdir ?? `/workspace/${input.sandboxId}`;
 
     // A static server is the honest preview of what the run produced: it
@@ -198,4 +199,24 @@ export async function captureRunPreview(
     );
     return null;
   }
+}
+
+async function previewSandboxFromInstance(env: Env, sandboxId: string): Promise<PreviewSandbox> {
+  const instance = await getSandboxInstance(env, sandboxId);
+  if (!instance.startProcess || !instance.exposePort || !instance.unexposePort) {
+    throw new Error("Sandbox provider does not support preview capture.");
+  }
+  return {
+    exec: (command, options) =>
+      instance.exec(command, { cwd: options?.cwd, timeoutMs: options?.timeout }).then((r) => ({
+        exitCode: r.exitCode,
+      })),
+    startProcess: (command, options) =>
+      instance.startProcess!(command, options).then((proc) => ({
+        waitForPort: (port, waitOpts) => proc.waitForPort(port, { timeoutMs: waitOpts?.timeout }),
+        kill: () => proc.kill(),
+      })),
+    exposePort: (port, options) => instance.exposePort!(port, options),
+    unexposePort: (port) => instance.unexposePort!(port),
+  };
 }

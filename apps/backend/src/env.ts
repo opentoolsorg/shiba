@@ -176,6 +176,17 @@ export interface Env {
    */
   INSTANCE_TYPE?: string;
   /**
+   * Sandbox backend for run containers: `cloudflare` (default) or `docker-local`.
+   * Providers without edge egress enforcement require SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS=1.
+   */
+  SHIBA_SANDBOX_PROVIDER?: string;
+  /** Opt-in for docker-local / hosted sandboxes that cannot enforce Worker egress. */
+  SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS?: string;
+  /** Image for docker-local provider (defaults to `shiba-sandbox:local`). */
+  SHIBA_DOCKER_SANDBOX_IMAGE?: string;
+  /** Hostname or IP for docker-local preview URLs (default 127.0.0.1). */
+  SHIBA_DOCKER_PREVIEW_HOST?: string;
+  /**
    * Optional. This Worker's public hostname (no scheme), used by T33 to mint
    * sandbox preview URLs (`sandbox.exposePort`) and to form the absolute
    * screenshot link embedded in published PRs. Empty/unset = capture skipped.

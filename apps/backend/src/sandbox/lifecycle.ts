@@ -317,8 +317,12 @@ export async function destroyManagedContainer(
   hooks?: LeakHooks,
 ): Promise<void> {
   try {
-    const resolve = sandboxHandleResolver ?? (await import("./client.js")).getSandbox;
-    await resolve(env.Sandbox, sandboxId).destroy();
+    if (sandboxHandleResolver) {
+      await sandboxHandleResolver(env.Sandbox, sandboxId).destroy();
+    } else {
+      const { destroySandboxInstance } = await import("./provider.js");
+      await destroySandboxInstance(env, sandboxId);
+    }
     forgetLeaked(sandboxId, hooks);
   } catch (error) {
     // Cleanup failure must not overwrite the recorded outcome.
