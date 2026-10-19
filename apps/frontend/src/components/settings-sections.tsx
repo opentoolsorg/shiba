@@ -10,6 +10,7 @@ import { authClient } from "../auth-client";
 import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
+import { SkeletonLines, StatusNotice } from "./surface";
 import { ChatGptSubscriptionCard } from "./ChatGptSubscriptionCard";
 import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
@@ -451,7 +452,7 @@ function SandboxOrgSettingsSection({
   const [effectiveSource, setEffectiveSource] = useState("");
   const [providers, setProviders] = useState<SandboxProviderRow[]>([]);
   const [computesdkBackend, setComputesdkBackend] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
   const reload = useCallback(() => {
@@ -499,19 +500,26 @@ function SandboxOrgSettingsSection({
       });
       const body = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
-        setNotice(body.error ?? `Save failed (${response.status}).`);
+        setNotice({ tone: "err", text: body.error ?? `Save failed (${response.status}).` });
       } else {
-        setNotice("Sandbox provider saved for this org.");
+        setNotice({ tone: "ok", text: "Sandbox provider saved for this org." });
         reload();
       }
     } catch {
-      setNotice("Save failed: backend unreachable.");
+      setNotice({ tone: "err", text: "Save failed: backend unreachable." });
     } finally {
       setSaving(false);
     }
   };
 
-  const matrixKeys = ["exec", "files", "portsPreview", "snapshots", "volumes", "edgeEgress"] as const;
+  const matrixKeys = [
+    ["exec", "Exec"],
+    ["files", "Files"],
+    ["portsPreview", "Ports"],
+    ["snapshots", "Snapshots"],
+    ["volumes", "Volumes"],
+    ["edgeEgress", "Egress"],
+  ] as const;
 
   return (
     <SectionShell
@@ -519,7 +527,9 @@ function SandboxOrgSettingsSection({
       description="Org-default sandbox backend (task → custom agent → org → deployment). Capability matrix is computed from each registered provider — including ComputeSDK and custom adapters."
     >
       {loading ? (
-        <div className="text-xs text-[var(--muted-foreground-2)]">Loading…</div>
+        <div role="status" aria-busy="true" aria-label="Loading sandbox settings">
+          <SkeletonLines rows={4} />
+        </div>
       ) : error ? (
         <LoadErrorState message={error} onRetry={reload} />
       ) : (
@@ -565,15 +575,15 @@ function SandboxOrgSettingsSection({
               >
                 {saving ? "Saving…" : "Save org default"}
               </button>
-              {notice ? <p className="text-[11px] text-[var(--warning-fg)]">{notice}</p> : null}
+              {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[11px] font-mono">
                 <thead className="bg-[var(--bg)] text-[10px] uppercase text-[var(--muted-foreground-2)]">
                   <tr>
                     <th className="p-2">Provider</th>
-                    {matrixKeys.map((key) => (
-                      <th key={key} className="p-2">{key}</th>
+                    {matrixKeys.map(([, label]) => (
+                      <th key={label} className="p-2">{label}</th>
                     ))}
                   </tr>
                 </thead>
@@ -581,9 +591,10 @@ function SandboxOrgSettingsSection({
                   {providers.map((row) => (
                     <tr key={row.id} className={row.id === providerId ? "bg-[var(--primary-soft)]/40" : ""}>
                       <td className="p-2 font-semibold text-[var(--fg)]">{row.label}</td>
-                      {matrixKeys.map((key) => (
+                      {matrixKeys.map(([key, label]) => (
                         <td key={key} className="p-2 text-center">
-                          {row.matrix[key] ? "✓" : "·"}
+                          <span className="sr-only">{row.matrix[key] ? `${label} yes` : `${label} no`}</span>
+                          <span aria-hidden="true">{row.matrix[key] ? "✓" : "·"}</span>
                         </td>
                       ))}
                     </tr>

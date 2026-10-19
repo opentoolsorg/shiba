@@ -346,7 +346,7 @@ export function TaskComposer({
               className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans text-[var(--fg)]`}
             >
               <Home aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
-              <span className={pillLabelClass}>{repoSlug || "Home"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
+              <span className={pillLabelClass}>{repoSlug || "Repository"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
               {chevron}
             </button>
           </Tooltip>
@@ -517,7 +517,7 @@ export function TaskComposer({
         value={task}
         onChange={(event) => onTaskChange(event.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Ask anything, / for commands, @ for context"
+        placeholder="Describe the change in this repository"
         rows={1}
         className={`w-full resize-none bg-transparent text-base lg:text-sm text-[var(--fg)] placeholder-[var(--muted-foreground-2)] focus:outline-none overflow-y-auto leading-relaxed ${
           hero ? "min-h-[96px] max-h-64" : "min-h-[72px] max-h-48"
@@ -991,7 +991,7 @@ export function TaskComposer({
           ) : null}
         </div>
 
-        {/* Teal Send Button */}
+        {/* Send */}
         <Tooltip content="Submit task to coding agent" shortcut="⌘↵" side="top">
           <button
             type="submit"
@@ -1011,7 +1011,13 @@ export function TaskComposer({
   return (
     <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center justify-center px-4 py-8 relative">
       <div className="absolute inset-0 dot-grid pointer-events-none" aria-hidden="true" />
-      <div className="w-full max-w-[640px] flex flex-col items-center gap-4 z-10">
+      <div className="w-full max-w-[640px] flex flex-col items-center gap-5 z-10">
+        <div className="text-center px-2">
+          <h2 className="text-[24px] leading-[1.05] text-[var(--fg)]">What should Shiba change?</h2>
+          <p className="mt-2 text-[11px] font-mono uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            Pick a repo, describe the task, then send. The sandbox starts only after you approve.
+          </p>
+        </div>
         {form}
       </div>
     </div>
