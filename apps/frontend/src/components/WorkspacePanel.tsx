@@ -48,10 +48,13 @@ export function storedApprovalAgent(approval: StoredApproval): string {
 export function StoredApprovalCard({
   approval,
   decided,
+  decision,
   onDecide,
 }: {
   approval: StoredApproval;
   decided: boolean;
+  /** Outcome when decided — mirrors the chat ApprovalCard. */
+  decision?: boolean;
   onDecide: (approval: StoredApproval, ok: boolean) => void;
 }): JSX.Element {
   const frozen =
@@ -95,6 +98,9 @@ export function StoredApprovalCard({
       <pre className="font-mono text-[10px] text-[var(--muted-foreground-2)] bg-[var(--card)] p-2 rounded-[var(--radius-button)] border border-[var(--border-1)] whitespace-pre-wrap break-words max-h-32 overflow-auto mb-2">
         {JSON.stringify(frozen, null, 2)}
       </pre>
+      <p className="text-[11px] text-[var(--muted-foreground-2)] mb-2">
+        Approve to start the run with the frozen payload above. Reject to discard it — nothing executes.
+      </p>
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -102,7 +108,7 @@ export function StoredApprovalCard({
           disabled={decided}
           onClick={() => onDecide(approval, true)}
         >
-          {decided ? "Decided" : "Approve"}
+          {decided && decision === true ? "Approved" : "Approve"}
         </button>
         <button
           type="button"
@@ -110,7 +116,7 @@ export function StoredApprovalCard({
           disabled={decided}
           onClick={() => onDecide(approval, false)}
         >
-          Reject
+          {decided && decision === false ? "Rejected" : "Reject"}
         </button>
       </div>
     </div>

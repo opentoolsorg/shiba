@@ -11,7 +11,28 @@
     "./adapters/cloudflare": "./src/adapters/cloudflare.ts",
     "./adapters/docker-local": "./src/adapters/docker-local.ts",
     "./adapters/e2b": "./src/adapters/e2b.ts",
-    "./contract": "./src/contract-suite.ts"
+    "./adapters/computesdk": "./src/adapters/computesdk.ts",
+    "./adapters/computesdk-load": "./src/adapters/computesdk-load.ts",
+    "./adapters/computesdk-capabilities": "./src/adapters/computesdk-capabilities.ts",
+    "./contract": "./src/contract-suite.ts",
+    "./registry": "./src/registry.ts"
+  },
+  "peerDependencies": {
+    "computesdk": "4.1.12"
+  },
+  "peerDependenciesMeta": {
+    "computesdk": {
+      "optional": true
+    },
+    "@computesdk/e2b": {
+      "optional": true
+    },
+    "@computesdk/modal": {
+      "optional": true
+    },
+    "@computesdk/daytona": {
+      "optional": true
+    }
   },
   "scripts": {
     "lint": "eslint src test",
@@ -20,6 +41,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.6",
+    "computesdk": "4.1.12",
     "vitest": "5.0.1"
   }
 }

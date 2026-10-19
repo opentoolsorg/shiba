@@ -10,6 +10,7 @@ import {
   type ConnectionService,
 } from "./model-connections.js";
 import { redactSecrets } from "./security.js";
+import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 
 export interface ConnectionProbeResult {
   ok: boolean;
@@ -131,10 +132,29 @@ async function probeWorkerSecret(env: Env, connection: Connection): Promise<Conn
   return { ok: true, message: `${secretName} is present.`, checkedAt };
 }
 
+async function probeUserSubscription(env: Env, connection: Connection): Promise<ConnectionProbeResult> {
+  const checkedAt = Date.now();
+  if (!modelCredentialKeyConfigured(env)) {
+    return {
+      ok: false,
+      message: "MODEL_CREDENTIAL_KEY is not configured — per-user ChatGPT subscription storage is unavailable.",
+      checkedAt,
+    };
+  }
+  return {
+    ok: true,
+    message: `${connection.service} uses per-user credentials connected in Settings → Models.`,
+    checkedAt,
+  };
+}
+
 /** Run the appropriate probe for one connection record. */
 export async function probeModelConnection(env: Env, connection: Connection): Promise<ConnectionProbeResult> {
   if (connection.authMode === "gateway-byok") {
     return probeGatewayByok(env, connection);
+  }
+  if (connection.authMode === "user-subscription") {
+    return probeUserSubscription(env, connection);
   }
   return probeWorkerSecret(env, connection);
 }

@@ -35,6 +35,7 @@ import {
   parseInlineSeverityThreshold,
   parseReviewEnvelope,
   patchFindingTriage,
+  reviewRoundWriteRejected,
   runInputHash,
   type FindingSeverity,
   type ReviewRound,
@@ -76,7 +77,9 @@ import {
 import { mailboxDirectoryStub, mailboxStub, registeredMailbox } from "../mailbox-do.js";
 import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
+import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
+import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
 import { type CodingTaskInput, formatAgentToolInput, parseAgentResult } from "../opencode-input.js";
 import { appendBatch } from "../orchestration/event-log.js";
 import { drainOutbox, dueEntries } from "../orchestration/outbox.js";
@@ -99,7 +102,9 @@ import { decideChain } from "../review/chain.js";
 import { mergePullRequest, type MergeMethod } from "../review/merge.js";
 import { reviewerTask } from "../review/prompt.js";
 import { postReview } from "../review/publish.js";
+import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
+import { ORCHESTRATOR_NAME } from "../slack-routes.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
   classifyExecutorError,
@@ -819,6 +824,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private resolveHarnessAndModel(
     input: DelegateInput,
     dashboardRolePins?: import("../model-connections.js").PurposePolicy["rolePins"],
+    snapshot?: import("../model-policy.js").ModelConfigSnapshot,
   ): { harness: string; codingModel: string } {
     // T52: a delegation carrying `role` resolves through the operator's
     // role pins (dashboard, ROLE_MODEL_MAP, then ROLE_MODEL__<ROLE>) before
@@ -826,7 +832,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // the chain below unchanged. A pinned role's model is authoritative —
     // a per-call codingModel cannot override what the operator pinned.
     const rolePick =
-      input.role !== undefined ? resolveRoleModel(this.env, input.role, dashboardRolePins) : null;
+      input.role !== undefined ? resolveRoleModel(this.env, input.role, dashboardRolePins, snapshot) : null;
     const harnessName =
       rolePick?.harness ?? input.harness ?? this.env.AGENT_HARNESS?.trim() ?? "opencode";
     const harness = resolveHarness(harnessName, this.env);
@@ -855,12 +861,28 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     input: DelegateInput,
   ): Promise<{ harness: string; codingModel: string; route: ApprovedRoute }> {
     const snapshot = await readModelConfig(this.env);
-    const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins);
-    const route = resolveCodingRoute(snapshot, {
-      connectionId: input.connectionId?.trim() || null,
-      model: codingModel,
-      harness,
-    });
+    const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins, snapshot);
+    const route = resolveCodingRoute(
+      snapshot,
+      {
+        connectionId: input.connectionId?.trim() || null,
+        model: codingModel,
+        harness,
+      },
+      { initiatorUserId: initiatorUserIdFromOrchestratorName(this.name) },
+    );
+    await assertRunPreflight(
+      this.env,
+      {
+        harness,
+        codingModel,
+        route,
+        authAccount: typeof input.authAccount === "string" ? input.authAccount.trim() : undefined,
+        repoUrl: input.repoUrl,
+        publishPullRequest: input.publishPullRequest,
+      },
+      snapshot,
+    );
     return { harness, codingModel, route };
   }
 
@@ -996,6 +1018,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           : {}),
         ...(input.authAccount ? { authAccount: input.authAccount } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
+        ...((() => {
+          const initiatorUserId = initiatorUserIdFromOrchestratorName(this.name);
+          return initiatorUserId ? { initiatorUserId } : {};
+        })()),
         // Fork lineage rides the dispatch envelope — the executor restores
         // the parent's checkpoint ref into the fork's clone.
         ...(reserved.forkedFrom !== undefined
@@ -2304,6 +2330,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const key = this.prBindingKey(pull.owner, pull.repo, pull.number);
     const next = { ...(this.state.prBindings ?? {}), [key]: run.runId };
     this.setState({ ...this.state, prBindings: next });
+    const agentName = this.name?.trim() || ORCHESTRATOR_NAME;
+    void registerPrOwner(this.env, {
+      repoFullName: `${pull.owner}/${pull.repo}`,
+      pullNumber: pull.number,
+      agentName,
+      codingRunId: run.runId,
+    }).catch((error) => {
+      console.error(
+        "pr-owner index register failed",
+        redactSecrets(error instanceof Error ? error.message : String(error)),
+      );
+    });
   }
 
   private inlineReviewThreshold(): FindingSeverity {
@@ -2356,19 +2394,46 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private async queueReviewForCodingRun(parent: DelegatedRun, headSha: string): Promise<void> {
-    const rounds = this.state.reviewRounds ?? [];
-    if (decideChain(parent, rounds, headSha).kind !== "queue_review") return;
+    if (decideChain(parent, this.state.reviewRounds ?? [], headSha).kind !== "queue_review") return;
     const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
     if (!pull || !parent.pullUrl) return;
     const roundId = `${parent.runId}:${headSha}`;
-    const task = await this.reviewerTaskForPull({
-      repoUrl: parent.repoUrl,
-      pullNumber: pull.number,
-      headSha,
-      diffUrl: `${parent.repoUrl.replace(/\/$/, "")}/pull/${pull.number}.diff`,
-      owner: pull.owner,
-      repo: pull.repo,
+    // Reserve the round before any await so concurrent wakes cannot double-queue.
+    if (decideChain(parent, this.state.reviewRounds ?? [], headSha).kind !== "queue_review") return;
+    this.writeRound({
+      roundId,
+      codingRunId: parent.runId,
+      reviewRunId: `pending:${roundId}`,
+      pull: { ...pull, headSha, url: parent.pullUrl },
+      status: "queued",
+      findings: [],
+      summary: "",
+      generation: 0,
     });
+    let task: string;
+    try {
+      task = await this.reviewerTaskForPull({
+        repoUrl: parent.repoUrl,
+        pullNumber: pull.number,
+        headSha,
+        diffUrl: `${parent.repoUrl.replace(/\/$/, "")}/pull/${pull.number}.diff`,
+        owner: pull.owner,
+        repo: pull.repo,
+      });
+    } catch (error) {
+      this.writeRound({
+        roundId,
+        codingRunId: parent.runId,
+        reviewRunId: `pending:${roundId}`,
+        pull: { ...pull, headSha, url: parent.pullUrl },
+        status: "failed",
+        findings: [],
+        summary: "",
+        generation: 0,
+        error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 500),
+      });
+      return;
+    }
     const callId = `chain-review:${parent.runId}:${headSha}`;
     const fields = {
       repoUrl: parent.repoUrl,
@@ -2577,13 +2642,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private writeRound(round: ReviewRound): boolean {
     const rounds = this.state.reviewRounds ?? [];
     const current = rounds.find((item) => item.roundId === round.roundId);
-    if (
-      current &&
-      (current.status === "posted" || current.status === "failed" || current.status === "skipped") &&
-      round.generation !== undefined &&
-      current.generation !== undefined &&
-      round.generation < current.generation
-    ) {
+    if (reviewRoundWriteRejected(current, round)) {
       return false;
     }
     const next = current
@@ -2736,6 +2795,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           generation,
         );
         if (updated !== null) {
+          if (
+            updated.reviewOf &&
+            status !== "completed" &&
+            (status === "error" || status === "unknown" || status === "cancelled" || status === "aborted")
+          ) {
+            void this.failReviewRound(updated, redactSecrets(failure.message).slice(0, 500));
+          }
           // A pre-start failure never reaches `finish`'s slackText seam —
           // post here or the thread sees ack + card + approved, then silence.
           this.postToThread(

@@ -25,6 +25,7 @@ const FIXED_PURPOSES: { id: string; label: string; note: string }[] = [
 const CONNECTION_SERVICES = [
   "anthropic",
   "openai",
+  "openai-subscription",
   "google",
   "grok",
   "devin",
@@ -37,6 +38,7 @@ const ROLE_SOURCE_LABEL: Record<RoleModelWire["source"], string> = {
   dashboard: "Dashboard pin",
   "role-map": "ROLE_MODEL_MAP",
   "role-env": "ROLE_MODEL__",
+  "connection-default": "Single connection",
   default: "Deployment default",
 };
 

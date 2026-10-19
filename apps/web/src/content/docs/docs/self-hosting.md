@@ -36,7 +36,7 @@ Honest ceiling: Cloudflare Containers default to **`standard-4` (4 vCPU / 12 GiB
 4. **AI Gateway** — in the dashboard, open AI Gateway → your gateway (default id `default` matches `GATEWAY_ID`) → **Provider keys** → add Google / Anthropic / OpenAI (or the provider your harness uses). This is the BYOK path; do not put those keys in the repo or in the container.
 5. **Access (recommended for any public hostname)** — Cloudflare One → Access → Applications. Allow only your team’s emails. You will bind `ACCESS_AUD` and set `REQUIRE_ACCESS=1` as secrets/vars on deploy. Machine callbacks (`/api/github/webhook`, `/api/slack/*`, `/mcp`, …) use narrow bypass rules authenticated inside the Worker — see [Security](/docs/security/).
 
-Local proof before spending quota: [Local quickstart](/docs/local-development/#worker-and-sandbox-quickstart) and the `.cursor/skills/verify-shiba` harness (approval → sandbox → optional PR/review when configured).
+Local proof before spending quota: run **`pnpm shiba dev`** (or `bash scripts/dev.sh`) — see [Local quickstart](/docs/local-development/#worker-and-sandbox-quickstart). Optional harness: `.cursor/skills/verify-shiba` (approval → sandbox → optional PR/review when configured).
 
 ## Secrets and configuration map
 
@@ -70,11 +70,11 @@ Provider keys for OpenCode / Claude Code / Codex / Grok → **AI Gateway BYOK**,
 
 Subscription lanes (`CLAUDE_SUBSCRIPTION_TOKEN`, `CODEX_SUBSCRIPTION_AUTH_JSON`, …) are optional and gated by `SHIBA_*_SUBSCRIPTION` vars in `wrangler.jsonc`.
 
-Local copy template:
+Local copy template (`pnpm shiba dev` creates this file and mints safe local secrets without overwriting yours):
 
 ```sh
-cp apps/backend/.dev.vars.example apps/backend/.dev.vars
-# Edit locally; never commit.
+pnpm shiba dev          # or: bash scripts/dev.sh
+# Edit apps/backend/.dev.vars — add GITHUB_TOKEN and gateway/BYOK as needed.
 node scripts/check-dev-vars-example.mjs
 node scripts/validate-credentials.mjs --offline
 ```

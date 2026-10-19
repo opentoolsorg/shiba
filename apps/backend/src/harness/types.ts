@@ -19,6 +19,7 @@ export type AgentHarnessName =
   | "opencode"
   | "claude-code"
   | "claude-subscription"
+  | "claude-login"
   | "codex"
   | "codex-subscription"
   | "devin"

@@ -11,6 +11,11 @@ import { claudeSubscriptionAuth, codexSubscriptionAuth, antigravitySubscriptionA
 import type { AgentHarness, AgentHarnessName } from "../harness/types.js";
 import type { CodingTaskInput } from "../opencode-input.js";
 import { forwardClaudeSubscription, forwardCodexSubscription, forwardCursorSubscription, forwardDevinSubscription, type EgressEnv } from "../egress.js";
+import { chatGptAuthStub } from "../chatgpt-auth-do.js";
+import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
+import { codexDeviceAuthDeploymentEnabled } from "../harness/codex-device-auth.js";
+import { readUserOpenAiAuthMode } from "../subscription-device-auth.js";
+import type { Env as WorkerEnv } from "../env.js";
 
 interface AuthRegistryEnv {
   AGENT_TOKENS: KVNamespace;
@@ -64,6 +69,25 @@ export async function assertHarnessAuthorized<Env extends AuthRegistryEnv>(
   harness: AgentHarness,
   input: CodingTaskInput,
 ): Promise<void> {
+  if (harness.name === "codex-subscription" && input.initiatorUserId) {
+    const workerEnv = env as unknown as WorkerEnv;
+    if (codexDeviceAuthDeploymentEnabled(workerEnv)) {
+      const mode = await readUserOpenAiAuthMode(workerEnv, input.initiatorUserId);
+      if (mode === "device-auth") return;
+    }
+    if (workerEnv.ChatGptAuth && modelCredentialKeyConfigured(workerEnv)) {
+      const status = await chatGptAuthStub(workerEnv, input.initiatorUserId).fetch("https://chatgpt-auth.internal/status");
+      if (status.ok) {
+        const body = (await status.json()) as { connected?: boolean; planUsageEnabled?: boolean };
+        if (body.connected && body.planUsageEnabled !== false) return;
+        if (body.connected && body.planUsageEnabled === false) {
+          throw new Error(
+            "ChatGPT is connected but plan usage (chatgpt.tokens.use.direct) is disabled. Re-consent in Settings or use an API key.",
+          );
+        }
+      }
+    }
+  }
   const controller = authControllerFor(env, harness, input);
   if (controller === null) return;
   const snapshot = await controller.snapshot();

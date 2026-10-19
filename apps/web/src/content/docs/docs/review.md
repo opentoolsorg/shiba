@@ -17,7 +17,7 @@ The reviewer must not modify code. It returns findings in the result envelope. T
 
 The thread shows the run, a pull request card (link, state, checks), and one list row per finding.
 
-`GET /api/v1/threads/:id/pr/review` returns the round. `POST /api/v1/threads/:id/pr/review/retry` posts the same round again. `GET /api/v1/threads/:id/pr/review-loop` still returns null.
+`GET /api/v1/threads/:id/pr/review` returns the round. The Tasks timeline shows loading, waiting, failed (with retry), and empty-findings states in the **Review findings** panel. `POST /api/v1/threads/:id/pr/review/retry` posts the same round again. `GET /api/v1/threads/:id/pr/review-loop` is unimplemented (always `null`); multi-round loops are not a Phase 1 product surface yet.
 
 ## Local proof
 

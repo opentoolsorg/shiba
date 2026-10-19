@@ -33,6 +33,13 @@ const codingTaskInputSchema = z.object({
    * approval hash like every other input field; never the credential.
    */
   authAccount: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/).optional(),
+  /** Dashboard user whose ChatGPT subscription credential egress may use. */
+  initiatorUserId: z.string().min(1).max(128).optional(),
+  /** Worker-only: short-lived ChatGPT plan access token for codex-subscription runs. */
+  chatgptAccessToken: z.string().min(1).optional(),
+  chatgptThreadId: z.string().min(1).optional(),
+  /** Sandbox-volume device-auth path — auth.json never leaves the user's volume. */
+  codexAuthMode: z.enum(["siwc", "device-auth"]).optional(),
   /**
    * The frozen, approval-gated route (connection/model/harness ids only —
    * spec MODEL-CONNECTIONS-ARCHITECTURE.md §4). Validated with

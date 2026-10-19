@@ -25,6 +25,9 @@ if [ "${VERIFY_GITHUB:-mock}" = mock ]; then
   if ! grep -q '^GITHUB_TOKEN=.\+' apps/backend/.dev.vars; then
     printf 'GITHUB_TOKEN=mock-github-token\n' >> apps/backend/.dev.vars
   fi
+  if ! grep -q '^DASHBOARD_APPROVERS=.\+' apps/backend/.dev.vars; then
+    printf 'DASHBOARD_APPROVERS=default\n' >> apps/backend/.dev.vars
+  fi
   python3 - "$VERIFY_DIR/github-stub.pid" "$VERIFY_DIR/github-stub.log" node "$ROOT/.cursor/skills/verify-shiba/scripts/github-stub.mjs" --port "$GITHUB_STUB_PORT" <<'PY'
 import subprocess, sys
 pidfile, log, *cmd = sys.argv[1:]
@@ -36,7 +39,7 @@ else
   echo live > "$VERIFY_DIR/github-mode"
 fi
 PERSIST="$VERIFY_DIR/state"
-# Pinned wrangler 4.118.0 accepts --persist-to on d1 migrations apply and wrangler dev.
+# Pinned wrangler (package.json, currently 4.140.0) accepts --persist-to on d1 migrations apply and wrangler dev.
 MODE=persist-to
 if ! npx wrangler d1 migrations apply --help 2>&1 | grep -q -- '--persist-to'; then
   MODE=default-wrangler-state
@@ -45,7 +48,13 @@ echo "$MODE" > "$VERIFY_DIR/persist-mode"
 mkdir -p "$PERSIST"
 MIGRATE=(npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc)
 DEV=(npx wrangler dev --config apps/backend/wrangler.jsonc --port "$PORT" --local-upstream localhost)
-if [ "${VERIFY_ENABLE_CONTAINERS:-}" = 0 ] || [ "${CI:-}" = true ] || [ "${CI:-}" = 1 ]; then
+CONTAINERS_WANT=${VERIFY_ENABLE_CONTAINERS:-}
+if [ "${CONTAINERS_WANT}" = 1 ] && docker info >/dev/null 2>&1; then
+  echo "containers=enabled" > "$VERIFY_DIR/containers-mode"
+elif [ "${CONTAINERS_WANT}" = 1 ]; then
+  DEV+=(--enable-containers=false)
+  echo "containers=disabled (VERIFY_ENABLE_CONTAINERS=1 but no docker)" > "$VERIFY_DIR/containers-mode"
+elif [ "${CI:-}" = true ] || [ "${CI:-}" = 1 ] || [ "${CONTAINERS_WANT}" = 0 ]; then
   DEV+=(--local --enable-containers=false)
   echo disabled > "$VERIFY_DIR/containers-mode"
 elif ! docker info >/dev/null 2>&1; then
@@ -53,6 +62,14 @@ elif ! docker info >/dev/null 2>&1; then
   echo "containers=disabled (no docker)" > "$VERIFY_DIR/containers-mode"
 else
   echo "containers=enabled" > "$VERIFY_DIR/containers-mode"
+fi
+if [ "$(cat "$VERIFY_DIR/containers-mode" 2>/dev/null)" = disabled ] || grep -q '^containers=disabled' "$VERIFY_DIR/containers-mode" 2>/dev/null; then
+  if ! grep -q '^SHIBA_VERIFY_STANDIN=' apps/backend/.dev.vars; then
+    printf '\nSHIBA_VERIFY_STANDIN=1\n' >> apps/backend/.dev.vars
+  fi
+  echo enabled > "$VERIFY_DIR/standin-mode"
+else
+  echo disabled > "$VERIFY_DIR/standin-mode"
 fi
 if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   echo "warn: CLOUDFLARE_API_TOKEN unset — wrangler 4.118 may fail establishing the remote container proxy in non-interactive shells even with --enable-containers=false." > "$VERIFY_DIR/cf-token"

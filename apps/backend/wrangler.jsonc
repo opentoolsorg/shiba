@@ -33,14 +33,16 @@
     "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",
     "CODING_MODEL": "google/gemini-3.5-flash-lite",
     "RUNTIME": "sandbox",
-    "SHIBA_CLAUDE_SUBSCRIPTION": "1",
+    "SHIBA_CLAUDE_SUBSCRIPTION": "0",
     // Dark until the operator flips one to "1" here — wrangler deploy resets
     // dashboard-set vars, so the toggle lives in this file.
     "SHIBA_CODEX_SUBSCRIPTION": "0",
+    "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH": "0",
+    "SHIBA_CODEX_DEVICE_AUTH": "0",
     "SHIBA_CURSOR_SUBSCRIPTION": "0",
     "SHIBA_DEVIN_SUBSCRIPTION": "0",
     "SHIBA_ANTIGRAVITY_SUBSCRIPTION": "0",
-    // Must match containers.instance_type. Cloudbox-style deploy-time size knob.
+    // Sandbox SDK 1.0: passed to container start(); not a wrangler containers[] field.
     "INSTANCE_TYPE": "standard-1",
     // Public hostname of this Worker (e.g. "shiba.example.com") — used to
     // mint sandbox preview URLs and absolute screenshot links for PRs.
@@ -143,6 +145,7 @@
       { "name": "Waitlist", "class_name": "Waitlist" },
       { "name": "ModelConfig", "class_name": "ModelConfig" },
       { "name": "LocalDispatch", "class_name": "LocalDispatch" },
+      { "name": "ChatGptAuth", "class_name": "ChatGptAuth" },
     ],
   },
   // Email attachment bodies >256KB go here, keyed `emailId/partId`
@@ -185,9 +188,14 @@
     {
       "class_name": "Sandbox",
       "name": "shiba-ai-coworker-sandbox",
-      "image": "./Dockerfile",
+      "scheduling_policy": "durable_object",
       "instance_type": "standard-1",
       "max_instances": 10,
+      "images": {
+        "sandbox": {
+          "dockerfile": "./Dockerfile",
+        },
+      },
     },
   ],
   "migrations": [
@@ -204,5 +212,6 @@
     // see it so it doesn't re-apply already-existing DO migrations.
     { "tag": "alchemy:v10" },
     { "tag": "alchemy:v11" },
+    { "tag": "v12", "new_sqlite_classes": ["ChatGptAuth"] },
   ],
 }

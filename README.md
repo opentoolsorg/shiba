@@ -57,16 +57,14 @@ At runtime the Worker serves **`app-public/`** via the `ASSETS` binding with `no
 Requirements: Node.js **22.13.0+**, pnpm **10.0.0+**, and a **running Docker engine** for Sandbox containers.
 
 ~~~sh
-pnpm install
-pnpm build
-cp apps/backend/.dev.vars.example apps/backend/.dev.vars
-CI=1 npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc
-npx wrangler dev --config apps/backend/wrangler.jsonc --port 8788
+pnpm shiba dev
 ~~~
 
-Sandbox runs also need `npx wrangler login`. For API/UI smoke without Docker, add `--local --enable-containers=false --local-upstream localhost` (see local development docs).
+Same as `bash scripts/dev.sh`: checks prerequisites, writes `apps/backend/.dev.vars` from the example (minting local secrets without overwriting yours), applies local D1 migrations, builds the Sandbox image, and runs `wrangler dev` on **http://127.0.0.1:8788/app/**. Then add **`GITHUB_TOKEN`** and **AI Gateway BYOK** (or `AI_GATEWAY_TOKEN`) in `.dev.vars`; run `npx wrangler login` once if Wrangler needs Cloudflare for containers.
 
-Open `http://127.0.0.1:8788/app/` when `/api/setup/status` returns JSON. Full gate: `pnpm typecheck && pnpm lint && pnpm test && pnpm docs:check && pnpm build`. Docs: [local development](apps/web/src/content/docs/docs/local-development.md).
+Preview steps: `pnpm shiba dev --dry-run`. API/UI smoke without Docker: see [local development](apps/web/src/content/docs/docs/local-development.md).
+
+Full gate: `pnpm typecheck && pnpm lint && pnpm test && pnpm docs:check && pnpm build`.
 
 - Dashboard only: `pnpm -C apps/frontend dev` (Vite on 5173; proxies `/api` to Worker 8788).
 - Docs editing: `pnpm docs:dev` (port 4321).

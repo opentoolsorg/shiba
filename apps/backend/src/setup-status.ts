@@ -7,7 +7,9 @@ import type { Env } from "./env.js";
 import { isGitHubPublishConfigured } from "./github-auth.js";
 import { describeRoleModels, type RoleModelStatus } from "./agents/roles.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
+import { readModelConfig } from "./model-policy.js";
 import { isAccessConfigured } from "./request-auth.js";
+import { runSetupDoctor, type SetupDoctorReport } from "./setup-doctor.js";
 
 export interface SetupStatus {
   slack: {
@@ -25,6 +27,7 @@ export interface SetupStatus {
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelStatus[] };
   automations: { enabled: boolean; typeSafe: boolean };
   mailbox: { addressOverride: boolean; sendEnabled: boolean };
+  doctor: SetupDoctorReport;
 }
 
 /** HEAD the resolved gateway URL: distinguishes reachable/401/other without a body. */
@@ -44,7 +47,9 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
-  return {
+  const modelSnapshot = await readModelConfig(env);
+  const rolePins = modelSnapshot.policy.rolePins;
+  const base: Omit<SetupStatus, "doctor"> = {
     slack: {
       signingSecret: Boolean(env.SLACK_SIGNING_SECRET),
       botToken: Boolean(env.SLACK_BOT_TOKEN),
@@ -76,7 +81,7 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
       orchestrator: env.ORCHESTRATOR_MODEL,
       coding: env.CODING_MODEL,
       harness: env.AGENT_HARNESS ?? "opencode",
-      roles: describeRoleModels(env),
+      roles: describeRoleModels(env, rolePins, modelSnapshot),
     },
     automations: {
       enabled:
@@ -90,4 +95,6 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
       sendEnabled: env.SEND_EMAIL !== undefined,
     },
   };
+  const doctor = await runSetupDoctor(env, { gateway: base.gateway });
+  return { ...base, doctor };
 }

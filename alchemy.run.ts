@@ -1,7 +1,10 @@
 /**
- * Alchemy v2 deploy definition — declares the same Cloudflare stack as
- * wrangler.jsonc so `npx alchemy deploy` replaces `npx wrangler deploy`
- * (rollback path: wrangler still deploys the same bindings).
+ * Alchemy v2 deploy definition — mirrors `apps/backend/wrangler.jsonc`
+ * (the binding/source-of-truth contract). Edit wrangler first, then align
+ * this file; CI runs `node scripts/check-alchemy-drift.mjs`.
+ *
+ * Primary deploy: `pnpm deploy:alchemy`. Rollback: `npx wrangler deploy
+ * --config apps/backend/wrangler.jsonc` (see docs/DEPLOY.md).
  *
  * wrangler.jsonc -> props mapping:
  *   name                          -> Worker "shiba-ai-coworker" (live stages; see below)
@@ -11,6 +14,7 @@
  *   preview_urls: false           -> workersDev.previewsEnabled: false
  *   vars                          -> env string entries
  *   ai.binding                    -> env AI: Cloudflare.Workers.AI()
+ *   worker_loaders[].binding      -> env LOADER: Cloudflare.WorkerLoader(...)
  *   durable_objects.bindings      -> env entries (Cloudflare.DurableObject;
  *                                    Sandbox comes from its Container decl)
  *   containers[]                  -> env Sandbox: Cloudflare.Container(...)
@@ -178,9 +182,11 @@ export const Worker = Cloudflare.Worker("Worker", {
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
-    SHIBA_CLAUDE_SUBSCRIPTION: "1",
+    SHIBA_CLAUDE_SUBSCRIPTION: "0",
     // Dark by default; configVars() below overrides from the deploy env.
     SHIBA_CODEX_SUBSCRIPTION: "0",
+    SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH: "0",
+    SHIBA_CODEX_DEVICE_AUTH: "0",
     SHIBA_CURSOR_SUBSCRIPTION: "0",
     SHIBA_DEVIN_SUBSCRIPTION: "0",
     SHIBA_ANTIGRAVITY_SUBSCRIPTION: "0",
@@ -193,6 +199,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     BETTER_AUTH_URL: "https://app.tryshiba.dev",
 
     AI: Cloudflare.Workers.AI(),
+
+    // Code Mode (`worker_loaders` in wrangler.jsonc) — dynamic isolate loader.
+    LOADER: Cloudflare.WorkerLoader("LOADER"),
 
     // Workers Browser Rendering (T33) — wrangler `browser.binding`.
     BROWSER: Cloudflare.Browser("BROWSER"),
@@ -224,6 +233,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     // dispatch/claim/settle between the Worker and the operator daemon.
     LocalDispatch: Cloudflare.DurableObject("LocalDispatch", {
       className: "LocalDispatch",
+    }),
+    ChatGptAuth: Cloudflare.DurableObject("ChatGptAuth", {
+      className: "ChatGptAuth",
     }),
 
     // Megaplan stores — wrangler keeps `__PENDING__` ids until the resources
@@ -302,6 +314,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "BETTER_AUTH_SECRET",
       "GMAIL_CLIENT_SECRET",
       "GMAIL_TOKEN_KEY",
+      "MODEL_CREDENTIAL_KEY",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
@@ -309,6 +322,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       // T52: HMAC key for dashboard-minted pairing tokens (optional —
       // falls back to LOCAL_ADAPTER_TOKEN when unset).
       "PAIRING_SECRET",
+      // Edge vouched-header signing (optional; unset = header-trust fallback).
+      "INTERNAL_SIGNING_KEY",
+      // Automation trigger lane (`/api/trigger`).
+      "TRIGGER_TOKEN",
     ]),
     // REQUIRE_ACCESS without ACCESS_AUD trusts a client-sent Access email header, so only pair them.
     ...(DashboardAccess
@@ -327,11 +344,14 @@ export const Worker = Cloudflare.Worker("Worker", {
       "AUTOMATIONS_ENABLED",
       "AGENT_HARNESS",
       "CLAUDE_CODE_MODEL",
-      // T48: enabled by default; the auth secret is still required to run it.
+      // T48: dark by default — may violate Anthropic terms when enabled.
       "SHIBA_CLAUDE_SUBSCRIPTION",
+      "SHIBA_SINGLE_USER",
       "CLAUDE_SUBSCRIPTION_MODEL",
       // T49 opt-ins (§18.11): absent = the subscription harness is dark.
       "SHIBA_CODEX_SUBSCRIPTION",
+      "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH",
+      "SHIBA_CODEX_DEVICE_AUTH",
       "CODEX_SUBSCRIPTION_MODEL",
       // T50 opt-ins (§18.12): absent = the antigravity flow is dark. No
       // credential var exists — OAuth tokens live in the container profile.

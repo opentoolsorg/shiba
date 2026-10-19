@@ -1,4 +1,10 @@
 /**
+ * DEPRECATED — may violate Anthropic's terms for third-party apps that store
+ * or relay Claude.ai subscription tokens. See https://code.claude.com/docs/en/legal-and-compliance
+ * and use `claude-login` (operator runs unmodified `claude` `/login` in their
+ * sandbox) instead. This harness remains for operators who explicitly opt in
+ * via SHIBA_CLAUDE_SUBSCRIPTION=1.
+ *
  * T48 — `claude-subscription` harness (PLAN.md §18.10): Claude Code driven
  * by the operator's own `claude setup-token` credential on a self-hosted,
  * single-tenant, opted-in deployment. A separate harness, not a mode flag

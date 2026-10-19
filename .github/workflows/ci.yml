@@ -47,8 +47,7 @@ jobs:
       # Built-output assertions (marketing-pages.test.ts) run post-build —
       # they skip inside `pnpm test`, which runs before dist exists.
       - run: pnpm test:built
-      - run: node scripts/check-alchemy-drift.mjs
-      - run: node scripts/check-env-types.mjs
+      - run: pnpm check:deploy
       - run: cp .env.example .env
       - run: node scripts/check-dev-vars-example.mjs
       - run: pnpm env:load && pnpm env:scan
@@ -92,6 +91,7 @@ jobs:
           GITHUB_STUB_PORT: 8799
           VERIFY_ENABLE_CONTAINERS: 0
           VERIFY_USE_RUNS_API: 1
+          VERIFY_FEATURE: core-loop-mock
           PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify/playwright-browsers
         run: bash .cursor/skills/verify-shiba/scripts/run-ci.sh
       - name: Upload verify-shiba artifacts
