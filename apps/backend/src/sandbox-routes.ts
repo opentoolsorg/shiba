@@ -1,4 +1,4 @@
-import { getSandbox } from "@cloudflare/sandbox";
+import { getSandbox } from "./sandbox/client.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 
@@ -95,7 +95,7 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
         return Response.json({ error: "Path parameter is required." }, { status: 400 });
       }
       try {
-        const result = await sandbox.readFile(targetPath, { encoding: "utf-8" });
+        const result = await sandbox.readFile(targetPath);
         const content = (result as { content?: unknown }).content ?? result;
         return Response.json({
           sandboxId,

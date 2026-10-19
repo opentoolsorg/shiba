@@ -42,7 +42,7 @@
     "SHIBA_CURSOR_SUBSCRIPTION": "0",
     "SHIBA_DEVIN_SUBSCRIPTION": "0",
     "SHIBA_ANTIGRAVITY_SUBSCRIPTION": "0",
-    // Must match containers.instance_type. Cloudbox-style deploy-time size knob.
+    // Sandbox SDK 1.0: passed to container start(); not a wrangler containers[] field.
     "INSTANCE_TYPE": "standard-1",
     // Public hostname of this Worker (e.g. "shiba.example.com") — used to
     // mint sandbox preview URLs and absolute screenshot links for PRs.
@@ -188,9 +188,12 @@
     {
       "class_name": "Sandbox",
       "name": "shiba-ai-coworker-sandbox",
-      "image": "./Dockerfile",
-      "instance_type": "standard-1",
-      "max_instances": 10,
+      "scheduling_policy": "durable_object",
+      "images": {
+        "sandbox": {
+          "dockerfile": "./Dockerfile",
+        },
+      },
     },
   ],
   "migrations": [

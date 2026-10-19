@@ -5,7 +5,7 @@
  * It makes no model calls of its own.
  */
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
-import { getSandbox, streamFile } from "@cloudflare/sandbox";
+import { getSandbox } from "../sandbox/client.js";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -169,13 +169,18 @@ async function collectStream(stream: ReadableStream<Uint8Array>, maxBytes = 500_
   // pipeThrough({ signal }) rejects non-native AbortSignals with an illegal
   // invocation; the for-await's throwIfAborted covers cancellation instead.
   const source = signal ? stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>()) : stream;
-  // readFileStream is SSE, not raw file bytes. Decode before collecting.
-  for await (const chunk of streamFile(source)) {
-    signal?.throwIfAborted();
-    const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
-    total += bytes.length;
-    if (total > maxBytes) throw new Error(`Captured file exceeds the ${maxBytes}-byte limit.`);
-    chunks.push(bytes);
+  const reader = source.getReader();
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > maxBytes) throw new Error(`Captured file exceeds the ${maxBytes}-byte limit.`);
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
   }
   signal?.throwIfAborted();
   const out = new Uint8Array(total);

@@ -39,7 +39,7 @@ else
   echo live > "$VERIFY_DIR/github-mode"
 fi
 PERSIST="$VERIFY_DIR/state"
-# Pinned wrangler 4.118.0 accepts --persist-to on d1 migrations apply and wrangler dev.
+# Pinned wrangler (package.json, currently 4.140.0) accepts --persist-to on d1 migrations apply and wrangler dev.
 MODE=persist-to
 if ! npx wrangler d1 migrations apply --help 2>&1 | grep -q -- '--persist-to'; then
   MODE=default-wrangler-state
