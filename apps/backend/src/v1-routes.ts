@@ -17,6 +17,7 @@ import { handlePulls } from "./v1/pulls.js";
 import { handleRuns } from "./v1/runs.js";
 import { handleSystem } from "./v1/system.js";
 import { handleThreads } from "./v1/threads.js";
+import { reviewerTask } from "./review/prompt.js";
 
 export interface V1RouteDeps {
   isAuthorized?: (request: Request, env: Env) => Promise<boolean>;
@@ -143,9 +144,12 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     const repo = body.repoUrl.replace(/\/$/, "");
     return forward("POST", "/api/runs", {
       repoUrl: body.repoUrl,
-      task: ["Review the pull request diff and post findings. Do not modify code.", "Purpose: review",
-        `Repository: ${body.repoUrl}`, `Pull request: #${body.pullNumber}`, `Head SHA: ${body.headSha ?? "head"}`,
-        `Diff: ${repo}/pull/${body.pullNumber}.diff`].join("\n"),
+      task: reviewerTask({
+        repoUrl: body.repoUrl,
+        pullNumber: body.pullNumber,
+        headSha: body.headSha ?? "head",
+        diffUrl: `${repo}/pull/${body.pullNumber}.diff`,
+      }),
       publishPullRequest: false, role: "reviewer",
       codingModel: env.REVIEW_RUN_MODEL?.trim() || "opencode-go/gpt-6.1-sol",
       commandId: `v1review:${body.repoUrl}:${body.pullNumber}:${body.headSha ?? "head"}`,

@@ -232,15 +232,13 @@ export class Automations {
         try {
           const pull = mapped.pullNumber ?? 0;
           const diffRef = mapped.diffRef ?? `https://github.com/${mapped.repo}/pull/${pull}.diff`;
-          const task = [
-            `Review the pull request diff and post findings. Do not modify code.`,
-            `Purpose: review`,
-            `Repository: https://github.com/${mapped.repo}`,
-            `Pull request: #${pull}`,
-            `Head SHA: ${mapped.headSha}`,
-            `Diff: ${diffRef}`,
-            ...(typeof mapped.branch === "string" ? [`Head branch: ${mapped.branch}`] : []),
-          ].join("\n");
+          const task = reviewerTask({
+            repoUrl: `https://github.com/${mapped.repo}`,
+            pullNumber: pull,
+            headSha: mapped.headSha,
+            diffUrl: diffRef,
+            ...(typeof mapped.branch === "string" ? { headBranch: mapped.branch } : {}),
+          });
           await queueOnOrchestrator(orchestrator, {
             repoUrl: `https://github.com/${mapped.repo}`,
             task,
