@@ -1,5 +1,7 @@
 # Verification Results
 
+**2026-10-19 — phase 5 integrations & automations (branch `cursor/phase5-integrations-automations-6e02`).** `pnpm typecheck`, `pnpm lint`, `pnpm test` (2235 backend tests passed), and `pnpm build` passed. `node scripts/check-alchemy-drift.mjs` passed after adding `/api/linear/webhook` to `ACCESS_BYPASS_PATHS`. Unit coverage: `test/phase5-integrations.test.ts` (multi-schedule, IANA timezone, Linear trigger, webhook batch task merge, GitHub App env detection, Linear HMAC). **Live Slack / Linear / GitHub App:** NOT VERIFIED (no workspace credentials; no outbound posts). **verify-shiba `phase5-integrations-automations`:** NOT VERIFIED in this cloud VM — `wrangler dev` failed (`CLOUDFLARE_API_TOKEN` required for remote proxy session). Docs: `apps/web/src/content/docs/docs/linear-agent-session.md`.
+
 **2026-10-19 — phase 1 review loop, local only.** Branch `feat/phase1-review-loop`. `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, and `pnpm docs:check` passed (backend tests: 2228 passed, 3 skipped; docs verify: 53 HTML pages, 2767 links, 34 markdown files; `astro check`: 0 errors). No Cloudflare deploy. No `$SHIBA_TEST_REPO`. GitHub journeys use the verify-shiba stub (`GITHUB_API_BASE` on loopback) and are labeled **mock GitHub**.
 
 Browser evidence is under `.verify/evidence/` (not committed):
