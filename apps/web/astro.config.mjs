@@ -70,6 +70,7 @@ export default defineConfig({
 						{ label: 'Discord Interactions', slug: 'docs/discord' },
 						{ label: 'HTTP Triggers (iPhone)', slug: 'docs/triggers' },
 						{ label: 'GitHub Pull Requests', slug: 'docs/github' },
+						{ label: 'Pull request review', slug: 'docs/review' },
 						{ label: 'Automations & Cron', slug: 'docs/automations' },
 						{ label: 'Use from Claude Code', slug: 'docs/mcp' },
 					],
