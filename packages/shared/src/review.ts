@@ -1,0 +1,137 @@
+import { stableHash } from "./approvals.js";
+
+export type FindingCategory = "bug" | "risk" | "maintainability" | "refactor";
+export type FindingSeverity = "high" | "medium" | "low";
+export type FindingConfidence = "confirmed" | "investigate";
+export type FindingTriage = "open" | "resolved" | "irrelevant";
+
+export interface ReviewFinding {
+  id: string;
+  path: string;
+  line: number;
+  category: FindingCategory;
+  severity: FindingSeverity;
+  confidence: FindingConfidence;
+  title: string;
+  failureScenario: string;
+  triage: FindingTriage;
+}
+
+export interface ReviewPull {
+  owner: string;
+  repo: string;
+  number: number;
+  headSha: string;
+  url: string;
+}
+
+export interface ReviewRound {
+  roundId: string;
+  codingRunId: string;
+  reviewRunId: string;
+  pull: ReviewPull;
+  status: "queued" | "running" | "posted" | "failed" | "skipped";
+  findings: ReviewFinding[];
+  summary: string;
+  githubReviewId?: number;
+  postedAt?: number;
+  error?: string;
+  /** Reviewer-run generation that wrote this round. A lower generation cannot replace a terminal round. */
+  generation?: number;
+}
+
+const CATEGORIES = new Set<FindingCategory>(["bug", "risk", "maintainability", "refactor"]);
+const SEVERITIES = new Set<FindingSeverity>(["high", "medium", "low"]);
+const CONFIDENCE = new Set<FindingConfidence>(["confirmed", "investigate"]);
+const RANK: Record<FindingSeverity, number> = { low: 0, medium: 1, high: 2 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safePath(path: unknown): string | null {
+  if (typeof path !== "string" || path === "" || path.startsWith("/") || path.split("/").includes("..")) return null;
+  return path;
+}
+
+export function findingId(path: string, line: number, title: string): string {
+  return stableHash(`${path}\n${line}\n${title}`).slice(0, 16);
+}
+
+function oneFinding(value: unknown): ReviewFinding | null {
+  if (!isRecord(value)) return null;
+  const path = safePath(value.path);
+  const line = value.line;
+  const title = typeof value.title === "string" ? value.title.trim() : "";
+  const failureScenario = typeof value.failureScenario === "string" ? value.failureScenario.trim() : "";
+  if (
+    path === null ||
+    typeof line !== "number" ||
+    !Number.isInteger(line) ||
+    line < 1 ||
+    title === "" ||
+    failureScenario === "" ||
+    !CATEGORIES.has(value.category as FindingCategory) ||
+    !SEVERITIES.has(value.severity as FindingSeverity) ||
+    !CONFIDENCE.has(value.confidence as FindingConfidence)
+  ) {
+    return null;
+  }
+  return {
+    id: findingId(path, line, title),
+    path,
+    line,
+    category: value.category as FindingCategory,
+    severity: value.severity as FindingSeverity,
+    confidence: value.confidence as FindingConfidence,
+    title,
+    failureScenario,
+    triage: "open",
+  };
+}
+
+function envelopeRecord(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw === "string") {
+    const marker = "SHIBA_AI_COWORKER_CODING_RESULT_JSON\n";
+    const index = raw.lastIndexOf(marker);
+    const json = index >= 0 ? raw.slice(index + marker.length) : raw;
+    try {
+      const parsed: unknown = JSON.parse(json);
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return isRecord(raw) ? raw : null;
+}
+
+/** Never throws. Invalid findings increment `rejected` and are dropped. */
+export function parseReviewEnvelope(raw: unknown): { summary: string; findings: ReviewFinding[]; rejected: number } {
+  const record = envelopeRecord(raw);
+  if (record === null) return { summary: "", findings: [], rejected: 0 };
+  const summary = typeof record.summary === "string" ? record.summary : "";
+  const items = Array.isArray(record.findings) ? record.findings : [];
+  const findings: ReviewFinding[] = [];
+  let rejected = 0;
+  for (const item of items) {
+    const finding = oneFinding(item);
+    if (finding === null) rejected += 1;
+    else findings.push(finding);
+  }
+  return { summary, findings, rejected };
+}
+
+/** Findings at or above `threshold` become inline comments. The rest stay in the review body. */
+export function selectPostable(
+  findings: ReviewFinding[],
+  threshold: FindingSeverity,
+): { inline: ReviewFinding[]; bodyOnly: ReviewFinding[] } {
+  const floor = RANK[threshold];
+  const inline: ReviewFinding[] = [];
+  const bodyOnly: ReviewFinding[] = [];
+  for (const finding of findings) {
+    if (RANK[finding.severity] >= floor) inline.push(finding);
+    else bodyOnly.push(finding);
+  }
+  return { inline, bodyOnly };
+}
