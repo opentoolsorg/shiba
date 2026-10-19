@@ -99,6 +99,7 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
   unknown: "Unknown",
   live: "Live",
+  ready: "Ready",
   "waiting-approval": "Waiting",
 };
 
@@ -121,6 +122,7 @@ export const ERROR_FAMILY_STATUSES: ReadonlySet<string> = new Set([
 // future pane that renders run/session status pills.
 export const STATUS_CHIP_CLASSES: Record<string, string> = {
   completed: "text-[var(--success)] border-[color-mix(in_oklch,var(--success)_30%,transparent)] bg-[color-mix(in_oklch,var(--success)_12%,transparent)]",
+  ready: "text-[var(--muted-foreground-2)] border-[var(--border-1)] bg-[var(--card)]",
   running: "text-[var(--primary)] border-[var(--primary)]/30 bg-[var(--primary-soft)]",
   pending: "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)]",
   "waiting-approval": "text-[var(--warning-fg)] border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)]",

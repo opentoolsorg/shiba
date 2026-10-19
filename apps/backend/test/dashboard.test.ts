@@ -88,7 +88,8 @@ describe("dashboard rendering", () => {
     const markup = renderApp();
 
     expect(markup).toContain('data-testid="task-composer"');
-    expect(markup).toContain("Ask anything, / for commands, @ for context");
+    expect(markup).toContain("Describe the change in this repository");
+    expect(markup).toContain("What should Shiba change?");
     expect(markup).toContain("New thread");
     expect(markup).toContain("Threads");
     expect(markup).toContain("dot-grid");
@@ -209,14 +210,14 @@ describe("dashboard rendering", () => {
     expect(markup).not.toContain("Usage, Costs &amp; Run Metrics");
   });
 
-  it("renders standalone DiffView and ApprovalsView with empty states and zero-trust framing", () => {
+  it("renders standalone DiffView and ApprovalsView with empty states", () => {
     const diffMarkup = renderToStaticMarkup(
       React.createElement(DiffView, {
         runs: [],
       })
     );
-    expect(diffMarkup).toContain("Diff &amp; Patch Inspector");
-    expect(diffMarkup).toContain("No Task Runs Found");
+    expect(diffMarkup).toContain("Pull requests");
+    expect(diffMarkup).toContain("No runs yet");
 
     const approvalsMarkup = renderToStaticMarkup(
       React.createElement(ApprovalsView, {
@@ -230,10 +231,11 @@ describe("dashboard rendering", () => {
         onDecideStoredApproval: vi.fn(),
       })
     );
-    expect(approvalsMarkup).toContain("Approvals &amp; Decision Center");
-    expect(approvalsMarkup).toContain("All Clear");
-    expect(approvalsMarkup).toContain("Zero-Trust Boundary");
-    expect(approvalsMarkup).toContain("Cryptographic Audit Log");
+    expect(approvalsMarkup).toContain("Approvals");
+    expect(approvalsMarkup).toContain("Nothing waiting");
+    expect(approvalsMarkup).toContain("0 waiting");
+    expect(approvalsMarkup).toContain("Audit log");
+    expect(approvalsMarkup).not.toContain("Zero-Trust");
   });
 
 

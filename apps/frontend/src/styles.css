@@ -7,7 +7,15 @@
 
 :root {
   color-scheme: light;
-  --bg: #f6f4ed;
+  /* Canonical names from design.md. The aliases below reference these. */
+  --paper: #f6f4ed;
+  --ink: #222320;
+  --ink-2: #6a6f63;
+  --line: #e0ded5;
+  --navy: #0000a8;
+  --paper-dot: #24272919;
+  --paper-shadow: #2527261c;
+  --bg: var(--paper);
   --chrome: var(--bg);
   --panel: #f1efe6;
   --card: #fffef8;
@@ -27,18 +35,18 @@
   --overlay: oklch(0% 0 0/.4);
   --overlay-media: oklch(0% 0 0/.92);
   --overlay-fg: oklch(100% 0 0);
-  --fg: #222320;
+  --fg: var(--ink);
   --text: var(--fg);
   --muted-foreground-1: #454840;
-  --muted-foreground-2: #6a6f63;
+  --muted-foreground-2: var(--ink-2);
   --muted-foreground-3: #a5a69b;
   --icon-muted: #6a6f63;
   --text-link: var(--primary);
-  --border-1: #e0ded5;
+  --border-1: var(--line);
   --border-2: #d3d2c8;
   --border-3: #a5a69b;
-  --primary: #0000a8;
-  --shader-ink: #0000a8;
+  --primary: var(--navy);
+  --shader-ink: var(--navy);
   --primary-soft: color-mix(in oklch, var(--primary) 20%, transparent);
   --primary-soft-hover: color-mix(in oklch, var(--primary) 26%, transparent);
   --primary-text: oklch(100% 0 0);
@@ -51,7 +59,7 @@
   --warning-fg: #976400;
   --warning-subtle: color-mix(in oklch, var(--warning) 12%, transparent);
   --success: #227146;
-  --info: #0000a8;
+  --info: var(--navy);
   --complete: #6b3fa0;
   --attention: #b06e28;
   --progress: #f99c00;
@@ -74,13 +82,13 @@
   --chart-7: oklch(56% .17 330);
   --chart-8: oklch(67% .12 220);
   --chart-other: var(--muted-foreground-3);
-  --sh-plate: 1px 1px 0 #2527261c;
+  --sh-plate: 1px 1px 0 var(--paper-shadow);
   --highlight-top: transparent;
   --card-hairline: transparent;
-  --sh-card: 2px 2px 0 #2527261c;
-  --sh-overlay: 3px 3px 0 #2527261c;
-  --sh-composer: 3px 3px 0 #2527261c;
-  --sh-sheet: 4px 4px 0 #2527261c;
+  --sh-card: 2px 2px 0 var(--paper-shadow);
+  --sh-overlay: 3px 3px 0 var(--paper-shadow);
+  --sh-composer: 3px 3px 0 var(--paper-shadow);
+  --sh-sheet: 4px 4px 0 var(--paper-shadow);
   --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
 
   /* Radii — paper-OS: square corners everywhere */
@@ -112,7 +120,13 @@
 
 .dark, html.dark {
   color-scheme: dark;
-  --bg: #191a18;
+  --paper: #191a18;
+  --ink: #eae8e1;
+  --ink-2: #aaa99f;
+  --line: #3b3d36;
+  --navy: #9cbce2;
+  --paper-dot: #eae8e119;
+  --paper-shadow: #00000035;
   --chrome: var(--bg);
   --panel: #1f201d;
   --card: #222320;
@@ -132,22 +146,18 @@
   --overlay: rgba(0,0,0,.55);
   --overlay-media: rgba(0,0,0,.92);
   --overlay-fg: #f6f4ed;
-  --fg: #eae8e1;
   --text: var(--fg);
   --muted-foreground-1: #c8c6bb;
-  --muted-foreground-2: #aaa99f;
   --muted-foreground-3: #707368;
   --icon-muted: #8d8e83;
-  --text-link: #9cbce2;
-  --border-1: #3b3d36;
+  --text-link: var(--navy);
   --border-2: #4b4d44;
   --border-3: #707368;
-  --primary: #9cbce2;
-  --shader-ink: #9cbce2;
+  --shader-ink: var(--navy);
   --primary-soft: rgba(156,188,226,.16);
   --primary-soft-hover: rgba(156,188,226,.24);
   --primary-text: #191a18;
-  --ring: #9cbce2;
+  --ring: var(--navy);
   --destructive: #ee9690;
   --destructive-soft: rgba(238,150,144,.16);
   --destructive-soft-hover: rgba(238,150,144,.24);
@@ -156,7 +166,7 @@
   --warning-fg: #d9be80;
   --warning-subtle: rgba(217,190,128,.12);
   --success: #95c4a0;
-  --info: #9cbce2;
+  --info: var(--navy);
   --complete: #c9a9e0;
   --attention: #d9a76a;
   --progress: #d9be80;
@@ -179,11 +189,11 @@
   --chart-7: oklch(57.5% .16 330);
   --chart-8: oklch(66.5% .12 220);
   --chart-other: var(--muted-foreground-3);
-  --sh-plate: 1px 1px 0 #00000035;
-  --sh-card: 2px 2px 0 #00000035;
-  --sh-overlay: 3px 3px 0 #00000035;
-  --sh-composer: 3px 3px 0 #00000035;
-  --sh-sheet: 4px 4px 0 #00000035;
+  --sh-plate: 1px 1px 0 var(--paper-shadow);
+  --sh-card: 2px 2px 0 var(--paper-shadow);
+  --sh-overlay: 3px 3px 0 var(--paper-shadow);
+  --sh-composer: 3px 3px 0 var(--paper-shadow);
+  --sh-sheet: 4px 4px 0 var(--paper-shadow);
   --highlight-top: transparent;
   --card-hairline: transparent;
   --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
@@ -228,11 +238,9 @@ code, pre, kbd, samp, .font-mono {
 
 /* Dot-grid background utility */
 .dot-grid {
-  background-image: radial-gradient(var(--shader-ink) 1px, transparent 1px);
-  background-size: 16px 16px;
+  background-image: radial-gradient(var(--paper-dot) 0.7px, transparent 0.7px);
+  background-size: 12px 12px;
   background-position: 0 0;
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.15) 40%, transparent 80%);
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.15) 40%, transparent 80%);
 }
 
 .dot-grid-subtle {
@@ -274,9 +282,39 @@ summary:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 button:focus-visible,
+select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--section) 0%,
+    var(--muted) 50%,
+    var(--section) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .animate-enter,
+  .animate-enter-x,
+  .animate-pulse-subtle {
+    animation: none;
+  }
+
+  .skeleton {
+    background: var(--section);
+  }
 }
 
 /* Animations */

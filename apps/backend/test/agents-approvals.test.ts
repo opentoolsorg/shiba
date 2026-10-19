@@ -247,7 +247,7 @@ describe("ApprovalsView unified pending list", () => {
       }),
     );
     // One merged group — not two separate sections.
-    expect(markup).toContain("Pending Approvals");
+    expect(markup).toContain("Waiting");
     expect(markup).not.toContain("Queued approvals");
     // Chat approval card: tool, args, the orchestrator name, and its actions.
     expect(markup).toContain("delegate_coding_task");
