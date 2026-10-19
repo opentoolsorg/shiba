@@ -43,7 +43,7 @@ export interface JsonObject {
  * written before email approvals existed carry no `kind` — readers treat
  * absent as `"run"`.
  */
-export type ApprovalKind = "run" | "email_send" | "email_delete";
+export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
 
 /** Runtime check that `value` is JSON-serializable — the shape a JSON body parse produces. */
 export function isJsonValue(value: unknown): value is JsonValue {
@@ -79,6 +79,8 @@ export interface PendingApproval {
   /** Exact delegation input frozen at queue time; executed verbatim on approve. */
   baseBranch?: string;
   publishPullRequest?: boolean;
+  /** When true, the same approval covers a read-only review after the PR opens. */
+  reviewAfterPublish?: boolean;
   /**
    * The frozen, approval-gated route: connection/model/harness ids only.
    * The human approves exactly this; dispatch revalidates it and never
@@ -113,6 +115,15 @@ export interface PendingApproval {
    * new decision, not a replay of the parent's.
    */
   forkedFrom?: ForkLineage;
+  /** Phase 2b: parallel subagents this approval may spawn without a new card. */
+  subagentBudget?: number;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
+  captainId?: string;
+  denId?: string;
+  sandboxProvider?: string;
+  customAgentId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
    * already resolved into `route` at queue time — this rides along as
@@ -156,6 +167,7 @@ export interface CreateApprovalInput {
   task: string;
   baseBranch?: string;
   publishPullRequest?: boolean;
+  reviewAfterPublish?: boolean;
   route?: ApprovedRoute;
   harness?: string;
   authAccount?: string;
@@ -163,6 +175,14 @@ export interface CreateApprovalInput {
   targetMachineId?: string;
   testCommand?: string[];
   forkedFrom?: ForkLineage;
+  subagentBudget?: number;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
+  captainId?: string;
+  denId?: string;
+  sandboxProvider?: string;
+  customAgentId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
   payload?: JsonValue;
@@ -189,6 +209,7 @@ export function createPendingApproval(
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
+      ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
       ...(input.route !== undefined ? { route: input.route } : {}),
       ...(input.harness !== undefined ? { harness: input.harness } : {}),
       ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
@@ -196,6 +217,14 @@ export function createPendingApproval(
       ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
       ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
       ...(input.forkedFrom !== undefined ? { forkedFrom: input.forkedFrom } : {}),
+      ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
+      ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+      ...(input.subagentPath !== undefined ? { subagentPath: input.subagentPath } : {}),
+      ...(input.subagentSandbox !== undefined ? { subagentSandbox: input.subagentSandbox } : {}),
+      ...(input.captainId !== undefined ? { captainId: input.captainId } : {}),
+      ...(input.denId !== undefined ? { denId: input.denId } : {}),
+      ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
+      ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.payload !== undefined ? { payload: input.payload } : {}),
@@ -322,6 +351,9 @@ export interface RunInputFields {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  reviewAfterPublish?: boolean;
+  /** Reviewer runs name the coding run the original approval already covered. */
+  reviewOf?: string;
   route?: ApprovedRoute;
   /** T48: which subscription account — part of what the human approved. */
   authAccount?: string;
@@ -333,6 +365,16 @@ export interface RunInputFields {
   testCommand?: string[];
   /** Run-fork lineage — part of what the human approved. */
   forkedFrom?: ForkLineage;
+  /** Phase 2b: subagent spawns the root approval may cover without a new card. */
+  subagentBudget?: number;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
+  captainId?: string;
+  denId?: string;
+  sandboxProvider?: string;
+  customAgentId?: string;
+  role?: AgentRole;
 }
 
 /** Key-sorted JSON — the canonical form the input hash covers. */
@@ -426,6 +468,8 @@ export function runInputHash(input: RunInputFields): string {
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,
+    ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
+    ...(input.reviewOf !== undefined ? { reviewOf: input.reviewOf } : {}),
     ...(input.route !== undefined ? { route: input.route as unknown as JsonValue } : {}),
     ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
     ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
@@ -434,6 +478,15 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.forkedFrom !== undefined
       ? { forkedFrom: input.forkedFrom as unknown as JsonValue }
       : {}),
+    ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+    ...(input.subagentPath !== undefined ? { subagentPath: input.subagentPath } : {}),
+    ...(input.subagentSandbox !== undefined ? { subagentSandbox: input.subagentSandbox } : {}),
+    ...(input.captainId !== undefined ? { captainId: input.captainId } : {}),
+    ...(input.denId !== undefined ? { denId: input.denId } : {}),
+    ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
+    ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+    ...(input.role !== undefined ? { role: input.role } : {}),
+    ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });
 }
 

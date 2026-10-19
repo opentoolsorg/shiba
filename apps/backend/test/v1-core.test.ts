@@ -20,7 +20,10 @@ function fixture(path: string, method = "GET", body?: unknown, current = run) {
     if (verb === "POST") return Response.json({ ok: true, approvalId: "a1" });
     return Response.json({ run: current });
   });
-  const ctx: V1Context = { request, url: new URL(request.url), env: {} as Env, forward };
+  const ctx: V1Context = {
+    request, url: new URL(request.url), env: {} as Env, forward,
+    principal: { principal: "test", orgId: "self-hosted", scopes: ["api:read", "api:write", "api:keys:admin"] },
+  };
   return { ctx, forward };
 }
 

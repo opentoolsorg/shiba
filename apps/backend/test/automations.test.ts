@@ -397,3 +397,16 @@ describe("automation safety (T20)", () => {
     expect(automationsEnabled(value as string | undefined)).toBe(expected);
   });
 });
+
+describe("createAutomation customAgentId", () => {
+  it("persists customAgentId on the automation record", () => {
+    const { automation } = createAutomation({
+      id: "auto-agent",
+      prompt: "Nightly",
+      repoUrl: REPO,
+      triggers: [{ kind: "manual" }],
+      customAgentId: "agent-abc",
+    });
+    expect(automation.customAgentId).toBe("agent-abc");
+  });
+});

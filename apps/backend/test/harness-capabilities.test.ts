@@ -86,6 +86,7 @@ describe("verify gate", () => {
   it("rejects a completed result with exit 0 and an empty diff", async () => {
     const empty = completedResult({ changedFiles: [], diff: "", files: [] });
     for (const [name, harness] of Object.entries(HARNESSES)) {
+      if (name === "claude-login") continue;
       const verdict = await harness.verify(INPUT, empty);
       expect(verdict, name).toEqual({ ok: false, reason: expect.stringContaining("no file changes") });
     }

@@ -45,31 +45,30 @@ Provider traffic is intercepted at the Sandbox egress boundary and forwarded thr
 
 ## How the UI is built and served
 
-`pnpm build` produces one aggregate `public/` directory:
+`pnpm build` produces two asset trees:
 
-1. Vite builds the dashboard — TanStack Start (SPA mode) generates the shell as `public/app/index.html` and chunks land in `public/assets/`; `apps/web/public/` is copied in (favicons, `_redirects`, mascot assets).
-2. Astro builds the landing page (`public/index.html`), the docs (`public/docs/`), `404.html`, and the Pagefind search index into `apps/web/dist`; `scripts/assemble-public.mjs` merges `apps/frontend/dist/client` then `apps/web/dist` into `public/`.
+1. **`app-public/`** — dashboard-only bundle for the Worker (`apps/backend/wrangler.jsonc` `assets.directory`: `../../app-public`; `alchemy.run.ts`: `./app-public`). Vite writes `apps/frontend/dist/client`; `scripts/assemble-public.mjs` copies it into `app-public/` (marketing `_redirects` and `blog/` are stripped so the Worker does not serve the Pages site).
+2. **`public/`** — combined site for Cloudflare Pages: Vite client output plus Astro (`apps/web/dist`) merged by `assemble-public.mjs` (landing `/`, docs `/docs/`, favicons from `apps/web/public/`).
 
-At runtime a single Worker serves that directory via `assets.directory` (`apps/backend/wrangler.jsonc`: `../../public`; `alchemy.run.ts`: `./public`) with `not_found_handling: "404-page"`. The dashboard reaches the backend through same-origin `/api/*` calls — no cross-stack wiring.
+At runtime the Worker serves **`app-public/`** via the `ASSETS` binding with `not_found_handling: "404-page"`. The dashboard calls same-origin `/api/*` on that host — no cross-stack wiring. Self-host steps: [docs/self-hosting](apps/web/src/content/docs/docs/self-hosting.md).
 
 ## Local quickstart
 
-Requirements: Node.js **22.13.0+**, pnpm **10.0.0+**. A Docker CLI is also required for Wrangler container image packaging; a missing Docker daemon fails even the local dry run.
+Requirements: Node.js **22.13.0+**, pnpm **10.0.0+**, and a **running Docker engine** for Sandbox containers.
 
 ~~~sh
-pnpm install
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm docs:check
-pnpm build
-pnpm docs:preview
+pnpm shiba dev
 ~~~
 
-- Dashboard only: `pnpm -C apps/frontend dev` (vite on 5173; opens `/app/`; `/api` and `/agents` proxy to the Worker on 8788). Root `pnpm dev` runs `turbo run dev` — it starts every app including the backend `wrangler dev`, which needs wrangler credentials and a working local container engine; use the scoped command if you only want the UI.
-- Docs editing: `pnpm docs:dev` (port 4321/docs/; search requires a production build).
-- Built Worker/assets: `pnpm build`, then `npx wrangler dev --config apps/backend/wrangler.jsonc`. Containers require a compatible local engine; startup may fail without it.
-- Local Worker deployment packaging: `npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc`. This is not a deployment or proof of a live coding run.
+Same as `bash scripts/dev.sh`: checks prerequisites, writes `apps/backend/.dev.vars` from the example (minting local secrets without overwriting yours), applies local D1 migrations, builds the Sandbox image, and runs `wrangler dev` on **http://127.0.0.1:8788/app/**. Then add **`GITHUB_TOKEN`** and **AI Gateway BYOK** (or `AI_GATEWAY_TOKEN`) in `.dev.vars`; run `npx wrangler login` once if Wrangler needs Cloudflare for containers.
+
+Preview steps: `pnpm shiba dev --dry-run`. API/UI smoke without Docker: see [local development](apps/web/src/content/docs/docs/local-development.md).
+
+Full gate: `pnpm typecheck && pnpm lint && pnpm test && pnpm docs:check && pnpm build`.
+
+- Dashboard only: `pnpm -C apps/frontend dev` (Vite on 5173; proxies `/api` to Worker 8788).
+- Docs editing: `pnpm docs:dev` (port 4321).
+- Packaging check (not a deploy): `npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc`.
 
 ## Deploy the UI
 
@@ -185,7 +184,8 @@ These versions are pinned because silent upgrades break the run contract:
 | Pin | Coupling |
 | --- | --- |
 | `opencode-ai@1.18.31` (apps/backend/Dockerfile) | `parseOpencodeEvent` in `apps/backend/src/harness/opencode.ts` couples to its JSON event shape. Each harness's parser couples to its own CLI the same way — a stream-format change makes a run appear to hang rather than fail, so treat harness CLI bumps as breaking. |
-| `@cloudflare/sandbox@0.12.9` (apps/backend/package.json) | Must match the base image tag `cloudflare/sandbox:0.12.9-opencode` |
+| `@cloudflare/sandbox@1.0.1` (apps/backend/package.json) | `sandbox-shim` in `apps/backend/Dockerfile` must copy from `cloudflare/sandbox:1.0.1`; harness tools still build on `0.12.9-opencode` until rebased |
+| `wrangler@4.140.0` (package.json) | Sandbox SDK 1.0 needs `scheduling_policy: durable_object` (≥4.136.0) |
 | `CODING_MODEL` (`google/gemini-3.5-flash-lite`) | Provider model ids retire without warning |
 
 Bumping any of them requires re-running the P2 live acceptance run before claiming it works.

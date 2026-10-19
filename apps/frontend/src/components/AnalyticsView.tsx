@@ -14,6 +14,7 @@ import {
   type UsageGroupWire,
   type UsageReportWire,
 } from "../live-status";
+import { formatRunUsageLine } from "./RunUsageSummary";
 import type { RetainedRun } from "../types";
 import {
   ERROR_FAMILY_STATUSES,
@@ -260,6 +261,7 @@ export function AnalyticsView({
                       <th className="px-4 py-2 font-semibold">Harness</th>
                       <th className="px-4 py-2 font-semibold">Runtime</th>
                       <th className="px-4 py-2 font-semibold">Duration</th>
+                      <th className="px-4 py-2 font-semibold">Usage</th>
                       <th className="px-4 py-2 font-semibold">Created</th>
                       <th className="px-4 py-2 font-semibold">PR</th>
                     </tr>
@@ -285,6 +287,9 @@ export function AnalyticsView({
                           <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{run.runtime ?? "sandbox"}</td>
                           <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">
                             {duration !== null ? formatDuration(duration) : run.status === "running" || run.status === "pending" ? "in flight" : "—"}
+                          </td>
+                          <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]" data-testid="run-usage-cell">
+                            {formatRunUsageLine(run) ?? "—"}
                           </td>
                           <td className="px-4 py-2 font-mono text-[11px] text-[var(--muted-foreground-2)]">{formatTimeAgo(run.createdAt)}</td>
                           <td className="px-4 py-2">

@@ -208,7 +208,8 @@ describe("automationCommandId", () => {
       .toBe("automation:a1:slack:Ev1");
     const tick = automationCommandId("a1", { kind: "schedule", nowMs: 1_700_000_000_000 });
     expect(tick).toBe(automationCommandId("a1", { kind: "schedule", nowMs: 1_700_000_000_000 + 30_000 }));
-    expect(automationCommandId("a1", { kind: "webhook" })).toBeUndefined();
+    expect(automationCommandId("a1", { kind: "webhook", secret: "s" })).toMatch(/^automation:a1:webhook:/);
+    expect(automationCommandId("a1", { kind: "linear", sessionId: "sess" })).toBe("automation:a1:linear:sess");
     expect(automationCommandId("a1", { kind: "manual" })).toBeUndefined();
     // Fingerprint fallback: same mapped event, same command id.
     const fp = automationCommandId("a1", { kind: "github", event: "push", repo: "o/r" });

@@ -60,17 +60,16 @@ worse than a slow one. `pnpm knip` reports dead files, deps, and exports.
 
 ### 4. Two deploy files, one stack
 
-`alchemy.run.ts` is the primary path (`pnpm deploy:alchemy`); `wrangler.jsonc` is the
-rollback path. **They must declare the same bindings.** After changing either,
-run the check — it is already enforced in CI (`.github/workflows/ci.yml`), so
-drift fails the build:
+**`apps/backend/wrangler.jsonc` is the binding source of truth**; `alchemy.run.ts`
+mirrors it for `pnpm deploy:alchemy` (rollback: wrangler deploy — see
+`docs/DEPLOY.md`). Secret names live in `apps/backend/worker-secrets.json`.
+After changing wrangler, align alchemy and run:
 
 ```bash
-node scripts/check-alchemy-drift.mjs
+pnpm check:deploy
 ```
 
-Any change to a binding, a DO class, a migration tag, a container, or an env
-var goes in **both**, or CI fails and the next deploy adopts nothing.
+CI runs the same checks in `.github/workflows/ci.yml`. Drift fails the build.
 
 ### 5. Migrations are append-only
 

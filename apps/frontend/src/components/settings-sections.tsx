@@ -4,13 +4,14 @@
  * /api/agents, and /api/whoami, /api/auth/*) rather than duplicating
  * internals; sections with no real data source are omitted, not stubbed.
  */
-import { type JSX, type ReactNode, useState } from "react";
+import { type JSX, type ReactNode, useCallback, useEffect, useState } from "react";
 import { version as dashboardVersion } from "../../package.json";
 import { authClient } from "../auth-client";
 import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
-import { PurposeRoutingCard } from "./ModelRoutingSection";
+import { ChatGptSubscriptionCard } from "./ChatGptSubscriptionCard";
+import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
 import { ToneChip } from "./ToneChip";
 import { useTheme } from "./ThemeProvider";
@@ -18,11 +19,13 @@ import { useSavedRepos, saveRepo, removeRepo } from "../saved";
 
 export type SettingsSectionId =
   | "account"
+  | "api-keys"
   | "appearance"
   | "repositories"
   | "automations"
   | "mailbox"
   | "models"
+  | "sandbox"
   | "environments"
   | "experimental"
   | "deployment";
@@ -31,11 +34,13 @@ export type SettingsSectionId =
 export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string; blurb: string }> =
   {
     account: { label: "Account", blurb: "Identity, auth lane & sign out" },
+    "api-keys": { label: "API keys", blurb: "Org-scoped /api/v1 bearer keys" },
     appearance: { label: "Appearance", blurb: "Theme" },
     repositories: { label: "Repositories", blurb: "Saved GitHub targets" },
     automations: { label: "Automations", blurb: "Kill switch & TypeSafe key" },
     mailbox: { label: "Mailbox", blurb: "Agent mailbox & email sending" },
     models: { label: "Models", blurb: "Per-role agent routing" },
+    sandbox: { label: "Sandbox", blurb: "Org sandbox provider & capabilities" },
     environments: {
       label: "Environments",
       blurb: "Deployment configuration the Worker proves",
@@ -118,8 +123,10 @@ function ChecklistRow({
 }
 
 const ROLE_SOURCE_LABEL: Record<RoleModelWire["source"], string> = {
+  dashboard: "Dashboard pin",
   "role-map": "ROLE_MODEL_MAP",
   "role-env": "ROLE_MODEL__",
+  "connection-default": "Single connection",
   default: "Deployment default",
 };
 
@@ -175,7 +182,11 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
   const rows = status.models.roles ?? [];
   return (
     <>
+      <RolePinsCard />
       <Card>
+        <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+          Deploy-time pins (wrangler vars — overridden by dashboard pins above)
+        </div>
         {rows.length === 0 ? (
           <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
             This deployment doesn't report per-role routing — update the backend.
@@ -184,24 +195,7 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
           rows.map((row) => <RoleModelRow key={row.role} row={row} />)
         )}
       </Card>
-      <Card>
-        <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-          How to pin a role (wrangler vars / secrets at deploy time)
-        </div>
-        <div className="px-4 py-3 flex flex-col gap-2">
-          <div className="font-mono text-[11px] leading-relaxed text-[var(--fg)] break-all">
-            ROLE_MODEL_MAP={'{"fixer":{"harness":"opencode","model":"opencode-go/deepseek-v3.2"}}'}
-          </div>
-          <div className="font-mono text-[11px] leading-relaxed text-[var(--fg)] break-all">
-            ROLE_MODEL__REVIEWER="claude-subscription/anthropic-subscription/claude-sonnet-4-6"
-          </div>
-          <div className="text-xs text-[var(--muted-foreground-2)]">
-            One JSON map, or a per-role {"<harness>/<provider>/<model>"} var (model optional — the
-            harness's own *_MODEL var, then its catalog default, fills it in). An unpinned role
-            resolves to the deployment default chain (AGENT_HARNESS, then opencode).
-          </div>
-        </div>
-      </Card>
+      <ChatGptSubscriptionCard />
       <PurposeRoutingCard />
     </>
   );
@@ -431,6 +425,180 @@ function AppearanceSection(): JSX.Element {
   );
 }
 
+interface SandboxProviderRow {
+  id: string;
+  label: string;
+  configured: boolean;
+  matrix: {
+    exec: boolean;
+    files: boolean;
+    portsPreview: boolean;
+    snapshots: boolean;
+    volumes: boolean;
+    edgeEgress: boolean;
+  };
+  detail?: string;
+}
+
+function SandboxOrgSettingsSection({
+  onNavigate,
+}: {
+  onNavigate?: (view: AppNavView) => void;
+}): JSX.Element {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [providerId, setProviderId] = useState("");
+  const [effectiveSource, setEffectiveSource] = useState("");
+  const [providers, setProviders] = useState<SandboxProviderRow[]>([]);
+  const [computesdkBackend, setComputesdkBackend] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const reload = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetch("/api/org/sandbox")
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Sandbox settings unavailable (${r.status}).`);
+        return (await r.json()) as {
+          settings?: { providerId?: string; computesdkBackend?: string } | null;
+          effective?: { source?: string; providerId?: string };
+          providers?: SandboxProviderRow[];
+        };
+      })
+      .then((body) => {
+        const saved = body.settings?.providerId ?? body.effective?.providerId ?? "cloudflare";
+        setProviderId(saved);
+        setComputesdkBackend(body.settings?.computesdkBackend ?? "");
+        setEffectiveSource(body.effective?.source ?? "");
+        setProviders(body.providers ?? []);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Could not load sandbox settings.");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const save = async () => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/org/sandbox", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId,
+          ...(providerId === "computesdk" && computesdkBackend.trim()
+            ? { computesdkBackend: computesdkBackend.trim() }
+            : {}),
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setNotice(body.error ?? `Save failed (${response.status}).`);
+      } else {
+        setNotice("Sandbox provider saved for this org.");
+        reload();
+      }
+    } catch {
+      setNotice("Save failed: backend unreachable.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const matrixKeys = ["exec", "files", "portsPreview", "snapshots", "volumes", "edgeEgress"] as const;
+
+  return (
+    <SectionShell
+      title="Sandbox provider"
+      description="Org-default sandbox backend (task → custom agent → org → deployment). Capability matrix is computed from each registered provider — including ComputeSDK and custom adapters."
+    >
+      {loading ? (
+        <div className="text-xs text-[var(--muted-foreground-2)]">Loading…</div>
+      ) : error ? (
+        <LoadErrorState message={error} onRetry={reload} />
+      ) : (
+        <>
+          {effectiveSource ? (
+            <p className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
+              Effective selection source: {effectiveSource}
+            </p>
+          ) : null}
+          <Card>
+            <div className="px-4 py-3 flex flex-col gap-2 border-b border-[var(--border-1)]">
+              <label className="text-xs text-[var(--muted-foreground-1)]" htmlFor="org-sandbox-provider">
+                Org provider
+              </label>
+              <select
+                id="org-sandbox-provider"
+                value={providerId}
+                onChange={(e) => setProviderId(e.target.value)}
+                className="bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-xs px-2 py-1.5"
+              >
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                    {p.configured ? "" : " (misconfigured)"}
+                  </option>
+                ))}
+              </select>
+              {providerId === "computesdk" ? (
+                <input
+                  type="text"
+                  value={computesdkBackend}
+                  onChange={(e) => setComputesdkBackend(e.target.value)}
+                  placeholder="ComputeSDK backend — e2b, modal, daytona…"
+                  aria-label="ComputeSDK backend"
+                  className="bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-xs px-2 py-1.5 font-mono"
+                />
+              ) : null}
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void save()}
+                className="self-start text-[11px] font-semibold text-[var(--primary)] border border-[var(--primary)]/30 px-2.5 py-1 rounded-[var(--radius-button)]"
+              >
+                {saving ? "Saving…" : "Save org default"}
+              </button>
+              {notice ? <p className="text-[11px] text-[var(--warning-fg)]">{notice}</p> : null}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[11px] font-mono">
+                <thead className="bg-[var(--bg)] text-[10px] uppercase text-[var(--muted-foreground-2)]">
+                  <tr>
+                    <th className="p-2">Provider</th>
+                    {matrixKeys.map((key) => (
+                      <th key={key} className="p-2">{key}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-1)]">
+                  {providers.map((row) => (
+                    <tr key={row.id} className={row.id === providerId ? "bg-[var(--primary-soft)]/40" : ""}>
+                      <td className="p-2 font-semibold text-[var(--fg)]">{row.label}</td>
+                      {matrixKeys.map((key) => (
+                        <td key={key} className="p-2 text-center">
+                          {row.matrix[key] ? "✓" : "·"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+          <ViewLink view="custom-agents" label="Custom agents" onNavigate={onNavigate} />
+        </>
+      )}
+    </SectionShell>
+  );
+}
+
 type LiveSettingsSection = "automations" | "mailbox" | "environments";
 
 function LiveSettingsSectionBody({
@@ -515,6 +683,141 @@ function LiveSettingsSectionBody({
   );
 }
 
+type ApiKeyRow = {
+  keyId: string;
+  label: string;
+  principal: string;
+  scopes: string[];
+  createdAt: number;
+  revoked: boolean;
+};
+
+function ApiKeysSettingsSection(): JSX.Element {
+  const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [label, setLabel] = useState("integration");
+  const [mintedToken, setMintedToken] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const reload = async () => {
+    const response = await fetch("/api/api-keys");
+    if (!response.ok) throw new Error(`API keys request failed: ${response.status}`);
+    const body = (await response.json()) as { keys?: ApiKeyRow[] };
+    setKeys(Array.isArray(body.keys) ? body.keys : []);
+  };
+
+  useEffect(() => {
+    void reload().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  }, []);
+
+  const mint = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/api-keys", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label, scopes: ["api:read", "api:write"] }),
+      });
+      if (!response.ok) throw new Error(`Mint failed: ${response.status}`);
+      const body = (await response.json()) as { token?: string };
+      setMintedToken(body.token ?? null);
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (keyId: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/api-keys?keyId=${encodeURIComponent(keyId)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`Revoke failed: ${response.status}`);
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionShell
+      title="API keys"
+      description="Mint org-scoped bearer keys for /api/v1. Keys are shown once at creation; store them like passwords."
+    >
+      <div data-testid="api-keys-settings" className="space-y-4">
+        {error ? (
+          <div className="rounded-[var(--radius-button)] border border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-[var(--destructive-soft)] px-4 py-3 text-xs text-[var(--destructive)] font-mono">
+            {error}
+          </div>
+        ) : null}
+        <Card>
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-end">
+            <label className="flex-1 text-xs font-mono text-[var(--muted-foreground-2)]">
+              Label
+              <input
+                aria-label="API key label"
+                className="mt-1 w-full border border-[var(--border-1)] bg-[var(--bg)] px-2 py-1.5 text-sm text-[var(--fg)]"
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              aria-label="Mint API key"
+              disabled={busy || !label.trim()}
+              onClick={() => void mint()}
+              className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-mono hover:bg-[var(--bg)] disabled:opacity-50"
+            >
+              Mint key
+            </button>
+          </div>
+          {mintedToken ? (
+            <div className="border-t border-[var(--border-1)] px-4 py-3 text-xs font-mono text-[var(--primary)] break-all">
+              New key (copy now): {mintedToken}
+            </div>
+          ) : null}
+        </Card>
+        <Card>
+          {keys.length === 0 ? (
+            <div className="px-4 py-6 text-xs font-mono text-[var(--muted-foreground-2)]">No API keys yet.</div>
+          ) : (
+            keys.map((key) => (
+              <div
+                key={key.keyId}
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] px-4 py-3 last:border-b-0"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-[var(--fg)]">{key.label}</div>
+                  <div className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
+                    {key.keyId} · {key.scopes.join(", ")}
+                    {key.revoked ? " · revoked" : ""}
+                  </div>
+                </div>
+                {!key.revoked ? (
+                  <button
+                    type="button"
+                    aria-label={`Revoke ${key.label}`}
+                    disabled={busy}
+                    onClick={() => void revoke(key.keyId)}
+                    className="text-[11px] font-mono border border-[var(--border-1)] px-2 py-1"
+                  >
+                    Revoke
+                  </button>
+                ) : null}
+              </div>
+            ))
+          )}
+        </Card>
+      </div>
+    </SectionShell>
+  );
+}
+
 function ModelsSettingsSection(): JSX.Element {
   const setup = useSetupStatus();
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
@@ -558,6 +861,8 @@ export function SettingsSectionBody({
     );
   }
 
+  if (section === "api-keys") return <ApiKeysSettingsSection />;
+
   if (section === "appearance") {
     return (
       <SectionShell
@@ -585,6 +890,8 @@ export function SettingsSectionBody({
   }
 
   if (section === "models") return <ModelsSettingsSection />;
+
+  if (section === "sandbox") return <SandboxOrgSettingsSection onNavigate={onNavigate} />;
 
   if (section === "experimental") {
     return (

@@ -16,6 +16,8 @@ const EVENT_KINDS: Record<string, AutomationTrigger> = {
   "github.pull_request.closed": { kind: "github", events: ["pull_request:closed"] },
   "github.pull_request.updated": { kind: "github", events: ["pull_request:synchronize"] },
   "slack.message.posted": { kind: "slack" },
+  "linear.issue.delegated": { kind: "linear", actions: ["created"] },
+  "linear.session.prompted": { kind: "linear", actions: ["prompted"] },
 };
 // Fields shiba's automation record cannot hold; a non-null value is a 501, never a silent drop.
 const UNSUPPORTED = ["modelId", "workflow", "conditions", "sentryBindingId", "sentryTriggerPolicy", "slack", "targetThreadId", "maxSpendPerThreadMicros"];
@@ -34,6 +36,11 @@ const sameRepo = (a: string, b: string) => projectRepo(a)?.toLowerCase() === b.t
 
 function eventKindOf(trigger: AutomationTrigger): string | null {
   if (trigger.kind === "slack") return "slack.message.posted";
+  if (trigger.kind === "linear") {
+    const actions = trigger.actions ?? ["created", "prompted"];
+    if (actions.length === 1 && actions[0] === "prompted") return "linear.session.prompted";
+    return "linear.issue.delegated";
+  }
   if (trigger.kind !== "github") return null;
   return Object.entries(EVENT_KINDS).find(([, mapped]) => mapped.kind === "github" && mapped.events[0] === trigger.events[0])?.[0] ?? null;
 }
@@ -42,7 +49,9 @@ function toHoplite(automation: PublicAutomation, projectId: string) {
   // Manual triggers are implicit in Hoplite (every automation is runnable), so they are not listed.
   const triggers = automation.triggers.filter((trigger) => trigger.kind !== "manual").map((trigger, index) => ({
     id: `t${index}`, triggerKind: trigger.kind === "schedule" ? "schedule" : "webhook", eventKind: eventKindOf(trigger),
-    schedule: trigger.kind === "schedule" ? { mode: "cron", expression: trigger.cron, timezone: "UTC" } : null }));
+    schedule: trigger.kind === "schedule"
+      ? { mode: "cron", expression: trigger.cron, timezone: trigger.timezone ?? "UTC" }
+      : null }));
   const first = triggers[0];
   return { id: automation.id, projectId, repoFullName: automation.repoUrl.replace(/^https:\/\/github\.com\//, ""),
     // No name field on the record: the prompt's first line stands in.
@@ -76,8 +85,14 @@ function toTrigger(raw: Record<string, unknown>): AutomationTrigger | Response {
     if (!isObject(schedule)) return invalid("schedule triggers need a schedule.");
     if (schedule.mode === "interval") return notImplemented("Interval schedules are not supported; use a five-field cron.");
     if (schedule.mode !== "cron" || typeof schedule.expression !== "string" || typeof schedule.timezone !== "string") return invalid();
-    if (!["UTC", "Etc/UTC"].includes(schedule.timezone)) return notImplemented("Cron schedules are evaluated in UTC only.");
-    return { kind: "schedule", cron: schedule.expression };
+    const tz = schedule.timezone.trim();
+    if (!tz) return invalid("schedule.timezone is required.");
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: tz });
+    } catch {
+      return invalid(`Unknown schedule timezone: ${tz}`);
+    }
+    return { kind: "schedule", cron: schedule.expression, timezone: tz };
   }
   if (raw.triggerKind !== "webhook") return invalid();
   if (raw.schedule !== undefined && raw.schedule !== null) return invalid();

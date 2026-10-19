@@ -18,7 +18,7 @@
  * process into the container profile (AGY_ACP_FORCE_FILE_STORAGE=1), so
  * there is no Worker secret for this provider at all.
  */
-import { getSandbox } from "@cloudflare/sandbox";
+import { getSandbox } from "./sandbox.js";
 import {
   type AntigravityPendingCallback,
   type ProviderAuthController,

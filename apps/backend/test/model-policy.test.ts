@@ -35,7 +35,7 @@ function connection(overrides: Partial<Connection> = {}): Connection {
 }
 
 function snapshot(connections: Connection[] = []): ModelConfigSnapshot {
-  return { connections, policy: EMPTY_POLICY };
+  return { connections, policy: EMPTY_POLICY, connectionOrder: connections.map((c) => c.id) };
 }
 
 describe("resolveCodingRoute", () => {

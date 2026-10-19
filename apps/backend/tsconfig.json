@@ -23,6 +23,7 @@
   "include": [
     "src",
     "src/email-openapi.json",
+    "src/v1/openapi.json",
     "vitest.config.ts"
   ],
   "references": [
@@ -31,6 +32,9 @@
     },
     {
       "path": "../../packages/auth"
+    },
+    {
+      "path": "../../packages/sandbox"
     }
   ]
 }

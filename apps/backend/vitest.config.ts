@@ -1,6 +1,12 @@
+import { join } from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@cloudflare/sandbox": join(import.meta.dirname, "src/sandbox/npm-shim.ts"),
+    },
+  },
   esbuild: {
     jsx: "automatic",
   },
@@ -22,6 +28,7 @@ export default defineConfig({
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    setupFiles: ["./test/vitest-setup.ts"],
     environment: "node",
     server: {
       deps: {

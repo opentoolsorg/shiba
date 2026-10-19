@@ -251,6 +251,89 @@ describe("validate-credentials", () => {
   });
 });
 
+describe("shiba-dev-lib", () => {
+  it("merge dev vars mints only missing AUTO_GENERATE keys", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shiba-dev-"));
+    const example = join(dir, ".dev.vars.example");
+    writeFileSync(example, "# GITHUB_TOKEN=\nINTERNAL_SIGNING_KEY=\n");
+    const devVars = join(dir, ".dev.vars");
+    writeFileSync(devVars, "GITHUB_TOKEN=keep-me\nINTERNAL_SIGNING_KEY=existing\n", { mode: 0o600 });
+    const lib = join(ROOT, "scripts", "shiba-dev-lib.mjs");
+    const out = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { ensureDevVars, parseDevVars } from ${JSON.stringify(lib)};
+import { readFileSync } from "node:fs";
+let n = 0;
+const { appended } = ensureDevVars({
+  root: ${JSON.stringify(dir)},
+  exampleRel: ".dev.vars.example",
+  devVarsRel: ".dev.vars",
+  generate: () => "gen-" + (++n),
+});
+const parsed = parseDevVars(readFileSync(${JSON.stringify(devVars)}, "utf8"));
+console.log(JSON.stringify({
+  appended,
+  github: parsed.get("GITHUB_TOKEN"),
+  internal: parsed.get("INTERNAL_SIGNING_KEY"),
+  pairing: parsed.get("PAIRING_SECRET"),
+}));`,
+      ],
+      { encoding: "utf8" },
+    );
+    expect(out.status).toBe(0);
+    const body = JSON.parse(out.stdout.trim());
+    expect(body.appended).toContain("PAIRING_SECRET");
+    expect(body.appended).not.toContain("INTERNAL_SIGNING_KEY");
+    expect(body.github).toBe("keep-me");
+    expect(body.internal).toBe("existing");
+    expect(body.pairing).toBe("gen-1");
+  });
+
+  it("dry-run plan lists migrate, image build, and wrangler dev", () => {
+    const lib = join(ROOT, "scripts", "shiba-dev-lib.mjs");
+    const out = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { formatDryRun, planDevSteps } from ${JSON.stringify(lib)};
+const text = formatDryRun(planDevSteps({ skipInstall: true, skipBuild: true }));
+console.log(text);`,
+      ],
+      { encoding: "utf8", cwd: ROOT },
+    );
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("d1-migrate");
+    expect(out.stdout).toContain("container-build");
+    expect(out.stdout).toContain("wrangler-dev");
+    expect(out.stdout).toContain("8788/app/");
+    const cli = run("shiba.mjs", ["dev", "--dry-run", "--skip-install", "--skip-build"]);
+    expect(cli.status).toBe(0);
+    expect(cli.stdout).toContain("dry run");
+    expect(cli.stdout).toContain("GITHUB_TOKEN");
+  });
+});
+
+describe("check-dev-vars-example", () => {
+  it("exits 0 when the repo example matches env.ts and .env.schema", () => {
+    const out = run("check-dev-vars-example.mjs");
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("documents");
+  });
+
+  it("exits 1 when a required secret is missing from the example file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dev-vars-check-"));
+    const example = join(dir, ".dev.vars.example");
+    writeFileSync(example, "# GITHUB_TOKEN=\n");
+    const out = run("check-dev-vars-example.mjs", [`--example=${example}`]);
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain("missing");
+  });
+});
+
 describe("scripts/ built-ins-only guard (L6)", () => {
   const NODE_CORE = new Set([
     "assert", "buffer", "child_process", "cluster", "console", "constants", "crypto",
@@ -270,10 +353,12 @@ describe("scripts/ built-ins-only guard (L6)", () => {
 
   const SCRIPTS = [
     "check-env-types.mjs",
+    "check-dev-vars-example.mjs",
     "plan-deploy.mjs",
     "ephemeral-stack.mjs",
     "validate-credentials.mjs",
     "check-alchemy-drift.mjs",
+    "shiba-dev-lib.mjs",
   ];
 
   for (const script of SCRIPTS) {

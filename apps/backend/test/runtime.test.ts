@@ -1,19 +1,18 @@
 import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cloudflare/workers-types";
-import { Sandbox } from "../src/sandbox.js";
+import { DEFAULT_ALLOWED_HOSTS } from "../src/sandbox/outbound-config.js";
+import { INACTIVITY_TIMEOUT_MS, outboundByHost, outboundHandlers } from "../src/sandbox.js";
 import { claudeCodeHarness } from "../src/harness/claude-code.js";
 import { ClaudeUsageLimitError } from "../src/harness/claude-subscription.js";
 import { CodexUsageLimitError } from "../src/harness/codex-subscription.js";
 import { devinHarness } from "../src/harness/devin.js";
 import { AntigravityUsageLimitError } from "../src/harness/antigravity-subscription.js";
 import type { AgentHarness } from "../src/harness/types.js";
+import type { EgressEnv } from "../src/egress.js";
 
-vi.mock("@cloudflare/sandbox", () => ({
-  Sandbox: class {},
-  ContainerProxy: class {},
+vi.mock("../src/sandbox/proxy.js", () => ({
   proxyToSandbox: vi.fn().mockResolvedValue(null),
-  getSandbox: vi.fn(),
 }));
 
 vi.mock("agents/routing", () => ({
@@ -25,7 +24,7 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 vi.mock("../src/agents/orchestrator.js", () => ({ CodingOrchestrator: class {} }));
 
 import { getAgentByName } from "agents/routing";
-import { proxyToSandbox } from "@cloudflare/sandbox";
+import { proxyToSandbox } from "../src/sandbox/proxy.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -245,7 +244,7 @@ describe("parsePorcelainStatus", () => {
 });
 
 describe("sandbox HTTPS egress", () => {
-  const outboundCtx = { containerId: "test-container", className: "Sandbox" };
+  const outboundCtx = undefined;
   function env(token?: string) {
     const getUrl = vi.fn().mockResolvedValue(
       "https://gateway.ai.cloudflare.com/v1/binding-account/default/google-ai-studio",
@@ -258,7 +257,7 @@ describe("sandbox HTTPS egress", () => {
       AI_GATEWAY_TOKEN: token,
       gateway,
       getUrl,
-    };
+    } as EgressEnv & { gateway: ReturnType<typeof vi.fn>; getUrl: ReturnType<typeof vi.fn> };
   }
 
   it("rewrites native Google HTTPS egress using the binding and strips container credentials", async () => {
@@ -281,7 +280,7 @@ describe("sandbox HTTPS egress", () => {
         body: '{"contents":[]}',
       },
     );
-    const response = await Sandbox.outboundByHost!["generativelanguage.googleapis.com"]!(request, bindings, outboundCtx);
+    const response = await outboundByHost["generativelanguage.googleapis.com"]!(request, bindings, outboundCtx);
     expect(response).toBe(upstream);
     expect(bindings.gateway).toHaveBeenCalledWith("default");
     expect(bindings.getUrl).toHaveBeenCalledWith("google-ai-studio");
@@ -302,7 +301,7 @@ describe("sandbox HTTPS egress", () => {
   it("uses no provider credential when the gateway supplies BYOK", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
     vi.stubGlobal("fetch", fetchMock);
-    await Sandbox.outboundByHost!["generativelanguage.googleapis.com"]!(
+    await outboundByHost["generativelanguage.googleapis.com"]!(
       new Request("https://generativelanguage.googleapis.com/v1beta/models", {
         headers: { "cf-aig-authorization": "Bearer untrusted" },
       }),
@@ -318,12 +317,12 @@ describe("sandbox HTTPS egress", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("git advertisement"));
     vi.stubGlobal("fetch", fetchMock);
     // github.com is credentialed only through the per-run scoped handler (B6).
-    await Sandbox.outboundHandlers!.githubScoped!(
+    await outboundHandlers.githubScoped!(
       new Request("https://github.com/owner/repo.git/info/refs?service=git-upload-pack", {
         headers: { Authorization: "Bearer container-token" },
       }),
       env(token),
-      { ...outboundCtx, params: { allowedPath: "/owner/repo" } } as never,
+      { params: { allowedPath: "/owner/repo" } },
     );
     const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(url.toString()).toBe("https://github.com/owner/repo.git/info/refs?service=git-upload-pack");
@@ -337,7 +336,7 @@ describe("sandbox HTTPS egress", () => {
   it("does not forward credentials to insecure or mismatched destinations", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    for (const handler of Object.values(Sandbox.outboundByHost!)) {
+    for (const handler of Object.values(outboundByHost)) {
       expect((await handler!(new Request("https://attacker.example/"), env("secret"), outboundCtx)).status).toBe(403);
       expect((await handler!(new Request("http://github.com/"), env("secret"), outboundCtx)).status).toBe(403);
     }
@@ -351,7 +350,7 @@ describe("sandbox HTTPS egress", () => {
     const attempts: [Request, Promise<Response>][] = [
       [
         new Request("https://generativelanguage.googleapis.com/"),
-        Promise.resolve(Sandbox.outboundByHost!["generativelanguage.googleapis.com"]!(
+        Promise.resolve(outboundByHost["generativelanguage.googleapis.com"]!(
           new Request("https://generativelanguage.googleapis.com/"),
           env("worker-only-secret"),
           outboundCtx,
@@ -359,10 +358,10 @@ describe("sandbox HTTPS egress", () => {
       ],
       [
         new Request("https://github.com/owner/repo.git/info/refs"),
-        Promise.resolve(Sandbox.outboundHandlers!.githubScoped!(
+        Promise.resolve(outboundHandlers.githubScoped!(
           new Request("https://github.com/owner/repo.git/info/refs"),
           env("worker-only-secret"),
-          { ...outboundCtx, params: { allowedPath: "/owner/repo" } } as never,
+          { params: { allowedPath: "/owner/repo" } },
         )),
       ],
     ];
@@ -376,19 +375,11 @@ describe("sandbox HTTPS egress", () => {
 });
 
 describe("sandbox egress allowlist (T5)", () => {
-  // allowedHosts is an instance property on the base Container class, so
-  // read it off an instance. The cast keeps tsc happy: the real DO
-  // constructor takes (ctx, env), but under test the base is mocked.
-  function sandboxHosts(): string[] | undefined {
-    const Ctor = Sandbox as unknown as new () => { allowedHosts?: string[] };
-    return new Ctor().allowedHosts;
-  }
-
   it("deny-by-default allowlist contains both intercepted hosts plus codeload", () => {
     // PLAN.md §6 T5: allowedHosts is evaluated before outbound handlers.
     // Anything unlisted cannot leave the container, including from
     // repository code OpenCode runs.
-    expect(sandboxHosts()).toEqual([
+    expect(DEFAULT_ALLOWED_HOSTS).toEqual([
       "generativelanguage.googleapis.com",
       "github.com",
       "codeload.github.com", // git clone fetches packs here
@@ -396,10 +387,10 @@ describe("sandbox egress allowlist (T5)", () => {
   });
 
   it("refuses a non-listed host", () => {
-    expect(sandboxHosts()).not.toContain("attacker.example");
+    expect(DEFAULT_ALLOWED_HOSTS).not.toContain("attacker.example");
     // Deliberately shipped without npm registry: enabling `npm install`
     // inside runs is the widest exfiltration channel on the list (T5).
-    expect(sandboxHosts()).not.toContain("registry.npmjs.org");
+    expect(DEFAULT_ALLOWED_HOSTS).not.toContain("registry.npmjs.org");
   });
 });
 
@@ -625,9 +616,8 @@ describe("runtime seam", () => {
 
 describe("sandbox sleep tail (T11 — B9)", () => {
   it("sleeps after 1m to cut the idle compute tail", () => {
-    // PLAN.md §7 T11: sleepAfter = "10m" + unique sandbox id per task means a
-    // 5-minute task bills 15 container-minutes. "1m" cuts compute ~57%.
-    expect(new Sandbox(null as any, null as any).sleepAfter).toBe("1m");
+    // SDK 1.0: setInactivityTimeout(60_000) replaces sleepAfter = "1m".
+    expect(INACTIVITY_TIMEOUT_MS).toBe(60_000);
   });
 });
 

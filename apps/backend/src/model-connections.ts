@@ -18,6 +18,7 @@
  *  - a model id must match the connection's provider namespace and be
  *    compatible with the harness that will run it.
  */
+import { AGENT_ROLES, type AgentRole } from "@shiba/shared";
 import { HARNESS_NAMES, HARNESSES } from "./harness/index.js";
 import { PROVIDER_HOSTS } from "./harness/types.js";
 
@@ -28,6 +29,8 @@ import { PROVIDER_HOSTS } from "./harness/types.js";
 export const CONNECTION_SERVICES = [
   "anthropic",
   "openai",
+  /** Per-user ChatGPT plan via codex-subscription + Worker egress (SIWC OSS path). */
+  "openai-subscription",
   "google",
   "devin",
   "opencode-go",
@@ -49,7 +52,7 @@ export const CONNECTION_SERVICES = [
 ] as const;
 export type ConnectionService = (typeof CONNECTION_SERVICES)[number];
 
-export const CONNECTION_AUTH_MODES = ["gateway-byok", "worker-service-secret"] as const;
+export const CONNECTION_AUTH_MODES = ["gateway-byok", "worker-service-secret", "user-subscription"] as const;
 export type ConnectionAuthMode = (typeof CONNECTION_AUTH_MODES)[number];
 
 export const CONNECTION_STATUSES = ["unconfigured", "ready", "invalid", "disabled"] as const;
@@ -59,6 +62,7 @@ export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
 export const SERVICE_AUTH_MODE: Record<ConnectionService, ConnectionAuthMode> = {
   anthropic: "gateway-byok",
   openai: "gateway-byok",
+  "openai-subscription": "user-subscription",
   google: "gateway-byok",
   "opencode-go": "gateway-byok",
   // Grok models egress through the AI Gateway's grok provider BYOK
@@ -144,15 +148,76 @@ export function isPurpose(value: unknown): value is Purpose {
  */
 export const WORKERS_AI_MODEL_RE = /^@cf\/[a-z0-9][a-z0-9./_-]{1,127}$/i;
 
+/** Dashboard-editable pin for one agent role (harness + optional model). */
+export interface DashboardRolePin {
+  harness: string;
+  model?: string;
+}
+
 export interface PurposePolicy {
   /** Monotonic; bumped on every accepted update. */
   version: number;
   /** Purpose → Workers AI model id. Absent = deployment default applies. */
   models: Partial<Record<Purpose, string>>;
+  /** Operator pins from Settings → Models; wins over wrangler ROLE_MODEL_* vars. */
+  rolePins?: Partial<Record<AgentRole, DashboardRolePin>>;
   updatedAt: number;
 }
 
 export const EMPTY_POLICY: PurposePolicy = { version: 0, models: {}, updatedAt: 0 };
+
+/** Sort connections by the stored order list; unknown ids trail by createdAt. */
+export function orderConnections(connections: Connection[], order: string[]): Connection[] {
+  if (order.length === 0) return connections;
+  const rank = new Map(order.map((id, index) => [id, index]));
+  return [...connections].sort((a, b) => {
+    const ai = rank.get(a.id);
+    const bi = rank.get(b.id);
+    if (ai !== undefined && bi !== undefined) return ai - bi;
+    if (ai !== undefined) return -1;
+    if (bi !== undefined) return 1;
+    return a.createdAt - b.createdAt;
+  });
+}
+
+/** Validate a rolePins object from a policy PUT. */
+export function validateRolePins(input: unknown): { rolePins: PurposePolicy["rolePins"] } | { error: string } {
+  if (input === undefined || input === null) {
+    return { rolePins: undefined };
+  }
+  if (typeof input !== "object" || Array.isArray(input)) {
+    return { error: "rolePins must be a JSON object keyed by role." };
+  }
+  const rolePins: PurposePolicy["rolePins"] = {};
+  for (const [role, value] of Object.entries(input as Record<string, unknown>)) {
+    if (!(AGENT_ROLES as readonly string[]).includes(role)) {
+      return { error: `Unknown role ${JSON.stringify(role)}.` };
+    }
+    if (value === null) continue;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return { error: `rolePins.${role} must be {"harness":"…","model":"…"} or null to clear.` };
+    }
+    const harness = (value as Record<string, unknown>).harness;
+    if (typeof harness !== "string" || harness.trim() === "") {
+      return { error: `rolePins.${role}.harness must be a non-empty string.` };
+    }
+    const modelRaw = (value as Record<string, unknown>).model;
+    const model =
+      typeof modelRaw === "string" && modelRaw.trim() !== "" ? modelRaw.trim() : undefined;
+    rolePins[role as AgentRole] = model !== undefined ? { harness: harness.trim(), model } : { harness: harness.trim() };
+  }
+  return { rolePins };
+}
+
+/** Normalize connectionOrder after register/disable — drop missing ids, append new ones. */
+export function reconcileConnectionOrder(connections: Connection[], order: string[]): string[] {
+  const ids = new Set(connections.map((c) => c.id));
+  const next = order.filter((id) => ids.has(id));
+  for (const connection of connections) {
+    if (!next.includes(connection.id)) next.push(connection.id);
+  }
+  return next;
+}
 
 /**
  * Validate a policy update. `coding` is not settable: coding routes resolve
@@ -209,6 +274,7 @@ export function providerOfService(service: ConnectionService): string {
   // luan is a fleet lane routed through the opencode-go provider; its
   // models validate in the opencode-go/* namespace.
   if (service === "luan") return "opencode-go";
+  if (service === "openai-subscription") return "openai-subscription";
   return service;
 }
 
