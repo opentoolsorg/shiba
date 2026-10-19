@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
 vi.mock("../src/sandbox/client.js", () => ({ getSandbox: mocks.sandbox }));
+import { resetSandboxProviderCache } from "../src/sandbox/provider.js";
 vi.mock("@cloudflare/puppeteer", () => ({ default: { launch: mocks.launch } }));
 vi.mock("../src/runtime.js", () => ({
   createRuntimeAdapter: () => ({ runCodingTask: mocks.run }),
@@ -45,6 +46,7 @@ async function responseFor(instance: OpenCodeAgent, signal?: AbortSignal) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetSandboxProviderCache();
   mocks.sandbox.mockReturnValue({});
   mocks.run.mockResolvedValue(RESULT);
   mocks.publish.mockResolvedValue({ pullUrl: "https://github.com/owner/repo/pull/1" });
@@ -126,6 +128,10 @@ describe("OpenCodeAgent response boundary", () => {
 
   it("reports sandbox setup errors through the structured result", async () => {
     mocks.sandbox.mockImplementation(() => { throw new Error("Sandbox unavailable"); });
+    mocks.run.mockImplementation(async (ops) => {
+      await ops.gitCheckout("https://github.com/owner/repo", { branch: "main", targetDir: "/workspace/x" });
+      return RESULT;
+    });
     const { result } = await responseFor(agent());
     expect(result).toMatchObject({ status: "error", summary: "Sandbox unavailable" });
   });

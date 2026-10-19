@@ -5,7 +5,8 @@
  * It makes no model calls of its own.
  */
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
-import { getSandbox } from "../sandbox/client.js";
+import { getSandboxInstance } from "../sandbox/provider.js";
+import type { SandboxInstance } from "@shiba/sandbox";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -55,18 +56,27 @@ export async function pinSandboxEgress(
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
 ): Promise<void> {
-  const sandbox = getSandbox(env.Sandbox, sandboxId);
-  if (egressHosts && egressHosts.length > 0) {
-    await sandbox.approveHarnessEgress(egressHosts);
+  const instance = await getSandboxInstance(env, sandboxId);
+  if (!instance.pinEgress) {
+    throw new Error(
+      `Sandbox provider "${env.SHIBA_SANDBOX_PROVIDER ?? "cloudflare"}" cannot pin egress at the edge.`,
+    );
   }
-  // T48: per-run handler swaps land inside the same pin — a subscription
-  // harness claims its provider host's handler so the token branch serves
-  // it, never the gateway's API-key path.
-  if (egressOverrides && egressOverrides.length > 0) {
-    await sandbox.approveEgressOverrides(egressOverrides);
-  }
+  const outboundByHost =
+    egressOverrides && egressOverrides.length > 0
+      ? Object.fromEntries(
+          egressOverrides.map((o) => [
+            o.host,
+            { handler: o.handler, ...(o.params ? { params: o.params } : {}) },
+          ]),
+        )
+      : undefined;
   const { owner, repo } = parseGitHubRepoUrl(repoUrl);
-  await sandbox.approveRepoScope(`/${owner}/${repo}`);
+  await instance.pinEgress({
+    allowedHosts: egressHosts ?? [],
+    ...(outboundByHost ? { outboundByHost } : {}),
+    githubRepoPath: `/${owner}/${repo}`,
+  });
 }
 
 /**
@@ -83,7 +93,11 @@ function createSlackProgress(env: Env, thread?: CodingTaskInput["slackThread"]):
 }
 
 export function createSandboxOps(env: Env, sandboxId: string, egressHosts?: string[], egressOverrides?: EgressOverride[]): SandboxOps {
-  const sandbox = getSandbox(env.Sandbox, sandboxId);
+  let instancePromise: Promise<SandboxInstance> | undefined;
+  const instance = () => {
+    instancePromise ??= getSandboxInstance(env, sandboxId);
+    return instancePromise;
+  };
   return {
     async gitCheckout(repoUrl, opts) {
       // The clone runs before anything else, so it is where this run's egress
@@ -92,112 +106,40 @@ export function createSandboxOps(env: Env, sandboxId: string, egressHosts?: stri
       // is one retried unit — a half-pinned sandbox must not be reused.
       await withRetry(HARNESS_RETRY, async () => {
         await pinSandboxEgress(env, sandboxId, repoUrl, egressHosts, egressOverrides);
-        await sandbox.gitCheckout(repoUrl, { branch: opts.branch, targetDir: opts.targetDir });
+        await (await instance()).gitCheckout(repoUrl, { branch: opts.branch, targetDir: opts.targetDir });
       });
     },
     async writeFile(path, content) {
-      await sandbox.writeFile(path, content);
+      await (await instance()).writeFile(path, content);
     },
     async exec(command, opts) {
       opts?.signal?.throwIfAborted();
-      // AbortSignal cannot cross the sandbox RPC boundary; the exec timeout
-      // bounds the remote process, and abort is raced in locally instead.
-      const execPromise = sandbox.exec(command, {
+      const execPromise = (await instance()).exec(command, {
         cwd: opts?.cwd,
-        timeout: opts?.timeoutMs,
+        timeoutMs: opts?.timeoutMs,
         env: opts?.env,
-        stream: opts?.onOutput !== undefined,
         onOutput: opts?.onOutput,
       });
-      const result = opts?.signal
-        ? await Promise.race([
-            execPromise,
-            new Promise<never>((_, reject) =>
-              opts.signal!.addEventListener(
-                "abort",
-                () => {
-                  execPromise.catch(() => {});
-                  reject(new Error("Run cancelled."));
-                },
-                { once: true },
-              ),
-            ),
-          ])
-        : await execPromise;
-      return {
-        stdout: result.stdout ?? "",
-        stderr: result.stderr ?? "",
-        exitCode: result.exitCode ?? 0,
-      };
+      if (!opts?.signal) return execPromise;
+      if (opts.signal.aborted) {
+        execPromise.catch(() => {});
+        throw new Error("Run cancelled.");
+      }
+      return Promise.race([
+        execPromise,
+        new Promise<never>((_, reject) => {
+          const onAbort = () => {
+            execPromise.catch(() => {});
+            reject(new Error("Run cancelled."));
+          };
+          opts.signal!.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
     },
     async readFile(path, opts) {
-      opts?.signal?.throwIfAborted();
-      let stream;
-      try {
-        stream = await sandbox.readFileStream(path);
-      } catch (error) {
-        throw new Error(`readFileStream RPC failed for ${path}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      let bytes;
-      try {
-        bytes = await collectStream(stream, opts?.maxBytes, opts?.signal);
-      } catch (error) {
-        throw new Error(`collectStream failed for ${path}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      const decoded = tryDecodeUtf8(bytes);
-      if (decoded !== null) {
-        return { kind: "utf8", content: decoded };
-      }
-      return { kind: "base64", content: bytesToBase64(bytes) };
+      return (await instance()).readFile(path, opts);
     },
   };
-}
-
-async function collectStream(stream: ReadableStream<Uint8Array>, maxBytes = 500_000, signal?: AbortSignal): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  // pipeThrough({ signal }) rejects non-native AbortSignals with an illegal
-  // invocation; the for-await's throwIfAborted covers cancellation instead.
-  const source = signal ? stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>()) : stream;
-  const reader = source.getReader();
-  try {
-    while (true) {
-      signal?.throwIfAborted();
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.length;
-      if (total > maxBytes) throw new Error(`Captured file exceeds the ${maxBytes}-byte limit.`);
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  signal?.throwIfAborted();
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
-function tryDecodeUtf8(bytes: Uint8Array): string | null {
-  if (bytes.includes(0)) return null;
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
 
 /**
