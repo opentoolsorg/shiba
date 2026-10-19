@@ -161,4 +161,7 @@ export interface VMRun {
   error?: string;
   diff?: string;
   hasDiff?: boolean;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: "fresh" | "shared";
 }

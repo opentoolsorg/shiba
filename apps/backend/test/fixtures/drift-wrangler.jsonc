@@ -35,7 +35,7 @@
       "name": "shiba-ai-coworker-sandbox",
       "image": "./Dockerfile",
       "instance_type": "standard-1",
-      "max_instances": 5,
+      "max_instances": 10,
     },
   ],
   "migrations": [
