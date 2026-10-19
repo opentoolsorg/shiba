@@ -141,7 +141,7 @@ export function PurposeRoutingCard(): JSX.Element {
           type="button"
           onClick={save}
           disabled={saving || draft === null}
-          className="bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white font-semibold py-1.5 px-3 rounded-[var(--radius-button)] text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="bg-[var(--primary)] text-[var(--primary-text)] hover:brightness-110 font-semibold py-1.5 px-3 min-h-6 touch:min-h-11 rounded-[var(--radius-button)] text-xs disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {saving ? "Saving…" : "Save routing"}
         </button>
@@ -278,7 +278,7 @@ export function RolePinsCard(): JSX.Element {
           type="button"
           onClick={() => void save()}
           disabled={saving || draft === null}
-          className="bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white font-semibold py-1.5 px-3 rounded-[var(--radius-button)] text-xs transition-colors disabled:opacity-40"
+          className="bg-[var(--primary)] text-[var(--primary-text)] hover:brightness-110 font-semibold py-1.5 px-3 min-h-6 touch:min-h-11 rounded-[var(--radius-button)] text-xs disabled:opacity-40"
         >
           {saving ? "Saving…" : "Save role pins"}
         </button>
@@ -490,7 +490,7 @@ export function ConnectionsCard(): JSX.Element {
           type="button"
           disabled={busy || displayName.trim() === ""}
           onClick={() => void register()}
-          className="bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] text-white font-semibold py-1.5 px-3 rounded-[var(--radius-button)] text-xs transition-colors disabled:opacity-40"
+          className="bg-[var(--primary)] text-[var(--primary-text)] hover:brightness-110 font-semibold py-1.5 px-3 min-h-6 touch:min-h-11 rounded-[var(--radius-button)] text-xs disabled:opacity-40"
         >
           Add connection
         </button>

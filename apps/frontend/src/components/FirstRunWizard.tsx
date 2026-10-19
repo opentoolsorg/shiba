@@ -2,7 +2,7 @@ import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { useMailboxes, useSetupStatus } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
-import { providerPhaseLabel } from "./ProvidersView";
+import { providerPhaseLabel } from "./provider-phase";
 import { ToneChip } from "./ToneChip";
 
 export const ONBOARDING_STORAGE_KEY = "shiba-onboarding-v1";
