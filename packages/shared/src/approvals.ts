@@ -121,6 +121,9 @@ export interface PendingApproval {
   subagentPath?: string;
   subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
   captainId?: string;
+  denId?: string;
+  sandboxProvider?: string;
+  customAgentId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
    * already resolved into `route` at queue time — this rides along as
@@ -177,6 +180,9 @@ export interface CreateApprovalInput {
   subagentPath?: string;
   subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
   captainId?: string;
+  denId?: string;
+  sandboxProvider?: string;
+  customAgentId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
   payload?: JsonValue;
@@ -216,6 +222,9 @@ export function createPendingApproval(
       ...(input.subagentPath !== undefined ? { subagentPath: input.subagentPath } : {}),
       ...(input.subagentSandbox !== undefined ? { subagentSandbox: input.subagentSandbox } : {}),
       ...(input.captainId !== undefined ? { captainId: input.captainId } : {}),
+      ...(input.denId !== undefined ? { denId: input.denId } : {}),
+      ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
+      ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.payload !== undefined ? { payload: input.payload } : {}),
@@ -362,6 +371,9 @@ export interface RunInputFields {
   subagentPath?: string;
   subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
   captainId?: string;
+  denId?: string;
+  sandboxProvider?: string;
+  customAgentId?: string;
   role?: AgentRole;
 }
 
@@ -470,6 +482,9 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.subagentPath !== undefined ? { subagentPath: input.subagentPath } : {}),
     ...(input.subagentSandbox !== undefined ? { subagentSandbox: input.subagentSandbox } : {}),
     ...(input.captainId !== undefined ? { captainId: input.captainId } : {}),
+    ...(input.denId !== undefined ? { denId: input.denId } : {}),
+    ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
+    ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });

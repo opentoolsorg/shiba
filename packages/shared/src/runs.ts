@@ -146,10 +146,15 @@ export interface DelegatedRun {
    * (decremented on each budgeted spawn). Absent = per-spawn approval.
    */
   subagentBudgetRemaining?: number;
-  /** Phase 2b: captain DO name when spawned under a captain instance. */
+  /** Phase 2b: den DO name when spawned under a den (pack coordinator) instance. */
+  denId?: string;
+  /** @deprecated Use denId — still accepted on intake and echoed on API responses. */
   captainId?: string;
   /** T52 / dispatch: role pin frozen on the run row when set at queue time. */
   role?: import("./roles.js").AgentRole;
+  /** Sandbox provider id for this run (task override frozen at queue time). */
+  sandboxProvider?: string;
+  customAgentId?: string;
 }
 
 /**

@@ -73,6 +73,10 @@ export interface TaskComposerProps {
   skills?: SavedSkill[];
   selectedSkillIds?: string[];
   onToggleSkill?: (id: string) => void;
+  /** Org custom agents from /api/custom-agents */
+  customAgents?: { id: string; name: string; slug: string; emoji?: string }[];
+  customAgentId?: string;
+  onCustomAgentChange?: (id: string) => void;
   /** "docked" = compact bar under the timeline; "hero" = centered empty-state card. */
   variant?: "docked" | "hero";
 }
@@ -213,6 +217,9 @@ export function TaskComposer({
   skills = [],
   selectedSkillIds = [],
   onToggleSkill,
+  customAgents = [],
+  customAgentId = "",
+  onCustomAgentChange,
   variant = "docked",
 }: TaskComposerProps): JSX.Element {
   const sendDisabled = busy || task.trim() === "" || repoUrl.trim() === "";
@@ -295,6 +302,7 @@ export function TaskComposer({
   );
   const modelKnown = routing.codingModel === "" || modelSuggestions.includes(routing.codingModel);
   const selectedSkills = skills.filter((skill) => selectedSkillIds.includes(skill.id));
+  const selectedCustomAgent = customAgents.find((agent) => agent.id === customAgentId);
 
   const pickRepo = (url: string) => {
     onRepoUrlChange(url);
@@ -518,6 +526,13 @@ export function TaskComposer({
       />
 
       {/* Selected skills removable chips */}
+      {selectedCustomAgent ? (
+        <div className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
+          Custom agent: {selectedCustomAgent.emoji ? `${selectedCustomAgent.emoji} ` : ""}
+          {selectedCustomAgent.name}
+        </div>
+      ) : null}
+
       {selectedSkills.length > 0 ? (
         <fieldset className="flex items-center gap-1.5 flex-wrap" aria-label="Attached skills">
           {selectedSkills.map((skill) => (
@@ -733,6 +748,47 @@ export function TaskComposer({
                   <span className="flex-1">Read-only review after publish</span>
                   {reviewAfterPublish ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
                 </button>
+              ) : null}
+
+              {onCustomAgentChange && customAgents.length > 0 ? (
+                <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">
+                  <span className="text-xs text-[var(--muted-foreground-1)]">Custom agent</span>
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={customAgentId === ""}
+                    className={`flex items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
+                      customAgentId === ""
+                        ? "bg-[var(--secondary-hover)] font-medium text-[var(--fg)]"
+                        : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"
+                    }`}
+                    onClick={() => onCustomAgentChange("")}
+                  >
+                    <span className="flex-1 truncate">Default (no profile)</span>
+                    {customAgentId === "" ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                  </button>
+                  {customAgents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={agent.id === customAgentId}
+                      className={`flex items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
+                        agent.id === customAgentId
+                          ? "bg-[var(--secondary-hover)] font-medium text-[var(--fg)]"
+                          : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"
+                      }`}
+                      onClick={() => onCustomAgentChange(agent.id)}
+                    >
+                      <span className="flex-1 truncate text-left">
+                        {agent.emoji ? `${agent.emoji} ` : ""}
+                        {agent.name}
+                        <span className="text-[10px] text-[var(--muted-foreground-2)] ml-1">{agent.slug}</span>
+                      </span>
+                      {agent.id === customAgentId ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                    </button>
+                  ))}
+                </div>
               ) : null}
 
               <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">

@@ -14,6 +14,7 @@ import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
+import { CustomAgentsView, useCustomAgentOptions } from "./components/CustomAgentsView";
 import { RemoteAccessView } from "./components/RemoteAccessView";
 import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
 import { useSocketLiveness } from "./socket-liveness";
@@ -366,6 +367,18 @@ export function App(): React.JSX.Element {
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [harness, setHarness] = useState("opencode");
+  const [customAgentId, setCustomAgentId] = useState("");
+  const { agents: customAgentRecords } = useCustomAgentOptions();
+  const customAgentPickerOptions = useMemo(
+    () =>
+      customAgentRecords.map((agent) => ({
+        id: agent.id,
+        name: agent.config.name,
+        slug: agent.slug,
+        emoji: agent.config.emoji,
+      })),
+    [customAgentRecords],
+  );
   const [codingModel, setCodingModel] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
@@ -939,6 +952,7 @@ export function App(): React.JSX.Element {
           ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
           publishPullRequest,
           ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
+          ...(customAgentId ? { customAgentId } : {}),
         };
         const body = { ...fields, runtime: "local", ...targetMachineFields(desktopStatus) };
         // Keyed on user-editable fields only, so a daemon re-pair doesn't mint a new commandId for a retry.
@@ -1048,6 +1062,7 @@ export function App(): React.JSX.Element {
               ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
               ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
               ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+              ...(customAgentId ? { customAgentId } : {}),
             },
           },
         });
@@ -1075,6 +1090,7 @@ export function App(): React.JSX.Element {
       publishPullRequest,
       reviewAfterPublish,
       harness,
+      customAgentId,
       codingModel,
       connectionId,
       chat,
@@ -2241,6 +2257,9 @@ export function App(): React.JSX.Element {
                     }}
                     onReviewAfterPublishChange={setReviewAfterPublish}
                     onHarnessChange={setHarness}
+                    customAgents={customAgentPickerOptions}
+                    customAgentId={customAgentId}
+                    onCustomAgentChange={setCustomAgentId}
                     routing={{
                       codingModel,
                       connectionId,
@@ -2360,6 +2379,8 @@ export function App(): React.JSX.Element {
             <ProvidersView />
           ) : mainView === "skills" ? (
             <SkillsView />
+          ) : mainView === "custom-agents" ? (
+            <CustomAgentsView />
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (

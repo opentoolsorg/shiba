@@ -8,6 +8,9 @@ import type { Env } from "./env.js";
 import { agentCliCatalog } from "./harness/catalog.js";
 import { isGitHubPublishConfigured, resolveGitHubCredential } from "./github-auth.js";
 import { assertRunPreflight, type RunPreflightInput } from "./run-preflight.js";
+import { resolveSandboxSelection } from "./sandbox/selection.js";
+import { resolveSandboxProviderForId } from "./sandbox/provider.js";
+import { sandboxFeatureMatrix } from "@shiba/shared";
 import { defaultCodingFromConnection, soleReadyConnection } from "./model-defaults.js";
 import { readModelConfig, resolveCodingRoute, type ModelConfigSnapshot } from "./model-policy.js";
 
@@ -207,6 +210,48 @@ function checkGateway(
   }
 }
 
+async function checkSandboxProvider(env: Env, findings: DoctorFinding[]): Promise<void> {
+  try {
+    const selection = await resolveSandboxSelection(env, { orgId: "self-hosted" });
+    const provider = resolveSandboxProviderForId(env, selection.providerId);
+    const matrix = sandboxFeatureMatrix(provider.capabilities);
+    push(
+      findings,
+      "sandbox.provider",
+      "ok",
+      `Sandbox provider "${provider.id}" (source: ${selection.source}). ` +
+        `Capabilities: exec=${matrix.exec}, files=${matrix.files}, ports=${matrix.portsPreview}, ` +
+        `snapshots=${matrix.snapshots}, volumes=${matrix.volumes}, edgeEgress=${matrix.edgeEgress}.`,
+    );
+    if (!matrix.edgeEgress) {
+      push(
+        findings,
+        "sandbox.egress",
+        "warn",
+        `Provider "${provider.id}" does not enforce Worker egress — coding runs need SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS=1.`,
+        "Use cloudflare (default) for production, or opt in only on trusted dev hosts.",
+      );
+    }
+    if (provider.id === "computesdk" && !env.SHIBA_COMPUTESDK_RUNNER_URL?.trim()) {
+      push(
+        findings,
+        "sandbox.computesdk.runner",
+        "warn",
+        "ComputeSDK is selected but SHIBA_COMPUTESDK_RUNNER_URL is unset — Worker edge cannot load computesdk in-process.",
+        "Run scripts/computesdk-runner.mjs on Node/Bun and point the Worker at it, or use wrangler dev on the host.",
+      );
+    }
+  } catch (error) {
+    push(
+      findings,
+      "sandbox.provider",
+      "error",
+      error instanceof Error ? error.message : String(error),
+      "Fix SHIBA_SANDBOX_PROVIDER and provider secrets (see docs/sandbox-providers.md).",
+    );
+  }
+}
+
 function checkContainers(env: Env, findings: DoctorFinding[]): void {
   const hasSandbox = env.Sandbox !== undefined;
   if (!hasSandbox) {
@@ -244,6 +289,7 @@ export async function runSetupDoctor(
   const findings: DoctorFinding[] = [];
 
   checkGateway(hints.gateway, findings);
+  await checkSandboxProvider(env, findings);
   checkContainers(env, findings);
   checkSecretsCatalog(env, findings);
   await probeGitHub(env, findings);

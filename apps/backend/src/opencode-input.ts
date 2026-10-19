@@ -17,6 +17,9 @@ const codingTaskInputSchema = z.object({
   baseBranch: z.string().min(1),
   publishPullRequest: z.boolean(),
   sandboxId: z.string().min(1),
+  /** Frozen sandbox provider id for this run (task/org/agent override). */
+  sandboxProvider: z.string().min(1).max(64).optional(),
+  customAgentId: z.string().min(1).max(128).optional(),
   codingModel: z.string().min(1),
   /** Which coding agent runs the task. Validated at approval time, never in the container. */
   harness: z.enum(HARNESS_IDS).optional(),

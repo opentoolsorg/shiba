@@ -27,7 +27,7 @@ const LANE_LABELS: Record<SwarmLane, string> = {
 };
 
 const MODE_LABELS: Record<SwarmMode, string> = {
-  captain: "Captain",
+  den: "Den",
   build: "Build",
   review: "Review",
 };
