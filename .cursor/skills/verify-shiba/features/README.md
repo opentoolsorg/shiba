@@ -4,6 +4,7 @@ Drive these from the real dashboard UI at http://localhost:$PORT/app/.
 
 | Feature | What it proves |
 | --- | --- |
+| core-loop-mock | Mock GitHub: submit → approve → run completes → PR in stub → review posted → round `posted` (CI default) |
 | task-submit-and-approval | Composer submit produces an approval card; reject starts no container |
 | sandbox-run-and-diff | Approve starts one sandbox; run status and diff appear |
 | pr-publish | Approved publish run opens a PR (live repo or mock GitHub) |

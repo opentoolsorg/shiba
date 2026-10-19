@@ -10,9 +10,10 @@ const verifyDir = join(root, ".verify");
 const port = existsSync(join(verifyDir, "port"))
   ? readFileSync(join(verifyDir, "port"), "utf8").trim()
   : process.env.PORT || "8788";
-const feature = process.argv.includes("--feature")
+let feature = process.argv.includes("--feature")
   ? process.argv[process.argv.indexOf("--feature") + 1]
   : "task-submit-and-approval";
+if (feature === "core-loop-mock") feature = "review-findings";
 const url = `http://127.0.0.1:${port}/app/`;
 const outDir = join(verifyDir, "drive");
 mkdirSync(outDir, { recursive: true });
@@ -39,8 +40,11 @@ async function shot(name) {
   shots.push(path);
 }
 
+const rawFeature = process.argv.includes("--feature")
+  ? process.argv[process.argv.indexOf("--feature") + 1]
+  : "task-submit-and-approval";
 const result = {
-  feature,
+  feature: rawFeature === "core-loop-mock" ? "core-loop-mock" : feature,
   url,
   githubMode: existsSync(join(verifyDir, "github-mode"))
     ? readFileSync(join(verifyDir, "github-mode"), "utf8").trim()
@@ -62,7 +66,9 @@ try {
   const urlBox = page.locator("input[type=url]");
   await urlBox.first().fill("https://github.com/cloudflare/ai-chat");
   await page.getByRole("button", { name: "Use" }).click();
-  if (feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle") {
+  const wantsPublishReview =
+    feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle";
+  if (wantsPublishReview) {
     await page.getByRole("button", { name: "Thread configuration" }).click();
     const pr = page.getByRole("menuitemcheckbox", { name: /Create pull request/ });
     if ((await pr.getAttribute("aria-checked")) !== "true") await pr.click();
@@ -83,15 +89,17 @@ try {
         task: "verify-shiba: describe the README in one sentence",
         baseBranch: "main",
         harness: "opencode",
-        publishPullRequest:
-          feature === "pr-publish" || feature === "review-findings",
-        reviewAfterPublish: feature === "review-findings",
+        publishPullRequest: wantsPublishReview,
+        reviewAfterPublish: feature === "review-findings" || feature === "review-lifecycle",
         commandId,
       },
     });
     if (!queueRes.ok()) {
       throw new Error(`POST /api/runs failed: ${queueRes.status()} ${await queueRes.text()}`);
     }
+    const queued = await queueRes.json();
+    result.approvalId = queued.approvalId;
+    if (queued.approvalId) result.codingRunId = `agent-tool:${queued.approvalId}`;
     result.queuedViaRunsApi = true;
     await page.goto(`${url}?tab=approvals`, { waitUntil: "domcontentloaded" });
   } else {
@@ -115,15 +123,54 @@ try {
     await shot("05-rejected");
     result.rejected = true;
   }
-  if (feature === "sandbox-run-and-diff" || feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle") {
+  const approveRun =
+    feature === "sandbox-run-and-diff" ||
+    feature === "pr-publish" ||
+    feature === "review-findings" ||
+    feature === "review-lifecycle";
+  if (approveRun) {
     if (result.approvalVisible) {
       // Several cards can be pending; approve the one that states the review.
-      const reviewCard = page.locator("div").filter({ hasText: /read-only review/i }).filter({ has: page.getByRole("button", { name: "Approve" }) }).last();
-      const target = (await reviewCard.count()) ? reviewCard.getByRole("button", { name: "Approve" }) : approve.first();
-      await target.click();
-      await page.waitForTimeout(4000);
-      await shot("05-approved");
+      const reviewCard = page
+        .locator("div")
+        .filter({ hasText: /read-only review/i })
+        .filter({ has: page.getByRole("button", { name: "Approve" }) })
+        .last();
+      let approveRes;
+      if (process.env.VERIFY_USE_RUNS_API === "1" && result.approvalId) {
+        approveRes = await page.request.post(`http://127.0.0.1:${port}/api/approvals`, {
+          data: {
+            threadKey: "default",
+            approvalId: result.approvalId,
+            approved: true,
+          },
+        });
+        result.approveViaApi = true;
+      } else {
+        const target = (await reviewCard.count())
+          ? reviewCard.getByRole("button", { name: "Approve" })
+          : approve.first();
+        await target.click();
+        result.approveViaApi = false;
+      }
+      result.approveApiStatus = approveRes?.status();
+      if (approveRes && !approveRes.ok()) {
+        throw new Error(`POST /api/approvals failed: ${approveRes.status()} ${await approveRes.text()}`);
+      }
       result.approved = true;
+      await shot("05-approved");
+      if (feature === "review-findings" || feature === "review-lifecycle") {
+        const findings = page.getByTestId("review-findings");
+        try {
+          await findings.waitFor({ timeout: 120_000 });
+          result.reviewFindingsVisible = true;
+          await shot("06-review-findings");
+        } catch {
+          result.reviewFindingsVisible = false;
+        }
+      } else {
+        await page.waitForTimeout(4000);
+      }
     }
   }
   if (feature === "review-lifecycle") {
