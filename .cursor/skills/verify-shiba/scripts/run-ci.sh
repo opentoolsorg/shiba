@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# CI entry: launch wrangler dev, drive one Playwright feature, collect evidence, always cleanup.
+set -euo pipefail
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$SCRIPT_DIR/../../../.." && pwd)
+cd "$ROOT"
+
+export VERIFY_GITHUB=${VERIFY_GITHUB:-mock}
+export CI=${CI:-true}
+export VERIFY_ENABLE_CONTAINERS=${VERIFY_ENABLE_CONTAINERS:-0}
+export PORT=${VERIFY_PORT:-8788}
+export GITHUB_STUB_PORT=${GITHUB_STUB_PORT:-8799}
+export PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-$ROOT/.verify/playwright-browsers}
+mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
+# wrangler --local cannot use the remote Workers AI binding; queue via /api/runs instead of chat.
+export VERIFY_USE_RUNS_API=${VERIFY_USE_RUNS_API:-1}
+FEATURE=${VERIFY_FEATURE:-task-submit-and-approval}
+STAMP="ci-${GITHUB_RUN_ID:-local}-$(date -u +%Y%m%dT%H%M%SZ)"
+
+cleanup() {
+  bash "$SCRIPT_DIR/cleanup.sh" || true
+}
+trap cleanup EXIT
+
+bash "$SCRIPT_DIR/launch.sh"
+bash "$SCRIPT_DIR/doctor.sh"
+node "$SCRIPT_DIR/drive.mjs" --feature "$FEATURE"
+EVIDENCE_DIR=$(bash "$SCRIPT_DIR/evidence.sh" "$STAMP")
+echo "evidence=$EVIDENCE_DIR"
+
+node --input-type=module -e "
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+const drive = join('$ROOT', '.verify', 'drive', 'result.json');
+if (!existsSync(drive)) {
+  console.error('missing result.json');
+  process.exit(1);
+}
+const result = JSON.parse(readFileSync(drive, 'utf8'));
+if (result.error) {
+  console.error(result.error);
+  process.exit(1);
+}
+if (result.feature === 'task-submit-and-approval' && !result.approvalVisible) {
+  console.error('approval card not visible');
+  process.exit(1);
+}
+console.log('verify-shiba ok', result.feature);
+"

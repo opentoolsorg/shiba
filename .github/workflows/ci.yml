@@ -43,10 +43,66 @@ jobs:
       - run: pnpm lint:imports
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm docs:check
       # Built-output assertions (marketing-pages.test.ts) run post-build —
       # they skip inside `pnpm test`, which runs before dist exists.
       - run: pnpm test:built
       - run: node scripts/check-alchemy-drift.mjs
       - run: node scripts/check-env-types.mjs
+      - run: cp .env.example .env
       - run: node scripts/check-dev-vars-example.mjs
       - run: pnpm env:load && pnpm env:scan
+
+  verify-shiba:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+      - uses: actions/cache@v4
+        with:
+          path: .verify/playwright-browsers
+          key: playwright-chromium-${{ runner.os }}-1.55.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Install Playwright Chromium (verify-shiba)
+        run: |
+          npm install --prefix .cursor/skills/verify-shiba --no-save
+          PLAYWRIGHT_BROWSERS_PATH="$PWD/.verify/playwright-browsers" \
+            npx --prefix .cursor/skills/verify-shiba playwright install-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH="$PWD/.verify/playwright-browsers" \
+            npx --prefix .cursor/skills/verify-shiba playwright install chromium
+      - name: verify-shiba (mock GitHub)
+        env:
+          VERIFY_GITHUB: mock
+          CI: true
+          VERIFY_SKIP_INSTALL: 1
+          VERIFY_SKIP_BUILD: 1
+          VERIFY_PORT: 8788
+          GITHUB_STUB_PORT: 8799
+          VERIFY_ENABLE_CONTAINERS: 0
+          VERIFY_USE_RUNS_API: 1
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify/playwright-browsers
+        run: bash .cursor/skills/verify-shiba/scripts/run-ci.sh
+      - name: Upload verify-shiba artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-shiba-${{ github.run_id }}
+          path: |
+            .verify/evidence/**
+            .verify/drive/**
+            .verify/wrangler.log
+            .verify/migrate.log
+          if-no-files-found: warn
+          retention-days: 14

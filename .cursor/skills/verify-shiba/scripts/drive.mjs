@@ -25,8 +25,10 @@ function dockerIds() {
   }
 }
 
+const headless = process.env.VERIFY_HEADLESS !== "0";
+const navigationTimeout = Number(process.env.VERIFY_DRIVE_TIMEOUT_MS || 60_000);
 const before = dockerIds();
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless });
 const context = await browser.newContext({ recordHar: { path: join(outDir, "session.har") } });
 await context.tracing.start({ screenshots: true, snapshots: true });
 const page = await context.newPage();
@@ -46,7 +48,9 @@ const result = {
   label: "mock GitHub",
 };
 try {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  page.setDefaultTimeout(navigationTimeout);
+  page.setDefaultNavigationTimeout(navigationTimeout);
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
   const skip = page.getByRole("button", { name: "Skip setup" });
   if (await skip.count()) await skip.click();
   await page.getByLabel("Task composer").waitFor({ timeout: 30000 });
@@ -68,7 +72,31 @@ try {
     }
   }
   await shot("02-composer-filled");
-  await page.getByLabel("Send task").click();
+  const useRunsApi =
+    process.env.VERIFY_USE_RUNS_API === "1" ||
+    process.env.VERIFY_ENABLE_CONTAINERS === "0";
+  if (useRunsApi) {
+    const commandId = crypto.randomUUID();
+    const queueRes = await page.request.post(`http://127.0.0.1:${port}/api/runs`, {
+      data: {
+        repoUrl: "https://github.com/cloudflare/ai-chat",
+        task: "verify-shiba: describe the README in one sentence",
+        baseBranch: "main",
+        harness: "opencode",
+        publishPullRequest:
+          feature === "pr-publish" || feature === "review-findings",
+        reviewAfterPublish: feature === "review-findings",
+        commandId,
+      },
+    });
+    if (!queueRes.ok()) {
+      throw new Error(`POST /api/runs failed: ${queueRes.status()} ${await queueRes.text()}`);
+    }
+    result.queuedViaRunsApi = true;
+    await page.goto(`${url}?tab=approvals`, { waitUntil: "domcontentloaded" });
+  } else {
+    await page.getByLabel("Send task").click();
+  }
   await shot("03-sent");
   const approve = page.getByRole("button", { name: "Approve" });
   const reject = page.getByRole("button", { name: "Reject" });
