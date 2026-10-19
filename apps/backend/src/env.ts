@@ -40,6 +40,8 @@ export interface Env {
   LocalDispatch?: DurableObjectNamespace;
   /** Deployment-wide model connection catalog and purpose policy. */
   ModelConfig: DurableObjectNamespace;
+  /** Per-user ChatGPT SIWC refresh + sign-in state. */
+  ChatGptAuth?: DurableObjectNamespace;
   /** Private launch/contributor registrations. */
   Waitlist: DurableObjectNamespace;
   /**
@@ -164,6 +166,8 @@ export interface Env {
    * local-runtime request refuses 403 before any approval exists.
    */
   SHIBA_LOCAL_RUNTIME?: string;
+  /** verify-shiba: "1" runs deterministic publish/review without containers. */
+  SHIBA_VERIFY_STANDIN?: string;
   /**
    * T51 daemon credential: the bearer the operator's `shiba local` daemon
    * presents on /api/local/claim and /api/local/result. Unset = the
@@ -182,12 +186,34 @@ export interface Env {
    * Providers without edge egress enforcement require SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS=1.
    */
   SHIBA_SANDBOX_PROVIDER?: string;
+  SHIBA_SANDBOX_TIMEOUT_MS?: string;
+  SHIBA_SANDBOX_REGION?: string;
+  /** Comma-separated hostnames merged into egress pins where supported. */
+  SHIBA_SANDBOX_EGRESS_ALLOWLIST?: string;
+  /** Comma-separated KEY=value pairs forwarded into sandbox exec (non-secret). */
+  SHIBA_SANDBOX_ENV_PASSTHROUGH?: string;
+  /** When `SHIBA_SANDBOX_PROVIDER=e2b` stub: `1` = mock instance (tests). */
+  SHIBA_E2B_MOCK?: string;
   /** Opt-in for docker-local / hosted sandboxes that cannot enforce Worker egress. */
   SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS?: string;
   /** Image for docker-local provider (defaults to `shiba-sandbox:local`). */
   SHIBA_DOCKER_SANDBOX_IMAGE?: string;
   /** Hostname or IP for docker-local preview URLs (default 127.0.0.1). */
   SHIBA_DOCKER_PREVIEW_HOST?: string;
+  /**
+   * When `SHIBA_SANDBOX_PROVIDER=computesdk`, selects the ComputeSDK backend
+   * (e2b, modal, daytona, …). Requires a Node/Bun control plane — not Worker edge.
+   */
+  SHIBA_COMPUTESDK_PROVIDER?: string;
+  /** ComputeSDK / E2B — never logged. */
+  E2B_API_KEY?: string;
+  MODAL_TOKEN_ID?: string;
+  MODAL_TOKEN_SECRET?: string;
+  DAYTONA_API_KEY?: string;
+  CLOUDFLARE_SANDBOX_URL?: string;
+  CLOUDFLARE_SANDBOX_API_KEY?: string;
+  VERCEL_TOKEN?: string;
+  VERCEL_OIDC_TOKEN?: string;
   /**
    * Optional. This Worker's public hostname (no scheme), used by T33 to mint
    * sandbox preview URLs (`sandbox.exposePort`) and to form the absolute
@@ -316,6 +342,27 @@ export interface Env {
   CODEX_SUBSCRIPTION_AUTH_JSON?: string;
   /** T49: per-deploy model override for the codex-subscription harness. */
   CODEX_SUBSCRIPTION_MODEL?: string;
+  /**
+   * AES-256 key (64 hex chars) for per-user subscription auth.json blobs on
+   * AGENT_AUDIT D1. When set, codex-subscription is registered and users
+   * connect via Settings → Models → ChatGPT subscription.
+   */
+  MODEL_CREDENTIAL_KEY?: string;
+  /**
+   * When "1", ChatGptAuth may run OAuth exchange/refresh inside a short-lived
+   * auth sandbox when Worker fetches to auth.openai.com get a bot challenge.
+   */
+  SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH?: string;
+  /**
+   * When "1", users may opt into codex login --device-auth on a per-user
+   * sandbox volume instead of Worker-stored SIWC tokens.
+   */
+  SHIBA_CODEX_DEVICE_AUTH?: string;
+  /**
+   * When "1", deployment-wide CODEX_SUBSCRIPTION_AUTH_JSON Worker secrets
+   * remain the codex-subscription credential fallback (single-operator mode).
+   */
+  SHIBA_SINGLE_USER?: string;
   /**
    * T50 opt-in flag (§18.12): "1" registers the antigravity-subscription
    * harness and opens the /api/auth/antigravity-subscription verbs plus the

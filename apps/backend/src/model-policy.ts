@@ -24,6 +24,8 @@ import {
   type Purpose,
   type PurposePolicy,
 } from "./model-connections.js";
+import { soleReadyConnection } from "./model-defaults.js";
+import { assertConnectionEligibleForRun, type RunInitiatorContext } from "./subscription-routing.js";
 import { DEFAULT_ORCHESTRATOR_MODEL } from "./session-distill.js";
 
 export interface ModelConfigSnapshot {
@@ -88,8 +90,15 @@ export async function readModelConfig(env: Pick<Env, "ModelConfig">): Promise<Mo
 export function resolveCodingRoute(
   snapshot: ModelConfigSnapshot,
   requested: { connectionId?: string | null; model: string; harness: string },
+  initiator?: RunInitiatorContext,
 ): ApprovedRoute {
-  const connectionId = requested.connectionId ?? null;
+  let connectionId = requested.connectionId ?? null;
+  if (connectionId === null) {
+    const sole = soleReadyConnection(snapshot);
+    if (sole !== null && validateConnectionModel(sole, requested.model, requested.harness) === null) {
+      connectionId = sole.id;
+    }
+  }
   if (connectionId === null) {
     // The deployment's implicit default: egress binds the provider host of
     // the resolved model; the gateway's default BYOK credential applies.
@@ -109,6 +118,7 @@ export function resolveCodingRoute(
   if (problem !== null) {
     throw new Error(problem);
   }
+  assertConnectionEligibleForRun(connection, initiator ?? {});
   return {
     purpose: "coding",
     connectionId: connection.id,

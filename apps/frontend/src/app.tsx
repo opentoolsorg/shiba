@@ -39,6 +39,7 @@ import { TaskComposer } from "./components/TaskComposer";
 import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
 import { RunUsageCard } from "./components/RunUsageSummary";
+import { RunProgressCard } from "./components/RunProgressCard";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
@@ -961,8 +962,15 @@ export function App(): React.JSX.Element {
             },
           );
           if (!res.ok) {
-            const detail = (await res.text().catch(() => "")).slice(0, 200);
-            throw new Error(`Run request failed with ${res.status}${detail ? `: ${detail}` : ""}`);
+            const raw = await res.text().catch(() => "");
+            let detail = raw.slice(0, 400);
+            try {
+              const parsed = JSON.parse(raw) as { error?: string };
+              if (typeof parsed.error === "string" && parsed.error.trim()) detail = parsed.error.trim();
+            } catch {
+              /* plain text */
+            }
+            throw new Error(detail || `Run request failed with ${res.status}`);
           }
           runCommand.current = null;
           saveRepo(repoUrl.trim());
@@ -1269,6 +1277,11 @@ export function App(): React.JSX.Element {
     const newest = [...retainedRuns].sort((a, b) => b.updatedAt - a.updatedAt);
     return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
   }, [retainedRuns]);
+
+  const reviewRun = useMemo(() => {
+    if (!reviewThreadId) return undefined;
+    return retainedRuns.find((run) => run.runId === reviewThreadId);
+  }, [retainedRuns, reviewThreadId]);
 
   const allRuns: VMRun[] = useMemo(() => {
     const map = new Map<string, VMRun>();
@@ -2173,9 +2186,17 @@ export function App(): React.JSX.Element {
                   />
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
+                      <RunProgressCard run={reviewRun} />
                       <RunUsageCard runs={retainedRuns} />
-                      <PullRequestCard threadId={reviewThreadId} />
-                      <ReviewFindings threadId={reviewThreadId} />
+                      <PullRequestCard
+                        threadId={reviewThreadId}
+                        fallbackPullUrl={reviewRun?.pullUrl}
+                        publishRequested={reviewRun?.publishPullRequest === true}
+                      />
+                      <ReviewFindings
+                        threadId={reviewThreadId}
+                        reviewAfterPublish={reviewRun?.reviewAfterPublish === true}
+                      />
                     </div>
                   ) : null}
                 </div>

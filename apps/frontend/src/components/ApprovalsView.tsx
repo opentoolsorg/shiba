@@ -146,6 +146,7 @@ export function ApprovalsView({
                     key={approval.approvalId}
                     approval={approval}
                     decided={storedDecisions[approval.approvalId] !== undefined}
+                    decision={storedDecisions[approval.approvalId]}
                     onDecide={onDecideStoredApproval}
                   />
                 ))}

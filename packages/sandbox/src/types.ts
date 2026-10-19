@@ -13,9 +13,13 @@ export interface SandboxCapabilities {
   streamingExec: boolean;
   /** `startProcess` + `waitForPort` for dev servers inside the sandbox. */
   backgroundProcesses: boolean;
+  /** `raw()` exposes the provider-native handle (e.g. ComputeSDK `Instance`). */
+  rawProviderHandle: boolean;
 }
 
-export type SandboxProviderId = "cloudflare" | "docker-local" | "e2b";
+export type BuiltinSandboxProviderId = "cloudflare" | "docker-local" | "e2b" | "computesdk";
+/** Built-in ids or any name passed to `registerSandboxProvider`. */
+export type SandboxProviderId = BuiltinSandboxProviderId | (string & {});
 
 export interface SandboxEgressPin {
   allowedHosts: string[];
@@ -80,6 +84,12 @@ export interface SandboxInstance {
   snapshot?(name?: string): Promise<{ id: string; size: number } | null>;
 
   destroy(): Promise<void>;
+
+  /**
+   * Provider-native escape hatch. Only available when `capabilities.rawProviderHandle`
+   * is true; otherwise throws `SandboxError` `capability_unsupported`.
+   */
+  raw?<T = unknown>(): T;
 }
 
 /** Minimal port surface for browser-E2E / screenshot flows (PreviewPortGateway seam). */

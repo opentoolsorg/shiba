@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { assertProviderAllowed, parseSandboxProviderId } from "../src/resolve.js";
+import { assertProviderAllowed, parseSandboxProviderId, registerBuiltinSandboxProviders } from "../src/index.js";
 import { createE2bSandboxProvider } from "../src/adapters/e2b.js";
+
+registerBuiltinSandboxProviders();
 
 describe("parseSandboxProviderId", () => {
   it("defaults to cloudflare", () => {

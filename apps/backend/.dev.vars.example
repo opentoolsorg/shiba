@@ -97,11 +97,19 @@
 # DISCORD_CHANNEL_REPOS=
 # DISCORD_AGENT_HARNESS=
 
+# --- Optional sandbox providers (@shiba/sandbox) -----------------------------
+
+# E2B_API_KEY=
+
 # --- Subscription harness credentials (opt-in via wrangler vars) -------------
 
 # Store only when the matching SHIBA_*_SUBSCRIPTION flag is enabled in wrangler.
 # CLAUDE_SUBSCRIPTION_TOKEN=
 # CODEX_SUBSCRIPTION_AUTH_JSON=
+# 64 hex chars — per-user encrypted ChatGPT auth.json (Settings → Models).
+# MODEL_CREDENTIAL_KEY=
+# Set 1 to allow Worker-secret codex-subscription fallback (single-operator).
+# SHIBA_SINGLE_USER=
 # CURSOR_SUBSCRIPTION_TOKEN=
 # DEVIN_SUBSCRIPTION_TOKEN=
 

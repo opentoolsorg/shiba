@@ -9,8 +9,8 @@
  *      key (effective home);
  *   3. private-entry refusal: a symlinked auth.json in a shadow is a
  *      containment breach, not a misconfiguration;
- *   4. the real credential never enters the container — stub auth.json in
- *      the shadow, the Worker-side secret materializes into egress headers.
+ *   4. the real credential mounts in an ephemeral per-run CODEX_HOME; the
+ *      codex CLI reaches chatgpt.com and auth.openai.com from the container.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -48,7 +48,6 @@ import {
   codexSubscriptionAccountFromInstanceId,
   CodexUsageLimitError,
   CODEX_SUBSCRIPTION_HOSTS,
-  CODEX_SUBSCRIPTION_PLACEHOLDER,
   CODEX_SUBSCRIPTION_SHARED_HOME,
 } from "../src/harness/codex-subscription.js";
 import { CodexErrorEvent } from "../src/harness/codex.js";
@@ -196,51 +195,37 @@ describe("two-level CODEX_HOME (the §18.11 port)", () => {
   });
 });
 
-describe("the credential never enters the container", () => {
-  it("env() carries CODEX_HOME and no OpenAI key material at all", () => {
-    const env = codexSubscriptionHarness.env(input({ authAccount: "work" }));
-    expect(env.CODEX_HOME).toBe("/root/.shiba/codex/acc-work");
-    for (const [key, value] of Object.entries(env)) {
-      expect(key).not.toContain("API_KEY");
-      expect(key).not.toContain("TOKEN");
-      expect(value).not.toContain("chatgpt-access-token");
-    }
+describe("SIWC plan runtime (ACCESS_TOKEN only in sandbox)", () => {
+  it("env() sets CODEX_HOME and ACCESS_TOKEN only when provided on input", () => {
+    const run = input({ initiatorUserId: "owner-1", chatgptAccessToken: "short-lived-at" });
+    const env = codexSubscriptionHarness.env(run, null);
+    expect(env.CODEX_HOME).toContain("/root/.shiba/codex/plan/");
+    expect(env.ACCESS_TOKEN).toBe("short-lived-at");
+    expect(env.OPENAI_API_KEY).toBeUndefined();
   });
 
-  it("configFile is a stub auth.json + preferred_auth_method config, both inside the shadow", () => {
-    const files = codexSubscriptionHarness.configFile(input({ authAccount: "work" }));
-    expect(Array.isArray(files)).toBe(true);
-    const list = files as { path: string; contents: string }[];
-    expect(list.map((f) => f.path).sort()).toEqual([
-      "/root/.shiba/codex/acc-work/auth.json",
-      "/root/.shiba/codex/acc-work/config.toml",
-    ]);
-    const auth = list.find((f) => f.path.endsWith("auth.json"))!;
-    const parsed = JSON.parse(auth.contents) as { tokens: { access_token: string } };
-    expect(parsed.tokens.access_token).toContain(CODEX_SUBSCRIPTION_PLACEHOLDER);
-    expect(auth.contents).not.toContain("chatgpt-access-token");
-    expect(list.find((f) => f.path.endsWith("config.toml"))!.contents).toContain('preferred_auth_method = "chatgpt"');
+  it("configFile writes the codex app-server driver", () => {
+    const run = input({ initiatorUserId: "owner-1" });
+    const files = codexSubscriptionHarness.configFile(run, run.sandboxId);
+    expect(files[0]?.path).toContain(".codex-plan-driver.cjs");
+    expect(files[0]?.contents).toContain("app-server");
+    expect(files[0]?.contents).toContain("openai_chatgpt_plan");
   });
 });
 
-describe("egress isolation — own branch, deny-by-default", () => {
-  it("chatgpt.com is NOT a gateway provider — the subscription rides an override branch", () => {
+describe("egress — api.openai.com only for plan inference", () => {
+  it("chatgpt.com is NOT a gateway provider; legacy T47 forwarder remains", () => {
     expect(GATEWAY_PROVIDERS["chatgpt.com"]).toBeUndefined();
     expect(outboundHandlers.codexSubscription).toBe(forwardCodexSubscription);
   });
 
-  it("egressOverrides pins chatgpt.com to the dedicated handler with the account name", () => {
-    const overrides = codexSubscriptionHarness.egressOverrides!(input({ authAccount: "ops" }));
-    expect(overrides.map((o) => o.host)).toEqual([...CODEX_SUBSCRIPTION_HOSTS]);
-    for (const o of overrides) {
-      expect(o.handler).toBe("codexSubscription");
-      expect(o.params).toEqual({ account: "ops" });
-      expect(JSON.stringify(o.params)).not.toContain("chatgpt-access-token");
-    }
+  it("has no egress overrides", () => {
+    expect("egressOverrides" in codexSubscriptionHarness).toBe(false);
   });
 
-  it("egressHosts is the ChatGPT backend set; the openai provider namespace is rejected", () => {
-    expect(codexSubscriptionHarness.egressHosts(SUB_MODEL)).toEqual(["chatgpt.com"]);
+  it("egressHosts is api.openai.com only", () => {
+    expect(codexSubscriptionHarness.egressHosts(SUB_MODEL)).toEqual(["api.openai.com"]);
+    expect(CODEX_SUBSCRIPTION_HOSTS).toEqual(["api.openai.com"]);
     expect(() => codexSubscriptionHarness.egressHosts("openai/gpt-5.3-codex")).toThrow(/Unsupported coding model/);
   });
 
@@ -274,7 +259,10 @@ describe("egress isolation — own branch, deny-by-default", () => {
       return new Response("{}", { status: 200 });
     }) as typeof fetch;
     try {
-      const env = { CODEX_SUBSCRIPTION_AUTH_JSON_OPS: STORED_AUTH_JSON } as unknown as EgressEnv;
+      const env = {
+        CODEX_SUBSCRIPTION_AUTH_JSON_OPS: STORED_AUTH_JSON,
+        SHIBA_SINGLE_USER: "1",
+      } as unknown as EgressEnv;
       const response = await forwardCodexSubscription(
         new Request("https://chatgpt.com/backend-api/codex/responses", { method: "POST", body: "{}" }),
         env,
@@ -300,20 +288,15 @@ describe("egress isolation — own branch, deny-by-default", () => {
 });
 
 describe("harness shape", () => {
-  it("buildArgv is codex exec with the provider prefix stripped", () => {
+  it("buildArgv runs the embedded app-server driver", () => {
     const argv = codexSubscriptionHarness.buildArgv(input(), "/workspace/run-1");
-    expect(argv.slice(0, 3)).toEqual(["codex", "exec", "--json"]);
-    expect(argv).toContain("gpt-5.3-codex");
-    expect(argv[argv.length - 1]).toBe("Fix it.");
-    expect(argv.join(" ")).not.toContain("openai-subscription");
+    expect(argv[0]).toBe("node");
+    expect(argv[1]).toContain(".codex-plan-driver.cjs");
   });
 
-  it("setupCommands are the layout ops on the mkdir/ln allowlist shape", () => {
-    const commands = codexSubscriptionHarness.setupCommands!(input({ authAccount: "work" }));
-    expect(commands.length).toBeGreaterThan(0);
-    for (const argv of commands) {
-      expect(["mkdir", "ln"]).toContain(argv[0]);
-    }
+  it("setupCommands mkdir+chmod the per-run CODEX_HOME", () => {
+    const commands = codexSubscriptionHarness.setupCommands!(input({ authAccount: "work" }), "/workspace/run-1");
+    expect(commands.map((c) => c[0])).toEqual(["mkdir", "chmod"]);
   });
 
   it("auth instanceId keys on the auth.json-holding directory", () => {
@@ -368,7 +351,7 @@ describe("admission gate (T47 controller, account-keyed)", () => {
     const original = globalThis.fetch;
     globalThis.fetch = (async () => new Response("{}", { status: 200 })) as typeof fetch;
     try {
-      const secretEnv = { ...env, CODEX_SUBSCRIPTION_AUTH_JSON: STORED_AUTH_JSON };
+      const secretEnv = { ...env, CODEX_SUBSCRIPTION_AUTH_JSON: STORED_AUTH_JSON, SHIBA_SINGLE_USER: "1" };
       const controller = codexSubscriptionAuth(secretEnv, codexSubscriptionInstanceId(input()), (r, e, c) =>
         forwardCodexSubscription(r, e as EgressEnv, c),
       );
@@ -390,6 +373,7 @@ describe("admission gate (T47 controller, account-keyed)", () => {
         ...env,
         CODEX_SUBSCRIPTION_AUTH_JSON: STORED_AUTH_JSON,
         CODEX_SUBSCRIPTION_AUTH_JSON_WORK: STORED_AUTH_JSON,
+        SHIBA_SINGLE_USER: "1",
       };
       const shared = codexSubscriptionAuth(secretEnv, codexSubscriptionInstanceId(input()), (r, e, c) =>
         forwardCodexSubscription(r, e as EgressEnv, c),

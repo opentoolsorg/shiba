@@ -184,13 +184,13 @@ npx wrangler tail --status error
 
 ## 7. Known alchemy ↔ wrangler mismatches (audit findings — fix or accept)
 
-1. `worker_loaders` **LOADER** — declared in wrangler.jsonc, ABSENT in
-   alchemy.run.ts env. Code Mode `run_code` (`src/codemode.ts:76`) returns
-   null → tool silently unavailable on alchemy deploys.
-2. Worker-read secrets missing from alchemy `secrets()`: `TRIGGER_TOKEN`,
-   `DISCORD_BOT_TOKEN`, `GITHUB_PROJECT_TOKEN`, `GITHUB_PROJECT_NUMBER`,
-   `INTERNAL_SIGNING_KEY`. A `wrangler secret put` value may not survive an
-   alchemy deploy (alchemy manages the declared binding set).
+1. ~~`worker_loaders` **LOADER**~~ — fixed: `Cloudflare.WorkerLoader("LOADER")` in
+   `alchemy.run.ts`; drift check collects `worker_loaders`.
+2. Partial: `INTERNAL_SIGNING_KEY` and `TRIGGER_TOKEN` are in `secrets()` and
+   `worker-secrets.json`. Still wrangler-only / not in alchemy `secrets()`:
+   `DISCORD_BOT_TOKEN`, `GITHUB_PROJECT_TOKEN`, `GITHUB_PROJECT_NUMBER`.
+   A `wrangler secret put` value may not survive an alchemy deploy unless the
+   name is listed in `apps/backend/worker-secrets.json` and present in `.env`.
 3. Named-account secrets (`CLAUDE_SUBSCRIPTION_TOKEN_<ACCOUNT>`,
    `CODEX_SUBSCRIPTION_AUTH_JSON_<ACCOUNT>`, `CURSOR_SUBSCRIPTION_TOKEN_<ACCOUNT>`,
    `DEVIN_SUBSCRIPTION_TOKEN_<ACCOUNT>`) — egress resolves them by name, but

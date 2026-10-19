@@ -97,7 +97,7 @@ describe("OpenCodeAgent response boundary", () => {
     mocks.run.mockResolvedValue({ ...RESULT, files });
     const signal = new AbortController().signal;
     const { text, result } = await responseFor(agent({ ...INPUT, publishPullRequest: true }, "token"), signal);
-    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({ files }));
+    expect(mocks.publish.mock.calls[0]?.[0]).toMatchObject({ files });
     expect(result.files).toEqual([]);
     expect(text).not.toContain(files[0]!.content);
     expect(text).toContain("Pull request: https://github.com/owner/repo/pull/1");

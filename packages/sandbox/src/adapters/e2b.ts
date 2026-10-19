@@ -20,6 +20,7 @@ const CAPABILITIES: SandboxCapabilities = {
   snapshots: false,
   streamingExec: true,
   backgroundProcesses: false,
+  rawProviderHandle: false,
 };
 
 function mockInstance(instanceId: string): SandboxInstance {

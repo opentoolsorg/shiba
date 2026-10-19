@@ -44,8 +44,21 @@ export function setStateLikeProduction(host: unknown, next: OrchestratorState): 
  * catch-and-warn paths and print expected-error noise mid-suite. Spread
  * into each host's env literal: `env: { ...productionEnvStubs(), Sandbox: {} }`.
  */
-export function productionEnvStubs(): Pick<Env, "ModelConfig" | "Mailbox" | "MEMORY_ENABLED"> {
+const testKv = {
+  get: async () => null,
+  put: async () => undefined,
+  delete: async () => undefined,
+  list: async () => ({ keys: [] }),
+} as unknown as KVNamespace;
+
+export function productionEnvStubs(): Pick<
+  Env,
+  "ModelConfig" | "Mailbox" | "MEMORY_ENABLED" | "AI_GATEWAY_TOKEN" | "AGENT_TOKENS" | "DEVIN_API_KEY"
+> {
   return {
+    AI_GATEWAY_TOKEN: "test-gateway-token",
+    DEVIN_API_KEY: "test-devin-key",
+    AGENT_TOKENS: testKv,
     ModelConfig: {
       idFromName: () => ({}) as DurableObjectId,
       get: () =>

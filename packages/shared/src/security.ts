@@ -14,6 +14,9 @@ const SECRET_PATTERNS: RegExp[] = [
   /Bearer\s+[A-Za-z0-9._~+/-]{8,}={0,2}/gi,
   /api[_-]?key\s*[:=]\s*['"]?[A-Za-z0-9._~+/-]{8,}['"]?/gi,
   /AI_GATEWAY_TOKEN\s*[:=]\s*[A-Za-z0-9._~+/-]{8,}/gi,
+  /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+  /"(?:access_token|refresh_token|id_token)"\s*:\s*"[^"]{8,}"/g,
+  /\{[^{}]*"tokens"\s*:\s*\{[^{}]*\}[^{}]*\}/g,
   // Org API keys, MCP agent tokens, and OAuth access tokens (KV bearer shapes).
   /\bshk_[0-9a-f]{16}_[0-9a-f]{48}\b/gi,
   /\bshb_[0-9a-f]{16}_[0-9a-f]{48}\b/gi,

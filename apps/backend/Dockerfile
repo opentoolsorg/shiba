@@ -7,6 +7,8 @@
 # move it.
 FROM docker.io/cloudflare/sandbox:0.12.9-opencode@sha256:7b84b0163bd93f090504daf2f8e33d74a219a90774802f028adbb5b9de8107b5
 
+COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
+
 # One image carries every harness (opencode, Claude Code, Codex, Devin, Grok, Pi);
 # a run picks one at exec time. The credential invariant is unchanged: each
 # gets the dummy key, and the real credential is swapped in at the Worker's

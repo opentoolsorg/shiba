@@ -9,6 +9,7 @@ import { CodexUsageLimitError } from "../src/harness/codex-subscription.js";
 import { devinHarness } from "../src/harness/devin.js";
 import { AntigravityUsageLimitError } from "../src/harness/antigravity-subscription.js";
 import type { AgentHarness } from "../src/harness/types.js";
+import type { EgressEnv } from "../src/egress.js";
 
 vi.mock("../src/sandbox/proxy.js", () => ({
   proxyToSandbox: vi.fn().mockResolvedValue(null),
@@ -256,7 +257,7 @@ describe("sandbox HTTPS egress", () => {
       AI_GATEWAY_TOKEN: token,
       gateway,
       getUrl,
-    };
+    } as EgressEnv & { gateway: ReturnType<typeof vi.fn>; getUrl: ReturnType<typeof vi.fn> };
   }
 
   it("rewrites native Google HTTPS egress using the binding and strips container credentials", async () => {
