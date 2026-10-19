@@ -1,3 +1,4 @@
+import { resolveSandboxDurableObjectId } from "@shiba/shared";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Env } from "../env.js";
 import { dispatchOutboundRequest } from "./outbound-dispatch.js";
@@ -13,7 +14,7 @@ export interface SandboxOutboundProps {
  */
 export class SandboxOutbound extends WorkerEntrypoint<Env, SandboxOutboundProps> {
   override async fetch(request: Request): Promise<Response> {
-    const id = this.env.Sandbox.idFromString(this.ctx.props.sandboxId);
+    const id = resolveSandboxDurableObjectId(this.env.Sandbox, this.ctx.props.sandboxId);
     const stub = this.env.Sandbox.get(id) as DurableObjectStub<Sandbox>;
     const config = await stub.getOutboundConfig();
     return dispatchOutboundRequest(request, this.env, config);
