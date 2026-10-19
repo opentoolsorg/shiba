@@ -547,8 +547,14 @@ for (const c of cfg.containers ?? []) {
     drift.push(`container "${c.name}": alchemy name "${cName ?? propIdent(entry, "name")}" != wrangler name "${c.name}"`);
   }
   const dockerfile = propString(entry, "dockerfile");
-  if (resolve(alchemyDir, dockerfile ?? "") !== resolve(wranglerDir, c.image)) {
-    drift.push(`container "${c.name}": alchemy dockerfile "${dockerfile}" != wrangler image "${c.image}"`);
+  const wranglerImage =
+    c.image ??
+    c.images?.sandbox?.dockerfile ??
+    c.images?.[Object.keys(c.images ?? {})[0]]?.dockerfile;
+  if (resolve(alchemyDir, dockerfile ?? "") !== resolve(wranglerDir, wranglerImage ?? "")) {
+    drift.push(
+      `container "${c.name}": alchemy dockerfile "${dockerfile}" != wrangler image "${wranglerImage ?? c.image}"`,
+    );
   }
   if (propString(entry, "instanceType") !== c.instance_type) {
     drift.push(`container "${c.name}": alchemy instanceType "${propString(entry, "instanceType")}" != wrangler instance_type "${c.instance_type}"`);

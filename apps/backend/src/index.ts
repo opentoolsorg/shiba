@@ -3,7 +3,6 @@
  * traffic, exposes the retained run registry, and verifies GitHub webhooks.
  * Provider traffic is intercepted at the Sandbox egress boundary — no callback route.
  */
-import { ContainerProxy, proxyToSandbox, type Sandbox as SandboxBinding } from "@cloudflare/sandbox";
 import { getAgentByName, routeAgentRequest } from "agents/routing";
 import { OpenCodeAgent } from "./agents/opencode-agent.js";
 import { CodingOrchestrator } from "./agents/orchestrator.js";
@@ -16,7 +15,7 @@ import type { Env } from "./env.js";
 import { Mailbox } from "./mailbox-do.js";
 import { MCP_PRINCIPAL_HEADER } from "./mcp-gateway.js";
 import { Memory } from "./memory-do.js";
-import { Sandbox } from "./sandbox.js";
+import { Sandbox, SandboxOutbound, proxyToSandbox } from "./sandbox.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
@@ -67,7 +66,7 @@ import {
   WEB_SESSION_PREFIX,
 } from "./web-sessions.js";
 
-export { Automations, CodingOrchestrator, LocalDispatch, Mailbox, Memory, ModelConfig, OpenCodeAgent, Sandbox, ContainerProxy, Waitlist };
+export { Automations, CodingOrchestrator, LocalDispatch, Mailbox, Memory, ModelConfig, OpenCodeAgent, Sandbox, SandboxOutbound, Waitlist };
 export { assertLiveCodingModel } from "./coding-model.js";
 // Kept public for consumers that import the auth surface from the entry.
 export { isBetterAuthConfigured } from "./better-auth.js";
@@ -267,11 +266,7 @@ export default {
         assertLiveCodingModel(env);
         codingModelVerified = true;
       }
-      // proxyToSandbox only needs the Sandbox binding; adapt the type.
-      const sandboxEnv = {
-        Sandbox: env.Sandbox as unknown as DurableObjectNamespace<SandboxBinding>,
-      };
-      const sandboxResponse = await proxyToSandbox(request, sandboxEnv);
+      const sandboxResponse = await proxyToSandbox(request, env);
       if (sandboxResponse) {
         return sandboxResponse;
       }
