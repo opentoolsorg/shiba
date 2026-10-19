@@ -8,6 +8,7 @@ app-public/
 dist/
 release/
 .verify/
+.shiba/
 .wrangler/
 .wrangler-ephemeral-*.jsonc
 .dev.vars

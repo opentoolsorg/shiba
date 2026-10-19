@@ -34,6 +34,7 @@
     "lint:imports": "turbo run lint",
     "precommit": "biome check --write --formatter-enabled=false --assist-enabled=false . && knip --reporter compact --max-issues 6",
     "bootstrap": "node scripts/setup.mjs",
+    "shiba": "node scripts/shiba.mjs",
     "test": "turbo run test",
     "test:built": "cd apps/backend && pnpm test test/marketing-pages.test.ts",
     "test:ephemeral": "node scripts/ephemeral-stack.mjs --alchemy",
@@ -58,6 +59,9 @@
     "varlock": "1.20.0",
     "vite": "8.3.0",
     "wrangler": "4.118.0"
+  },
+  "bin": {
+    "shiba": "./scripts/shiba.mjs"
   },
   "license": "AGPL-3.0-only",
   "engines": {
