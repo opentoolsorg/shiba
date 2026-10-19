@@ -2675,7 +2675,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** Re-queue reviewer rounds whose run died with the previous DO lifetime. */
   private resumeStuckReviewRounds(): void {
-    for (const round of this.state.reviewRounds ?? []) {
+    // A fresh Durable Object has no state until the first write. onStart
+    // still runs, and reading reviewRounds on undefined crashes the Worker.
+    for (const round of this.state?.reviewRounds ?? []) {
       if (round.status !== "queued" && round.status !== "running") continue;
       const review = this.store.get(round.reviewRunId);
       if (review && (isActiveStatus(review.status) || review.resumeAttemptedAt !== undefined)) continue;

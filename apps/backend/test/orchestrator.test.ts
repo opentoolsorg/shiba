@@ -731,6 +731,13 @@ describe("approval handoff recovery", () => {
     expect(mocks.execute).toHaveBeenCalledOnce();
   });
 
+  it("starts when the durable object has no state yet", async () => {
+    const instance = agent();
+    delete (instance as { state?: OrchestratorState }).state;
+    await instance.onStart();
+    expect(instance.state).toBeUndefined();
+  });
+
   it("leaves an executing checkpoint unknown after restart", async () => {
     const instance = agent();
     const approvalId = "ap-exec";
