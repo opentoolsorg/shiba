@@ -39,6 +39,7 @@ import { TaskComposer } from "./components/TaskComposer";
 import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
 import { RunUsageCard } from "./components/RunUsageSummary";
+import { RunProgressCard } from "./components/RunProgressCard";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
@@ -1270,6 +1271,11 @@ export function App(): React.JSX.Element {
     return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
   }, [retainedRuns]);
 
+  const reviewRun = useMemo(() => {
+    if (!reviewThreadId) return undefined;
+    return retainedRuns.find((run) => run.runId === reviewThreadId);
+  }, [retainedRuns, reviewThreadId]);
+
   const allRuns: VMRun[] = useMemo(() => {
     const map = new Map<string, VMRun>();
     for (const r of retainedRuns) {
@@ -2173,9 +2179,17 @@ export function App(): React.JSX.Element {
                   />
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
+                      <RunProgressCard run={reviewRun} />
                       <RunUsageCard runs={retainedRuns} />
-                      <PullRequestCard threadId={reviewThreadId} />
-                      <ReviewFindings threadId={reviewThreadId} />
+                      <PullRequestCard
+                        threadId={reviewThreadId}
+                        fallbackPullUrl={reviewRun?.pullUrl}
+                        publishRequested={reviewRun?.publishPullRequest === true}
+                      />
+                      <ReviewFindings
+                        threadId={reviewThreadId}
+                        reviewAfterPublish={reviewRun?.reviewAfterPublish === true}
+                      />
                     </div>
                   ) : null}
                 </div>
