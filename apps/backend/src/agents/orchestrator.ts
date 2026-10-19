@@ -77,6 +77,7 @@ import { mailboxDirectoryStub, mailboxStub, registeredMailbox } from "../mailbox
 import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
+import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
 import { type CodingTaskInput, formatAgentToolInput, parseAgentResult } from "../opencode-input.js";
 import { appendBatch } from "../orchestration/event-log.js";
 import { drainOutbox, dueEntries } from "../orchestration/outbox.js";
@@ -856,11 +857,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   ): Promise<{ harness: string; codingModel: string; route: ApprovedRoute }> {
     const snapshot = await readModelConfig(this.env);
     const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins);
-    const route = resolveCodingRoute(snapshot, {
-      connectionId: input.connectionId?.trim() || null,
-      model: codingModel,
-      harness,
-    });
+    const route = resolveCodingRoute(
+      snapshot,
+      {
+        connectionId: input.connectionId?.trim() || null,
+        model: codingModel,
+        harness,
+      },
+      { initiatorUserId: initiatorUserIdFromOrchestratorName(this.name) },
+    );
     return { harness, codingModel, route };
   }
 
@@ -996,6 +1001,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           : {}),
         ...(input.authAccount ? { authAccount: input.authAccount } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
+        ...((() => {
+          const initiatorUserId = initiatorUserIdFromOrchestratorName(this.name);
+          return initiatorUserId ? { initiatorUserId } : {};
+        })()),
         // Fork lineage rides the dispatch envelope — the executor restores
         // the parent's checkpoint ref into the fork's clone.
         ...(reserved.forkedFrom !== undefined

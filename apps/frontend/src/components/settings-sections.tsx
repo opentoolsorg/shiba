@@ -10,6 +10,7 @@ import { authClient } from "../auth-client";
 import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
+import { ChatGptSubscriptionCard } from "./ChatGptSubscriptionCard";
 import { PurposeRoutingCard, RolePinsCard } from "./ModelRoutingSection";
 import { Card } from "./settings-ui";
 import { ToneChip } from "./ToneChip";
@@ -191,6 +192,7 @@ function ModelsSection({ status }: { status: SetupStatus | undefined }): JSX.Ele
           rows.map((row) => <RoleModelRow key={row.role} row={row} />)
         )}
       </Card>
+      <ChatGptSubscriptionCard />
       <PurposeRoutingCard />
     </>
   );

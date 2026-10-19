@@ -29,6 +29,8 @@ import { PROVIDER_HOSTS } from "./harness/types.js";
 export const CONNECTION_SERVICES = [
   "anthropic",
   "openai",
+  /** Per-user ChatGPT plan via codex-subscription + Worker egress (SIWC OSS path). */
+  "openai-subscription",
   "google",
   "devin",
   "opencode-go",
@@ -50,7 +52,7 @@ export const CONNECTION_SERVICES = [
 ] as const;
 export type ConnectionService = (typeof CONNECTION_SERVICES)[number];
 
-export const CONNECTION_AUTH_MODES = ["gateway-byok", "worker-service-secret"] as const;
+export const CONNECTION_AUTH_MODES = ["gateway-byok", "worker-service-secret", "user-subscription"] as const;
 export type ConnectionAuthMode = (typeof CONNECTION_AUTH_MODES)[number];
 
 export const CONNECTION_STATUSES = ["unconfigured", "ready", "invalid", "disabled"] as const;
@@ -60,6 +62,7 @@ export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
 export const SERVICE_AUTH_MODE: Record<ConnectionService, ConnectionAuthMode> = {
   anthropic: "gateway-byok",
   openai: "gateway-byok",
+  "openai-subscription": "user-subscription",
   google: "gateway-byok",
   "opencode-go": "gateway-byok",
   // Grok models egress through the AI Gateway's grok provider BYOK
@@ -271,6 +274,7 @@ export function providerOfService(service: ConnectionService): string {
   // luan is a fleet lane routed through the opencode-go provider; its
   // models validate in the opencode-go/* namespace.
   if (service === "luan") return "opencode-go";
+  if (service === "openai-subscription") return "openai-subscription";
   return service;
 }
 

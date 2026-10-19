@@ -5,6 +5,7 @@ import { antigravityHarness } from "./antigravity.js";
 import { antigravitySubscriptionHarness } from "./antigravity-subscription.js";
 import { claudeCodeHarness } from "./claude-code.js";
 import { claudeSubscriptionHarness } from "./claude-subscription.js";
+import { claudeLoginHarness } from "./claude-login.js";
 import { codexHarness } from "./codex.js";
 import { codexSubscriptionHarness } from "./codex-subscription.js";
 import { cursorHarness } from "./cursor.js";
@@ -15,6 +16,7 @@ import { grokHarness } from "./grok.js";
 import { piHarness } from "./pi.js";
 import { buildOpencodeConfig, OPENCODE_PROVIDERS, opencodeHarness } from "./opencode.js";
 import type { Env } from "../env.js";
+import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
 import { GIT_EGRESS_HOSTS, type AgentHarness, type AgentHarnessName, type RuntimeName } from "./types.js";
 
 /**
@@ -120,6 +122,7 @@ const REGISTRY = {
   opencode: opencodeHarness,
   "claude-code": claudeCodeHarness,
   "claude-subscription": claudeSubscriptionHarness,
+  "claude-login": claudeLoginHarness,
   codex: codexHarness,
   "codex-subscription": codexSubscriptionHarness,
   devin: devinHarness,
@@ -154,7 +157,8 @@ type HarnessGateEnv = {
  */
 const HARNESS_GATES: Partial<Record<AgentHarnessName, (env: HarnessGateEnv) => boolean>> = {
   "claude-subscription": (env) => env?.SHIBA_CLAUDE_SUBSCRIPTION === "1",
-  "codex-subscription": (env) => env?.SHIBA_CODEX_SUBSCRIPTION === "1",
+  "codex-subscription": (env) =>
+    env?.SHIBA_CODEX_SUBSCRIPTION === "1" || modelCredentialKeyConfigured(env as Env),
   // T50: the OAuth-in-container flow is opt-in separately (§18.12).
   "antigravity-subscription": (env) => env?.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "1",
   // Worker-secret subscription keys (CURSOR_SUBSCRIPTION_TOKEN /
@@ -274,6 +278,7 @@ const CORE_DEFAULT_MODELS = {
   // Subscription models carry the anthropic-subscription namespace: the
   // provider prefix is the auth-path distinction, not a different vendor.
   "claude-subscription": "anthropic-subscription/claude-sonnet-4-6",
+  "claude-login": "anthropic-subscription/claude-sonnet-4-6",
   codex: "openai/gpt-5.3-codex",
   // ChatGPT-subscription models carry the openai-subscription namespace:
   // the provider prefix is the auth-path distinction, not a different vendor.
@@ -317,6 +322,7 @@ const CORE_MODEL_ENV = {
   opencode: "CODING_MODEL",
   "claude-code": "CLAUDE_CODE_MODEL",
   "claude-subscription": "CLAUDE_SUBSCRIPTION_MODEL",
+  "claude-login": "CLAUDE_CODE_MODEL",
   codex: "CODEX_MODEL",
   "codex-subscription": "CODEX_SUBSCRIPTION_MODEL",
   devin: "DEVIN_MODEL",

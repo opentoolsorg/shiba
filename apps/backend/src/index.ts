@@ -21,6 +21,7 @@ import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
+import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
@@ -80,6 +81,7 @@ export { handleWebSessions } from "./sessions-routes.js";
 // so gate it behind a first-request check — this flag flips to `true` only on
 // a non-throwing call, so a still-retired id keeps failing every request.
 let codingModelVerified = false;
+let claudeSubscriptionDeprecationWarned = false;
 
 // The landing site lives on tryshiba.dev; the app host only serves the dashboard.
 const MARKETING_SECTIONS = new Set([
@@ -170,6 +172,12 @@ export default {
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     try {
+      if (!claudeSubscriptionDeprecationWarned && env.SHIBA_CLAUDE_SUBSCRIPTION === "1") {
+        claudeSubscriptionDeprecationWarned = true;
+        console.warn(
+          "SHIBA_CLAUDE_SUBSCRIPTION is enabled: the claude-subscription harness stores Claude.ai tokens at the Worker egress boundary, which may violate Anthropic's terms — prefer claude-login (https://code.claude.com/docs/en/legal-and-compliance).",
+        );
+      }
       request = await withVerifiedAccessIdentity(request, env);
       // MCP_PRINCIPAL_HEADER is minted only by the verified-bearer path in
       // handleMcp — no external caller may set it. Strip at ingress so a
@@ -233,6 +241,8 @@ export default {
       if (metaResponse) return metaResponse;
       const apiKeysResponse = await handleApiKeys(request, env);
       if (apiKeysResponse) return apiKeysResponse;
+      const userOpenAiSubscriptionResponse = await handleUserOpenAiSubscription(request, env);
+      if (userOpenAiSubscriptionResponse) return userOpenAiSubscriptionResponse;
       const subscriptionAuthResponse = await handleSubscriptionAuth(request, env);
       if (subscriptionAuthResponse) {
         return subscriptionAuthResponse;

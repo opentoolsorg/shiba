@@ -11,6 +11,8 @@ import { claudeSubscriptionAuth, codexSubscriptionAuth, antigravitySubscriptionA
 import type { AgentHarness, AgentHarnessName } from "../harness/types.js";
 import type { CodingTaskInput } from "../opencode-input.js";
 import { forwardClaudeSubscription, forwardCodexSubscription, forwardCursorSubscription, forwardDevinSubscription, type EgressEnv } from "../egress.js";
+import { loadUserSubscriptionAuthJson, modelCredentialKeyConfigured } from "../subscription-credentials.js";
+import type { Env as WorkerEnv } from "../env.js";
 
 interface AuthRegistryEnv {
   AGENT_TOKENS: KVNamespace;
@@ -64,6 +66,14 @@ export async function assertHarnessAuthorized<Env extends AuthRegistryEnv>(
   harness: AgentHarness,
   input: CodingTaskInput,
 ): Promise<void> {
+  if (
+    harness.name === "codex-subscription" &&
+    input.initiatorUserId &&
+    modelCredentialKeyConfigured(env as unknown as WorkerEnv)
+  ) {
+    const raw = await loadUserSubscriptionAuthJson(env as unknown as WorkerEnv, input.initiatorUserId);
+    if (raw !== null) return;
+  }
   const controller = authControllerFor(env, harness, input);
   if (controller === null) return;
   const snapshot = await controller.snapshot();

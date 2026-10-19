@@ -274,7 +274,10 @@ describe("egress isolation — own branch, deny-by-default", () => {
       return new Response("{}", { status: 200 });
     }) as typeof fetch;
     try {
-      const env = { CODEX_SUBSCRIPTION_AUTH_JSON_OPS: STORED_AUTH_JSON } as unknown as EgressEnv;
+      const env = {
+        CODEX_SUBSCRIPTION_AUTH_JSON_OPS: STORED_AUTH_JSON,
+        SHIBA_SINGLE_USER: "1",
+      } as unknown as EgressEnv;
       const response = await forwardCodexSubscription(
         new Request("https://chatgpt.com/backend-api/codex/responses", { method: "POST", body: "{}" }),
         env,
@@ -368,7 +371,7 @@ describe("admission gate (T47 controller, account-keyed)", () => {
     const original = globalThis.fetch;
     globalThis.fetch = (async () => new Response("{}", { status: 200 })) as typeof fetch;
     try {
-      const secretEnv = { ...env, CODEX_SUBSCRIPTION_AUTH_JSON: STORED_AUTH_JSON };
+      const secretEnv = { ...env, CODEX_SUBSCRIPTION_AUTH_JSON: STORED_AUTH_JSON, SHIBA_SINGLE_USER: "1" };
       const controller = codexSubscriptionAuth(secretEnv, codexSubscriptionInstanceId(input()), (r, e, c) =>
         forwardCodexSubscription(r, e as EgressEnv, c),
       );
@@ -390,6 +393,7 @@ describe("admission gate (T47 controller, account-keyed)", () => {
         ...env,
         CODEX_SUBSCRIPTION_AUTH_JSON: STORED_AUTH_JSON,
         CODEX_SUBSCRIPTION_AUTH_JSON_WORK: STORED_AUTH_JSON,
+        SHIBA_SINGLE_USER: "1",
       };
       const shared = codexSubscriptionAuth(secretEnv, codexSubscriptionInstanceId(input()), (r, e, c) =>
         forwardCodexSubscription(r, e as EgressEnv, c),

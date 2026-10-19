@@ -51,6 +51,7 @@ function argPins(dockerfile: string): Record<string, string> {
 const PIN_SOURCE: Record<string, { npm?: string; arg?: string }> = {
   opencode: { npm: "opencode-ai" },
   "claude-code": { npm: "@anthropic-ai/claude-code" },
+  "claude-login": { npm: "@anthropic-ai/claude-code" },
   codex: { npm: "@openai/codex" },
   grok: { npm: "@xai-official/grok" },
   pi: { npm: "@earendil-works/pi-coding-agent" },
