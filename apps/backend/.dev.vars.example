@@ -1,14 +1,19 @@
 # Copy to .dev.vars for local development. Never commit real credentials.
-# Non-secret defaults are in wrangler.jsonc.
+# Non-secret defaults are in wrangler.jsonc. Run:
+#   node scripts/check-dev-vars-example.mjs
+# to verify this file stays complete.
 
-# Optional, Worker-side PR publishing only. Private cloning is not wired.
+# --- GitHub (Worker-side only; never sent to containers) ---------------------
+
+# Optional PR publishing and private clone via egress. Prefer a fine-grained PAT
+# scoped to the target repo (Contents + Pull requests).
 # GITHUB_TOKEN=
 
 # Optional Projects v2 board sync: PAT with `project` scope + board number.
 # GITHUB_PROJECT_TOKEN=
 # GITHUB_PROJECT_NUMBER=
 
-# Optional, HMAC verification of acknowledgment-only GitHub webhooks.
+# Optional HMAC verification of acknowledgment-only GitHub webhooks.
 # GITHUB_WEBHOOK_SECRET=
 
 # Optional GitHub App (multi-repo). Worker mints installation tokens; never sent to containers.
@@ -23,16 +28,58 @@
 # LINEAR_DEFAULT_REPO_URL=https://github.com/owner/repo
 # LINEAR_ALLOW_UNSIGNED_WEBHOOK=1
 
-# Optional Slack wiring. SLACK_APPROVERS empty means nobody can approve.
+# Optional GitHub API origin (local verify-shiba mock boundary).
+# GITHUB_API_BASE=
+
+# --- Models (BYOK in AI Gateway; optional gateway auth secret) --------------
+
+# AI Gateway uses the AI binding and GATEWAY_ID, not a container provider key.
+# Optional: sent as cf-aig-authorization on gateway requests (src/egress.ts).
+# Required when the gateway is auth-gated or has no BYOK key stored.
+# AI_GATEWAY_TOKEN=
+
+# Devin harness API key (Worker egress only; not AI Gateway BYOK).
+# DEVIN_API_KEY=
+
+# --- Dashboard auth (loopback dev: leave Access/Better Auth unset) -----------
+
+# Set to any value to enforce Cloudflare Access on /app and /api locally too.
+# REQUIRE_ACCESS=
+
+# Access application AUD tag — verified Cf-Access-Jwt-Assertion only.
+# ACCESS_AUD=
+
+# Built-in email+password dashboard login (>=32 chars). Unset = lane dark.
+# BETTER_AUTH_SECRET=
+
+# --- Shared / edge approvals -------------------------------------------------
+
+# Comma-separated dashboard principals allowed to resolve shared approvals.
+# DASHBOARD_APPROVERS=
+
+# HMAC for Worker→DO vouched headers (X-Agent-Principal, X-Shiba-Intake).
+# INTERNAL_SIGNING_KEY=
+
+# Optional bearer token for POST /api/trigger (e.g. iPhone Apple Shortcuts).
+# TRIGGER_TOKEN=
+
+# Optional TypeSafe System One key for automation run_when (else Workers AI).
+# TYPESAFE_API_KEY=
+
+# --- Slack -------------------------------------------------------------------
+
+# Optional Slack wiring. Empty SLACK_APPROVERS means nobody can approve from Slack.
 # SLACK_SIGNING_SECRET=
 # SLACK_APPROVERS=
 # SLACK_BOT_TOKEN=
 # JSON map {channelId: "https://github.com/owner/repo"} for bare @mentions.
 # SLACK_CHANNEL_REPOS=
 
-# Optional Telegram bot lane. TELEGRAM_APPROVERS empty means nobody can approve.
+# --- Telegram ----------------------------------------------------------------
+
+# TELEGRAM_APPROVERS empty means nobody can approve.
 # TELEGRAM_BOT_TOKEN=
-# Secret registered via Bot API setWebhook, echoed back as X-Telegram-Bot-Api-Secret-Token.
+# Secret registered via Bot API setWebhook (X-Telegram-Bot-Api-Secret-Token).
 # TELEGRAM_WEBHOOK_SECRET=
 # TELEGRAM_APPROVERS=
 # JSON map {chatId: "https://github.com/owner/repo"} for /shiba without a URL.
@@ -40,30 +87,33 @@
 # Optional harness override, falls back to AGENT_HARNESS.
 # TELEGRAM_AGENT_HARNESS=
 
-# Optional Discord interactions lane. DISCORD_APPROVERS empty means nobody can approve.
-# Ed25519 public key from the Discord app's General Information page.
+# --- Discord -----------------------------------------------------------------
+
+# DISCORD_APPROVERS empty means nobody can approve.
 # DISCORD_PUBLIC_KEY=
 # DISCORD_BOT_TOKEN=
 # DISCORD_APPROVERS=
+# JSON map {channelId: "https://github.com/owner/repo"} for commands without a repo.
 # DISCORD_CHANNEL_REPOS=
 # DISCORD_AGENT_HARNESS=
-# Optional TypeSafe System One key for run_when (falls back to Workers AI).
-# TYPESAFE_API_KEY=
 
-# Optional bearer token for POST /api/trigger (e.g. iPhone Apple Shortcuts).
-# Unset disables the route with a 503.
-# TRIGGER_TOKEN=
+# --- Subscription harness credentials (opt-in via wrangler vars) -------------
 
-# AI Gateway uses the AI binding and GATEWAY_ID, not a container provider key.
-# Optional: sent as cf-aig-authorization on gateway requests (src/egress.ts).
-# Required when the gateway is auth-gated or has no BYOK key stored.
-# AI_GATEWAY_TOKEN=
+# Store only when the matching SHIBA_*_SUBSCRIPTION flag is enabled in wrangler.
+# CLAUDE_SUBSCRIPTION_TOKEN=
+# CODEX_SUBSCRIPTION_AUTH_JSON=
+# CURSOR_SUBSCRIPTION_TOKEN=
+# DEVIN_SUBSCRIPTION_TOKEN=
 
-# Set to any value to enforce Cloudflare Access on /app and /api locally too.
-# REQUIRE_ACCESS=1
+# --- Gmail read-only connection (optional) -----------------------------------
 
+# GMAIL_CLIENT_ID=
+# GMAIL_CLIENT_SECRET=
+# GMAIL_REDIRECT_URI=
+# GMAIL_TOKEN_KEY=
 
-# Shiba Desktop local runtime (uncomment to enable pairing from the app).
+# --- Shiba Desktop local runtime (uncomment to enable pairing from the app) ----
+
 # SHIBA_LOCAL_RUNTIME=1
 # LOCAL_ADAPTER_TOKEN=
 # PAIRING_SECRET=

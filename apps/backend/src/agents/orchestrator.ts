@@ -33,7 +33,16 @@ import {
   parseReviewEnvelope,
   runInputHash,
   type ReviewRound,
+  canStartRunWithBudget,
+  parseCaptainAgentName,
+  parseDailyBudgetUsd,
+  parseElevatedConcurrencyFlag,
+  type ContainerBudgetConfig,
+  resolveMaxConcurrentRuns,
 } from "@shiba/shared";
+import { buildCaptainDigest, buildCrewFromRuns } from "../captain/digest.js";
+import { mintSubagentRun, type SpawnSubagentInput } from "../captain/spawn.js";
+import { shouldDestroySandboxAfterRun } from "../sandbox/release-policy.js";
 import type { Connection, ConnectionContext } from "agents";
 import { agentTool } from "agents/agent-tools";
 import { type ToolSet, tool } from "ai";
@@ -94,7 +103,6 @@ import {
 } from "../run-errors.js";
 import {
   AGENT_PRINCIPAL_HEADER,
-  canStartRun,
   createRun,
   type DecisionTap,
   type DelegatedRun,
@@ -710,7 +718,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       // Capacity still applies across a restart — a deferred re-drive
       // retries on the next one rather than oversubscribing the pool.
-      if (!canStartRun(this.store.list())) {
+      if (!this.canScheduleRun()) {
         continue;
       }
       const run = this.mintApprovedRun(approval);
@@ -797,13 +805,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined));
   }
 
-  private resolveHarnessAndModel(input: DelegateInput): { harness: string; codingModel: string } {
+  private resolveHarnessAndModel(
+    input: DelegateInput,
+    dashboardRolePins?: import("../model-connections.js").PurposePolicy["rolePins"],
+  ): { harness: string; codingModel: string } {
     // T52: a delegation carrying `role` resolves through the operator's
-    // role pins (ROLE_MODEL_MAP, then ROLE_MODEL__<ROLE>) before any
-    // per-call or deployment default; an unpinned role falls through to
+    // role pins (dashboard, ROLE_MODEL_MAP, then ROLE_MODEL__<ROLE>) before
+    // any per-call or deployment default; an unpinned role falls through to
     // the chain below unchanged. A pinned role's model is authoritative —
     // a per-call codingModel cannot override what the operator pinned.
-    const rolePick = input.role !== undefined ? resolveRoleModel(this.env, input.role) : null;
+    const rolePick =
+      input.role !== undefined ? resolveRoleModel(this.env, input.role, dashboardRolePins) : null;
     const harnessName =
       rolePick?.harness ?? input.harness ?? this.env.AGENT_HARNESS?.trim() ?? "opencode";
     const harness = resolveHarness(harnessName, this.env);
@@ -831,8 +843,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private async resolveRoute(
     input: DelegateInput,
   ): Promise<{ harness: string; codingModel: string; route: ApprovedRoute }> {
-    const { harness, codingModel } = this.resolveHarnessAndModel(input);
     const snapshot = await readModelConfig(this.env);
+    const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins);
     const route = resolveCodingRoute(snapshot, {
       connectionId: input.connectionId?.trim() || null,
       model: codingModel,
@@ -1266,7 +1278,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         () =>
           Effect.promise(async () => {
             this.runControllers.delete(runId);
-            await this.destroySandbox(sandboxId);
+            const settled = this.store.get(runId);
+            if (settled) await this.releaseSandboxForRun(settled);
           }),
       );
     }).pipe(
@@ -2053,7 +2066,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const isEmail =
         record !== undefined && (record.kind === "email_send" || record.kind === "email_delete");
       if (!isEmail) {
-        if (!canStartRun(this.store.list())) {
+        if (!this.canScheduleRun()) {
           return Response.json(
             { error: "All coding runs are busy. Approve again when a slot frees." },
             { status: 409 },
@@ -2211,6 +2224,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
       ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
       ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
+      ...(record.subagentBudget !== undefined ? { subagentBudgetRemaining: record.subagentBudget } : {}),
+      ...(record.captainId !== undefined ? { captainId: record.captainId } : {}),
+      ...(record.parentRunId !== undefined ? { parentRunId: record.parentRunId } : {}),
+      ...(record.subagentPath !== undefined ? { subagentPath: record.subagentPath } : {}),
+      ...(record.subagentSandbox !== undefined ? { subagentSandbox: record.subagentSandbox } : {}),
+      ...(record.role !== undefined ? { role: record.role } : {}),
       ...(continuationKey !== undefined ? { continuationKey } : {}),
       decisionTap: (command, decision) => this.spineTap(command, decision),
       // T40: the run carries its approval evidence from birth — who decided,
@@ -2227,6 +2246,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
         ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
         ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
+        ...(record.role !== undefined ? { role: record.role } : {}),
+        ...(record.subagentBudget !== undefined ? { subagentBudget: record.subagentBudget } : {}),
+        ...(record.parentRunId !== undefined ? { parentRunId: record.parentRunId } : {}),
+        ...(record.subagentPath !== undefined ? { subagentPath: record.subagentPath } : {}),
+        ...(record.subagentSandbox !== undefined ? { subagentSandbox: record.subagentSandbox } : {}),
+        ...(record.captainId !== undefined ? { captainId: record.captainId } : {}),
       }),
     });
   }
@@ -2562,7 +2587,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const updated = this.store.transition(runId, "cancelled", { errorCode: "cancelled" });
     this.runControllers.get(runId)?.abort();
     this.postToThread(slackRunCancelled({ repoUrl: run.repoUrl }));
-    await this.destroySandbox(run.sandboxId);
+    await this.releaseSandboxForRun(run);
     return updated;
   }
 
@@ -2795,6 +2820,113 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private budgetConfig(): ContainerBudgetConfig {
+    return {
+      elevatedConcurrency: parseElevatedConcurrencyFlag(this.env.SHIBA_ELEVATED_CONCURRENCY),
+      dailyBudgetUsd: parseDailyBudgetUsd(this.env.SHIBA_DAILY_CONTAINER_BUDGET_USD),
+    };
+  }
+
+  private canScheduleRun(): boolean {
+    return canStartRunWithBudget(this.store.list(), this.budgetConfig());
+  }
+
+  private async releaseSandboxForRun(run: DelegatedRun): Promise<void> {
+    if (shouldDestroySandboxAfterRun(run, this.store.list())) {
+      await this.destroySandbox(run.sandboxId);
+    }
+  }
+
+  private isCaptainInstance(): boolean {
+    const name = this.name ?? "";
+    return parseCaptainAgentName(name) !== null;
+  }
+
+  private captainSnapshot(): Response {
+    const runs = this.store.list();
+    const digest = buildCaptainDigest(runs, this.approvals);
+    const crew = buildCrewFromRuns(runs);
+    return Response.json({
+      ok: true,
+      agentName: this.name,
+      digest,
+      crew,
+      elevatedConcurrency: this.budgetConfig().elevatedConcurrency === true,
+      maxConcurrentRuns: resolveMaxConcurrentRuns(this.budgetConfig()),
+    });
+  }
+
+  private async spawnSubagent(body: Record<string, unknown>): Promise<Response> {
+    const parentRunId = typeof body.parentRunId === "string" ? body.parentRunId : "";
+    const task = typeof body.task === "string" ? body.task.trim() : "";
+    const sandboxMode = body.sandboxMode === "shared" ? "shared" : body.sandboxMode === "fresh" ? "fresh" : null;
+    if (!parentRunId || !task || !sandboxMode) {
+      return Response.json({ error: "parentRunId, task, and sandboxMode (fresh|shared) are required." }, { status: 400 });
+    }
+    if (sandboxMode === "shared" && body.publishPullRequest === true) {
+      return Response.json({ error: "Shared sandboxes are read-only — publishPullRequest must be false." }, { status: 400 });
+    }
+    const parent = this.store.get(parentRunId);
+    if (!parent) return Response.json({ error: "Parent run not found." }, { status: 404 });
+    if (!this.canScheduleRun()) {
+      return Response.json({ error: "Concurrency or daily budget limit reached." }, { status: 429 });
+    }
+    const callId = `subagent:${parentRunId}:${Date.now()}`;
+    const root = this.resolveSubagentBudgetRoot(parent);
+    const remaining = root.subagentBudgetRemaining ?? 0;
+    const spawnInput: SpawnSubagentInput = {
+      parentRunId,
+      task: task.slice(0, 4000),
+      sandboxMode,
+      publishPullRequest: body.publishPullRequest === true,
+      ...(body.reviewAfterPublish === true ? { reviewAfterPublish: true } : {}),
+      ...(typeof body.role === "string" ? { role: body.role as SpawnSubagentInput["role"] } : {}),
+    };
+    const minted = mintSubagentRun({
+      runs: this.store.list(),
+      parent,
+      input: spawnInput,
+      callId,
+      captainId: this.isCaptainInstance() ? this.name : undefined,
+      budgetApproval:
+        remaining > 0 && root.approval
+          ? {
+              approvalId: root.approval.approvalId,
+              decidedBy: root.approval.decidedBy,
+              decidedAt: root.approval.decidedAt,
+              subagentBudget: remaining,
+            }
+          : undefined,
+      parentBudgetRemaining: remaining > 0 ? remaining : undefined,
+      decisionTap: (command, decision) => this.spineTap(command, decision),
+    });
+    if (!minted.ok) {
+      return Response.json({ error: minted.error }, { status: minted.status });
+    }
+    if (remaining > 0) {
+      this.store.replace(root.runId, { ...root, subagentBudgetRemaining: remaining - 1 });
+    }
+    this.store.add(minted.run);
+    this.syncCaptainCrew();
+    this.dispatchApprovedRun(minted.run, undefined, minted.callId);
+    return Response.json({ ok: true, run: this.serializeRun(minted.run) });
+  }
+
+  private resolveSubagentBudgetRoot(run: DelegatedRun): DelegatedRun {
+    let current = run;
+    while (current.parentRunId) {
+      const parent = this.store.get(current.parentRunId);
+      if (!parent) break;
+      current = parent;
+    }
+    return current;
+  }
+
+  private syncCaptainCrew(): void {
+    if (!this.isCaptainInstance()) return;
+    // Digest is computed on read; crew projection is derived from runs at snapshot time.
   }
 
   private async destroySandbox(sandboxId: string): Promise<void> {
@@ -3358,6 +3490,21 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (url.pathname === "/internal/session-teardown") {
       return this.handleInternalSessionTeardown(request, url);
     }
+    if (url.pathname === "/internal/captain/snapshot" && request.method === "GET") {
+      return this.captainSnapshot();
+    }
+    if (url.pathname === "/api/runs/subagents/spawn" && request.method === "POST") {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON." }, { status: 400 });
+      }
+      if (typeof body !== "object" || body === null || Array.isArray(body)) {
+        return Response.json({ error: "Body must be a JSON object." }, { status: 400 });
+      }
+      return this.spawnSubagent(body as Record<string, unknown>);
+    }
     // Teardown stays reachable above so a delete can be retried; everything
     // else on a deleted session is gone, whatever the Worker checked first.
     if (this.sessionDeleted) {
@@ -3473,6 +3620,21 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const reviewMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review(?:\/(retry))?$/);
     if (reviewMatch) return this.handleReviewRoute(request, reviewMatch);
+    const subagentMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/subagents$/);
+    if (subagentMatch && request.method === "POST") {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON." }, { status: 400 });
+      }
+      const payload =
+        typeof body === "object" && body !== null && !Array.isArray(body)
+          ? { ...(body as Record<string, unknown>), parentRunId: decodeURIComponent(subagentMatch[1]!) }
+          : null;
+      if (!payload) return Response.json({ error: "Body must be a JSON object." }, { status: 400 });
+      return this.spawnSubagent(payload);
+    }
     const forkMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/fork$/);
     if (forkMatch !== null) {
       if (request.method !== "POST") {

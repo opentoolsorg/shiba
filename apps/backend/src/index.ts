@@ -38,6 +38,7 @@ import { handleOAuth } from "./oauth-mcp.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
+import { handleCaptainRoutes } from "./captain-routes.js";
 import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
@@ -271,6 +272,10 @@ export default {
       const sandboxResponse = await proxyToSandbox(request, sandboxEnv);
       if (sandboxResponse) {
         return sandboxResponse;
+      }
+      const captainResponse = await handleCaptainRoutes(request, env);
+      if (captainResponse) {
+        return captainResponse;
       }
       const runsResponse = await handleRuns(request, env);
       if (runsResponse) {

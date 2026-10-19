@@ -39,6 +39,8 @@ export default defineConfig({
 					items: [
 						{ label: 'Overview', slug: 'docs/overview' },
 						{ label: 'Quickstart', slug: 'docs/getting-started' },
+						{ label: 'Self-host on Cloudflare', slug: 'docs/self-hosting' },
+						{ label: 'vs hosted alternatives', slug: 'docs/hosted-alternatives' },
 						{ label: 'End-to-end setup', slug: 'docs/onboarding' },
 						{ label: 'Launch (one-command deploy)', slug: 'docs/launch' },
 					],
