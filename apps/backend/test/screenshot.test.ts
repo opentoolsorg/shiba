@@ -92,7 +92,11 @@ function makeDeps(): CaptureDeps & {
     return request;
   };
   return {
-    sandbox: sandbox as CaptureDeps["sandbox"],
+    sandbox: sandbox as unknown as NonNullable<CaptureDeps["sandbox"]> & {
+      startProcess: typeof sandbox.startProcess;
+      exposePort: typeof sandbox.exposePort;
+      unexposePort: typeof sandbox.unexposePort;
+    },
     launch: vi.fn(async () => browser) as CaptureDeps["launch"],
     page,
     proc,

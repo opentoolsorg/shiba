@@ -388,4 +388,11 @@ export interface Env {
    * never fetches the registry at admit time.
    */
   ACP_REGISTRY_JSON?: string;
+  /**
+   * Phase 2b: when "1"/"true", raise in-app concurrency toward wrangler
+   * `max_instances` (still bounded by daily budget when set).
+   */
+  SHIBA_ELEVATED_CONCURRENCY?: string;
+  /** Phase 2b: optional UTC-day USD cap on summed run.usage.costUsd. */
+  SHIBA_DAILY_CONTAINER_BUDGET_USD?: string;
 }

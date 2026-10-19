@@ -10,5 +10,7 @@ Drive these from the real dashboard UI at http://localhost:$PORT/app/.
 | review-findings | Chained reviewer posts one COMMENT review; findings list matches |
 | run-registry-status | Runs view shows status chips and registry counts |
 | browser-e2e-evidence | Publish run stores E2E frames + manifest in R2; PR body links manifest |
+| captain-subagents | Captain snapshot API + subagent tree UI (Phase 2b) |
+| byo-models-ux | Settings Models: ordered connections, test connection, role pins; run usage when reported |
 
 When SHIBA_TEST_REPO is unset, GitHub-touching journeys run in mock boundary mode and must be labeled mock GitHub. That is not live proof.
