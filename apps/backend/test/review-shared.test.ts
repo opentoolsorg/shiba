@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { blockingRoundForHead, parseReviewEnvelope, selectPostable, type ReviewRound } from "@shiba/shared";
+import {
+  blockingRoundForHead,
+  parseReviewEnvelope,
+  reviewRoundWriteRejected,
+  selectPostable,
+  type ReviewRound,
+} from "@shiba/shared";
 
 const valid = {
   path: "src/app.ts",
@@ -51,6 +57,31 @@ describe("blockingRoundForHead", () => {
   it("does not block when the head round failed or was skipped", () => {
     expect(blockingRoundForHead([{ ...round, status: "failed" }], "r1", "abc")).toBeUndefined();
     expect(blockingRoundForHead([{ ...round, status: "skipped" }], "r1", "abc")).toBeUndefined();
+  });
+});
+
+describe("reviewRoundWriteRejected", () => {
+  const posted: ReviewRound = {
+    roundId: "r1:abc",
+    codingRunId: "r1",
+    reviewRunId: "rev",
+    pull: { owner: "a", repo: "b", number: 1, headSha: "abc", url: "https://github.com/a/b/pull/1" },
+    status: "posted",
+    findings: [],
+    summary: "",
+    generation: 2,
+  };
+
+  it("rejects writes with undefined generation over a terminal round", () => {
+    expect(reviewRoundWriteRejected(posted, { ...posted, status: "running", generation: undefined })).toBe(true);
+  });
+
+  it("rejects stale generations", () => {
+    expect(reviewRoundWriteRejected(posted, { ...posted, generation: 1 })).toBe(true);
+  });
+
+  it("allows a newer generation", () => {
+    expect(reviewRoundWriteRejected(posted, { ...posted, generation: 3 })).toBe(false);
   });
 });
 

@@ -189,3 +189,13 @@ export function parseInlineSeverityThreshold(raw: string | undefined): FindingSe
   if (raw === "high" || raw === "medium" || raw === "low") return raw;
   return "medium";
 }
+
+const TERMINAL_ROUND_STATUSES = new Set<ReviewRound["status"]>(["posted", "failed", "skipped"]);
+
+/** True when an incoming write must be dropped to protect a terminal round. */
+export function reviewRoundWriteRejected(current: ReviewRound | undefined, incoming: ReviewRound): boolean {
+  if (!current || !TERMINAL_ROUND_STATUSES.has(current.status)) return false;
+  if (incoming.generation === undefined) return true;
+  if (current.generation !== undefined && incoming.generation < current.generation) return true;
+  return false;
+}

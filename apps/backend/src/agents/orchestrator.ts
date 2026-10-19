@@ -35,6 +35,7 @@ import {
   parseInlineSeverityThreshold,
   parseReviewEnvelope,
   patchFindingTriage,
+  reviewRoundWriteRejected,
   runInputHash,
   type FindingSeverity,
   type ReviewRound,
@@ -99,7 +100,9 @@ import { decideChain } from "../review/chain.js";
 import { mergePullRequest, type MergeMethod } from "../review/merge.js";
 import { reviewerTask } from "../review/prompt.js";
 import { postReview } from "../review/publish.js";
+import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
+import { ORCHESTRATOR_NAME } from "../slack-routes.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
   classifyExecutorError,
@@ -2304,6 +2307,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const key = this.prBindingKey(pull.owner, pull.repo, pull.number);
     const next = { ...(this.state.prBindings ?? {}), [key]: run.runId };
     this.setState({ ...this.state, prBindings: next });
+    const agentName = this.name?.trim() || ORCHESTRATOR_NAME;
+    void registerPrOwner(this.env, {
+      repoFullName: `${pull.owner}/${pull.repo}`,
+      pullNumber: pull.number,
+      agentName,
+      codingRunId: run.runId,
+    }).catch((error) => {
+      console.error(
+        "pr-owner index register failed",
+        redactSecrets(error instanceof Error ? error.message : String(error)),
+      );
+    });
   }
 
   private inlineReviewThreshold(): FindingSeverity {
@@ -2604,13 +2619,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private writeRound(round: ReviewRound): boolean {
     const rounds = this.state.reviewRounds ?? [];
     const current = rounds.find((item) => item.roundId === round.roundId);
-    if (
-      current &&
-      (current.status === "posted" || current.status === "failed" || current.status === "skipped") &&
-      round.generation !== undefined &&
-      current.generation !== undefined &&
-      round.generation < current.generation
-    ) {
+    if (reviewRoundWriteRejected(current, round)) {
       return false;
     }
     const next = current
