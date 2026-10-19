@@ -75,7 +75,7 @@ export interface TaskComposerProps {
   variant?: "docked" | "hero";
 }
 
-// Keep the picker simple: the two everyday harnesses. Everything else stays
+// Keep the picker simple: the everyday harnesses plus Pi. Everything else stays
 // reachable — a deployment default, role pin, MCP, or API call naming codex /
 // devin / a subscription / an ACP lane still resolves and runs; when such a
 // harness is already selected it is appended to the list so the field never
@@ -83,6 +83,7 @@ export interface TaskComposerProps {
 const HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = [
   { value: "opencode", label: "OpenCode", desc: "Default autonomous coding engine" },
   { value: "claude-code", label: "Claude Code", desc: "Anthropic Claude Code CLI" },
+  { value: "pi", label: "Pi", desc: "Earendil Pi agent — Anthropic, OpenAI, Google, xAI" },
 ];
 
 // Only these harnesses declare local support — the backend refuses anything

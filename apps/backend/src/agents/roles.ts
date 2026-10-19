@@ -55,6 +55,7 @@ const HARNESS_MODEL_ENV: Partial<Record<AgentHarnessName, keyof Env>> = {
   "codex-subscription": "CODEX_SUBSCRIPTION_MODEL",
   devin: "DEVIN_MODEL",
   grok: "GROK_MODEL",
+  pi: "PI_MODEL",
   "antigravity-subscription": "ANTIGRAVITY_SUBSCRIPTION_MODEL",
   "cursor-subscription": "CURSOR_SUBSCRIPTION_MODEL",
   "devin-subscription": "DEVIN_SUBSCRIPTION_MODEL",

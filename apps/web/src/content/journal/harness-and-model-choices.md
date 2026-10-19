@@ -50,7 +50,8 @@ The model namespace has to match the harness. `claude-code.mdx` lays out the
 supported sets: OpenCode covers `google/*`, `anthropic/*`, `openai/*`, and xAI
 models such as `xai/grok-4`; Claude Code takes `anthropic/*`, for example
 `anthropic/claude-sonnet-4-6`; Codex takes `openai/*`, for example
-`openai/gpt-5.3-codex`; Devin takes `devin/*`.
+`openai/gpt-5.3-codex`; Pi supports `anthropic/*`, `openai/*`, `google/*`,
+and `xai/*`; Devin takes `devin/*`.
 
 An unsupported pairing is refused while preparing the approval, before
 execution, with a message naming what the harness does support. `VERIFICATION.md`

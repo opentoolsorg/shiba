@@ -125,6 +125,8 @@ export interface Env {
   DEVIN_MODEL?: string;
   /** Optional default model for the grok harness, e.g. xai/grok-4.6. */
   GROK_MODEL?: string;
+  /** Optional default model for the pi harness, e.g. anthropic/claude-sonnet-4-6. */
+  PI_MODEL?: string;
   /**
    * Optional per-role routing pins (T52, `agents/roles.ts`). A delegation
    * carrying `role` resolves harness+model from `ROLE_MODEL_MAP` (one JSON
