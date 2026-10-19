@@ -1021,6 +1021,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         if (status === "completed" || status === "error") {
           this.dispatchSessionDistill(updated);
         }
+        if (
+          updated.reviewOf &&
+          status !== "completed" &&
+          (status === "error" || status === "unknown" || status === "cancelled" || status === "aborted")
+        ) {
+          void this.failReviewRound(updated, patch?.error ?? `review_run_${status}`);
+        }
         return updated;
       };
       // T40: `start` re-asserts the approval that reserved this run —
@@ -2396,6 +2403,20 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       generation: 0,
     });
     this.dispatchApprovedRun(reviewRun, undefined, callId);
+  }
+
+  private failReviewRound(run: DelegatedRun, error: string): void {
+    const roundId = run.reviewRoundId ?? `${run.reviewOf ?? run.runId}:head`;
+    const rounds = this.state.reviewRounds ?? [];
+    const existing = rounds.find((item) => item.roundId === roundId || item.reviewRunId === run.runId);
+    if (!existing || existing.status === "posted") return;
+    this.writeRound({
+      ...existing,
+      reviewRunId: run.runId,
+      status: "failed",
+      error: redactSecrets(error).slice(0, 500),
+      generation: run.generation,
+    });
   }
 
   private async handlePrLifecycleWake(body: Record<string, unknown>): Promise<Response> {

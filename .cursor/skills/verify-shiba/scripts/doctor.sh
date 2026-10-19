@@ -24,14 +24,19 @@ if ! lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | grep -q "$PID"; then
   fi
 fi
 CONTAINERS_MODE=$(cat "$VERIFY_DIR/containers-mode" 2>/dev/null || echo enabled)
-if [ "$CONTAINERS_MODE" = disabled ]; then
-  echo "docker=skipped (containers disabled)"
-elif docker info >/dev/null 2>&1; then
-  echo "docker=ok"
-else
-  echo "docker=unavailable" >&2
-  exit 1
-fi
+case "$CONTAINERS_MODE" in
+  disabled|containers=disabled*)
+    echo "docker=skipped (containers disabled)"
+    ;;
+  *)
+    if docker info >/dev/null 2>&1; then
+      echo "docker=ok"
+    else
+      echo "docker=unavailable (sandbox runs and reject docker-diff proof need a local engine)" >&2
+      # UI-only journeys (approval card, mock GitHub) can still run without Docker.
+    fi
+    ;;
+esac
 PKG=$(node -e "const r=require('$ROOT/package.json'); console.log(r.devDependencies?.wrangler || r.dependencies?.wrangler || '')")
 HAVE=$(npx wrangler --version | awk '{print $NF}')
 echo "wrangler package=$PKG have=$HAVE"
