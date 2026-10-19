@@ -29,6 +29,42 @@ Handles: Task composer, Task description, Project, Search repositories, Create p
 
 Features live in `features/`.
 
+## Assert
+
+`node scripts/assert-journey.mjs` after `drive.mjs`. Polls `/api/runs`, `/api/v1/threads/:id/pr/review`, and the GitHub stub `GET /__shiba/state`. **Fails the process** on missing evidence. Container-only checks are marked `skipped` when `containers-mode` is disabled (CI path).
+
+## Journeys
+
+| Feature | Mode | Proves |
+| --- | --- | --- |
+| `core-loop-mock` | mock GitHub + stand-in when containers off | submit → approve → run completes → stub PR → review posted → round `posted` (**CI default**) |
+| `task-submit-and-approval` | UI only | approval card + reject does not start a container |
+| `sandbox-run-and-diff` | needs `VERIFY_ENABLE_CONTAINERS=1` + Docker | real container + diff (skipped honestly in CI) |
+| `review-findings` | same loop as `core-loop-mock` | findings UI + API/stub read-backs |
+
+When containers are disabled, `launch.sh` sets `SHIBA_VERIFY_STANDIN=1` in `.dev.vars` so publish/review still complete deterministically. That is **not** live model or live GitHub proof.
+
+## Run locally
+
+```bash
+pnpm build
+VERIFY_GITHUB=mock VERIFY_FEATURE=core-loop-mock bash .cursor/skills/verify-shiba/scripts/run-ci.sh
+```
+
+Containers on (real sandbox — needs Docker + model credentials):
+
+```bash
+VERIFY_ENABLE_CONTAINERS=1 VERIFY_FEATURE=sandbox-run-and-diff bash .cursor/skills/verify-shiba/scripts/launch.sh
+node .cursor/skills/verify-shiba/scripts/drive.mjs --feature sandbox-run-and-diff
+node .cursor/skills/verify-shiba/scripts/assert-journey.mjs
+```
+
+## Gates
+
+Repo gate (required before merge): `pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built` and `pnpm check:ci`.
+
+verify-shiba gate: `bash .cursor/skills/verify-shiba/scripts/run-ci.sh` after `pnpm build` (CI sets `VERIFY_SKIP_BUILD=1`).
+
 ## Evidence
 
 `scripts/evidence.sh` writes `.verify/evidence/<ISO-ts>/`: step + final screenshots, Playwright trace, HAR, wrangler log tail, `docker ps -a`, and JSON read-backs. Label mock journeys mock GitHub.
