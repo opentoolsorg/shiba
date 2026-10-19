@@ -1,6 +1,11 @@
 /**
- * Sandbox SDK port (Phase 2b). Production still uses @cloudflare/sandbox@0.12.9
- * via `acquireSandboxOps` / `SandboxOps`; SDK 1.0 migration should replace
- * only the factory behind this seam, not orchestration or approval code.
+ * Sandbox seams consumed by orchestration, browser E2E, and subagent paths.
+ * SDK 1.0 stays behind @shiba/sandbox's Cloudflare adapter — swap providers via
+ * SHIBA_SANDBOX_PROVIDER without touching approval or egress policy code.
  */
 export type { SandboxOps } from "../runtime.js";
+export type {
+  PreviewPortGateway,
+  SandboxInstance,
+  SandboxProvider,
+} from "@shiba/sandbox";

@@ -1,0 +1,47 @@
+{
+  "name": "@shiba/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provider-agnostic sandbox interface for shiba run containers. Adapters wrap Cloudflare Sandbox SDK 1.0, local Docker, and (research) hosted sandboxes.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapters/cloudflare": "./src/adapters/cloudflare.ts",
+    "./adapters/docker-local": "./src/adapters/docker-local.ts",
+    "./adapters/e2b": "./src/adapters/e2b.ts",
+    "./adapters/computesdk": "./src/adapters/computesdk.ts",
+    "./adapters/computesdk-load": "./src/adapters/computesdk-load.ts",
+    "./adapters/computesdk-capabilities": "./src/adapters/computesdk-capabilities.ts",
+    "./contract": "./src/contract-suite.ts",
+    "./registry": "./src/registry.ts"
+  },
+  "peerDependencies": {
+    "computesdk": "4.1.12"
+  },
+  "peerDependenciesMeta": {
+    "computesdk": {
+      "optional": true
+    },
+    "@computesdk/e2b": {
+      "optional": true
+    },
+    "@computesdk/modal": {
+      "optional": true
+    },
+    "@computesdk/daytona": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "computesdk": "4.1.12",
+    "vitest": "5.0.1"
+  }
+}

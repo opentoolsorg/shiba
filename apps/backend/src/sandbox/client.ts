@@ -15,7 +15,7 @@ export function getSandbox(
   return wrapSandboxStub(stub, sandboxId);
 }
 
-/** Minimal surface used by tests and production call sites. */
+/** Minimal RPC surface for @shiba/sandbox Cloudflare adapter and tests. */
 export type SandboxRpcFacade = Pick<
   Sandbox,
   | "approveHarnessEgress"
