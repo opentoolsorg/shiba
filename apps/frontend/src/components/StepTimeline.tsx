@@ -128,6 +128,7 @@ export function StepTimeline({
             decisions={decisions}
             onDecideApproval={onDecideApproval}
             renderToolOutput={renderToolOutput}
+            reviewAfterPublishById={reviewAfterPublishById}
           />
         );
       })}
@@ -192,6 +193,7 @@ interface AssistantMessageRowProps {
   decisions: Record<string, boolean>;
   onDecideApproval: (approvalId: string, approved: boolean) => void;
   renderToolOutput: (part: ToolPart) => string | null;
+  reviewAfterPublishById?: Record<string, boolean>;
 }
 
 const AssistantMessageRow = memo(function AssistantMessageRow({
@@ -200,6 +202,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
   decisions,
   onDecideApproval,
   renderToolOutput,
+  reviewAfterPublishById,
 }: AssistantMessageRowProps) {
   return (
     <li className="flex flex-col items-start">
