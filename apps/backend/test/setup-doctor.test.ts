@@ -77,6 +77,22 @@ describe("assertRunPreflight", () => {
     ).rejects.toThrow(/no authenticated account/);
   });
 
+  it("allows BYOK harness queue when verify standin is enabled without AI_GATEWAY_TOKEN", async () => {
+    const snapshot = { connections: [], policy: { version: 0, models: {}, updatedAt: 0 }, connectionOrder: [] };
+    const route = resolveCodingRoute(snapshot, {
+      connectionId: null,
+      model: "google/gemini-3.5-flash-lite",
+      harness: "opencode",
+    });
+    await expect(
+      assertRunPreflight(
+        env({ SHIBA_VERIFY_STANDIN: "1" }),
+        { harness: "opencode", codingModel: "google/gemini-3.5-flash-lite", route },
+        snapshot,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("binds the sole ready connection when model/harness match", async () => {
     const connection = readyAnthropic();
     const snapshot = {
