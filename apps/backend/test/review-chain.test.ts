@@ -43,6 +43,11 @@ describe("decideChain", () => {
     expect(decideChain(run({}), [roundA], "abc").kind).toBe("none");
   });
 
+  it("queues again when the only round for the head failed", () => {
+    const failed: ReviewRound = { ...roundA, status: "failed", error: "review_run_error" };
+    expect(decideChain(run({}), [failed], "abc").kind).toBe("queue_review");
+  });
+
   it("does not queue a reviewer, unapproved publish, or incomplete run", () => {
     expect(decideChain(run({ reviewOf: "run-0" }), [], "abc").kind).toBe("none");
     expect(decideChain(run({ reviewAfterPublish: false }), [], "abc").kind).toBe("none");
