@@ -1,11 +1,3 @@
-/**
- * ACP provider registry routes.
- *
- * Root cause of the dead Providers page: every connector called
- * `/api/auth/<provider>-subscription`, and that route 404s unless the
- * matching SHIBA_*_SUBSCRIPTION flag is set. Connect was disabled.
- * `/api/providers` answers without those flags.
- */
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -264,11 +256,22 @@ describe("device-code sign-in", () => {
     expect(response?.status).toBe(400);
     expect([...kv.map.values()].join("\n")).not.toContain("sk-live-should-not-land");
   });
+
+  it("rejects a camelCase refresh token instead of connecting", async () => {
+    const response = await handleAcpProviders(
+      request("/api/providers/claude/connect", {
+        method: "POST",
+        body: JSON.stringify({ mode: "api-key", refreshToken: "pasted-refresh" }),
+      }),
+      env({ AI_GATEWAY_TOKEN: "gateway-canary" }),
+    );
+    expect(response?.status).toBe(400);
+  });
 });
 
 describe("API-key fallback", () => {
-  it("connects when the named secret is present and never echoes the value", async () => {
-    const deployment = env({ CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value" });
+  it("connects when the gateway credential the ACP harness uses is present and never echoes the value", async () => {
+    const deployment = env({ AI_GATEWAY_TOKEN: "gateway-canary-value" });
     const body = await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/connect", {
@@ -281,8 +284,9 @@ describe("API-key fallback", () => {
     const claude = body.providers.find((provider) => provider.id === "claude");
     expect(claude?.connection.phase).toBe("connected");
     expect(claude?.connection.authMode).toBe("api-key");
-    expect(claude?.connection.message).toContain("CLAUDE_SUBSCRIPTION_TOKEN");
-    expect(JSON.stringify(body)).not.toContain("setup-token-canary-value");
+    expect(claude?.connection.message).toContain("AI_GATEWAY_TOKEN");
+    expect(claude?.connection.message).toContain("claude-acp");
+    expect(JSON.stringify(body)).not.toContain("gateway-canary-value");
 
     const tested = await snapshot(
       await handleAcpProviders(
@@ -293,6 +297,22 @@ describe("API-key fallback", () => {
     expect(tested.providers.find((provider) => provider.id === "claude")?.connection.testOk).toBe(
       true,
     );
+  });
+
+  it("does not treat the subscription token as the ACP adapter credential", async () => {
+    const body = await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "api-key" }),
+        }),
+        env({ CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value" }),
+      ),
+    );
+    const claude = body.providers.find((provider) => provider.id === "claude");
+    expect(claude?.connection.phase).toBe("failed");
+    expect(claude?.connection.message).toContain("AI_GATEWAY_TOKEN");
+    expect(JSON.stringify(body)).not.toContain("setup-token-canary-value");
   });
 
   it("fails closed when no credential is provisioned", async () => {
@@ -388,6 +408,114 @@ describe("subscription probe reuse", () => {
     const claude = done.providers.find((provider) => provider.id === "claude");
     expect(claude?.connection.phase).toBe("failed");
     expect(claude?.connection.message).toContain("credential rejected (401)");
+  });
+
+  it("does not restart a succeeded subscription lane from Finish or Test", async () => {
+    const kv = new FakeKV();
+    const flowKey = "auth_flow_claude-sub:default";
+    const preserved = JSON.stringify({
+      phase: "succeeded",
+      ownerSessionId: "default",
+      message: "already authenticated",
+    });
+    await kv.put(flowKey, preserved);
+    const deployment = env(
+      { SHIBA_CLAUDE_SUBSCRIPTION: "1", CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value" },
+      kv,
+    );
+    const forwardClaude = async () => new Response("no", { status: 401 });
+    const started = await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "oauth" }),
+        }),
+        deployment,
+        { forwardClaude },
+      ),
+    );
+    const code = started.providers.find((provider) => provider.id === "claude")?.connection
+      .userCode;
+    const done = await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/verify", {
+          method: "POST",
+          body: JSON.stringify({ userCode: code }),
+        }),
+        deployment,
+        { forwardClaude },
+      ),
+    );
+    expect(done.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe(
+      "connected",
+    );
+    expect(kv.map.get(flowKey)).toBe(preserved);
+
+    const tested = await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/test", { method: "POST", body: "{}" }),
+        deployment,
+        { forwardClaude },
+      ),
+    );
+    expect(tested.providers.find((provider) => provider.id === "claude")?.connection.testOk).toBe(
+      true,
+    );
+    expect(kv.map.get(flowKey)).toBe(preserved);
+  });
+
+  it("does not write a test result over a disconnect that landed during the read", async () => {
+    const kv = new FakeKV();
+    const deployment = env({ SHIBA_CLAUDE_SUBSCRIPTION: "1" }, kv);
+    const started = await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "oauth" }),
+        }),
+        deployment,
+      ),
+    );
+    const code = started.providers.find((provider) => provider.id === "claude")?.connection
+      .userCode;
+    await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/verify", {
+          method: "POST",
+          body: JSON.stringify({ userCode: code }),
+        }),
+        deployment,
+        { confirmOauth: async () => ({ ok: true, message: "granted" }) },
+      ),
+    );
+    let release: (value: { ok: boolean; message: string }) => void = () => {};
+    let entered: () => void = () => {};
+    const enteredGate = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const inspectOauth = () => {
+      entered();
+      return new Promise<{ ok: boolean; message: string }>((resolve) => {
+        release = resolve;
+      });
+    };
+    const testing = handleAcpProviders(
+      request("/api/providers/claude/test", { method: "POST", body: "{}" }),
+      deployment,
+      { inspectOauth },
+    );
+    await enteredGate;
+    await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/disconnect", { method: "POST", body: "{}" }),
+        deployment,
+      ),
+    );
+    release({ ok: true, message: "late" });
+    const after = await snapshot(await testing);
+    expect(after.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe(
+      "disconnected",
+    );
   });
 });
 
