@@ -149,7 +149,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain('aria-label="Thread configuration"');
     expect(html).toContain('aria-label="Add to message"');
     expect(html).not.toContain('aria-label="Voice input"');
-    expect(html).toContain("Ask anything, / for commands, @ for context");
+    expect(html).toContain("Describe the change in this repository");
   });
 
   it("TaskForm includes Pi in the coding agent picker", () => {
@@ -224,7 +224,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
         selectedRunId: "run-42",
       })
     );
-    expect(html).toContain("Diff &amp; Patch Inspector");
+    expect(html).toContain("Pull requests");
     expect(html).toContain("run-42");
     expect(html).toContain("Refactor router to standalone views");
     expect(html).toContain("DiffView");
@@ -272,11 +272,11 @@ describe("dashboard components SSR (T14 sweep)", () => {
         onDecideStoredApproval: () => {},
       })
     );
-    expect(html).toContain("Approvals &amp; Decision Center");
+    expect(html).toContain(">Approvals<");
     expect(html).toContain("2 waiting");
     expect(html).toContain("run_sandbox");
     expect(html).toContain("Email send");
-    expect(html).toContain("Recent Outcomes &amp; Decided Actions");
+    expect(html).toContain("Decided");
     expect(html).toContain("Executed");
   });
 });
