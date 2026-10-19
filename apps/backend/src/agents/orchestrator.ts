@@ -3285,6 +3285,37 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     });
   }
 
+  private async handleReviewRoute(request: Request, match: RegExpMatchArray): Promise<Response> {
+    let runId: string;
+    try { runId = decodeURIComponent(match[1] ?? ""); }
+    catch { return Response.json({ ok: false, error: "invalid_thread" }, { status: 400 }); }
+    const round = (this.state.reviewRounds ?? []).find(
+      (item) => item.codingRunId === runId || item.reviewRunId === runId,
+    ) ?? null;
+    if (request.method === "GET" && match[2] !== "retry") {
+      return Response.json({ ok: true, round });
+    }
+    if (request.method === "POST" && match[2] === "retry") {
+      if (!round) return Response.json({ ok: false, error: "round_not_found" }, { status: 404 });
+      if (!this.env.GITHUB_TOKEN) return Response.json({ ok: false, error: "github_not_configured" }, { status: 503 });
+      try {
+        const posted = await postReview(round, this.env.GITHUB_TOKEN, { apiBase: this.env.GITHUB_API_BASE });
+        const next: ReviewRound = { ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() };
+        this.writeRound(next);
+        return Response.json({ ok: true, round: next });
+      } catch (error) {
+        const failed: ReviewRound = {
+          ...round,
+          status: "failed",
+          error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 500),
+        };
+        this.writeRound(failed);
+        return Response.json({ ok: false, round: failed }, { status: 502 });
+      }
+    }
+    return Response.json({ error: "Method not allowed." }, { status: 405 });
+  }
+
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     // Edge identity: when INTERNAL_SIGNING_KEY is configured, any request
@@ -3433,6 +3464,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return run ? Response.json({ run: this.serializeRun(run) })
         : Response.json({ error: "Run not found." }, { status: 404 });
     }
+    const reviewMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review(?:\/(retry))?$/);
+    if (reviewMatch) return this.handleReviewRoute(request, reviewMatch);
     const forkMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/fork$/);
     if (forkMatch !== null) {
       if (request.method !== "POST") {

@@ -11,7 +11,8 @@ const notImplemented = (detail: string) =>
   Response.json({ ok: false, error: "not_implemented", code: "not_implemented", detail }, { status: 501 });
 
 async function github<T>(ctx: V1Context, path: string, init?: { method: string; body: unknown }): Promise<T> {
-  const response = await fetch(`https://api.github.com${path}`, {
+  const apiBase = (ctx.env.GITHUB_API_BASE ?? "https://api.github.com").replace(/\/$/, "");
+  const response = await fetch(`${apiBase}${path}`, {
     method: init?.method ?? "GET", signal: AbortSignal.timeout(30_000),
     headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${ctx.env.GITHUB_TOKEN}`,
       "User-Agent": "shiba", "X-GitHub-Api-Version": "2022-11-28", ...(init ? { "Content-Type": "application/json" } : {}) },
@@ -35,10 +36,13 @@ const optionalOperationId = (value: unknown) =>
   value === undefined || (typeof value === "string" && value.length > 0 && value.length <= 64);
 
 export async function handlePulls(ctx: V1Context): Promise<Response | null> {
-  const match = ctx.url.pathname.match(/^\/api\/v1\/threads\/([^/]+)\/pr(?:\/(ready|status|comments|merge|review-loop))?$/);
+  const match = ctx.url.pathname.match(/^\/api\/v1\/threads\/([^/]+)\/pr(?:\/(ready|status|comments|merge|review-loop|review)(?:\/(retry))?)?$/);
   if (!match) return null;
   const action = match[2] ?? "create";
-  const method = action === "status" || action === "comments" ? "GET" : action === "review-loop" ? (ctx.request.method === "PATCH" ? "PATCH" : "GET") : "POST";
+  const retry = match[3] === "retry";
+  const method = action === "review"
+    ? (retry ? "POST" : "GET")
+    : action === "status" || action === "comments" ? "GET" : action === "review-loop" ? (ctx.request.method === "PATCH" ? "PATCH" : "GET") : "POST";
   if (ctx.request.method !== method) return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
   let id: string;
   try { id = decodeURIComponent(match[1]!); }
@@ -69,6 +73,9 @@ export async function handlePulls(ctx: V1Context): Promise<Response | null> {
   if (run instanceof Response) return run;
   // Merging is outward-facing: it must ride an approval, and ApprovalKind has no pr_merge kind yet.
   if (action === "merge") return notImplemented("PR merge requires a pr_merge approval kind; shiba never merges without an approval.");
+  if (action === "review") {
+    return ctx.forward(method, `/api/runs/${encodeURIComponent(id)}/review${retry ? "/retry" : ""}`);
+  }
   if (action === "review-loop") {
     if (method === "GET") return Response.json({ ok: true, reviewLoop: null });
     return notImplemented("The PR review loop needs a persisted loop record on the orchestrator.");
