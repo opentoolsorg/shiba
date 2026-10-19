@@ -27,8 +27,14 @@ export const SCOPES = [
   "runs:read",
   "sandbox:exec",
   "admin:tokens",
+  "api:read",
+  "api:write",
+  "api:keys:admin",
 ] as const;
 export type Scope = (typeof SCOPES)[number];
+
+/** Public `/api/v1` bearer keys (`shk_…`) — org-scoped, distinct from MCP agent tokens (`shb_…`). */
+export const API_KEY_SCOPES: readonly Scope[] = ["api:read", "api:write", "api:keys:admin"];
 
 /** Missing-scope failure — the gateway maps this to a 403-class response. */
 export class ScopeError extends Error {
@@ -46,12 +52,23 @@ export class ScopeError extends Error {
  * What KV holds per token. The raw token is deliberately absent — only its
  * SHA-256 (in the key) is needed to find this record again.
  */
+export type TokenKind = "agent" | "api_key";
+
 export interface TokenRecord {
   principal: string;
   scopes: Scope[];
   /** Epoch milliseconds. */
   created: number;
   revoked: boolean;
+  /** Single-tenant org id; defaults to self-hosted when absent. */
+  orgId?: string;
+  kind?: TokenKind;
+  /** UI label for api_key rows — never a secret. */
+  label?: string;
+  /** Stable id for list/revoke without the raw bearer (api keys only). */
+  keyId?: string;
+  /** Epoch ms; absent means no expiry. */
+  expiresAt?: number;
 }
 
 /** Narrow env surface — the KV binding wired in wrangler.jsonc. */
@@ -66,6 +83,8 @@ const TOKEN_ID_BYTES = 8;
 const TOKEN_SECRET_BYTES = 24;
 // shb_<16-hex id>_<48-hex secret> — verified shape-checked before any KV read.
 const TOKEN_RE = /^shb_[0-9a-f]{16}_[0-9a-f]{48}$/;
+const API_KEY_RE = /^shk_[0-9a-f]{16}_[0-9a-f]{48}$/;
+const DEFAULT_ORG_ID = "self-hosted";
 const MAX_PRINCIPAL_LENGTH = 128;
 
 /** SHA-256 hex of a string — WebCrypto, runs in Workers and Node. */
@@ -113,12 +132,26 @@ function parseRecord(value: unknown): TokenRecord | null {
   ) {
     return null;
   }
-  return {
+  const out: TokenRecord = {
     principal: record.principal,
     scopes: record.scopes as Scope[],
     created: record.created,
     revoked: record.revoked,
   };
+  if (typeof record.orgId === "string" && record.orgId.trim()) out.orgId = record.orgId.trim();
+  if (record.kind === "agent" || record.kind === "api_key") out.kind = record.kind;
+  if (typeof record.label === "string" && record.label.trim()) out.label = record.label.trim().slice(0, 120);
+  if (typeof record.keyId === "string" && record.keyId.trim()) out.keyId = record.keyId.trim().slice(0, 64);
+  if (typeof record.expiresAt === "number" && Number.isFinite(record.expiresAt)) out.expiresAt = record.expiresAt;
+  return out;
+}
+
+export function isApiKeyBearer(bearer: string): boolean {
+  return API_KEY_RE.test(bearer);
+}
+
+export function orgIdForRecord(record: TokenRecord): string {
+  return record.orgId?.trim() || DEFAULT_ORG_ID;
 }
 
 /**
@@ -132,6 +165,11 @@ function tokenMetadata(record: TokenRecord): TokenRecord {
     scopes: [...record.scopes],
     created: record.created,
     revoked: record.revoked,
+    ...(record.orgId !== undefined ? { orgId: record.orgId } : {}),
+    ...(record.kind !== undefined ? { kind: record.kind } : {}),
+    ...(record.label !== undefined ? { label: record.label } : {}),
+    ...(record.keyId !== undefined ? { keyId: record.keyId } : {}),
+    ...(record.expiresAt !== undefined ? { expiresAt: record.expiresAt } : {}),
   };
 }
 
@@ -201,14 +239,109 @@ export async function verifyToken(
   env: AgentTokensEnv,
   bearer: string,
 ): Promise<TokenRecord | null> {
-  if (!TOKEN_RE.test(bearer)) {
+  if (!TOKEN_RE.test(bearer) && !API_KEY_RE.test(bearer)) {
     return null;
   }
   const record = await readRecord(env, bearer);
   if (!record || record.revoked) {
     return null;
   }
+  if (record.expiresAt !== undefined && Date.now() >= record.expiresAt) {
+    return null;
+  }
   return record;
+}
+
+/**
+ * Mint an org-scoped public API key (`shk_…`). The plaintext is returned once.
+ */
+export async function createApiKey(
+  env: AgentTokensEnv,
+  input: {
+    orgId?: string;
+    label: string;
+    principal: string;
+    scopes: readonly string[];
+    expiresAt?: number;
+    nowMs?: number;
+  },
+): Promise<{ token: string; record: TokenRecord; keyId: string }> {
+  const orgId = (input.orgId?.trim() || DEFAULT_ORG_ID).slice(0, 128);
+  const label = input.label.trim().slice(0, 120);
+  if (!label) throw new InputError("label is required.");
+  const principal = input.principal.trim().slice(0, MAX_PRINCIPAL_LENGTH);
+  if (!principal || /\s/.test(principal)) {
+    throw new InputError("principal must be a non-empty name without whitespace.");
+  }
+  const unique = [...new Set(input.scopes)];
+  if (unique.length === 0) throw new InputError("an API key must grant at least one scope.");
+  for (const scope of unique) {
+    if (!(API_KEY_SCOPES as readonly string[]).includes(scope)) {
+      throw new InputError(`API keys only support scopes: ${API_KEY_SCOPES.join(", ")}.`);
+    }
+  }
+  const keyId = `key_${randomHex(TOKEN_ID_BYTES)}`;
+  const token = `shk_${randomHex(TOKEN_ID_BYTES)}_${randomHex(TOKEN_SECRET_BYTES)}`;
+  const record: TokenRecord = {
+    principal,
+    scopes: unique as Scope[],
+    created: input.nowMs ?? Date.now(),
+    revoked: false,
+    orgId,
+    kind: "api_key",
+    label,
+    keyId,
+    ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+  };
+  await env.AGENT_TOKENS.put(await tokenKey(token), JSON.stringify(record), {
+    metadata: tokenMetadata(record),
+  });
+  return { token, record, keyId };
+}
+
+/** Revoke every live api_key row matching `keyId` in the org (idempotent). */
+export async function revokeApiKeyById(
+  env: AgentTokensEnv,
+  orgId: string,
+  keyId: string,
+): Promise<boolean> {
+  const wantOrg = orgId.trim() || DEFAULT_ORG_ID;
+  const wantKey = keyId.trim();
+  if (!wantKey) return false;
+  let revoked = false;
+  let cursor: string | undefined;
+  try {
+    do {
+      const page = await env.AGENT_TOKENS.list({ prefix: TOKEN_PREFIX, cursor });
+      for (const key of page.keys) {
+        const row = parseRecord(key.metadata) ?? parseRecord(await kvGet(env, key.name));
+        if (
+          row?.kind === "api_key" &&
+          row.keyId === wantKey &&
+          orgIdForRecord(row) === wantOrg &&
+          !row.revoked
+        ) {
+          row.revoked = true;
+          await env.AGENT_TOKENS.put(key.name, JSON.stringify(row), { metadata: tokenMetadata(row) });
+          revoked = true;
+        }
+      }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor !== undefined);
+  } catch (error: unknown) {
+    console.warn(
+      `agent-tokens: KV list failed during api key revoke: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
+    );
+    return false;
+  }
+  return revoked;
+}
+
+export function listApiKeys(env: AgentTokensEnv, orgId?: string): Promise<TokenRecord[]> {
+  const want = (orgId?.trim() || DEFAULT_ORG_ID);
+  return listTokens(env).then((rows) =>
+    rows.filter((row) => row.kind === "api_key" && orgIdForRecord(row) === want),
+  );
 }
 
 /**
@@ -222,7 +355,7 @@ export async function revokeToken(
   env: AgentTokensEnv,
   bearer: string,
 ): Promise<TokenRecord | null> {
-  if (!TOKEN_RE.test(bearer)) {
+  if (!TOKEN_RE.test(bearer) && !API_KEY_RE.test(bearer)) {
     return null;
   }
   const key = await tokenKey(bearer);

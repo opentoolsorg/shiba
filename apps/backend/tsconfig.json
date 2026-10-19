@@ -23,6 +23,7 @@
   "include": [
     "src",
     "src/email-openapi.json",
+    "src/v1/openapi.json",
     "vitest.config.ts"
   ],
   "references": [

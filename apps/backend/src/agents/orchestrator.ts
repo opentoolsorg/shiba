@@ -65,6 +65,7 @@ import {
 } from "../email-approvals.js";
 import { carriesVouchedHeaders, verifyInternalRequest } from "../edge-identity.js";
 import type { Env } from "../env.js";
+import { isGitHubPublishConfigured, resolveGitHubCredential } from "../github-auth.js";
 import {
   allowedHostsFor,
   HARNESS_DEFAULT_MODELS,
@@ -121,6 +122,7 @@ import {
   reclaimStaleRuns,
   recordReceipt,
 } from "../runs.js";
+import { handleSteeringRequest } from "../steering.js";
 import {
   acquireSandboxOps,
   destroyManagedContainer,
@@ -952,7 +954,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           return toTaggedError(code, message);
         },
       });
-      if (input.publishPullRequest && !this.env.GITHUB_TOKEN) {
+      if (input.publishPullRequest && !isGitHubPublishConfigured(this.env)) {
         return yield* Effect.fail(toTaggedError("internal_error",
           "publishPullRequest was requested but GITHUB_TOKEN is not configured. " +
             "Set the GITHUB_TOKEN secret or retry without requesting a pull request.",
@@ -1497,7 +1499,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
     }
     const publishPullRequest = input.publishPullRequest === true;
-    if (publishPullRequest && !this.env.GITHUB_TOKEN) {
+    if (publishPullRequest && !isGitHubPublishConfigured(this.env)) {
       return Response.json(
         { error: "publishPullRequest was requested but GITHUB_TOKEN is not configured." },
         { status: 400 },
@@ -2085,7 +2087,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             { status: 409 },
           );
         }
-        if (record && record.publishPullRequest && !this.env.GITHUB_TOKEN) {
+        if (record && record.publishPullRequest && !isGitHubPublishConfigured(this.env)) {
           return Response.json(
             { error: "publishPullRequest was requested but GITHUB_TOKEN is not configured." },
             { status: 400 },
@@ -2574,12 +2576,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private async pullHeadSha(owner: string, repo: string, number: number): Promise<string> {
-    const token = this.env.GITHUB_TOKEN;
-    if (!token) return "head";
-    const response = await fetch(`${this.githubApiBase()}/repos/${owner}/${repo}/pulls/${number}`, {
+    const cred = await resolveGitHubCredential(this.env, `https://github.com/${owner}/${repo}`);
+    if (!cred) return "head";
+    const response = await fetch(`${cred.apiBase}/repos/${owner}/${repo}/pulls/${number}`, {
       headers: {
         Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${cred.token}`,
         "User-Agent": "shiba",
         "X-GitHub-Api-Version": "2022-11-28",
       },
@@ -2630,14 +2632,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       summary: envelope.summary,
       generation: run.generation,
     };
-    if (!pull || !parent?.pullUrl || !this.env.GITHUB_TOKEN) {
+    const repoUrl = pull ? `https://github.com/${pull.owner}/${pull.repo}` : undefined;
+    const githubCred = repoUrl ? await resolveGitHubCredential(this.env, repoUrl) : null;
+    if (!pull || !parent?.pullUrl || !githubCred) {
       this.writeRound({ ...round, status: "failed", error: "github_not_configured" });
       return;
     }
     if (!this.writeRound(round)) return;
     try {
-      const posted = await postReview(round, this.env.GITHUB_TOKEN, {
-        apiBase: this.env.GITHUB_API_BASE,
+      const posted = await postReview(round, githubCred.token, {
+        apiBase: githubCred.apiBase,
         inlineThreshold: this.inlineReviewThreshold(),
       });
       this.writeRound({ ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() });
@@ -2834,6 +2838,38 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.postToThread(slackRunCancelled({ repoUrl: run.repoUrl }));
     await this.releaseSandboxForRun(run);
     return updated;
+  }
+
+  private async steerRun(
+    runId: string,
+    body: unknown,
+    agentPrincipal: string | null,
+  ): Promise<Response> {
+    const host = {
+      listRuns: () => this.store.list(),
+      writeRuns: (runs: DelegatedRun[]) => {
+        this.setState({ ...this.state, runs });
+      },
+      listApprovals: () => this.approvals,
+      writeApprovals: (approvals: PendingApproval[]) => {
+        this.writeApprovals(approvals);
+      },
+      cancelRun: (id: string) => this.cancelRun(id),
+      resolveRoute: (input: {
+        repoUrl: string;
+        task: string;
+        baseBranch: string;
+        publishPullRequest: boolean;
+        harness?: string;
+        codingModel?: string;
+        connectionId?: string;
+      }) => this.resolveRoute(input as DelegateInput),
+      githubTokenConfigured: Boolean(this.env.GITHUB_TOKEN),
+    };
+    const result = await handleSteeringRequest(host, runId, body, {
+      steeredBy: agentPrincipal ?? undefined,
+    });
+    return Response.json(result.body, { status: result.status });
   }
 
   /**
@@ -3679,12 +3715,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (request.method === "POST" && match[2] === "retry") {
       if (!round) return Response.json({ ok: false, error: "round_not_found" }, { status: 404 });
-      if (!this.env.GITHUB_TOKEN) return Response.json({ ok: false, error: "github_not_configured" }, { status: 503 });
+      const cred = await resolveGitHubCredential(
+        this.env,
+        round.pull ? `https://github.com/${round.pull.owner}/${round.pull.repo}` : undefined,
+      );
+      if (!cred) return Response.json({ ok: false, error: "github_not_configured" }, { status: 503 });
       try {
-        const posted = await postReview(round, this.env.GITHUB_TOKEN, {
-        apiBase: this.env.GITHUB_API_BASE,
-        inlineThreshold: this.inlineReviewThreshold(),
-      });
+        const posted = await postReview(round, cred.token, {
+          apiBase: cred.apiBase,
+          inlineThreshold: this.inlineReviewThreshold(),
+        });
         const next: ReviewRound = { ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() };
         this.writeRound(next);
         return Response.json({ ok: true, round: next });
@@ -3942,6 +3982,29 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const reviewMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review(?:\/(retry))?$/);
     if (reviewMatch) return this.handleReviewRoute(request, reviewMatch);
+    const steerMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/steer$/);
+    if (steerMatch !== null) {
+      if (request.method !== "POST") {
+        return Response.json({ error: "Method not allowed." }, { status: 405 });
+      }
+      let steerBody: unknown;
+      try {
+        steerBody = await request.json();
+      } catch {
+        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+      }
+      let steerRunId: string;
+      try {
+        steerRunId = decodeURIComponent(steerMatch[1]!);
+      } catch {
+        return Response.json({ error: "Invalid run ID." }, { status: 400 });
+      }
+      const existing = this.store.get(steerRunId);
+      if (!existing || (agentPrincipal !== null && existing.queuedBy !== agentPrincipal)) {
+        return Response.json({ error: "Run not found." }, { status: 404 });
+      }
+      return this.steerRun(steerRunId, steerBody, agentPrincipal);
+    }
     const subagentMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/subagents$/);
     if (subagentMatch && request.method === "POST") {
       let body: unknown;

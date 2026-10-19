@@ -24,7 +24,10 @@ function fixture(path: string, method = "GET", body?: unknown, current: Delegate
     headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const forward = vi.fn(async (verb: string, _route: string, _input?: Record<string, unknown>) =>
     verb === "POST" ? Response.json({ ok: true, approvalId: "a1" }) : Response.json({ run: current }));
-  const ctx: V1Context = { request, url: new URL(request.url), env: env as Env, forward };
+  const ctx: V1Context = {
+    request, url: new URL(request.url), env: env as Env, forward,
+    principal: { principal: "test", orgId: "self-hosted", scopes: ["api:read", "api:write", "api:keys:admin"] },
+  };
   return { ctx, forward };
 }
 

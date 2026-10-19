@@ -170,6 +170,21 @@ try {
     await page.goto(`${url}?tab=runs`, { waitUntil: "domcontentloaded" });
     await shot("06-runs");
   }
+  if (feature === "phase5-integrations-automations") {
+    await page.goto(`${url}?tab=integrations`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("integration-linear").waitFor({ timeout: 30000 });
+    await shot("06-integrations-linear");
+    const apiBase = `http://127.0.0.1:${port}`;
+    const slackVerify = await page.request.post(`${apiBase}/api/integrations/slack/verify`);
+    result.slackVerifyStatus = slackVerify.status();
+    try {
+      result.slackVerify = await slackVerify.json();
+    } catch {
+      result.slackVerify = null;
+    }
+    const ghStatus = await page.request.get(`${apiBase}/api/integrations/github/status`);
+    result.githubStatus = ghStatus.ok() ? await ghStatus.json() : null;
+  }
   if (feature === "captain-subagents") {
     const captain = await page.request.get(`http://127.0.0.1:${port}/api/captains/verify-captain`);
     result.captainStatus = captain.status();
