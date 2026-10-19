@@ -39,6 +39,15 @@ echo "$MODE" > "$VERIFY_DIR/persist-mode"
 mkdir -p "$PERSIST"
 MIGRATE=(npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc)
 DEV=(npx wrangler dev --config apps/backend/wrangler.jsonc --port "$PORT" --local-upstream localhost)
+if ! docker info >/dev/null 2>&1; then
+  DEV+=(--enable-containers=false)
+  echo "containers=disabled (no docker)" > "$VERIFY_DIR/containers-mode"
+else
+  echo "containers=enabled" > "$VERIFY_DIR/containers-mode"
+fi
+if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  echo "warn: CLOUDFLARE_API_TOKEN unset — wrangler 4.118 may fail establishing the remote container proxy in non-interactive shells even with --enable-containers=false." > "$VERIFY_DIR/cf-token"
+fi
 if [ "$MODE" = persist-to ]; then
   MIGRATE+=(--persist-to "$PERSIST")
   DEV+=(--persist-to "$PERSIST")

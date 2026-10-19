@@ -22,8 +22,8 @@ fi
 if docker info >/dev/null 2>&1; then
   echo "docker=ok"
 else
-  echo "docker=unavailable" >&2
-  exit 1
+  echo "docker=unavailable (sandbox runs and reject docker-diff proof need a local engine)" >&2
+  # UI-only journeys (approval card, mock GitHub) can still run without Docker.
 fi
 PKG=$(node -e "const r=require('$ROOT/package.json'); console.log(r.devDependencies?.wrangler || r.dependencies?.wrangler || '')")
 HAVE=$(npx wrangler --version | awk '{print $NF}')

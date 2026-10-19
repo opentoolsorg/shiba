@@ -1,5 +1,7 @@
 # Verification Results
 
+**2026-10-19 — Phase 1 audit hardening (cloud agent `cursor/phase1-audit-harden-adc6`).** Audited all 13 commits on `feat/phase1-review-loop` against the Phase 1 brief. Fixes: mark review rounds `failed` when a chained reviewer run terminates without completing (orchestrator `failReviewRound`); verify-shiba `launch.sh` passes `--enable-containers=false` when Docker is absent and records a `CLOUDFLARE_API_TOKEN` warning; `doctor.sh` no longer hard-fails when Docker is missing (UI-only mock journeys may still run). Gates on this agent: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` — all pass. `verify-shiba` **launch** could not reach ready in this environment: no Docker daemon, no `CLOUDFLARE_API_TOKEN`, and `wrangler dev` exits with “Failed to start the remote proxy session” (container proxy). No new browser evidence bundle was captured here; see the prior dated entry below for mock-GitHub UI screenshots from Prince's machine.
+
 **2026-10-19 — phase 1 review loop, local only.** Branch `feat/phase1-review-loop`. `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, and `pnpm docs:check` passed (backend tests: 2228 passed, 3 skipped; docs verify: 53 HTML pages, 2767 links, 34 markdown files; `astro check`: 0 errors). No Cloudflare deploy. No `$SHIBA_TEST_REPO`. GitHub journeys use the verify-shiba stub (`GITHUB_API_BASE` on loopback) and are labeled **mock GitHub**.
 
 Browser evidence is under `.verify/evidence/` (not committed):
