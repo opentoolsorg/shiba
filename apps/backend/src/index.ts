@@ -9,7 +9,7 @@ import { CodingOrchestrator } from "./agents/orchestrator.js";
 import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
 import { Automations } from "./automations-do.js";
 import { automationsStub, seenDelivery } from "./automations-stub.js";
-import { assertLiveCodingModel } from "./coding-model.js";
+import { ensureLiveCodingModel } from "./coding-model.js";
 import { handleInboundEmail } from "./email-handler.js";
 import type { Env } from "./env.js";
 import { Mailbox } from "./mailbox-do.js";
@@ -91,12 +91,6 @@ export { isBetterAuthConfigured } from "./better-auth.js";
 export { getUserId, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
 export { handleWebSessions } from "./sessions-routes.js";
 
-// Startup assertion (VERIFICATION_PLAN.md G2): `assertLiveCodingModel` already
-// enforces the retired-model deny list (see coding-model.ts). Re-running it on
-// every request is pure overhead once a request has proven CODING_MODEL live,
-// so gate it behind a first-request check — this flag flips to `true` only on
-// a non-throwing call, so a still-retired id keeps failing every request.
-let codingModelVerified = false;
 let claudeSubscriptionDeprecationWarned = false;
 
 // The landing site lives on tryshiba.dev; the app host only serves the dashboard.
@@ -295,10 +289,7 @@ export default {
       if (computersResponse) {
         return computersResponse;
       }
-      if (!codingModelVerified) {
-        assertLiveCodingModel(env);
-        codingModelVerified = true;
-      }
+      ensureLiveCodingModel(env);
       const sandboxResponse = await proxyToSandbox(request, env);
       if (sandboxResponse) {
         return sandboxResponse;
