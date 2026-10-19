@@ -9,7 +9,7 @@ Prove dashboard behaviour from the real UI path. Never claim live GitHub success
 
 ## Launch
 
-Run `scripts/launch.sh`. It installs, builds, copies `.dev.vars` from the example when missing (never prints values), applies local D1 migrations, starts `wrangler dev`, and writes PID/port under `.verify/`.
+Run `scripts/launch.sh`. It installs, builds, writes an invocation-scoped `.verify/run.env` (derived from `.dev.vars`, or the example when missing; never prints values; `.dev.vars` is never modified) passed to `wrangler dev --env-file`, applies local D1 migrations, starts `wrangler dev`, and writes PID/port under `.verify/`.
 
 Ready means `/api/setup/status` returns JSON (not SPA HTML) **and** `/app/` returns HTML.
 
@@ -42,7 +42,7 @@ Features live in `features/`.
 | `sandbox-run-and-diff` | needs `VERIFY_ENABLE_CONTAINERS=1` + Docker | real container + diff (skipped honestly in CI) |
 | `review-findings` | same loop as `core-loop-mock` | findings UI + API/stub read-backs |
 
-When containers are disabled, `launch.sh` sets `SHIBA_VERIFY_STANDIN=1` in `.dev.vars` so publish/review still complete deterministically. That is **not** live model or live GitHub proof.
+The stand-in (`SHIBA_VERIFY_STANDIN=1` in `run.env`) is on only when containers are disabled **and** GitHub is the loopback mock; every other launch forces it to `0`, overriding stale values. The Worker guard (`verifyStandinEnabled`) also requires `GITHUB_API_BASE` to be an explicit `http://127.0.0.1|localhost|[::1]` origin, so live or non-loopback GitHub never gets synthetic runs. `VERIFY_ENABLE_CONTAINERS=1` with Docker unavailable exits 1 (no silent stand-in), and `VERIFY_GITHUB=live` drops any stale mock base. `VERIFY_PLAN_ONLY=1` writes the mode files and `run.env` then exits (used by `apps/backend/test/verify-standin-guard.test.ts`). The stand-in is **not** live model or live GitHub proof.
 
 ## Run locally
 
