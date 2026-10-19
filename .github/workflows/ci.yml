@@ -50,6 +50,7 @@ jobs:
       - run: node scripts/check-alchemy-drift.mjs
       - run: node scripts/check-env-types.mjs
       - run: cp .env.example .env
+      - run: node scripts/check-dev-vars-example.mjs
       - run: pnpm env:load && pnpm env:scan
 
   verify-shiba:
