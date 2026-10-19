@@ -47,8 +47,7 @@ jobs:
       # Built-output assertions (marketing-pages.test.ts) run post-build —
       # they skip inside `pnpm test`, which runs before dist exists.
       - run: pnpm test:built
-      - run: node scripts/check-alchemy-drift.mjs
-      - run: node scripts/check-env-types.mjs
+      - run: pnpm check:deploy
       - run: cp .env.example .env
       - run: node scripts/check-dev-vars-example.mjs
       - run: pnpm env:load && pnpm env:scan
