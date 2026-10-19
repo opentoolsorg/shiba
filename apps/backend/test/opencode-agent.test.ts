@@ -95,10 +95,18 @@ describe("OpenCodeAgent response boundary", () => {
     mocks.run.mockResolvedValue({ ...RESULT, files });
     const signal = new AbortController().signal;
     const { text, result } = await responseFor(agent({ ...INPUT, publishPullRequest: true }, "token"), signal);
-    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({ files }));
+    // publishResult always passes an options bag; empty without GITHUB_API_BASE.
+    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({ files }), {});
     expect(result.files).toEqual([]);
     expect(text).not.toContain(files[0]!.content);
     expect(text).toContain("Pull request: https://github.com/owner/repo/pull/1");
+  });
+
+  it("forwards GITHUB_API_BASE to publication so a mock GitHub receives the PR write", async () => {
+    const instance = agent({ ...INPUT, publishPullRequest: true }, "token");
+    Object.assign(instance.env, { GITHUB_API_BASE: "http://127.0.0.1:4010" });
+    await responseFor(instance);
+    expect(mocks.publish).toHaveBeenCalledWith(expect.anything(), { apiBase: "http://127.0.0.1:4010" });
   });
 
   it("returns a structured safe failure when runtime throws", async () => {
