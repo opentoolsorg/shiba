@@ -61,6 +61,18 @@ describe("resolveRoleModel", () => {
     expect(resolved).toEqual({ harness: "opencode", model: "opencode-go/deepseek-v3.2" });
   });
 
+  it("prefers dashboard pins over ROLE_MODEL_MAP and env vars", () => {
+    const envPins = env({
+      ROLE_MODEL_MAP: JSON.stringify({ fixer: { harness: "codex", model: "openai/gpt-5.3-codex" } }),
+      ROLE_MODEL__FIXER: "opencode/opencode-go/deepseek-v3.2",
+    });
+    expect(
+      resolveRoleModel(envPins, "fixer", {
+        fixer: { harness: "claude-code", model: "anthropic/claude-sonnet-5-5" },
+      }),
+    ).toEqual({ harness: "claude-code", model: "anthropic/claude-sonnet-5-5" });
+  });
+
   it("prefers the map over the per-role ROLE_MODEL__* var", () => {
     const resolved = resolveRoleModel(
       env({

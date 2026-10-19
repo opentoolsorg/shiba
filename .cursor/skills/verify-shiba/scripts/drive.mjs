@@ -25,8 +25,10 @@ function dockerIds() {
   }
 }
 
+const headless = process.env.VERIFY_HEADLESS !== "0";
+const navigationTimeout = Number(process.env.VERIFY_DRIVE_TIMEOUT_MS || 60_000);
 const before = dockerIds();
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless });
 const context = await browser.newContext({ recordHar: { path: join(outDir, "session.har") } });
 await context.tracing.start({ screenshots: true, snapshots: true });
 const page = await context.newPage();
@@ -46,7 +48,9 @@ const result = {
   label: "mock GitHub",
 };
 try {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  page.setDefaultTimeout(navigationTimeout);
+  page.setDefaultNavigationTimeout(navigationTimeout);
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
   const skip = page.getByRole("button", { name: "Skip setup" });
   if (await skip.count()) await skip.click();
   await page.getByLabel("Task composer").waitFor({ timeout: 30000 });
@@ -68,7 +72,31 @@ try {
     }
   }
   await shot("02-composer-filled");
-  await page.getByLabel("Send task").click();
+  const useRunsApi =
+    process.env.VERIFY_USE_RUNS_API === "1" ||
+    process.env.VERIFY_ENABLE_CONTAINERS === "0";
+  if (useRunsApi) {
+    const commandId = crypto.randomUUID();
+    const queueRes = await page.request.post(`http://127.0.0.1:${port}/api/runs`, {
+      data: {
+        repoUrl: "https://github.com/cloudflare/ai-chat",
+        task: "verify-shiba: describe the README in one sentence",
+        baseBranch: "main",
+        harness: "opencode",
+        publishPullRequest:
+          feature === "pr-publish" || feature === "review-findings",
+        reviewAfterPublish: feature === "review-findings",
+        commandId,
+      },
+    });
+    if (!queueRes.ok()) {
+      throw new Error(`POST /api/runs failed: ${queueRes.status()} ${await queueRes.text()}`);
+    }
+    result.queuedViaRunsApi = true;
+    await page.goto(`${url}?tab=approvals`, { waitUntil: "domcontentloaded" });
+  } else {
+    await page.getByLabel("Send task").click();
+  }
   await shot("03-sent");
   const approve = page.getByRole("button", { name: "Approve" });
   const reject = page.getByRole("button", { name: "Reject" });
@@ -98,9 +126,40 @@ try {
       result.approved = true;
     }
   }
+  if (feature === "byo-models-ux") {
+    const settings = page.getByRole("button", { name: /Settings/i });
+    if (await settings.count()) await settings.first().click();
+    const modelsNav = page.getByRole("button", { name: "Models" });
+    if (await modelsNav.count()) await modelsNav.click();
+    await page.getByTestId("model-connections-card").waitFor({ timeout: 15000 });
+    await shot("06-models-settings");
+    const testBtn = page.getByTestId("test-connection").first();
+    if (await testBtn.count()) {
+      await testBtn.click();
+      await page.waitForTimeout(2000);
+      await shot("07-connection-tested");
+      result.connectionTestClicked = true;
+    }
+    const cfg = await page.request.get(`http://127.0.0.1:${port}/api/model-config`);
+    writeFileSync(join(outDir, "model-config.json"), await cfg.text());
+    result.modelConfigStatus = cfg.status();
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    const usage = page.getByTestId("run-usage");
+    result.runUsageVisible = (await usage.count()) > 0;
+    if (result.runUsageVisible) await shot("08-run-usage");
+  }
   if (feature === "run-registry-status") {
     await page.goto(`${url}?tab=runs`, { waitUntil: "domcontentloaded" });
     await shot("06-runs");
+  }
+  if (feature === "captain-subagents") {
+    const captain = await page.request.get(`http://127.0.0.1:${port}/api/captains/verify-captain`);
+    result.captainStatus = captain.status();
+    result.captainBody = await captain.json().catch(() => null);
+    await shot("06-captain-snapshot");
+    await page.goto(`${url}?tab=diff`, { waitUntil: "domcontentloaded" });
+    result.subagentTreeVisible = (await page.getByTestId("subagent-tree").count()) > 0;
+    await shot("07-diff-subagent-tree");
   }
   const after = dockerIds();
   result.dockerBefore = before;

@@ -25,6 +25,7 @@
     "env:scan": "varlock scan",
     "check": "biome check --formatter-enabled=false --assist-enabled=false .",
     "check:ci": "biome ci --formatter-enabled=false --assist-enabled=false . && knip --reporter compact --max-issues 6",
+    "check:dev-vars": "node scripts/check-dev-vars-example.mjs",
     "format": "biome format --write .",
     "knip": "knip",
     "lint": "biome lint .",
@@ -35,7 +36,8 @@
     "test:built": "cd apps/backend && pnpm test test/marketing-pages.test.ts",
     "test:ephemeral": "node scripts/ephemeral-stack.mjs --alchemy",
     "test:live": "pnpm -C apps/backend test:live",
-    "typecheck": "turbo run typecheck && tsc -b"
+    "typecheck": "turbo run typecheck && tsc -b",
+    "verify-shiba:ci": "bash .cursor/skills/verify-shiba/scripts/run-ci.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

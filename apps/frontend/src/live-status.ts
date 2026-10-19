@@ -29,7 +29,7 @@ export interface SetupStatus {
  */
 export interface RoleModelWire {
   role: string;
-  source: "role-map" | "role-env" | "default";
+  source: "dashboard" | "role-map" | "role-env" | "default";
   harness: string;
   model: string;
   error?: string;
@@ -259,19 +259,23 @@ export interface ModelConnectionWire {
   displayName: string;
   status: "unconfigured" | "ready" | "invalid" | "disabled";
   credentialRef: string | null;
+  lastCheckedAt?: number | null;
 }
 
 /** Wire shape of the purpose policy — purpose → Workers AI model id. */
 export interface PurposePolicyWire {
   version: number;
   models: Partial<Record<string, string>>;
+  rolePins?: Partial<Record<string, { harness: string; model?: string }>>;
   updatedAt: number;
 }
 
 export interface ModelConfigWire {
   connections: ModelConnectionWire[];
+  connectionOrder: string[];
   policy: PurposePolicyWire;
   purposes: string[];
+  effectiveRoles?: RoleModelWire[];
 }
 
 export function useModelConfig(): {

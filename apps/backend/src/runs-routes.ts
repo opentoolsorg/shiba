@@ -103,7 +103,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // live on the same DO, behind the same dashboard auth and session scope.
   const isSpine = url.pathname === "/api/spine";
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
-  if (!isSpine && !/^\/api\/runs(?:\/[^/]+(?:\/(?:fork|screen|archive))?)?$/.test(url.pathname)) {
+  if (!isSpine && !/^\/api\/runs(?:\/[^/]+(?:\/(?:fork|screen|archive|subagents))?|\/subagents\/spawn)?$/.test(url.pathname)) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {

@@ -45,31 +45,32 @@ Provider traffic is intercepted at the Sandbox egress boundary and forwarded thr
 
 ## How the UI is built and served
 
-`pnpm build` produces one aggregate `public/` directory:
+`pnpm build` produces two asset trees:
 
-1. Vite builds the dashboard — TanStack Start (SPA mode) generates the shell as `public/app/index.html` and chunks land in `public/assets/`; `apps/web/public/` is copied in (favicons, `_redirects`, mascot assets).
-2. Astro builds the landing page (`public/index.html`), the docs (`public/docs/`), `404.html`, and the Pagefind search index into `apps/web/dist`; `scripts/assemble-public.mjs` merges `apps/frontend/dist/client` then `apps/web/dist` into `public/`.
+1. **`app-public/`** — dashboard-only bundle for the Worker (`apps/backend/wrangler.jsonc` `assets.directory`: `../../app-public`; `alchemy.run.ts`: `./app-public`). Vite writes `apps/frontend/dist/client`; `scripts/assemble-public.mjs` copies it into `app-public/` (marketing `_redirects` and `blog/` are stripped so the Worker does not serve the Pages site).
+2. **`public/`** — combined site for Cloudflare Pages: Vite client output plus Astro (`apps/web/dist`) merged by `assemble-public.mjs` (landing `/`, docs `/docs/`, favicons from `apps/web/public/`).
 
-At runtime a single Worker serves that directory via `assets.directory` (`apps/backend/wrangler.jsonc`: `../../public`; `alchemy.run.ts`: `./public`) with `not_found_handling: "404-page"`. The dashboard reaches the backend through same-origin `/api/*` calls — no cross-stack wiring.
+At runtime the Worker serves **`app-public/`** via the `ASSETS` binding with `not_found_handling: "404-page"`. The dashboard calls same-origin `/api/*` on that host — no cross-stack wiring. Self-host steps: [docs/self-hosting](apps/web/src/content/docs/docs/self-hosting.md).
 
 ## Local quickstart
 
-Requirements: Node.js **22.13.0+**, pnpm **10.0.0+**. A Docker CLI is also required for Wrangler container image packaging; a missing Docker daemon fails even the local dry run.
+Requirements: Node.js **22.13.0+**, pnpm **10.0.0+**, and a **running Docker engine** for Sandbox containers.
 
 ~~~sh
 pnpm install
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm docs:check
 pnpm build
-pnpm docs:preview
+cp apps/backend/.dev.vars.example apps/backend/.dev.vars
+CI=1 npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc
+npx wrangler dev --config apps/backend/wrangler.jsonc --port 8788
 ~~~
 
-- Dashboard only: `pnpm -C apps/frontend dev` (vite on 5173; opens `/app/`; `/api` and `/agents` proxy to the Worker on 8788). Root `pnpm dev` runs `turbo run dev` — it starts every app including the backend `wrangler dev`, which needs wrangler credentials and a working local container engine; use the scoped command if you only want the UI.
-- Docs editing: `pnpm docs:dev` (port 4321/docs/; search requires a production build).
-- Built Worker/assets: `pnpm build`, then `npx wrangler dev --config apps/backend/wrangler.jsonc`. Containers require a compatible local engine; startup may fail without it.
-- Local Worker deployment packaging: `npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc`. This is not a deployment or proof of a live coding run.
+Sandbox runs also need `npx wrangler login`. For API/UI smoke without Docker, add `--local --enable-containers=false --local-upstream localhost` (see local development docs).
+
+Open `http://127.0.0.1:8788/app/` when `/api/setup/status` returns JSON. Full gate: `pnpm typecheck && pnpm lint && pnpm test && pnpm docs:check && pnpm build`. Docs: [local development](apps/web/src/content/docs/docs/local-development.md).
+
+- Dashboard only: `pnpm -C apps/frontend dev` (Vite on 5173; proxies `/api` to Worker 8788).
+- Docs editing: `pnpm docs:dev` (port 4321).
+- Packaging check (not a deploy): `npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc`.
 
 ## Deploy the UI
 

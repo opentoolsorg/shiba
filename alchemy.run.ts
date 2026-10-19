@@ -258,7 +258,7 @@ export const Worker = Cloudflare.Worker("Worker", {
         ? { image: process.env.SANDBOX_IMAGE }
         : { context: "./apps/backend", dockerfile: "./apps/backend/Dockerfile" }),
       instanceType: "standard-1",
-      maxInstances: 5,
+      maxInstances: 10,
     }),
 
     ...secrets([

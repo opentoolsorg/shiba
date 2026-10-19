@@ -16,6 +16,8 @@ import { HARNESS_NAMES } from "./harness/index.js";
 import { modelConfigStub } from "./model-config-do.js";
 import {
   EMPTY_POLICY,
+  orderConnections,
+  reconcileConnectionOrder,
   validateConnectionModel,
   type ApprovedRoute,
   type Connection,
@@ -27,9 +29,10 @@ import { DEFAULT_ORCHESTRATOR_MODEL } from "./session-distill.js";
 export interface ModelConfigSnapshot {
   connections: Connection[];
   policy: PurposePolicy;
+  connectionOrder: string[];
 }
 
-const EMPTY_SNAPSHOT: ModelConfigSnapshot = { connections: [], policy: EMPTY_POLICY };
+const EMPTY_SNAPSHOT: ModelConfigSnapshot = { connections: [], policy: EMPTY_POLICY, connectionOrder: [] };
 
 /**
  * Read the catalog + policy. Fails open to the empty snapshot: a missing or
@@ -43,17 +46,27 @@ export async function readModelConfig(env: Pick<Env, "ModelConfig">): Promise<Mo
       stub.fetch(new Request("https://internal/policy")),
     ]);
     const connectionsBody = connectionsRes.ok
-      ? ((await connectionsRes.json().catch(() => ({}))) as { connections?: Connection[] })
+      ? ((await connectionsRes.json().catch(() => ({}))) as {
+          connections?: Connection[];
+          connectionOrder?: string[];
+        })
       : {};
     const policyBody = policyRes.ok
       ? ((await policyRes.json().catch(() => ({}))) as { policy?: PurposePolicy })
       : {};
+    const connections = Array.isArray(connectionsBody.connections) ? connectionsBody.connections : [];
+    const connectionOrder = reconcileConnectionOrder(
+      connections,
+      Array.isArray(connectionsBody.connectionOrder) ? connectionsBody.connectionOrder : [],
+    );
+    const policy =
+      policyBody.policy && typeof policyBody.policy.version === "number"
+        ? policyBody.policy
+        : EMPTY_POLICY;
     return {
-      connections: Array.isArray(connectionsBody.connections) ? connectionsBody.connections : [],
-      policy:
-        policyBody.policy && typeof policyBody.policy.version === "number"
-          ? policyBody.policy
-          : EMPTY_POLICY,
+      connections: orderConnections(connections, connectionOrder),
+      policy,
+      connectionOrder,
     };
   } catch (error) {
     console.warn(
