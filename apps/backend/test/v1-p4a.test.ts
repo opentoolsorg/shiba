@@ -36,7 +36,10 @@ function fixture(path: string, opts: { method?: string; env?: Partial<Env>; head
     if (url.pathname === "/api/runs/r1") return Response.json({ run });
     return Response.json({ error: "Run not found." }, { status: 404 });
   });
-  const ctx: V1Context = { request, url: new URL(request.url), env: (opts.env ?? {}) as Env, forward };
+  const ctx: V1Context = {
+    request, url: new URL(request.url), env: (opts.env ?? {}) as Env, forward,
+    principal: { principal: "test", orgId: "self-hosted", scopes: ["api:read", "api:write", "api:keys:admin"] },
+  };
   return { ctx, forward };
 }
 

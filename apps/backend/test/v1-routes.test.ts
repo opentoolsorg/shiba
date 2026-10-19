@@ -55,17 +55,22 @@ describe("v1 routes", () => {
   it("queues threads without inventing a run id and uses body session", async () => {
     const f = fixture({ ok: true, approvalId: "a1" });
     const response = await f.send("/api/v1/threads", "POST", { repoUrl: run.repoUrl, task: "Fix", session: "s1", queuedBy: "forged" });
-    expect(await response?.json()).toEqual({ ok: true, approvalId: "a1" });
+    expect(await response?.json()).toMatchObject({ approvalId: "a1", status: "waiting" });
     expect(f.scopes[0]?.searchParams.get("session")).toBe("s1");
     expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Fix" });
   });
-  it("refuses messages on missing and active threads", async () => {
+  it("refuses messages on missing threads and interrupts active ones", async () => {
     expect((await fixture({ error: "missing" }, 404).send("/api/v1/threads/missing/message", "POST", { text: "Hi" }))?.status).toBe(404);
-    for (const status of ["pending", "running"]) {
-      const f = fixture({ run: { ...run, status } });
-      expect((await f.send("/api/v1/threads/r1/message", "POST", { text: "Hi" }))?.status).toBe(409);
-      expect(f.calls).toHaveLength(1);
-    }
+    const f = fixture({ run: { ...run, status: "running" } });
+    f.deps.getStub = async () => ({
+      fetch: async (request) => {
+        f.calls.push(request);
+        if (request.method === "GET") return Response.json({ run: { ...run, status: "running" } });
+        return Response.json({ ok: true, approvalId: "steer-1" });
+      },
+    });
+    expect((await f.send("/api/v1/threads/r1/message", "POST", { text: "Hi" }))?.status).toBe(200);
+    expect(f.calls.some((call) => call.url.includes("/steer"))).toBe(true);
   });
   it("queues a follow-up with stored repository and continuation", async () => {
     const f = fixture();
@@ -74,7 +79,7 @@ describe("v1 routes", () => {
       return Response.json(request.method === "GET" ? { run: { ...run, continuationKey: "key", threadKey: "thread" } } : { ok: true, approvalId: "a2" });
     } });
     const response = await f.send("/api/v1/threads/r1/message", "POST", { text: "Again", repoUrl: "forged" });
-    expect(await response?.json()).toEqual({ ok: true, approvalId: "a2", threadId: "r1" });
+    expect(await response?.json()).toMatchObject({ approvalId: "a2", threadId: "r1", id: "adm_a2" });
     expect(await f.calls[1]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Follow-up on run r1:\nAgain", continuesKey: "key", threadKey: "thread" });
   });
   it.each([["interrupt", "DELETE", "/api/runs/r1"], ["archive", "POST", "/api/runs/r1/archive"]])("forwards %s", async (action, method, path) => {
