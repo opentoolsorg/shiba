@@ -51,6 +51,7 @@ import {
 } from "../email-approvals.js";
 import { carriesVouchedHeaders, verifyInternalRequest } from "../edge-identity.js";
 import type { Env } from "../env.js";
+import { isGitHubPublishConfigured, resolveGitHubCredential } from "../github-auth.js";
 import {
   allowedHostsFor,
   HARNESS_DEFAULT_MODELS,
@@ -930,7 +931,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           return toTaggedError(code, message);
         },
       });
-      if (input.publishPullRequest && !this.env.GITHUB_TOKEN) {
+      if (input.publishPullRequest && !isGitHubPublishConfigured(this.env)) {
         return yield* Effect.fail(toTaggedError("internal_error",
           "publishPullRequest was requested but GITHUB_TOKEN is not configured. " +
             "Set the GITHUB_TOKEN secret or retry without requesting a pull request.",
@@ -1471,7 +1472,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
     }
     const publishPullRequest = input.publishPullRequest === true;
-    if (publishPullRequest && !this.env.GITHUB_TOKEN) {
+    if (publishPullRequest && !isGitHubPublishConfigured(this.env)) {
       return Response.json(
         { error: "publishPullRequest was requested but GITHUB_TOKEN is not configured." },
         { status: 400 },
@@ -2058,7 +2059,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             { status: 409 },
           );
         }
-        if (record && record.publishPullRequest && !this.env.GITHUB_TOKEN) {
+        if (record && record.publishPullRequest && !isGitHubPublishConfigured(this.env)) {
           return Response.json(
             { error: "publishPullRequest was requested but GITHUB_TOKEN is not configured." },
             { status: 400 },
@@ -2265,12 +2266,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private async pullHeadSha(owner: string, repo: string, number: number): Promise<string> {
-    const token = this.env.GITHUB_TOKEN;
-    if (!token) return "head";
-    const response = await fetch(`${this.githubApiBase()}/repos/${owner}/${repo}/pulls/${number}`, {
+    const cred = await resolveGitHubCredential(this.env, `https://github.com/${owner}/${repo}`);
+    if (!cred) return "head";
+    const response = await fetch(`${cred.apiBase}/repos/${owner}/${repo}/pulls/${number}`, {
       headers: {
         Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${cred.token}`,
         "User-Agent": "shiba",
         "X-GitHub-Api-Version": "2022-11-28",
       },
@@ -2360,13 +2361,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       summary: envelope.summary,
       generation: run.generation,
     };
-    if (!pull || !parent?.pullUrl || !this.env.GITHUB_TOKEN) {
+    const repoUrl = pull ? `https://github.com/${pull.owner}/${pull.repo}` : undefined;
+    const githubCred = repoUrl ? await resolveGitHubCredential(this.env, repoUrl) : null;
+    if (!pull || !parent?.pullUrl || !githubCred) {
       this.writeRound({ ...round, status: "failed", error: "github_not_configured" });
       return;
     }
     if (!this.writeRound(round)) return;
     try {
-      const posted = await postReview(round, this.env.GITHUB_TOKEN, { apiBase: this.env.GITHUB_API_BASE });
+      const posted = await postReview(round, githubCred.token, { apiBase: githubCred.apiBase });
       this.writeRound({ ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() });
     } catch (error) {
       this.writeRound({
@@ -3297,9 +3300,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (request.method === "POST" && match[2] === "retry") {
       if (!round) return Response.json({ ok: false, error: "round_not_found" }, { status: 404 });
-      if (!this.env.GITHUB_TOKEN) return Response.json({ ok: false, error: "github_not_configured" }, { status: 503 });
+      const cred = await resolveGitHubCredential(
+        this.env,
+        round.pull ? `https://github.com/${round.pull.owner}/${round.pull.repo}` : undefined,
+      );
+      if (!cred) return Response.json({ ok: false, error: "github_not_configured" }, { status: 503 });
       try {
-        const posted = await postReview(round, this.env.GITHUB_TOKEN, { apiBase: this.env.GITHUB_API_BASE });
+        const posted = await postReview(round, cred.token, { apiBase: cred.apiBase });
         const next: ReviewRound = { ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() };
         this.writeRound(next);
         return Response.json({ ok: true, round: next });

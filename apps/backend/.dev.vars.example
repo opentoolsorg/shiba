@@ -11,6 +11,18 @@
 # Optional, HMAC verification of acknowledgment-only GitHub webhooks.
 # GITHUB_WEBHOOK_SECRET=
 
+# Optional GitHub App (multi-repo). Worker mints installation tokens; never sent to containers.
+# GITHUB_APP_ID=
+# GITHUB_APP_PRIVATE_KEY=
+# GITHUB_APP_INSTALLATION_ID=
+# GITHUB_APP_REPO_INSTALLATIONS={"owner/repo":12345678}
+
+# Optional Linear agent sessions (mock locally with LINEAR_ALLOW_UNSIGNED_WEBHOOK=1).
+# LINEAR_WEBHOOK_SECRET=
+# LINEAR_API_KEY=
+# LINEAR_DEFAULT_REPO_URL=https://github.com/owner/repo
+# LINEAR_ALLOW_UNSIGNED_WEBHOOK=1
+
 # Optional Slack wiring. SLACK_APPROVERS empty means nobody can approve.
 # SLACK_SIGNING_SECRET=
 # SLACK_APPROVERS=
