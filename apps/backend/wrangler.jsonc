@@ -158,7 +158,7 @@
   // Megaplan T4: MCP tool-call audit log. Provision:
   // `wrangler d1 create shiba-audit` then paste the database_id.
   "d1_databases": [
-    { "binding": "AGENT_AUDIT", "database_name": "shiba-audit", "database_id": "a426d79d-295d-4875-ae93-90b8679aa466" },
+    { "binding": "AGENT_AUDIT", "database_name": "shiba-audit", "database_id": "a426d79d-295d-4875-ae93-90b8679aa466", "migrations_dir": "migrations" },
   ],
   // Pre-auth limit on /mcp: verifyToken is a KV read per request, so an
   // unauthenticated flood is a quota-exhaustion vector. Per-source-IP
