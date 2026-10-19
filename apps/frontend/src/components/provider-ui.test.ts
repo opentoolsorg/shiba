@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { providerPhaseLabel } from "./ProvidersView";
+import { providerPhaseLabel } from "./provider-phase";
 
 describe("providerPhaseLabel", () => {
   it("names each provider connection phase", () => {
