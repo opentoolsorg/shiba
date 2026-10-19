@@ -77,7 +77,7 @@ describe("provider and settings connection surfaces", () => {
 
   it("keeps model connections on Providers, under the ACP adapter list", () => {
     const html = renderToStaticMarkup(React.createElement(ProvidersView));
-    const adapters = html.indexOf("ACP adapters");
+    const adapters = html.indexOf("Sandbox adapters");
     const modelConnections = html.indexOf("Model connections");
     expect(adapters).toBeGreaterThan(-1);
     expect(modelConnections).toBeGreaterThan(adapters);
