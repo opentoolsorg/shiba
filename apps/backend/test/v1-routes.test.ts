@@ -41,6 +41,7 @@ describe("v1 routes", () => {
     expect(await (await f.send("/api/v1/threads"))?.json()).toEqual({ threads: [{
       threadId: "r1", repoUrl: run.repoUrl, title: "ENG-12: Fix", status: "completed", lane: "needs_review",
       archived: false, costUsd: null, createdAt: 1, updatedAt: 2, pullUrl: null, summary: null, error: null,
+      errorCode: null, timedOut: false, usage: null,
     }] });
     expect(f.calls[0]?.headers.get(AGENT_PRINCIPAL_HEADER)).toBeNull();
     expect(f.calls[0]?.headers.get(LOCAL_INTAKE_HEADER)).toBe("dashboard");

@@ -31,6 +31,14 @@ const roundA: ReviewRound = {
 };
 
 describe("decideChain", () => {
+  it("does not queue when the review loop is disabled", () => {
+    expect(decideChain(run({}), [], "def", { enabled: false })).toEqual({ kind: "none", reason: "review loop disabled" });
+  });
+
+  it("queues from an enabled review loop even without the publish flag", () => {
+    expect(decideChain(run({ reviewAfterPublish: false }), [], "def", { enabled: true }).kind).toBe("queue_review");
+  });
+
   it("queues when the approved publish has no round for the head", () => {
     expect(decideChain(run({}), [], "def")).toEqual({ kind: "queue_review", reason: "approved review for head" });
   });

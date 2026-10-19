@@ -163,7 +163,7 @@ export function ReviewFindings({
             onClick={retryReview}
             className="text-xs font-semibold text-[var(--primary)] border border-[var(--primary)]/40 bg-[var(--primary-soft)] rounded-[var(--radius-button)] px-3 py-1.5 self-start disabled:opacity-50"
           >
-            {retryPending ? "Retrying…" : "Retry review post"}
+            {retryPending ? "Retrying…" : "Retry review"}
           </button>
         </div>
       ) : null}

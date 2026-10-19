@@ -129,6 +129,7 @@ export function planDevSteps({
   skipInstall = false,
   skipBuild = false,
   skipImage = false,
+  containers = true,
 } = {}) {
   const persistAbs = resolve(root, persistTo);
   const wranglerRel = WRANGLER_CONFIG;
@@ -164,7 +165,7 @@ export function planDevSteps({
     cwd: root,
     env: { CI: "1" },
   });
-  if (!skipImage) {
+  if (!skipImage && containers) {
     steps.push({
       id: "container-build",
       cmd: "npx",
@@ -179,20 +180,24 @@ export function planDevSteps({
       cwd: root,
     });
   }
+  const wranglerArgs = [
+    "wrangler",
+    "dev",
+    `--config=${wranglerRel}`,
+    `--port=${port}`,
+    `--persist-to=${persistAbs}`,
+    "--local-upstream",
+    "localhost",
+  ];
+  if (!containers) wranglerArgs.push("--enable-containers=false");
   steps.push({
     id: "wrangler-dev",
     cmd: "npx",
-    args: [
-      "wrangler",
-      "dev",
-      `--config=${wranglerRel}`,
-      `--port=${port}`,
-      `--persist-to=${persistAbs}`,
-      "--local-upstream",
-      "localhost",
-    ],
+    args: wranglerArgs,
     cwd: root,
-    note: "containers enabled when Docker is running (default)",
+    note: containers
+      ? "containers enabled when Docker is running (default)"
+      : "containers disabled (--enable-containers=false)",
   });
 
   return { steps, persistAbs, port, appUrl: `http://127.0.0.1:${port}/app/` };

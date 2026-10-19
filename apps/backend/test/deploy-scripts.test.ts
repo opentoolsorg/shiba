@@ -315,6 +315,76 @@ console.log(text);`,
     expect(cli.stdout).toContain("dry run");
     expect(cli.stdout).toContain("GITHUB_TOKEN");
   });
+
+  it("disables containers without dropping the migrate and dev steps", () => {
+    const lib = join(ROOT, "scripts", "shiba-dev-lib.mjs");
+    const out = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { formatDryRun, planDevSteps } from ${JSON.stringify(lib)};
+const text = formatDryRun(planDevSteps({ skipInstall: true, skipBuild: true, containers: false }));
+if (text.includes("container-build")) process.exit(2);
+if (!text.includes("--enable-containers=false")) process.exit(3);
+if (!text.includes("d1-migrate") || !text.includes("wrangler-dev")) process.exit(4);
+console.log("ok");`,
+      ],
+      { encoding: "utf8", cwd: ROOT },
+    );
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("ok");
+  });
+});
+
+describe("first-run setup wizard", () => {
+  it("walks a fresh clone with no dead ends and keeps tokens out of the record", () => {
+    const lib = join(ROOT, "scripts", "shiba-setup-lib.mjs");
+    const out = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { commitSetup, readSetupFile, setupPath, walkthroughFreshClone } from ${JSON.stringify(lib)};
+const walked = walkthroughFreshClone();
+if (!walked.ok || !walked.log.includes("result: no dead ends")) throw new Error(walked.log);
+const root = mkdtempSync(join(tmpdir(), "shiba-setup-"));
+const token = "local-token-value";
+const committed = commitSetup(root, {
+  github: { mode: "token", token },
+  model: { mode: "byom", baseUrl: "https://models.example/v1", credentialRef: "alias" },
+  sandbox: { provider: "cloudflare" },
+  testRepo: { url: "https://github.com/octocat/hello" },
+}, { dockerOk: false, devVarKeys: new Set() });
+const text = readFileSync(setupPath(root), "utf8");
+if (text.includes(token)) throw new Error("setup.json stored a token");
+if (committed.patch.GITHUB_TOKEN !== token) throw new Error("patch dropped the token");
+if (committed.record.containers !== false) throw new Error("docker-down still wants containers");
+const saved = readSetupFile(setupPath(root));
+if (saved.answers.github.token) throw new Error("token field survived");
+if (saved.answers.testRepo.url !== "https://github.com/octocat/hello") throw new Error("test repo dropped");
+console.log(walked.log);`,
+      ],
+      { encoding: "utf8", cwd: ROOT },
+    );
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("result: no dead ends");
+    expect(out.stdout).toContain("containers: disabled");
+    expect(out.stderr).toBe("");
+  });
+
+  it("setup --help and dev --dry-run do not prompt", () => {
+    const help = run("shiba.mjs", ["setup", "--help"]);
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain("setup fix");
+    const dry = run("shiba.mjs", ["setup", "--dry-run"]);
+    expect(dry.status).toBe(0);
+    expect(dry.stdout).toContain("nothing written");
+    expect(dry.stdout).toContain("guide.github");
+  });
 });
 
 describe("check-dev-vars-example", () => {

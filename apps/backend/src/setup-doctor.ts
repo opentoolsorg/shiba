@@ -13,14 +13,19 @@ import { resolveSandboxProviderForId } from "./sandbox/provider.js";
 import { sandboxFeatureMatrix } from "@shiba/shared";
 import { defaultCodingFromConnection, soleReadyConnection } from "./model-defaults.js";
 import { readModelConfig, resolveCodingRoute, type ModelConfigSnapshot } from "./model-policy.js";
+import { attachDoctorFixes, type DoctorFixAction } from "./setup-fixes.js";
 
 export type DoctorSeverity = "ok" | "warn" | "error";
+
+export type { DoctorFixAction };
 
 export interface DoctorFinding {
   id: string;
   severity: DoctorSeverity;
   message: string;
   fix?: string;
+  /** One-click or guided next step. Present on warn/error rows. */
+  fixAction?: DoctorFixAction;
 }
 
 export interface DoctorRoleRow {
@@ -313,7 +318,7 @@ export async function runSetupDoctor(
   }
 
   const ok = !findings.some((f) => f.severity === "error") && roles.every((r) => r.ok);
-  return { ok, checkedAt, findings, roles };
+  return { ok, checkedAt, findings: attachDoctorFixes(findings), roles };
 }
 
 /** Human-readable lines for the CLI — no JSON secrets. */
@@ -324,6 +329,7 @@ export function formatDoctorReport(report: SetupDoctorReport): string {
     const tag = finding.severity === "ok" ? "✓" : finding.severity === "warn" ? "!" : "✗";
     lines.push(`${tag} ${finding.id}: ${finding.message}`);
     if (finding.fix) lines.push(`    fix: ${finding.fix}`);
+    if (finding.fixAction) lines.push(`    action: ${finding.fixAction.id} — ${finding.fixAction.label}`);
   }
   for (const row of report.roles) {
     const route = `${row.role} → ${row.harness} / ${row.model}` + (row.connectionId ? ` (${row.connectionId})` : "");

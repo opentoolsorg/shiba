@@ -17,7 +17,7 @@ The reviewer must not modify code. It returns findings in the result envelope. T
 
 The thread shows the run, a pull request card (link, state, checks), and one list row per finding.
 
-`GET /api/v1/threads/:id/pr/review` returns the round. The Tasks timeline shows loading, waiting, failed (with retry), and empty-findings states in the **Review findings** panel. `POST /api/v1/threads/:id/pr/review/retry` posts the same round again. `GET /api/v1/threads/:id/pr/review-loop` is unimplemented (always `null`); multi-round loops are not a Phase 1 product surface yet.
+`GET /api/v1/threads/:id/pr/review` returns the round. The Tasks timeline shows loading, waiting, failed (with retry), and empty-findings states in the **Review findings** panel. `POST /api/v1/threads/:id/pr/review/retry` re-runs the reviewer when the round failed before a postable result. If the reviewer already finished and only the GitHub post failed, the same round is posted again. A round that already posted is left as-is. `GET` and `PATCH /api/v1/threads/:id/pr/review-loop` store `{ enabled, autoMerge }` on the thread. `autoMerge` queues a merge approval after a clean posted review; it does not merge by itself.
 
 ## Local proof
 

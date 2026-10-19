@@ -20,6 +20,7 @@ import {
 import { isAccessConfigured, resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { readSetupStatus } from "./setup-status.js";
+import { applySetupFix, setupWizardCatalog } from "./setup-fixes.js";
 
 /**
  * Registered MCP-token principals for `GET /api/agents` — one row per
@@ -83,6 +84,32 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
     return Response.json(await readSetupStatus(env), {
       headers: { "Cache-Control": "no-store" },
     });
+  }
+  if (url.pathname === "/api/setup/wizard") {
+    if (request.method !== "GET") {
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
+    }
+    return Response.json({ ok: true, ...setupWizardCatalog() }, { headers: { "Cache-Control": "no-store" } });
+  }
+  if (url.pathname === "/api/setup/fix") {
+    if (request.method !== "POST") {
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
+    }
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ ok: false, error: "invalid_request", userMessage: "Send JSON with an actionId." }, { status: 400 });
+    }
+    const actionId =
+      typeof body === "object" && body !== null && typeof (body as { actionId?: unknown }).actionId === "string"
+        ? (body as { actionId: string }).actionId.trim()
+        : "";
+    if (!actionId) {
+      return Response.json({ ok: false, error: "invalid_request", userMessage: "actionId is required." }, { status: 400 });
+    }
+    const result = await applySetupFix(env, actionId);
+    return Response.json(result.body, { status: result.status, headers: { "Cache-Control": "no-store" } });
   }
   if (url.pathname === "/api/agents") {
     if (request.method !== "GET") {
