@@ -92,6 +92,7 @@ export default defineConfig({
 					label: 'Reference',
 					items: [
 						{ label: 'API reference', slug: 'docs/api' },
+						{ label: 'TypeScript SDK', slug: 'docs/sdk' },
 						{ label: 'Contributing', slug: 'docs/contributing' },
 					],
 				},
