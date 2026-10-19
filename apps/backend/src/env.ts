@@ -236,6 +236,8 @@ export interface Env {
   GITHUB_TOKEN?: string;
   /** Optional GitHub API origin. Local verify points this at a stub. Defaults to api.github.com. */
   GITHUB_API_BASE?: string;
+  /** Inline review comment floor: high | medium | low. Default medium. */
+  REVIEW_INLINE_THRESHOLD?: string;
   /** Optional GitHub App id (multi-repo installs). Used with GITHUB_APP_PRIVATE_KEY. */
   GITHUB_APP_ID?: string;
   /** PEM private key for the GitHub App (Worker-only). */

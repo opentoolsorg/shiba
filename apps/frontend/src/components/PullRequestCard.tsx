@@ -22,13 +22,35 @@ export function PullRequestCard({ threadId }: { threadId: string }): JSX.Element
       .catch(() => { if (!cancelled) setStatus(null); });
     return () => { cancelled = true; };
   }, [threadId]);
+  const [mergePending, setMergePending] = useState(false);
+  const requestMerge = () => {
+    setMergePending(true);
+    void fetch(`/api/v1/threads/${encodeURIComponent(threadId)}/pr/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mergeMethod: "squash" }),
+    })
+      .finally(() => { setMergePending(false); });
+  };
   if (!status?.url) return null;
+  const canMerge = status.state === "open";
   return (
     <section data-testid="pr-card" className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] p-3 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <a className="text-sm font-medium text-[var(--fg)] underline" href={status.url}>{status.title || status.url}</a>
         <span className="text-[10px] uppercase tracking-wider font-bold border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)]">{status.state ?? "unknown"}</span>
       </div>
+      {canMerge ? (
+        <button
+          type="button"
+          data-testid="pr-merge-request"
+          className="text-xs border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1 self-start"
+          disabled={mergePending}
+          onClick={requestMerge}
+        >
+          {mergePending ? "Requesting merge approval…" : "Request merge (approval-gated)"}
+        </button>
+      ) : null}
       <ul className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
         {(status.checks ?? []).length === 0 ? <li>No checks</li> : status.checks?.map((check) => (
           <li key={check.id}>{check.name}: {check.conclusion ?? check.status}</li>
