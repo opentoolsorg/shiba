@@ -164,6 +164,8 @@ export interface Env {
    * local-runtime request refuses 403 before any approval exists.
    */
   SHIBA_LOCAL_RUNTIME?: string;
+  /** verify-shiba: "1" runs deterministic publish/review without containers. */
+  SHIBA_VERIFY_STANDIN?: string;
   /**
    * Opt-in in-sandbox desktop (Xvfb + noVNC). "1" allows starting the
    * stack on demand; absent keeps plain sandbox runs smaller.
