@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { FindingTriage, ReviewFinding, ReviewRound } from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
+import { CardSkeleton } from "./surface";
 
 const TRIAGE_OPTIONS: FindingTriage[] = ["open", "resolved", "irrelevant"];
 
@@ -22,6 +23,8 @@ export function ReviewFindings({
   reviewAfterPublish = false,
 }: ReviewFindingsProps): JSX.Element | null {
   const [fetchState, setFetchState] = useState<FetchState>({ kind: "loading" });
+  const fetchStateRef = useRef(fetchState);
+  fetchStateRef.current = fetchState;
   const [retryPending, setRetryPending] = useState(false);
 
   const load = useCallback(() => {
@@ -51,16 +54,34 @@ export function ReviewFindings({
   }, [load]);
 
   const setTriage = (findingId: string, triage: FindingTriage) => {
+    const current = fetchStateRef.current;
+    const previous = current.kind === "ready" ? current.round : null;
+    if (previous) {
+      setFetchState({
+        kind: "ready",
+        round: {
+          ...previous,
+          findings: (previous.findings ?? []).map((finding) =>
+            finding.id === findingId ? { ...finding, triage } : finding,
+          ),
+        },
+      });
+    }
     void fetch(
       `/api/v1/threads/${encodeURIComponent(threadId)}/pr/review/findings/${encodeURIComponent(findingId)}/triage`,
       { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ triage }) },
     )
       .then(async (response) => {
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (previous) setFetchState({ kind: "ready", round: previous });
+          return;
+        }
         const body = (await response.json()) as { round?: ReviewRound };
         if (body.round) setFetchState({ kind: "ready", round: body.round });
       })
-      .catch(() => {});
+      .catch(() => {
+        if (previous) setFetchState({ kind: "ready", round: previous });
+      });
   };
 
   const retryReview = () => {
@@ -85,11 +106,8 @@ export function ReviewFindings({
 
   if (fetchState.kind === "loading") {
     return (
-      <section data-testid="review-findings" data-state="loading" className={panelClass}>
-        <p className="text-xs text-[var(--muted-foreground-2)] flex items-center gap-2">
-          <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[var(--primary)]" aria-hidden="true" />
-          Loading review findings…
-        </p>
+      <section data-testid="review-findings" data-state="loading" className={panelClass} aria-busy="true">
+        <CardSkeleton label="Loading review findings" />
       </section>
     );
   }

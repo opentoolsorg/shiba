@@ -49,9 +49,10 @@ import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavR
 import { AuthScreen } from "./components/AuthScreen";
 import { authClient } from "./auth-client";
 import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
+import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
-import { extractPendingApprovals, extractCompletedDiff, parseRepoName, runsListUrl } from "./ui-helpers";
+import { extractPendingApprovals, extractCompletedDiff, parseRepoName, runsListUrl, statusChipClass, statusLabel } from "./ui-helpers";
 import { createCompletionDrivenPoll, documentVisibilityPause } from "./polling";
 import type { AgentPrincipal, RetainedRun, StoredApproval, ToolRunRecord } from "./types";
 
@@ -68,9 +69,10 @@ function useRetainedRuns(
   sessionId: string,
   sessionApiAvailable: boolean,
   fullDetail: boolean,
-): { runs: RetainedRun[]; error: string | null; detailReady: boolean } {
+): { runs: RetainedRun[]; error: string | null; detailReady: boolean; listSettled: boolean } {
   const [runs, setRuns] = useState<RetainedRun[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [listSettled, setListSettled] = useState(false);
   // True once a full-payload response has landed while fullDetail was on.
   // Detail surfaces (the diff inspector) gate on it so a summary list can
   // never render as "this run has no diff".
@@ -94,6 +96,7 @@ function useRetainedRuns(
               setRuns([]);
               setError(null);
               setDetailReady(fullDetail);
+              setListSettled(true);
             }
             return;
           }
@@ -107,10 +110,12 @@ function useRetainedRuns(
           setRuns(Array.isArray(body.runs) ? body.runs : []);
           setError(null);
           setDetailReady(fullDetail);
+          setListSettled(true);
         }
       } catch (fetchError: unknown) {
         if (!cancelled) {
           setError(fetchError instanceof Error ? fetchError.message : String(fetchError));
+          setListSettled(true);
         }
       }
     };
@@ -120,7 +125,7 @@ function useRetainedRuns(
     };
   }, [refreshToken, sessionId, sessionApiAvailable, fullDetail]);
 
-  return { runs, error, detailReady };
+  return { runs, error, detailReady, listSettled };
 }
 
 /**
@@ -469,6 +474,7 @@ export function App(): React.JSX.Element {
       setHarness("opencode");
   }, [runTarget, harness]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [webSessions, setWebSessions] = useState<
     { id: string; name: string; agentName: string; updatedAt: number }[]
   >([]);
@@ -710,6 +716,9 @@ export function App(): React.JSX.Element {
       })
       .catch((error: unknown) => {
         if (!cancelled) setNotice(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setSessionsLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -717,7 +726,7 @@ export function App(): React.JSX.Element {
   }, [orchestratorName]);
   // Ordinary views read the lean summary projection; only the diff
   // inspector pulls the full run payload (diff/receipts/signals/steering).
-  const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady } =
+  const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
     useRetainedRuns(
       refreshToken,
       selectedSessionId,
@@ -1236,6 +1245,14 @@ export function App(): React.JSX.Element {
         setCommandMenuOpen(false);
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandMenuOpen((prev) => !prev);
+        return;
+      }
+      if (commandMenuOpen || showShortcutsModal || showClearModal || showOnboardingModal || showFirstRun) {
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         if (!isSubmitting && repoUrl.trim() && task.trim()) {
           e.preventDefault();
@@ -1244,12 +1261,20 @@ export function App(): React.JSX.Element {
         return;
       }
       if (isEditableTarget(e.target)) return;
+      if ((e.key === "j" || e.key === "k") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const list = sessionsNavRef.current;
+        if (list.length === 0) return;
+        e.preventDefault();
+        const currentId = selectedNavIdRef.current;
+        const index = list.findIndex((session) => session.id === currentId);
+        const delta = e.key === "j" ? 1 : -1;
+        const next = list[(index < 0 ? 0 : index + delta + list.length) % list.length];
+        if (next) selectSessionRef.current(next.id);
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "o" || e.key === "O")) {
         e.preventDefault();
         handleNewTaskRef.current();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setCommandMenuOpen((prev) => !prev);
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
         toggleSessionsCollapsed();
@@ -1275,9 +1300,17 @@ export function App(): React.JSX.Element {
     toggleSessionsCollapsed,
     toggleTheme,
     settingsModalOpen,
+    commandMenuOpen,
+    showShortcutsModal,
+    showClearModal,
+    showOnboardingModal,
+    showFirstRun,
   ]);
 
   const handleNewTaskRef = useRef<() => void>(() => {});
+  const sessionsNavRef = useRef<SessionItem[]>([]);
+  const selectedNavIdRef = useRef<string | null>(null);
+  const selectSessionRef = useRef<(id: string) => void>(() => {});
   // First-seen time per live run: a stable createdAt so ordering doesn't churn.
   const firstSeen = useRef(new Map<string, number>());
   const seenAt = useCallback((runId: string) => {
@@ -1298,6 +1331,8 @@ export function App(): React.JSX.Element {
     if (!reviewThreadId) return undefined;
     return retainedRuns.find((run) => run.runId === reviewThreadId);
   }, [retainedRuns, reviewThreadId]);
+
+  const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
 
   const allRuns: VMRun[] = useMemo(() => {
     const map = new Map<string, VMRun>();
@@ -1401,9 +1436,11 @@ export function App(): React.JSX.Element {
       status:
         session.id === selectedSessionId && (chat.isStreaming || chat.status === "streaming")
           ? "running"
-          : "live",
+          : "ready",
       updatedAt: session.updatedAt,
-      live: session.id === selectedSessionId,
+      live:
+        session.id === selectedSessionId &&
+        (chat.isStreaming || chat.status === "streaming"),
       webSession: true,
     }));
     if (!items.some((session) => session.id === "default")) {
@@ -1411,9 +1448,14 @@ export function App(): React.JSX.Element {
         id: "default",
         title: "Default Session",
         repoName: "web chat",
-        status: "live",
+        status:
+          selectedSessionId === "default" && (chat.isStreaming || chat.status === "streaming")
+            ? "running"
+            : "ready",
         updatedAt: 0,
-        live: selectedSessionId === "default",
+        live:
+          selectedSessionId === "default" &&
+          (chat.isStreaming || chat.status === "streaming"),
         webSession: true,
       });
     }
@@ -1456,6 +1498,9 @@ export function App(): React.JSX.Element {
     webSessions,
     selectedSessionId,
   ]);
+
+  const threadsLoading =
+    (!sessionsLoaded || !listSettled) && retainedRuns.length === 0 && toolRuns.length === 0;
 
   const liveSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0];
 
@@ -1506,6 +1551,12 @@ export function App(): React.JSX.Element {
     },
     [webSessions],
   );
+
+  sessionsNavRef.current = sessions;
+  selectedNavIdRef.current = selectedRunId ?? selectedSessionId;
+  selectSessionRef.current = (id: string) => {
+    void handleSelectSession(id);
+  };
 
   const handleNewTask = useCallback(async () => {
     if (!sessionApiAvailable) {
@@ -1694,6 +1745,7 @@ export function App(): React.JSX.Element {
         onNewTask={handleNewTask}
         onOpenSearch={() => setCommandMenuOpen(true)}
         onToggleCollapse={toggleSessionsCollapsed}
+        threadsLoading={threadsLoading}
         connectionLabel={connectionState}
         connectionTone={
           identityError || agent.connectionError
@@ -1748,6 +1800,7 @@ export function App(): React.JSX.Element {
                 handleNewTask();
                 setMobileNavOpen(false);
               }}
+              threadsLoading={threadsLoading}
               onOpenSearch={() => {
                 setMobileNavOpen(false);
                 setCommandMenuOpen(true);
@@ -1820,7 +1873,7 @@ export function App(): React.JSX.Element {
                     d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"
                   />
                 </svg>
-                <span className="font-mono text-[10px] text-white/60">⌘K</span>
+                <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">⌘K</span>
               </button>
             </Tooltip>
           </div>
@@ -1944,7 +1997,7 @@ export function App(): React.JSX.Element {
                 aria-busy={busy}
               >
                 {/* SESSION HEADER */}
-                <div className="border-b border-black/[0.08] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
+                <div className="border-b border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
                   <div className="flex items-center gap-2.5 min-w-0">
                     {/* Desktop sidebar toggle button */}
                     <Tooltip
@@ -1957,7 +2010,7 @@ export function App(): React.JSX.Element {
                         onClick={toggleSessionsCollapsed}
                         aria-label={sessionsCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                         aria-expanded={!sessionsCollapsed}
-                        className="hidden lg:flex w-7 h-7 rounded-[var(--radius-button)] border border-black/[0.08] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] items-center justify-center transition-colors shrink-0"
+                        className="hidden lg:flex w-7 h-7 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] items-center justify-center transition-colors shrink-0"
                       >
                         <svg
                           aria-hidden="true"
@@ -1991,7 +2044,7 @@ export function App(): React.JSX.Element {
                         type="button"
                         onClick={() => setMobileSessionsOpen(true)}
                         aria-label="Open sessions"
-                        className="lg:hidden w-7 h-7 touch:w-11 touch:h-11 rounded-[var(--radius-button)] border border-black/[0.08] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] flex items-center justify-center transition-colors shrink-0"
+                        className="lg:hidden w-7 h-7 touch:w-11 touch:h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] flex items-center justify-center transition-colors shrink-0"
                       >
                         <svg
                           aria-hidden="true"
@@ -2017,14 +2070,14 @@ export function App(): React.JSX.Element {
                         className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
                       />
                     </Tooltip>
-                    <h1 className="text-sm font-semibold text-[var(--fg)] font-sans tracking-tight truncate">
+                    <h1 className="text-base text-[var(--fg)] tracking-tight truncate">
                       {liveSession ? liveSession.title : "New coding task"}
                     </h1>
-                    <Tooltip content="Active real-time agent orchestration stream" side="bottom">
-                      <span className="text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 shrink-0 text-[var(--primary)] border-[var(--primary)]/15 bg-[var(--primary-soft)]">
-                        Live
-                      </span>
-                    </Tooltip>
+                    <span
+                      className={`text-[10px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 shrink-0 ${statusChipClass(liveSession?.status ?? "ready")}`}
+                    >
+                      {statusLabel(liveSession?.status ?? "ready")}
+                    </span>
                   </div>
 
                   <div className="hidden md:flex items-center gap-4 text-xs font-mono text-[var(--muted-foreground-2)] shrink-0">
@@ -2048,18 +2101,10 @@ export function App(): React.JSX.Element {
                         </span>
                       </span>
                     </Tooltip>
-                    <Tooltip content="Total completed and retained runs" side="bottom">
+                    <Tooltip content="Retained runs in this workspace" side="bottom">
                       <span className="cursor-default">
                         <span className="text-[var(--muted-foreground-2)]">Runs</span>{" "}
                         <span className="text-[var(--fg)] font-bold">{allRuns.length}</span>
-                      </span>
-                    </Tooltip>
-                    <Tooltip
-                      content="Container has zero secrets; provider keys stay at AI Gateway egress"
-                      side="bottom"
-                    >
-                      <span className="text-[10px] uppercase tracking-wider font-mono text-[var(--primary)]/80 bg-[var(--primary-soft)] border border-[var(--primary)]/10 px-2 py-0.5 rounded-[var(--radius-button)]">
-                        Zero-Trust Boundary
                       </span>
                     </Tooltip>
                   </div>
@@ -2185,21 +2230,23 @@ export function App(): React.JSX.Element {
 
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
-                  className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${chat.messages.length === 0 ? "hidden" : ""}`}
+                  className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
                 >
-                  <StepTimeline
-                    messages={chat.messages}
-                    isStreaming={chat.isStreaming || chat.status === "streaming"}
-                    pendingApprovals={pendingApprovals}
-                    decisions={decisions}
-                    onDecideApproval={decideApproval}
-                    reviewAfterPublishById={reviewAfterPublishById}
-                    starters={STARTER_TEMPLATES}
-                    onStarter={(starterTask) => {
-                      setTask(starterTask);
-                      if (!repoUrl) setRepoUrl("https://github.com/cloudflare/ai-chat");
-                    }}
-                  />
+                  {chat.messages.length > 0 ? (
+                    <StepTimeline
+                      messages={chat.messages}
+                      isStreaming={chat.isStreaming || chat.status === "streaming"}
+                      pendingApprovals={pendingApprovals}
+                      decisions={decisions}
+                      onDecideApproval={decideApproval}
+                      reviewAfterPublishById={reviewAfterPublishById}
+                      starters={STARTER_TEMPLATES}
+                      onStarter={(starterTask) => {
+                        setTask(starterTask);
+                        if (!repoUrl) setRepoUrl("https://github.com/cloudflare/ai-chat");
+                      }}
+                    />
+                  ) : null}
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
                       <RunProgressCard run={reviewRun} />
@@ -2220,9 +2267,9 @@ export function App(): React.JSX.Element {
                 {/* COMPOSER — hero when the session is empty, docked once the run is going */}
                 <div
                   className={
-                    chat.messages.length === 0
+                    chat.messages.length === 0 && !reviewThreadId
                       ? "flex-1 flex flex-col min-h-0"
-                      : "border-t border-black/[0.08] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
+                      : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
                   <TaskComposer
@@ -2268,7 +2315,7 @@ export function App(): React.JSX.Element {
                       modelSuggestions: codingModelSuggestions,
                       connections: modelConnections,
                     }}
-                    variant={chat.messages.length === 0 ? "hero" : "docked"}
+                    variant={threadHasWork ? "docked" : "hero"}
                     onSubmit={submitTask}
                     onClear={() => setShowClearModal(true)}
                   />
@@ -2303,7 +2350,10 @@ export function App(): React.JSX.Element {
           ) : mainView === "diff" ? (
             <DiffView
               runs={allRuns}
-              selectedRunId={selectedRunId}
+              selectedRunId={
+                selectedRunId ??
+                (allRuns.some((run) => run.runId === selectedSessionId) ? selectedSessionId : null)
+              }
               onSelectRun={(id) => setSelectedRunId(id)}
               loading={!runsDetailReady}
               error={runsError}
@@ -2480,77 +2530,7 @@ export function App(): React.JSX.Element {
             }}
           />
 
-          {/* KEYBOARD SHORTCUTS MODAL */}
-          {showShortcutsModal ? (
-            <div className="fixed inset-0 bg-[var(--overlay)] z-50 flex items-center justify-center p-4">
-              <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-md w-full p-6 shadow-[var(--sh-overlay)]">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-[var(--fg)]">Keyboard Shortcuts</h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowShortcutsModal(false)}
-                    className="text-[var(--muted-foreground-2)] hover:text-[var(--fg)] text-sm font-mono"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="flex flex-col gap-2.5 text-xs">
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
-                    <span className="text-[var(--muted-foreground-2)]">Submit Task</span>
-                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
-                      ⌘ / Ctrl + Enter
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
-                    <span className="text-[var(--muted-foreground-2)]">Toggle Sessions Sidebar</span>
-                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
-                      ⌘ / Ctrl + B or [
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
-                    <span className="text-[var(--muted-foreground-2)]">Close Modals</span>
-                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
-                      Escape
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
-                    <span className="text-[var(--muted-foreground-2)]">Open Shortcuts Guide</span>
-                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
-                      ?
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
-                    <span className="text-[var(--muted-foreground-2)]">Command Menu</span>
-                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
-                      ⌘ / Ctrl + K
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
-                    <span className="text-[var(--muted-foreground-2)]">Open Settings</span>
-                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
-                      ⌘ / Ctrl + ,
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--border-1)]">
-                    <span className="text-[var(--muted-foreground-2)]">Toggle Light / Dark Theme</span>
-                    <span className="font-mono bg-[var(--card)] border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] text-[var(--fg)]">
-                      D
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-5 text-right">
-                  <button
-                    type="button"
-                    className="px-4 py-1.5 rounded-[var(--radius-button)] text-xs font-medium text-[var(--fg)] bg-[var(--card)] border border-[var(--border-1)] hover:bg-[var(--secondary)] transition-colors"
-                    onClick={() => setShowShortcutsModal(false)}
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
+          <ShortcutsDialog open={showShortcutsModal} onClose={() => setShowShortcutsModal(false)} />
           <CommandMenu
             open={commandMenuOpen}
             onClose={() => setCommandMenuOpen(false)}
