@@ -46,12 +46,60 @@
           "delivery": { "type": "string", "enum": ["queue", "steer", "interrupt"] },
           "clientKey": { "type": "string", "maxLength": 64 }
         }
+      },
+      "Thread": {
+        "type": "object",
+        "properties": {
+          "threadId": { "type": "string" },
+          "repoUrl": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "string" },
+          "lane": { "type": "string" },
+          "archived": { "type": "boolean" },
+          "costUsd": { "type": ["number", "null"] },
+          "createdAt": { "type": "number" },
+          "updatedAt": { "type": "number" },
+          "pullUrl": { "type": ["string", "null"] },
+          "summary": { "type": ["string", "null"] },
+          "error": { "type": ["string", "null"] }
+        }
+      },
+      "PublicStreamEvent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "orgId": { "type": "string" },
+          "projectId": { "type": ["string", "null"] },
+          "threadId": { "type": ["string", "null"] },
+          "runId": { "type": ["string", "null"] },
+          "sequence": { "type": "string" },
+          "type": { "type": "string" },
+          "data": { "type": "object", "additionalProperties": true },
+          "occurredAt": { "type": "string" },
+          "publishedAt": { "type": "string" },
+          "cursor": { "type": "string" }
+        }
       }
     }
   },
   "paths": {
     "/threads": {
-      "get": { "summary": "List threads", "responses": { "200": { "description": "Thread list" } } },
+      "get": {
+        "summary": "List threads",
+        "responses": {
+          "200": {
+            "description": "Thread list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "threads": { "type": "array", "items": { "$ref": "#/components/schemas/Thread" } } }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "summary": "Create thread (idempotent requestId)",
         "requestBody": {
@@ -72,8 +120,59 @@
     "/threads/{threadId}/interrupt": {
       "post": { "summary": "Interrupt active run (legacy alias)", "responses": { "200": { "description": "Cancelled thread" } } }
     },
+    "/threads/{threadId}": {
+      "get": {
+        "summary": "Get thread",
+        "parameters": [{ "name": "threadId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "Thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "thread": { "$ref": "#/components/schemas/Thread" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/threads/{threadId}/stream": {
-      "get": { "summary": "SSE stream for thread events", "responses": { "200": { "description": "text/event-stream" } } }
+      "get": {
+        "summary": "SSE stream for thread events",
+        "parameters": [{ "name": "threadId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "text/event-stream" } }
+      }
+    },
+    "/threads/{threadId}/pr/status": {
+      "get": {
+        "summary": "Pull request CI and merge status",
+        "parameters": [{ "name": "threadId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Pull request status" } }
+      }
+    },
+    "/threads/{threadId}/pr/comments": {
+      "get": {
+        "summary": "Pull request review comments",
+        "parameters": [{ "name": "threadId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Pull request comments" } }
+      }
+    },
+    "/threads/{threadId}/pr/review": {
+      "get": {
+        "summary": "Read automated review state for the thread",
+        "parameters": [{ "name": "threadId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Review snapshot" } }
+      }
+    },
+    "/threads/{threadId}/pr/ready": {
+      "post": {
+        "summary": "Mark draft pull request ready for review",
+        "parameters": [{ "name": "threadId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Ready result" } }
+      }
     },
     "/threads/{threadId}/subagents": {
       "get": { "summary": "List subagents (read-only; empty until subagent tree ships)", "responses": { "200": { "description": "Subagent page" } } }
