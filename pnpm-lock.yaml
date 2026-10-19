@@ -310,9 +310,6 @@ importers:
 
   packages/auth:
     dependencies:
-      '@cloudflare/sandbox':
-        specifier: 1.0.1
-        version: 1.0.1
       '@shiba/shared':
         specifier: workspace:*
         version: link:../shared

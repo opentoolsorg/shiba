@@ -187,7 +187,7 @@
       "name": "shiba-ai-coworker-sandbox",
       "scheduling_policy": "durable_object",
       "instance_type": "standard-1",
-      "max_instances": 5,
+      "max_instances": 10,
       "images": {
         "sandbox": {
           "dockerfile": "./Dockerfile",
