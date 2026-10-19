@@ -43,7 +43,7 @@ export interface JsonObject {
  * written before email approvals existed carry no `kind` — readers treat
  * absent as `"run"`.
  */
-export type ApprovalKind = "run" | "email_send" | "email_delete";
+export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
 
 /** Runtime check that `value` is JSON-serializable — the shape a JSON body parse produces. */
 export function isJsonValue(value: unknown): value is JsonValue {
@@ -115,6 +115,12 @@ export interface PendingApproval {
    * new decision, not a replay of the parent's.
    */
   forkedFrom?: ForkLineage;
+  /** Phase 2b: parallel subagents this approval may spawn without a new card. */
+  subagentBudget?: number;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
+  captainId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
    * already resolved into `route` at queue time — this rides along as
@@ -166,6 +172,11 @@ export interface CreateApprovalInput {
   targetMachineId?: string;
   testCommand?: string[];
   forkedFrom?: ForkLineage;
+  subagentBudget?: number;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
+  captainId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
   payload?: JsonValue;
@@ -200,6 +211,11 @@ export function createPendingApproval(
       ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
       ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
       ...(input.forkedFrom !== undefined ? { forkedFrom: input.forkedFrom } : {}),
+      ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
+      ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+      ...(input.subagentPath !== undefined ? { subagentPath: input.subagentPath } : {}),
+      ...(input.subagentSandbox !== undefined ? { subagentSandbox: input.subagentSandbox } : {}),
+      ...(input.captainId !== undefined ? { captainId: input.captainId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.payload !== undefined ? { payload: input.payload } : {}),
@@ -340,6 +356,13 @@ export interface RunInputFields {
   testCommand?: string[];
   /** Run-fork lineage — part of what the human approved. */
   forkedFrom?: ForkLineage;
+  /** Phase 2b: subagent spawns the root approval may cover without a new card. */
+  subagentBudget?: number;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
+  captainId?: string;
+  role?: AgentRole;
 }
 
 /** Key-sorted JSON — the canonical form the input hash covers. */
@@ -443,6 +466,12 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.forkedFrom !== undefined
       ? { forkedFrom: input.forkedFrom as unknown as JsonValue }
       : {}),
+    ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+    ...(input.subagentPath !== undefined ? { subagentPath: input.subagentPath } : {}),
+    ...(input.subagentSandbox !== undefined ? { subagentSandbox: input.subagentSandbox } : {}),
+    ...(input.captainId !== undefined ? { captainId: input.captainId } : {}),
+    ...(input.role !== undefined ? { role: input.role } : {}),
+    ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });
 }
 

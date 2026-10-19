@@ -43,6 +43,7 @@ import { acquireSandboxOps } from "../sandbox/lifecycle.js";
 import { HARNESS_RETRY, withRetry } from "../harness/retry.js";
 import type { RunSignal } from "@shiba/shared";
 import { boundTail, parseGitHubRepoUrl, redactSecrets } from "../security.js";
+import { captureBrowserE2eEvidence, formatBrowserE2ePrSection } from "../browser-e2e/capture.js";
 import { captureRunPreview } from "../screenshot.js";
 import { postSlackMessage } from "../slack.js";
 import { SlackProgressReporter } from "../slack-persona.js";
@@ -322,11 +323,16 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           // publishResult sits before the first remote write.
           let pullUrl: string | undefined;
           let screenshotUrl: string | undefined;
+          let browserE2eManifestUrl: string | undefined;
           if (result.status === "completed" && input.publishPullRequest) {
             const published = await this.publishResult(input, result, signal);
             pullUrl = published.pullUrl;
             screenshotUrl = published.screenshotUrl;
+            browserE2eManifestUrl = published.browserE2eManifestUrl;
             if (screenshotUrl) noteSignal("screenshot.captured", screenshotUrl);
+            if (browserE2eManifestUrl) {
+              noteSignal("e2e.completed", browserE2eManifestUrl);
+            }
             noteSignal("pr.opened", pullUrl);
           }
           const safeResult = this.uiResult(result);
@@ -349,6 +355,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             ...safeResult,
             ...(pullUrl ? { pullUrl } : {}),
             ...(screenshotUrl ? { screenshotUrl } : {}),
+            ...(browserE2eManifestUrl ? { browserE2eManifestUrl } : {}),
             signals: runSignals,
           }));
           writer.write({ type: "text-end", id });
@@ -405,7 +412,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     input: CodingTaskInput,
     result: CodingTaskResult,
     signal?: AbortSignal,
-  ): Promise<{ pullUrl: string; screenshotUrl?: string }> {
+  ): Promise<{ pullUrl: string; screenshotUrl?: string; browserE2eManifestUrl?: string }> {
     const token = this.env.GITHUB_TOKEN;
     if (!token) throw new Error("publishPullRequest was requested but GITHUB_TOKEN is not configured.");
     signal?.throwIfAborted();
@@ -414,6 +421,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     // is fail-safe — it returns null rather than throwing, so a Browser Rendering
     // or sandbox problem can never lose a publish.
     const capture = await captureRunPreview(this.env, { sandboxId: input.sandboxId });
+    const e2eCapture = await captureBrowserE2eEvidence(this.env, { sandboxId: input.sandboxId });
     const bodyLines = [
       this.safeText(result.summary, 4000),
       "",
@@ -426,6 +434,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     // so instead of implying proof that isn't there.
     if (capture?.screenshotUrl) bodyLines.push("", `[Preview screenshot](${capture.screenshotUrl})`);
     else bodyLines.push("", "No preview captured — this change has no servable app; verify via the diff and test evidence.");
+    if (e2eCapture?.manifestUrl && e2eCapture.manifest.ok) {
+      bodyLines.push(formatBrowserE2ePrSection(e2eCapture));
+    }
     if (result.testEvidence) {
       bodyLines.push(
         "",
@@ -455,6 +466,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     return {
       pullUrl: published.pullUrl,
       ...(capture?.screenshotUrl ? { screenshotUrl: capture.screenshotUrl } : {}),
+      ...(e2eCapture?.manifestUrl && e2eCapture.manifest.ok
+        ? { browserE2eManifestUrl: e2eCapture.manifestUrl }
+        : {}),
     };
   }
 

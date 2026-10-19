@@ -12,6 +12,7 @@ import { cursorSubscriptionHarness } from "./cursor-subscription.js";
 import { CONTAINER_XDG_DATA, devinCredentialsConfig, devinHarness } from "./devin.js";
 import { devinSubscriptionHarness } from "./devin-subscription.js";
 import { grokHarness } from "./grok.js";
+import { piHarness } from "./pi.js";
 import { buildOpencodeConfig, OPENCODE_PROVIDERS, opencodeHarness } from "./opencode.js";
 import type { Env } from "../env.js";
 import { GIT_EGRESS_HOSTS, type AgentHarness, type AgentHarnessName, type RuntimeName } from "./types.js";
@@ -123,6 +124,7 @@ const REGISTRY = {
   "codex-subscription": codexSubscriptionHarness,
   devin: devinHarness,
   grok: grokHarness,
+  pi: piHarness,
   cursor: cursorHarness,
   antigravity: antigravityHarness,
   "antigravity-subscription": antigravitySubscriptionHarness,
@@ -259,8 +261,8 @@ export const HARNESS_NAMES = Object.keys(REGISTRY) as readonly AgentHarnessName[
  * Per-harness default coding model. The checked-in ids are defaults, not
  * availability guarantees — model ids retire (see configuration.md).
  * Overridable per deploy via CODING_MODEL / CLAUDE_CODE_MODEL / CODEX_MODEL /
- * DEVIN_MODEL / GROK_MODEL and the per-harness *_SUBSCRIPTION_MODEL vars, and
- * per run via the delegate tool's codingModel input.
+ * DEVIN_MODEL / GROK_MODEL / PI_MODEL and the per-harness *_SUBSCRIPTION_MODEL
+ * vars, and per run via the delegate tool's codingModel input.
  */
 const CORE_DEFAULT_MODELS = {
   // Sentinel only — a run that names harness "acp" without a codingModel
@@ -281,6 +283,7 @@ const CORE_DEFAULT_MODELS = {
   // family alias.
   devin: "devin/swe-2-medium",
   grok: "xai/grok-4.6",
+  pi: "anthropic/claude-sonnet-4-6",
   cursor: "cursor/claude-4-5-sonnet",
   antigravity: "google/gemini-3.5-flash",
   // Subscription models carry the google-subscription namespace: the
@@ -318,6 +321,7 @@ const CORE_MODEL_ENV = {
   "codex-subscription": "CODEX_SUBSCRIPTION_MODEL",
   devin: "DEVIN_MODEL",
   grok: "GROK_MODEL",
+  pi: "PI_MODEL",
   cursor: "CODING_MODEL",
   antigravity: "CODING_MODEL",
   "antigravity-subscription": "ANTIGRAVITY_SUBSCRIPTION_MODEL",

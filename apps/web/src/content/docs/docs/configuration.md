@@ -14,6 +14,7 @@ Non-secret defaults are in `apps/backend/wrangler.jsonc` and `alchemy.run.ts`. F
 | `CODEX_MODEL` | `openai/gpt-5.3-codex` | Codex default model |
 | `DEVIN_MODEL` | `devin/swe-2` | Devin default model |
 | `GROK_MODEL` | `xai/grok-4.6` | Grok default model; medium reasoning effort |
+| `PI_MODEL` | `anthropic/claude-sonnet-4-6` | Pi default model |
 | `AGENT_HARNESS` | `opencode` | Deployment fallback; a task can select a harness explicitly |
 | `SLACK_AGENT_HARNESS` | `AGENT_HARNESS`, then `claude-code` | Harness for Slack-originated runs (mentions, DMs, /shiba) |
 | `SHIBA_CLAUDE_SUBSCRIPTION` | unset | Set `1` to enable the opt-in `claude-subscription` harness (below) |
@@ -40,9 +41,9 @@ Model identifiers are defaults, not availability guarantees. Choose a currently 
 
 ## Harnesses and credentials
 
-The current source registry and Dockerfile include five harnesses: `opencode`, `claude-code`, `codex`, `devin`, and `grok`. OpenCode supports Google, Anthropic, OpenAI, and xAI/Grok model providers (for xAI use `xai/<model>`); the `grok` harness runs the Grok CLI headlessly (`--single`, `streaming-json`) pinned to the `api.x.ai` forwarder via `GROK_MODELS_BASE_URL`. Provider selection, the dummy key, and `api.x.ai` gateway egress are implemented and unit-tested. Cursor stays a remote-executor connection, not an installed harness: its API-key→token exchange stores tokens inside the container, which cannot hold the dummy-key invariant. The dated `VERIFICATION.md` records OpenCode as the only harness exercised in the local end-to-end container run; that run's provider request returned 401. It records no cloud end-to-end run and no successful inference. Do not present unit tests or image binary checks as live harness acceptance.
+The current source registry and Dockerfile include six always-on harnesses: `opencode`, `claude-code`, `codex`, `devin`, `grok`, and `pi`. OpenCode and Pi support Google, Anthropic, OpenAI, and xAI model providers; Pi runs headlessly with `--mode json` and its provider-specific API key env vars, while `grok` runs the Grok CLI with `--single` and streaming-json pinned to `api.x.ai` via `GROK_MODELS_BASE_URL`. Provider selection, dummy keys, and provider-host egress are implemented and unit-tested. Cursor stays a remote-executor connection, not an installed harness: its API-key→token exchange stores tokens inside the container, which cannot hold the dummy-key invariant. The dated `VERIFICATION.md` records OpenCode as the only harness exercised in the local end-to-end container run; that run's provider request returned 401. It records no cloud end-to-end run and no successful inference. Do not present unit tests or image binary checks as live harness acceptance.
 
-OpenCode, Claude Code, and Codex provider traffic uses the account-owned AI Gateway path; configure provider credentials there. `AI_GATEWAY_TOKEN` is an optional Worker secret for gateway authentication. Devin is different: its API key is a Worker-side `DEVIN_API_KEY` secret, injected by the egress proxy for Devin hosts and not stored in the container. The dummy container key is not a real credential. Keep keys out of repository files, logs, and task text.
+OpenCode, Claude Code, Codex, and Pi provider traffic uses the account-owned AI Gateway path; configure provider credentials there. `AI_GATEWAY_TOKEN` is an optional Worker secret for gateway authentication. Devin is different: its API key is a Worker-side `DEVIN_API_KEY` secret, injected by the egress proxy for Devin hosts and not stored in the container. The dummy container key is not a real credential. Keep keys out of repository files, logs, and task text.
 
 ### Claude subscription (opt-in)
 

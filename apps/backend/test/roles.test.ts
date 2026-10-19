@@ -61,6 +61,18 @@ describe("resolveRoleModel", () => {
     expect(resolved).toEqual({ harness: "opencode", model: "opencode-go/deepseek-v3.2" });
   });
 
+  it("prefers dashboard pins over ROLE_MODEL_MAP and env vars", () => {
+    const envPins = env({
+      ROLE_MODEL_MAP: JSON.stringify({ fixer: { harness: "codex", model: "openai/gpt-5.3-codex" } }),
+      ROLE_MODEL__FIXER: "opencode/opencode-go/deepseek-v3.2",
+    });
+    expect(
+      resolveRoleModel(envPins, "fixer", {
+        fixer: { harness: "claude-code", model: "anthropic/claude-sonnet-5-5" },
+      }),
+    ).toEqual({ harness: "claude-code", model: "anthropic/claude-sonnet-5-5" });
+  });
+
   it("prefers the map over the per-role ROLE_MODEL__* var", () => {
     const resolved = resolveRoleModel(
       env({
@@ -90,6 +102,18 @@ describe("resolveRoleModel", () => {
       .toEqual({ harness: "codex", model: "openai/gpt-5.3-codex" });
     expect(resolveRoleModel(env({ ROLE_MODEL_MAP: JSON.stringify({ designer: { harness: "devin" } }) }), "designer"))
       .toEqual({ harness: "devin", model: "devin/swe-2-medium" });
+  });
+
+  it("Pi uses its own default instead of inheriting CODING_MODEL", () => {
+    expect(resolveRoleModel(
+      env({ ROLE_MODEL__FIXER: "pi", CODING_MODEL: "google/gemini-3.5-flash-lite" }),
+      "fixer",
+    )).toEqual({ harness: "pi", model: "anthropic/claude-sonnet-4-6" });
+  });
+
+  it("Pi honors its PI_MODEL deployment override", () => {
+    const piOverrideEnv = Object.assign(env({ ROLE_MODEL__FIXER: "pi" }), { PI_MODEL: "openai/gpt-5" });
+    expect(resolveRoleModel(piOverrideEnv, "fixer")).toEqual({ harness: "pi", model: "openai/gpt-5" });
   });
 
   it("rejects a model whose provider has no known API host", () => {
@@ -389,4 +413,3 @@ describe("shipped ROLE_MODEL_MAP (PLAN.md §19)", () => {
     expect(() => resolveRoleModel(stale, "orchestrator")).toThrow(/retired/);
   });
 });
-

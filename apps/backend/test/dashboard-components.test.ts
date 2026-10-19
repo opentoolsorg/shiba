@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { ApprovalCard } from "../../frontend/src/components/ApprovalCard";
 import { OnboardingModal } from "../../frontend/src/components/OnboardingModal";
 import { AgentsView } from "../../frontend/src/components/AgentsView";
+import { TaskForm } from "../../web/src/components/TaskForm";
 import {
   SessionsSidebar,
   type SessionItem,
@@ -149,6 +150,11 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain('aria-label="Add to message"');
     expect(html).not.toContain('aria-label="Voice input"');
     expect(html).toContain("Ask anything, / for commands, @ for context");
+  });
+
+  it("TaskForm includes Pi in the coding agent picker", () => {
+    const html = renderToStaticMarkup(React.createElement(TaskForm));
+    expect(html).toContain('<option value="pi">Pi</option>');
   });
 
   it("ApprovalCard renders the approve/reject gate for a pending tool call", () => {

@@ -24,7 +24,10 @@ function fixture(path: string, method = "GET", body?: unknown, current: Delegate
     headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const forward = vi.fn(async (verb: string, _route: string, _input?: Record<string, unknown>) =>
     verb === "POST" ? Response.json({ ok: true, approvalId: "a1" }) : Response.json({ run: current }));
-  const ctx: V1Context = { request, url: new URL(request.url), env: env as Env, forward };
+  const ctx: V1Context = {
+    request, url: new URL(request.url), env: env as Env, forward,
+    principal: { principal: "test", orgId: "self-hosted", scopes: ["api:read", "api:write", "api:keys:admin"] },
+  };
   return { ctx, forward };
 }
 
@@ -84,13 +87,17 @@ describe("v1 P2 handlers", () => {
     expect((await handleDiffs(fixture("/threads/r1/checkpoints/1/restore").ctx))!.status).toBe(405);
   });
 
-  it("never merges: validates then refuses without touching GitHub", async () => {
+  it("queues merge through pr_merge approval without calling GitHub directly", async () => {
     const fetchMock = stubGitHub({});
+    const { ctx, forward } = fixture("/threads/r1/pr/merge", "POST", { expectedHeadSha: "a".repeat(40), mergeMethod: "squash" });
     expect((await handlePulls(fixture("/threads/r1/pr/merge", "POST", {}).ctx))!.status).toBe(400);
     expect((await handlePulls(fixture("/threads/r1/pr/merge", "POST", { expectedHeadSha: "a".repeat(40), extra: 1 }).ctx))!.status).toBe(400);
-    const response = await handlePulls(fixture("/threads/r1/pr/merge", "POST", { expectedHeadSha: "a".repeat(40), mergeMethod: "squash" }).ctx);
-    expect(response!.status).toBe(501);
-    expect(await response!.json()).toMatchObject({ code: "not_implemented" });
+    const response = await handlePulls(ctx);
+    expect(response!.status).toBe(200);
+    expect(forward).toHaveBeenCalledWith("POST", "/api/runs/r1/merge", {
+      expectedHeadSha: "a".repeat(40),
+      mergeMethod: "squash",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

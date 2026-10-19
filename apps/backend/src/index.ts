@@ -25,6 +25,8 @@ import { handleAudit } from "./audit-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
+import { handleIntegrationsRoutes } from "./integrations-routes.js";
+import { handleLinearWebhook } from "./linear/routes.js";
 import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
 import { handleInbox } from "./inbox-routes.js";
@@ -33,12 +35,15 @@ import { LocalDispatch } from "./local-dispatch.js";
 import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
+import { handleApiKeys } from "./api-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
+import { handleCaptainRoutes } from "./captain-routes.js";
 import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
+import { handleE2eEvidence } from "./e2e-evidence-routes.js";
 import { handleWebSessions } from "./sessions-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
@@ -225,9 +230,9 @@ export default {
         return Response.json({ error: "Method not allowed." }, { status: 405 });
       }
       const metaResponse = await handleMeta(request, env);
-      if (metaResponse) {
-        return metaResponse;
-      }
+      if (metaResponse) return metaResponse;
+      const apiKeysResponse = await handleApiKeys(request, env);
+      if (apiKeysResponse) return apiKeysResponse;
       const subscriptionAuthResponse = await handleSubscriptionAuth(request, env);
       if (subscriptionAuthResponse) {
         return subscriptionAuthResponse;
@@ -270,6 +275,10 @@ export default {
       if (sandboxResponse) {
         return sandboxResponse;
       }
+      const captainResponse = await handleCaptainRoutes(request, env);
+      if (captainResponse) {
+        return captainResponse;
+      }
       const runsResponse = await handleRuns(request, env);
       if (runsResponse) {
         return runsResponse;
@@ -291,6 +300,10 @@ export default {
       const screenshotResponse = await handleScreenshot(request, env);
       if (screenshotResponse) {
         return screenshotResponse;
+      }
+      const e2eEvidenceResponse = await handleE2eEvidence(request, env);
+      if (e2eEvidenceResponse) {
+        return e2eEvidenceResponse;
       }
       const webSessionsResponse = await handleWebSessions(request, env);
       if (webSessionsResponse) {
@@ -373,6 +386,14 @@ export default {
       const webhookResponse = await handleGitHubWebhook(request, env, ctx);
       if (webhookResponse) {
         return webhookResponse;
+      }
+      const linearWebhookResponse = await handleLinearWebhook(request, env, ctx);
+      if (linearWebhookResponse) {
+        return linearWebhookResponse;
+      }
+      const integrationsResponse = await handleIntegrationsRoutes(request, env);
+      if (integrationsResponse) {
+        return integrationsResponse;
       }
       const sentryResponse = await handleSentryWebhook(request, env);
       if (sentryResponse) {

@@ -110,6 +110,8 @@ describe("runnability gate via capability", () => {
     expect(HARNESSES.cursor!.capabilities().supportedRuntimes).toEqual([]);
     expect(harnessRunsOn(HARNESSES.cursor!, "sandbox")).toBe(false);
     expect(harnessRunsOn(HARNESSES.opencode!, "sandbox")).toBe(true);
+    expect(harnessRunsOn(HARNESSES.pi!, "sandbox")).toBe(true);
+    expect(harnessRunsOn(HARNESSES.pi!, "local")).toBe(false);
   });
 
   it("resolves every capability-declared sandbox harness", () => {

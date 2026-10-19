@@ -35,7 +35,7 @@ function connection(overrides: Partial<Connection> = {}): Connection {
 }
 
 function snapshot(connections: Connection[] = []): ModelConfigSnapshot {
-  return { connections, policy: EMPTY_POLICY };
+  return { connections, policy: EMPTY_POLICY, connectionOrder: connections.map((c) => c.id) };
 }
 
 describe("resolveCodingRoute", () => {
@@ -185,6 +185,7 @@ describe("grok and luan connections", () => {
     const conn = connection({ service: "grok", displayName: "Grok BYOK", credentialRef: "grok-byok" });
     expect(validateConnectionModel(conn, "xai/grok-4.6", "grok")).toBeNull();
     expect(validateConnectionModel(conn, "xai/grok-4.6", "opencode")).toBeNull();
+    expect(validateConnectionModel(conn, "xai/grok-4.6", "pi")).toBeNull();
     expect(validateConnectionModel(conn, "openai/gpt-5", "grok")).toMatch(/does not belong to the xai connection/);
   });
 
