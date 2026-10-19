@@ -123,6 +123,9 @@ importers:
       '@shiba/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@shiba/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@shiba/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -332,6 +335,18 @@ importers:
       vitest:
         specifier: 5.0.1
         version: 5.0.1(@types/node@26.6.2)(happy-dom@20.14.6)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+
+  packages/sandbox:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.6
+        version: 24.13.6
+      computesdk:
+        specifier: 4.1.12
+        version: 4.1.12
+      vitest:
+        specifier: 5.0.1
+        version: 5.0.1(@types/node@24.13.6)(happy-dom@20.14.6)(vite@8.3.0(@types/node@24.13.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
 
   packages/sdk:
     devDependencies:
@@ -1147,6 +1162,9 @@ packages:
 
   '@cloudflare/workers-types@5.20261002.1':
     resolution: {integrity: sha512-4DJVJoQrKkB/Q1IJJE5hd793Nupqmn2J+zuikAh2isHq/1s44G5drucgL/RtCa7/7UeJ3y6J7cmhrCZcIVfNVg==}
+
+  '@computesdk/cmd@0.4.1':
+    resolution: {integrity: sha512-hhcYrwMnOpRSwWma3gkUeAVsDFG56nURwSaQx8vCepv0IuUv39bK4mMkgszolnUQrVjBDdW7b3lV+l5B2S8fRA==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -4237,6 +4255,9 @@ packages:
     resolution: {integrity: sha512-pJDh5/4wrEnXX/VWRZvruAGHkzKdr46z11OlTPN+VrATlWWhSKewNCJ1futCO5C7eJB3nPMFZA1LeYtcFboZ2A==}
     engines: {node: '>=0.10.0'}
 
+  computesdk@4.1.12:
+    resolution: {integrity: sha512-wEcAKgSBDqC3EAO6rZfLE2PvPp+izIY2itWJLWVi9FI02CfWiTk47fmLp+/2FxSjYctUKGKmY5HAgCYHE+lBew==}
+
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
@@ -4342,6 +4363,11 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  daemond@0.1.8:
+    resolution: {integrity: sha512-hGk0lzT55g1vijr0Erfsb9m2cszofQnhmQFF88fv4xjJx9UKrGXIzrssad+D1iCk8TgRv4T50SapGQ+/9/T8Qg==}
+    engines: {node: '>=18.0.0'}
+    os: [linux, darwin]
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -8364,6 +8390,8 @@ snapshots:
 
   '@cloudflare/workers-types@5.20261002.1': {}
 
+  '@computesdk/cmd@0.4.1': {}
+
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
@@ -11251,6 +11279,11 @@ snapshots:
 
   compare-version@0.1.2: {}
 
+  computesdk@4.1.12:
+    dependencies:
+      '@computesdk/cmd': 0.4.1
+      daemond: 0.1.8
+
   concat-map@0.0.1: {}
 
   content-disposition@1.1.0: {}
@@ -11332,6 +11365,8 @@ snapshots:
       css-tree: 2.2.1
 
   csstype@3.2.3: {}
+
+  daemond@0.1.8: {}
 
   debug@4.4.3(supports-color@10.2.2):
     dependencies:
