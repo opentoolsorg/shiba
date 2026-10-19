@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const sandboxMock = vi.hoisted(() => ({ getSandbox: vi.fn() }));
-vi.mock("@cloudflare/sandbox", () => ({ getSandbox: sandboxMock.getSandbox, streamFile: vi.fn() }));
+vi.mock("../src/sandbox/client.js", () => ({ getSandbox: sandboxMock.getSandbox }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
 
 import { Duration, Effect, Schedule } from "effect";
 
 import { createSandboxOps } from "../src/agents/opencode-agent.js";
+import { resetSandboxProviderCache } from "../src/sandbox/provider.js";
 import {
   HARNESS_RETRY,
   RetryExhaustedError,
@@ -22,6 +23,7 @@ import { SandboxRuntimeAdapter, type SandboxOps } from "../src/runtime.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  resetSandboxProviderCache();
 });
 
 const FAST: RetryPolicy = { maxAttempts: 3, baseDelayMs: 5, maxDelayMs: 20, retryIf: classifyRetryable };

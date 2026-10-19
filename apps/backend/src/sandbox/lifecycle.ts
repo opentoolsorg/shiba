@@ -289,7 +289,10 @@ export interface SandboxHandle {
 }
 
 /** Resolves a container handle — production default loads the SDK lazily. */
-export type SandboxHandleResolver = (binding: Env["Sandbox"], sandboxId: string) => SandboxHandle;
+export type SandboxHandleResolver = (
+  binding: DurableObjectNamespace<import("./durable-object.js").Sandbox>,
+  sandboxId: string,
+) => SandboxHandle;
 
 let sandboxHandleResolver: SandboxHandleResolver | undefined;
 
@@ -314,8 +317,12 @@ export async function destroyManagedContainer(
   hooks?: LeakHooks,
 ): Promise<void> {
   try {
-    const resolve = sandboxHandleResolver ?? (await import("@cloudflare/sandbox")).getSandbox;
-    await resolve(env.Sandbox, sandboxId).destroy();
+    if (sandboxHandleResolver) {
+      await sandboxHandleResolver(env.Sandbox, sandboxId).destroy();
+    } else {
+      const { destroySandboxInstance } = await import("./provider.js");
+      await destroySandboxInstance(env, sandboxId);
+    }
     forgetLeaked(sandboxId, hooks);
   } catch (error) {
     // Cleanup failure must not overwrite the recorded outcome.

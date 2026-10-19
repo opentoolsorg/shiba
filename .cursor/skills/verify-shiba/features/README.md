@@ -13,7 +13,8 @@ Drive these from the real dashboard UI at http://localhost:$PORT/app/.
 | review-lifecycle | Finding triage PATCH, PR merge approval request (mock GitHub in cloud stand-in) |
 | phase5-integrations-automations | Integrations Linear row; Slack verify + GitHub status probes (mock) |
 | public-api-keys | Settings mints shk_ keys; OpenAPI at /api/v1/openapi.json |
-| captain-subagents | Captain snapshot API + subagent tree UI (Phase 2b) |
+| captain-subagents | Den snapshot API + subagent tree UI (Phase 2b; legacy captain paths aliased) |
 | byo-models-ux | Settings Models: ordered connections, test connection, role pins; run usage when reported |
+| sandbox-sdk-1-migration | Phase 2a SDK 1.0 DO + outbound handlers; reuse sandbox-run-and-diff |
 
 When SHIBA_TEST_REPO is unset, GitHub-touching journeys run in mock boundary mode and must be labeled mock GitHub. That is not live proof.
