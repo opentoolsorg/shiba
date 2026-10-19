@@ -103,7 +103,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // live on the same DO, behind the same dashboard auth and session scope.
   const isSpine = url.pathname === "/api/spine";
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
-  if (!isSpine && !/^\/api\/runs(?:\/[^/]+(?:\/(?:fork|screen|archive))?)?$/.test(url.pathname)) {
+  if (!isSpine && !/^\/api\/runs(?:\/[^/]+(?:\/(?:fork|screen|archive|steer))?)?$/.test(url.pathname)) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {
@@ -112,7 +112,16 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   if (isSpine && request.method !== "GET") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   }
-  if (!isSpine && request.method !== "GET" && request.method !== "DELETE" && request.method !== "POST") {
+  const isSteer = /^\/api\/runs\/[^/]+\/steer$/.test(url.pathname);
+  if (
+    !isSpine &&
+    request.method !== "GET" &&
+    request.method !== "DELETE" &&
+    request.method !== "POST"
+  ) {
+    return Response.json({ error: "Method not allowed." }, { status: 405 });
+  }
+  if (isSteer && request.method !== "POST") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   }
   const resolved = await resolveRunStoreTarget(request, env, url);

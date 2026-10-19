@@ -17,6 +17,9 @@ const SCOPES = [
   "runs:read",
   "sandbox:exec",
   "admin:tokens",
+  "api:read",
+  "api:write",
+  "api:keys:admin",
 ];
 const TOKEN_ID_BYTES = 8;
 const TOKEN_SECRET_BYTES = 24;
