@@ -264,7 +264,7 @@ BYOK/worker-secret lane, so ACP lanes add no new auth surface.
 
 Defaults live in `harness/index.ts` (`HARNESS_DEFAULT_MODELS`) and are
 overridable per deploy (`CODING_MODEL`, `CLAUDE_CODE_MODEL`, `CODEX_MODEL`,
-`DEVIN_MODEL`, `GROK_MODEL`) and per run via the delegate tool's
+`DEVIN_MODEL`, `GROK_MODEL`, `PI_MODEL`) and per run via the delegate tool's
 `codingModel` input. They are defaults, **not
 availability guarantees** — model ids retire, and `coding-model.ts` asserts the
 configured model is not on the retired deny-list at first request.
@@ -346,4 +346,3 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 | state and persistence | the nine DO classes in §4 (`*-do.ts` plus the agent classes) |
 | every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts` |
 | what is planned and why | `PLAN.md` (§17 for parity roadmap, §4 for what was cut and why) |
-

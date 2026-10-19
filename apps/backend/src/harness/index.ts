@@ -261,8 +261,8 @@ export const HARNESS_NAMES = Object.keys(REGISTRY) as readonly AgentHarnessName[
  * Per-harness default coding model. The checked-in ids are defaults, not
  * availability guarantees — model ids retire (see configuration.md).
  * Overridable per deploy via CODING_MODEL / CLAUDE_CODE_MODEL / CODEX_MODEL /
- * DEVIN_MODEL / GROK_MODEL and the per-harness *_SUBSCRIPTION_MODEL vars, and
- * per run via the delegate tool's codingModel input.
+ * DEVIN_MODEL / GROK_MODEL / PI_MODEL and the per-harness *_SUBSCRIPTION_MODEL
+ * vars, and per run via the delegate tool's codingModel input.
  */
 const CORE_DEFAULT_MODELS = {
   // Sentinel only — a run that names harness "acp" without a codingModel
@@ -321,7 +321,7 @@ const CORE_MODEL_ENV = {
   "codex-subscription": "CODEX_SUBSCRIPTION_MODEL",
   devin: "DEVIN_MODEL",
   grok: "GROK_MODEL",
-  pi: "CODING_MODEL",
+  pi: "PI_MODEL",
   cursor: "CODING_MODEL",
   antigravity: "CODING_MODEL",
   "antigravity-subscription": "ANTIGRAVITY_SUBSCRIPTION_MODEL",

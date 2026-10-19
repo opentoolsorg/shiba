@@ -641,7 +641,7 @@ describe("agent cli catalog", () => {
     expect(catalog.find((a) => a.id === "grok")?.defaultModel).toBe("xai/grok-4.6");
     expect(catalog.find((a) => a.id === "pi")?.version).toBe("1.3.0");
     expect(catalog.find((a) => a.id === "pi")?.defaultModel).toBe("anthropic/claude-sonnet-4-6");
-    expect(HARNESS_MODEL_ENV.pi).toBe("CODING_MODEL");
+    expect(HARNESS_MODEL_ENV.pi).toBe("PI_MODEL");
     expect(HARNESS_DEFAULT_MODELS.pi).toBe("anthropic/claude-sonnet-4-6");
     expect(catalog.find((a) => a.id === "devin")?.version).toBe("3000.11.3");
     expect(catalog.find((a) => a.id === "devin")?.defaultModel).toBe("devin/swe-2-medium");

@@ -102,7 +102,8 @@ Already pinned identical in both: `GATEWAY_ID=default`,
 - [ ] Optional per env: `AGENT_HARNESS`, `AUTOMATIONS_ENABLED`,
       `MEMORY_ENABLED`, `AGENT_MAILBOX`, `BETTER_AUTH_URL`,
       `ROLE_MODEL_MAP` / `ROLE_MODEL__*`, model overrides
-      (`CLAUDE_CODE_MODEL`, `CODEX_MODEL`, `DEVIN_MODEL`, `GROK_MODEL`, `ACP_MODEL`).
+      (`CLAUDE_CODE_MODEL`, `CODEX_MODEL`, `DEVIN_MODEL`, `GROK_MODEL`,
+      `PI_MODEL`, `ACP_MODEL`).
       ⚠ `SLACK_AGENT_HARNESS`, `USAGE_BUDGET_USD` are
       read by the worker but absent from alchemy `configVars()`.
 
