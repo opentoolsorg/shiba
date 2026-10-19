@@ -8,9 +8,11 @@ import { reviewerTask } from "./review/prompt.js";
 import {
   fireMatchingAutomations,
   githubWebhookToEvent,
+  linearEventToAutomation,
   slackEventToAutomation,
   type FireAutomationDeps,
 } from "./automation-runner.js";
+import { isGitHubPublishConfigured } from "./github-auth.js";
 import {
   AutomationStore,
   automationsEnabled,
@@ -34,6 +36,7 @@ export interface OrchestratorStub {
   fetch: (request: Request) => Promise<Response>;
 }
 
+const WEBHOOK_BATCH_PREFIX = "webhook-batch:";
 const DEDUPE_PREFIX = "dedupe:";
 const DEDUPE_TTL_MS = 3_600_000;
 const DEDUPE_GC_INTERVAL_MS = 60_000;
@@ -107,7 +110,7 @@ export class Automations {
       typeSafeApiKey: this.env.TYPESAFE_API_KEY,
       nowMs,
       globalEnabled: automationsEnabled(this.env.AUTOMATIONS_ENABLED),
-      canPublishPullRequest: Boolean(this.env.GITHUB_TOKEN),
+      canPublishPullRequest: isGitHubPublishConfigured(this.env),
       queueRun: (input) => queueOnOrchestrator(orchestrator, input),
       resolveApproval: (input) => resolveOnOrchestrator(orchestrator, input),
     };
@@ -141,8 +144,10 @@ export class Automations {
 
   async tick(orchestrator: OrchestratorStub, nowMs = Date.now()): Promise<{ fired: number }> {
     const store = await this.load();
+    let fired = 0;
+    fired += await this.flushWebhookBatches(orchestrator, store, nowMs);
     const due = collectDueSchedules(store.list(), nowMs);
-    if (due.length === 0) return { fired: 0 };
+    if (due.length === 0) return { fired };
     const event: AutomationMatchEvent = { kind: "schedule", nowMs };
     const { results, automations } = await fireMatchingAutomations(
       store.list(),
@@ -152,7 +157,35 @@ export class Automations {
     const next = new AutomationStore();
     for (const item of automations) next.upsert(item);
     await this.save(next);
-    return { fired: results.filter((r) => r.fired).length };
+    return { fired: fired + results.filter((r) => r.fired).length };
+  }
+
+  private async flushWebhookBatches(
+    orchestrator: OrchestratorStub,
+    store: AutomationStore,
+    nowMs: number,
+  ): Promise<number> {
+    const batches = await this.ctx.storage.list<{ bodies: string[]; firstAt: number; windowSeconds: number }>({
+      prefix: WEBHOOK_BATCH_PREFIX,
+    });
+    let fired = 0;
+    for (const [key, batch] of batches) {
+      if (!batch || !Array.isArray(batch.bodies) || batch.bodies.length === 0) continue;
+      const deadline = batch.firstAt + batch.windowSeconds * 1000;
+      if (nowMs < deadline) continue;
+      const automationId = key.slice(WEBHOOK_BATCH_PREFIX.length);
+      const automation = store.get(automationId);
+      await this.ctx.storage.delete(key);
+      if (!automation?.webhookSecret) continue;
+      const result = await this.fireEvent(
+        { kind: "webhook", secret: automation.webhookSecret, batchedBodies: batch.bodies },
+        orchestrator,
+        nowMs,
+        automation.id,
+      );
+      fired += result.fired;
+    }
+    return fired;
   }
 
   private async orchestrator(): Promise<OrchestratorStub> {
@@ -320,6 +353,53 @@ export class Automations {
       }
       return Response.json({ seen: false });
     }
+    if (request.method === "POST" && url.pathname === "/internal/linear") {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+      }
+      const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+      const action = typeof record.event === "object" && record.event !== null
+        ? String((record.event as { action?: unknown }).action ?? "created")
+        : "created";
+      const teamKey =
+        typeof record.teamKey === "string"
+          ? record.teamKey
+          : typeof record.event === "object" &&
+              record.event !== null &&
+              typeof (record.event as { agentSession?: { issue?: { team?: { key?: string } } } }).agentSession?.issue
+                ?.team?.key === "string"
+            ? (record.event as { agentSession: { issue: { team: { key: string } } } }).agentSession.issue.team.key
+            : undefined;
+      const sessionId = typeof record.sessionId === "string" ? record.sessionId : undefined;
+      const mapped = linearEventToAutomation({ action, ...(teamKey ? { teamKey } : {}), ...(sessionId ? { sessionId } : {}) });
+      const result = await this.fireEvent({ kind: "linear", ...mapped }, await this.orchestrator());
+      const task = typeof record.task === "string" ? record.task : "";
+      const repoUrl =
+        (typeof record.repoUrl === "string" ? record.repoUrl : "") ||
+        this.env.LINEAR_DEFAULT_REPO_URL?.trim() ||
+        "";
+      let linearQueued = false;
+      if (task && repoUrl && sessionId) {
+        try {
+          await queueOnOrchestrator(await this.orchestrator(), {
+            repoUrl,
+            task,
+            publishPullRequest: isGitHubPublishConfigured(this.env),
+            threadKey: `linear:session:${sessionId}`,
+            commandId: `linear:${sessionId}:${action}`,
+          });
+          linearQueued = true;
+        } catch (error) {
+          console.error(
+            `linear session lane queue failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      return Response.json({ ...result, linearQueued });
+    }
     if (request.method === "POST" && url.pathname === "/internal/slack") {
       let body: unknown;
       try {
@@ -429,12 +509,29 @@ export class Automations {
       if (!verifyWebhookSecret(automation, secret)) {
         return Response.json({ error: "Invalid automation secret." }, { status: 401 });
       }
-      // Scope the fan-out to this automation: a webhook trigger event without
-      // onlyId would match-verify against every stored automation's secret.
+      const webhookTrigger = automation.triggers.find((t) => t.kind === "webhook");
+      const batchWindow =
+        webhookTrigger?.kind === "webhook" ? webhookTrigger.batchWindowSeconds ?? 0 : 0;
+      const rawPayload = await request.text();
+      const now = Date.now();
+      if (batchWindow > 0) {
+        const storageKey = WEBHOOK_BATCH_PREFIX + automation.id;
+        const existing = await this.ctx.storage.get<{ bodies: string[]; firstAt: number; windowSeconds: number }>(
+          storageKey,
+        );
+        const bodies = [...(existing?.bodies ?? []), rawPayload.slice(0, 32_000)];
+        const firstAt = existing?.firstAt ?? now;
+        await this.ctx.storage.put(storageKey, {
+          bodies,
+          firstAt,
+          windowSeconds: Math.min(300, Math.max(1, batchWindow)),
+        });
+        return Response.json({ ok: true, id: automation.id, batched: true, pending: bodies.length });
+      }
       const result = await this.fireEvent(
-        { kind: "webhook", secret },
+        { kind: "webhook", secret, batchedBodies: rawPayload ? [rawPayload] : [] },
         await this.orchestrator(),
-        Date.now(),
+        now,
         automation.id,
       );
       return Response.json({ ok: true, id: automation.id, ...result });
