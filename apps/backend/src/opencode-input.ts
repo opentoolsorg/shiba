@@ -110,6 +110,8 @@ const codingTaskResultSchema = z.object({
    * The sandbox preview URL itself is ephemeral and never leaves the worker.
    */
   screenshotUrl: z.string().optional(),
+  /** Phase 3: browser E2E frame manifest served from this Worker. */
+  browserE2eManifestUrl: z.string().optional(),
   /**
    * T46: evidence that a declared testCommand actually ran — command (shell-
    * joined form), exit code, and a bounded output tail. Rides the envelope so
