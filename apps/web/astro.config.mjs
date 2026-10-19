@@ -72,6 +72,7 @@ export default defineConfig({
 						{ label: 'GitHub Pull Requests', slug: 'docs/github' },
 						{ label: 'Pull request review', slug: 'docs/review' },
 						{ label: 'Sandbox SDK 1.0', slug: 'docs/sandbox-sdk-1' },
+						{ label: 'Sandbox providers', slug: 'docs/sandbox-providers' },
 						{ label: 'Automations & Cron', slug: 'docs/automations' },
 						{ label: 'Use from Claude Code', slug: 'docs/mcp' },
 					],
