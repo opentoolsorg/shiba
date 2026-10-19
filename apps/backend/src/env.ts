@@ -306,6 +306,17 @@ export interface Env {
   /** T49: per-deploy model override for the codex-subscription harness. */
   CODEX_SUBSCRIPTION_MODEL?: string;
   /**
+   * AES-256 key (64 hex chars) for per-user subscription auth.json blobs on
+   * AGENT_AUDIT D1. When set, codex-subscription is registered and users
+   * connect via Settings → Models → ChatGPT subscription.
+   */
+  MODEL_CREDENTIAL_KEY?: string;
+  /**
+   * When "1", deployment-wide CODEX_SUBSCRIPTION_AUTH_JSON Worker secrets
+   * remain the codex-subscription credential fallback (single-operator mode).
+   */
+  SHIBA_SINGLE_USER?: string;
+  /**
    * T50 opt-in flag (§18.12): "1" registers the antigravity-subscription
    * harness and opens the /api/auth/antigravity-subscription verbs plus the
    * /api/antigravity/callback route. No credential var exists — Google

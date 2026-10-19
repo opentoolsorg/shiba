@@ -627,6 +627,7 @@ describe("agent cli catalog", () => {
     expect(catalog.map((a) => a.id)).toEqual([
       "opencode",
       "claude-code",
+      "claude-login",
       "codex",
       "devin",
       "grok",

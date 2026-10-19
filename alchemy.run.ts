@@ -178,7 +178,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
-    SHIBA_CLAUDE_SUBSCRIPTION: "1",
+    SHIBA_CLAUDE_SUBSCRIPTION: "0",
     // Dark by default; configVars() below overrides from the deploy env.
     SHIBA_CODEX_SUBSCRIPTION: "0",
     SHIBA_CURSOR_SUBSCRIPTION: "0",

@@ -6,12 +6,24 @@
  * `cloudflare:` builtins and cannot be loaded by the node test runner.
  */
 import type { Env as WorkerEnv } from "./env.js";
+import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
 import { parseCodexAuthJson } from "@shiba/shared";
 
 export type EgressEnv = Pick<
   WorkerEnv,
-  "AI" | "GATEWAY_ID" | "AI_GATEWAY_TOKEN" | "GITHUB_TOKEN" | "DEVIN_API_KEY" | "CLAUDE_SUBSCRIPTION_TOKEN" | "CODEX_SUBSCRIPTION_AUTH_JSON" | "CURSOR_SUBSCRIPTION_TOKEN" | "DEVIN_SUBSCRIPTION_TOKEN"
+  | "AI"
+  | "GATEWAY_ID"
+  | "AI_GATEWAY_TOKEN"
+  | "GITHUB_TOKEN"
+  | "DEVIN_API_KEY"
+  | "CLAUDE_SUBSCRIPTION_TOKEN"
+  | "CODEX_SUBSCRIPTION_AUTH_JSON"
+  | "CURSOR_SUBSCRIPTION_TOKEN"
+  | "DEVIN_SUBSCRIPTION_TOKEN"
+  | "MODEL_CREDENTIAL_KEY"
+  | "SHIBA_SINGLE_USER"
+  | "AGENT_AUDIT"
 >;
 
 /**
@@ -192,6 +204,7 @@ export async function forwardCodexSubscription(
 ): Promise<Response> {
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
+  const userId = typeof params.userId === "string" && params.userId !== "" ? params.userId : undefined;
   const secretName =
     account === "default"
       ? "CODEX_SUBSCRIPTION_AUTH_JSON"
@@ -211,13 +224,16 @@ export async function forwardCodexSubscription(
   if (request.method !== "GET" && request.method !== "POST") {
     return new Response("Method not allowed.", { status: 405 });
   }
-  const raw = (env as Record<string, unknown>)[secretName];
-  if (typeof raw !== "string" || raw.trim() === "") {
-    return new Response(`${secretName} is not configured on this deployment.`, { status: 503 });
+  const raw = await resolveCodexSubscriptionAuthJson(env as WorkerEnv, { account, userId });
+  if (raw === null) {
+    const hint = userId
+      ? "No ChatGPT subscription is connected for this user."
+      : `${secretName} is not configured on this deployment.`;
+    return new Response(hint, { status: 503 });
   }
-  const credential = parseCodexAuthJson(raw);
+  const credential = parseResolvedCodexCredential(raw);
   if (credential === null) {
-    return new Response(`${secretName} is not a valid codex auth.json — re-store the full file contents.`, { status: 503 });
+    return new Response("Stored codex auth.json is invalid — reconnect ChatGPT subscription in Settings.", { status: 503 });
   }
   target.search = stripCredentialParams(target.search);
   const headers = outboundHeaders(request);

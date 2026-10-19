@@ -165,10 +165,12 @@ export class CodexSubscriptionHarness implements AgentHarness {
 
   /** chatgpt.com rides the subscription branch, params carry the account name only. */
   egressOverrides(input: CodingTaskInput) {
+    const params: Record<string, string> = { account: codexSubscriptionAccount(input) };
+    if (input.initiatorUserId) params.userId = input.initiatorUserId;
     return CODEX_SUBSCRIPTION_HOSTS.map((host) => ({
       host,
       handler: "codexSubscription",
-      params: { account: codexSubscriptionAccount(input) },
+      params,
     }));
   }
 

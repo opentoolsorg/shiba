@@ -25,6 +25,7 @@ const FIXED_PURPOSES: { id: string; label: string; note: string }[] = [
 const CONNECTION_SERVICES = [
   "anthropic",
   "openai",
+  "openai-subscription",
   "google",
   "grok",
   "devin",
