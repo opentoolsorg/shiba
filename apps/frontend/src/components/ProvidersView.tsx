@@ -9,34 +9,8 @@
  */
 import type { AcpProviderCard, AcpProviderConnection, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useCallback, useEffect, useState } from "react";
-import type { SetupStatus } from "../live-status";
 import { ConnectionsCard } from "./ModelRoutingSection";
-import { chip } from "./SubscriptionConnect";
-
-export function gatewayCredentialState(
-  gateway: SetupStatus["gateway"] | undefined,
-): { tone: "ok" | "warning" | "neutral"; label: string; hint: string | null } {
-  if (gateway === undefined || gateway.reachable === "unknown") {
-    return { tone: "neutral", label: "AI Gateway", hint: null };
-  }
-  if (gateway.reachable === "yes") {
-    return { tone: "ok", label: "Ready", hint: null };
-  }
-  if (gateway.reachable === "unauthorized") {
-    return {
-      tone: "warning",
-      label: "Gateway unauthorized",
-      hint: gateway.token
-        ? "AI_GATEWAY_TOKEN was rejected by the gateway — rotate it."
-        : "Set AI_GATEWAY_TOKEN: npx wrangler secret put AI_GATEWAY_TOKEN",
-    };
-  }
-  return {
-    tone: "warning",
-    label: "Gateway error",
-    hint: "The AI Gateway probe failed — check GATEWAY_ID.",
-  };
-}
+import { ToneChip } from "./ToneChip";
 
 export function providerPhaseLabel(connection: Pick<AcpProviderConnection, "phase" | "testOk">): {
   tone: "ok" | "danger" | "pending" | "navy" | "neutral";
@@ -126,8 +100,13 @@ export function ProvidersBoard({
             or AI Gateway credential. Keys are never pasted here.
           </p>
           {snapshot?.defaultProviderId ? (
-            <p className="mt-2 font-mono text-[11px] text-[var(--primary)]" data-testid="providers-org-default">
-              Org default: {snapshot.providers.find((provider) => provider.id === snapshot.defaultProviderId)?.label ?? snapshot.defaultProviderId}
+            <p
+              className="mt-2 font-mono text-[11px] text-[var(--primary)]"
+              data-testid="providers-org-default"
+            >
+              Org default:{" "}
+              {snapshot.providers.find((provider) => provider.id === snapshot.defaultProviderId)
+                ?.label ?? snapshot.defaultProviderId}
             </p>
           ) : null}
         </div>
@@ -159,7 +138,10 @@ export function ProvidersBoard({
             </p>
           </div>
           {loading && snapshot === null ? (
-            <div className="font-mono text-xs text-[var(--muted-foreground-2)]" data-testid="providers-loading">
+            <div
+              className="font-mono text-xs text-[var(--muted-foreground-2)]"
+              data-testid="providers-loading"
+            >
               Loading providers…
             </div>
           ) : (
@@ -234,9 +216,13 @@ function ProviderCard({
               </span>
             ) : null}
           </div>
-          <div className="mt-1 font-mono text-[11px] text-[var(--muted-foreground-2)]">{card.blurb}</div>
+          <div className="mt-1 font-mono text-[11px] text-[var(--muted-foreground-2)]">
+            {card.blurb}
+          </div>
         </div>
-        <span data-testid={`provider-status-${card.id}`}>{chip(phase.tone, phase.label)}</span>
+        <span data-testid={`provider-status-${card.id}`}>
+          <ToneChip tone={phase.tone} label={phase.label} />
+        </span>
       </div>
 
       <dl className="mt-3 space-y-1.5 text-[12px]">
@@ -250,13 +236,17 @@ function ProviderCard({
         </div>
         <div className="flex items-baseline gap-2">
           <dt className="w-20 shrink-0 text-[var(--muted-foreground-2)]">Model</dt>
-          <dd className="truncate font-mono text-[var(--muted-foreground-2)]">{card.defaultModel}</dd>
+          <dd className="truncate font-mono text-[var(--muted-foreground-2)]">
+            {card.defaultModel}
+          </dd>
         </div>
       </dl>
       <CapabilityList card={card} />
 
       {card.connection.message ? (
-        <p className="mt-3 font-mono text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">{card.connection.message}</p>
+        <p className="mt-3 font-mono text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+          {card.connection.message}
+        </p>
       ) : null}
 
       {waiting && card.connection.userCode ? (
@@ -278,10 +268,20 @@ function ProviderCard({
             </a>
           ) : null}
           <div className="flex items-center gap-2">
-            <button type="button" disabled={busy} onClick={() => onVerify(card.id)} className={PRIMARY}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onVerify(card.id)}
+              className={PRIMARY}
+            >
               {busy ? "Checking…" : "Finish sign-in"}
             </button>
-            <button type="button" disabled={busy} onClick={() => onDisconnect(card.id)} className={SECONDARY}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onDisconnect(card.id)}
+              className={SECONDARY}
+            >
               Cancel
             </button>
           </div>
@@ -312,15 +312,33 @@ function ProviderCard({
           ) : null}
           {connected ? (
             <>
-              <button type="button" data-testid={`provider-test-${card.id}`} disabled={busy} onClick={() => onTest(card.id)} className={PRIMARY}>
+              <button
+                type="button"
+                data-testid={`provider-test-${card.id}`}
+                disabled={busy}
+                onClick={() => onTest(card.id)}
+                className={PRIMARY}
+              >
                 {busy ? "Testing…" : "Test connection"}
               </button>
               {!card.isDefault ? (
-                <button type="button" data-testid={`provider-default-${card.id}`} disabled={busy} onClick={() => onDefault(card.id)} className={SECONDARY}>
+                <button
+                  type="button"
+                  data-testid={`provider-default-${card.id}`}
+                  disabled={busy}
+                  onClick={() => onDefault(card.id)}
+                  className={SECONDARY}
+                >
                   Set as org default
                 </button>
               ) : null}
-              <button type="button" data-testid={`provider-disconnect-${card.id}`} disabled={busy} onClick={() => onDisconnect(card.id)} className={SECONDARY}>
+              <button
+                type="button"
+                data-testid={`provider-disconnect-${card.id}`}
+                disabled={busy}
+                onClick={() => onDisconnect(card.id)}
+                className={SECONDARY}
+              >
                 Disconnect
               </button>
             </>
@@ -339,13 +357,18 @@ function ProviderCard({
   );
 }
 
-async function postProvider(path: string, body: Record<string, unknown>): Promise<AcpProvidersSnapshot> {
+async function postProvider(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<AcpProvidersSnapshot> {
   const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const payload = (await response.json().catch(() => ({}))) as AcpProvidersSnapshot & { error?: string };
+  const payload = (await response.json().catch(() => ({}))) as AcpProvidersSnapshot & {
+    error?: string;
+  };
   if (!response.ok) {
     throw new Error(payload.error ?? `Request failed (${response.status}).`);
   }
@@ -399,7 +422,8 @@ export function ProvidersView(): JSX.Element {
     }
   }, []);
 
-  const codeFor = (id: string) => snapshot?.providers.find((provider) => provider.id === id)?.connection.userCode ?? "";
+  const codeFor = (id: string) =>
+    snapshot?.providers.find((provider) => provider.id === id)?.connection.userCode ?? "";
 
   return (
     <ProvidersBoard
@@ -409,9 +433,15 @@ export function ProvidersView(): JSX.Element {
       busyId={busyId}
       actionError={actionError}
       onRetry={() => setAttempt((n) => n + 1)}
-      onConnectOauth={(id) => void run(id, () => postProvider(`/api/providers/${id}/connect`, { mode: "oauth" }))}
-      onConnectApiKey={(id) => void run(id, () => postProvider(`/api/providers/${id}/connect`, { mode: "api-key" }))}
-      onVerify={(id) => void run(id, () => postProvider(`/api/providers/${id}/verify`, { userCode: codeFor(id) }))}
+      onConnectOauth={(id) =>
+        void run(id, () => postProvider(`/api/providers/${id}/connect`, { mode: "oauth" }))
+      }
+      onConnectApiKey={(id) =>
+        void run(id, () => postProvider(`/api/providers/${id}/connect`, { mode: "api-key" }))
+      }
+      onVerify={(id) =>
+        void run(id, () => postProvider(`/api/providers/${id}/verify`, { userCode: codeFor(id) }))
+      }
       onTest={(id) => void run(id, () => postProvider(`/api/providers/${id}/test`, {}))}
       onDisconnect={(id) => void run(id, () => postProvider(`/api/providers/${id}/disconnect`, {}))}
       onDefault={(id) => void run(id, () => postProvider(`/api/providers/${id}/default`, {}))}

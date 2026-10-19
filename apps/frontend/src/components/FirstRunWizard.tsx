@@ -2,37 +2,26 @@
  * FirstRunWizard — the post-signup onboarding flow. Three steps:
  *   1. Channels  — review deployment-reported configuration for the surfaces
  *      that carry tasks & approvals (Slack/Telegram/Discord/Email/GitHub).
- *   2. Your agent — optionally connect a subscription provider via the shared
- *      SubscriptionConnect control.
+ *   2. Your agent — ACP adapter status from /api/providers, with a link
+ *      to the Providers page for sign-in, test, and the org default.
  *   3. Model routing — the deployment's role→harness map, read-only, with a
  *      link into Settings → Models.
  * Opens automatically on the first authenticated session
  * (`shiba-onboarding-v1` in localStorage) and can be reopened from Setup
  * Guide. Steps never block: "Skip" always works, "Finish" marks it done.
  */
-import { useEffect, useRef, useState, type JSX } from "react";
+import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
+import { type JSX, useEffect, useRef, useState } from "react";
+import { useMailboxes, useSetupStatus } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
+import { providerPhaseLabel } from "./ProvidersView";
 import { ToneChip } from "./ToneChip";
-import {
-  SUBSCRIPTION_AUTH,
-  SubscriptionConnect,
-  subscriptionChip,
-  type AgentCliCredential,
-  type SubscriptionId,
-  type SubscriptionStatus,
-} from "./SubscriptionConnect";
-import {
-  useAgentsDirectory,
-  useMailboxes,
-  useSetupStatus,
-} from "../live-status";
 
 export const ONBOARDING_STORAGE_KEY = "shiba-onboarding-v1";
-const SUBSCRIPTION_IDS = Object.keys(SUBSCRIPTION_AUTH) as SubscriptionId[];
 
 const STEPS = [
   { id: "channels", title: "Your channels", blurb: "Where tasks and approvals reach you" },
-  { id: "agent", title: "Your agent", blurb: "Optional subscription provider connections" },
+  { id: "agent", title: "Your agent", blurb: "ACP adapters that run in the sandbox" },
   { id: "models", title: "Model routing", blurb: "Which agent handles each kind of task" },
 ] as const;
 
@@ -62,9 +51,7 @@ function WizardShell({
               <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
                 Welcome — {step + 1} of {STEPS.length}
               </div>
-              <h2 className="mt-0.5 text-base font-semibold text-[var(--text)]">
-                {current.title}
-              </h2>
+              <h2 className="mt-0.5 text-base font-semibold text-[var(--text)]">{current.title}</h2>
               <p className="mt-0.5 text-xs text-[var(--muted-foreground-2)]">{current.blurb}</p>
             </div>
             <button
@@ -146,36 +133,11 @@ function ChannelRow({
     <div className="flex items-start justify-between gap-3 border-b border-[var(--border-1)]/60 py-2.5 last:border-b-0">
       <div className="min-w-0">
         <div className="text-[13px] font-medium text-[var(--text)]">{name}</div>
-        <div className="mt-0.5 text-[11px] leading-snug text-[var(--muted-foreground-2)]">{children}</div>
+        <div className="mt-0.5 text-[11px] leading-snug text-[var(--muted-foreground-2)]">
+          {children}
+        </div>
       </div>
       <div className="shrink-0 pt-0.5">{status}</div>
-    </div>
-  );
-}
-
-function AgentRow({
-  id,
-  agentCredential,
-  status,
-  onStatus,
-}: {
-  id: SubscriptionId;
-  agentCredential?: AgentCliCredential;
-  status: SubscriptionStatus | undefined;
-  onStatus: (status: SubscriptionStatus) => void;
-}): JSX.Element {
-  const spec = SUBSCRIPTION_AUTH[id];
-  const credential = agentCredential ?? spec.credential;
-  return (
-    <div className="border-b border-[var(--border-1)]/60 py-3 last:border-b-0">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium text-[var(--text)]">{spec.label}</div>
-          <div className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">{spec.blurb}</div>
-        </div>
-        <div className="shrink-0">{subscriptionChip(status)}</div>
-      </div>
-      <SubscriptionConnect spec={spec} credential={credential} onStatus={onStatus} />
     </div>
   );
 }
@@ -194,26 +156,21 @@ export function FirstRunWizard({
   onOpenChecklist?: () => void;
 }): JSX.Element | null {
   const [step, setStep] = useState(0);
-  const [subscriptions, setSubscriptions] = useState<Partial<Record<SubscriptionId, SubscriptionStatus>>>({});
+  const [providers, setProviders] = useState<AcpProviderCard[] | null>(null);
+  const [providersError, setProvidersError] = useState(false);
   const [routingRetried, setRoutingRetried] = useState(false);
   const routingRef = useRef<HTMLDivElement>(null);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
-  const directory = useAgentsDirectory();
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
 
-  const agents = directory.state.kind === "data" ? directory.state.data.agents : [];
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
   const mailboxList = mailboxes.state.kind === "data" ? mailboxes.state.data.mailboxes : undefined;
   const roles = status?.models.roles ?? [];
-  const connectedProviders = SUBSCRIPTION_IDS.filter((id) => {
-    const subscription = subscriptions[id];
-    return subscription?.kind === "snapshot" && subscription.snapshot.phase === "succeeded";
-  }).length;
-  const checkingProviders = SUBSCRIPTION_IDS.some((id) =>
-    subscriptions[id] === undefined || subscriptions[id]?.kind === "loading",
-  );
-  const providerCheckFailed = SUBSCRIPTION_IDS.some((id) => subscriptions[id]?.kind === "error");
+  const connectedProviders = (providers ?? []).filter(
+    (card) => card.connection.phase === "connected",
+  ).length;
+  const checkingProviders = providers === null && !providersError;
 
   useEffect(() => {
     if (routingRetried && !setup.inFlight && setup.state.kind === "data") {
@@ -227,6 +184,28 @@ export function FirstRunWizard({
   useEffect(() => {
     if (!open || step !== 2) setRoutingRetried(false);
   }, [open, step]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetch("/api/providers")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Providers request failed: ${response.status}`);
+        return (await response.json()) as AcpProvidersSnapshot;
+      })
+      .then((body) => {
+        if (!cancelled) {
+          setProviders(Array.isArray(body.providers) ? body.providers : []);
+          setProvidersError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setProvidersError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -278,16 +257,16 @@ export function FirstRunWizard({
         <div role="status" className="mb-3 space-y-1.5">
           <ToneChip
             tone={connectedProviders > 0 ? "ok" : "neutral"}
-            label={`${connectedProviders} subscription provider${connectedProviders === 1 ? "" : "s"} connected`}
+            label={`${connectedProviders} provider${connectedProviders === 1 ? "" : "s"} connected`}
           />
           <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
             {checkingProviders
-              ? "Checking subscription connections…"
-              : providerCheckFailed
-                ? "Some connections could not be checked. Only confirmed connections are counted."
+              ? "Checking provider connections…"
+              : providersError
+                ? "Provider status could not be checked. Only confirmed connections are counted."
                 : connectedProviders === 0
-                  ? "No subscription provider connected yet. Task credentials depend on your deployment's model routing."
-                  : "Connection status is reported by the deployment; model routing is configured separately."}
+                  ? "No provider connected yet. Sign in on the Providers page."
+                  : "Connection status comes from the provider registry. Model routing is configured separately."}
           </p>
         </div>
       ) : null}
@@ -318,7 +297,9 @@ export function FirstRunWizard({
                 <ToneChip tone="pending" label="Could not check" />
               ) : setup.inFlight || status === undefined ? (
                 <ToneChip tone="neutral" label="Checking…" />
-              ) : status.slack.signingSecret && status.slack.botToken && status.slack.approvers > 0 ? (
+              ) : status.slack.signingSecret &&
+                status.slack.botToken &&
+                status.slack.approvers > 0 ? (
                 <ToneChip tone="ok" label="Configured" />
               ) : status.slack.signingSecret || status.slack.botToken ? (
                 <ToneChip tone="pending" label="Partly configured" />
@@ -350,7 +331,9 @@ export function FirstRunWizard({
             }
           >
             Inbound triage and approved sends.
-            {status !== undefined && !status.mailbox.sendEnabled ? " Outbound sending is not enabled." : ""}
+            {status !== undefined && !status.mailbox.sendEnabled
+              ? " Outbound sending is not enabled."
+              : ""}
           </ChannelRow>
           <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
             Configuration does not confirm live delivery. Channel setup is managed by your
@@ -372,19 +355,53 @@ export function FirstRunWizard({
       ) : null}
 
       <div hidden={step !== 1}>
-        {SUBSCRIPTION_IDS.map((id) => (
-          <AgentRow
-            key={id}
-            id={id}
-            agentCredential={agents.find((a) => a.id === id)?.credential}
-            status={subscriptions[id]}
-            onStatus={(next) => setSubscriptions((current) => ({ ...current, [id]: next }))}
-          />
-        ))}
+        {providers === null && !providersError ? (
+          <p className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
+            Loading providers…
+          </p>
+        ) : providersError ? (
+          <p className="text-[11px] text-[var(--warning-fg)]">
+            Provider status could not be loaded. Open Providers to try again.
+          </p>
+        ) : (
+          (providers ?? []).map((card) => {
+            const phase = providerPhaseLabel(card.connection);
+            return (
+              <div
+                key={card.id}
+                className="border-b border-[var(--border-1)]/60 py-3 last:border-b-0"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-medium text-[var(--text)]">{card.label}</div>
+                    <div className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">
+                      {card.blurb}
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    <ToneChip tone={phase.tone} label={phase.label} />
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
         <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
-          Connect a subscription provider if your model routing requires one. You can add or
-          switch providers later in Settings → Providers.
+          Sign-in, the API credential, test, and the org default are on Providers. Cursor, Devin,
+          and Antigravity subscription lanes stay on their operator routes.
         </p>
+        {onNavigate ? (
+          <button
+            type="button"
+            onClick={() => {
+              finish();
+              onNavigate("providers");
+            }}
+            className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            Open Providers →
+          </button>
+        ) : null}
       </div>
 
       {step === 2 ? (
@@ -411,8 +428,8 @@ export function FirstRunWizard({
             <p className="text-[11px] text-[var(--muted-foreground-2)]">Checking model routing…</p>
           ) : roles.length === 0 ? (
             <p className="text-[11px] text-[var(--muted-foreground-2)]">
-              This deployment has not reported per-role routing. Ask your administrator to
-              check the model configuration.
+              This deployment has not reported per-role routing. Ask your administrator to check the
+              model configuration.
             </p>
           ) : (
             <div className="space-y-1.5">
@@ -438,8 +455,8 @@ export function FirstRunWizard({
             </div>
           )}
           <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
-            Routing decides which agent handles each task role. Tune it any time in
-            Settings → Models.
+            Routing decides which agent handles each task role. Tune it any time in Settings →
+            Models.
           </p>
           {onOpenModels ? (
             <button
@@ -455,7 +472,6 @@ export function FirstRunWizard({
           ) : null}
         </div>
       ) : null}
-
     </WizardShell>
   );
 }
