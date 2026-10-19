@@ -9,6 +9,7 @@ import {
   type Connection,
   type ConnectionService,
 } from "./model-connections.js";
+import { fetchWithBackoff } from "./http-retry.js";
 import { redactSecrets } from "./security.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 
@@ -59,7 +60,10 @@ async function probeGatewayByok(env: Pick<Env, "AI" | "GATEWAY_ID" | "AI_GATEWAY
     if (connection.credentialRef) {
       headers.set("cf-aig-byok-alias", connection.credentialRef);
     }
-    const response = await fetch(target, { method: "HEAD", headers, redirect: "manual" });
+    const response = await fetchWithBackoff(target, { method: "HEAD", headers, redirect: "manual" }, {
+      attempts: 3,
+      baseDelayMs: 200,
+    });
     if (response.status === 401 || response.status === 403) {
       return {
         ok: false,

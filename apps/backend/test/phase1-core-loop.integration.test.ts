@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
+import { createRun } from "../src/runs.js";
 import { publishFilesAsPullRequest } from "../src/github.js";
 import {
   RESULT_MARKER,
@@ -382,6 +383,30 @@ describe("Phase 1 core loop (integration)", () => {
     vi.unstubAllGlobals();
   });
 
+  it("re-runs the reviewer agent when retry follows a reviewer failure", async () => {
+    const github = createMockGitHubFetch();
+    vi.stubGlobal("fetch", github.fetchImpl);
+    mocks.harnessMode = "review-error";
+    wireFakeHarness(github);
+
+    const instance = agent();
+    const { codingRunId } = await queueAndApprove(instance);
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledTimes(2));
+    expect((instance.state.reviewRounds ?? [])[0]?.status).toBe("failed");
+
+    mocks.harnessMode = "happy";
+    const retry = await instance.onRequest(
+      new Request(`https://internal/api/runs/${encodeURIComponent(codingRunId)}/review/retry`, { method: "POST" }),
+    );
+    expect(retry.status).toBe(200);
+    expect(((await retry.json()) as { action?: string }).action).toBe("rerun");
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect((instance.state.reviewRounds ?? [])[0]?.status).toBe("posted"));
+    expect(github.postedReviews).toHaveLength(1);
+
+    vi.unstubAllGlobals();
+  });
+
   it("does not queue a duplicate reviewer for the same PR head (idempotent chain)", async () => {
     const github = createMockGitHubFetch();
     vi.stubGlobal("fetch", github.fetchImpl);
@@ -416,6 +441,60 @@ describe("Phase 1 core loop (integration)", () => {
     );
     expect(((await reviewGet.json()) as { round?: { status: string } }).round?.status).toBe("posted");
 
+    vi.unstubAllGlobals();
+  });
+
+  it("stores a review loop and queues a merge approval for a clean posted round", async () => {
+    const head = "c".repeat(40);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/pulls/7")) {
+        return Response.json({ number: 7, html_url: PULL_URL, head: { sha: head, ref: "shiba/run" } });
+      }
+      return Response.json({ message: "not found" }, { status: 404 });
+    }));
+    const instance = agent();
+    const coding = {
+      ...createRun({
+        runId: "agent-tool:loop",
+        sandboxId: "sb-loop",
+        repoUrl: REPO,
+        task: "Add a README",
+        baseBranch: "main",
+        publishPullRequest: true,
+        reviewAfterPublish: true,
+      }),
+      status: "completed" as const,
+      pullUrl: PULL_URL,
+    };
+    instance.setState({
+      runs: [coding],
+      reviewRounds: [{
+        roundId: `agent-tool:loop:${head}`,
+        codingRunId: coding.runId,
+        reviewRunId: "rev-1",
+        pull: { owner: "o", repo: "r", number: 7, headSha: head, url: PULL_URL },
+        status: "posted",
+        findings: [],
+        summary: "Looks good.",
+        generation: 1,
+        githubReviewId: 9,
+      }],
+    });
+    const response = await instance.onRequest(
+      new Request(`https://internal/api/runs/${coding.runId}/review-loop`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: true, autoMerge: true }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { reviewLoop?: { enabled: boolean; autoMerge: boolean } };
+    expect(body.reviewLoop).toMatchObject({ enabled: true, autoMerge: true });
+    expect(instance.state.pendingApprovals?.some((approval) => approval.kind === "pr_merge")).toBe(true);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    const again = await instance.onRequest(new Request(`https://internal/api/runs/${coding.runId}/review-loop`));
+    expect(((await again.json()) as { reviewLoop?: { enabled: boolean } }).reviewLoop?.enabled).toBe(true);
     vi.unstubAllGlobals();
   });
 });

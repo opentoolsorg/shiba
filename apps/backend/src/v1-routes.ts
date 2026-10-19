@@ -34,6 +34,7 @@ import { handleRuns } from "./v1/runs.js";
 import { handleSystem } from "./v1/system.js";
 import { handleOrgAgents } from "./v1/org-agents.js";
 import { handleThreads } from "./v1/threads.js";
+import { publicRunMessage, runTimedOut } from "./public-error.js";
 import { reviewerTask } from "./review/prompt.js";
 
 export interface V1RouteDeps {
@@ -50,7 +51,9 @@ export function v1Thread(run: DelegatedRun) {
     title: run.task.split("\n")[0]?.trim().slice(0, 80) || "Untitled thread",
     status: run.status, lane: laneForRun(run), archived: run.archivedAt !== undefined,
     costUsd: run.usage?.costUsd ?? null, createdAt: run.createdAt, updatedAt: run.updatedAt,
-    pullUrl: run.pullUrl ?? null, summary: run.summary ?? null, error: run.error ?? null,
+    pullUrl: run.pullUrl ?? null, summary: run.summary ?? null,
+    error: publicRunMessage(run), errorCode: run.errorCode ?? null, timedOut: runTimedOut(run),
+    usage: run.usage ?? null,
   };
 }
 

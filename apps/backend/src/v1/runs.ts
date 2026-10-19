@@ -1,4 +1,5 @@
 import { isActiveStatus, type DelegatedRun } from "@shiba/shared";
+import { publicRunMessage, runTimedOut } from "../public-error.js";
 import type { V1Context } from "./context.js";
 
 export function runStatus(run: DelegatedRun) {
@@ -70,7 +71,14 @@ export async function handleRuns(ctx: V1Context): Promise<Response | null> {
   }
   if (action === "failure") {
     if (status !== "failed") return Response.json({ ok: false, error: "run_failure_not_found" }, { status: 404 });
-    return Response.json({ ok: true, detail: { code: run.errorCode ?? "unknown", message: "Sorry, an error occurred" } });
+    return Response.json({
+      ok: true,
+      detail: {
+        code: run.errorCode ?? "unknown",
+        message: publicRunMessage(run) ?? "Sorry, an error occurred",
+        timedOut: runTimedOut(run),
+      },
+    });
   }
   if (action === "activity" || action === "activity/bounds") {
     const items = runActivity(run);

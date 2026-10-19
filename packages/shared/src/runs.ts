@@ -2,7 +2,9 @@
  * Durable run registry wire types — shared between the orchestrator's DO
  * state, the Worker API routes that serve them, and the dashboard. A run
  * is an append-only receipt log: completed/error/cancelled/aborted are
- * terminal, and there is no stop/resume.
+ * terminal. A restart may re-dispatch a run whose checkpoint is still
+ * `queued` or `dispatching` (no sandbox side effects yet). Once the
+ * checkpoint is `executing` or `settling`, the outcome is unknown.
  */
 import type { ApprovalEvidence } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
@@ -155,6 +157,14 @@ export interface DelegatedRun {
   /** Sandbox provider id for this run (task override frozen at queue time). */
   sandboxProvider?: string;
   customAgentId?: string;
+  /**
+   * Durable phase written before the next await. A Worker/DO restart
+   * resumes `queued` and `dispatching` runs that have not touched a
+   * sandbox, and marks `executing` / `settling` runs unknown.
+   */
+  checkpoint?: "queued" | "dispatching" | "executing" | "settling" | "terminal";
+  /** Set when a restart already re-dispatched this run. A second restart will not. */
+  resumeAttemptedAt?: number;
 }
 
 /**

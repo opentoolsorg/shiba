@@ -1,3 +1,4 @@
+import { fetchWithBackoff, isTimeoutError } from "../http-retry.js";
 import type { V1Context } from "./context.js";
 import { readRun } from "./runs.js";
 
@@ -12,12 +13,15 @@ const notImplemented = (detail: string) =>
 
 async function github<T>(ctx: V1Context, path: string, init?: { method: string; body: unknown }): Promise<T> {
   const apiBase = (ctx.env.GITHUB_API_BASE ?? "https://api.github.com").replace(/\/$/, "");
-  const response = await fetch(`${apiBase}${path}`, {
-    method: init?.method ?? "GET", signal: AbortSignal.timeout(30_000),
+  const timeout = AbortSignal.timeout(30_000);
+  const signal = ctx.request.signal ? AbortSignal.any([ctx.request.signal, timeout]) : timeout;
+  const response = await fetchWithBackoff(`${apiBase}${path}`, {
+    method: init?.method ?? "GET",
+    signal,
     headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${ctx.env.GITHUB_TOKEN}`,
       "User-Agent": "shiba", "X-GitHub-Api-Version": "2022-11-28", ...(init ? { "Content-Type": "application/json" } : {}) },
     ...(init ? { body: JSON.stringify(init.body) } : {}),
-  });
+  }, { signal, attempts: 3, baseDelayMs: 200 });
   // Upstream bodies can echo request detail; only the status crosses the boundary.
   if (!response.ok) throw new Error(`github_${response.status}`);
   return await response.json() as T;
@@ -102,8 +106,7 @@ export async function handlePulls(ctx: V1Context): Promise<Response | null> {
     return ctx.forward(method, `/api/runs/${encodeURIComponent(id)}/review${retry ? "/retry" : ""}`);
   }
   if (action === "review-loop") {
-    if (method === "GET") return Response.json({ ok: true, reviewLoop: null });
-    return notImplemented("The PR review loop needs a persisted loop record on the orchestrator.");
+    return ctx.forward(method, `/api/runs/${encodeURIComponent(id)}/review-loop`, method === "GET" ? undefined : body as Record<string, unknown>);
   }
   const pull = run.pullUrl?.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   if (!pull) {
@@ -158,7 +161,19 @@ export async function handlePulls(ctx: V1Context): Promise<Response | null> {
     // Thread resolution is GraphQL-only; REST cannot tell resolved from unresolved.
     return Response.json({ ok: true, pullRequestComments: { number: pr.number, repoFullName, commentsAvailable: true, unresolvedCount: 0, comments } });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return Response.json({ ok: false, error: "cancelled", userMessage: "The GitHub request was cancelled." }, { status: 499 });
+    }
+    if (isTimeoutError(error) || (error instanceof Error && /status 408|timed out/i.test(error.message))) {
+      return Response.json(
+        { ok: false, error: "github_timeout", userMessage: "GitHub timed out. Retry in a moment.", timedOut: true },
+        { status: 504 },
+      );
+    }
     const status = Number((error instanceof Error ? error.message : "").replace("github_", ""));
-    return Response.json({ ok: false, error: "github_request_failed" }, { status: status === 404 ? 404 : 502 });
+    return Response.json(
+      { ok: false, error: "github_request_failed", userMessage: "GitHub could not complete that request." },
+      { status: status === 404 ? 404 : 502 },
+    );
   }
 }
