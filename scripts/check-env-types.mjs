@@ -131,6 +131,7 @@ const parseJsonc = (text) => JSON.parse(stripTrailingCommas(stripJsoncComments(t
 // produces an `env.X` binding. Anything that does NOT (queues.consumers,
 // tail_consumers, placement, routes, crons, migrations) is deliberately absent.
 const BINDING_ARRAY_FIELDS = [
+  ["worker_loaders", "Worker Loader", (b) => b.binding],
   ["kv_namespaces", "KV Namespace", (b) => b.binding],
   ["r2_buckets", "R2 Bucket", (b) => b.binding],
   ["d1_databases", "D1 Database", (b) => b.binding],

@@ -26,6 +26,7 @@
     "env:scan": "varlock scan",
     "check": "biome check --formatter-enabled=false --assist-enabled=false .",
     "check:ci": "biome ci --formatter-enabled=false --assist-enabled=false . && knip --reporter compact --max-issues 6",
+    "check:deploy": "node scripts/check-alchemy-drift.mjs && node scripts/check-env-types.mjs",
     "check:dev-vars": "node scripts/check-dev-vars-example.mjs",
     "format": "biome format --write .",
     "knip": "knip",

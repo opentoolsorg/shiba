@@ -22,10 +22,11 @@ Thank you for helping make Shiba a credible **open-source, self-hostable** codin
 3. When you touch Worker bindings or secrets documentation:
 
    ```sh
-   node scripts/check-env-types.mjs
-   node scripts/check-alchemy-drift.mjs
+   pnpm check:deploy
    node scripts/check-dev-vars-example.mjs
    ```
+
+   Binding contract: edit **`apps/backend/wrangler.jsonc` first**, then mirror `alchemy.run.ts`. Secret names: keep **`apps/backend/worker-secrets.json`** in sync with `secrets([...])`. Owner deploy steps: **`docs/DEPLOY.md`**.
 
 4. When you change docs under `apps/web/src/content/docs/`:
 
