@@ -11,6 +11,7 @@ import type { ApprovedRoute } from "./model-connections.js";
 import { validateConnectionModel } from "./model-connections.js";
 import type { ModelConfigSnapshot } from "./model-policy.js";
 import type { CodingTaskInput } from "./opencode-input.js";
+import { verifyStandinEnabled } from "@shiba/shared";
 
 export interface RunPreflightInput {
   harness: string;
@@ -71,7 +72,11 @@ export async function assertRunPreflight(
     );
   }
 
-  if (catalog?.credential.kind === "ai-gateway-byok" && !env.AI_GATEWAY_TOKEN?.trim()) {
+  if (
+    catalog?.credential.kind === "ai-gateway-byok" &&
+    !env.AI_GATEWAY_TOKEN?.trim() &&
+    !verifyStandinEnabled(env)
+  ) {
     throw new Error(
       "AI Gateway is not configured (AI_GATEWAY_TOKEN is unset). " +
         "Add the gateway token or connect a subscription harness with /api/auth/*.",
