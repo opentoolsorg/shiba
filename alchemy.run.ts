@@ -181,6 +181,8 @@ export const Worker = Cloudflare.Worker("Worker", {
     SHIBA_CLAUDE_SUBSCRIPTION: "0",
     // Dark by default; configVars() below overrides from the deploy env.
     SHIBA_CODEX_SUBSCRIPTION: "0",
+    SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH: "0",
+    SHIBA_CODEX_DEVICE_AUTH: "0",
     SHIBA_CURSOR_SUBSCRIPTION: "0",
     SHIBA_DEVIN_SUBSCRIPTION: "0",
     SHIBA_ANTIGRAVITY_SUBSCRIPTION: "0",
@@ -337,6 +339,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       "CLAUDE_SUBSCRIPTION_MODEL",
       // T49 opt-ins (§18.11): absent = the subscription harness is dark.
       "SHIBA_CODEX_SUBSCRIPTION",
+      "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH",
+      "SHIBA_CODEX_DEVICE_AUTH",
       "CODEX_SUBSCRIPTION_MODEL",
       // T50 opt-ins (§18.12): absent = the antigravity flow is dark. No
       // credential var exists — OAuth tokens live in the container profile.

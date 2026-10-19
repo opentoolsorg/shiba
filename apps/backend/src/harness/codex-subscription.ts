@@ -19,6 +19,12 @@ import {
   verifyRunOutcome,
 } from "./types.js";
 import { CodexErrorEvent, parseCodexEvent } from "./codex.js";
+import {
+  CODEX_DEVICE_AUTH_HOSTS,
+  codexDeviceAuthHomeDir,
+  codexDeviceAuthVolumeForUser,
+  usesCodexDeviceAuth,
+} from "./codex-device-auth.js";
 
 export const CODEX_SUBSCRIPTION_PROVIDERS = ["openai-subscription"] as const;
 export const CODEX_SUBSCRIPTION_HOSTS = ["api.openai.com"] as const;
@@ -74,12 +80,17 @@ export class CodexSubscriptionHarness implements AgentHarness {
   }
 
   setupCommands(input: CodingTaskInput, _workdir: string): readonly (readonly string[])[] {
+    if (usesCodexDeviceAuth(input)) {
+      const home = codexDeviceAuthHomeDir(input);
+      return [["mkdir", "-p", home], ["chmod", "700", home]];
+    }
     const home = codexPlanHomeForRun(input);
     return [["mkdir", "-p", home], ["chmod", "700", home]];
   }
 
   configFile(input: CodingTaskInput, sandboxId: string): HarnessConfigFile[] {
     assertSupportedModel(this.name, this.supportedProviders, input.codingModel);
+    if (usesCodexDeviceAuth(input)) return [];
     const model = stripProvider(input.codingModel);
     const threadId = input.chatgptThreadId ?? null;
     return [
@@ -97,14 +108,18 @@ export class CodexSubscriptionHarness implements AgentHarness {
   env(input: CodingTaskInput, _configPath: string | null): Record<string, string> {
     assertSupportedModel(this.name, this.supportedProviders, input.codingModel);
     const env: Record<string, string> = {
-      CODEX_HOME: codexPlanHomeForRun(input),
+      CODEX_HOME: usesCodexDeviceAuth(input) ? codexDeviceAuthHomeDir(input) : codexPlanHomeForRun(input),
       CODEX_DISABLE_TELEMETRY: "1",
     };
     if (input.chatgptAccessToken) env.ACCESS_TOKEN = input.chatgptAccessToken;
     return env;
   }
 
-  buildArgv(input: CodingTaskInput, _workdir: string): string[] {
+  buildArgv(input: CodingTaskInput, workdir: string): string[] {
+    if (usesCodexDeviceAuth(input)) {
+      const model = stripProvider(input.codingModel);
+      return ["codex", "exec", "--json", "--model", model, "--cd", workdir, input.task];
+    }
     return ["node", codexChatGptPlanDriverPath(input.sandboxId)];
   }
 
@@ -144,6 +159,18 @@ export class CodexSubscriptionHarness implements AgentHarness {
   }
 
   async verify(input: CodingTaskInput, result: CodingTaskResult): Promise<VerificationOutcome> {
+    if (usesCodexDeviceAuth(input)) {
+      if (!input.initiatorUserId) {
+        return { ok: false, reason: "device-auth requires a signed-in user (initiatorUserId)." };
+      }
+      if (codexDeviceAuthVolumeForUser(input.initiatorUserId) === null) {
+        return {
+          ok: false,
+          reason:
+            "Per-user Codex device-auth volumes are not available on this deployment yet (#119/#123). Run `codex login --device-auth` in your sandbox after volumes ship, or use Sign in with ChatGPT in Settings.",
+        };
+      }
+    }
     return verifyRunOutcome(input, result, this.capabilities(input.codingModel));
   }
 }

@@ -20,12 +20,13 @@ import {
 import {
   ChatGptOAuthError,
   connectionFromTokenResponse,
-  exchangeToken,
+  exchangeTokenResilient,
   fetchDiscovery,
   refreshConnection,
   revokeRefreshToken,
   verifyIdToken,
 } from "./chatgpt/siwc-oauth.js";
+import { createSandboxOAuthRunner, sandboxOAuthEnabled } from "./chatgpt/sandbox-oauth-client.js";
 import { deleteConnection, loadConnection, loadHostId, saveConnection, saveHostId } from "./chatgpt/connection-store.js";
 import { redactSecrets } from "./security.js";
 
@@ -98,6 +99,15 @@ export class ChatGptAuth extends DurableObject<Env> {
     return this.ctx.id.name ?? "default";
   }
 
+  private oauthResilienceOptions() {
+    const allowSandboxFallback = sandboxOAuthEnabled(this.env);
+    return {
+      allowSandboxFallback,
+      sandboxRunner: allowSandboxFallback ? createSandboxOAuthRunner(this.env) : null,
+      userId: this.userId(),
+    };
+  }
+
   private async emailHash(email: string): Promise<string> {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(email.trim().toLowerCase()));
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -156,7 +166,7 @@ export class ChatGptAuth extends DurableObject<Env> {
     if (!validated.ok) return Response.json({ error: validated.reason }, { status: 400 });
 
     const discovery = await fetchDiscovery(CHATGPT_DISCOVERY_URL);
-    const tokens = await exchangeToken(
+    const tokens = await exchangeTokenResilient(
       discovery,
       new URLSearchParams({
         grant_type: "authorization_code",
@@ -166,6 +176,7 @@ export class ChatGptAuth extends DurableObject<Env> {
         redirect_uri: validated.redirectUri,
         resource: "https://api.openai.com/v1",
       }),
+      this.oauthResilienceOptions(),
     );
     if (!tokens.id_token) return Response.json({ error: "ChatGPT did not return id_token." }, { status: 400 });
     const identity = await verifyIdToken({
@@ -201,7 +212,7 @@ export class ChatGptAuth extends DurableObject<Env> {
     if (!record) throw new ChatGptOAuthError("Sign in with ChatGPT first.", "not_connected");
     if (!record.planUsageEnabled) throw new ChatGptOAuthError("ChatGPT plan usage is disabled for this connection.");
     const discovery = await fetchDiscovery(CHATGPT_DISCOVERY_URL);
-    const refreshed = await refreshConnection(discovery, record);
+    const refreshed = await refreshConnection(discovery, record, fetch, Date.now(), this.oauthResilienceOptions());
     if (refreshed.accessToken !== record.accessToken || refreshed.expiresAt !== record.expiresAt) {
       await saveConnection(this.env, this.userId(), refreshed);
     }
