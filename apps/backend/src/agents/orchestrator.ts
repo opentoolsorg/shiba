@@ -2356,19 +2356,46 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private async queueReviewForCodingRun(parent: DelegatedRun, headSha: string): Promise<void> {
-    const rounds = this.state.reviewRounds ?? [];
-    if (decideChain(parent, rounds, headSha).kind !== "queue_review") return;
+    if (decideChain(parent, this.state.reviewRounds ?? [], headSha).kind !== "queue_review") return;
     const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
     if (!pull || !parent.pullUrl) return;
     const roundId = `${parent.runId}:${headSha}`;
-    const task = await this.reviewerTaskForPull({
-      repoUrl: parent.repoUrl,
-      pullNumber: pull.number,
-      headSha,
-      diffUrl: `${parent.repoUrl.replace(/\/$/, "")}/pull/${pull.number}.diff`,
-      owner: pull.owner,
-      repo: pull.repo,
+    // Reserve the round before any await so concurrent wakes cannot double-queue.
+    if (decideChain(parent, this.state.reviewRounds ?? [], headSha).kind !== "queue_review") return;
+    this.writeRound({
+      roundId,
+      codingRunId: parent.runId,
+      reviewRunId: `pending:${roundId}`,
+      pull: { ...pull, headSha, url: parent.pullUrl },
+      status: "queued",
+      findings: [],
+      summary: "",
+      generation: 0,
     });
+    let task: string;
+    try {
+      task = await this.reviewerTaskForPull({
+        repoUrl: parent.repoUrl,
+        pullNumber: pull.number,
+        headSha,
+        diffUrl: `${parent.repoUrl.replace(/\/$/, "")}/pull/${pull.number}.diff`,
+        owner: pull.owner,
+        repo: pull.repo,
+      });
+    } catch (error) {
+      this.writeRound({
+        roundId,
+        codingRunId: parent.runId,
+        reviewRunId: `pending:${roundId}`,
+        pull: { ...pull, headSha, url: parent.pullUrl },
+        status: "failed",
+        findings: [],
+        summary: "",
+        generation: 0,
+        error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 500),
+      });
+      return;
+    }
     const callId = `chain-review:${parent.runId}:${headSha}`;
     const fields = {
       repoUrl: parent.repoUrl,
@@ -2736,6 +2763,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           generation,
         );
         if (updated !== null) {
+          if (
+            updated.reviewOf &&
+            status !== "completed" &&
+            (status === "error" || status === "unknown" || status === "cancelled" || status === "aborted")
+          ) {
+            void this.failReviewRound(updated, redactSecrets(failure.message).slice(0, 500));
+          }
           // A pre-start failure never reaches `finish`'s slackText seam —
           // post here or the thread sees ack + card + approved, then silence.
           this.postToThread(

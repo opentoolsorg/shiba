@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReviewEnvelope, selectPostable } from "@shiba/shared";
+import { blockingRoundForHead, parseReviewEnvelope, selectPostable, type ReviewRound } from "@shiba/shared";
 
 const valid = {
   path: "src/app.ts",
@@ -29,6 +29,28 @@ describe("parseReviewEnvelope", () => {
   it("does not throw on garbage", () => {
     expect(parseReviewEnvelope("not json")).toEqual({ summary: "", findings: [], rejected: 0 });
     expect(parseReviewEnvelope(null).findings).toEqual([]);
+  });
+});
+
+describe("blockingRoundForHead", () => {
+  const round: ReviewRound = {
+    roundId: "r1:abc",
+    codingRunId: "r1",
+    reviewRunId: "rev",
+    pull: { owner: "a", repo: "b", number: 1, headSha: "abc", url: "https://github.com/a/b/pull/1" },
+    status: "posted",
+    findings: [],
+    summary: "",
+  };
+
+  it("blocks while a round is active or posted", () => {
+    expect(blockingRoundForHead([round], "r1", "abc")?.status).toBe("posted");
+    expect(blockingRoundForHead([{ ...round, status: "queued" }], "r1", "abc")?.status).toBe("queued");
+  });
+
+  it("does not block when the head round failed or was skipped", () => {
+    expect(blockingRoundForHead([{ ...round, status: "failed" }], "r1", "abc")).toBeUndefined();
+    expect(blockingRoundForHead([{ ...round, status: "skipped" }], "r1", "abc")).toBeUndefined();
   });
 });
 

@@ -169,6 +169,22 @@ export function roundForHead(rounds: ReviewRound[], codingRunId: string, headSha
   return rounds.find((round) => round.codingRunId === codingRunId && round.pull.headSha === headSha);
 }
 
+/** Failed/skipped rounds do not block a new chained review for the same head. */
+export function roundBlocksReviewChain(round: ReviewRound): boolean {
+  return round.status !== "failed" && round.status !== "skipped";
+}
+
+/** Latest round for a head that still prevents queueing another chained review. */
+export function blockingRoundForHead(
+  rounds: ReviewRound[],
+  codingRunId: string,
+  headSha: string,
+): ReviewRound | undefined {
+  const round = roundForHead(rounds, codingRunId, headSha);
+  if (!round || !roundBlocksReviewChain(round)) return undefined;
+  return round;
+}
+
 export function parseInlineSeverityThreshold(raw: string | undefined): FindingSeverity {
   if (raw === "high" || raw === "medium" || raw === "low") return raw;
   return "medium";
