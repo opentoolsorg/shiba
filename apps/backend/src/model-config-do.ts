@@ -108,7 +108,10 @@ export class ModelConfig {
       return Response.json({ error: "Not found." }, { status: 404 });
     } catch (error) {
       // A DO fault must not strand the caller on a 500 with no shape.
-      console.error(`ModelConfig ${pathname} failed`, error instanceof Error ? error.message : String(error));
+      console.error(
+        `ModelConfig ${pathname} failed`,
+        redactSecrets(error instanceof Error ? error.message : String(error)),
+      );
       return Response.json({ error: "Model configuration store failed." }, { status: 500 });
     }
   }
