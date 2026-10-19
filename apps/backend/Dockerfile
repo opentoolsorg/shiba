@@ -5,7 +5,7 @@ FROM docker.io/cloudflare/sandbox:0.12.9-opencode@sha256:7b84b0163bd93f090504daf
 
 COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 
-# One image carries every harness (opencode, Claude Code, Codex, Devin, Grok);
+# One image carries every harness (opencode, Claude Code, Codex, Devin, Grok, Pi);
 # a run picks one at exec time. The credential invariant is unchanged: each
 # gets the dummy key, and the real credential is swapped in at the Worker's
 # egress boundary. Bumping any of these versions requires re-running the T10
@@ -16,8 +16,8 @@ COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/
 # CLI ships `acp` at 3000.11.3. `command -v` probes below fail the build if
 # an adapter renames its bin.
 RUN npm i -g opencode-ai@1.18.34 @anthropic-ai/claude-code@2.1.284 @openai/codex@0.157.1 @xai-official/grok@1.0.41 \
-    @agentclientprotocol/claude-agent-acp@0.86.0 @agentclientprotocol/codex-acp@2.1.1 @google/gemini-cli@0.62.0 \
-  && opencode --version && claude --version && codex --version && grok --version && gemini --version \
+    @earendil-works/pi-coding-agent@1.3.0 @agentclientprotocol/claude-agent-acp@0.86.0 @agentclientprotocol/codex-acp@2.1.1 @google/gemini-cli@0.62.0 \
+  && opencode --version && claude --version && codex --version && grok --version && pi --version && gemini --version \
   && command -v claude-agent-acp codex-acp && opencode acp --help >/dev/null \
   && gemini --help 2>&1 | grep -q -- '--acp'
 

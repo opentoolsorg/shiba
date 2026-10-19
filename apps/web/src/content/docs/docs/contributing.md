@@ -72,6 +72,7 @@ of them requires re-running the live acceptance checklist (T10).
 | `@agentclientprotocol/codex-acp` | `2.1.1` | Pinned ACP adapter for `codex-acp`; same driver-protocol dependency. |
 | `@google/gemini-cli` | `0.62.0` | Pinned image CLI; the `gemini-acp` lane spawns `gemini --acp`, build-probed via `--help`. |
 | `@xai-official/grok` | `1.0.41` | Pinned image CLI; `grok` lane runs headless `--single` + streaming-json against `api.x.ai`. |
+| `@earendil-works/pi-coding-agent` | `1.3.0` | Pinned image CLI; `pi` lane runs `--mode json` with provider-specific AI Gateway egress. |
 | `cursor-agent` | `2026.10.01-e373342` | Checksum-pinned tarball (`downloads.cursor.com/lab/…`); `dist-package/` layout needs its sibling `.node` files. |
 | `agy_acp_server` | `1.1.1` | Antigravity ACP server zip (`dl.google.com/agy-extensions`); auth + subscription lanes spawn it. |
 | `procoder` | `3.6.0` | Pinned image CLI. |

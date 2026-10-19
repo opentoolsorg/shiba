@@ -7,7 +7,7 @@
  * address.
  */
 
-export type ApprovalKind = "run" | "email_send" | "email_delete";
+export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
 
 export interface ApprovalLike {
   approvalId: string;

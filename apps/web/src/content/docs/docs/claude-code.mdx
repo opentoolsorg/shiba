@@ -1,15 +1,15 @@
 ---
 title: Coding Harnesses
-description: Coding harnesses, Grok model access, and current implementation and verification status.
+description: Coding harnesses, Pi and Grok model access, and current implementation and verification status.
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-**Implemented and selectable:** the dashboard and `delegate_coding_task` accept per-run harness and model choices; the approved choice is passed to the runtime. The image installs OpenCode 1.18.34, Claude Code 2.1.277, Codex 0.157.1, Devin CLI 3000.11.3, and the ACP adapters (claude-agent-acp 0.86.0, codex-acp 2.1.1, gemini-cli 0.62.0). Harness tests cover selection, argv/config/env construction, provider allowlists, and event parsing. These tests do not prove the CLIs can complete a task end to end.
+**Implemented and selectable:** the dashboard and `delegate_coding_task` accept per-run harness and model choices; the approved choice is passed to the runtime. The image installs OpenCode 1.18.34, Claude Code 2.1.284, Codex 0.157.1, Devin CLI 3000.11.3, Grok 1.0.41, Pi 1.3.0, and the ACP adapters (claude-agent-acp 0.86.0, codex-acp 2.1.1, gemini-cli 0.62.0). Harness tests cover selection, argv/config/env construction, provider allowlists, and event parsing. These tests do not prove the CLIs can complete a task end to end.
 
 **Verification status:** `VERIFICATION.md` records one local `wrangler dev` end-to-end exercise with OpenCode on 2026-09-19. The provider call returned 401, so model inference and successful task completion were not verified. The 2026-09-24 verification says no live cloud end-to-end run has been performed. Claude Code, Codex, and Devin have unit coverage only; no local or cloud harness end-to-end run is recorded for them.
 
-**Credential boundary:** OpenCode, Claude Code, and Codex use API-key provider traffic through AI Gateway; subscription credentials are not proxied. OpenCode now supports xAI/Grok (`xai/<model>`) through the same BYOK egress path. Devin uses its own `DEVIN_API_KEY` service credential.
+**Credential boundary:** OpenCode, Claude Code, Codex, and Pi use API-key provider traffic through AI Gateway; subscription credentials are not proxied. OpenCode supports xAI/Grok (`xai/<model>`) through the same BYOK egress path. Devin uses its own `DEVIN_API_KEY` service credential.
 
 <CardGrid>
   <Card title="OpenCode" icon="setting">
@@ -31,6 +31,11 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     `devin/*` models (default `devin/swe-2`); uses Devin's CLI and service API key.
 
     [Read Devin Guide →](/docs/agents/devin/)
+  </Card>
+  <Card title="Pi" icon="puzzle">
+    `anthropic/*`, `openai/*`, `google/*`, and `xai/*` models (default `anthropic/claude-sonnet-4-6`); runs headlessly with JSON events and the AI Gateway BYOK credential.
+
+    [Pi documentation](https://github.com/earendil-works/pi)
   </Card>
   <Card title="Cursor CLI" icon="puzzle">
     Not currently an installed or selectable harness. Cursor CLI requires its own Cursor API-key/authentication path, which is not wired into the approved-run credential egress boundary; the Cursor logo on the marketing page is not an integration claim.

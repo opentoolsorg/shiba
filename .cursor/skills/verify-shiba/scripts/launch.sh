@@ -36,7 +36,7 @@ else
   echo live > "$VERIFY_DIR/github-mode"
 fi
 PERSIST="$VERIFY_DIR/state"
-# Pinned wrangler 4.118.0 accepts --persist-to on d1 migrations apply and wrangler dev.
+# Pinned wrangler (package.json, currently 4.140.0) accepts --persist-to on d1 migrations apply and wrangler dev.
 MODE=persist-to
 if ! npx wrangler d1 migrations apply --help 2>&1 | grep -q -- '--persist-to'; then
   MODE=default-wrangler-state
@@ -45,12 +45,17 @@ echo "$MODE" > "$VERIFY_DIR/persist-mode"
 mkdir -p "$PERSIST"
 MIGRATE=(npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc)
 DEV=(npx wrangler dev --config apps/backend/wrangler.jsonc --port "$PORT" --local-upstream localhost)
-# Non-interactive CI has no Cloudflare token; containers need the remote proxy.
 if [ "${VERIFY_ENABLE_CONTAINERS:-}" = 0 ] || [ "${CI:-}" = true ] || [ "${CI:-}" = 1 ]; then
   DEV+=(--local --enable-containers=false)
   echo disabled > "$VERIFY_DIR/containers-mode"
+elif ! docker info >/dev/null 2>&1; then
+  DEV+=(--enable-containers=false)
+  echo "containers=disabled (no docker)" > "$VERIFY_DIR/containers-mode"
 else
-  echo enabled > "$VERIFY_DIR/containers-mode"
+  echo "containers=enabled" > "$VERIFY_DIR/containers-mode"
+fi
+if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  echo "warn: CLOUDFLARE_API_TOKEN unset — wrangler 4.118 may fail establishing the remote container proxy in non-interactive shells even with --enable-containers=false." > "$VERIFY_DIR/cf-token"
 fi
 if [ "$MODE" = persist-to ]; then
   MIGRATE+=(--persist-to "$PERSIST")

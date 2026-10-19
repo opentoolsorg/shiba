@@ -75,6 +75,7 @@ export default defineConfig({
 						{ label: 'Pull request review', slug: 'docs/review' },
 						{ label: 'Sandbox SDK 1.0', slug: 'docs/sandbox-sdk-1' },
 						{ label: 'Automations & Cron', slug: 'docs/automations' },
+						{ label: 'Linear agent sessions', slug: 'docs/linear-agent-session' },
 						{ label: 'Use from Claude Code', slug: 'docs/mcp' },
 					],
 				},
@@ -95,6 +96,7 @@ export default defineConfig({
 					label: 'Reference',
 					items: [
 						{ label: 'API reference', slug: 'docs/api' },
+						{ label: 'TypeScript SDK', slug: 'docs/sdk' },
 						{ label: 'Contributing', slug: 'docs/contributing' },
 					],
 				},

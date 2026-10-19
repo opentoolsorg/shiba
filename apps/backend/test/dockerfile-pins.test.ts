@@ -53,6 +53,7 @@ const PIN_SOURCE: Record<string, { npm?: string; arg?: string }> = {
   "claude-code": { npm: "@anthropic-ai/claude-code" },
   codex: { npm: "@openai/codex" },
   grok: { npm: "@xai-official/grok" },
+  pi: { npm: "@earendil-works/pi-coding-agent" },
   devin: { arg: "DEVIN_CLI_VERSION" },
   "claude-acp": { npm: "@agentclientprotocol/claude-agent-acp" },
   "codex-acp": { npm: "@agentclientprotocol/codex-acp" },

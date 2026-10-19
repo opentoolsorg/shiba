@@ -125,6 +125,8 @@ export interface Env {
   DEVIN_MODEL?: string;
   /** Optional default model for the grok harness, e.g. xai/grok-4.6. */
   GROK_MODEL?: string;
+  /** Optional default model for the pi harness, e.g. anthropic/claude-sonnet-4-6. */
+  PI_MODEL?: string;
   /**
    * Optional per-role routing pins (T52, `agents/roles.ts`). A delegation
    * carrying `role` resolves harness+model from `ROLE_MODEL_MAP` (one JSON
@@ -236,6 +238,25 @@ export interface Env {
   GITHUB_TOKEN?: string;
   /** Optional GitHub API origin. Local verify points this at a stub. Defaults to api.github.com. */
   GITHUB_API_BASE?: string;
+  /** Inline review comment floor: high | medium | low. Default medium. */
+  REVIEW_INLINE_THRESHOLD?: string;
+  /** Optional GitHub App id (multi-repo installs). Used with GITHUB_APP_PRIVATE_KEY. */
+  GITHUB_APP_ID?: string;
+  /** PEM private key for the GitHub App (Worker-only). */
+  GITHUB_APP_PRIVATE_KEY?: string;
+  /** Default installation id when GITHUB_APP_REPO_INSTALLATIONS omits a repo. */
+  GITHUB_APP_INSTALLATION_ID?: string;
+  /** JSON map `{"owner/repo": installationId}` for per-repo App tokens. */
+  GITHUB_APP_REPO_INSTALLATIONS?: string;
+  /** Optional Linear agent session webhook HMAC secret. */
+  LINEAR_WEBHOOK_SECRET?: string;
+  /** Optional Linear API key or OAuth access token for agent activities. */
+  LINEAR_API_KEY?: string;
+  LINEAR_OAUTH_ACCESS_TOKEN?: string;
+  /** Default GitHub repo URL for Linear session runs (approval-gated). */
+  LINEAR_DEFAULT_REPO_URL?: string;
+  /** Local mock only: accept unsigned Linear webhooks when secret is unset. */
+  LINEAR_ALLOW_UNSIGNED_WEBHOOK?: string;
   /** Optional PAT with `project` scope for Projects v2 board sync (github-project.ts). */
   GITHUB_PROJECT_TOKEN?: string;
   /** Projects v2 board number on the repo owner; PRs land here when both are set. */

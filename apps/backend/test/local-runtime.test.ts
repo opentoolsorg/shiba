@@ -644,9 +644,9 @@ describe("LocalRuntimeAdapter", () => {
     expect(targets).toEqual(["m-1", undefined]);
   });
 
-  it("refuses a harness that does not support the local runtime", async () => {
+  it.each(["grok", "pi"])("refuses %s because it does not support the local runtime", async (harnessName) => {
     const { client, state } = makeClient();
-    const adapter = new LocalRuntimeAdapter(resolveHarness("grok"), { client, pollIntervalMs: 0 });
+    const adapter = new LocalRuntimeAdapter(resolveHarness(harnessName), { client, pollIntervalMs: 0 });
     const result = await adapter.runCodingTask(NOOP_OPS, TASK_INPUT as never, NOOP_EMIT, {});
     expect(result.status).toBe("error");
     expect(result.summary).toContain("does not run on the local runtime");
