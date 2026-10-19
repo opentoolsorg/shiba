@@ -196,6 +196,6 @@ const TERMINAL_ROUND_STATUSES = new Set<ReviewRound["status"]>(["posted", "faile
 export function reviewRoundWriteRejected(current: ReviewRound | undefined, incoming: ReviewRound): boolean {
   if (!current || !TERMINAL_ROUND_STATUSES.has(current.status)) return false;
   if (incoming.generation === undefined) return true;
-  if (current.generation !== undefined && incoming.generation < current.generation) return true;
+  if (current.generation !== undefined && incoming.generation <= current.generation) return true;
   return false;
 }

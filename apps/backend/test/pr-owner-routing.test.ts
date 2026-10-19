@@ -27,6 +27,9 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 
 const lifecycleCalls: Array<{ agentName: string }> = [];
 const queueCalls: Array<{ agentName: string }> = [];
+let queueShouldFail = false;
+let lifecycleShouldFail = false;
+let lifecycleOmitsQueuedReview = false;
 
 vi.mock("agents/routing", () => ({
   getAgentByName: async (_env: unknown, name: string) => ({
@@ -34,10 +37,20 @@ vi.mock("agents/routing", () => ({
       const path = new URL(request.url).pathname;
       if (path === "/internal/pr-lifecycle") {
         lifecycleCalls.push({ agentName: name });
-        return Response.json({ ok: true, wake: "synchronize_re_review", queued: "review" });
+        if (lifecycleShouldFail) {
+          return Response.json({ error: "lifecycle_down" }, { status: 503 });
+        }
+        return Response.json(
+          lifecycleOmitsQueuedReview
+            ? { ok: true, wake: "synchronize_re_review" }
+            : { ok: true, wake: "synchronize_re_review", queued: "review" },
+        );
       }
       if (path === "/api/runs") {
         queueCalls.push({ agentName: name });
+        if (queueShouldFail) {
+          return Response.json({ error: "queue_down" }, { status: 503 });
+        }
         return Response.json({ approvalId: "appr_review" });
       }
       return new Response("{}", { status: 404 });
@@ -56,8 +69,9 @@ function makeDo(storage: Map<string, unknown>, env: Partial<Env> = {}) {
       put: async (key: string, value: unknown) => void storage.set(key, value),
       list: async (opts?: { prefix?: string }) =>
         new Map([...storage.entries()].filter(([k]) => (opts?.prefix ? k.startsWith(opts.prefix) : true))),
-      delete: async (keys: string[]) => {
-        for (const k of keys) storage.delete(k);
+      delete: async (keys: string | string[]) => {
+        const list = Array.isArray(keys) ? keys : [keys];
+        for (const k of list) storage.delete(k);
       },
     },
   } as unknown as DurableObjectState;
@@ -99,6 +113,9 @@ describe("PR owner routing", () => {
   beforeEach(() => {
     lifecycleCalls.length = 0;
     queueCalls.length = 0;
+    queueShouldFail = false;
+    lifecycleShouldFail = false;
+    lifecycleOmitsQueuedReview = false;
   });
 
   it("routes synchronize re-review to the owning non-default orchestrator DO", async () => {
@@ -123,6 +140,24 @@ describe("PR owner routing", () => {
     expect(((await res.json()) as { reviewQueued?: boolean }).reviewQueued).toBe(true);
     expect(lifecycleCalls).toEqual([{ agentName: "default" }]);
     expect(queueCalls).toEqual([{ agentName: "default" }]);
+  });
+
+  it("releases the head claim when the built-in review lane fails so GitHub can retry", async () => {
+    lifecycleOmitsQueuedReview = true;
+    queueShouldFail = true;
+    const automation = makeDo(new Map());
+    const first = await automation.fetch(githubInternal(SYNC_PAYLOAD, "d-fail-1"));
+    expect(first.status).toBe(200);
+    expect(((await first.json()) as { reviewQueued?: boolean }).reviewQueued).toBe(false);
+
+    queueShouldFail = false;
+    lifecycleCalls.length = 0;
+    queueCalls.length = 0;
+    const second = await automation.fetch(githubInternal(SYNC_PAYLOAD, "d-fail-2"));
+    expect(second.status).toBe(200);
+    expect(((await second.json()) as { reviewQueued?: boolean }).reviewQueued).toBe(true);
+    expect(lifecycleCalls).toHaveLength(1);
+    expect(queueCalls).toHaveLength(1);
   });
 
   it("dedupes a second delivery for the same head SHA", async () => {

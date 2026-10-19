@@ -2,6 +2,7 @@
  * Replacement for @cloudflare/sandbox getSandbox — returns a typed facade over
  * the Sandbox Durable Object stub (SDK 1.0).
  */
+import { resolveSandboxDurableObjectId } from "@shiba/shared";
 import type { Sandbox } from "./durable-object.js";
 
 export type SandboxHandle = ReturnType<typeof getSandbox>;
@@ -10,7 +11,7 @@ export function getSandbox(
   namespace: DurableObjectNamespace<Sandbox>,
   sandboxId: string,
 ): DurableObjectStub<Sandbox> & SandboxRpcFacade {
-  const id = namespace.idFromString(sandboxId);
+  const id = resolveSandboxDurableObjectId(namespace, sandboxId);
   const stub = namespace.get(id) as DurableObjectStub<Sandbox> & SandboxRpcFacade;
   return wrapSandboxStub(stub, sandboxId);
 }

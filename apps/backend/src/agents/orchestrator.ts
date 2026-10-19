@@ -2398,9 +2398,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
     if (!pull || !parent.pullUrl) return;
     const roundId = `${parent.runId}:${headSha}`;
+    const prior = (this.state.reviewRounds ?? []).find((item) => item.roundId === roundId);
+    const generation =
+      prior?.status === "failed" ? (prior.generation ?? 0) + 1 : prior?.generation ?? 0;
     // Reserve the round before any await so concurrent wakes cannot double-queue.
     if (decideChain(parent, this.state.reviewRounds ?? [], headSha).kind !== "queue_review") return;
-    this.writeRound({
+    const reserved = this.writeRound({
       roundId,
       codingRunId: parent.runId,
       reviewRunId: `pending:${roundId}`,
@@ -2408,8 +2411,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       status: "queued",
       findings: [],
       summary: "",
-      generation: 0,
+      generation,
     });
+    if (!reserved) return;
     let task: string;
     try {
       task = await this.reviewerTaskForPull({
@@ -2429,7 +2433,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         status: "failed",
         findings: [],
         summary: "",
-        generation: 0,
+        generation,
         error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 500),
       });
       return;
@@ -2465,7 +2469,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       status: "queued",
       findings: [],
       summary: "",
-      generation: 0,
+      generation,
     });
     this.dispatchApprovedRun(reviewRun, undefined, callId);
   }
