@@ -13,7 +13,7 @@ pnpm install
 
 ## Worker and sandbox quickstart
 
-**One command** (recommended): local dashboard + API + Sandbox on port **8788**. Requires **Docker running**, enough disk for the pinned Sandbox image build, and network for the first `pnpm install` / `pnpm build`.
+**One command** (recommended): local dashboard + API + Sandbox on port **8788**. The first run opens a setup wizard (GitHub token or GitHub App, a model connection, a sandbox provider, and an optional test repository). Every step can be skipped. If Docker is not running, the wizard continues with containers disabled (`--enable-containers=false`) instead of stopping. A sandbox image build needs Docker, disk, and network.
 
 ```sh
 pnpm shiba dev
@@ -27,13 +27,14 @@ bash scripts/dev.sh
 
 What it does:
 
-1. **Prerequisites** — Node 22.13+, pnpm 10+, `wrangler` (from the repo), Docker daemon reachable.
-2. **`pnpm install`** — skipped when `node_modules` already exists (use `--skip-install` to force-skip).
-3. **`pnpm build`** — assembles `app-public/` for the Worker (use `--skip-build` only if you already built).
-4. **`apps/backend/.dev.vars`** — created from `.dev.vars.example` when missing; mints local-only secrets (`INTERNAL_SIGNING_KEY`, `PAIRING_SECRET`, …) **without overwriting** values you already set.
-5. **Local D1** — `CI=1 npx wrangler d1 migrations apply shiba-audit --local` with persistence under `.shiba/local-state/`.
-6. **Sandbox image** — `npx wrangler containers build` for `apps/backend` (no registry push).
-7. **`wrangler dev`** — same config as production bindings, containers on when Docker is up, `--local-upstream localhost`.
+1. **Setup wizard** — `pnpm shiba setup` writes a redacted `.shiba/setup.json` and merges non-secret choices into `.dev.vars`. Skip with `--skip-setup`. Non-interactive runs record skips and print the next command for each doctor warning.
+2. **Prerequisites** — Node 22.13+, pnpm 10+, `wrangler` (from the repo). Docker is optional: when it is down, local containers stay off.
+3. **`pnpm install`** — skipped when `node_modules` already exists (use `--skip-install` to force-skip).
+4. **`pnpm build`** — assembles `app-public/` for the Worker (use `--skip-build` only if you already built).
+5. **`apps/backend/.dev.vars`** — created from `.dev.vars.example` when missing; mints local-only secrets (`INTERNAL_SIGNING_KEY`, `PAIRING_SECRET`, …) **without overwriting** values you already set.
+6. **Local D1** — `CI=1 npx wrangler d1 migrations apply shiba-audit --local` with persistence under `.shiba/local-state/`.
+7. **Sandbox image** — `npx wrangler containers build` for `apps/backend` when local containers are on (no registry push).
+8. **`wrangler dev`** — same config as production bindings, `--local-upstream localhost`, and `--enable-containers=false` when containers are off.
 
 Preview the plan without running anything:
 

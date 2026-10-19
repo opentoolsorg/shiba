@@ -25,6 +25,15 @@ export interface ReviewPull {
   url: string;
 }
 
+/** Persisted v1 review-loop settings for one coding thread (run id). */
+export interface ReviewLoopSettings {
+  threadId: string;
+  enabled: boolean;
+  autoMerge: boolean;
+  pullRequestId?: string;
+  updatedAt: number;
+}
+
 export interface ReviewRound {
   roundId: string;
   codingRunId: string;

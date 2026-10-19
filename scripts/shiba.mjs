@@ -1,20 +1,40 @@
 #!/usr/bin/env node
 /**
- * Shiba operator CLI — `pnpm shiba dev` / `pnpm shiba doctor`.
- * Node stdlib only.
+ * Shiba operator CLI — `pnpm shiba dev` / `pnpm shiba doctor` / `pnpm shiba setup`.
+ * Node stdlib only. Never prints secret values.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { stdin as input, stdout as output } from "node:process";
+import { createInterface } from "node:readline/promises";
 import {
+  DEV_VARS_PATH,
   REPO_ROOT,
   checkNodeVersion,
   checkPnpmVersion,
   ensureDevVars,
   formatDryRun,
   nextStepsBanner,
+  parseDevVars,
   planDevSteps,
 } from "./shiba-dev-lib.mjs";
+import {
+  applyFix,
+  buildRecord,
+  commitSetup,
+  devVarPatch,
+  emptyAnswers,
+  formatDoctor,
+  localDoctor,
+  mergeDevVarsText,
+  needsLocalContainers,
+  normalizeAnswers,
+  readSetupFile,
+  setupPath,
+  splitSecrets,
+  writeSetupFile,
+} from "./shiba-setup-lib.mjs";
 
 const BACKEND = `${REPO_ROOT}/apps/backend`;
 const args = process.argv.slice(2);
@@ -49,6 +69,149 @@ function runStep(step) {
   }
 }
 
+function dockerOk() {
+  const docker = capture("docker", ["info"], { stdio: "pipe" });
+  return docker.status === 0;
+}
+
+function devVarFile() {
+  return resolve(REPO_ROOT, DEV_VARS_PATH);
+}
+
+function readDevVarKeys() {
+  const path = devVarFile();
+  if (!existsSync(path)) return new Set();
+  return new Set(parseDevVars(readFileSync(path, "utf8")).keys());
+}
+
+function applyDevVarPatch(patch) {
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return;
+  ensureDevVars();
+  const path = devVarFile();
+  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+  writeFileSync(path, mergeDevVarsText(text, patch), { mode: 0o600 });
+  console.log(`  ✓ .dev.vars keys recorded: ${keys.sort().join(", ")}`);
+}
+
+function loadAnswersFile(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    console.log(
+      `  ! could not read ${path} (${error instanceof Error ? error.message : "invalid"}) — using skips`,
+    );
+    return emptyAnswers();
+  }
+}
+
+async function ask(rl, label, fallback) {
+  const answer = (await rl.question(`${label} (${fallback}): `)).trim();
+  return answer || fallback;
+}
+
+async function promptAnswers() {
+  const rl = createInterface({ input, output });
+  try {
+    console.log("\n== shiba setup ==\nEvery step can be skipped. Tokens are written to .dev.vars and are not printed.\n");
+    const githubMode = (await ask(rl, "GitHub access [token/app/skip]", "skip")).toLowerCase();
+    let github = { mode: githubMode };
+    if (githubMode === "token") {
+      const token = (await rl.question("GitHub token (blank to skip): ")).trim();
+      github = token ? { mode: "token", token } : { mode: "skip" };
+    } else if (githubMode === "app") {
+      const appId = (await rl.question("GitHub App id (blank to skip): ")).trim();
+      const installationId = (await rl.question("Installation id (blank to skip): ")).trim();
+      if (!appId) github = { mode: "skip" };
+      else {
+        github = { mode: "app", appId, ...(installationId ? { installationId } : {}) };
+        console.log("  Paste the App private key into apps/backend/.dev.vars as GITHUB_APP_PRIVATE_KEY.");
+      }
+    } else if (githubMode !== "skip") {
+      console.log(`  unknown GitHub choice ${JSON.stringify(githubMode)} — skipping`);
+      github = { mode: "skip" };
+    }
+
+    const modelMode = (await ask(rl, "Model [byom/siwc/api-key/skip]", "skip")).toLowerCase();
+    let model = { mode: modelMode };
+    if (modelMode === "byom" || modelMode === "api-key") {
+      const baseUrl = (await rl.question("OpenAI-compatible base URL (blank to skip the URL): ")).trim();
+      const credentialRef = (await rl.question("Credential alias (not the secret itself): ")).trim();
+      model = {
+        mode: modelMode,
+        ...(baseUrl ? { baseUrl } : {}),
+        ...(credentialRef ? { credentialRef } : {}),
+      };
+      console.log("  Register that alias on the model connection. Do not paste the API key here.");
+    } else if (modelMode === "siwc") {
+      console.log("  Sign in with ChatGPT will set SHIBA_CODEX_SUBSCRIPTION=1. Finish auth in the dashboard.");
+    } else if (modelMode !== "skip") {
+      console.log(`  unknown model choice ${JSON.stringify(modelMode)} — skipping`);
+      model = { mode: "skip" };
+    }
+
+    const provider = (await ask(rl, "Sandbox [cloudflare/docker-local/computesdk/e2b]", "cloudflare")).toLowerCase();
+    const repo = (await rl.question("Test repository URL (https://github.com/owner/repo, blank to skip): ")).trim();
+    return normalizeAnswers({
+      github,
+      model,
+      sandbox: { provider },
+      testRepo: { url: repo },
+    });
+  } finally {
+    rl.close();
+  }
+}
+
+function printLocalDoctor(record, docker) {
+  const doctor = localDoctor(record, { dockerOk: docker, devVarKeys: readDevVarKeys() });
+  console.log(formatDoctor(doctor));
+  for (const item of doctor.findings) {
+    if (item.severity !== "ok" && item.fixAction) {
+      console.log(`  next: pnpm shiba setup fix ${item.fixAction.id}`);
+    }
+  }
+  return doctor;
+}
+
+function explainRecord(record) {
+  if (record.answers?.testRepo?.url) {
+    console.log(`  next: export SHIBA_TEST_REPO=${record.answers.testRepo.url}`);
+  }
+  if (record.answers?.model?.mode === "byom" && record.answers.model.baseUrl) {
+    const alias = record.answers.model.credentialRef ?? "unset";
+    console.log(`  next: register a model connection for ${record.answers.model.baseUrl} (alias ${alias})`);
+  }
+  if (record.answers?.github?.mode === "app") {
+    console.log("  next: paste the GitHub App PEM into apps/backend/.dev.vars as GITHUB_APP_PRIVATE_KEY");
+  }
+  if (record.containers === false) {
+    console.log("  containers: disabled for this dev process");
+  }
+}
+
+async function ensureSetup({ force, answersFile, docker }) {
+  const path = setupPath(REPO_ROOT);
+  const existing = readSetupFile(path);
+  if (!force && !answersFile && existing?.completed === true) {
+    console.log("  ✓ setup already recorded (.shiba/setup.json). Re-run with pnpm shiba setup to change it.");
+    return existing;
+  }
+  let answers;
+  if (answersFile) answers = loadAnswersFile(resolve(REPO_ROOT, answersFile));
+  else if (input.isTTY) answers = await promptAnswers();
+  else {
+    console.log("  ! no terminal — recording skipped steps. Run pnpm shiba setup when you can answer.");
+    answers = emptyAnswers();
+  }
+  const committed = commitSetup(REPO_ROOT, answers, { dockerOk: docker, devVarKeys: readDevVarKeys() });
+  applyDevVarPatch(committed.patch);
+  console.log(`  ✓ wrote ${path}`);
+  printLocalDoctor(committed.record, docker);
+  explainRecord(committed.record);
+  return committed.record;
+}
+
 function checkPrerequisites() {
   const node = checkNodeVersion();
   if (!node.ok) {
@@ -69,27 +232,32 @@ function checkPrerequisites() {
     fail("wrangler not available — run pnpm install from the repo root");
   }
 
-  const docker = capture("docker", ["info"], { stdio: "pipe" });
-  if (docker.status !== 0) {
-    fail(
-      "Docker is not running — start Docker Desktop/OrbStack, then re-run. Sandbox containers need a local engine.",
-    );
-  }
-
+  const docker = dockerOk();
   console.log("  ✓ Node.js", node.version);
   console.log("  ✓ pnpm", pnpmCheck.version.trim());
   console.log("  ✓ wrangler", (wrangler.stdout || wrangler.stderr).trim().split("\n")[0]);
-  console.log("  ✓ docker");
+  if (docker) console.log("  ✓ docker");
+  else console.log("  ! docker unavailable — continuing with local containers off");
+  return { dockerOk: docker };
 }
 
-function cmdDev() {
+function containersFor(record, docker) {
+  if (!docker) return false;
+  if (!record) return true;
+  if (record.containers === false) return false;
+  return needsLocalContainers({ ...record, containers: true });
+}
+
+async function cmdDev() {
   const dryRun = flag("dry-run");
   const onlyDevVars = flag("only-dev-vars");
   const skipInstall = flag("skip-install") || existsSync(resolve(REPO_ROOT, "node_modules/.pnpm"));
   const skipBuild = flag("skip-build");
   const skipImage = flag("skip-image");
+  const skipSetup = flag("skip-setup");
   const port = Number(opt("port", "8788"));
   const persistTo = opt("persist-to", ".shiba/local-state");
+  const answersFile = opt("answers", "");
 
   if (onlyDevVars) {
     const { appended } = ensureDevVars();
@@ -110,12 +278,17 @@ function cmdDev() {
       persistTo,
     });
     console.log(formatDryRun(plan));
+    console.log("setup: skipped on dry-run (pnpm shiba setup)");
     console.log(nextStepsBanner({ port }));
     return;
   }
 
   console.log("\n== shiba dev (local Worker + Sandbox) ==\n");
-  checkPrerequisites();
+  const prereq = checkPrerequisites();
+  const record = skipSetup
+    ? readSetupFile(setupPath(REPO_ROOT))
+    : await ensureSetup({ force: flag("setup"), answersFile, docker: prereq.dockerOk });
+  const containers = containersFor(record, prereq.dockerOk);
 
   const plan = planDevSteps({
     skipInstall,
@@ -123,6 +296,7 @@ function cmdDev() {
     skipImage,
     port,
     persistTo,
+    containers,
   });
 
   let generatedKeys = [];
@@ -199,6 +373,9 @@ function printDoctor(doctor) {
     const tag = finding.severity === "ok" ? "✓" : finding.severity === "warn" ? "!" : "✗";
     lines.push(`${tag} ${finding.id}: ${finding.message}`);
     if (finding.fix) lines.push(`    fix: ${finding.fix}`);
+    if (finding.fixAction) {
+      lines.push(`    action: pnpm shiba setup fix ${finding.fixAction.id} — ${finding.fixAction.label}`);
+    }
   }
   for (const row of doctor.roles ?? []) {
     const route =
@@ -229,21 +406,70 @@ async function cmdDoctor() {
   }
 }
 
+async function cmdSetup() {
+  const rest = args.slice(1).filter((arg) => arg !== "setup");
+  if (rest[0] === "fix") {
+    const actionId = rest[1];
+    if (!actionId || actionId.startsWith("--")) {
+      console.log("Usage: pnpm shiba setup fix <actionId>");
+      console.log("Actions: sandbox.use-cloudflare, sandbox.use-docker-local, sandbox.use-computesdk, sandbox.use-e2b, sandbox.without-docker, guide.github, guide.model, guide.test-repo");
+      return;
+    }
+    const path = setupPath(REPO_ROOT);
+    const existing = readSetupFile(path) ?? {
+      version: 1,
+      answers: emptyAnswers(),
+      containers: true,
+      acknowledged: [],
+    };
+    const applied = applyFix(existing, actionId);
+    writeSetupFile(path, applied.record);
+    if (actionId.startsWith("sandbox.")) applyDevVarPatch(devVarPatch(applied.record.answers, {}));
+    console.log(applied.message);
+    printLocalDoctor(applied.record, dockerOk());
+    return;
+  }
+  if (rest.includes("--help") || rest.includes("-h")) {
+    console.log("Usage: pnpm shiba setup [--answers=file.json] [--dry-run]");
+    console.log("       pnpm shiba setup fix <actionId>");
+    return;
+  }
+  const docker = dockerOk();
+  const answersFile = opt("answers", "");
+  if (flag("dry-run")) {
+    const answers = answersFile ? loadAnswersFile(resolve(REPO_ROOT, answersFile)) : emptyAnswers();
+    const { saved } = splitSecrets(normalizeAnswers(answers));
+    const preview = buildRecord(saved, { dockerOk: docker, devVarKeys: readDevVarKeys() });
+    console.log(formatDoctor(preview.doctor));
+    console.log("dry-run: nothing written");
+    return;
+  }
+  await ensureSetup({ force: true, answersFile, docker });
+}
+
 function printHelp() {
   console.log(`Usage: pnpm shiba <command> [options]
 
 Commands:
-  dev      Local Worker + Sandbox (prereqs, .dev.vars, D1 migrate, image build, wrangler dev)
+  dev      Setup wizard, then local Worker + Sandbox
+  setup    GitHub, model, sandbox, and test-repo wizard (every step skippable)
   doctor   Local checks + live /api/setup/status from a running Worker
 
 Dev options:
   --dry-run           Print the planned commands without running them
+  --skip-setup        Skip the wizard (use .shiba/setup.json if it exists)
+  --setup             Run the wizard even when a completed record exists
+  --answers=<file>    Non-interactive wizard answers (JSON)
   --skip-install      Skip pnpm install (default when node_modules exists)
   --skip-build        Skip pnpm build
   --skip-image        Skip wrangler containers build
   --port=<n>          Wrangler port (default: 8788)
   --persist-to=<dir>  Local persistence directory (default: .shiba/local-state)
   --only-dev-vars     Internal: merge .dev.vars only
+
+Setup:
+  pnpm shiba setup
+  pnpm shiba setup fix <actionId>
 
 Doctor options:
   --host URL          Worker base URL (default: http://127.0.0.1:8788 or SHIBA_HOST)
@@ -253,6 +479,7 @@ Doctor options:
 Examples:
   pnpm shiba dev
   pnpm shiba dev --dry-run
+  pnpm shiba setup
   pnpm shiba doctor --strict
   bash scripts/dev.sh
 `);
@@ -265,9 +492,11 @@ if (!sub || sub === "--help" || sub === "-h") {
 }
 
 if (sub === "dev") {
-  cmdDev();
+  await cmdDev();
+} else if (sub === "setup") {
+  await cmdSetup();
 } else if (sub === "doctor") {
-  cmdDoctor();
+  await cmdDoctor();
 } else {
   fail(`unknown command "${sub}" — run pnpm shiba --help`);
 }

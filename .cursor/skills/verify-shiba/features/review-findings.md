@@ -20,5 +20,5 @@ After a publish+review run settles, stay on the thread. Findings list is data-te
 
 ## Gotchas
 
-- Baseline returns null/501 for review-loop and has no findings UI.
+- `PATCH /api/v1/threads/:id/pr/review-loop` persists `{ enabled, autoMerge }`. Retry re-runs the reviewer unless the round was already posted or only the GitHub post failed.
 - Mock evidence is not live success.
