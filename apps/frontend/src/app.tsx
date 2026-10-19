@@ -360,6 +360,7 @@ export function App(): React.JSX.Element {
   const [baseBranch, setBaseBranch] = useState("main");
   const [task, setTask] = useState("");
   const [publishPullRequest, setPublishPullRequest] = useState(false);
+  const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [harness, setHarness] = useState("opencode");
   const [codingModel, setCodingModel] = useState("");
   const [connectionId, setConnectionId] = useState("");
@@ -717,6 +718,13 @@ export function App(): React.JSX.Element {
     // on entry to any of the three.
     mainView === "approvals" || mainView === "tasks" || mainView === "dashboard",
   );
+  const reviewAfterPublishById = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const approval of storedApprovals) {
+      if (approval.reviewAfterPublish) map[approval.approvalId] = true;
+    }
+    return map;
+  }, [storedApprovals]);
   const agentPrincipals = useAgentPrincipals(
     refreshToken,
     mainView === "tasks" || mainView === "dashboard",
@@ -926,6 +934,7 @@ export function App(): React.JSX.Element {
           ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
           ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
           publishPullRequest,
+          ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
         };
         const body = { ...fields, runtime: "local", ...targetMachineFields(desktopStatus) };
         // Keyed on user-editable fields only, so a daemon re-pair doesn't mint a new commandId for a retry.
@@ -996,6 +1005,9 @@ export function App(): React.JSX.Element {
         ...(codingModel.trim() ? [`Coding model: ${codingModel.trim()}`] : []),
         ...(connectionId.trim() ? [`Model connection: ${connectionId.trim()}`] : []),
         `Open a pull request with the result: ${publishPullRequest ? "yes" : "no"}`,
+        ...(publishPullRequest
+          ? [`Read-only review after the PR opens: ${reviewAfterPublish ? "yes" : "no"}`]
+          : []),
         ...(attachedSkills.length > 0
           ? [
               `Skills: ${attachedSkills.map((skill) => (skill.repoUrl ? `${skill.name} (${skill.repoUrl})` : skill.name)).join(", ")}`,
@@ -1022,6 +1034,7 @@ export function App(): React.JSX.Element {
               baseBranch: branch,
               harness,
               publishPullRequest,
+              ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
               ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
               ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
             },
@@ -1049,6 +1062,7 @@ export function App(): React.JSX.Element {
       baseBranch,
       task,
       publishPullRequest,
+      reviewAfterPublish,
       harness,
       codingModel,
       connectionId,
@@ -2142,6 +2156,7 @@ export function App(): React.JSX.Element {
                     pendingApprovals={pendingApprovals}
                     decisions={decisions}
                     onDecideApproval={decideApproval}
+                    reviewAfterPublishById={reviewAfterPublishById}
                     starters={STARTER_TEMPLATES}
                     onStarter={(starterTask) => {
                       setTask(starterTask);
@@ -2163,6 +2178,7 @@ export function App(): React.JSX.Element {
                     task={task}
                     baseBranch={baseBranch}
                     publishPullRequest={publishPullRequest}
+                    reviewAfterPublish={reviewAfterPublish}
                     harness={harness}
                     busy={busy}
                     repoSuggestions={repoSuggestions}
@@ -2183,7 +2199,11 @@ export function App(): React.JSX.Element {
                     onRepoUrlChange={setRepoUrl}
                     onTaskChange={setTask}
                     onBaseBranchChange={setBaseBranch}
-                    onPublishPullRequestChange={setPublishPullRequest}
+                    onPublishPullRequestChange={(value) => {
+                      setPublishPullRequest(value);
+                      if (value) setReviewAfterPublish(true);
+                    }}
+                    onReviewAfterPublishChange={setReviewAfterPublish}
                     onHarnessChange={setHarness}
                     routing={{
                       codingModel,
@@ -2245,6 +2265,7 @@ export function App(): React.JSX.Element {
               onDecideStoredApproval={decideStoredApproval}
               orchestratorName={orchestratorName}
               onRefresh={refreshRuns}
+              reviewAfterPublishById={reviewAfterPublishById}
             />
           ) : mainView === "memory" ? (
             <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">

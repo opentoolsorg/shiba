@@ -32,6 +32,7 @@ export interface StepTimelineProps {
   renderToolOutput?: (part: ToolPart) => string | null; // optional, has default
   starters?: { icon: LucideIcon; label: string; task: string }[];
   onStarter?: (task: string) => void;
+  reviewAfterPublishById?: Record<string, boolean>;
 }
 
 function partText(part: ToolPart): string | null {
@@ -74,6 +75,7 @@ export function StepTimeline({
   renderToolOutput = formatToolOutput,
   starters,
   onStarter,
+  reviewAfterPublishById,
 }: StepTimelineProps) {
   if (messages.length === 0) {
     return (
@@ -279,6 +281,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
                     approval={pendingApproval}
                     decided={decisions[pendingApproval.approvalId] !== undefined}
                     onDecideApproval={onDecideApproval}
+                    reviewAfterPublish={reviewAfterPublishById?.[pendingApproval.approvalId]}
                   />
                 ) : null}
               </div>

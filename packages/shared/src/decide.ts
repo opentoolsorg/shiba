@@ -35,6 +35,9 @@ export interface QueuedRunInput {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  reviewAfterPublish?: boolean;
+  reviewOf?: string;
+  reviewRoundId?: string;
   queuedBy?: string;
   route?: ApprovedRoute;
   /**
@@ -133,6 +136,8 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       task: run.task,
       baseBranch: run.baseBranch,
       publishPullRequest: run.publishPullRequest,
+      ...(run.reviewAfterPublish !== undefined ? { reviewAfterPublish: run.reviewAfterPublish } : {}),
+      ...(run.reviewOf !== undefined ? { reviewOf: run.reviewOf } : {}),
       ...(run.route !== undefined ? { route: run.route } : {}),
       ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
       ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
@@ -184,6 +189,9 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           task: command.input.task,
           baseBranch: command.input.baseBranch,
           publishPullRequest: command.input.publishPullRequest,
+          ...(command.input.reviewAfterPublish !== undefined ? { reviewAfterPublish: command.input.reviewAfterPublish } : {}),
+          ...(command.input.reviewOf !== undefined ? { reviewOf: command.input.reviewOf } : {}),
+          ...(command.input.reviewRoundId !== undefined ? { reviewRoundId: command.input.reviewRoundId } : {}),
           ...(command.input.queuedBy !== undefined ? { queuedBy: command.input.queuedBy } : {}),
           ...(command.input.route !== undefined ? { route: command.input.route } : {}),
           ...(command.input.continuationKey !== undefined ? { continuationKey: command.input.continuationKey } : {}),
@@ -224,6 +232,9 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.task === command.input.task &&
           run.baseBranch === command.input.baseBranch &&
           run.publishPullRequest === command.input.publishPullRequest &&
+          run.reviewAfterPublish === command.input.reviewAfterPublish &&
+          run.reviewOf === command.input.reviewOf &&
+          run.reviewRoundId === command.input.reviewRoundId &&
           run.queuedBy === command.input.queuedBy &&
           sameRoute &&
           run.continuationKey === command.input.continuationKey &&

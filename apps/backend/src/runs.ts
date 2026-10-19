@@ -56,6 +56,9 @@ export function createRun(args: {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  reviewAfterPublish?: boolean;
+  reviewOf?: string;
+  reviewRoundId?: string;
   queuedBy?: string;
   route?: ApprovedRoute;
   /** T48: account-scoped continuation identity from the selected harness. */
@@ -87,6 +90,9 @@ export function createRun(args: {
       task: args.task,
       baseBranch: args.baseBranch,
       publishPullRequest: args.publishPullRequest,
+      ...(args.reviewAfterPublish !== undefined ? { reviewAfterPublish: args.reviewAfterPublish } : {}),
+      ...(args.reviewOf !== undefined ? { reviewOf: args.reviewOf } : {}),
+      ...(args.reviewRoundId !== undefined ? { reviewRoundId: args.reviewRoundId } : {}),
       ...(args.queuedBy !== undefined ? { queuedBy: args.queuedBy } : {}),
       ...(args.route !== undefined ? { route: args.route } : {}),
       ...(args.continuationKey !== undefined ? { continuationKey: args.continuationKey } : {}),
@@ -137,6 +143,9 @@ function commandForStatus(
           task: run.task,
           baseBranch: run.baseBranch,
           publishPullRequest: run.publishPullRequest,
+          ...(run.reviewAfterPublish !== undefined ? { reviewAfterPublish: run.reviewAfterPublish } : {}),
+          ...(run.reviewOf !== undefined ? { reviewOf: run.reviewOf } : {}),
+          ...(run.reviewRoundId !== undefined ? { reviewRoundId: run.reviewRoundId } : {}),
           ...(run.queuedBy !== undefined ? { queuedBy: run.queuedBy } : {}),
           ...(run.route !== undefined ? { route: run.route } : {}),
           ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
