@@ -20,18 +20,33 @@ function run(patch: Partial<DelegatedRun>): DelegatedRun {
   };
 }
 
-const round = { roundId: "run-1:abc", status: "posted" } as ReviewRound;
+const roundA: ReviewRound = {
+  roundId: "run-1:abc",
+  codingRunId: "run-1",
+  reviewRunId: "rev-1",
+  pull: { owner: "acme", repo: "widgets", number: 4, headSha: "abc", url: "https://github.com/acme/widgets/pull/4" },
+  status: "posted",
+  findings: [],
+  summary: "",
+};
 
 describe("decideChain", () => {
-  it("queues when the approved publish has no round", () => {
-    expect(decideChain(run({}), undefined)).toEqual({ kind: "queue_review", reason: "approved review after publish" });
+  it("queues when the approved publish has no round for the head", () => {
+    expect(decideChain(run({}), [], "def")).toEqual({ kind: "queue_review", reason: "approved review for head" });
   });
 
-  it("does not queue a second round, a reviewer, or an unapproved publish", () => {
-    expect(decideChain(run({}), round).kind).toBe("none");
-    expect(decideChain(run({ reviewOf: "run-0" }), undefined).kind).toBe("none");
-    expect(decideChain(run({ reviewAfterPublish: false }), undefined).kind).toBe("none");
-    expect(decideChain(run({ pullUrl: undefined }), undefined).kind).toBe("none");
-    expect(decideChain(run({ status: "running" }), undefined).kind).toBe("none");
+  it("queues again when the head sha moves (incremental re-review)", () => {
+    expect(decideChain(run({}), [roundA], "def").kind).toBe("queue_review");
+  });
+
+  it("does not queue a duplicate round for the same head", () => {
+    expect(decideChain(run({}), [roundA], "abc").kind).toBe("none");
+  });
+
+  it("does not queue a reviewer, unapproved publish, or incomplete run", () => {
+    expect(decideChain(run({ reviewOf: "run-0" }), [], "abc").kind).toBe("none");
+    expect(decideChain(run({ reviewAfterPublish: false }), [], "abc").kind).toBe("none");
+    expect(decideChain(run({ pullUrl: undefined }), [], "abc").kind).toBe("none");
+    expect(decideChain(run({ status: "running" }), [], "abc").kind).toBe("none");
   });
 });
