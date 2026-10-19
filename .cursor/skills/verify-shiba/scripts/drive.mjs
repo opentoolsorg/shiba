@@ -89,7 +89,11 @@ try {
   }
   if (feature === "sandbox-run-and-diff" || feature === "pr-publish" || feature === "review-findings") {
     if (result.approvalVisible) {
-      await approve.first().click();
+      // Several cards can be pending; approve the one that states the review.
+      const reviewCard = page.locator("div").filter({ hasText: /read-only review/i }).filter({ has: page.getByRole("button", { name: "Approve" }) }).last();
+      const target = (await reviewCard.count()) ? reviewCard.getByRole("button", { name: "Approve" }) : approve.first();
+      await target.click();
+      await page.waitForTimeout(4000);
       await shot("05-approved");
       result.approved = true;
     }
