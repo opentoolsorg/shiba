@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DelegatedRun } from "@shiba/shared";
 import type { Env } from "../src/env.js";
-import { createApiKey, verifyToken } from "../src/agent-tokens.js";
+import { createApiKey, createToken, verifyToken } from "../src/agent-tokens.js";
 import { handleApiKeys } from "../src/api-keys-routes.js";
 import { handleV1 } from "../src/v1-routes.js";
 import { threadCreateCommandId, writeThreadCreateReceipt } from "../src/v1-idempotency.js";
@@ -138,6 +138,17 @@ describe("v1 contract (phase 6)", () => {
   it("returns empty subagent list for a thread", async () => {
     const res = await v1Fixture().send("/api/v1/threads/r1/subagents");
     expect(await res!.json()).toEqual({ items: [], cursor: null });
+  });
+
+  it("rejects MCP agent tokens on the public v1 surface", async () => {
+    const kv = new FakeKV();
+    const env = { AGENT_TOKENS: kv as unknown as KVNamespace } as Env;
+    const { token } = await createToken(env, "mcp-agent", ["runs:read"]);
+    const res = await handleV1(
+      new Request("https://worker.test/api/v1/threads", { headers: { authorization: `Bearer ${token}` } }),
+      env,
+    );
+    expect(res!.status).toBe(401);
   });
 
   it("rejects bearer keys without api scopes on v1", async () => {

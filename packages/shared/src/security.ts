@@ -17,6 +17,10 @@ const SECRET_PATTERNS: RegExp[] = [
   /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
   /"(?:access_token|refresh_token|id_token)"\s*:\s*"[^"]{8,}"/g,
   /\{[^{}]*"tokens"\s*:\s*\{[^{}]*\}[^{}]*\}/g,
+  // Org API keys, MCP agent tokens, and OAuth access tokens (KV bearer shapes).
+  /\bshk_[0-9a-f]{16}_[0-9a-f]{48}\b/gi,
+  /\bshb_[0-9a-f]{16}_[0-9a-f]{48}\b/gi,
+  /\bsho_[0-9a-f]{16}_[0-9a-f]{48}\b/gi,
 ];
 
 /** Replace known secret shapes with [redacted]. Safe to run on any text. */
