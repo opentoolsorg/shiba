@@ -23,6 +23,7 @@ export type AgentHarnessName =
   | "codex-subscription"
   | "devin"
   | "grok"
+  | "pi"
   | "cursor"
   | "antigravity"
   | "antigravity-subscription"

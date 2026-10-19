@@ -1,11 +1,13 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ClaudeCodeErrorEvent, claudeCodeHarness, parseClaudeCodeEvent } from "../src/harness/claude-code.js";
 import { CodexErrorEvent, codexHarness, parseCodexEvent } from "../src/harness/codex.js";
 import { DevinErrorEvent, devinHarness, parseDevinEvent } from "../src/harness/devin.js";
 import { GrokErrorEvent, grokHarness, parseGrokEvent } from "../src/harness/grok.js";
+import { PiErrorEvent, PiEventError, parsePiEvent, piHarness } from "../src/harness/pi.js";
 import { agentCliCatalog } from "../src/harness/catalog.js";
 import { compatibleHarnesses } from "../src/model-connections.js";
-import { allowedHostsFor, HARNESS_DEFAULT_MODELS, resolveHarness, resolveRunHarness } from "../src/harness/index.js";
+import { allowedHostsFor, HARNESS_DEFAULT_MODELS, HARNESS_MODEL_ENV, resolveHarness, resolveRunHarness } from "../src/harness/index.js";
 import { opencodeHarness, parseOpencodeEvent } from "../src/harness/opencode.js";
 import { providerOf } from "../src/harness/types.js";
 import { createRuntimeAdapter } from "../src/runtime.js";
@@ -28,6 +30,7 @@ describe("harness registry (T22)", () => {
     expect(resolveHarness("").name).toBe("opencode");
     expect(resolveHarness("claude-code").name).toBe("claude-code");
     expect(resolveHarness("CODEX").name).toBe("codex");
+    expect(resolveHarness("pi").name).toBe("pi");
   });
 
   it("refuses an unknown harness by name", () => {
@@ -112,6 +115,18 @@ describe("provider validation (T23 fixes B11)", () => {
     expect(opencodeHarness.buildConfig(input("xai/grok-4.6")).enabled_providers).toEqual(["xai"]);
     expect(opencodeHarness.env(input("xai/grok-4.6"), null).XAI_API_KEY).toBe("shiba-dummy-key");
     expect(allowedHostsFor(opencodeHarness, "xai/grok-4.6")).toContain("api.x.ai");
+  });
+
+  it("supports Pi's four provider ids and their single-provider egress hosts", () => {
+    for (const [model, host] of [
+      ["anthropic/claude-sonnet-4-6", "api.anthropic.com"],
+      ["openai/gpt-5.3-codex", "api.openai.com"],
+      ["google/gemini-3.5-flash-lite", "generativelanguage.googleapis.com"],
+      ["xai/grok-4.6", "api.x.ai"],
+    ] as const) {
+      expect(piHarness.egressHosts(model)).toEqual([host]);
+      expect(allowedHostsFor(piHarness, model)).toEqual([host, "github.com", "codeload.github.com"]);
+    }
   });
 
   it("refuses a provider the selected harness cannot drive, naming what it supports", () => {
@@ -449,6 +464,147 @@ describe("grok harness", () => {
   });
 });
 
+describe("Pi harness", () => {
+  it("runs headlessly in JSON mode with the provider prefix stripped from the model id", () => {
+    expect(piHarness.configFile()).toBeNull();
+    expect(piHarness.buildArgv(input("anthropic/claude-sonnet-4-6"), "/workspace/x")).toEqual([
+      "pi",
+      "--mode",
+      "json",
+      "--no-session",
+      "--provider",
+      "anthropic",
+      "--model",
+      "claude-sonnet-4-6",
+      "--",
+      "Fix it.",
+    ]);
+  });
+
+  it.each([
+    ["anthropic/claude-sonnet-4-6", "ANTHROPIC_API_KEY"],
+    ["openai/gpt-5.3-codex", "OPENAI_API_KEY"],
+    ["google/gemini-3.5-flash-lite", "GEMINI_API_KEY"],
+    ["xai/grok-4.6", "XAI_API_KEY"],
+  ])("passes only the dummy key for %s", (model, keyName) => {
+    expect(piHarness.env(input(model), null)).toEqual({
+      [keyName]: "shiba-dummy-key",
+      PI_SKIP_VERSION_CHECK: "1",
+      PI_TELEMETRY: "0",
+      PI_OFFLINE: "1",
+    });
+  });
+
+  it("parses tool, text, and usage events with cache tokens folded into the delta", () => {
+    expect(parsePiEvent("  ")).toBeNull();
+    expect(parsePiEvent(JSON.stringify({ type: "tool_execution_start", toolName: "bash" }))).toEqual({
+      kind: "tool",
+      name: "bash",
+      text: "tool: bash",
+    });
+    expect(parsePiEvent(JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "Done." }], stopReason: "stop" },
+    }))).toEqual({ kind: "text", text: "Done." });
+    expect(parsePiEvent(JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Edited a file." }],
+        usage: {
+          input: 10,
+          output: 3,
+          cacheRead: 4,
+          cacheWrite: 2,
+          cost: { total: 0.002 },
+        },
+        stopReason: "stop",
+      },
+    }))).toEqual({
+      kind: "usage",
+      cumulative: false,
+      usage: { inputTokens: 16, outputTokens: 3, costUsd: 0.002 },
+      text: "Edited a file.",
+    });
+  });
+
+  it("throws for assistant errors, aborts, and malformed JSONL", () => {
+    expect(() => parsePiEvent(JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", stopReason: "error", errorMessage: "401 invalid key" },
+    }))).toThrow(PiErrorEvent);
+    expect(() => parsePiEvent(JSON.stringify({
+      type: "message_end",
+      message: { role: "assistant", stopReason: "aborted" },
+    }))).toThrow(PiErrorEvent);
+    expect(() => parsePiEvent(JSON.stringify({ type: "agent_settled", aborted: true }))).toThrow(PiErrorEvent);
+    expect(() => parsePiEvent("not JSON")).toThrow(PiEventError);
+    expect(() => parsePiEvent("[]")).toThrow(PiEventError);
+    expect(() => parsePiEvent("null")).toThrow(PiEventError);
+  });
+
+  it("ignores Pi lifecycle and tool-update noise", () => {
+    for (const type of [
+      "session",
+      "agent_start",
+      "agent_end",
+      "turn_start",
+      "turn_end",
+      "message_start",
+      "message_update",
+      "tool_execution_update",
+      "tool_execution_end",
+      "queue_update",
+      "compaction_start",
+      "compaction_end",
+      "auto_retry_start",
+      "auto_retry_end",
+    ]) {
+      expect(parsePiEvent(JSON.stringify({ type }))).toBeNull();
+    }
+  });
+
+  it("parses every line from the real offline smoke and detects its assistant auth error", () => {
+    const lines = readFileSync(new URL("./fixtures/pi-smoke.jsonl", import.meta.url), "utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.trim());
+    const errors: unknown[] = [];
+    for (const line of lines) {
+      try {
+        parsePiEvent(line);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(PiErrorEvent);
+    expect((errors[0] as PiErrorEvent).detail).toContain("invalid x-api-key");
+  });
+
+  it("fails a runtime run on Pi's streamed assistant error even when the CLI exits zero", async () => {
+    const adapter = createRuntimeAdapter("sandbox", piHarness);
+    const ops = {
+      gitCheckout: async () => {},
+      writeFile: async () => {},
+      exec: async (_command: string, opts?: { onOutput?: (stream: "stdout" | "stderr", data: string) => void }) => {
+        opts?.onOutput?.("stdout", `${JSON.stringify({
+          type: "message_end",
+          message: { role: "assistant", stopReason: "error", errorMessage: "401 invalid key" },
+        })}\n`);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+      readFile: async () => ({ kind: "utf8" as const, content: "" }),
+    };
+    const result = await adapter.runCodingTask(ops, input("anthropic/claude-sonnet-4-6"), async () => {});
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("401 invalid key");
+  });
+
+  it("refuses unsupported providers", () => {
+    expect(() => piHarness.egressHosts("mistral/large")).toThrow(/pi harness supports/);
+  });
+});
+
 describe("connection compatibility stays honest", () => {
   it("cursor is a remote executor — no sandbox harness drives it", () => {
     // The grok service row routes through the xai namespace; cursor stays a
@@ -456,9 +612,11 @@ describe("connection compatibility stays honest", () => {
     expect(compatibleHarnesses("cursor")).toEqual([]);
     expect(compatibleHarnesses("anthropic")).toContain("claude-code");
     expect(compatibleHarnesses("anthropic")).toContain("opencode");
+    expect(compatibleHarnesses("anthropic")).toContain("pi");
     // The new fleet lanes resolve to real provider namespaces.
     expect(compatibleHarnesses("grok")).toContain("grok");
     expect(compatibleHarnesses("grok")).toContain("opencode");
+    expect(compatibleHarnesses("grok")).toContain("pi");
     expect(compatibleHarnesses("luan")).toEqual(["opencode", "opencode-acp"]);
   });
 });
@@ -472,6 +630,7 @@ describe("agent cli catalog", () => {
       "codex",
       "devin",
       "grok",
+      "pi",
       "claude-acp",
       "codex-acp",
       "gemini-acp",
@@ -480,6 +639,10 @@ describe("agent cli catalog", () => {
     ]);
     expect(catalog.find((a) => a.id === "grok")?.version).toBe("1.0.41");
     expect(catalog.find((a) => a.id === "grok")?.defaultModel).toBe("xai/grok-4.6");
+    expect(catalog.find((a) => a.id === "pi")?.version).toBe("1.3.0");
+    expect(catalog.find((a) => a.id === "pi")?.defaultModel).toBe("anthropic/claude-sonnet-4-6");
+    expect(HARNESS_MODEL_ENV.pi).toBe("CODING_MODEL");
+    expect(HARNESS_DEFAULT_MODELS.pi).toBe("anthropic/claude-sonnet-4-6");
     expect(catalog.find((a) => a.id === "devin")?.version).toBe("3000.11.3");
     expect(catalog.find((a) => a.id === "devin")?.defaultModel).toBe("devin/swe-2-medium");
   });
