@@ -24,6 +24,18 @@ describe("resolveSandboxProvider", () => {
     ).toThrow(/SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS/);
   });
 
+  it("admits computesdk with opt-in (lazy provider)", () => {
+    const provider = resolveSandboxProvider({
+      Sandbox: {} as never,
+      SHIBA_SANDBOX_PROVIDER: "computesdk",
+      SHIBA_COMPUTESDK_PROVIDER: "e2b",
+      SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS: "1",
+    } as unknown as import("../src/env.js").Env);
+    expect(provider.id).toBe("computesdk");
+    expect(provider.capabilities.rawProviderHandle).toBe(true);
+    expect(provider.capabilities.edgeEgressEnforcement).toBe(false);
+  });
+
   it("admits docker-local with opt-in", () => {
     const provider = resolveSandboxProvider({
       Sandbox: {} as never,

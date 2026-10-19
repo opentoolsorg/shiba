@@ -42,6 +42,9 @@ export interface CloudflareSandboxRpc {
 
 export interface CloudflareSandboxProviderDeps {
   resolveRpc: (instanceId: string) => CloudflareSandboxRpc;
+  defaultTimeoutMs?: number;
+  extraEgressHosts?: string[];
+  execEnvPassthrough?: Record<string, string>;
 }
 
 const CAPABILITIES: SandboxCapabilities = {
@@ -50,16 +53,22 @@ const CAPABILITIES: SandboxCapabilities = {
   snapshots: true,
   streamingExec: true,
   backgroundProcesses: true,
+  rawProviderHandle: false,
 };
 
-function wrapRpc(instanceId: string, rpc: CloudflareSandboxRpc): SandboxInstance {
+function wrapRpc(
+  instanceId: string,
+  rpc: CloudflareSandboxRpc,
+  settings: Pick<CloudflareSandboxProviderDeps, "defaultTimeoutMs" | "extraEgressHosts" | "execEnvPassthrough">,
+): SandboxInstance {
   return {
     id: instanceId,
     capabilities: CAPABILITIES,
 
     async pinEgress(pin: SandboxEgressPin) {
-      if (pin.allowedHosts.length > 0) {
-        await rpc.approveHarnessEgress(pin.allowedHosts);
+      const hosts = [...new Set([...pin.allowedHosts, ...(settings.extraEgressHosts ?? [])])];
+      if (hosts.length > 0) {
+        await rpc.approveHarnessEgress(hosts);
       }
       if (pin.outboundByHost) {
         const overrides = Object.entries(pin.outboundByHost).map(([host, spec]) => ({
@@ -93,8 +102,8 @@ function wrapRpc(instanceId: string, rpc: CloudflareSandboxRpc): SandboxInstance
       opts?.signal?.throwIfAborted();
       const execPromise = rpc.exec(command, {
         cwd: opts?.cwd,
-        timeout: opts?.timeoutMs,
-        env: opts?.env,
+        timeout: opts?.timeoutMs ?? settings.defaultTimeoutMs,
+        env: { ...settings.execEnvPassthrough, ...opts?.env },
         stream: opts?.onOutput !== undefined,
         onOutput: opts?.onOutput,
       });
@@ -126,12 +135,17 @@ function wrapRpc(instanceId: string, rpc: CloudflareSandboxRpc): SandboxInstance
 }
 
 export function createCloudflareSandboxProvider(deps: CloudflareSandboxProviderDeps): SandboxProvider {
+  const settings = {
+    defaultTimeoutMs: deps.defaultTimeoutMs,
+    extraEgressHosts: deps.extraEgressHosts,
+    execEnvPassthrough: deps.execEnvPassthrough,
+  };
   return {
     id: "cloudflare",
     capabilities: CAPABILITIES,
     async get(instanceId) {
       // Fresh wrap each get so test mocks can swap RPC stubs between calls.
-      return wrapRpc(instanceId, deps.resolveRpc(instanceId));
+      return wrapRpc(instanceId, deps.resolveRpc(instanceId), settings);
     },
     async destroy(instanceId) {
       try {

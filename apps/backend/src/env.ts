@@ -180,12 +180,34 @@ export interface Env {
    * Providers without edge egress enforcement require SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS=1.
    */
   SHIBA_SANDBOX_PROVIDER?: string;
+  SHIBA_SANDBOX_TIMEOUT_MS?: string;
+  SHIBA_SANDBOX_REGION?: string;
+  /** Comma-separated hostnames merged into egress pins where supported. */
+  SHIBA_SANDBOX_EGRESS_ALLOWLIST?: string;
+  /** Comma-separated KEY=value pairs forwarded into sandbox exec (non-secret). */
+  SHIBA_SANDBOX_ENV_PASSTHROUGH?: string;
+  /** When `SHIBA_SANDBOX_PROVIDER=e2b` stub: `1` = mock instance (tests). */
+  SHIBA_E2B_MOCK?: string;
   /** Opt-in for docker-local / hosted sandboxes that cannot enforce Worker egress. */
   SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS?: string;
   /** Image for docker-local provider (defaults to `shiba-sandbox:local`). */
   SHIBA_DOCKER_SANDBOX_IMAGE?: string;
   /** Hostname or IP for docker-local preview URLs (default 127.0.0.1). */
   SHIBA_DOCKER_PREVIEW_HOST?: string;
+  /**
+   * When `SHIBA_SANDBOX_PROVIDER=computesdk`, selects the ComputeSDK backend
+   * (e2b, modal, daytona, …). Requires a Node/Bun control plane — not Worker edge.
+   */
+  SHIBA_COMPUTESDK_PROVIDER?: string;
+  /** ComputeSDK / E2B — never logged. */
+  E2B_API_KEY?: string;
+  MODAL_TOKEN_ID?: string;
+  MODAL_TOKEN_SECRET?: string;
+  DAYTONA_API_KEY?: string;
+  CLOUDFLARE_SANDBOX_URL?: string;
+  CLOUDFLARE_SANDBOX_API_KEY?: string;
+  VERCEL_TOKEN?: string;
+  VERCEL_OIDC_TOKEN?: string;
   /**
    * Optional. This Worker's public hostname (no scheme), used by T33 to mint
    * sandbox preview URLs (`sandbox.exposePort`) and to form the absolute
