@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Alchemy drift check — asserts alchemy.run.ts still mirrors wrangler.jsonc
- * while both deploy paths are committed:
+ * Deploy drift check — `apps/backend/wrangler.jsonc` is the source of truth
+ * for bindings, vars, containers, and DO migrations. This script asserts
+ * `alchemy.run.ts` still mirrors it while both deploy paths are committed:
  *
  *  (a) every binding/var wrangler.jsonc declares exists as an alchemy env
  *      entry or Worker prop with the SAME value (vars by literal value, DO
@@ -14,6 +15,8 @@
  *  (d) every alchemy env entry is either a wrangler-declared name or a
  *      `secret("NAME")`/`...secrets([...])` deploy-time secret — alchemy-only
  *      bindings are drift
+ *  (f) `...secrets([...])` matches `apps/backend/worker-secrets.json` exactly
+ *      (set equality — the canonical secret binding list for both deploy paths)
  *
  * Usage: node scripts/check-alchemy-drift.mjs [--wrangler=<path>]
  *          [--alchemy=<path>] [--help]
@@ -137,6 +140,7 @@ const parseJsonc = (text) => JSON.parse(stripTrailingCommas(stripJsoncComments(t
 // its class_name is a durable_objects.bindings entry — but its settings are
 // compared separately below.
 const BINDING_ARRAY_FIELDS = [
+  ["worker_loaders", "Worker Loader", (b) => b.binding],
   ["kv_namespaces", "KV Namespace", (b) => b.binding],
   ["r2_buckets", "R2 Bucket", (b) => b.binding],
   ["d1_databases", "D1 Database", (b) => b.binding],
@@ -339,6 +343,7 @@ function envKind(value) {
   if (/^Cloudflare\.DurableObject\b/.test(value)) return "durableObject";
   if (/^Cloudflare\.Container\b/.test(value)) return "container";
   if (/^Cloudflare\.Workers\.AI\b/.test(value)) return "ai";
+  if (/^Cloudflare\.WorkerLoader\b/.test(value)) return "workerLoader";
   if (/^secret\(/.test(value)) return "secret";
   if (/^["'`]/.test(value)) return "var";
   return "other";
@@ -504,6 +509,17 @@ if (cfg.ai?.binding) {
   }
 }
 
+// (a) worker_loaders binding
+for (const b of cfg.worker_loaders ?? []) {
+  const v = env.get(b.binding);
+  if (v === undefined) continue;
+  if (envKind(v) !== "workerLoader") {
+    drift.push(
+      `drift: worker loader "${b.binding}" is not Cloudflare.WorkerLoader() in alchemy.run.ts`,
+    );
+  }
+}
+
 // (a) DO bindings: env entry is a DurableObject (or the Container decl for
 // the container-backed class) whose className equals class_name.
 const containerClasses = new Set((cfg.containers ?? []).map((c) => c?.class_name));
@@ -586,6 +602,34 @@ for (const [key, value] of env) {
   if (kind === "secret") continue;
   if (!declared.has(key) && key !== "ASSETS") {
     drift.push(`drift: alchemy.run.ts env "${key}" has no wrangler.jsonc counterpart (only deploy-time secret entries may be extra)`);
+  }
+}
+
+// (f) deploy-time secrets manifest — same list for alchemy and wrangler operators.
+function collectAlchemySecretNames(text) {
+  const m = text.match(/\.\.\.secrets\s*\(\s*\[([\s\S]*?)\]\s*\)/);
+  if (!m) return [];
+  return [...m[1].matchAll(/"([A-Z][A-Z0-9_]*)"/g)].map((x) => x[1]);
+}
+const secretsManifestPath = resolve(root, "apps/backend/worker-secrets.json");
+let manifestSecrets;
+try {
+  manifestSecrets = parseJsonc(readFileSync(secretsManifestPath, "utf8")).secrets;
+} catch (err) {
+  console.error(`check-alchemy-drift: cannot read ${secretsManifestPath}: ${err.message}`);
+  process.exit(1);
+}
+const alchemySecrets = collectAlchemySecretNames(alchemyText);
+const manifestSet = new Set(manifestSecrets);
+const alchemySet = new Set(alchemySecrets);
+for (const name of manifestSet) {
+  if (!alchemySet.has(name)) {
+    drift.push(`secrets: "${name}" in worker-secrets.json missing from alchemy.run.ts secrets([...])`);
+  }
+}
+for (const name of alchemySet) {
+  if (!manifestSet.has(name)) {
+    drift.push(`secrets: "${name}" in alchemy.run.ts secrets([...]) missing from worker-secrets.json`);
   }
 }
 
