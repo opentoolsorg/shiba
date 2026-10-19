@@ -43,6 +43,7 @@ import { handleCaptainRoutes } from "./captain-routes.js";
 import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
+import { handleRunWorkspaceWebSocket } from "./run-workspace-ws.js";
 import { handleE2eEvidence } from "./e2e-evidence-routes.js";
 import { handleWebSessions } from "./sessions-routes.js";
 import { redactSecrets } from "./security.js";
@@ -180,6 +181,10 @@ export default {
         request = new Request(request, { headers });
       }
       const url = new URL(request.url);
+      const workspaceWs = await handleRunWorkspaceWebSocket(request, env);
+      if (workspaceWs) {
+        return workspaceWs;
+      }
       // Order: the better-auth lane owns `/api/auth/*` (minus the
       // subscription-connect paths it shares that prefix with — those stay
       // gated below), so it is served before the identity gate sees the

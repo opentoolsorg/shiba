@@ -93,11 +93,16 @@ export const screenKeyInputSchema = z.object({
 export const screenShotInputSchema = z.object({
   runId: screenRunId,
 });
+export const screenOpenUrlInputSchema = z.object({
+  runId: screenRunId,
+  url: z.string().url().describe("http(s) URL to open in the sandbox browser."),
+});
 export type ScreenClickInput = z.infer<typeof screenClickInputSchema>;
 export type ScreenTypeInput = z.infer<typeof screenTypeInputSchema>;
 export type ScreenScrollInput = z.infer<typeof screenScrollInputSchema>;
 export type ScreenKeyInput = z.infer<typeof screenKeyInputSchema>;
 export type ScreenShotInput = z.infer<typeof screenShotInputSchema>;
+export type ScreenOpenUrlInput = z.infer<typeof screenOpenUrlInputSchema>;
 
 export type RunStatusInput = z.infer<typeof runStatusInputSchema>;
 

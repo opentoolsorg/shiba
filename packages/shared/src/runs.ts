@@ -150,6 +150,10 @@ export interface DelegatedRun {
   captainId?: string;
   /** T52 / dispatch: role pin frozen on the run row when set at queue time. */
   role?: import("./roles.js").AgentRole;
+  /** Live desktop layer was started for this sandbox run (SHIBA_SANDBOX_DESKTOP). */
+  desktopEnabled?: boolean;
+  /** Who may drive xdotool — flipped by the task workspace "Take control" toggle. */
+  desktopInputMode?: "agent" | "human";
 }
 
 /**

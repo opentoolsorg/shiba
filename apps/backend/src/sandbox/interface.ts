@@ -4,3 +4,9 @@
  * only the factory behind this seam, not orchestration or approval code.
  */
 export type { SandboxOps } from "../runtime.js";
+export {
+  CLOUDFLARE_SANDBOX_CAPABILITIES,
+  providerSupports,
+  SANDBOX_DESKTOP_PORT,
+} from "@shiba/sandbox";
+export { isSandboxDesktopEnabled, startDesktopStack, exposeDesktopPort, unexposeDesktopPort } from "./desktop.js";

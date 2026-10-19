@@ -94,12 +94,16 @@ RUN set -eux; \
 COPY scripts/acp-install.sh /usr/local/bin/shiba-acp-install
 RUN chmod +x /usr/local/bin/shiba-acp-install
 
-# Computer-use surface (PLAN-V2-NEXT): xdotool drives the screen input,
-# scrot captures it. The desktop itself (X server, window manager) is a
-# heavier image follow-up — these tools are inert until it lands.
+# Computer-use surface: xdotool/scrot for harness tools; optional desktop
+# stack (Xvfb, openbox, Chromium, x11vnc, noVNC) starts on demand via
+# shiba-desktop-start when SHIBA_SANDBOX_DESKTOP=1 — off by default.
 RUN set -eux; \
-  apt-get update && apt-get install -y --no-install-recommends xdotool scrot && \
+  apt-get update && apt-get install -y --no-install-recommends \
+    xdotool scrot xvfb openbox x11vnc websockify novnc chromium && \
   rm -rf /var/lib/apt/lists/*
+
+COPY scripts/shiba-desktop-start.sh /usr/local/bin/shiba-desktop-start
+RUN chmod +x /usr/local/bin/shiba-desktop-start
 
 # Procoder commit gate — checksum-verified, version-pinned like the harnesses.
 # Available to every sandboxed agent so quality-gate runs can execute

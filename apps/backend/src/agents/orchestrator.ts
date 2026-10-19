@@ -136,6 +136,12 @@ import {
   runScreenAction,
   ScopedExecRefusal,
 } from "../screen-control.js";
+import {
+  handleRunWorkspaceRequest,
+  type DesktopSessionRecord,
+  type RunWorkspaceHost,
+  teardownDesktopSession,
+} from "./run-workspace-handlers.js";
 import { makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
@@ -202,6 +208,8 @@ export interface OrchestratorState {
    */
   events?: SpineEvent[];
   outbox?: OutboxEntry[];
+  /** Ephemeral desktop expose metadata — never returned on run rows. */
+  desktopSessions?: Record<string, DesktopSessionRecord>;
 }
 
 /** A classified error lands as its matching terminal status. */
@@ -384,6 +392,25 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private runControllersMap: Map<string, AbortController> | undefined;
   private get runControllers(): Map<string, AbortController> {
     return (this.runControllersMap ??= new Map());
+  }
+
+  private runWorkspaceHost(): RunWorkspaceHost {
+    return {
+      env: this.env,
+      getRun: (runId) => this.store.get(runId),
+      replaceRun: (runId, run) => {
+        this.store.replace(runId, run);
+      },
+      getDesktopSession: (runId) => this.state?.desktopSessions?.[runId],
+      setDesktopSession: (runId, session) => {
+        const current = this.state ?? { runs: this.store.list() };
+        const prev = current.desktopSessions ?? {};
+        const next = { ...prev };
+        if (session) next[runId] = session;
+        else delete next[runId];
+        this.setState({ ...current, runs: current.runs ?? this.store.list(), desktopSessions: next });
+      },
+    };
   }
 
   /**
@@ -1349,6 +1376,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (run.status !== "running") {
       return Response.json(
         { error: `Run ${runId} is ${run.status} — only a running run has a live screen.` },
+        { status: 409 },
+      );
+    }
+    if (run.desktopInputMode === "human") {
+      return Response.json(
+        { error: "Agent screen input is paused while a human has control." },
         { status: 409 },
       );
     }
@@ -3899,6 +3932,40 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         latestSeq,
         totalEvents,
       });
+    }
+    const internalDesktopWs = url.pathname.match(/^\/internal\/runs\/([^/]+)\/desktop-ws$/);
+    if (internalDesktopWs !== null) {
+      let wsRunId: string;
+      try {
+        wsRunId = decodeURIComponent(internalDesktopWs[1]!);
+      } catch {
+        return Response.json({ error: "Invalid run ID." }, { status: 400 });
+      }
+      const session = this.state?.desktopSessions?.[wsRunId];
+      if (!session || session.expiresAt < Date.now()) {
+        return Response.json({ error: "Desktop session not active." }, { status: 404 });
+      }
+      return Response.json({ wsUrl: session.wsUrl });
+    }
+    const workspaceMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/workspace(?:\/(.*))?$/);
+    if (workspaceMatch !== null) {
+      let workspaceRunId: string;
+      try {
+        workspaceRunId = decodeURIComponent(workspaceMatch[1]!);
+      } catch {
+        return Response.json({ error: "Invalid run ID." }, { status: 400 });
+      }
+      const tail = workspaceMatch[2] ?? "";
+      const userId =
+        request.headers.get("CF-Access-Authenticated-User-Email")?.trim() || agentPrincipal || "default";
+      return handleRunWorkspaceRequest(
+        this.runWorkspaceHost(),
+        request,
+        workspaceRunId,
+        tail,
+        userId,
+        agentPrincipal,
+      );
     }
     const screenMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/screen$/);
     if (screenMatch !== null) {

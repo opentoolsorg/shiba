@@ -36,6 +36,7 @@ import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
 import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
+import { TaskWorkspacePanel } from "./components/TaskWorkspacePanel";
 import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
 import { RunUsageCard } from "./components/RunUsageSummary";
@@ -1319,6 +1320,13 @@ export function App(): React.JSX.Element {
     }
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
+  const workspaceRun = useMemo(() => {
+    if (selectedRunId) {
+      return allRuns.find((run) => run.runId === selectedRunId) ?? null;
+    }
+    const active = allRuns.find((run) => run.status === "running" || run.status === "pending");
+    return active ?? allRuns[0] ?? null;
+  }, [allRuns, selectedRunId]);
   // Model-by-purpose config: connections + the coding-purpose suggestion list.
   const modelConfig = useModelConfig();
   const agentsDirectory = useAgentsDirectory();
@@ -2234,6 +2242,7 @@ export function App(): React.JSX.Element {
                   />
                 </div>
               </main>
+              <TaskWorkspacePanel run={workspaceRun} loading={!runsDetailReady} />
             </div>
           ) : mainView === "activity" ? (
             // Remount on session switch so the previous session's spine never

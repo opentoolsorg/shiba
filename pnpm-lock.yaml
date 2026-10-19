@@ -123,6 +123,9 @@ importers:
       '@shiba/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@shiba/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@shiba/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -326,6 +329,8 @@ importers:
       vitest:
         specifier: 5.0.1
         version: 5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+
+  packages/sandbox: {}
 
   packages/sdk:
     devDependencies:

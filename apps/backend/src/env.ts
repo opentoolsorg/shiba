@@ -165,6 +165,13 @@ export interface Env {
    */
   SHIBA_LOCAL_RUNTIME?: string;
   /**
+   * Opt-in in-sandbox desktop (Xvfb + noVNC). "1" allows starting the
+   * stack on demand; absent keeps plain sandbox runs smaller.
+   */
+  SHIBA_SANDBOX_DESKTOP?: string;
+  /** HMAC secret for short-lived desktop/terminal stream tokens; falls back to PAIRING_SECRET. */
+  DESKTOP_STREAM_SECRET?: string;
+  /**
    * T51 daemon credential: the bearer the operator's `shiba local` daemon
    * presents on /api/local/claim and /api/local/result. Unset = the
    * surface refuses every request even when the flag is on.
