@@ -30,6 +30,9 @@ import {
   sideEffectResultInput,
   spineInputsFromDecider,
   testCommandSchema,
+  parseReviewEnvelope,
+  runInputHash,
+  type ReviewRound,
 } from "@shiba/shared";
 import type { Connection, ConnectionContext } from "agents";
 import { agentTool } from "agents/agent-tools";
@@ -76,6 +79,9 @@ import {
   resolvePendingApproval,
 } from "../pending-approvals.js";
 import { makeReceipt } from "../receipts.js";
+import { decideChain } from "../review/chain.js";
+import { reviewerTask } from "../review/prompt.js";
+import { postReview } from "../review/publish.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
   classifyExecutorError,
@@ -163,6 +169,8 @@ export interface OrchestratorState {
    * answers from it instead of re-running the effect.
    */
   commandReceipts?: Record<string, CommandReceipt>;
+  /** Review rounds for this thread. GitHub is the system of record for the posted review. */
+  reviewRounds?: ReviewRound[];
   /**
    * P9 spine: the append-only event log. Every mutation routes through
    * `decide → appendEvents → apply` — the events below are the durable
@@ -883,7 +891,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       // Execution never decides an approval. Only the authenticated resolve
       // path may reserve a run and mark its pointer approved.
-      if (!reserved || pointer?.status !== "approved") {
+      // A chained reviewer already carries the parent's approval evidence. No second card.
+      const chained = Boolean(reserved?.reviewOf && reserved.approval);
+      if (!reserved || (pointer?.status !== "approved" && !chained)) {
         return "Run is not approved to execute.";
       }
       // Ignore caller input: execute may be invoked with different arguments
@@ -893,12 +903,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         task: reserved.task,
         baseBranch: reserved.baseBranch,
         publishPullRequest: reserved.publishPullRequest,
-        ...(pointer.harness !== undefined
+        ...(pointer?.harness !== undefined
           ? { harness: delegateInputSchema.shape.harness.parse(pointer.harness) }
           : {}),
         ...(reserved.authAccount !== undefined ? { authAccount: reserved.authAccount } : {}),
         ...(reserved.runtime !== undefined ? { runtime: reserved.runtime } : {}),
-        ...(pointer.role !== undefined ? { role: pointer.role } : {}),
+        ...(pointer?.role !== undefined ? { role: pointer.role } : chained ? { role: "reviewer" as const } : {}),
       };
       failureRun = reserved;
       // T51 dispatch-side check — the queued record's frozen runtime is what
@@ -1132,6 +1142,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                     pullUrl: parsed.pullUrl ?? repoPullUrl(output, fullInput.repoUrl),
                   }),
                 );
+                if (finished !== null) {
+                  yield* Effect.promise(() => this.afterRunSettled(finished, output));
+                }
                 // TypeSafe Score: grade the run quality (fail-open — never
                 // blocks completion). Terminal runs are immutable
                 // (transitionRun refuses them), so the grade lands as a
@@ -1370,6 +1383,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     task?: unknown;
     baseBranch?: unknown;
     publishPullRequest?: unknown;
+    reviewAfterPublish?: unknown;
     harness?: unknown;
     codingModel?: unknown;
     connectionId?: unknown;
@@ -2214,6 +2228,153 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
       }),
     });
+  }
+
+  private githubApiBase(): string {
+    return (this.env.GITHUB_API_BASE ?? "https://api.github.com").replace(/\/$/, "");
+  }
+
+  private parsePull(url: string): { owner: string; repo: string; number: number } | null {
+    const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+    if (!match?.[1] || !match[2] || !match[3]) return null;
+    return { owner: match[1], repo: match[2], number: Number(match[3]) };
+  }
+
+  /** A terminal round with a newer generation wins. A late result is dropped. */
+  private writeRound(round: ReviewRound): boolean {
+    const rounds = this.state.reviewRounds ?? [];
+    const current = rounds.find((item) => item.roundId === round.roundId);
+    if (
+      current &&
+      (current.status === "posted" || current.status === "failed" || current.status === "skipped") &&
+      round.generation !== undefined &&
+      current.generation !== undefined &&
+      round.generation < current.generation
+    ) {
+      return false;
+    }
+    const next = current
+      ? rounds.map((item) => (item.roundId === round.roundId ? round : item))
+      : [...rounds, round];
+    this.setState({ ...this.state, reviewRounds: next });
+    const coding = this.store.get(round.codingRunId);
+    if (coding && coding.reviewRoundId !== round.roundId) {
+      this.store.replace(round.codingRunId, { ...coding, reviewRoundId: round.roundId });
+    }
+    return true;
+  }
+
+  private async pullHeadSha(owner: string, repo: string, number: number): Promise<string> {
+    const token = this.env.GITHUB_TOKEN;
+    if (!token) return "head";
+    const response = await fetch(`${this.githubApiBase()}/repos/${owner}/${repo}/pulls/${number}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "User-Agent": "shiba",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) return "head";
+    const body = await response.json() as { head?: { sha?: string } };
+    return body.head?.sha || "head";
+  }
+
+  private async afterRunSettled(run: DelegatedRun, output: string): Promise<void> {
+    try {
+      if (run.reviewOf) await this.settleReviewer(run, output);
+      else await this.queueChainedReview(run);
+    } catch (error) {
+      console.error("review chain failed", redactSecrets(error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  private async queueChainedReview(parent: DelegatedRun): Promise<void> {
+    const existing = (this.state.reviewRounds ?? []).find((round) => round.codingRunId === parent.runId);
+    if (decideChain(parent, existing).kind !== "queue_review") return;
+    const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
+    if (!pull || !parent.pullUrl) return;
+    const headSha = await this.pullHeadSha(pull.owner, pull.repo, pull.number);
+    const roundId = `${parent.runId}:${headSha}`;
+    const task = reviewerTask({
+      repoUrl: parent.repoUrl,
+      pullNumber: pull.number,
+      headSha,
+      diffUrl: `${parent.repoUrl.replace(/\/$/, "")}/pull/${pull.number}.diff`,
+    });
+    const callId = `chain-review:${parent.runId}`;
+    const fields = {
+      repoUrl: parent.repoUrl,
+      task,
+      baseBranch: parent.baseBranch,
+      publishPullRequest: false,
+      reviewOf: parent.runId,
+      ...(parent.route ? { route: parent.route } : {}),
+    };
+    const reviewRun = createRun({
+      runId: `agent-tool:${callId}`,
+      sandboxId: makeSandboxId(parent.repoUrl, task, callId),
+      ...fields,
+      reviewRoundId: roundId,
+      approval: {
+        approvalId: parent.approval?.approvalId ?? callId,
+        decidedBy: parent.approval?.decidedBy ?? "chained-review",
+        decidedAt: parent.approval?.decidedAt ?? Date.now(),
+        inputHash: runInputHash(fields),
+      },
+      decisionTap: (command, decision) => this.spineTap(command, decision),
+    });
+    this.store.add(reviewRun);
+    this.writeRound({
+      roundId,
+      codingRunId: parent.runId,
+      reviewRunId: reviewRun.runId,
+      pull: { ...pull, headSha, url: parent.pullUrl },
+      status: "queued",
+      findings: [],
+      summary: "",
+      generation: 0,
+    });
+    this.dispatchApprovedRun(reviewRun, undefined, callId);
+  }
+
+  private async settleReviewer(run: DelegatedRun, output: string): Promise<void> {
+    const parent = run.reviewOf ? this.store.get(run.reviewOf) : null;
+    const pull = parent?.pullUrl ? this.parsePull(parent.pullUrl) : null;
+    const roundId = run.reviewRoundId ?? `${run.reviewOf ?? run.runId}:head`;
+    const envelope = parseReviewEnvelope(output);
+    const headSha = pull ? await this.pullHeadSha(pull.owner, pull.repo, pull.number) : "head";
+    const round: ReviewRound = {
+      roundId,
+      codingRunId: parent?.runId ?? run.reviewOf ?? run.runId,
+      reviewRunId: run.runId,
+      pull: {
+        owner: pull?.owner ?? "",
+        repo: pull?.repo ?? "",
+        number: pull?.number ?? 0,
+        headSha,
+        url: parent?.pullUrl ?? "",
+      },
+      status: "running",
+      findings: envelope.findings,
+      summary: envelope.summary,
+      generation: run.generation,
+    };
+    if (!pull || !parent?.pullUrl || !this.env.GITHUB_TOKEN) {
+      this.writeRound({ ...round, status: "failed", error: "github_not_configured" });
+      return;
+    }
+    if (!this.writeRound(round)) return;
+    try {
+      const posted = await postReview(round, this.env.GITHUB_TOKEN, { apiBase: this.env.GITHUB_API_BASE });
+      this.writeRound({ ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() });
+    } catch (error) {
+      this.writeRound({
+        ...round,
+        status: "failed",
+        error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 500),
+      });
+    }
   }
 
   /**
