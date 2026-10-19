@@ -68,6 +68,8 @@ async function freshWorker() {
 const RETIRED_ID = "google/" + ["gemini-2", "0"].join(".") + "-flash";
 
 describe("startup assertion on CODING_MODEL", () => {
+  // Re-importing index.js is already ~2s alone, and longer when the
+  // full suite runs in parallel, so the default 5s limit is too tight.
   it("throws (500, logged as retired) while CODING_MODEL names a retired id", async () => {
     const worker = await freshWorker();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -76,7 +78,7 @@ describe("startup assertion on CODING_MODEL", () => {
     expect(response.status).toBe(500);
     expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/retired/));
     errorSpy.mockRestore();
-  });
+  }, 20_000);
 
   it("passes the assertion for a live CODING_MODEL id", async () => {
     const worker = await freshWorker();
@@ -85,5 +87,5 @@ describe("startup assertion on CODING_MODEL", () => {
     // Reaches the audit route handler itself (unbound AGENT_AUDIT -> 503),
     // proving the assertion did not throw and the request kept routing.
     expect(response.status).toBe(503);
-  });
+  }, 20_000);
 });
