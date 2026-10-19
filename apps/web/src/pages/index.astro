@@ -2,7 +2,8 @@
 import ReachAnywhere from '../components/ReachAnywhere.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 
-const description = 'A self-hosted AI engineer that asks before it writes code. Runs in your Cloudflare account, on Claude Code, Codex, OpenCode, Grok or Devin.';
+const description =
+  'Self-hosted, approval-gated coding agent for your Cloudflare account: sandbox runs, optional PR publish, optional review round, pluggable sandboxes, and org custom agents. AGPL-3.0.';
 const schema = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
@@ -15,37 +16,48 @@ const schema = {
   sameAs: ['https://github.com/princepal9120/shiba'],
 };
 
-// The switch reasons, stated as flat claims. Adjectives are deliberately
-// absent — each row names a concrete thing the buyer either gets or does not.
 const comparisons = [
-  { point: 'Runs in infrastructure you own', shiba: 'Your Cloudflare account', them: "The provider's account" },
-  { point: 'Model and harness per run', shiba: 'Claude Code, Codex, OpenCode, Devin, Grok', them: 'Chosen by the provider' },
+  { point: 'Runs in infrastructure you own', shiba: 'Your Cloudflare account (default sandbox)', them: "The provider's account" },
+  { point: 'Model and harness per run', shiba: 'Pinned per approval; connections + purpose policy', them: 'Chosen by the provider' },
   { point: 'Approval before code runs', shiba: 'Required by default', them: 'Varies by product' },
-  { point: 'Who holds the credentials', shiba: 'You do, at egress', them: 'Held by the provider' },
+  { point: 'Sandbox backend', shiba: 'Cloudflare default; docker-local / ComputeSDK opt-in', them: 'Opaque hosted pool' },
   { point: 'License', shiba: 'AGPL-3.0, source readable', them: 'Proprietary' },
 ];
 
 const capabilities = [
-  { number: '01', symbol: '▣', title: 'Approval before execution', detail: 'Review the exact repository, branch, task, and requested output. By default, no sandbox starts until you approve.' },
-  { number: '02', symbol: '▧', title: 'An isolated workspace', detail: 'Each approved task runs in its own Cloudflare Sandbox container, separate from your Worker and other runs.' },
-  { number: '03', symbol: '◫', title: 'Work you can inspect', detail: 'Follow agent progress, changed files, and a unified diff in the dashboard before deciding what to do next.' },
-  { number: '04', symbol: '⌁', title: 'Your account, your controls', detail: 'Self-host the Worker, choose your model route, and keep provider credentials outside the container.' },
-  { number: '05', symbol: '↗', title: 'Optional pull requests', detail: 'Ask Shiba to open a branch and pull request when you configure a GitHub token; diff-only tasks need no token.' },
-  { number: '06', symbol: '≋', title: 'Chat and dashboard entry points', detail: 'Start and review tasks from the dashboard, Slack, Telegram, Discord, or the mobile web app. A native iPhone app is on the roadmap.' },
+  { number: '01', symbol: '▣', title: 'Approval before execution', detail: 'Inspect repo, branch, task, harness, and model route on the card. No sandbox starts until you approve (unless you explicitly configure unattended automations).' },
+  { number: '02', symbol: '▧', title: 'Isolated sandboxes', detail: 'Default: Cloudflare Containers with Worker-side egress (`SandboxOutbound`). Alternate providers exist for local dev and experiments — see docs for enforcement limits.' },
+  { number: '03', symbol: '◫', title: 'Diff, PR, review', detail: 'Watch progress and diffs in the dashboard. Optional GitHub PR publish, then an optional read-only review round. A live GitHub round is not recorded in VERIFICATION.md yet.' },
+  { number: '04', symbol: '⌁', title: 'Your models', detail: 'Route runs through AI Gateway BYOK and deployment connections. ChatGPT Sign-in (SIWC) and subscription harnesses are optional, flag-gated paths — not the default.' },
+  { number: '05', symbol: '◎', title: 'Custom agents', detail: 'Save org presets (harness, model, sandbox defaults) in the dashboard and reference them from tasks or the public API.' },
+  { number: '06', symbol: '≋', title: 'Triggers + API', detail: 'Dashboard, Slack, Telegram, Discord, automations, and `/api/v1` with `@shiba/sdk`. Desktop app and native iPhone client are not shipped.' },
+];
+
+const sandboxRows = [
+  { id: 'cloudflare', label: 'Cloudflare', note: 'Default production path; edge egress enforcement', status: 'Default' },
+  { id: 'docker-local', label: 'Docker (local)', note: 'Local engine; requires explicit unenforced-egress opt-in', status: 'Dev' },
+  { id: 'computesdk', label: 'ComputeSDK', note: 'E2B / Daytona / Modal / … via host runner — not Worker-native', status: 'Experimental' },
+];
+
+const roadmapRows = [
+  { phase: 'Shipped in repo', items: 'Task→sandbox→PR→review loop, Sandbox SDK 1.0, den/pack UI, browser E2E capture code, review triage, integrations webhooks, public API + SDK, custom agents, provider catalog.' },
+  { phase: 'Not live-verified', items: 'Real container + live model + live GitHub on your deploy; ComputeSDK backends; Electron desktop (#126).' },
+  { phase: 'Next', items: 'Owner Mac deploy proof, live E2E entry in VERIFICATION.md, review-loop endpoint, clearer reviewer re-run semantics.' },
 ];
 ---
 
-<MarketingPage title="Shiba - Your AI software engineer" description={description} path="/" schema={schema}>
+<MarketingPage title="Shiba — self-hosted AI coworker on Cloudflare" description={description} path="/" schema={schema}>
   <section class="shell home-hero" aria-labelledby="home-title">
     <div class="hero-copy">
-      <p class="eyebrow">OPEN-SOURCE DEVIN CLOUD ALTERNATIVE</p>
+      <p class="eyebrow">AGPL · SELF-HOSTED · CLOUDFLARE WORKERS</p>
       <h1 id="home-title">It asks before<br /><em>it writes code.</em><span class="hero-caret" aria-hidden="true"></span></h1>
-      <p class="hero-lead">Give Shiba a repo and a task. Review, approve, inspect the diff. Everything stays in your Cloudflare account.</p>
+      <p class="hero-lead">Queue a coding task, approve the exact input, run it in an isolated sandbox, then read the diff — and optionally open a pull request with a follow-up review round. You operate the Worker; Shiba does not host your repo or keys.</p>
       <div class="hero-actions">
-        <a class="button" href="https://github.com/princepal9120/shiba">Explore the source <span aria-hidden="true">↗</span></a>
-        <a class="button button-outline" href="/docs/getting-started/">Read the docs</a>
+        <a class="button" href="/docs/self-hosting/">Self-host on Cloudflare <span aria-hidden="true">↗</span></a>
+        <a class="button button-outline" href="/docs/getting-started/">Local quickstart</a>
+        <a class="button button-outline" href="https://github.com/princepal9120/shiba">Source</a>
       </div>
-      <p class="hero-note">No hosted black box. Every task is approval-gated before a sandbox starts.</p>
+      <p class="hero-note"><span>Local dev: <code>pnpm shiba dev</code> after Docker is running. What is not live-verified is in the roadmap below.</span></p>
     </div>
 
     <figure class="hero-showcase" aria-label="Illustration of shiba.workspace">
@@ -83,7 +95,7 @@ const capabilities = [
         entries.forEach(function(e) { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
       }, { rootMargin: '0px 0px -12% 0px' });
       function watch() {
-        document.querySelectorAll('.harness-grid, .channels-grid, .capability-grid, .steps-grid').forEach(function(g) {
+        document.querySelectorAll('.harness-grid, .channels-grid, .capability-grid, .steps-grid, .sandbox-table, .roadmap-grid').forEach(function(g) {
           Array.prototype.forEach.call(g.children, function(c, i) { c.style.setProperty('--i', i); });
         });
         document.querySelectorAll('[data-reveal]').forEach(function(el) { io.observe(el); });
@@ -92,21 +104,45 @@ const capabilities = [
     })();
   </script>
 
-  <div class="shell compatibility" aria-label="Ways to use Shiba"><span>USE FROM</span><span>Web</span><span>Slack</span><span>Telegram</span><span>Discord</span><span>GitHub</span><span class="compatibility-end">Mobile web is available; native iPhone app is on the roadmap.</span></div>
+  <div class="shell compatibility" aria-label="Ways to use Shiba"><span>USE FROM</span><span>Dashboard</span><span>Slack</span><span>Telegram</span><span>Discord</span><span>API v1</span><span>Automations</span><span class="compatibility-end">Mobile web works; native iPhone and desktop apps are not released.</span></div>
 
   <section id="harnesses" class="shell harness-section" data-reveal aria-labelledby="harness-title">
     <p class="eyebrow">TOOLS &amp; MODEL PROVIDERS</p>
     <h2 id="harness-title">Bring your tools. Keep control.</h2>
-    <p class="harness-lead">Six harnesses are supported. Pick OpenCode, Claude Code, Codex, Devin CLI, Cursor, or Antigravity, and run them with your own provider credentials.</p>
+    <p class="harness-lead">OpenCode, Claude Code, Codex, Devin CLI, Cursor, Antigravity, and Grok have harness adapters. Pi and the subscription lanes (Claude, Codex, Cursor, Devin, Antigravity) are in the registry and stay off until you set their flags.</p>
     <div class="harness-grid" role="list" aria-label="Coding tools and model providers">
-      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/opencode.svg" alt="" width="32" height="32" /></span><span class="harness-label">OpenCode<small>INTEGRATED</small></span></div>
-      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/claude.svg" alt="" width="32" height="32" /></span><span class="harness-label">Claude Code<small>INTEGRATED</small></span></div>
-      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/openai.svg" alt="" width="32" height="32" /></span><span class="harness-label">Codex<small>INTEGRATED</small></span></div>
-      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/devin.svg" alt="" width="32" height="32" /></span><span class="harness-label">Devin CLI<small>INTEGRATED</small></span></div>
-      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/cursor.svg" alt="" width="32" height="32" /></span><span class="harness-label">Cursor<small>INTEGRATED</small></span></div>
-      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/antigravity.svg" alt="" width="32" height="32" /></span><span class="harness-label">Antigravity<small>INTEGRATED</small></span></div>
+      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/opencode.svg" alt="" width="32" height="32" /></span><span class="harness-label">OpenCode<small>IN CODE</small></span></div>
+      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/claude.svg" alt="" width="32" height="32" /></span><span class="harness-label">Claude Code<small>IN CODE</small></span></div>
+      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/openai.svg" alt="" width="32" height="32" /></span><span class="harness-label">Codex<small>IN CODE</small></span></div>
+      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/devin.svg" alt="" width="32" height="32" /></span><span class="harness-label">Devin CLI<small>IN CODE</small></span></div>
+      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/cursor.svg" alt="" width="32" height="32" /></span><span class="harness-label">Cursor<small>IN CODE</small></span></div>
+      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/antigravity.svg" alt="" width="32" height="32" /></span><span class="harness-label">Antigravity<small>IN CODE</small></span></div>
+      <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/grok.svg" alt="" width="32" height="32" /></span><span class="harness-label">Grok<small>IN CODE</small></span></div>
     </div>
-    <p class="harness-note">Product names and logos belong to their respective owners. No affiliation is implied. <a href="/docs/claude-code/">See supported configuration →</a></p>
+    <p class="harness-note">Product names and logos belong to their respective owners. No affiliation is implied. <a href="/docs/configuration/">Harness and credential flags →</a></p>
+  </section>
+
+  <section id="sandboxes" class="shell home-section sandbox-section" data-reveal aria-labelledby="sandbox-title">
+    <div class="section-head">
+      <h2 id="sandbox-title">Pick where the sandbox runs</h2>
+      <p class="micro">PROVIDER PLUG-INS</p>
+    </div>
+    <p class="sandbox-intro">Production on Cloudflare uses the default provider with Worker-side egress. Other adapters trade enforcement for flexibility — read the matrix before enabling them.</p>
+    <div class="sandbox-table" role="table" aria-label="Sandbox providers">
+      <div class="sandbox-row sandbox-head" role="row">
+        <span role="columnheader">Provider</span>
+        <span role="columnheader">Role</span>
+        <span role="columnheader">Notes</span>
+      </div>
+      {sandboxRows.map((row) => (
+        <div class="sandbox-row" role="row">
+          <span role="cell" class="sandbox-id">{row.label}</span>
+          <span role="cell"><span class="sandbox-pill">{row.status}</span></span>
+          <span role="cell">{row.note}</span>
+        </div>
+      ))}
+    </div>
+    <p class="sandbox-foot"><a class="text-link" href="/docs/sandbox-providers/">Sandbox providers docs <span aria-hidden="true">↗</span></a> · <a class="text-link" href="/docs/sandbox-custom-provider/">Write an adapter <span aria-hidden="true">↗</span></a> · <code>pnpm shiba doctor</code> checks your selection against run requirements.</p>
   </section>
 
   <ReachAnywhere />
@@ -123,7 +159,7 @@ const capabilities = [
       <div class="channel-card">
         <div class="channel-top">
           <span class="channel-icon"><img src="/assets/channels/slack.svg" alt="" width="22" height="22" /></span>
-          <span class="channel-badge">● LIVE CHATOPS</span>
+          <span class="channel-badge">IN CODE</span>
         </div>
         <h3>Slack</h3>
         <div class="channel-bubble">
@@ -149,7 +185,7 @@ const capabilities = [
       <div class="channel-card">
         <div class="channel-top">
           <span class="channel-icon"><img src="/assets/channels/telegram.svg" alt="" width="22" height="22" /></span>
-          <span class="channel-badge">● LIVE CHATOPS</span>
+          <span class="channel-badge">IN CODE</span>
         </div>
         <h3>Telegram</h3>
         <div class="channel-bubble">
@@ -162,7 +198,7 @@ const capabilities = [
       <div class="channel-card">
         <div class="channel-top">
           <span class="channel-icon"><img src="/assets/channels/discord.svg" alt="" width="22" height="22" /></span>
-          <span class="channel-badge">● LIVE CHATOPS</span>
+          <span class="channel-badge">IN CODE</span>
         </div>
         <h3>Discord</h3>
         <div class="channel-bubble">
@@ -231,12 +267,29 @@ const capabilities = [
         </div>
         <span class="micro">03 / REVIEW</span>
         <h3>See what changed</h3>
-        <p>Follow progress and review changed files and the diff. Publishing a pull request is optional.</p>
+        <p>Follow progress, files, and the diff. Turn on PR publish when GitHub is configured; an optional review round can run after the PR opens.</p>
       </div>
+
     </div>
   </section>
 
-  <section class="shell closing" data-reveal aria-labelledby="closing-title"><img class="closing-mascot" src="/assets/mascot/shiba-sticker-hero.webp" alt="" width="512" height="512" loading="lazy" aria-hidden="true" /><div><h2 id="closing-title">Put an AI engineer in your cloud.</h2><p>Open source, self-hosted, and yours to fork. Configure your Cloudflare account, deploy Shiba, and bring a repository you own.</p></div><div class="closing-actions"><a class="button" href="/waitlist/">Run it on your repo <span aria-hidden="true">↗</span></a></div></section>
+  <section id="roadmap" class="shell home-section roadmap-section" data-reveal aria-labelledby="roadmap-title">
+    <div class="section-head">
+      <h2 id="roadmap-title">Roadmap</h2>
+      <p class="micro">CODE VS LIVE PROOF</p>
+    </div>
+    <div class="roadmap-grid">
+      {roadmapRows.map((row) => (
+        <article class="roadmap-card">
+          <h3>{row.phase}</h3>
+          <p>{row.items}</p>
+        </article>
+      ))}
+    </div>
+    <p class="roadmap-foot">Detail: <a class="text-link" href="/docs/product-status/">Product status</a> · dated runs in <a class="text-link" href="/docs/readiness/">Readiness</a>.</p>
+  </section>
+
+  <section class="shell closing" data-reveal aria-labelledby="closing-title"><img class="closing-mascot" src="/assets/mascot/shiba-sticker-hero.webp" alt="" width="512" height="512" loading="lazy" aria-hidden="true" /><div><h2 id="closing-title">Run it on your account.</h2><p>Install deps, run <code>pnpm shiba dev</code> for local Worker + sandbox smoke, then follow <a href="/docs/self-hosting/">self-hosting</a> for Cloudflare. Run <code>pnpm check:deploy</code> after editing <code>wrangler.jsonc</code> so Alchemy stays aligned.</p></div><div class="closing-actions"><a class="button" href="/docs/getting-started/">Get started <span aria-hidden="true">↗</span></a><a class="button button-outline" href="/docs/sdk/">Public API &amp; SDK</a></div></section>
 </MarketingPage>
 
 <style>
@@ -256,6 +309,8 @@ const capabilities = [
   .home-hero .hero-actions { margin-top:var(--hero-gap-md); }
   .hero-note { display:flex; align-items:flex-start; gap:8px; margin-top:var(--hero-gap-sm); font:10px 'Geist Mono',monospace; letter-spacing:.02em; }
   .hero-note::before { content:''; flex:none; width:6px; height:6px; margin-top:4px; background:var(--navy); }
+  .hero-note > span { min-width:0; line-height:1.55; }
+  .hero-note code { font-family:'Geist Mono',monospace; font-size:10px; color:var(--navy); white-space:nowrap; }
   .hero-showcase { border:1px solid var(--line-2); background:var(--panel-2); padding:4px; box-shadow:6px 6px 0 var(--paper-shadow); transition:transform 220ms ease, box-shadow 220ms ease; animation:hero-arrive 680ms 100ms cubic-bezier(.2,.7,.2,1) both; margin:0; }
   .hero-caret { display:inline-block; width:.08em; height:.78em; margin-left:.08em; vertical-align:-.04em; background:var(--navy); animation:caret-blink 1.1s steps(1) infinite; }
   @keyframes caret-blink { 50% { opacity:0; } }
@@ -270,8 +325,8 @@ const capabilities = [
   /* Scroll reveal: section fades up, then grid children stagger in. */
   :global(.js-reveal) [data-reveal] { opacity:0; translate:0 18px; transition:opacity 520ms cubic-bezier(.23,1,.32,1), translate 520ms cubic-bezier(.23,1,.32,1); }
   :global(.js-reveal) [data-reveal].is-in { opacity:1; translate:0 0; }
-  :global(.js-reveal) [data-reveal] :is(.harness-grid, .channels-grid, .capability-grid, .steps-grid) > * { opacity:0; translate:0 10px; transition:opacity 420ms cubic-bezier(.23,1,.32,1), translate 420ms cubic-bezier(.23,1,.32,1), background 150ms ease; transition-delay:calc(120ms + var(--i, 0) * 60ms); }
-  :global(.js-reveal) [data-reveal].is-in :is(.harness-grid, .channels-grid, .capability-grid, .steps-grid) > * { opacity:1; translate:0 0; }
+      :global(.js-reveal) [data-reveal] :is(.harness-grid, .channels-grid, .capability-grid, .steps-grid, .sandbox-table, .roadmap-grid) > * { opacity:0; translate:0 10px; transition:opacity 420ms cubic-bezier(.23,1,.32,1), translate 420ms cubic-bezier(.23,1,.32,1), background 150ms ease; transition-delay:calc(120ms + var(--i, 0) * 60ms); }
+      :global(.js-reveal) [data-reveal].is-in :is(.harness-grid, .channels-grid, .capability-grid, .steps-grid, .sandbox-table, .roadmap-grid) > * { opacity:1; translate:0 0; }
   @media (hover: hover) and (pointer: fine) {
     .harness-icon, .capability-icon { transition:transform 200ms cubic-bezier(.23,1,.32,1); }
     .harness-item:hover .harness-icon { transform:translateY(-3px) rotate(-4deg); }
@@ -296,7 +351,7 @@ const capabilities = [
   .harness-lead { max-width:690px; margin:0 auto 30px; font-size:14px; line-height:1.7; }
   .harness-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     border: 1px solid var(--line-2);
     background: var(--line-2);
     gap: 1px;
@@ -370,6 +425,25 @@ const capabilities = [
   .steps-grid h3 { font-size:27px; margin:18px 0 10px; }
   .steps-grid p { font-size:13px; line-height:1.7; margin:0; }
   .steps-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; padding-top:36px; }
+  .sandbox-section { padding-top:85px; }
+  .sandbox-intro { max-width:720px; padding-top:24px; font-size:15px; line-height:1.75; color:var(--ink-2); }
+  .sandbox-table { margin-top:28px; border:1px solid var(--line-2); background:var(--card); box-shadow:3px 3px 0 var(--paper-shadow); }
+  .sandbox-row { display:grid; grid-template-columns:140px 100px 1fr; border-top:1px solid var(--line); }
+  .sandbox-row:first-child { border-top:0; }
+  .sandbox-row > span { padding:12px 14px; font-size:13px; line-height:1.5; border-left:1px solid var(--line); }
+  .sandbox-row > span:first-child { border-left:0; }
+  .sandbox-head > span { font:9px 'Geist Mono',monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-2); }
+  .sandbox-id { font-weight:600; color:var(--ink); }
+  .sandbox-pill { font:9px 'Geist Mono',monospace; letter-spacing:.08em; text-transform:uppercase; padding:2px 6px; border:1px solid var(--line-2); background:var(--panel-2); }
+  .sandbox-foot { margin-top:16px; font-size:13px; color:var(--ink-2); }
+  .sandbox-foot code { font-family:'Geist Mono',monospace; font-size:11px; }
+  .roadmap-section { padding-top:85px; }
+  .roadmap-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; margin-top:28px; border:1px solid var(--line-2); background:var(--line-2); }
+  .roadmap-card { padding:22px; background:var(--card); min-height:140px; }
+  .roadmap-card h3 { font-size:16px; margin:0 0 10px; color:var(--navy); }
+  .roadmap-card p { margin:0; font-size:13px; line-height:1.65; color:var(--ink-2); }
+  .roadmap-foot { margin-top:16px; font-size:13px; color:var(--ink-2); }
+  .closing code { font-family:'Geist Mono',monospace; font-size:12px; }
   .step-card { border-top:2px solid var(--navy); padding-top:18px; display:flex; flex-direction:column; }
   /* Screen card — dark navy matching illustration backgrounds */
   .step-dither-screen { position:relative; overflow:hidden; background:#131520; border:1px solid #2a3050; margin-bottom:20px; box-shadow:3px 3px 0 #0006; display:flex; flex-direction:column; transition:transform 300ms cubic-bezier(.2,.7,.2,1), box-shadow 300ms ease; }
@@ -393,6 +467,7 @@ const capabilities = [
   .closing p:last-child { margin:0; }
   .closing-actions { flex:none; margin:0; }
   @media(max-width:980px) { .channels-grid { grid-template-columns:repeat(2,1fr); } .home-hero { gap:28px; } .compatibility-end { margin-left:0; } }
+  @media(max-width:980px) { .steps-grid { grid-template-columns:repeat(2,1fr); } .roadmap-grid { grid-template-columns:1fr; } .sandbox-row { grid-template-columns:1fr; } .sandbox-row > span { border-left:0; } }
   @media(max-width:760px) { .home-hero { grid-template-columns:minmax(0,1fr); min-height:0; padding-block:28px 32px; } .home-section { padding-top:75px; } .section-head { align-items:start; flex-direction:column; gap:10px; } .section-copy { grid-template-columns:1fr; gap:18px; } .capability-grid { grid-template-columns:repeat(2,1fr); } .steps-grid { grid-template-columns:1fr; } .closing { flex-direction:column; align-items:start; margin-top:75px; } }
   @media(max-width:760px) { .closing-mascot { width:84px; } }
   @media(max-width:500px) { .channels-grid { grid-template-columns:1fr; } .capability-grid { grid-template-columns:1fr; } .capability-card { min-height:0; } .hero-actions .button { width:100%; } .closing { padding:22px; } .closing-actions { width:100%; } .closing-actions .button { width:100%; } }
@@ -434,7 +509,7 @@ const capabilities = [
 
   @media(max-width: 860px) {
     .harness-grid {
-      grid-template-columns: repeat(6, minmax(130px, 1fr));
+      grid-template-columns: repeat(7, minmax(130px, 1fr));
       -webkit-overflow-scrolling: touch;
       overscroll-behavior-x: contain;
       scroll-snap-type: x mandatory;
