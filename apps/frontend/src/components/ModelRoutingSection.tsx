@@ -1,8 +1,8 @@
 /**
- * ModelRoutingSection — the Settings → Models routing cards: purpose routing
- * (which model does each internal job) and model connections (named
- * credentials runs can route through). Both read/write /api/model-config via
- * useModelConfig; credentials are metadata aliases, never keys.
+ * ModelRoutingSection — model routing cards: purpose routing (which model
+ * does each internal job) in Settings and named connections in Providers.
+ * Both read/write /api/model-config via useModelConfig; credentials are
+ * metadata aliases, never keys.
  */
 import { type JSX, useState } from "react";
 import { useModelConfig } from "../live-status";
@@ -25,9 +25,9 @@ const CONNECTION_SERVICES = [
   "anthropic",
   "openai",
   "google",
+  "grok",
   "devin",
   "opencode-go",
-  "cursor",
 ] as const;
 
 /** Purpose routing — which model does each internal job. Edits save to /api/model-config/policy. */
@@ -201,9 +201,6 @@ export function ConnectionsCard(): JSX.Element {
   const connections = state.data.connections;
   return (
     <Card>
-      <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-        Model connections — named credentials a run can route through
-      </div>
       {connections.length === 0 ? (
         <div className="px-4 py-4 text-xs text-[var(--muted-foreground-2)]">
           None registered — runs fall back to the deployment default. Add one to name a specific

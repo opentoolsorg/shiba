@@ -161,7 +161,7 @@ export function IntegrationsView({
                 <p className="mt-0.5 text-[11px]">
                   {status.github.token
                     ? "Token connected — add the webhook secret to finish setup."
-                    : "Add a GitHub token and webhook secret in your deployment settings."}
+                    : "Set GITHUB_TOKEN and GITHUB_WEBHOOK_SECRET: npx wrangler secret put <name>"}
                 </p>
               ) : null}
             </IntegrationRow>
