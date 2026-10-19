@@ -298,6 +298,12 @@ export const delegateInputSchema = z.object({
         '"local" runs on the operator\'s machine through the local daemon. "local" ' +
         "is admissible only from the dashboard on a deployment with SHIBA_LOCAL_RUNTIME=1.",
     ),
+  customAgentId: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe("Org custom agent id from /api/custom-agents — applies harness, model, and sandbox defaults."),
 });
 
 type DelegateInput = z.infer<typeof delegateInputSchema>;
@@ -314,6 +320,7 @@ const composerPinSchema = z.object({
   harness: z.enum(HARNESS_IDS).optional().catch(undefined),
   codingModel: z.string().min(1).optional().catch(undefined),
   connectionId: z.string().min(1).optional().catch(undefined),
+  customAgentId: z.string().min(1).max(128).optional().catch(undefined),
 });
 
 /**
@@ -2283,18 +2290,54 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (this.approvals.some((a) => a.approvalId === toolCallId)) return;
     // Same flood bound as /api/approvals intake — pending records persist.
     if (this.approvals.filter((a) => a.status === "pending").length >= MAX_PENDING_APPROVALS) return;
-    const { route } = await this.resolveRoute(input);
+    let repoUrl = input.repoUrl;
+    let task = input.task;
+    let harness = input.harness;
+    let codingModel = input.codingModel;
+    let connectionId = input.connectionId;
+    let sandboxProvider: string | undefined;
+    let customAgentId = input.customAgentId?.trim() || "";
+    if (customAgentId && this.env.AGENT_AUDIT) {
+      const { resolveCustomAgentForRun, overridesFromCustomAgent } = await import(
+        "../custom-agents-resolve.js"
+      );
+      const agent = await resolveCustomAgentForRun(this.env, "self-hosted", customAgentId);
+      if (agent) {
+        const overrides = overridesFromCustomAgent(agent);
+        if (overrides.repoUrl && !repoUrl) repoUrl = overrides.repoUrl;
+        harness = (overrides.harness ?? harness) as DelegateInput["harness"];
+        codingModel = overrides.codingModel ?? codingModel;
+        connectionId = overrides.connectionId ?? connectionId;
+        sandboxProvider = overrides.sandboxProvider;
+        if (overrides.instructions) {
+          task = `${overrides.instructions}\n\n---\n\n${task}`;
+        }
+        customAgentId = agent.id;
+      } else {
+        customAgentId = "";
+      }
+    }
+    const { route } = await this.resolveRoute({
+      ...input,
+      repoUrl,
+      task,
+      harness,
+      codingModel,
+      connectionId,
+    });
     this.setState({
       ...this.state,
       pendingApprovals: createPendingApproval(this.approvals, {
         threadKey: this.name ?? "default",
         approvalId: toolCallId,
-        repoUrl: input.repoUrl,
-        task: input.task.slice(0, 4000),
+        repoUrl,
+        task: task.slice(0, 4000),
         baseBranch: input.baseBranch,
         publishPullRequest: input.publishPullRequest,
         ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
         route,
+        ...(sandboxProvider ? { sandboxProvider } : {}),
+        ...(customAgentId ? { customAgentId } : {}),
         ...(typeof input.authAccount === "string" && input.authAccount.trim()
           ? { authAccount: input.authAccount.trim().slice(0, 32) }
           : {}),

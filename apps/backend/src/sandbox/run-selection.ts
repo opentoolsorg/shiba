@@ -8,6 +8,5 @@ export function sandboxSelectionForRun(
   return {
     orgId,
     ...(run.sandboxProvider ? { taskProviderId: run.sandboxProvider } : {}),
-    ...(run.customAgentId ? { customAgentProviderId: undefined } : {}),
   };
 }

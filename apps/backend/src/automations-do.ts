@@ -58,6 +58,7 @@ async function queueOnOrchestrator(
     role?: string;
     codingModel?: string;
     commandId?: string;
+    customAgentId?: string;
   },
 ): Promise<{ approvalId: string }> {
   const queued = await stub.fetch(
@@ -562,17 +563,34 @@ export class Automations {
       } catch {
         return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
       }
-      const patch = (typeof body === "object" && body !== null ? body : {}) as { enabled?: unknown; prompt?: unknown };
+      const patch = (typeof body === "object" && body !== null ? body : {}) as {
+        enabled?: unknown;
+        prompt?: unknown;
+        customAgentId?: unknown;
+      };
       if (
         (patch.enabled !== undefined && typeof patch.enabled !== "boolean") ||
-        (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim()))
+        (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim())) ||
+        (patch.customAgentId !== undefined &&
+          patch.customAgentId !== null &&
+          typeof patch.customAgentId !== "string")
       ) {
-        return Response.json({ error: "enabled must be a boolean; prompt a non-empty string." }, { status: 400 });
+        return Response.json(
+          { error: "enabled must be a boolean; prompt a non-empty string; customAgentId a string or null." },
+          { status: 400 },
+        );
       }
+      const customAgentId =
+        patch.customAgentId === null
+          ? undefined
+          : typeof patch.customAgentId === "string" && patch.customAgentId.trim()
+            ? patch.customAgentId.trim()
+            : automation.customAgentId;
       const updated: Automation = {
         ...automation,
         ...(typeof patch.enabled === "boolean" ? { enabled: patch.enabled } : {}),
         ...(typeof patch.prompt === "string" ? { prompt: patch.prompt.trim() } : {}),
+        ...(patch.customAgentId !== undefined ? { customAgentId } : {}),
       };
       store.upsert(updated);
       await this.save(store);
