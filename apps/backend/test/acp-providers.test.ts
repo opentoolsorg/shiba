@@ -207,7 +207,7 @@ describe("device-code sign-in", () => {
     const codex = done.providers.find((provider) => provider.id === "codex");
     expect(codex?.connection.phase).toBe("connected");
     expect(codex?.connection.authMode).toBe("oauth");
-    expect(codex?.connection.testOk).toBe(true);
+    expect(codex?.connection.testOk).toBeNull();
     expect(codex?.connection.message).toBe("mocked device grant");
     expect(deps.confirmOauth).toHaveBeenCalledOnce();
   });
@@ -458,9 +458,10 @@ describe("subscription probe reuse", () => {
         { forwardClaude },
       ),
     );
-    expect(tested.providers.find((provider) => provider.id === "claude")?.connection.testOk).toBe(
-      true,
-    );
+    const testedCard = tested.providers.find((provider) => provider.id === "claude");
+    expect(testedCard?.connection.testOk).toBe(false);
+    expect(testedCard?.connection.message).toContain("AI_GATEWAY_TOKEN");
+    expect(testedCard?.connection.message).not.toContain("setup-token-canary-value");
     expect(kv.map.get(flowKey)).toBe(preserved);
   });
 
@@ -516,6 +517,55 @@ describe("subscription probe reuse", () => {
     expect(after.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe(
       "disconnected",
     );
+  });
+
+  it("does not recreate a provider row when disconnect lands during sign-in confirmation", async () => {
+    const kv = new FakeKV();
+    const deployment = env({ SHIBA_CLAUDE_SUBSCRIPTION: "1" }, kv);
+    const started = await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "oauth" }),
+        }),
+        deployment,
+      ),
+    );
+    const code = started.providers.find((provider) => provider.id === "claude")?.connection
+      .userCode;
+    let release: (value: { ok: boolean; message: string }) => void = () => {};
+    let entered: () => void = () => {};
+    const enteredGate = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const confirmOauth = () => {
+      entered();
+      return new Promise<{ ok: boolean; message: string }>((resolve) => {
+        release = resolve;
+      });
+    };
+    const confirming = handleAcpProviders(
+      request("/api/providers/claude/verify", {
+        method: "POST",
+        body: JSON.stringify({ userCode: code }),
+      }),
+      deployment,
+      { confirmOauth },
+    );
+    await enteredGate;
+    await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/claude/disconnect", { method: "POST", body: "{}" }),
+        deployment,
+      ),
+    );
+    release({ ok: true, message: "late grant" });
+    const after = await snapshot(await confirming);
+    const card = after.providers.find((provider) => provider.id === "claude");
+    expect(card?.connection.phase).toBe("disconnected");
+    expect(card?.connection.testOk).toBeNull();
+    expect(card?.connection.message ?? "").not.toContain("late grant");
+    expect([...kv.map.keys()].some((key) => key.startsWith("acp_provider:"))).toBe(false);
   });
 });
 
@@ -694,6 +744,68 @@ describe("Providers page states", () => {
     expect(html).toContain("Test connection");
     expect(html).toContain("Use API credential");
     expect(html).not.toContain("Connect with sign-in</button>");
+  });
+
+  it("names the in-flight action on the button that was pressed", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ProvidersBoard, {
+        snapshot: {
+          org: "ada@example.com",
+          defaultProviderId: null,
+          providers: [
+            {
+              id: "claude",
+              label: "Claude Code",
+              blurb: "ACP adapter",
+              adapter: "claude-agent-acp",
+              packageName: "@agentclientprotocol/claude-agent-acp",
+              license: "Apache-2.0",
+              harness: "claude-acp",
+              protocol: "acp",
+              spawn: ["claude-agent-acp"],
+              defaultModel: "anthropic/claude-sonnet-4-6",
+              docsUrl: "https://agentclientprotocol.com",
+              capabilities: {
+                streamsText: true,
+                toolCalls: true,
+                permissions: true,
+                setModel: true,
+                oauth: true,
+                apiKey: true,
+                acp: true,
+              },
+              credentialEnv: ["AI_GATEWAY_TOKEN"],
+              isDefault: false,
+              connection: {
+                phase: "disconnected",
+                authMode: null,
+                message: null,
+                userCode: null,
+                verificationUri: null,
+                expiresAt: null,
+                testedAt: null,
+                testOk: null,
+              },
+            },
+          ],
+        },
+        loading: false,
+        error: null,
+        busyId: "claude",
+        busyAction: "api-key",
+        actionError: null,
+        onRetry: () => {},
+        onConnectOauth: () => {},
+        onConnectApiKey: () => {},
+        onVerify: () => {},
+        onTest: () => {},
+        onDisconnect: () => {},
+        onDefault: () => {},
+      }),
+    );
+    expect(html).toContain("Connect with sign-in");
+    expect(html).toContain("Working…");
+    expect(html).not.toContain("Use API credential");
   });
 
   it("does not paint an empty adapter catalog when the provider request failed", () => {

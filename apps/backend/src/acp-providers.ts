@@ -480,12 +480,20 @@ export async function verifyProvider(
     throw new ProviderFlowError("Sign-in confirmation is not configured.", 500);
   }
   const verdict = await confirm(env, provider, org);
+  const fresh = await readRecord(env, org, provider.id);
+  if (
+    fresh === null ||
+    fresh.phase !== "waiting" ||
+    fresh.updatedAt !== record.updatedAt ||
+    fresh.userCode !== record.userCode
+  ) {
+    return readProviderSnapshot(env, org, deps);
+  }
   await writeRecord(env, org, provider.id, {
     phase: verdict.ok ? "connected" : "failed",
     authMode: "oauth",
     message: verdict.message,
     updatedAt: now,
-    ...(verdict.ok ? { testedAt: now, testOk: true } : {}),
   });
   return readProviderSnapshot(env, org, deps);
 }
@@ -512,8 +520,15 @@ export async function testProvider(
       : `Credential missing. Set ${provider.credentialEnv.join(" or ")}.`;
   } else if (deps.inspectOauth !== undefined) {
     const verdict = await deps.inspectOauth(env, provider, org);
-    ok = verdict.ok;
-    message = verdict.message;
+    const name = presentCredential(env, provider.credentialEnv);
+    if (!verdict.ok) {
+      message = verdict.message;
+    } else if (name === null) {
+      message = `Subscription lane is authenticated. Set ${provider.credentialEnv.join(" or ")} before the ${provider.harness} harness can run.`;
+    } else {
+      ok = true;
+      message = `Subscription lane is authenticated. Credential ${name} is present for the ${provider.harness} harness.`;
+    }
   }
   const fresh = await readRecord(env, org, provider.id);
   if (fresh === null || fresh.phase !== "connected" || fresh.updatedAt !== record.updatedAt) {
