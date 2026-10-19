@@ -25,7 +25,7 @@ import { handleSubscriptionAuth } from "../src/auth-routes.js";
 import { forwardCursorSubscription, type EgressEnv } from "../src/egress.js";
 import { cursorSubscriptionSecretName } from "@shiba/auth";
 import { cursorSubscriptionHarness } from "../src/harness/cursor-subscription.js";
-import { Sandbox } from "../src/sandbox.js";
+import { outboundHandlers } from "../src/sandbox.js";
 import { formatAgentToolInput, parseAgentToolInput, type CodingTaskInput } from "../src/opencode-input.js";
 import type { Env } from "../src/env.js";
 
@@ -359,8 +359,8 @@ describe("egress isolation", () => {
     }
   });
 
-  it("the named handler is registered on Sandbox.outboundHandlers", () => {
-    expect(Sandbox.outboundHandlers?.cursorSubscription).toBe(forwardCursorSubscription);
+  it("the named handler is registered on outboundHandlers", () => {
+    expect(outboundHandlers.cursorSubscription).toBe(forwardCursorSubscription);
   });
 
   it("egressHosts is the enumerated pair; a gateway model id is refused", () => {

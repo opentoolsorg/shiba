@@ -184,7 +184,8 @@ These versions are pinned because silent upgrades break the run contract:
 | Pin | Coupling |
 | --- | --- |
 | `opencode-ai@1.18.31` (apps/backend/Dockerfile) | `parseOpencodeEvent` in `apps/backend/src/harness/opencode.ts` couples to its JSON event shape. Each harness's parser couples to its own CLI the same way — a stream-format change makes a run appear to hang rather than fail, so treat harness CLI bumps as breaking. |
-| `@cloudflare/sandbox@0.12.9` (apps/backend/package.json) | Must match the base image tag `cloudflare/sandbox:0.12.9-opencode` |
+| `@cloudflare/sandbox@1.0.1` (apps/backend/package.json) | `sandbox-shim` in `apps/backend/Dockerfile` must copy from `cloudflare/sandbox:1.0.1`; harness tools still build on `0.12.9-opencode` until rebased |
+| `wrangler@4.140.0` (package.json) | Sandbox SDK 1.0 needs `scheduling_policy: durable_object` (≥4.136.0) |
 | `CODING_MODEL` (`google/gemini-3.5-flash-lite`) | Provider model ids retire without warning |
 
 Bumping any of them requires re-running the P2 live acceptance run before claiming it works.

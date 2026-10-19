@@ -13,7 +13,7 @@ Run `scripts/launch.sh`. It installs, builds, copies `.dev.vars` from the exampl
 
 Ready means `/api/setup/status` returns JSON (not SPA HTML) **and** `/app/` returns HTML.
 
-`--persist-to` is passed to both `d1 migrations apply` and `wrangler dev`. If the pinned wrangler 4.118.0 rejects it, the script falls back to `.wrangler/state` and records that in `.verify/persist-mode`.
+`--persist-to` is passed to both `d1 migrations apply` and `wrangler dev`. If the pinned wrangler (see root `package.json`, currently 4.140.0) rejects it, the script falls back to `.wrangler/state` and records that in `.verify/persist-mode`.
 
 Use `--local-upstream localhost` so loopback auth works.
 

@@ -232,7 +232,7 @@ describe("auth flow", () => {
  * does.
  */
 import { devinSubscriptionHarness } from "../src/harness/devin-subscription.js";
-import { Sandbox } from "../src/sandbox.js";
+import { outboundHandlers } from "../src/sandbox.js";
 import { formatAgentToolInput, parseAgentToolInput, type CodingTaskInput } from "../src/opencode-input.js";
 
 describe("run harness registration", () => {
@@ -344,8 +344,8 @@ describe("egress isolation", () => {
     }
   });
 
-  it("the named handler is registered on Sandbox.outboundHandlers", () => {
-    expect(Sandbox.outboundHandlers?.devinSubscription).toBe(forwardDevinSubscription);
+  it("the named handler is registered on outboundHandlers", () => {
+    expect(outboundHandlers.devinSubscription).toBe(forwardDevinSubscription);
   });
 
   it("egressHosts is the enumerated pair; a gateway model id is refused", () => {

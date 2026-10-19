@@ -64,7 +64,8 @@ describe("README structure (T24 honest-ship contract)", () => {
 
   it("pins the versions that couple to the run contract", () => {
     expect(README).toContain("opencode-ai@1.18.31");
-    expect(README).toContain("@cloudflare/sandbox@0.12.9");
+    expect(README).toContain("@cloudflare/sandbox@1.0.1");
+    expect(README).toContain("wrangler@4.140.0");
   });
 
   it("documents the Slack slash command without claiming unbuilt surfaces", () => {
