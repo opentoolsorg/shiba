@@ -4,6 +4,11 @@
  * webhooks share lastTriggeredAt / daily budget / lastSkip.
  */
 import { getAgentByName } from "agents/routing";
+import {
+  prHeadReviewDedupeKey,
+  prOwnerStorageKey,
+  type PrOwnerRecord,
+} from "@shiba/shared";
 import { reviewerTask } from "./review/prompt.js";
 import {
   fireMatchingAutomations,
@@ -192,6 +197,47 @@ export class Automations {
     return getAgentByName(this.env.CodingOrchestrator, ORCHESTRATOR_NAME);
   }
 
+  private async orchestratorForAgent(agentName: string): Promise<OrchestratorStub> {
+    return getAgentByName(this.env.CodingOrchestrator, agentName);
+  }
+
+  private async lookupPrOwner(repoFullName: string, pullNumber: number): Promise<PrOwnerRecord | null> {
+    if (!repoFullName || !Number.isInteger(pullNumber) || pullNumber < 1) return null;
+    const record = await this.ctx.storage.get<PrOwnerRecord>(prOwnerStorageKey(repoFullName, pullNumber));
+    if (!record || typeof record.agentName !== "string" || record.agentName === "") return null;
+    return record;
+  }
+
+  /** False when this head already claimed a review intent cluster-wide. */
+  private async claimHeadReviewIntent(
+    repoFullName: string,
+    pullNumber: number,
+    headSha: string,
+  ): Promise<boolean> {
+    const key = prHeadReviewDedupeKey(repoFullName, pullNumber, headSha);
+    const storageKey = DEDUPE_PREFIX + key.slice(0, 200);
+    if (await this.ctx.storage.get<number>(storageKey)) return false;
+    await this.ctx.storage.put(storageKey, Date.now());
+    return true;
+  }
+
+  private async invokePrLifecycle(
+    orchestrator: OrchestratorStub,
+    githubEvent: string,
+    mapped: object,
+    payload: unknown,
+  ): Promise<{ queuedReview: boolean }> {
+    const response = await orchestrator.fetch(
+      new Request("https://internal/internal/pr-lifecycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ githubEvent, mapped, payload }),
+      }),
+    );
+    const body = (await response.json().catch(() => ({}))) as { queued?: string };
+    return { queuedReview: body.queued === "review" };
+  }
+
   /**
    * Bounded cleanup for durable delivery keys. Sweep state lives outside the
    * dedupe namespace so it can never be mistaken for a delivery record.
@@ -236,7 +282,7 @@ export class Automations {
       const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
       const githubEvent = typeof record.event === "string" ? record.event : "unknown";
       const mapped = githubWebhookToEvent(githubEvent, record.payload);
-      const orchestrator = await this.orchestrator();
+      const orchestratorDefault = await this.orchestrator();
       const result = await this.fireEvent(
         {
           kind: "github",
@@ -245,48 +291,69 @@ export class Automations {
             ? { deliveryId: record.deliveryId }
             : {}),
         },
-        orchestrator,
+        orchestratorDefault,
       );
-      // Built-in PR review lane (Review mode): a pull_request
-      // opened/synchronize delivery always queues an approval-gated review
-      // run on the "review" purpose, alongside any user automations that
-      // matched. The run carries repo + head sha + diff ref in the task so
-      // the reviewer reads the real diff, and the delivery id keeps retries
-      // idempotent. A queue failure is logged, never thrown — the webhook
-      // already answered GitHub.
-      let reviewQueued = false;
-      if (
+      const repoFullName = typeof mapped.repo === "string" ? mapped.repo : "";
+      const pullNumber = typeof mapped.pullNumber === "number" ? mapped.pullNumber : 0;
+      const headSha = typeof mapped.headSha === "string" ? mapped.headSha : "";
+      const owner =
+        repoFullName && pullNumber > 0 ? await this.lookupPrOwner(repoFullName, pullNumber) : null;
+      const targetOrchestrator = owner
+        ? await this.orchestratorForAgent(owner.agentName)
+        : orchestratorDefault;
+
+      const isPullReview =
         automationsEnabled(this.env.AUTOMATIONS_ENABLED) &&
         mapped.event === "pull_request" &&
         (mapped.action === "opened" || mapped.action === "synchronize") &&
-        typeof mapped.repo === "string" &&
-        typeof mapped.headSha === "string" &&
-        mapped.headSha !== ""
-      ) {
+        repoFullName !== "" &&
+        headSha !== "" &&
+        pullNumber > 0;
+
+      let reviewQueued = false;
+      let headClaimed = true;
+      if (isPullReview) {
+        headClaimed = await this.claimHeadReviewIntent(repoFullName, pullNumber, headSha);
+      }
+
+      if (headClaimed) {
         try {
-          const pull = mapped.pullNumber ?? 0;
-          const diffRef = mapped.diffRef ?? `https://github.com/${mapped.repo}/pull/${pull}.diff`;
+          const lifecycle = await this.invokePrLifecycle(
+            targetOrchestrator,
+            githubEvent,
+            { ...mapped },
+            record.payload,
+          );
+          if (lifecycle.queuedReview) reviewQueued = true;
+        } catch (error) {
+          console.error(
+            `pr lifecycle wake failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      // Built-in lane: only for PRs with no dashboard owner index (automation-only reviews).
+      if (isPullReview && headClaimed && owner === null) {
+        try {
+          const diffRef = mapped.diffRef ?? `https://github.com/${repoFullName}/pull/${pullNumber}.diff`;
           const task = reviewerTask({
-            repoUrl: `https://github.com/${mapped.repo}`,
-            pullNumber: pull,
-            headSha: mapped.headSha,
+            repoUrl: `https://github.com/${repoFullName}`,
+            pullNumber,
+            headSha,
             diffUrl: diffRef,
             ...(typeof mapped.branch === "string" ? { headBranch: mapped.branch } : {}),
           });
-          await queueOnOrchestrator(orchestrator, {
-            repoUrl: `https://github.com/${mapped.repo}`,
+          await queueOnOrchestrator(orchestratorDefault, {
+            repoUrl: `https://github.com/${repoFullName}`,
             task,
             publishPullRequest: false,
-            // Reviewer-role run pinned to Sol (opencodex gpt-6.1-sol) via the
-            // opencode-go gateway subscription; REVIEW_RUN_MODEL overrides,
-            // and ROLE_MODEL__REVIEWER still wins over this per-run id.
             role: "reviewer",
             codingModel: this.env.REVIEW_RUN_MODEL?.trim() || "opencode-go/gpt-6.1-sol",
-            threadKey: `review:${mapped.repo}#${pull}`,
+            threadKey: `review:${repoFullName}#${pullNumber}`,
             commandId:
               typeof record.deliveryId === "string" && record.deliveryId !== ""
                 ? `review:${record.deliveryId}`
-                : `review:${mapped.repo}:${mapped.headSha}`,
+                : `review:${repoFullName}:${headSha}`,
           });
           reviewQueued = true;
         } catch (error) {
@@ -295,23 +362,7 @@ export class Automations {
           );
         }
       }
-      try {
-        await orchestrator.fetch(
-          new Request("https://internal/internal/pr-lifecycle", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              githubEvent,
-              mapped,
-              payload: record.payload,
-            }),
-          }),
-        );
-      } catch (error) {
-        console.error(
-          `pr lifecycle wake failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
+
       return Response.json({ ...result, reviewQueued });
     }
     if (request.method === "POST" && url.pathname === "/internal/sentry") {
@@ -339,6 +390,39 @@ export class Automations {
         commandId: `sentry:${eventId}`,
       });
       return Response.json({ ok: true, approvalId: queued.approvalId });
+    }
+    if (url.pathname === "/internal/pr-owner") {
+      if (request.method === "PUT") {
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
+        }
+        const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+        const repoFullName = typeof record.repoFullName === "string" ? record.repoFullName.trim() : "";
+        const pullNumber = typeof record.pullNumber === "number" ? record.pullNumber : 0;
+        const agentName = typeof record.agentName === "string" ? record.agentName.trim() : "";
+        const codingRunId = typeof record.codingRunId === "string" ? record.codingRunId.trim() : "";
+        const updatedAt = typeof record.updatedAt === "number" ? record.updatedAt : Date.now();
+        if (!repoFullName || !Number.isInteger(pullNumber) || pullNumber < 1 || !agentName || !codingRunId) {
+          return Response.json({ error: "repoFullName, pullNumber, agentName, codingRunId required." }, { status: 400 });
+        }
+        const owner: PrOwnerRecord = { agentName, codingRunId, updatedAt };
+        await this.ctx.storage.put(prOwnerStorageKey(repoFullName, pullNumber), owner);
+        return Response.json({ ok: true, owner });
+      }
+      if (request.method === "GET") {
+        const repoFullName = url.searchParams.get("repo")?.trim() ?? "";
+        const pullNumber = Number(url.searchParams.get("pull"));
+        if (!repoFullName || !Number.isInteger(pullNumber) || pullNumber < 1) {
+          return Response.json({ error: "repo and pull query params required." }, { status: 400 });
+        }
+        const owner = await this.lookupPrOwner(repoFullName, pullNumber);
+        if (!owner) return Response.json({ error: "not_found" }, { status: 404 });
+        return Response.json({ ok: true, owner });
+      }
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
     if (request.method === "POST" && url.pathname === "/internal/dedupe") {
       // Cross-isolate idempotency for retried Slack event deliveries:
