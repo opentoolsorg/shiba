@@ -114,12 +114,6 @@ function linearChip(linear: SetupStatus["linear"] | undefined): JSX.Element {
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
-const COMING_SOON_APPS: { name: string; blurb: string }[] = [
-  { name: "Notion", blurb: "Let your agents read and update your Notion workspace." },
-  { name: "Jira", blurb: "Link agent runs to Jira tickets and statuses." },
-  { name: "Asana", blurb: "Turn agent output into Asana tasks and updates." },
-];
-
 export function IntegrationsView({
   onNavigate,
 }: {
@@ -193,16 +187,6 @@ export function IntegrationsView({
                 Requires LINEAR_WEBHOOK_SECRET, an API token, and LINEAR_DEFAULT_REPO_URL. Live workspace not verified from mocks.
               </p>
             </IntegrationRow>
-            {COMING_SOON_APPS.map((app) => (
-              <IntegrationRow
-                key={app.name}
-                name={app.name}
-                status={<ToneChip tone="neutral" label="Coming soon" />}
-                muted
-              >
-                <p>{app.blurb}</p>
-              </IntegrationRow>
-            ))}
           </IntegrationGroup>
 
           <IntegrationGroup

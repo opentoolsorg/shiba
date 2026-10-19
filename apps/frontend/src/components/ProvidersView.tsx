@@ -7,6 +7,7 @@
 import { type JSX, useEffect, useState } from "react";
 import { useSetupStatus, type SetupStatus } from "../live-status";
 import { ConnectionsCard } from "./ModelRoutingSection";
+import { SkeletonLines } from "./surface";
 import {
   type AgentCliCredential,
   SUBSCRIPTION_AUTH,
@@ -219,17 +220,17 @@ export function ProvidersView(): JSX.Element {
         <div>
           <div className="mb-3">
             <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
-              Sandbox Coding CLIs (Pre-installed in Docker Container)
+              Sandbox Coding CLIs
             </h3>
-            <p className="mt-0.5 text-xs text-[var(--muted-foreground-2)] font-mono">
-              These harnesses execute inside the ephemeral Sandbox container with dummy keys. Real
-              credentials are authenticated at AI Gateway egress. Subscription-auth variants live
-              under Connectors above.
+            <p className="mt-0.5 text-xs text-[var(--muted-foreground-2)]">
+              Installed in the sandbox image. Provider keys stay on the worker.
             </p>
           </div>
 
           {loading ? (
-            <div className="text-xs font-mono text-[var(--muted-foreground-2)]">Loading agent harness catalog…</div>
+            <div role="status" aria-busy="true" aria-label="Loading sandbox CLIs">
+              <SkeletonLines rows={4} />
+            </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {cliAgents.map((agent) => (

@@ -1,5 +1,5 @@
 /**
- * AppNavRail — Modern clean navigation rail matching screenshot reference.
+ * AppNavRail — left rail: primary views, thread list, workspace menu.
  */
 import { useState, useMemo, useRef, useEffect, type JSX } from "react";
 import {
@@ -38,7 +38,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { SessionItem } from "./SessionsSidebar";
-import { formatTimeAgo } from "../ui-helpers";
+import { formatTimeAgo, statusLabel } from "../ui-helpers";
+import { SkeletonLines } from "./surface";
 import { Tooltip } from "./Tooltip";
 
 export type AppNavView =
@@ -110,6 +111,15 @@ export interface AppNavRailProps {
   connectionLabel?: string;
   connectionTone?: "ok" | "pending" | "error";
   collapsed?: boolean;
+  /** True until the first sessions + runs response. Keeps the list from flashing empty. */
+  threadsLoading?: boolean;
+}
+
+export function workspaceLabel(accountEmail: string | null | undefined): { name: string; detail: string } {
+  const email = accountEmail?.trim();
+  if (!email) return { name: "Operator", detail: "This workspace" };
+  const name = email.split("@")[0] || "Operator";
+  return { name, detail: "This workspace" };
 }
 
 const ICONS: Record<AppNavView, LucideIcon> = {
@@ -174,6 +184,7 @@ export function AppNavRail({
   connectionLabel = "Connected",
   connectionTone = "ok",
   collapsed = false,
+  threadsLoading = false,
 }: AppNavRailProps): JSX.Element {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -182,6 +193,12 @@ export function AppNavRail({
   const [threadQuery, setThreadQuery] = useState("");
   const moreRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLInputElement>(null);
+  const identity = workspaceLabel(accountEmail);
+
+  useEffect(() => {
+    if (searchOpen) filterRef.current?.focus();
+  }, [searchOpen]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -206,6 +223,23 @@ export function AppNavRail({
     );
   }, [sessions, threadQuery]);
 
+  const moveThread = (key: string) => {
+    if (!onSelectSession || filteredSessions.length === 0) return;
+    const currentIndex = filteredSessions.findIndex((session) => session.id === selectedSessionId);
+    const last = filteredSessions.length - 1;
+    let nextIndex = currentIndex < 0 ? 0 : currentIndex;
+    if (key === "ArrowDown") nextIndex = Math.min(last, nextIndex + (currentIndex < 0 ? 0 : 1));
+    else if (key === "ArrowUp") nextIndex = Math.max(0, nextIndex - (currentIndex < 0 ? 0 : 1));
+    else if (key === "Home") nextIndex = 0;
+    else nextIndex = last;
+    const next = filteredSessions[nextIndex];
+    if (!next) return;
+    onSelectSession(next.id);
+    requestAnimationFrame(() => {
+      document.getElementById(`thread-${next.id}`)?.focus();
+    });
+  };
+
   const moreViews: AppNavView[] = [
     "dashboard",
     "activity",
@@ -217,6 +251,7 @@ export function AppNavRail({
     "memory",
     "providers",
     "skills",
+    "custom-agents",
     "integrations",
     "remote",
     "settings",
@@ -229,7 +264,7 @@ export function AppNavRail({
       className={
         variant === "sheet"
           ? "w-[240px] max-w-[85vw] h-full flex flex-col bg-[var(--chrome)] text-[var(--fg)] border-r border-[var(--border-1)] px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] select-none overflow-hidden"
-          : "transition-all duration-200 ease-out h-full flex flex-col bg-[var(--chrome)] text-[var(--fg)] z-30 select-none overflow-hidden " + (collapsed ? "w-0 opacity-0 pointer-events-none border-r-0 p-0" : "w-[240px] shrink-0 border-r border-[var(--border-1)] py-3 px-3")
+          : "hidden lg:flex transition-all duration-200 ease-out h-full flex-col bg-[var(--chrome)] text-[var(--fg)] z-30 select-none overflow-hidden " + (collapsed ? "w-0 opacity-0 pointer-events-none border-r-0 p-0" : "w-[240px] shrink-0 border-r border-[var(--border-1)] py-3 px-3")
       }
       aria-label="Primary Left Rail"
       aria-hidden={variant === "rail" && collapsed ? true : undefined}
@@ -372,7 +407,7 @@ export function AppNavRail({
                 : "More"}
             </span>
             {pendingApprovalCount > 0 ? (
-              <span className="min-w-4 h-4 px-1 rounded-full bg-[var(--warning-fg)] text-[var(--bg)] text-[10px] font-bold flex items-center justify-center">
+              <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] text-[10px] font-bold flex items-center justify-center">
                 {pendingApprovalCount}
               </span>
             ) : null}
@@ -407,7 +442,7 @@ export function AppNavRail({
                     <Icon className="size-4 shrink-0 text-[var(--icon-muted)]" strokeWidth={1.8} aria-hidden="true" />
                     <span className="flex-1 text-left truncate">{item.label}</span>
                     {id === "approvals" && pendingApprovalCount > 0 ? (
-                      <span className="min-w-4 h-4 px-1 rounded-full bg-[var(--warning-fg)] text-[var(--bg)] text-[10px] font-bold flex items-center justify-center">
+                      <span className="min-w-4 h-4 px-1 bg-[var(--warning-subtle)] text-[var(--warning-fg)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] text-[10px] font-bold flex items-center justify-center">
                         {pendingApprovalCount}
                       </span>
                     ) : null}
@@ -434,16 +469,6 @@ export function AppNavRail({
             >
               <Search className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (onNewTask) onNewTask();
-              }}
-              aria-label="Thread options"
-              className="size-5 rounded flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors"
-            >
-              <MoreHorizontal className="size-3.5" strokeWidth={1.8} aria-hidden="true" />
-            </button>
           </div>
         </div>
 
@@ -451,10 +476,11 @@ export function AppNavRail({
           <div className="px-0.5 pb-2">
             <div className="relative">
               <input
+                ref={filterRef}
                 type="search"
                 value={threadQuery}
                 onChange={(e) => setThreadQuery(e.target.value)}
-                placeholder="Filter threads…"
+                placeholder="Filter threads"
                 aria-label="Filter threads"
                 className="w-full h-7 bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-inner)] pl-2 pr-6 text-[12px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus:outline-none focus:border-[var(--border-3)] transition-colors"
               />
@@ -472,26 +498,48 @@ export function AppNavRail({
           </div>
         ) : null}
 
-        {/* Scrollable thread rows */}
-        <div className="flex-1 overflow-y-auto px-0.5 space-y-0.5">
-          {filteredSessions.length === 0 ? (
-            <div className="py-6 text-center">
-              <p className="text-[var(--muted-foreground-3)] text-[12px]">
-                {sessions.length === 0 ? "No threads yet" : "No threads match"}
+        <div
+          className="flex-1 overflow-y-auto px-0.5 space-y-0.5"
+          role="listbox"
+          aria-label="Threads"
+          aria-busy={threadsLoading || undefined}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+              event.preventDefault();
+              moveThread(event.key);
+            }
+          }}
+        >
+          {threadsLoading ? (
+            <div className="px-2 py-2" role="status" aria-label="Loading threads">
+              <SkeletonLines rows={4} />
+            </div>
+          ) : filteredSessions.length === 0 ? (
+            <div className="py-6 px-2 text-center">
+              <p className="text-[var(--muted-foreground-2)] text-[12px]">
+                {sessions.length === 0
+                  ? "No threads yet. Use New thread to start one."
+                  : `No threads match “${threadQuery.trim()}”.`}
               </p>
             </div>
           ) : (
             filteredSessions.map((s) => {
               const isSelected = s.id === selectedSessionId;
+              const title = s.title || "Untitled thread";
+              const when = s.updatedAt > 0 ? formatTimeAgo(s.updatedAt) : null;
+              const meta = [statusLabel(s.status), s.repoName, when].filter(Boolean).join(" · ");
               return (
                 <button
                   key={s.id}
+                  id={`thread-${s.id}`}
                   type="button"
+                  role="option"
+                  aria-selected={isSelected}
                   onClick={() => {
                     if (onSelectSession) onSelectSession(s.id);
                   }}
                   className={
-                    "w-full text-left rounded-md px-2 py-1.5 flex items-center gap-2.5 transition-colors " +
+                    "w-full text-left rounded-md px-2 py-1.5 flex items-start gap-2.5 transition-colors " +
                     (isSelected
                       ? "bg-[var(--secondary)] text-[var(--fg)]"
                       : "text-[var(--muted-foreground-2)] hover:bg-[var(--section)] hover:text-[var(--fg)]")
@@ -499,13 +547,18 @@ export function AppNavRail({
                 >
                   <span
                     className={
-                      "size-1.5 rounded-full shrink-0 " +
+                      "size-1.5 rounded-full shrink-0 mt-1.5 " +
                       navStatusDotClass(s.status, s.live)
                     }
                     aria-hidden="true"
                   />
-                  <span className="block text-[13px] font-normal truncate leading-tight flex-1">
-                    {s.title || "Untitled thread"}
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-normal truncate leading-tight">
+                      {title}
+                    </span>
+                    <span className="block text-[10px] font-mono text-[var(--muted-foreground-3)] truncate mt-0.5">
+                      {meta}
+                    </span>
                   </span>
                 </button>
               );
@@ -516,6 +569,20 @@ export function AppNavRail({
 
       {/* FOOTER USER / WORKSPACE CARD */}
       <div className="pt-2 mt-auto border-t border-[var(--border-1)] flex flex-col gap-1">
+        <p className="px-2 pb-1 text-[10px] font-mono text-[var(--muted-foreground-3)] flex items-center gap-1.5 min-w-0">
+          <span
+            className={
+              "size-1.5 rounded-full shrink-0 " +
+              (connectionTone === "ok"
+                ? "bg-[var(--success)]"
+                : connectionTone === "pending"
+                  ? "bg-[var(--warning-fg)]"
+                  : "bg-[var(--destructive)]")
+            }
+            aria-hidden="true"
+          />
+          <span className="truncate">{connectionLabel}</span>
+        </p>
         <div ref={accountRef} className="relative">
           <button
             type="button"
@@ -525,13 +592,13 @@ export function AppNavRail({
             aria-label={accountEmail ? `${accountEmail} · workspace` : "Workspace profile"}
             className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-[var(--secondary)] transition-colors text-left group"
           >
-            <div className="size-5 rounded-sm bg-[var(--primary)] flex items-center justify-center shrink-0 shadow-sm" />
+            <div className="size-5 bg-[var(--primary)] flex items-center justify-center shrink-0" />
             <div className="min-w-0 flex-1 leading-tight">
               <span className="block text-[12px] font-medium text-[var(--fg)] truncate">
-                {accountEmail ? accountEmail.split("@")[0] : "prince pal"}
+                {identity.name}
               </span>
               <span className="block text-[10px] text-[var(--muted-foreground-3)] truncate mt-0.5">
-                {accountEmail ? `${accountEmail.split("@")[0]}'s workspace` : "prince's workspace"}
+                {identity.detail}
               </span>
             </div>
             <ChevronUp className="size-3.5 text-[var(--muted-foreground-3)] shrink-0 group-hover:text-[var(--muted-foreground-1)] transition-colors" strokeWidth={1.8} aria-hidden="true" />
