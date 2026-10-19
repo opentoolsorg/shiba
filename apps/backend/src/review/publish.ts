@@ -1,10 +1,12 @@
-import type { ReviewFinding, ReviewRound } from "@shiba/shared";
+import type { FindingSeverity, ReviewFinding, ReviewRound } from "@shiba/shared";
 import { selectPostable } from "@shiba/shared";
 import { redactSecrets } from "../security.js";
 
 export interface PostReviewDeps {
   fetchImpl?: typeof fetch;
   apiBase?: string;
+  /** Findings at or above this severity become inline comments. Default medium. */
+  inlineThreshold?: FindingSeverity;
 }
 
 const API_BASE = "https://api.github.com";
@@ -58,7 +60,7 @@ export async function postReview(
         return { githubReviewId: existing.id, url: existing.html_url ?? "" };
       }
     }
-    const { inline, bodyOnly } = selectPostable(round.findings, "medium");
+    const { inline, bodyOnly } = selectPostable(round.findings, deps.inlineThreshold ?? "medium");
     const body = [
       round.summary,
       tag,

@@ -5,6 +5,9 @@ export function reviewerTask(input: {
   headSha: string;
   diffUrl: string;
   headBranch?: string;
+  /** Repo AGENTS.md excerpt — steers review focus without entering the sandbox. */
+  agentsMd?: string | null;
+  inlineSeverityFloor?: "high" | "medium" | "low";
 }): string {
   return [
     "Review the pull request diff and post findings. Do not modify code.",
@@ -14,6 +17,12 @@ export function reviewerTask(input: {
     `Head SHA: ${input.headSha}`,
     `Diff: ${input.diffUrl}`,
     ...(input.headBranch ? [`Head branch: ${input.headBranch}`] : []),
+    ...(input.inlineSeverityFloor
+      ? [`Inline comment threshold: findings with severity ${input.inlineSeverityFloor} or higher.`]
+      : []),
+    ...(input.agentsMd
+      ? ["Repository AGENTS.md (follow these instructions):", "---", input.agentsMd, "---"]
+      : []),
     "End your result with SHIBA_AI_COWORKER_CODING_RESULT_JSON and a JSON object",
     "{ summary, findings[] }. Each finding has path, line, category (bug|risk|maintainability|refactor),",
     "severity (high|medium|low), confidence (confirmed|investigate), title, failureScenario.",

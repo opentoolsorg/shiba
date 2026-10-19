@@ -236,6 +236,8 @@ export interface Env {
   GITHUB_TOKEN?: string;
   /** Optional GitHub API origin. Local verify points this at a stub. Defaults to api.github.com. */
   GITHUB_API_BASE?: string;
+  /** Inline review comment floor: high | medium | low. Default medium. */
+  REVIEW_INLINE_THRESHOLD?: string;
   /** Optional PAT with `project` scope for Projects v2 board sync (github-project.ts). */
   GITHUB_PROJECT_TOKEN?: string;
   /** Projects v2 board number on the repo owner; PRs land here when both are set. */

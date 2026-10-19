@@ -262,6 +262,23 @@ export class Automations {
           );
         }
       }
+      try {
+        await orchestrator.fetch(
+          new Request("https://internal/internal/pr-lifecycle", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              githubEvent,
+              mapped,
+              payload: record.payload,
+            }),
+          }),
+        );
+      } catch (error) {
+        console.error(
+          `pr lifecycle wake failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       return Response.json({ ...result, reviewQueued });
     }
     if (request.method === "POST" && url.pathname === "/internal/sentry") {
