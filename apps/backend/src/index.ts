@@ -25,6 +25,8 @@ import { handleAudit } from "./audit-routes.js";
 import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
+import { handleIntegrationsRoutes } from "./integrations-routes.js";
+import { handleLinearWebhook } from "./linear/routes.js";
 import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
 import { handleInbox } from "./inbox-routes.js";
@@ -373,6 +375,14 @@ export default {
       const webhookResponse = await handleGitHubWebhook(request, env, ctx);
       if (webhookResponse) {
         return webhookResponse;
+      }
+      const linearWebhookResponse = await handleLinearWebhook(request, env, ctx);
+      if (linearWebhookResponse) {
+        return linearWebhookResponse;
+      }
+      const integrationsResponse = await handleIntegrationsRoutes(request, env);
+      if (integrationsResponse) {
+        return integrationsResponse;
       }
       const sentryResponse = await handleSentryWebhook(request, env);
       if (sentryResponse) {
