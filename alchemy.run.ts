@@ -1,7 +1,10 @@
 /**
- * Alchemy v2 deploy definition — declares the same Cloudflare stack as
- * wrangler.jsonc so `npx alchemy deploy` replaces `npx wrangler deploy`
- * (rollback path: wrangler still deploys the same bindings).
+ * Alchemy v2 deploy definition — mirrors `apps/backend/wrangler.jsonc`
+ * (the binding/source-of-truth contract). Edit wrangler first, then align
+ * this file; CI runs `node scripts/check-alchemy-drift.mjs`.
+ *
+ * Primary deploy: `pnpm deploy:alchemy`. Rollback: `npx wrangler deploy
+ * --config apps/backend/wrangler.jsonc` (see docs/DEPLOY.md).
  *
  * wrangler.jsonc -> props mapping:
  *   name                          -> Worker "shiba-ai-coworker" (live stages; see below)
@@ -11,6 +14,7 @@
  *   preview_urls: false           -> workersDev.previewsEnabled: false
  *   vars                          -> env string entries
  *   ai.binding                    -> env AI: Cloudflare.Workers.AI()
+ *   worker_loaders[].binding      -> env LOADER: Cloudflare.WorkerLoader(...)
  *   durable_objects.bindings      -> env entries (Cloudflare.DurableObject;
  *                                    Sandbox comes from its Container decl)
  *   containers[]                  -> env Sandbox: Cloudflare.Container(...)
@@ -196,6 +200,9 @@ export const Worker = Cloudflare.Worker("Worker", {
 
     AI: Cloudflare.Workers.AI(),
 
+    // Code Mode (`worker_loaders` in wrangler.jsonc) — dynamic isolate loader.
+    LOADER: Cloudflare.WorkerLoader("LOADER"),
+
     // Workers Browser Rendering (T33) — wrangler `browser.binding`.
     BROWSER: Cloudflare.Browser("BROWSER"),
 
@@ -315,6 +322,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       // T52: HMAC key for dashboard-minted pairing tokens (optional —
       // falls back to LOCAL_ADAPTER_TOKEN when unset).
       "PAIRING_SECRET",
+      // Edge vouched-header signing (optional; unset = header-trust fallback).
+      "INTERNAL_SIGNING_KEY",
+      // Automation trigger lane (`/api/trigger`).
+      "TRIGGER_TOKEN",
     ]),
     // REQUIRE_ACCESS without ACCESS_AUD trusts a client-sent Access email header, so only pair them.
     ...(DashboardAccess
