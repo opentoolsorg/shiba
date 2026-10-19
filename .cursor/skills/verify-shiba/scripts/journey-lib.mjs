@@ -4,7 +4,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const verifyDir = join(root, ".verify");
+// VERIFY_DIR lets regression tests point the scripts at a temp evidence dir.
+export const verifyDir = process.env.VERIFY_DIR || join(root, ".verify");
 
 export function readPort() {
   return existsSync(join(verifyDir, "port"))
@@ -68,12 +69,35 @@ export async function waitFor(
   throw new Error(`timeout waiting for ${label} after ${timeoutMs}ms`);
 }
 
-export async function pollCodingRunComplete(port, runId) {
+export const PUBLISH_FEATURES = new Set(["core-loop-mock", "review-findings", "review-lifecycle", "pr-publish"]);
+export const REVIEW_FEATURES = new Set(["core-loop-mock", "review-findings", "review-lifecycle"]);
+export const APPROVE_FEATURES = new Set([...PUBLISH_FEATURES, "sandbox-run-and-diff"]);
+export const SUPPORTED_FEATURES = new Set([
+  ...APPROVE_FEATURES,
+  "task-submit-and-approval",
+  "byo-models-ux",
+  "run-registry-status",
+  "phase5-integrations-automations",
+  "captain-subagents",
+]);
+
+// Runs minted from an approval are keyed agent-tool:<approvalId>.
+export const runIdForApproval = (approvalId) => `agent-tool:${approvalId}`;
+
+// Newest pending approval whose task is this verify run's, so stale cards from other runs are ignored.
+export function pickVerifyApproval(approvals, knownIds = []) {
+  const known = new Set(knownIds);
+  return (approvals ?? [])
+    .filter((a) => String(a.task ?? "").startsWith("verify-shiba:") && !known.has(a.approvalId))
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+}
+
+export async function pollCodingRunComplete(port, runId, { requirePull = true } = {}) {
   return waitFor(`coding run ${runId} completed`, async () => {
     const res = await fetchJson(`http://127.0.0.1:${port}/api/runs/${encodeURIComponent(runId)}`);
     if (!res.ok) return null;
     const run = res.body?.run ?? res.body;
-    if (run?.status === "completed" && run.pullUrl) return run;
+    if (run?.status === "completed" && (!requirePull || run.pullUrl)) return run;
     if (run?.status === "error" || run?.status === "unknown") {
       throw new Error(`coding run terminal ${run.status}: ${run.error ?? "no detail"}`);
     }

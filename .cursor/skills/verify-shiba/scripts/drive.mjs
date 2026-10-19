@@ -4,6 +4,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SUPPORTED_FEATURES, runIdForApproval, pickVerifyApproval } from "./journey-lib.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const verifyDir = join(root, ".verify");
@@ -14,6 +15,10 @@ let feature = process.argv.includes("--feature")
   ? process.argv[process.argv.indexOf("--feature") + 1]
   : "task-submit-and-approval";
 if (feature === "core-loop-mock") feature = "review-findings";
+if (!SUPPORTED_FEATURES.has(feature)) {
+  console.error(`verify-shiba drive: unknown feature "${feature}"`);
+  process.exit(2);
+}
 const url = `http://127.0.0.1:${port}/app/`;
 const outDir = join(verifyDir, "drive");
 mkdirSync(outDir, { recursive: true });
@@ -78,6 +83,11 @@ try {
     }
   }
   await shot("02-composer-filled");
+  const listApprovals = async () =>
+    (await (await page.request.get(`http://127.0.0.1:${port}/api/approvals`)).json().catch(() => ({})))
+      .approvals ?? [];
+  // Pending cards left by earlier runs must not be mistaken for this run's approval.
+  const staleIds = (await listApprovals()).map((a) => a.approvalId);
   const useRunsApi =
     process.env.VERIFY_USE_RUNS_API === "1" ||
     process.env.VERIFY_ENABLE_CONTAINERS === "0";
@@ -99,7 +109,7 @@ try {
     }
     const queued = await queueRes.json();
     result.approvalId = queued.approvalId;
-    if (queued.approvalId) result.codingRunId = `agent-tool:${queued.approvalId}`;
+    if (queued.approvalId) result.codingRunId = runIdForApproval(queued.approvalId);
     result.queuedViaRunsApi = true;
     await page.goto(`${url}?tab=approvals`, { waitUntil: "domcontentloaded" });
   } else {
@@ -114,6 +124,13 @@ try {
     result.approvalVisible = false;
   }
   result.approvalVisible = (await approve.count()) > 0;
+  if (result.approvalVisible && !result.approvalId) {
+    const mine = pickVerifyApproval(await listApprovals(), staleIds);
+    if (mine) {
+      result.approvalId = mine.approvalId;
+      result.codingRunId = runIdForApproval(mine.approvalId);
+    }
+  }
   const card = page.locator("text=/read-only review/i");
   result.reviewCopyVisible = (await card.count()) > 0;
   await shot("04-after-send");
@@ -247,6 +264,7 @@ try {
   result.dockerDiffEmpty =
     before !== null && after !== null && before.join() === after.join();
   const runs = await page.request.get(`http://127.0.0.1:${port}/api/runs`);
+  result.runsStatus = runs.status();
   writeFileSync(join(outDir, "runs.json"), await runs.text());
   writeFileSync(join(outDir, "result.json"), JSON.stringify(result, null, 2));
   await context.tracing.stop({ path: join(outDir, "trace.zip") });
