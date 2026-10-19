@@ -189,6 +189,8 @@
       "class_name": "Sandbox",
       "name": "shiba-ai-coworker-sandbox",
       "scheduling_policy": "durable_object",
+      // instance_type / max_instances: wrangler 4.140+ rejects these on DO-managed
+      // containers — size and caps live in vars.INSTANCE_TYPE + alchemy Container.
       "images": {
         "sandbox": {
           "dockerfile": "./Dockerfile",

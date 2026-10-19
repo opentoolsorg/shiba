@@ -9,15 +9,18 @@ import {
   registerBuiltinSandboxProviders,
   type SandboxInstance,
   type SandboxProvider,
+  type SandboxProviderId,
 } from "@shiba/sandbox";
+import { createComputesdkRemoteSandboxProvider } from "@shiba/sandbox/adapters/computesdk-remote";
 import type { Env } from "../env.js";
 import { getSandbox, type SandboxRpcFacade } from "./client.js";
 import { buildComputesdkHostLoader } from "./computesdk-lazy.js";
+import { resolveSandboxSelection, type SandboxSelectionContext } from "./selection.js";
 import "./custom-providers.js";
 
 registerBuiltinSandboxProviders();
 
-let cachedProvider: SandboxProvider | undefined;
+const providerCache = new Map<string, SandboxProvider>();
 
 function truthyFlag(raw: string | undefined): boolean {
   const v = raw?.trim().toLowerCase();
@@ -47,35 +50,79 @@ function sandboxEnvSlice(env: Env): Record<string, string | undefined> {
   };
 }
 
-export function resolveSandboxProvider(env: Env): SandboxProvider {
-  if (cachedProvider) return cachedProvider;
-  const id = parseSandboxProviderId(env.SHIBA_SANDBOX_PROVIDER);
-  const config = parseSandboxProviderConfig(sandboxEnvSlice(env), id);
+function buildProvider(env: Env, id: SandboxProviderId): SandboxProvider {
+  const cached = providerCache.get(id);
+  if (cached) return cached;
+
+  const config = parseSandboxProviderConfig({ ...sandboxEnvSlice(env), SHIBA_SANDBOX_PROVIDER: id }, id);
   const allowUnenforcedEgress = truthyFlag(env.SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS);
 
-  const provider = createSandboxProviderFromRegistrySync(id, {
-    config,
-    env: sandboxEnvSlice(env),
-    host: {
-      cloudflareResolveRpc: (instanceId) => getSandbox(env.Sandbox, instanceId) as SandboxRpcFacade,
-      computesdkLoadProvider: id === "computesdk" ? () => buildComputesdkHostLoader(env) : undefined,
-    },
-  });
+  const runnerUrl = env.SHIBA_COMPUTESDK_RUNNER_URL?.trim();
+  const runnerToken = env.SHIBA_COMPUTESDK_RUNNER_TOKEN?.trim();
+  const computesdkRemoteClient =
+    id === "computesdk" && runnerUrl && runnerToken
+      ? createComputesdkRemoteSandboxProvider({
+          baseUrl: runnerUrl,
+          token: runnerToken,
+          backendProvider: env.SHIBA_COMPUTESDK_PROVIDER?.trim().toLowerCase() || "e2b",
+          defaultTimeoutMs: config.options.timeoutMs,
+        })
+      : undefined;
+
+  const provider =
+    computesdkRemoteClient ??
+    createSandboxProviderFromRegistrySync(id, {
+      config,
+      env: sandboxEnvSlice(env),
+      host: {
+        cloudflareResolveRpc: (instanceId) => getSandbox(env.Sandbox, instanceId) as SandboxRpcFacade,
+        computesdkLoadProvider: id === "computesdk" ? () => buildComputesdkHostLoader(env) : undefined,
+      },
+    });
 
   assertProviderAllowed(provider, { allowUnenforcedEgress });
-  cachedProvider = provider;
+  providerCache.set(id, provider);
   return provider;
 }
 
-/** Test hook — reset cached provider between cases. */
+/** Resolve one provider id (built-in or registered custom name). */
+export function resolveSandboxProviderForId(env: Env, providerId: SandboxProviderId): SandboxProvider {
+  return buildProvider(env, providerId);
+}
+
+/** @deprecated Prefer {@link resolveSandboxProviderForSelection}. */
+export function resolveSandboxProvider(env: Env): SandboxProvider {
+  const id = parseSandboxProviderId(env.SHIBA_SANDBOX_PROVIDER);
+  return resolveSandboxProviderForId(env, id);
+}
+
+export async function resolveSandboxProviderForSelection(
+  env: Env,
+  ctx: SandboxSelectionContext = {},
+): Promise<SandboxProvider> {
+  const selection = await resolveSandboxSelection(env, ctx);
+  return resolveSandboxProviderForId(env, selection.providerId);
+}
+
+/** Test hook — reset cached providers between cases. */
 export function resetSandboxProviderCache(): void {
-  cachedProvider = undefined;
+  providerCache.clear();
 }
 
-export async function getSandboxInstance(env: Env, sandboxId: string): Promise<SandboxInstance> {
-  return resolveSandboxProvider(env).get(sandboxId);
+export async function getSandboxInstance(
+  env: Env,
+  sandboxId: string,
+  ctx: SandboxSelectionContext = {},
+): Promise<SandboxInstance> {
+  const provider = await resolveSandboxProviderForSelection(env, ctx);
+  return provider.get(sandboxId);
 }
 
-export async function destroySandboxInstance(env: Env, sandboxId: string): Promise<void> {
-  await resolveSandboxProvider(env).destroy(sandboxId);
+export async function destroySandboxInstance(
+  env: Env,
+  sandboxId: string,
+  ctx: SandboxSelectionContext = {},
+): Promise<void> {
+  const provider = await resolveSandboxProviderForSelection(env, ctx);
+  await provider.destroy(sandboxId);
 }

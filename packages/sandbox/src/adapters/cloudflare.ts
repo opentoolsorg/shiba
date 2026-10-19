@@ -54,6 +54,7 @@ const CAPABILITIES: SandboxCapabilities = {
   streamingExec: true,
   backgroundProcesses: true,
   rawProviderHandle: false,
+  persistentVolumes: true,
 };
 
 function wrapRpc(

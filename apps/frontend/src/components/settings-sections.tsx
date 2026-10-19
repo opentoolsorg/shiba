@@ -4,7 +4,7 @@
  * /api/agents, and /api/whoami, /api/auth/*) rather than duplicating
  * internals; sections with no real data source are omitted, not stubbed.
  */
-import { type JSX, type ReactNode, useEffect, useState } from "react";
+import { type JSX, type ReactNode, useCallback, useEffect, useState } from "react";
 import { version as dashboardVersion } from "../../package.json";
 import { authClient } from "../auth-client";
 import { type RoleModelWire, type SetupStatus, useSetupStatus, useWhoami } from "../live-status";
@@ -25,6 +25,7 @@ export type SettingsSectionId =
   | "automations"
   | "mailbox"
   | "models"
+  | "sandbox"
   | "environments"
   | "experimental"
   | "deployment";
@@ -39,6 +40,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
     automations: { label: "Automations", blurb: "Kill switch & TypeSafe key" },
     mailbox: { label: "Mailbox", blurb: "Agent mailbox & email sending" },
     models: { label: "Models", blurb: "Per-role agent routing" },
+    sandbox: { label: "Sandbox", blurb: "Org sandbox provider & capabilities" },
     environments: {
       label: "Environments",
       blurb: "Deployment configuration the Worker proves",
@@ -423,6 +425,180 @@ function AppearanceSection(): JSX.Element {
   );
 }
 
+interface SandboxProviderRow {
+  id: string;
+  label: string;
+  configured: boolean;
+  matrix: {
+    exec: boolean;
+    files: boolean;
+    portsPreview: boolean;
+    snapshots: boolean;
+    volumes: boolean;
+    edgeEgress: boolean;
+  };
+  detail?: string;
+}
+
+function SandboxOrgSettingsSection({
+  onNavigate,
+}: {
+  onNavigate?: (view: AppNavView) => void;
+}): JSX.Element {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [providerId, setProviderId] = useState("");
+  const [effectiveSource, setEffectiveSource] = useState("");
+  const [providers, setProviders] = useState<SandboxProviderRow[]>([]);
+  const [computesdkBackend, setComputesdkBackend] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const reload = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetch("/api/org/sandbox")
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Sandbox settings unavailable (${r.status}).`);
+        return (await r.json()) as {
+          settings?: { providerId?: string; computesdkBackend?: string } | null;
+          effective?: { source?: string; providerId?: string };
+          providers?: SandboxProviderRow[];
+        };
+      })
+      .then((body) => {
+        const saved = body.settings?.providerId ?? body.effective?.providerId ?? "cloudflare";
+        setProviderId(saved);
+        setComputesdkBackend(body.settings?.computesdkBackend ?? "");
+        setEffectiveSource(body.effective?.source ?? "");
+        setProviders(body.providers ?? []);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Could not load sandbox settings.");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const save = async () => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/org/sandbox", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId,
+          ...(providerId === "computesdk" && computesdkBackend.trim()
+            ? { computesdkBackend: computesdkBackend.trim() }
+            : {}),
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setNotice(body.error ?? `Save failed (${response.status}).`);
+      } else {
+        setNotice("Sandbox provider saved for this org.");
+        reload();
+      }
+    } catch {
+      setNotice("Save failed: backend unreachable.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const matrixKeys = ["exec", "files", "portsPreview", "snapshots", "volumes", "edgeEgress"] as const;
+
+  return (
+    <SectionShell
+      title="Sandbox provider"
+      description="Org-default sandbox backend (task → custom agent → org → deployment). Capability matrix is computed from each registered provider — including ComputeSDK and custom adapters."
+    >
+      {loading ? (
+        <div className="text-xs text-[var(--muted-foreground-2)]">Loading…</div>
+      ) : error ? (
+        <LoadErrorState message={error} onRetry={reload} />
+      ) : (
+        <>
+          {effectiveSource ? (
+            <p className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
+              Effective selection source: {effectiveSource}
+            </p>
+          ) : null}
+          <Card>
+            <div className="px-4 py-3 flex flex-col gap-2 border-b border-[var(--border-1)]">
+              <label className="text-xs text-[var(--muted-foreground-1)]" htmlFor="org-sandbox-provider">
+                Org provider
+              </label>
+              <select
+                id="org-sandbox-provider"
+                value={providerId}
+                onChange={(e) => setProviderId(e.target.value)}
+                className="bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-xs px-2 py-1.5"
+              >
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                    {p.configured ? "" : " (misconfigured)"}
+                  </option>
+                ))}
+              </select>
+              {providerId === "computesdk" ? (
+                <input
+                  type="text"
+                  value={computesdkBackend}
+                  onChange={(e) => setComputesdkBackend(e.target.value)}
+                  placeholder="ComputeSDK backend — e2b, modal, daytona…"
+                  aria-label="ComputeSDK backend"
+                  className="bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-xs px-2 py-1.5 font-mono"
+                />
+              ) : null}
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void save()}
+                className="self-start text-[11px] font-semibold text-[var(--primary)] border border-[var(--primary)]/30 px-2.5 py-1 rounded-[var(--radius-button)]"
+              >
+                {saving ? "Saving…" : "Save org default"}
+              </button>
+              {notice ? <p className="text-[11px] text-[var(--warning-fg)]">{notice}</p> : null}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[11px] font-mono">
+                <thead className="bg-[var(--bg)] text-[10px] uppercase text-[var(--muted-foreground-2)]">
+                  <tr>
+                    <th className="p-2">Provider</th>
+                    {matrixKeys.map((key) => (
+                      <th key={key} className="p-2">{key}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-1)]">
+                  {providers.map((row) => (
+                    <tr key={row.id} className={row.id === providerId ? "bg-[var(--primary-soft)]/40" : ""}>
+                      <td className="p-2 font-semibold text-[var(--fg)]">{row.label}</td>
+                      {matrixKeys.map((key) => (
+                        <td key={key} className="p-2 text-center">
+                          {row.matrix[key] ? "✓" : "·"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+          <ViewLink view="custom-agents" label="Custom agents" onNavigate={onNavigate} />
+        </>
+      )}
+    </SectionShell>
+  );
+}
+
 type LiveSettingsSection = "automations" | "mailbox" | "environments";
 
 function LiveSettingsSectionBody({
@@ -714,6 +890,8 @@ export function SettingsSectionBody({
   }
 
   if (section === "models") return <ModelsSettingsSection />;
+
+  if (section === "sandbox") return <SandboxOrgSettingsSection onNavigate={onNavigate} />;
 
   if (section === "experimental") {
     return (
