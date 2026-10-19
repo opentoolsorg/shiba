@@ -9,6 +9,7 @@ Drive these from the real dashboard UI at http://localhost:$PORT/app/.
 | pr-publish | Approved publish run opens a PR (live repo or mock GitHub) |
 | review-findings | Chained reviewer posts one COMMENT review; findings list matches |
 | run-registry-status | Runs view shows status chips and registry counts |
+| phase5-integrations-automations | Integrations Linear row; Slack verify + GitHub status probes (mock) |
 | public-api-keys | Settings mints shk_ keys; OpenAPI at /api/v1/openapi.json |
 | captain-subagents | Captain snapshot API + subagent tree UI (Phase 2b) |
 | byo-models-ux | Settings Models: ordered connections, test connection, role pins; run usage when reported |
