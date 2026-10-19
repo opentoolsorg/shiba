@@ -961,8 +961,15 @@ export function App(): React.JSX.Element {
             },
           );
           if (!res.ok) {
-            const detail = (await res.text().catch(() => "")).slice(0, 200);
-            throw new Error(`Run request failed with ${res.status}${detail ? `: ${detail}` : ""}`);
+            const raw = await res.text().catch(() => "");
+            let detail = raw.slice(0, 400);
+            try {
+              const parsed = JSON.parse(raw) as { error?: string };
+              if (typeof parsed.error === "string" && parsed.error.trim()) detail = parsed.error.trim();
+            } catch {
+              /* plain text */
+            }
+            throw new Error(detail || `Run request failed with ${res.status}`);
           }
           runCommand.current = null;
           saveRepo(repoUrl.trim());

@@ -129,13 +129,24 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
         typeof (policyValue as { rolePins?: unknown }).rolePins === "object"
           ? (policyValue as { rolePins: Record<string, { harness: string; model?: string }> }).rolePins
           : undefined;
+      const modelSnapshot = {
+        connections: orderConnections(list, order),
+        policy:
+          typeof policyValue === "object" &&
+          policyValue !== null &&
+          "version" in policyValue &&
+          typeof (policyValue as { version?: unknown }).version === "number"
+            ? (policyValue as typeof EMPTY_POLICY)
+            : EMPTY_POLICY,
+        connectionOrder: order,
+      };
       return Response.json(
         {
           connections: orderConnections(list, order),
           connectionOrder: order,
           policy: policyValue,
           purposes: PURPOSES,
-          effectiveRoles: describeRoleModels(env, rolePins),
+          effectiveRoles: describeRoleModels(env, rolePins, modelSnapshot),
         },
         { headers: { "Cache-Control": "no-store" } },
       );
