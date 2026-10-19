@@ -1,9 +1,7 @@
 import type { Env } from "./env.js";
-import { refreshCodexAuthJson } from "./codex-token-refresh.js";
 import {
   loadUserSubscriptionAuthJson,
   modelCredentialKeyConfigured,
-  persistUserSubscriptionAuthJson,
 } from "./subscription-credentials.js";
 import { parseCodexAuthJson } from "@shiba/shared";
 
@@ -18,8 +16,8 @@ export function workerSecretAuthJson(env: Env, account: string): string | undefi
 }
 
 /**
- * Resolve auth.json for one codex-subscription egress hop. Per-user storage
- * wins when initiatorUserId is set; Worker secrets apply only in SHIBA_SINGLE_USER=1.
+ * Resolve auth.json for legacy T47 verify (/api/auth/codex-subscription).
+ * Harness runs mount credentials in the sandbox instead of egress injection.
  */
 export async function resolveCodexSubscriptionAuthJson(
   env: Env,
@@ -28,18 +26,7 @@ export async function resolveCodexSubscriptionAuthJson(
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
   const userId = typeof params.userId === "string" && params.userId !== "" ? params.userId : undefined;
   if (userId && modelCredentialKeyConfigured(env)) {
-    let raw = await loadUserSubscriptionAuthJson(env, userId);
-    if (raw === null) return null;
-    try {
-      const refreshed = await refreshCodexAuthJson(raw);
-      if (refreshed.rotated) {
-        await persistUserSubscriptionAuthJson(env, userId, refreshed.authJson);
-      }
-      raw = refreshed.authJson;
-    } catch {
-      // Expired without refresh — fail closed at parse/forward time.
-    }
-    return raw;
+    return loadUserSubscriptionAuthJson(env, userId);
   }
   if (env.SHIBA_SINGLE_USER === "1") {
     return workerSecretAuthJson(env, account) ?? null;

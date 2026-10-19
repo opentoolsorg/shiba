@@ -187,15 +187,9 @@ export async function forwardClaudeSubscription(
 }
 
 /**
- * T49 — the codex-subscription egress branch. The container's CODEX_HOME
- * holds a stub auth.json (placeholder access token + account id); the real
- * `codex login` credential is stored Worker-side as the
- * `CODEX_SUBSCRIPTION_AUTH_JSON` secret — the auth.json CONTENTS — and
- * materialized here: the forwarder rewrites the Bearer and pins the
- * `chatgpt-account-id` header on chatgpt.com's backend API.
- * Deliberately NOT a GATEWAY_PROVIDERS entry: this path never rides the
- * gateway's BYOK route. Deny-by-default: wrong host/protocol → 403, no
- * usable secret → 503 (fail closed).
+ * Legacy T47 verify forwarder for `/api/auth/codex-subscription` only.
+ * Harness runs mount auth.json in the sandbox (chatgpt.com bot-challenges
+ * Worker fetches — 2026-10-19). Deny-by-default path pin for verify probes.
  */
 export async function forwardCodexSubscription(
   request: Request,

@@ -164,12 +164,8 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
   ): Promise<CodingTaskResult> {
     const workdir = `/workspace/${input.sandboxId}`;
     const configValue = this.harness.configFile(input, input.sandboxId);
-    // T49: a harness may write several files (codex-subscription's stub
-    // auth.json + config.toml); normalize to a list.
     const configFiles = configValue === null ? [] : Array.isArray(configValue) ? configValue : [configValue];
     const config = configFiles[0] ?? null;
-    // T42: one ordered signal list per attempt — the caller's collector
-    // and the returned result read the same record.
     const signals = opts?.signals ?? [];
     const milestone = (kind: RunSignalKind, detail?: string) => {
       signals.push(detail !== undefined ? { kind, at: Date.now(), detail } : { kind, at: Date.now() });
@@ -272,8 +268,6 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           timeoutMs: OPENCODE_TIMEOUT_MS,
           signal: opts?.signal,
           onOutput: output.onData,
-          // Provider keys here are always the dummy; the real credential is
-          // swapped in outside the container (src/egress.ts).
           env: this.harness.env(input, config?.path ?? null),
         }),
         opts?.signal,

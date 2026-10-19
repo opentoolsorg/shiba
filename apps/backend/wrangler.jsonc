@@ -143,6 +143,7 @@
       { "name": "Waitlist", "class_name": "Waitlist" },
       { "name": "ModelConfig", "class_name": "ModelConfig" },
       { "name": "LocalDispatch", "class_name": "LocalDispatch" },
+      { "name": "ChatGptAuth", "class_name": "ChatGptAuth" },
     ],
   },
   // Email attachment bodies >256KB go here, keyed `emailId/partId`
@@ -204,5 +205,6 @@
     // see it so it doesn't re-apply already-existing DO migrations.
     { "tag": "alchemy:v10" },
     { "tag": "alchemy:v11" },
+    { "tag": "v12", "new_sqlite_classes": ["ChatGptAuth"] },
   ],
 }

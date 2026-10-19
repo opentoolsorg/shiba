@@ -35,6 +35,9 @@ const codingTaskInputSchema = z.object({
   authAccount: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/).optional(),
   /** Dashboard user whose ChatGPT subscription credential egress may use. */
   initiatorUserId: z.string().min(1).max(128).optional(),
+  /** Worker-only: short-lived ChatGPT plan access token for codex-subscription runs. */
+  chatgptAccessToken: z.string().min(1).optional(),
+  chatgptThreadId: z.string().min(1).optional(),
   /**
    * The frozen, approval-gated route (connection/model/harness ids only —
    * spec MODEL-CONNECTIONS-ARCHITECTURE.md §4). Validated with

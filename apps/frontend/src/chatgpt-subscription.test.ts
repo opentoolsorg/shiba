@@ -1,23 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
+  callbackFieldAfterSuccess,
+  completeRequestBody,
+  parseSignInBegin,
   parseSubscriptionStatus,
-  pasteFieldAfterSuccessfulConnect,
-  pasteRequestBody,
 } from "./chatgpt-subscription-wire";
 
-describe("A9 ChatGPT subscription settings wire", () => {
-  it("shows paste flow metadata without echoing secrets back", () => {
-    const secret = JSON.stringify({ tokens: { access_token: "eyJsecret", refresh_token: "rt" } });
-    const body = pasteRequestBody(secret);
-    expect(body).toContain("authJson");
-    expect(parseSubscriptionStatus({ connected: true, savedAt: 1 })).toEqual({ connected: true, savedAt: 1 });
-    expect(parseSubscriptionStatus({ connected: true, savedAt: 1, authJson: secret } as Record<string, unknown>)).not.toHaveProperty(
-      "authJson",
-    );
-    expect(pasteFieldAfterSuccessfulConnect(secret)).toBe("");
+describe("A9 ChatGPT settings wire", () => {
+  it("parses status without secrets", () => {
+    const status = parseSubscriptionStatus({ connected: true, expiresAt: 1, savedAt: 2 });
+    expect(status.connected).toBe(true);
+    expect(status).not.toHaveProperty("accessToken");
   });
 
-  it("disconnect is modeled as connected false", () => {
-    expect(parseSubscriptionStatus({ connected: false })).toEqual({ connected: false });
+  it("parse begin and complete body", () => {
+    const begin = parseSignInBegin({
+      authorizeUrl: "https://auth.openai.com/x",
+      redirectUri: "http://127.0.0.1:1/auth/callback",
+      flowId: "st",
+    });
+    expect(begin?.authorizeUrl).toContain("auth.openai.com");
+    expect(completeRequestBody("http://127.0.0.1:1/auth/callback?code=x")).toContain("callbackUrl");
+    expect(callbackFieldAfterSuccess("secret-url")).toBe("");
   });
 });

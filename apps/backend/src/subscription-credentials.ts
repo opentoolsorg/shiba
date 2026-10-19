@@ -241,3 +241,27 @@ export async function persistUserSubscriptionAuthJson(
 ): Promise<void> {
   await saveUserSubscriptionAuthJson(env, userId, authJson, workspaceId);
 }
+
+function accessTokenExpMs(authJson: string): number {
+  try {
+    const parsed = parseCodexAuthJson(authJson);
+    if (!parsed) return 0;
+    return jwtExp(parsed.accessToken) ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** After a run, keep the readback only when its access token expires later (concurrent runs). */
+export async function mergePersistUserSubscriptionAuthJson(
+  env: Env,
+  userId: string,
+  readback: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): Promise<void> {
+  validateAuthJsonPayload(readback);
+  const existing = await loadUserSubscriptionAuthJson(env, userId, workspaceId);
+  if (existing === null || accessTokenExpMs(readback) >= accessTokenExpMs(existing)) {
+    await saveUserSubscriptionAuthJson(env, userId, readback, workspaceId);
+  }
+}
