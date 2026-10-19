@@ -13,7 +13,9 @@ import type { AgentPrincipal, InboxMailbox } from "./types";
 /** Wire shape of `GET /api/setup/status` (backend `setup-status.ts`). Booleans only. */
 export interface SetupStatus {
   slack: { signingSecret: boolean; botToken: boolean; approvers: number; channelRepos: boolean };
-  github: { token: boolean; webhookSecret: boolean };
+  github: { token: boolean; app: boolean; publish: boolean; webhookSecret: boolean };
+  linear: { webhookSecret: boolean; apiToken: boolean; defaultRepo: boolean };
+  slackVerification: { signingSecret: boolean };
   gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" };
   access: { required: boolean };
   betterAuth: { configured: boolean };
