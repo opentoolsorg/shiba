@@ -6,12 +6,58 @@ description: Run the dashboard, Worker, docs, and tests without overstating loca
 Use Node.js 22.12.0+ and pnpm 10+. From a terminal, clone the repository and install dependencies once:
 
 ```sh
-git clone https://github.com/princepal9120/ai-intern.git
-cd ai-intern
+git clone https://github.com/princepal9120/shiba.git
+cd shiba
 pnpm install
 ```
 
-## First local run
+## Worker and sandbox quickstart
+
+Fast path to the **dashboard + API + Sandbox** on one port (about five minutes after dependencies install). Requires **Docker running** and enough disk for the pinned Sandbox image build.
+
+```sh
+pnpm install
+pnpm build
+cp apps/backend/.dev.vars.example apps/backend/.dev.vars
+# Optional: set GITHUB_TOKEN and AI Gateway BYOK before coding tasks that need them.
+
+CI=1 npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc
+npx wrangler dev --config apps/backend/wrangler.jsonc --port 8788
+```
+
+Non-interactive shells should set **`CI=1`** (or answer `Y` at the migration prompt). The first Sandbox run also needs **`npx wrangler login`** and a running Docker engine so Wrangler can build the container image.
+
+**API/dashboard smoke without OAuth or Docker** (no sandbox containers):
+
+```sh
+CI=1 npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc
+npx wrangler dev --local --config apps/backend/wrangler.jsonc --port 8788 \
+  --enable-containers=false --local-upstream localhost
+```
+
+Vectorize and some bindings warn in pure local mode; `/api/setup/status` and `/app/` still respond for UI wiring checks.
+
+Ready when:
+
+- `curl -sS http://127.0.0.1:8788/api/setup/status` returns **JSON** (not the SPA HTML shell).
+- `curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8788/app/` returns **200**.
+
+Open **http://127.0.0.1:8788/app/** in a browser. Loopback requests use identity `default` when Access is unset (`REQUIRE_ACCESS` / `ACCESS_AUD` / `BETTER_AUTH_SECRET` should stay unset for the simplest local gate).
+
+After the first approved sandbox run, `docker ps` should show a container for the configured image. If Wrangler fails at startup, check `docker info` and rerun `pnpm build` so `app-public/` exists for Worker assets.
+
+Optional scripted harness: `.cursor/skills/verify-shiba/scripts/launch.sh` (uses `--persist-to .verify/state` and the same migrations command).
+
+Validate local secret documentation:
+
+```sh
+node scripts/check-dev-vars-example.mjs
+node scripts/validate-credentials.mjs --offline
+```
+
+For account deployment after local proof, see [Self-hosting on Cloudflare](/docs/self-hosting/).
+
+## First local run (all apps via turbo)
 
 Start the workspace from the repository root:
 
