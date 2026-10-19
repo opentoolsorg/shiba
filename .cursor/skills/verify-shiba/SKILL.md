@@ -25,7 +25,7 @@ Run `scripts/doctor.sh` (read-only). Checks: recorded PID is alive and owns the 
 
 `node scripts/drive.mjs --feature <name>` opens `http://localhost:$PORT/app/` in Playwright Chromium.
 
-Handles: Task composer, Task description, Project, Search repositories, Create pull request, Send task, Approve/Reject, pr-card, review-findings.
+Handles: Task composer, Task description, Project, Search repositories, Create pull request, Send task, Approve/Reject, pr-card, review-findings, browser E2E manifest links on published PRs (see `browser-e2e-evidence`).
 
 Features live in `features/`.
 

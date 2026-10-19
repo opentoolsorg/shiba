@@ -60,6 +60,10 @@ function makeDeps(): CaptureDeps & {
     on: vi.fn((_event: string, handler: (request: MockInterceptedRequest) => void) => {
       requestHandler = handler;
     }),
+    click: vi.fn(async () => undefined),
+    type: vi.fn(async () => undefined),
+    waitForSelector: vi.fn(async () => ({})),
+    evaluate: vi.fn(async () => ""),
   };
   const browser = { newPage: vi.fn(async () => page), close: vi.fn(async () => undefined) };
   const proc = { waitForPort: vi.fn(async () => undefined), kill: vi.fn(async () => undefined) };
@@ -88,8 +92,8 @@ function makeDeps(): CaptureDeps & {
     return request;
   };
   return {
-    sandbox,
-    launch: vi.fn(async () => browser),
+    sandbox: sandbox as CaptureDeps["sandbox"],
+    launch: vi.fn(async () => browser) as CaptureDeps["launch"],
     page,
     proc,
     fireRequest,
@@ -110,7 +114,7 @@ describe("captureRunPreview", () => {
       hostname: "shiba.example.com",
     });
     expect(deps.page.goto).toHaveBeenCalledWith(
-      `https://${PREVIEW_PORT}-sandbox-abc123-tok.shiba.example.com`,
+      `https://${PREVIEW_PORT}-sandbox-abc123-tok.shiba.example.com/`,
       expect.objectContaining({ waitUntil: "networkidle0" }),
     );
     expect(deps.page.screenshot).toHaveBeenCalledWith({ fullPage: false });

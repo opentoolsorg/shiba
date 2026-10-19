@@ -1124,6 +1124,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                     // T33: the stored screenshot link rides the same envelope;
                     // a failed capture arrives as an absent field → null.
                     screenshotUrl: parsed.screenshotUrl ?? null,
+                    browserE2eManifestUrl: parsed.browserE2eManifestUrl ?? null,
                     // T42: the typed milestones ride the same envelope and
                     // land on the row — a waiter reads signals, not clocks.
                     signals: parsed.signals,

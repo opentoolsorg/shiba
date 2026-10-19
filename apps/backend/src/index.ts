@@ -39,6 +39,7 @@ import { handleSwarm } from "./swarm-routes.js";
 import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
+import { handleE2eEvidence } from "./e2e-evidence-routes.js";
 import { handleWebSessions } from "./sessions-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
@@ -291,6 +292,10 @@ export default {
       const screenshotResponse = await handleScreenshot(request, env);
       if (screenshotResponse) {
         return screenshotResponse;
+      }
+      const e2eEvidenceResponse = await handleE2eEvidence(request, env);
+      if (e2eEvidenceResponse) {
+        return e2eEvidenceResponse;
       }
       const webSessionsResponse = await handleWebSessions(request, env);
       if (webSessionsResponse) {
