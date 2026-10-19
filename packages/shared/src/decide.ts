@@ -408,6 +408,7 @@ function applyPatch(run: DelegatedRun, patch: RunPatch | undefined): void {
   if (patch.diff !== undefined) run.diff = patch.diff;
   if (patch.pullUrl !== undefined) run.pullUrl = patch.pullUrl;
   if (patch.screenshotUrl !== undefined) run.screenshotUrl = patch.screenshotUrl;
+  if (patch.browserE2eManifestUrl !== undefined) run.browserE2eManifestUrl = patch.browserE2eManifestUrl;
   if (patch.receipts !== undefined) run.receipts = patch.receipts;
   if (patch.sandboxId !== undefined) run.sandboxId = patch.sandboxId;
   if (patch.signals !== undefined) run.signals = patch.signals;
