@@ -185,11 +185,22 @@
     {
       "class_name": "Sandbox",
       "name": "shiba-ai-coworker-sandbox",
-      "image": "./Dockerfile",
+      "scheduling_policy": "durable_object",
       "instance_type": "standard-1",
       "max_instances": 5,
+      "images": {
+        "sandbox": {
+          "dockerfile": "./Dockerfile",
+        },
+      },
     },
   ],
+  "exports": {
+    "Sandbox": {
+      "type": "durable-object",
+      "storage": "sqlite",
+    },
+  },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["CodingOrchestrator", "OpenCodeAgent", "Sandbox"] },
     { "tag": "v2", "new_sqlite_classes": ["Automations"] },
