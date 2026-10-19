@@ -97,6 +97,10 @@
 # DISCORD_CHANNEL_REPOS=
 # DISCORD_AGENT_HARNESS=
 
+# --- Optional sandbox providers (@shiba/sandbox) -----------------------------
+
+# E2B_API_KEY=
+
 # --- Subscription harness credentials (opt-in via wrangler vars) -------------
 
 # Store only when the matching SHIBA_*_SUBSCRIPTION flag is enabled in wrangler.
