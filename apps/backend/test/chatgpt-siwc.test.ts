@@ -152,6 +152,18 @@ describe("token exchange + missing plan scope", () => {
     expect(refreshed.refreshToken).toBe("new-rt");
   });
 
+  it("exchange throws bot_challenge on html 403", async () => {
+    const fetchImpl = async () =>
+      new Response("<html>Just a moment</html>", { status: 403, headers: { "content-type": "text/html" } });
+    await expect(
+      exchangeToken(
+        discovery,
+        new URLSearchParams({ grant_type: "authorization_code", code: "x", client_id: "oaiapp_x" }),
+        fetchImpl as typeof fetch,
+      ),
+    ).rejects.toMatchObject({ code: "bot_challenge" });
+  });
+
   it("exchange clears connection on invalid_grant refresh errors", async () => {
     const fetchImpl = async () =>
       new Response(JSON.stringify({ error: "refresh_token_reused" }), { status: 400 });

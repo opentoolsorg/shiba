@@ -5,6 +5,13 @@ import type { Env } from "./env.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { deleteUserSubscriptionCredential } from "./subscription-credentials.js";
+import {
+  clearUserOpenAiAuthMode,
+  deviceAuthVolumeHint,
+  readUserOpenAiAuthMode,
+  setUserOpenAiAuthMode,
+} from "./subscription-device-auth.js";
+import { codexDeviceAuthDeploymentEnabled } from "./harness/codex-device-auth.js";
 
 const BASE = "/api/subscription/openai";
 
@@ -47,7 +54,36 @@ export async function handleUserOpenAiSubscription(request: Request, env: Env): 
   if (request.method === "DELETE" && sub === "") {
     const response = await forwardJson(stub, "/logout", { method: "DELETE" });
     await deleteUserSubscriptionCredential(env, userId).catch(() => undefined);
+    await clearUserOpenAiAuthMode(env, userId).catch(() => undefined);
     return response;
+  }
+  if (sub === "device-auth") {
+    if (!codexDeviceAuthDeploymentEnabled(env)) {
+      return Response.json({ error: "Codex device-auth fallback is not enabled on this deployment." }, { status: 404 });
+    }
+    if (request.method === "GET") {
+      const mode = (await readUserOpenAiAuthMode(env, userId)) ?? "siwc";
+      return Response.json({
+        mode,
+        volumePath: deviceAuthVolumeHint(userId),
+        loginCommand: "codex login --device-auth",
+      });
+    }
+    if (request.method === "POST") {
+      await setUserOpenAiAuthMode(env, userId, "device-auth");
+      await forwardJson(stub, "/logout", { method: "DELETE" }).catch(() => undefined);
+      await deleteUserSubscriptionCredential(env, userId).catch(() => undefined);
+      return Response.json({
+        mode: "device-auth",
+        volumePath: deviceAuthVolumeHint(userId),
+        loginCommand: "codex login --device-auth",
+        message: "Device-auth mode enabled. Run codex login --device-auth in your sandbox; auth.json stays on your volume only.",
+      });
+    }
+    if (request.method === "DELETE") {
+      await clearUserOpenAiAuthMode(env, userId);
+      return Response.json({ mode: "siwc", connected: false });
+    }
   }
   return Response.json({ error: "Not found." }, { status: 404 });
 }

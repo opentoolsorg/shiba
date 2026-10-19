@@ -38,6 +38,8 @@ const codingTaskInputSchema = z.object({
   /** Worker-only: short-lived ChatGPT plan access token for codex-subscription runs. */
   chatgptAccessToken: z.string().min(1).optional(),
   chatgptThreadId: z.string().min(1).optional(),
+  /** Sandbox-volume device-auth path — auth.json never leaves the user's volume. */
+  codexAuthMode: z.enum(["siwc", "device-auth"]).optional(),
   /**
    * The frozen, approval-gated route (connection/model/harness ids only —
    * spec MODEL-CONNECTIONS-ARCHITECTURE.md §4). Validated with
