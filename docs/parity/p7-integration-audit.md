@@ -141,8 +141,8 @@ Breaks:
 
 ## 3. Provider OAuth / subscriptions — PARTIAL
 
-Path: `SubscriptionConnect` (`SubscriptionConnect.tsx:220-317`) → `/api/auth/<provider>-subscription[/begin|verify|clear]`.
-The better-auth lane does not take these paths (`packages/auth/src/better-auth.ts:39-46`),
+Path (dashboard): Providers → `GET/POST /api/providers` (`ProvidersView.tsx`, `acp-provider-routes.ts`). The old `SubscriptionConnect` control is removed; onboarding reads the same registry and links to that page. Operator routes `/api/auth/<lane>-subscription` remain the harness-admission surface for named accounts and for Cursor, Devin, and Antigravity. ACP verify for Claude and Codex calls those controllers directly and does not go through the HTTP route.
+The better-auth lane does not take the operator paths (`packages/auth/src/better-auth.ts:39-46`),
 so `handleSubscriptionAuth` serves them (`auth-routes.ts:196`). Flow state lives in KV
 `AGENT_TOKENS` (`packages/auth/src/controller.ts:109,125`). The run admission gate reads
 the same controller (`auth/index.ts:62-75`). Route and harness instance ids match:
@@ -150,7 +150,7 @@ the same controller (`auth/index.ts:62-75`). Route and harness instance ids matc
 `codex-sub:<home>` (`auth-routes.ts:87`, `harness/codex-subscription.ts:97`).
 
 - **Claude — BROKEN (live).** The flag is on, but `CLAUDE_SUBSCRIPTION_TOKEN` is unset. `begin` throws `CLAUDE_SUBSCRIPTION_TOKEN is not set…` (`packages/auth/src/claude-subscription.ts:91-95`), which shows as a red 400 in the card. This is not an OAuth flow by design: the button only probes an operator secret through egress (`egress.ts:128-173`). Fix: run `claude setup-token`, then `wrangler secret put CLAUDE_SUBSCRIPTION_TOKEN`. `.env` does not have it either, so alchemy deploys would not bind it.
-- **Codex / Cursor / Devin / Antigravity — DARK (Break 6).** `wrangler.jsonc` vars set only `SHIBA_CLAUDE_SUBSCRIPTION` (`wrangler.jsonc:32`), so `auth-routes.ts:205/211/217/225` return 404 and the card shows "sign-in is not enabled on this deployment" (`SubscriptionConnect.tsx:364-373`). There is no `keep_vars`, so each `wrangler deploy` wipes any flag added in the dashboard. Fix: add `"SHIBA_CODEX_SUBSCRIPTION": "1"` (and the others) to `wrangler.jsonc` `vars`, plus the matching credential secrets (`CODEX_SUBSCRIPTION_AUTH_JSON`, `CURSOR_SUBSCRIPTION_TOKEN`, `DEVIN_SUBSCRIPTION_TOKEN`).
+- **Codex / Cursor / Devin / Antigravity — DARK (Break 6).** `wrangler.jsonc` vars set only `SHIBA_CLAUDE_SUBSCRIPTION` (`wrangler.jsonc:32`), so the operator routes return 404 unless each `SHIBA_*_SUBSCRIPTION` flag is on. The dashboard no longer renders a card for that 404. There is no `keep_vars`, so each `wrangler deploy` wipes any flag added in the dashboard. Fix: add the flags to `wrangler.jsonc` `vars`, plus the matching credential secrets (`CODEX_SUBSCRIPTION_AUTH_JSON`, `CURSOR_SUBSCRIPTION_TOKEN`, `DEVIN_SUBSCRIPTION_TOKEN`).
 - **Antigravity — BROKEN by design even when enabled (Break 7).** Sign-in runs `agy` in sandbox `agy-auth-<acct>` (`packages/auth/src/antigravity-subscription.ts:65-69`), and the token file `acp_token.json` (`packages/shared/src/antigravity.ts:233`) is written to that container's disk. `verify` probes that same sandbox (`:174-176`), so admission passes. The run, however, executes in `run-<cyrb53>` (`security.ts:88-90`, `orchestrator.ts:901,2142`). There, the harness only `mkdir`s an empty profile (`harness/antigravity-subscription.ts` `setupCommands`/`configFile`), and no code path copies the token. Container disk is also ephemeral, so the auth sandbox loses the token once it sleeps.
   - Expected: a signed-in account runs tasks.
   - Actual: the run starts with no token and the ACP agent fails auth. In-run refresh is blocked by egress (`ANTIGRAVITY_SUBSCRIPTION_HOSTS`).

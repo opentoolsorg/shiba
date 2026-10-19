@@ -16,16 +16,20 @@ vi.mock("@cloudflare/sandbox", () => ({
   proxyToSandbox: async () => null,
   getSandbox: () => ({ destroy: async () => {} }),
 }));
-import { handleSubscriptionAuth } from "../src/auth-routes.js";
+
+import type { AcpProvidersSnapshot } from "@shiba/shared";
 import { handleAcpProviders } from "../src/acp-provider-routes.js";
-import { acpAdapterPlan, ACP_PROVIDER_REGISTRY } from "../src/acp-providers.js";
+import { ACP_PROVIDER_REGISTRY, acpAdapterPlan } from "../src/acp-providers.js";
+import { handleSubscriptionAuth } from "../src/auth-routes.js";
 import type { Env } from "../src/env.js";
 import { ACP_LANES } from "../src/harness/index.js";
-import type { AcpProvidersSnapshot } from "@shiba/shared";
 
 vi.mock("../../frontend/src/live-status", () => ({
   useModelConfig: () => ({
-    state: { kind: "data", data: { connections: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } },
+    state: {
+      kind: "data",
+      data: { connections: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] },
+    },
     reload: () => {},
     inFlight: false,
   }),
@@ -99,13 +103,15 @@ describe("GET /api/providers", () => {
       "disconnected",
       "disconnected",
     ]);
-    expect(body.providers.find((provider) => provider.id === "claude")?.capabilities).toMatchObject({
-      acp: true,
-      oauth: true,
-      apiKey: true,
-      permissions: true,
-      setModel: true,
-    });
+    expect(body.providers.find((provider) => provider.id === "claude")?.capabilities).toMatchObject(
+      {
+        acp: true,
+        oauth: true,
+        apiKey: true,
+        permissions: true,
+        setModel: true,
+      },
+    );
     expect(JSON.stringify(body)).not.toMatch(/sk-|secret-value|setup-token/);
   });
 
@@ -116,10 +122,25 @@ describe("GET /api/providers", () => {
   });
 });
 
+describe("legacy dashboard connector is gone; harness admission stays", () => {
+  it("refuses a claude-subscription run that never reached succeeded", async () => {
+    const { assertHarnessAuthorized } = await import("../src/auth/index.js");
+    const { claudeSubscriptionHarness } = await import("../src/harness/claude-subscription.js");
+    await expect(
+      assertHarnessAuthorized(env(), claudeSubscriptionHarness, {
+        authAccount: "default",
+      } as never),
+    ).rejects.toThrow(/no authenticated account/);
+  });
+});
+
 describe("root cause: subscription routes 404 without the flag", () => {
   it("claude-subscription connect is dark, while /api/providers connect is not", async () => {
     const dark = await handleSubscriptionAuth(
-      request("/api/auth/claude-subscription", { method: "POST", body: JSON.stringify({ account: "default" }) }),
+      request("/api/auth/claude-subscription", {
+        method: "POST",
+        body: JSON.stringify({ account: "default" }),
+      }),
       env(),
     );
     expect(dark?.status).toBe(404);
@@ -158,17 +179,23 @@ describe("device-code sign-in", () => {
   it("redeems a matching code through the injected OAuth probe and rejects a mismatch", async () => {
     const deployment = env({}, kv);
     const started = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/codex/connect", { method: "POST", body: JSON.stringify({ mode: "oauth" }) }),
+      await handleAcpProviders(
+        request("/api/providers/codex/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "oauth" }),
+        }),
         deployment,
         deps,
-      )),
+      ),
     );
     const code = started.providers.find((provider) => provider.id === "codex")?.connection.userCode;
     expect(code).toBeTruthy();
 
     const wrong = await handleAcpProviders(
-      request("/api/providers/codex/verify", { method: "POST", body: JSON.stringify({ userCode: "XXXX-XXXX" }) }),
+      request("/api/providers/codex/verify", {
+        method: "POST",
+        body: JSON.stringify({ userCode: "XXXX-XXXX" }),
+      }),
       deployment,
       deps,
     );
@@ -176,11 +203,14 @@ describe("device-code sign-in", () => {
     expect(deps.confirmOauth).not.toHaveBeenCalled();
 
     const done = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/codex/verify", { method: "POST", body: JSON.stringify({ userCode: code }) }),
+      await handleAcpProviders(
+        request("/api/providers/codex/verify", {
+          method: "POST",
+          body: JSON.stringify({ userCode: code }),
+        }),
         deployment,
         deps,
-      )),
+      ),
     );
     const codex = done.providers.find((provider) => provider.id === "codex");
     expect(codex?.connection.phase).toBe("connected");
@@ -193,22 +223,31 @@ describe("device-code sign-in", () => {
   it("fails an expired code without calling the probe", async () => {
     const deployment = env({}, kv);
     const started = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/claude/connect", { method: "POST", body: JSON.stringify({ mode: "oauth" }) }),
+      await handleAcpProviders(
+        request("/api/providers/claude/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "oauth" }),
+        }),
         deployment,
         deps,
-      )),
+      ),
     );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection.userCode;
+    const code = started.providers.find((provider) => provider.id === "claude")?.connection
+      .userCode;
     now += 16 * 60 * 1000;
     const expired = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/claude/verify", { method: "POST", body: JSON.stringify({ userCode: code }) }),
+      await handleAcpProviders(
+        request("/api/providers/claude/verify", {
+          method: "POST",
+          body: JSON.stringify({ userCode: code }),
+        }),
         deployment,
         deps,
-      )),
+      ),
     );
-    expect(expired.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe("failed");
+    expect(expired.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe(
+      "failed",
+    );
     expect(deps.confirmOauth).not.toHaveBeenCalled();
   });
 
@@ -231,10 +270,13 @@ describe("API-key fallback", () => {
   it("connects when the named secret is present and never echoes the value", async () => {
     const deployment = env({ CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value" });
     const body = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/claude/connect", { method: "POST", body: JSON.stringify({ mode: "api-key" }) }),
+      await handleAcpProviders(
+        request("/api/providers/claude/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "api-key" }),
+        }),
         deployment,
-      )),
+      ),
     );
     const claude = body.providers.find((provider) => provider.id === "claude");
     expect(claude?.connection.phase).toBe("connected");
@@ -243,17 +285,25 @@ describe("API-key fallback", () => {
     expect(JSON.stringify(body)).not.toContain("setup-token-canary-value");
 
     const tested = await snapshot(
-      (await handleAcpProviders(request("/api/providers/claude/test", { method: "POST", body: "{}" }), deployment)),
+      await handleAcpProviders(
+        request("/api/providers/claude/test", { method: "POST", body: "{}" }),
+        deployment,
+      ),
     );
-    expect(tested.providers.find((provider) => provider.id === "claude")?.connection.testOk).toBe(true);
+    expect(tested.providers.find((provider) => provider.id === "claude")?.connection.testOk).toBe(
+      true,
+    );
   });
 
   it("fails closed when no credential is provisioned", async () => {
     const body = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/gemini/connect", { method: "POST", body: JSON.stringify({ mode: "api-key" }) }),
+      await handleAcpProviders(
+        request("/api/providers/gemini/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "api-key" }),
+        }),
         env(),
-      )),
+      ),
     );
     const gemini = body.providers.find((provider) => provider.id === "gemini");
     expect(gemini?.connection.phase).toBe("failed");
@@ -262,7 +312,10 @@ describe("API-key fallback", () => {
 
   it("refuses OAuth for a provider that has no subscription lane", async () => {
     const response = await handleAcpProviders(
-      request("/api/providers/grok/connect", { method: "POST", body: JSON.stringify({ mode: "oauth" }) }),
+      request("/api/providers/grok/connect", {
+        method: "POST",
+        body: JSON.stringify({ mode: "oauth" }),
+      }),
       env(),
     );
     expect(response?.status).toBe(400);
@@ -277,19 +330,26 @@ describe("subscription probe reuse", () => {
       kv,
     );
     const started = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/claude/connect", { method: "POST", body: JSON.stringify({ mode: "oauth" }) }),
+      await handleAcpProviders(
+        request("/api/providers/claude/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "oauth" }),
+        }),
         deployment,
         { forwardClaude: async () => new Response("{}", { status: 200 }) },
-      )),
+      ),
     );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection.userCode;
+    const code = started.providers.find((provider) => provider.id === "claude")?.connection
+      .userCode;
     const done = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/claude/verify", { method: "POST", body: JSON.stringify({ userCode: code }) }),
+      await handleAcpProviders(
+        request("/api/providers/claude/verify", {
+          method: "POST",
+          body: JSON.stringify({ userCode: code }),
+        }),
         deployment,
         { forwardClaude: async () => new Response("{}", { status: 200 }) },
-      )),
+      ),
     );
     const claude = done.providers.find((provider) => provider.id === "claude");
     expect(claude?.connection.phase).toBe("connected");
@@ -304,19 +364,26 @@ describe("subscription probe reuse", () => {
       CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value",
     });
     const started = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/claude/connect", { method: "POST", body: JSON.stringify({ mode: "oauth" }) }),
+      await handleAcpProviders(
+        request("/api/providers/claude/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "oauth" }),
+        }),
         deployment,
         { forwardClaude: async () => new Response("no", { status: 401 }) },
-      )),
+      ),
     );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection.userCode;
+    const code = started.providers.find((provider) => provider.id === "claude")?.connection
+      .userCode;
     const done = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/claude/verify", { method: "POST", body: JSON.stringify({ userCode: code }) }),
+      await handleAcpProviders(
+        request("/api/providers/claude/verify", {
+          method: "POST",
+          body: JSON.stringify({ userCode: code }),
+        }),
         deployment,
         { forwardClaude: async () => new Response("no", { status: 401 }) },
-      )),
+      ),
     );
     const claude = done.providers.find((provider) => provider.id === "claude");
     expect(claude?.connection.phase).toBe("failed");
@@ -330,34 +397,51 @@ describe("per-org default", () => {
     const deployment = env({ AI_GATEWAY_TOKEN: "gateway-canary" }, kv);
     const connect = (email: string) =>
       handleAcpProviders(
-        request("/api/providers/opencode/connect", { method: "POST", body: JSON.stringify({ mode: "api-key" }) }, email),
+        request(
+          "/api/providers/opencode/connect",
+          { method: "POST", body: JSON.stringify({ mode: "api-key" }) },
+          email,
+        ),
         deployment,
       );
     await connect("ada@example.com");
     await connect("grace@example.com");
     const ada = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/opencode/default", { method: "POST", body: "{}" }, "ada@example.com"),
+      await handleAcpProviders(
+        request(
+          "/api/providers/opencode/default",
+          { method: "POST", body: "{}" },
+          "ada@example.com",
+        ),
         deployment,
-      )),
+      ),
     );
     expect(ada.org).toBe("ada@example.com");
     expect(ada.defaultProviderId).toBe("opencode");
 
     const grace = await snapshot(
-      (await handleAcpProviders(request("/api/providers", undefined, "grace@example.com"), deployment)),
+      await handleAcpProviders(
+        request("/api/providers", undefined, "grace@example.com"),
+        deployment,
+      ),
     );
     expect(grace.defaultProviderId).toBeNull();
     expect(grace.providers.find((provider) => provider.id === "opencode")?.isDefault).toBe(false);
 
     const cleared = await snapshot(
-      (await handleAcpProviders(
-        request("/api/providers/opencode/disconnect", { method: "POST", body: "{}" }, "ada@example.com"),
+      await handleAcpProviders(
+        request(
+          "/api/providers/opencode/disconnect",
+          { method: "POST", body: "{}" },
+          "ada@example.com",
+        ),
         deployment,
-      )),
+      ),
     );
     expect(cleared.defaultProviderId).toBeNull();
-    expect(cleared.providers.find((provider) => provider.id === "opencode")?.connection.phase).toBe("disconnected");
+    expect(cleared.providers.find((provider) => provider.id === "opencode")?.connection.phase).toBe(
+      "disconnected",
+    );
     expect(JSON.stringify(cleared)).not.toContain("gateway-canary");
   });
 
