@@ -302,6 +302,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "BETTER_AUTH_SECRET",
       "GMAIL_CLIENT_SECRET",
       "GMAIL_TOKEN_KEY",
+      "MODEL_CREDENTIAL_KEY",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
@@ -327,8 +328,9 @@ export const Worker = Cloudflare.Worker("Worker", {
       "AUTOMATIONS_ENABLED",
       "AGENT_HARNESS",
       "CLAUDE_CODE_MODEL",
-      // T48: enabled by default; the auth secret is still required to run it.
+      // T48: dark by default — may violate Anthropic terms when enabled.
       "SHIBA_CLAUDE_SUBSCRIPTION",
+      "SHIBA_SINGLE_USER",
       "CLAUDE_SUBSCRIPTION_MODEL",
       // T49 opt-ins (§18.11): absent = the subscription harness is dark.
       "SHIBA_CODEX_SUBSCRIPTION",
