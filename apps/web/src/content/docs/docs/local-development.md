@@ -3,15 +3,92 @@ title: Local development
 description: Run the dashboard, Worker, docs, and tests without overstating local or cloud evidence.
 ---
 
-Use Node.js 22.12.0+ and pnpm 10+. From a terminal, clone the repository and install dependencies once:
+Use Node.js 22.13.0+ and pnpm 10+. From a terminal, clone the repository and install dependencies once:
 
 ```sh
-git clone https://github.com/princepal9120/ai-intern.git
-cd ai-intern
+git clone https://github.com/princepal9120/shiba.git
+cd shiba
 pnpm install
 ```
 
-## First local run
+## Worker and sandbox quickstart
+
+**One command** (recommended): local dashboard + API + Sandbox on port **8788**. Requires **Docker running**, enough disk for the pinned Sandbox image build, and network for the first `pnpm install` / `pnpm build`.
+
+```sh
+pnpm shiba dev
+```
+
+Equivalent:
+
+```sh
+bash scripts/dev.sh
+```
+
+What it does:
+
+1. **Prerequisites** — Node 22.13+, pnpm 10+, `wrangler` (from the repo), Docker daemon reachable.
+2. **`pnpm install`** — skipped when `node_modules` already exists (use `--skip-install` to force-skip).
+3. **`pnpm build`** — assembles `app-public/` for the Worker (use `--skip-build` only if you already built).
+4. **`apps/backend/.dev.vars`** — created from `.dev.vars.example` when missing; mints local-only secrets (`INTERNAL_SIGNING_KEY`, `PAIRING_SECRET`, …) **without overwriting** values you already set.
+5. **Local D1** — `CI=1 npx wrangler d1 migrations apply shiba-audit --local` with persistence under `.shiba/local-state/`.
+6. **Sandbox image** — `npx wrangler containers build` for `apps/backend` (no registry push).
+7. **`wrangler dev`** — same config as production bindings, containers on when Docker is up, `--local-upstream localhost`.
+
+Preview the plan without running anything:
+
+```sh
+pnpm shiba dev --dry-run
+```
+
+Ready when:
+
+- `curl -sS http://127.0.0.1:8788/api/setup/status` returns **JSON** (not the SPA HTML shell).
+- `curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8788/app/` returns **200**.
+
+Open **http://127.0.0.1:8788/app/** in a browser. Loopback requests use identity `default` when Access is unset (`REQUIRE_ACCESS` / `ACCESS_AUD` / `BETTER_AUTH_SECRET` should stay unset for the simplest local gate).
+
+**After `pnpm shiba dev` starts**, configure what you need for real coding runs:
+
+- **`GITHUB_TOKEN`** in `apps/backend/.dev.vars` — fine-grained PAT (repo Contents + Pull requests).
+- **Model access** — AI Gateway BYOK on your Cloudflare account (`GATEWAY_ID` defaults to `default`), or `AI_GATEWAY_TOKEN` when the gateway is auth-gated.
+- **`npx wrangler login`** — once per machine if Wrangler must talk to Cloudflare for container registry/proxy.
+
+After the first approved sandbox run, `docker ps` should show a container for the configured image.
+
+**Manual steps** (same end state as the script):
+
+```sh
+pnpm install
+pnpm build
+cp apps/backend/.dev.vars.example apps/backend/.dev.vars
+CI=1 npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc
+npx wrangler containers build -t shiba-ai-coworker-sandbox:local apps/backend --config apps/backend/wrangler.jsonc
+npx wrangler dev --config apps/backend/wrangler.jsonc --port 8788 --local-upstream localhost
+```
+
+**API/dashboard smoke without OAuth or Docker** (no sandbox containers):
+
+```sh
+CI=1 npx wrangler d1 migrations apply shiba-audit --local --config apps/backend/wrangler.jsonc
+npx wrangler dev --local --config apps/backend/wrangler.jsonc --port 8788 \
+  --enable-containers=false --local-upstream localhost
+```
+
+Vectorize and some bindings warn in pure local mode; `/api/setup/status` and `/app/` still respond for UI wiring checks.
+
+Optional scripted harness: `.cursor/skills/verify-shiba/scripts/launch.sh` (uses `--persist-to .verify/state` and the same migrations command).
+
+Validate local secret documentation:
+
+```sh
+node scripts/check-dev-vars-example.mjs
+node scripts/validate-credentials.mjs --offline
+```
+
+For account deployment after local proof, see [Self-hosting on Cloudflare](/docs/self-hosting/).
+
+## First local run (all apps via turbo)
 
 Start the workspace from the repository root:
 

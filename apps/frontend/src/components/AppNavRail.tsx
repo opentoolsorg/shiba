@@ -8,6 +8,7 @@ import {
   Blocks,
   BookMarked,
   BookOpen,
+  Bot,
   Brain,
   Check,
   ChevronDown,
@@ -55,6 +56,7 @@ export type AppNavView =
   | "providers"
   | "integrations"
   | "skills"
+  | "custom-agents"
   | "remote"
   | "settings";
 
@@ -74,6 +76,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "swarm", label: "Swarm", description: "Run Lanes, Modes & Share Links" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
+  { id: "custom-agents", label: "Custom agents", description: "Org agent profiles & defaults" },
   { id: "agents", label: "Agents & MCP", description: "MCP Gateway & Agent Tokens" },
   { id: "inbox", label: "Mailbox", description: "Cloudflare Email Routing & Send" },
   { id: "memory", label: "Memory", description: "Vectorize Long-Term Semantic Memory" },
@@ -123,6 +126,7 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   integrations: Blocks,
   providers: Terminal,
   skills: BookMarked,
+  "custom-agents": Bot,
   settings: Settings,
   remote: Monitor,
   swarm: SquareCheckBig,

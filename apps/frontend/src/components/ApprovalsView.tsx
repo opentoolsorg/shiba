@@ -20,6 +20,7 @@ export interface ApprovalsViewProps {
   onDecideStoredApproval: (approval: StoredApproval, ok: boolean) => void;
   orchestratorName?: string | null;
   onRefresh?: () => void;
+  reviewAfterPublishById?: Record<string, boolean>;
 }
 
 type OutcomeFilter = "all" | "approved" | "rejected" | "executed";
@@ -35,6 +36,7 @@ export function ApprovalsView({
   onDecideStoredApproval,
   orchestratorName,
   onRefresh,
+  reviewAfterPublishById,
 }: ApprovalsViewProps): JSX.Element {
   const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("all");
   const totalPending = pendingApprovals.length + storedApprovals.length;
@@ -134,6 +136,7 @@ export function ApprovalsView({
                     decision={decisions[approval.approvalId]}
                     onDecideApproval={onDecideApproval}
                     agentName={orchestratorName ?? undefined}
+                    reviewAfterPublish={reviewAfterPublishById?.[approval.approvalId]}
                   />
                 ))}
 
@@ -143,6 +146,7 @@ export function ApprovalsView({
                     key={approval.approvalId}
                     approval={approval}
                     decided={storedDecisions[approval.approvalId] !== undefined}
+                    decision={storedDecisions[approval.approvalId]}
                     onDecide={onDecideStoredApproval}
                   />
                 ))}

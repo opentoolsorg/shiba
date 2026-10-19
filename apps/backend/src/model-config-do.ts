@@ -12,17 +12,22 @@
  * CSRF checks before forwarding; the DO trusts only the Worker's
  * internal fetch and validates shapes with its own guards.
  */
+import { probeModelConnection } from "./model-connection-probe.js";
 import {
   CONNECTION_SERVICES,
   EMPTY_POLICY,
+  orderConnections,
+  reconcileConnectionOrder,
   SERVICE_AUTH_MODE,
   validatePolicyModels,
+  validateRolePins,
   type Connection,
   type ConnectionService,
   type ConnectionStatus,
   type PurposePolicy,
 } from "./model-connections.js";
 import type { Env } from "./env.js";
+import { redactSecrets } from "./security.js";
 
 export const MODEL_CONFIG_DO_NAME = "default";
 
@@ -31,6 +36,8 @@ const STATE_KEY = "state";
 export interface ModelConfigState {
   connections: Connection[];
   policy: PurposePolicy;
+  /** Connection ids in fallback order (first wins when routing implicitly). */
+  connectionOrder: string[];
 }
 
 export function modelConfigStub(env: Pick<Env, "ModelConfig">): DurableObjectStub {
@@ -52,7 +59,11 @@ export class ModelConfig {
 
   private async load(): Promise<ModelConfigState> {
     const state = await this.ctx.storage.get<ModelConfigState>(STATE_KEY);
-    return state ?? { connections: [], policy: EMPTY_POLICY };
+    const base = state ?? { connections: [], policy: EMPTY_POLICY, connectionOrder: [] };
+    return {
+      ...base,
+      connectionOrder: reconcileConnectionOrder(base.connections, base.connectionOrder ?? []),
+    };
   }
 
   private async save(state: ModelConfigState): Promise<void> {
@@ -65,10 +76,20 @@ export class ModelConfig {
     try {
       if (pathname === "/connections" && request.method === "GET") {
         const state = await this.load();
-        return Response.json({ connections: state.connections });
+        return Response.json({
+          connections: orderConnections(state.connections, state.connectionOrder),
+          connectionOrder: state.connectionOrder,
+        });
+      }
+      if (pathname === "/connections/order" && request.method === "PUT") {
+        return await this.putConnectionOrder(await request.json().catch(() => null));
       }
       if (pathname === "/connections" && request.method === "POST") {
         return await this.registerConnection(await request.json().catch(() => null));
+      }
+      const testMatch = /^\/connections\/([^/]+)\/test$/.exec(pathname);
+      if (testMatch && request.method === "POST") {
+        return await this.testConnection(decodeURIComponent(testMatch[1] as string));
       }
       const match = /^\/connections\/([^/]+)$/.exec(pathname);
       if (match) {
@@ -87,7 +108,10 @@ export class ModelConfig {
       return Response.json({ error: "Not found." }, { status: 404 });
     } catch (error) {
       // A DO fault must not strand the caller on a 500 with no shape.
-      console.error(`ModelConfig ${pathname} failed`, error instanceof Error ? error.message : String(error));
+      console.error(
+        `ModelConfig ${pathname} failed`,
+        redactSecrets(error instanceof Error ? error.message : String(error)),
+      );
       return Response.json({ error: "Model configuration store failed." }, { status: 500 });
     }
   }
@@ -131,8 +155,56 @@ export class ModelConfig {
       lastCheckedAt: null,
     };
     state.connections.push(connection);
+    state.connectionOrder = reconcileConnectionOrder(state.connections, [...state.connectionOrder, connection.id]);
     await this.save(state);
     return Response.json({ connection }, { status: 201 });
+  }
+
+  private async putConnectionOrder(body: unknown): Promise<Response> {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return Response.json({ error: "Request body must be a JSON object." }, { status: 400 });
+    }
+    const order = (body as Record<string, unknown>).order;
+    if (!Array.isArray(order) || !order.every((id) => typeof id === "string")) {
+      return Response.json({ error: "order must be an array of connection ids." }, { status: 400 });
+    }
+    const state = await this.load();
+    const ids = new Set(state.connections.map((c) => c.id));
+    if (order.length !== ids.size || order.some((id) => !ids.has(id))) {
+      return Response.json({ error: "order must list every connection id exactly once." }, { status: 400 });
+    }
+    state.connectionOrder = order as string[];
+    await this.save(state);
+    return Response.json({ connectionOrder: state.connectionOrder });
+  }
+
+  private async testConnection(id: string): Promise<Response> {
+    const state = await this.load();
+    const connection = state.connections.find((entry) => entry.id === id);
+    if (!connection) {
+      return Response.json({ error: "Connection not found." }, { status: 404 });
+    }
+    try {
+      const probe = await probeModelConnection(this.env, connection);
+      const index = state.connections.findIndex((entry) => entry.id === id);
+      if (index >= 0) {
+        state.connections[index] = {
+          ...state.connections[index]!,
+          status: probe.ok ? "ready" : "invalid",
+          lastCheckedAt: probe.checkedAt,
+          updatedAt: Date.now(),
+        };
+        await this.save(state);
+      }
+      return Response.json({
+        ok: probe.ok,
+        message: probe.message,
+        connection: state.connections[index],
+      });
+    } catch (error) {
+      const message = redactSecrets(error instanceof Error ? error.message : String(error));
+      return Response.json({ ok: false, message: message || "Connection test failed." }, { status: 500 });
+    }
   }
 
   private async updateConnection(id: string, body: unknown): Promise<Response> {
@@ -189,6 +261,7 @@ export class ModelConfig {
       status: "disabled",
       updatedAt: Date.now(),
     };
+    state.connectionOrder = reconcileConnectionOrder(state.connections, state.connectionOrder);
     await this.save(state);
     return Response.json({ connection: state.connections[index] });
   }
@@ -197,14 +270,20 @@ export class ModelConfig {
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
       return Response.json({ error: "Request body must be a JSON object." }, { status: 400 });
     }
-    const validated = validatePolicyModels((body as Record<string, unknown>).models);
+    const input = body as Record<string, unknown>;
+    const validated = validatePolicyModels(input.models);
     if ("error" in validated) {
       return Response.json({ error: validated.error }, { status: 400 });
+    }
+    const rolePinsValidated = validateRolePins(input.rolePins);
+    if ("error" in rolePinsValidated) {
+      return Response.json({ error: rolePinsValidated.error }, { status: 400 });
     }
     const state = await this.load();
     const policy: PurposePolicy = {
       version: state.policy.version + 1,
       models: validated.models,
+      rolePins: input.rolePins !== undefined ? (rolePinsValidated.rolePins ?? {}) : state.policy.rolePins,
       updatedAt: Date.now(),
     };
     state.policy = policy;

@@ -11,6 +11,7 @@ import type { Receipt } from "./receipts.js";
 import type { RunErrorCode } from "./run-errors.js";
 import type { RunSignal } from "./run-signals.js";
 import type { SteeringNote } from "./steering.js";
+import type { SubagentSandboxMode } from "./subagent.js";
 
 /**
  * Worker-vouched agent identity for run/approval reads: only the MCP
@@ -36,6 +37,12 @@ export interface DelegatedRun {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  /** Frozen at approval. When true, a completed PR chains a read-only reviewer without a second card. */
+  reviewAfterPublish?: boolean;
+  /** Set on the reviewer run: the coding run this review covers. */
+  reviewOf?: string;
+  /** Latest review round id, stamped after the round is queued. */
+  reviewRoundId?: string;
   /**
    * Fencing token: 0 at creation, bumped by every successful transition.
    * A writer carrying a stale expectedGeneration is dropped — a late child
@@ -56,6 +63,8 @@ export interface DelegatedRun {
   pullUrl?: string;
   /** Absolute URL serving the stored preview PNG on this Worker (T33); null when capture failed. */
   screenshotUrl?: string | null;
+  /** Phase 3: manifest URL for browser E2E frame evidence in R2. */
+  browserE2eManifestUrl?: string | null;
   receipts?: Receipt[];
   /**
    * MCP principal that queued this run (X-Agent-Principal at intake).
@@ -126,6 +135,26 @@ export interface DelegatedRun {
    * prices the run itself.
    */
   usage?: RunUsage;
+  /** Phase 2b: parent run when this row is a subagent child. */
+  parentRunId?: string;
+  /** Phase 2b: dotted tree path (see subagent.ts). */
+  subagentPath?: string;
+  /** Phase 2b: fresh container vs shared parent sandbox. */
+  subagentSandbox?: SubagentSandboxMode;
+  /**
+   * Phase 2b: remaining subagent spawns covered by the root approval
+   * (decremented on each budgeted spawn). Absent = per-spawn approval.
+   */
+  subagentBudgetRemaining?: number;
+  /** Phase 2b: den DO name when spawned under a den (pack coordinator) instance. */
+  denId?: string;
+  /** @deprecated Use denId — still accepted on intake and echoed on API responses. */
+  captainId?: string;
+  /** T52 / dispatch: role pin frozen on the run row when set at queue time. */
+  role?: import("./roles.js").AgentRole;
+  /** Sandbox provider id for this run (task override frozen at queue time). */
+  sandboxProvider?: string;
+  customAgentId?: string;
 }
 
 /**
@@ -183,6 +212,7 @@ export type RunPatch = {
   diff?: string;
   pullUrl?: string;
   screenshotUrl?: string | null;
+  browserE2eManifestUrl?: string | null;
   receipts?: Receipt[];
   sandboxId?: string;
   signals?: RunSignal[];

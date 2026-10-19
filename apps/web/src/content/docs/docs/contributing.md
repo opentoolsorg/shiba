@@ -22,6 +22,7 @@ pnpm lint
 pnpm test
 pnpm docs:check
 pnpm build
+node scripts/check-dev-vars-example.mjs
 npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc
 ```
 

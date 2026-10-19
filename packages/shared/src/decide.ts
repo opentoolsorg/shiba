@@ -35,6 +35,9 @@ export interface QueuedRunInput {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  reviewAfterPublish?: boolean;
+  reviewOf?: string;
+  reviewRoundId?: string;
   queuedBy?: string;
   route?: ApprovedRoute;
   /**
@@ -59,6 +62,12 @@ export interface QueuedRunInput {
   testCommand?: string[];
   /** Run-fork lineage — part of the approval-hashed input. */
   forkedFrom?: ForkLineage;
+  /** Phase 2b subagent lineage — part of the approval-hashed input. */
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("./subagent.js").SubagentSandboxMode;
+  captainId?: string;
+  role?: import("./roles.js").AgentRole;
 }
 
 export type RunCommand =
@@ -133,12 +142,19 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       task: run.task,
       baseBranch: run.baseBranch,
       publishPullRequest: run.publishPullRequest,
+      ...(run.reviewAfterPublish !== undefined ? { reviewAfterPublish: run.reviewAfterPublish } : {}),
+      ...(run.reviewOf !== undefined ? { reviewOf: run.reviewOf } : {}),
       ...(run.route !== undefined ? { route: run.route } : {}),
       ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
       ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
       ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
       ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
       ...(run.forkedFrom !== undefined ? { forkedFrom: run.forkedFrom } : {}),
+      ...(run.parentRunId !== undefined ? { parentRunId: run.parentRunId } : {}),
+      ...(run.subagentPath !== undefined ? { subagentPath: run.subagentPath } : {}),
+      ...(run.subagentSandbox !== undefined ? { subagentSandbox: run.subagentSandbox } : {}),
+      ...(run.captainId !== undefined ? { captainId: run.captainId } : {}),
+      ...(run.role !== undefined ? { role: run.role } : {}),
     })
   );
 }
@@ -184,6 +200,9 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           task: command.input.task,
           baseBranch: command.input.baseBranch,
           publishPullRequest: command.input.publishPullRequest,
+          ...(command.input.reviewAfterPublish !== undefined ? { reviewAfterPublish: command.input.reviewAfterPublish } : {}),
+          ...(command.input.reviewOf !== undefined ? { reviewOf: command.input.reviewOf } : {}),
+          ...(command.input.reviewRoundId !== undefined ? { reviewRoundId: command.input.reviewRoundId } : {}),
           ...(command.input.queuedBy !== undefined ? { queuedBy: command.input.queuedBy } : {}),
           ...(command.input.route !== undefined ? { route: command.input.route } : {}),
           ...(command.input.continuationKey !== undefined ? { continuationKey: command.input.continuationKey } : {}),
@@ -192,6 +211,11 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.targetMachineId !== undefined ? { targetMachineId: command.input.targetMachineId } : {}),
           ...(command.input.testCommand !== undefined ? { testCommand: command.input.testCommand } : {}),
           ...(command.input.forkedFrom !== undefined ? { forkedFrom: command.input.forkedFrom } : {}),
+          ...(command.input.parentRunId !== undefined ? { parentRunId: command.input.parentRunId } : {}),
+          ...(command.input.subagentPath !== undefined ? { subagentPath: command.input.subagentPath } : {}),
+          ...(command.input.subagentSandbox !== undefined ? { subagentSandbox: command.input.subagentSandbox } : {}),
+          ...(command.input.captainId !== undefined ? { captainId: command.input.captainId } : {}),
+          ...(command.input.role !== undefined ? { role: command.input.role } : {}),
           ...(approval !== undefined ? { approval } : {}),
           status: "pending",
           generation: 0,
@@ -224,6 +248,9 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.task === command.input.task &&
           run.baseBranch === command.input.baseBranch &&
           run.publishPullRequest === command.input.publishPullRequest &&
+          run.reviewAfterPublish === command.input.reviewAfterPublish &&
+          run.reviewOf === command.input.reviewOf &&
+          run.reviewRoundId === command.input.reviewRoundId &&
           run.queuedBy === command.input.queuedBy &&
           sameRoute &&
           run.continuationKey === command.input.continuationKey &&
@@ -233,7 +260,12 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.runtime === command.input.runtime &&
           run.targetMachineId === command.input.targetMachineId &&
           JSON.stringify(run.testCommand ?? []) === JSON.stringify(command.input.testCommand ?? []) &&
-          JSON.stringify(run.forkedFrom ?? null) === JSON.stringify(command.input.forkedFrom ?? null);
+          JSON.stringify(run.forkedFrom ?? null) === JSON.stringify(command.input.forkedFrom ?? null) &&
+          run.parentRunId === command.input.parentRunId &&
+          run.subagentPath === command.input.subagentPath &&
+          run.subagentSandbox === command.input.subagentSandbox &&
+          run.captainId === command.input.captainId &&
+          run.role === command.input.role;
         if (sameInput) {
           return { events: [{ type: "run.queued", commandId: command.commandId, at, run, replayed: true }] };
         }
@@ -397,6 +429,7 @@ function applyPatch(run: DelegatedRun, patch: RunPatch | undefined): void {
   if (patch.diff !== undefined) run.diff = patch.diff;
   if (patch.pullUrl !== undefined) run.pullUrl = patch.pullUrl;
   if (patch.screenshotUrl !== undefined) run.screenshotUrl = patch.screenshotUrl;
+  if (patch.browserE2eManifestUrl !== undefined) run.browserE2eManifestUrl = patch.browserE2eManifestUrl;
   if (patch.receipts !== undefined) run.receipts = patch.receipts;
   if (patch.sandboxId !== undefined) run.sandboxId = patch.sandboxId;
   if (patch.signals !== undefined) run.signals = patch.signals;

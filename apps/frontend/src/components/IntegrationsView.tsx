@@ -20,15 +20,18 @@ function IntegrationRow({
   children,
   action,
   muted = false,
+  "data-testid": dataTestId,
 }: {
   name: string;
   status: ReactNode;
   children: ReactNode;
   action?: { label: string; onClick?: () => void; href?: string };
   muted?: boolean;
+  "data-testid"?: string;
 }): JSX.Element {
   return (
     <div
+      data-testid={dataTestId}
       className={`flex flex-col gap-2 border-b border-[var(--border-1)] px-4 py-3.5 last:border-b-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${muted ? "opacity-60" : ""}`}
     >
       <div className="min-w-0 flex-1">
@@ -94,15 +97,25 @@ function slackChip(slack: SetupStatus["slack"] | undefined): JSX.Element {
 
 function githubChip(github: SetupStatus["github"] | undefined): JSX.Element {
   if (!github) return <ToneChip tone="neutral" label="Checking…" />;
-  if (github.token && github.webhookSecret) return <ToneChip tone="ok" label="Connected" />;
-  if (github.token || github.webhookSecret)
+  if (github.publish && github.webhookSecret) return <ToneChip tone="ok" label="Connected" />;
+  if (github.publish || github.webhookSecret || github.app)
     return <ToneChip tone="pending" label="Partially set up" />;
+  return <ToneChip tone="neutral" label="Not set up" />;
+}
+
+function linearChip(linear: SetupStatus["linear"] | undefined): JSX.Element {
+  if (!linear) return <ToneChip tone="neutral" label="Checking…" />;
+  if (linear.webhookSecret && linear.apiToken && linear.defaultRepo) {
+    return <ToneChip tone="ok" label="Configured (mock)" />;
+  }
+  if (linear.webhookSecret || linear.apiToken || linear.defaultRepo) {
+    return <ToneChip tone="pending" label="Partially set up" />;
+  }
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
 const COMING_SOON_APPS: { name: string; blurb: string }[] = [
   { name: "Notion", blurb: "Let your agents read and update your Notion workspace." },
-  { name: "Linear", blurb: "Create and update Linear issues as your agents work." },
   { name: "Jira", blurb: "Link agent runs to Jira tickets and statuses." },
   { name: "Asana", blurb: "Turn agent output into Asana tasks and updates." },
 ];
@@ -148,7 +161,7 @@ export function IntegrationsView({
               name="GitHub"
               status={githubChip(status?.github)}
               action={
-                status && !(status.github.token && status.github.webhookSecret)
+                status && !(status.github.publish && status.github.webhookSecret)
                   ? {
                       label: "Connect ↗",
                       href: "https://github.com/settings/tokens/new?scopes=repo,workflow&description=shiba",
@@ -156,14 +169,29 @@ export function IntegrationsView({
                   : undefined
               }
             >
-              <p>Open pull requests and react to repo events on your behalf.</p>
-              {status && !(status.github.token && status.github.webhookSecret) ? (
+              <p>Open pull requests and react to repo events. PAT or GitHub App installation tokens (multi-repo).</p>
+              {status && !(status.github.publish && status.github.webhookSecret) ? (
                 <p className="mt-0.5 text-[11px]">
-                  {status.github.token
-                    ? "Token connected — add the webhook secret to finish setup."
-                    : "Set GITHUB_TOKEN and GITHUB_WEBHOOK_SECRET: npx wrangler secret put <name>"}
+                  {status.github.publish
+                    ? "Publish credentials present — add GITHUB_WEBHOOK_SECRET for automations: npx wrangler secret put GITHUB_WEBHOOK_SECRET."
+                    : "Set GITHUB_TOKEN or GitHub App env vars in deployment settings; set GITHUB_WEBHOOK_SECRET with npx wrangler secret put GITHUB_WEBHOOK_SECRET."}
+                  {status.github.app ? " App credentials detected." : null}
                 </p>
               ) : null}
+            </IntegrationRow>
+            <IntegrationRow
+              name="Linear"
+              status={linearChip(status?.linear)}
+              action={{
+                label: "Agent docs ↗",
+                href: "/docs/linear-agent-session/",
+              }}
+              data-testid="integration-linear"
+            >
+              <p>Agent sessions: delegate an issue to Shiba and stream progress back via agent activities.</p>
+              <p className="mt-0.5 text-[11px]">
+                Requires LINEAR_WEBHOOK_SECRET, an API token, and LINEAR_DEFAULT_REPO_URL. Live workspace not verified from mocks.
+              </p>
             </IntegrationRow>
             {COMING_SOON_APPS.map((app) => (
               <IntegrationRow

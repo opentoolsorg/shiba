@@ -8,8 +8,15 @@ import emailOpenApi from "./email-openapi.json";
 import type { Env } from "./env.js";
 import { agentCliCatalog } from "./harness/catalog.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
+import { describeRoleModels } from "./agents/roles.js";
 import { modelConfigStub } from "./model-config-do.js";
-import { EMPTY_POLICY, PURPOSES } from "./model-connections.js";
+import {
+  EMPTY_POLICY,
+  orderConnections,
+  PURPOSES,
+  reconcileConnectionOrder,
+  type Connection,
+} from "./model-connections.js";
 import { isAccessConfigured, resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { readSetupStatus } from "./setup-status.js";
@@ -101,13 +108,45 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
         stub.fetch(new Request("https://internal/connections")),
         stub.fetch(new Request("https://internal/policy")),
       ]);
-      const connections = (await connectionsRes.json().catch(() => ({}))) as { connections?: unknown };
+      const connections = (await connectionsRes.json().catch(() => ({}))) as {
+        connections?: unknown;
+        connectionOrder?: unknown;
+      };
       const policy = (await policyRes.json().catch(() => ({}))) as { policy?: unknown };
+      const list = (Array.isArray(connections.connections) ? connections.connections : []) as Connection[];
+      const order = reconcileConnectionOrder(
+        list,
+        Array.isArray(connections.connectionOrder) ? (connections.connectionOrder as string[]) : [],
+      );
+      const policyValue =
+        policy.policy && typeof policy.policy === "object" && policy.policy !== null
+          ? policy.policy
+          : EMPTY_POLICY;
+      const rolePins =
+        typeof policyValue === "object" &&
+        policyValue !== null &&
+        "rolePins" in policyValue &&
+        typeof (policyValue as { rolePins?: unknown }).rolePins === "object"
+          ? (policyValue as { rolePins: Record<string, { harness: string; model?: string }> }).rolePins
+          : undefined;
+      const modelSnapshot = {
+        connections: orderConnections(list, order),
+        policy:
+          typeof policyValue === "object" &&
+          policyValue !== null &&
+          "version" in policyValue &&
+          typeof (policyValue as { version?: unknown }).version === "number"
+            ? (policyValue as typeof EMPTY_POLICY)
+            : EMPTY_POLICY,
+        connectionOrder: order,
+      };
       return Response.json(
         {
-          connections: connections.connections ?? [],
-          policy: policy.policy ?? EMPTY_POLICY,
+          connections: orderConnections(list, order),
+          connectionOrder: order,
+          policy: policyValue,
           purposes: PURPOSES,
+          effectiveRoles: describeRoleModels(env, rolePins, modelSnapshot),
         },
         { headers: { "Cache-Control": "no-store" } },
       );

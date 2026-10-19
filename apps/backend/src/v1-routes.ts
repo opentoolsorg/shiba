@@ -2,9 +2,25 @@ import { getAgentByName } from "agents/routing";
 import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, laneForRun, type DelegatedRun } from "@shiba/shared";
 import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
-import { isAuthorizedRequest } from "./request-auth.js";
 import { resolveRunStoreTarget } from "./runs-routes.js";
+import {
+  authorizeV1Request,
+  requireV1Read,
+  requireV1Write,
+  v1Forbidden,
+  v1Unauthorized,
+  type V1Principal,
+} from "./v1-auth.js";
+import {
+  readThreadCreateReceipt,
+  threadCreateCommandId,
+  writeThreadCreateReceipt,
+} from "./v1-idempotency.js";
 import type { V1Context } from "./v1/context.js";
+import { handleOpenApi } from "./v1/openapi.js";
+import { handleQueuedMessagesList, handleSendMessage } from "./v1/send-message.js";
+import { handleSubagents } from "./v1/subagents.js";
+import { handleThreadStream } from "./v1/stream.js";
 import { handleAutomations } from "./v1/automations.js";
 import { handleBilling } from "./v1/billing.js";
 import { handleMcp } from "./v1/mcp.js";
@@ -16,9 +32,14 @@ import { handlePreviews } from "./v1/previews.js";
 import { handlePulls } from "./v1/pulls.js";
 import { handleRuns } from "./v1/runs.js";
 import { handleSystem } from "./v1/system.js";
+import { handleOrgAgents } from "./v1/org-agents.js";
 import { handleThreads } from "./v1/threads.js";
+import { reviewerTask } from "./review/prompt.js";
+import { v1RunQueueBody } from "./v1/run-intake.js";
 
 export interface V1RouteDeps {
+  authorize?: (request: Request, env: Env) => Promise<V1Principal | null>;
+  /** @deprecated use `authorize` */
   isAuthorized?: (request: Request, env: Env) => Promise<boolean>;
   resolveTarget?: typeof resolveRunStoreTarget;
   getStub?: (env: Env, agentName: string) => Promise<{ fetch(request: Request): Promise<Response> }>;
@@ -43,12 +64,24 @@ export function v1Tasks(run: DelegatedRun) {
 export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {}): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/v1/")) return null;
-  if (!(await (deps.isAuthorized ?? isAuthorizedRequest)(request, env))) {
-    return Response.json({ error: "Authentication required." }, { status: 401 });
+  if (url.pathname === "/api/v1/openapi.json" && request.method === "GET") {
+    return Response.json(
+      (await import("./v1/openapi.json", { with: { type: "json" } })).default,
+      { headers: { "cache-control": "no-store" } },
+    );
+  }
+  const dashboardScopes = ["api:read", "api:write", "api:keys:admin"] as V1Principal["scopes"];
+  const principal = deps.authorize
+    ? await deps.authorize(request, env)
+    : deps.isAuthorized && (await deps.isAuthorized(request, env))
+      ? { principal: "test", orgId: "self-hosted", scopes: dashboardScopes }
+      : await authorizeV1Request(request, env);
+  if (!principal) {
+    return v1Unauthorized();
   }
   // Hoplite-shape groups first; each returns null when the path is not theirs.
   if (request.method === "POST") url.pathname = url.pathname.replace(/^(\/api\/v1\/threads\/[^/]+)\/messages$/, "$1/message");
-  const ctx: V1Context = { request, env, url, forward: async (method, path, input) => {
+  const ctx: V1Context = { request, env, url, principal, forward: async (method, path, input) => {
     const resolved = await (deps.resolveTarget ?? resolveRunStoreTarget)(request, env, url);
     if ("error" in resolved) return resolved.error;
     const stub = await (deps.getStub ?? (async (bindings, name) => getAgentByName(bindings.CodingOrchestrator, name)))(env, resolved.agentName);
@@ -61,11 +94,31 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     await signInternalRequest(internal, env);
     return stub.fetch(internal);
   } };
-  for (const group of [handleSystem, handleThreads, handleMessages, handleRuns, handleDiffs, handlePulls, handlePreviews, handleBilling, handleEvents, handleRepositories, handleMcp, handleAutomations]) {
+  for (const group of [
+    handleOpenApi,
+    handleSendMessage,
+    handleQueuedMessagesList,
+    handleSubagents,
+    handleThreadStream,
+    handleSystem,
+    handleThreads,
+    handleMessages,
+    handleRuns,
+    handleDiffs,
+    handlePulls,
+    handlePreviews,
+    handleBilling,
+    handleEvents,
+    handleRepositories,
+    handleMcp,
+    handleAutomations,
+    handleOrgAgents,
+  ]) {
     // Handlers read the body; give each its own copy so the legacy path below still can.
     const handled = await group({ ...ctx, request: request.clone() as typeof request });
     if (handled) return handled;
   }
+  if (!requireV1Read(principal)) return v1Forbidden();
   const match = url.pathname.match(/^\/api\/v1\/(threads|reviews)(?:\/([^/]+)(?:\/(message|interrupt|archive|tasks))?)?$/);
   if (!match || (match[1] === "reviews" && match[2])) return Response.json({ error: "Not found." }, { status: 404 });
   const [, resource, encodedId, action] = match;
@@ -128,35 +181,97 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     if (run.status === "pending" || run.status === "running") {
       return Response.json({ error: "Only one active run per thread is allowed." }, { status: 409 });
     }
-    const queued = await forward("POST", "/api/runs", {
-      repoUrl: run.repoUrl, task: `Follow-up on run ${id}:\n${body.text}`,
-      ...(run.threadKey ? { threadKey: run.threadKey } : {}),
-      ...(run.continuationKey ? { continuesKey: run.continuationKey } : {}),
-    });
+    const queued = await forward(
+      "POST",
+      "/api/runs",
+      v1RunQueueBody(principal, {
+        repoUrl: run.repoUrl,
+        task: `Follow-up on run ${id}:\n${body.text}`,
+        ...(run.threadKey ? { threadKey: run.threadKey } : {}),
+        ...(run.continuationKey ? { continuesKey: run.continuationKey } : {}),
+      }),
+    );
     if (!queued.ok) return queued;
     return Response.json({ ...await queued.json() as object, threadId: id }, { status: queued.status });
+  }
+  if (request.method === "POST" && !id && !requireV1Write(principal)) {
+    return v1Forbidden();
+  }
+  if (action === "message" && !requireV1Write(principal)) {
+    return v1Forbidden();
   }
   if (resource === "reviews") {
     if (typeof body.repoUrl !== "string" || !body.repoUrl.trim() || typeof body.pullNumber !== "number" || !Number.isInteger(body.pullNumber) || body.pullNumber < 1 || (body.headSha !== undefined && typeof body.headSha !== "string")) {
       return Response.json({ error: "repoUrl and a positive pullNumber are required." }, { status: 400 });
     }
     const repo = body.repoUrl.replace(/\/$/, "");
-    return forward("POST", "/api/runs", {
-      repoUrl: body.repoUrl,
-      task: ["Review the pull request diff and post findings. Do not modify code.", "Purpose: review",
-        `Repository: ${body.repoUrl}`, `Pull request: #${body.pullNumber}`, `Head SHA: ${body.headSha ?? "head"}`,
-        `Diff: ${repo}/pull/${body.pullNumber}.diff`].join("\n"),
-      publishPullRequest: false, role: "reviewer",
-      codingModel: env.REVIEW_RUN_MODEL?.trim() || "opencode-go/gpt-6.1-sol",
-      commandId: `v1review:${body.repoUrl}:${body.pullNumber}:${body.headSha ?? "head"}`,
-    });
+    return forward(
+      "POST",
+      "/api/runs",
+      v1RunQueueBody(principal, {
+        repoUrl: body.repoUrl,
+        task: reviewerTask({
+          repoUrl: body.repoUrl,
+          pullNumber: body.pullNumber,
+          headSha: body.headSha ?? "head",
+          diffUrl: `${repo}/pull/${body.pullNumber}.diff`,
+        }),
+        publishPullRequest: false,
+        role: "reviewer",
+        codingModel: env.REVIEW_RUN_MODEL?.trim() || "opencode-go/gpt-6.1-sol",
+        commandId: `v1review:${body.repoUrl}:${body.pullNumber}:${body.headSha ?? "head"}`,
+      }),
+    );
   }
-  if (typeof body.repoUrl !== "string" || !body.repoUrl.trim() || typeof body.task !== "string" || !body.task.trim()) {
-    return Response.json({ error: "repoUrl and task are required." }, { status: 400 });
+  const repoUrl =
+    typeof body.repoUrl === "string" && body.repoUrl.trim()
+      ? body.repoUrl.trim()
+      : typeof body.projectId === "string"
+        ? body.projectId.trim()
+        : "";
+  const task =
+    typeof body.task === "string" && body.task.trim()
+      ? body.task.trim()
+      : typeof body.message === "string"
+        ? body.message.trim()
+        : "";
+  if (!repoUrl || !task) {
+    return Response.json({ error: "repoUrl (or projectId) and task (or message) are required." }, { status: 400 });
   }
-  const input: Record<string, unknown> = { repoUrl: body.repoUrl, task: body.task };
-  for (const key of ["baseBranch", "publishPullRequest", "harness", "codingModel", "role"]) {
+  const requestId = typeof body.requestId === "string" ? body.requestId.trim() : "";
+  if (requestId) {
+    const prior = await readThreadCreateReceipt(env, principal.orgId, requestId);
+    if (prior) {
+      return Response.json({
+        id: prior.threadId ?? prior.approvalId,
+        threadId: prior.threadId ?? null,
+        approvalId: prior.approvalId,
+        deduped: true,
+        status: prior.threadId ? "queued" : "waiting",
+      });
+    }
+  }
+  const input: Record<string, unknown> = { repoUrl, task };
+  for (const key of ["baseBranch", "publishPullRequest", "harness", "codingModel", "role", "reviewAfterPublish"]) {
     if (body[key] !== undefined) input[key] = body[key];
   }
-  return forward("POST", "/api/runs", input);
+  if (requestId) {
+    input.commandId = await threadCreateCommandId(principal.orgId, requestId);
+  }
+  const queued = await forward("POST", "/api/runs", v1RunQueueBody(principal, input));
+  if (!queued.ok) return queued;
+  const result = await queued.json() as { approvalId?: string; deduped?: boolean; runId?: string };
+  if (requestId && result.approvalId) {
+    await writeThreadCreateReceipt(env, principal.orgId, requestId, {
+      approvalId: result.approvalId,
+      at: Date.now(),
+      ...(result.deduped ? { deduped: true } : {}),
+    });
+  }
+  return Response.json({
+    id: result.runId ?? result.approvalId,
+    approvalId: result.approvalId,
+    deduped: result.deduped === true,
+    status: "waiting",
+  }, { status: queued.status });
 }

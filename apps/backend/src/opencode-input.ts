@@ -17,6 +17,9 @@ const codingTaskInputSchema = z.object({
   baseBranch: z.string().min(1),
   publishPullRequest: z.boolean(),
   sandboxId: z.string().min(1),
+  /** Frozen sandbox provider id for this run (task/org/agent override). */
+  sandboxProvider: z.string().min(1).max(64).optional(),
+  customAgentId: z.string().min(1).max(128).optional(),
   codingModel: z.string().min(1),
   /** Which coding agent runs the task. Validated at approval time, never in the container. */
   harness: z.enum(HARNESS_IDS).optional(),
@@ -33,6 +36,13 @@ const codingTaskInputSchema = z.object({
    * approval hash like every other input field; never the credential.
    */
   authAccount: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/).optional(),
+  /** Dashboard user whose ChatGPT subscription credential egress may use. */
+  initiatorUserId: z.string().min(1).max(128).optional(),
+  /** Worker-only: short-lived ChatGPT plan access token for codex-subscription runs. */
+  chatgptAccessToken: z.string().min(1).optional(),
+  chatgptThreadId: z.string().min(1).optional(),
+  /** Sandbox-volume device-auth path — auth.json never leaves the user's volume. */
+  codexAuthMode: z.enum(["siwc", "device-auth"]).optional(),
   /**
    * The frozen, approval-gated route (connection/model/harness ids only —
    * spec MODEL-CONNECTIONS-ARCHITECTURE.md §4). Validated with
@@ -110,6 +120,8 @@ const codingTaskResultSchema = z.object({
    * The sandbox preview URL itself is ephemeral and never leaves the worker.
    */
   screenshotUrl: z.string().optional(),
+  /** Phase 3: browser E2E frame manifest served from this Worker. */
+  browserE2eManifestUrl: z.string().optional(),
   /**
    * T46: evidence that a declared testCommand actually ran — command (shell-
    * joined form), exit code, and a bounded output tail. Rides the envelope so

@@ -32,6 +32,7 @@ export interface QueueAutomationRunInput {
   threadKey: string;
   /** T41: deterministic per-(automation, event) id — a retried queue dedupes on it. */
   commandId?: string;
+  customAgentId?: string;
 }
 
 export interface FireAutomationDeps {
@@ -75,7 +76,11 @@ export function summarizeAutomationEvent(event: AutomationMatchEvent): string {
     return `slack ${event.channel ?? ""} ${event.author ?? ""} ${event.text ?? ""}`.trim();
   }
   if (event.kind === "webhook") {
-    return "incoming webhook";
+    const n = event.batchedBodies?.length;
+    return n && n > 1 ? `incoming webhook (${n} batched)` : "incoming webhook";
+  }
+  if (event.kind === "linear") {
+    return `linear ${event.action} ${event.teamKey ?? ""} ${event.sessionId ?? ""}`.trim();
   }
   if (event.kind === "schedule") {
     return `schedule tick ${event.nowMs}`;
@@ -145,6 +150,18 @@ export function githubWebhookToEvent(
     ...(typeof headSha === "string" && headSha !== "" ? { headSha } : {}),
     ...(typeof diffRef === "string" && diffRef !== "" ? { diffRef } : {}),
     ...(pr && typeof pr.number === "number" ? { pullNumber: pr.number } : {}),
+  };
+}
+
+export function linearEventToAutomation(input: {
+  action: string;
+  teamKey?: string;
+  sessionId?: string;
+}): import("./automations.js").LinearAutomationEvent {
+  return {
+    action: input.action,
+    ...(input.teamKey ? { teamKey: input.teamKey } : {}),
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
   };
 }
 
@@ -285,14 +302,20 @@ async function commitAutomationFire(
   const threadKey = automationThreadKey(automation.id);
   try {
     const commandId = automationCommandId(automation.id, event);
+    let task = automation.prompt;
+    if (event.kind === "webhook" && event.batchedBodies && event.batchedBodies.length > 0) {
+      task += `\n\n---\nWebhook payloads (${event.batchedBodies.length}):\n${event.batchedBodies.join("\n---\n")}`;
+    }
     const queued = await deps.queueRun({
       repoUrl: automation.repoUrl,
-      task: automation.prompt,
+      task,
       publishPullRequest,
       threadKey,
       ...(commandId !== undefined ? { commandId } : {}),
+      ...(automation.customAgentId ? { customAgentId: automation.customAgentId } : {}),
     });
-    const next = recordTrigger(automation, nowMs);
+    const scheduleKey = recheck.trigger.kind === "schedule" ? `t${recheck.triggerIndex}` : undefined;
+    const next = recordTrigger(automation, nowMs, scheduleKey);
     if (!auth.requiresApproval) {
       if (!deps.resolveApproval) {
         const skipped = recordSkip(

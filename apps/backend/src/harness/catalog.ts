@@ -51,6 +51,7 @@ const CATALOG_META: Record<
   opencode: { label: "OpenCode", binary: "opencode", version: "1.18.34", docsUrl: "https://opencode.ai/docs/" },
   "claude-code": { label: "Claude Code", binary: "claude", version: "2.1.284", docsUrl: "https://docs.anthropic.com/en/docs/claude-code" },
   "claude-subscription": { label: "Claude Code (subscription)", binary: "claude", version: "2.1.284", docsUrl: "https://docs.anthropic.com/en/docs/claude-code" },
+  "claude-login": { label: "Claude Code (/login)", binary: "claude", version: "2.1.284", docsUrl: "https://code.claude.com/docs/en/legal-and-compliance" },
   codex: { label: "Codex", binary: "codex", version: "0.157.1", docsUrl: "https://github.com/openai/codex" },
   "codex-subscription": { label: "Codex (subscription)", binary: "codex", version: "0.157.1", docsUrl: "https://github.com/openai/codex" },
   devin: { label: "Devin", binary: "devin", version: "3000.11.3", docsUrl: "https://cli.devin.ai/docs" },

@@ -42,6 +42,8 @@ export interface ScheduleTrigger extends TriggerBase {
   kind: "schedule";
   /** Five-field cron (`minute hour dom month dow`). 5-minute floor enforced. */
   cron: string;
+  /** IANA timezone for cron evaluation. Defaults to UTC. */
+  timezone?: string;
 }
 
 export interface GitHubTrigger extends TriggerBase {
@@ -70,6 +72,19 @@ export interface SlackTrigger extends TriggerBase {
 
 export interface WebhookTrigger extends TriggerBase {
   kind: "webhook";
+  /**
+   * Coalesce rapid webhook deliveries into one run (seconds, 1–300).
+   * The Automations DO flushes the batch on the next cron tick after the window.
+   */
+  batchWindowSeconds?: number;
+}
+
+export interface LinearTrigger extends TriggerBase {
+  kind: "linear";
+  /** Linear team keys (e.g. ENG). Empty = any team. */
+  teams?: string[];
+  /** Agent session actions that may fire. */
+  actions?: ("created" | "prompted")[];
 }
 
 export interface ManualTrigger extends TriggerBase {
@@ -81,6 +96,7 @@ export type AutomationTrigger =
   | GitHubTrigger
   | SlackTrigger
   | WebhookTrigger
+  | LinearTrigger
   | ManualTrigger;
 
 export interface Automation {
@@ -93,6 +109,8 @@ export interface Automation {
   /** Set only when a webhook trigger exists. Never re-issued — see createAutomation. */
   webhookSecret?: string;
   lastTriggeredAt?: number;
+  /** Per schedule-trigger last fire (key `t{index}`), so multiple crons do not block each other. */
+  scheduleFiredAt?: Record<string, number>;
   runCount: number;
   /**
    * T20: opt-in unattended mode. Even when true a run is only unattended if
@@ -115,6 +133,8 @@ export interface Automation {
    * each firing re-queues work only while the goal is still unsatisfied.
    */
   mission?: boolean;
+  /** Org custom agent id — resolved at queue time like dashboard intake. */
+  customAgentId?: string;
 }
 
 export interface GitHubAutomationEvent {
@@ -144,10 +164,17 @@ export interface SlackAutomationEvent {
   eventId?: string;
 }
 
+export interface LinearAutomationEvent {
+  action: string;
+  teamKey?: string;
+  sessionId?: string;
+}
+
 export type AutomationMatchEvent =
   | ({ kind: "github" } & GitHubAutomationEvent)
   | ({ kind: "slack" } & SlackAutomationEvent)
-  | { kind: "webhook"; secret: string }
+  | ({ kind: "linear" } & LinearAutomationEvent)
+  | { kind: "webhook"; secret: string; batchedBodies?: string[] }
   | { kind: "schedule"; nowMs: number }
   | { kind: "manual" };
 
@@ -346,6 +373,52 @@ function matchesCron(parsed: ParsedCron, date: Date): boolean {
   return dayOk;
 }
 
+const DOW_INTL: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function cronPartsInTimeZone(nowMs: number, timeZone: string): { minute: number; hour: number; dom: number; month: number; dow: number } | null {
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      weekday: "short",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(new Date(nowMs));
+    const read = (type: string) => parts.find((p) => p.type === type)?.value;
+    const minute = Number(read("minute"));
+    const hour = Number(read("hour"));
+    const dom = Number(read("day"));
+    const month = Number(read("month"));
+    const dowName = read("weekday");
+    const dow = dowName ? DOW_INTL[dowName] ?? 0 : 0;
+    if (![minute, hour, dom, month].every((n) => Number.isFinite(n))) return null;
+    return { minute, hour, dom, month, dow };
+  } catch {
+    return null;
+  }
+}
+
+function matchesCronZoned(parsed: ParsedCron, nowMs: number, timeZone: string): boolean {
+  const parts = cronPartsInTimeZone(nowMs, timeZone);
+  if (!parts) return false;
+  if (!parsed.minute.has(parts.minute)) return false;
+  if (!parsed.hour.has(parts.hour)) return false;
+  if (!parsed.month.has(parts.month)) return false;
+  let dayOk: boolean;
+  if (parsed.domStar && parsed.dowStar) {
+    dayOk = true;
+  } else {
+    const domOk = !parsed.domStar && parsed.dom.has(parts.dom);
+    const dowOk = !parsed.dowStar && parsed.dow.has(parts.dow);
+    dayOk = domOk || dowOk;
+  }
+  return dayOk;
+}
+
 /**
  * True when `cron` had an occurrence inside the tick window ending at `nowMs`
  * and nothing has fired since it. Scanning the window rather than testing the
@@ -353,14 +426,24 @@ function matchesCron(parsed: ParsedCron, date: Date): boolean {
  * matches the tick minute itself. Missed occurrences coalesce into one run,
  * never a queue.
  */
-export function isScheduleDue(cron: string, nowMs: number, lastTriggeredAtMs?: number): boolean {
+export function isScheduleDue(
+  cron: string,
+  nowMs: number,
+  lastTriggeredAtMs?: number,
+  timeZone = "UTC",
+): boolean {
   const parsed = parseCron(cron);
   if (!parsed) {
     return false;
   }
+  const tz = timeZone.trim() || "UTC";
   for (let back = 0; back < SCHEDULE_FLOOR_MINUTES; back++) {
     const fireMs = (Math.floor(nowMs / 60000) - back) * 60000;
-    if (!matchesCron(parsed, new Date(fireMs))) {
+    const matches =
+      tz === "UTC" || tz === "Etc/UTC"
+        ? matchesCron(parsed, new Date(fireMs))
+        : matchesCronZoned(parsed, fireMs, tz);
+    if (!matches) {
       continue;
     }
     return lastTriggeredAtMs === undefined || lastTriggeredAtMs < fireMs;
@@ -415,6 +498,20 @@ export function matchGitHubTrigger(trigger: GitHubTrigger, event: GitHubAutomati
   if (trigger.labels && trigger.labels.length > 0) {
     const carried = new Set((event.labels ?? []).map((label) => label.toLowerCase()));
     if (!trigger.labels.every((label) => carried.has(label.toLowerCase()))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function matchLinearTrigger(trigger: LinearTrigger, event: LinearAutomationEvent): boolean {
+  const actions = trigger.actions ?? ["created", "prompted"];
+  if (!actions.includes(event.action as "created" | "prompted")) {
+    return false;
+  }
+  if (trigger.teams && trigger.teams.length > 0) {
+    const key = event.teamKey?.toUpperCase();
+    if (!key || !trigger.teams.some((t) => t.toUpperCase() === key)) {
       return false;
     }
   }
@@ -482,6 +579,7 @@ export interface CreateAutomationInput {
   runAs?: string;
   /** Standing-goal automation — see {@link Automation.mission}. */
   mission?: boolean;
+  customAgentId?: string;
 }
 
 export interface CreatedAutomation {
@@ -533,6 +631,7 @@ export function createAutomation(input: CreateAutomationInput): CreatedAutomatio
       enabled: input.enabled ?? true,
       ...(input.runAs !== undefined ? { runAs: input.runAs } : {}),
       ...(input.mission === true ? { mission: true } : {}),
+      ...(input.customAgentId?.trim() ? { customAgentId: input.customAgentId.trim() } : {}),
       ...(webhookSecret !== null ? { webhookSecret } : {}),
       runCount: 0,
     },
@@ -562,13 +661,19 @@ export function matchAutomationEvent(
       if (matchSlackTrigger(trigger, event)) {
         return { triggerIndex: index, trigger };
       }
+    } else if (event.kind === "linear" && trigger.kind === "linear") {
+      if (matchLinearTrigger(trigger, event)) {
+        return { triggerIndex: index, trigger };
+      }
     } else if (event.kind === "webhook" && trigger.kind === "webhook") {
       if (verifyWebhookSecret(automation, event.secret)) {
         return { triggerIndex: index, trigger };
       }
       return null;
     } else if (event.kind === "schedule" && trigger.kind === "schedule") {
-      if (isScheduleDue(trigger.cron, event.nowMs, automation.lastTriggeredAt)) {
+      const scheduleKey = `t${index}`;
+      const lastForTrigger = automation.scheduleFiredAt?.[scheduleKey] ?? automation.lastTriggeredAt;
+      if (isScheduleDue(trigger.cron, event.nowMs, lastForTrigger, trigger.timezone ?? "UTC")) {
         return { triggerIndex: index, trigger };
       }
     } else if (event.kind === "manual" && trigger.kind === "manual") {
@@ -579,12 +684,21 @@ export function matchAutomationEvent(
 }
 
 /** Stamp a firing: set lastTriggeredAt, bump runCount, charge the daily budget. */
-export function recordTrigger(automation: Automation, nowMs: number = Date.now()): Automation {
+export function recordTrigger(
+  automation: Automation,
+  nowMs: number = Date.now(),
+  scheduleTriggerKey?: string,
+): Automation {
   const day = utcDayStart(nowMs);
   const sameDay = automation.runDayStartedAt === day;
+  const scheduleFiredAt =
+    scheduleTriggerKey !== undefined
+      ? { ...(automation.scheduleFiredAt ?? {}), [scheduleTriggerKey]: nowMs }
+      : automation.scheduleFiredAt;
   return {
     ...automation,
     lastTriggeredAt: nowMs,
+    ...(scheduleFiredAt !== undefined ? { scheduleFiredAt } : {}),
     runCount: automation.runCount + 1,
     runsToday: (sameDay ? automation.runsToday ?? 0 : 0) + 1,
     runDayStartedAt: day,

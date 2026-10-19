@@ -15,6 +15,7 @@ export const HARNESS_IDS = [
   "opencode",
   "claude-code",
   "claude-subscription",
+  "claude-login",
   "codex",
   "codex-subscription",
   "devin",

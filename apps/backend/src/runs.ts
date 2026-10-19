@@ -56,6 +56,9 @@ export function createRun(args: {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
+  reviewAfterPublish?: boolean;
+  reviewOf?: string;
+  reviewRoundId?: string;
   queuedBy?: string;
   route?: ApprovedRoute;
   /** T48: account-scoped continuation identity from the selected harness. */
@@ -70,6 +73,12 @@ export function createRun(args: {
   testCommand?: string[];
   /** Run-fork lineage — hashed into the approved input like every field. */
   forkedFrom?: ForkLineage;
+  parentRunId?: string;
+  subagentPath?: string;
+  subagentSandbox?: import("@shiba/shared").SubagentSandboxMode;
+  captainId?: string;
+  role?: import("@shiba/shared").AgentRole;
+  subagentBudgetRemaining?: number;
   /** T40: approval evidence stamped at queue time (the resolve path). */
   approval?: ApprovalEvidence;
   now?: number;
@@ -87,6 +96,9 @@ export function createRun(args: {
       task: args.task,
       baseBranch: args.baseBranch,
       publishPullRequest: args.publishPullRequest,
+      ...(args.reviewAfterPublish !== undefined ? { reviewAfterPublish: args.reviewAfterPublish } : {}),
+      ...(args.reviewOf !== undefined ? { reviewOf: args.reviewOf } : {}),
+      ...(args.reviewRoundId !== undefined ? { reviewRoundId: args.reviewRoundId } : {}),
       ...(args.queuedBy !== undefined ? { queuedBy: args.queuedBy } : {}),
       ...(args.route !== undefined ? { route: args.route } : {}),
       ...(args.continuationKey !== undefined ? { continuationKey: args.continuationKey } : {}),
@@ -96,6 +108,11 @@ export function createRun(args: {
       ...(args.targetMachineId !== undefined ? { targetMachineId: args.targetMachineId } : {}),
       ...(args.testCommand !== undefined ? { testCommand: args.testCommand } : {}),
       ...(args.forkedFrom !== undefined ? { forkedFrom: args.forkedFrom } : {}),
+      ...(args.parentRunId !== undefined ? { parentRunId: args.parentRunId } : {}),
+      ...(args.subagentPath !== undefined ? { subagentPath: args.subagentPath } : {}),
+      ...(args.subagentSandbox !== undefined ? { subagentSandbox: args.subagentSandbox } : {}),
+      ...(args.captainId !== undefined ? { captainId: args.captainId } : {}),
+      ...(args.role !== undefined ? { role: args.role } : {}),
     },
     ...(args.approval !== undefined ? { approval: args.approval } : {}),
     at: now,
@@ -137,6 +154,9 @@ function commandForStatus(
           task: run.task,
           baseBranch: run.baseBranch,
           publishPullRequest: run.publishPullRequest,
+          ...(run.reviewAfterPublish !== undefined ? { reviewAfterPublish: run.reviewAfterPublish } : {}),
+          ...(run.reviewOf !== undefined ? { reviewOf: run.reviewOf } : {}),
+          ...(run.reviewRoundId !== undefined ? { reviewRoundId: run.reviewRoundId } : {}),
           ...(run.queuedBy !== undefined ? { queuedBy: run.queuedBy } : {}),
           ...(run.route !== undefined ? { route: run.route } : {}),
           ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),

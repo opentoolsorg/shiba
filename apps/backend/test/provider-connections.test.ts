@@ -32,17 +32,21 @@ import { SettingsSectionBody } from "../../frontend/src/components/settings-sect
 
 const setupStatus: SetupStatus = {
   slack: { signingSecret: false, botToken: false, approvers: 0, channelRepos: false },
-  github: { token: false, webhookSecret: false },
+  github: { token: false, app: false, publish: false, webhookSecret: false },
+  linear: { webhookSecret: false, apiToken: false, defaultRepo: false },
+  slackVerification: { signingSecret: false },
   gateway: { id: "gateway", token: false, reachable: "unauthorized" },
   access: { required: false },
   betterAuth: { configured: false },
   models: { orchestrator: "", coding: "", harness: "", roles: [] },
   automations: { enabled: false, typeSafe: false },
   mailbox: { addressOverride: false, sendEnabled: false },
+  doctor: { ok: true, checkedAt: 0, findings: [], roles: [] },
 };
 
 const modelConfig: ModelConfigWire = {
   connections: [],
+  connectionOrder: [],
   policy: { version: 1, models: {}, updatedAt: 0 },
   purposes: [],
 };

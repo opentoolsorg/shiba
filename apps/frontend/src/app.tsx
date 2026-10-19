@@ -14,6 +14,7 @@ import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
+import { CustomAgentsView, useCustomAgentOptions } from "./components/CustomAgentsView";
 import { RemoteAccessView } from "./components/RemoteAccessView";
 import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
 import { useSocketLiveness } from "./socket-liveness";
@@ -36,6 +37,10 @@ import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
 import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
+import { PullRequestCard } from "./components/PullRequestCard";
+import { ReviewFindings } from "./components/ReviewFindings";
+import { RunUsageCard } from "./components/RunUsageSummary";
+import { RunProgressCard } from "./components/RunProgressCard";
 import { targetMachineFields, useDesktopStatus } from "./desktop-status";
 import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
@@ -360,7 +365,20 @@ export function App(): React.JSX.Element {
   const [baseBranch, setBaseBranch] = useState("main");
   const [task, setTask] = useState("");
   const [publishPullRequest, setPublishPullRequest] = useState(false);
+  const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [harness, setHarness] = useState("opencode");
+  const [customAgentId, setCustomAgentId] = useState("");
+  const { agents: customAgentRecords } = useCustomAgentOptions();
+  const customAgentPickerOptions = useMemo(
+    () =>
+      customAgentRecords.map((agent) => ({
+        id: agent.id,
+        name: agent.config.name,
+        slug: agent.slug,
+        emoji: agent.config.emoji,
+      })),
+    [customAgentRecords],
+  );
   const [codingModel, setCodingModel] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
@@ -717,6 +735,13 @@ export function App(): React.JSX.Element {
     // on entry to any of the three.
     mainView === "approvals" || mainView === "tasks" || mainView === "dashboard",
   );
+  const reviewAfterPublishById = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const approval of storedApprovals) {
+      if (approval.reviewAfterPublish) map[approval.approvalId] = true;
+    }
+    return map;
+  }, [storedApprovals]);
   const agentPrincipals = useAgentPrincipals(
     refreshToken,
     mainView === "tasks" || mainView === "dashboard",
@@ -926,6 +951,8 @@ export function App(): React.JSX.Element {
           ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
           ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
           publishPullRequest,
+          ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
+          ...(customAgentId ? { customAgentId } : {}),
         };
         const body = { ...fields, runtime: "local", ...targetMachineFields(desktopStatus) };
         // Keyed on user-editable fields only, so a daemon re-pair doesn't mint a new commandId for a retry.
@@ -949,8 +976,15 @@ export function App(): React.JSX.Element {
             },
           );
           if (!res.ok) {
-            const detail = (await res.text().catch(() => "")).slice(0, 200);
-            throw new Error(`Run request failed with ${res.status}${detail ? `: ${detail}` : ""}`);
+            const raw = await res.text().catch(() => "");
+            let detail = raw.slice(0, 400);
+            try {
+              const parsed = JSON.parse(raw) as { error?: string };
+              if (typeof parsed.error === "string" && parsed.error.trim()) detail = parsed.error.trim();
+            } catch {
+              /* plain text */
+            }
+            throw new Error(detail || `Run request failed with ${res.status}`);
           }
           runCommand.current = null;
           saveRepo(repoUrl.trim());
@@ -996,6 +1030,9 @@ export function App(): React.JSX.Element {
         ...(codingModel.trim() ? [`Coding model: ${codingModel.trim()}`] : []),
         ...(connectionId.trim() ? [`Model connection: ${connectionId.trim()}`] : []),
         `Open a pull request with the result: ${publishPullRequest ? "yes" : "no"}`,
+        ...(publishPullRequest
+          ? [`Read-only review after the PR opens: ${reviewAfterPublish ? "yes" : "no"}`]
+          : []),
         ...(attachedSkills.length > 0
           ? [
               `Skills: ${attachedSkills.map((skill) => (skill.repoUrl ? `${skill.name} (${skill.repoUrl})` : skill.name)).join(", ")}`,
@@ -1022,8 +1059,10 @@ export function App(): React.JSX.Element {
               baseBranch: branch,
               harness,
               publishPullRequest,
+              ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
               ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
               ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+              ...(customAgentId ? { customAgentId } : {}),
             },
           },
         });
@@ -1049,7 +1088,9 @@ export function App(): React.JSX.Element {
       baseBranch,
       task,
       publishPullRequest,
+      reviewAfterPublish,
       harness,
+      customAgentId,
       codingModel,
       connectionId,
       chat,
@@ -1247,6 +1288,16 @@ export function App(): React.JSX.Element {
     }
     return at;
   }, []);
+
+  const reviewThreadId = useMemo(() => {
+    const newest = [...retainedRuns].sort((a, b) => b.updatedAt - a.updatedAt);
+    return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
+  }, [retainedRuns]);
+
+  const reviewRun = useMemo(() => {
+    if (!reviewThreadId) return undefined;
+    return retainedRuns.find((run) => run.runId === reviewThreadId);
+  }, [retainedRuns, reviewThreadId]);
 
   const allRuns: VMRun[] = useMemo(() => {
     const map = new Map<string, VMRun>();
@@ -2142,12 +2193,28 @@ export function App(): React.JSX.Element {
                     pendingApprovals={pendingApprovals}
                     decisions={decisions}
                     onDecideApproval={decideApproval}
+                    reviewAfterPublishById={reviewAfterPublishById}
                     starters={STARTER_TEMPLATES}
                     onStarter={(starterTask) => {
                       setTask(starterTask);
                       if (!repoUrl) setRepoUrl("https://github.com/cloudflare/ai-chat");
                     }}
                   />
+                  {reviewThreadId ? (
+                    <div className="mt-4 flex flex-col gap-3">
+                      <RunProgressCard run={reviewRun} />
+                      <RunUsageCard runs={retainedRuns} />
+                      <PullRequestCard
+                        threadId={reviewThreadId}
+                        fallbackPullUrl={reviewRun?.pullUrl}
+                        publishRequested={reviewRun?.publishPullRequest === true}
+                      />
+                      <ReviewFindings
+                        threadId={reviewThreadId}
+                        reviewAfterPublish={reviewRun?.reviewAfterPublish === true}
+                      />
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* COMPOSER — hero when the session is empty, docked once the run is going */}
@@ -2163,6 +2230,7 @@ export function App(): React.JSX.Element {
                     task={task}
                     baseBranch={baseBranch}
                     publishPullRequest={publishPullRequest}
+                    reviewAfterPublish={reviewAfterPublish}
                     harness={harness}
                     busy={busy}
                     repoSuggestions={repoSuggestions}
@@ -2183,8 +2251,15 @@ export function App(): React.JSX.Element {
                     onRepoUrlChange={setRepoUrl}
                     onTaskChange={setTask}
                     onBaseBranchChange={setBaseBranch}
-                    onPublishPullRequestChange={setPublishPullRequest}
+                    onPublishPullRequestChange={(value) => {
+                      setPublishPullRequest(value);
+                      if (value) setReviewAfterPublish(true);
+                    }}
+                    onReviewAfterPublishChange={setReviewAfterPublish}
                     onHarnessChange={setHarness}
+                    customAgents={customAgentPickerOptions}
+                    customAgentId={customAgentId}
+                    onCustomAgentChange={setCustomAgentId}
                     routing={{
                       codingModel,
                       connectionId,
@@ -2245,6 +2320,7 @@ export function App(): React.JSX.Element {
               onDecideStoredApproval={decideStoredApproval}
               orchestratorName={orchestratorName}
               onRefresh={refreshRuns}
+              reviewAfterPublishById={reviewAfterPublishById}
             />
           ) : mainView === "memory" ? (
             <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
@@ -2303,6 +2379,8 @@ export function App(): React.JSX.Element {
             <ProvidersView />
           ) : mainView === "skills" ? (
             <SkillsView />
+          ) : mainView === "custom-agents" ? (
+            <CustomAgentsView />
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
