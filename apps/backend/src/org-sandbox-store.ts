@@ -1,13 +1,12 @@
 import type { AuditEnv } from "./audit.js";
 import { initAudit } from "./audit.js";
 import {
-  deleteOrgSecret,
   getDecryptedOrgSecret,
   getOrgSecretMeta,
   putOrgSecret,
   type StoredSecretMeta,
 } from "./org-secrets-store.js";
-import { validateRunnerUrl } from "./security.js";
+import { InputError, validateRunnerUrl } from "./security.js";
 
 const STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS org_sandbox_settings (
@@ -32,8 +31,8 @@ async function ensure(env: AuditEnv): Promise<void> {
     await env.AGENT_AUDIT.prepare(
       `ALTER TABLE org_sandbox_settings ADD COLUMN runner_url TEXT`,
     ).run();
-  } catch {
-    // Column already exists or error ignored
+  } catch (error) {
+    if (!/duplicate column/i.test(error instanceof Error ? error.message : String(error))) throw error;
   }
   initialized.add(env.AGENT_AUDIT);
 }
@@ -92,6 +91,14 @@ export async function setOrgSandboxProvider(
   }
   const runnerToken = typeof params === "object" ? params.runnerToken : undefined;
 
+  if (runnerUrl && !runnerToken?.trim()) {
+    // A stored token must never be re-bound to a different URL.
+    const existing = await getOrgSandboxProvider(env, orgId);
+    if (existing?.runnerUrl !== runnerUrl) {
+      throw new InputError("runnerToken is required when setting or changing runnerUrl.");
+    }
+  }
+
   if (runnerToken?.trim()) {
     await putOrgSecret(env, orgId, "sandbox", "runner_token", runnerToken.trim());
   }
@@ -101,7 +108,7 @@ export async function setOrgSandboxProvider(
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(org_id) DO UPDATE SET
        provider_id = excluded.provider_id,
-       computesdk_backend = excluded.computesdk_backend,
+       computesdk_backend = COALESCE(excluded.computesdk_backend, org_sandbox_settings.computesdk_backend),
        runner_url = COALESCE(excluded.runner_url, org_sandbox_settings.runner_url),
        updated_at = excluded.updated_at`,
   )
@@ -125,8 +132,4 @@ export async function getDecryptedOrgRunnerToken(
   orgId: string,
 ): Promise<string | null> {
   return getDecryptedOrgSecret(env, orgId, "sandbox", "runner_token");
-}
-
-export async function clearOrgRunnerToken(env: AuditEnv, orgId: string): Promise<void> {
-  await deleteOrgSecret(env, orgId, "sandbox", "runner_token");
 }

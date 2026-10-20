@@ -6,6 +6,8 @@ import {
   forwardOpenAI,
   forwardXAI,
 } from "../src/egress.js";
+import { dispatchOutboundRequest } from "../src/sandbox/outbound-dispatch.js";
+import { defaultOutboundConfig } from "../src/sandbox/outbound-config.js";
 import { setOrgModelKey } from "../src/org-model-keys-store.js";
 
 describe("egress org model key injection", () => {
@@ -179,6 +181,87 @@ describe("egress org model key injection", () => {
       expect(res.status).toBe(200);
       expect(capturedHeaders).not.toBeNull();
       expect(capturedHeaders!.get("authorization")).toBe("Bearer xai-test-key");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  async function forwardWith(d1: FakeD1, env: EgressEnv, orgId: string | undefined) {
+    const calls: Headers[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(new Headers(init?.headers));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const req = new Request("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        body: "{}",
+      });
+      const res = await forwardAnthropic(req, env, orgId ? { orgId } : undefined);
+      return { res, calls };
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  it("uses the gateway alias when the org has no key and never another org's key", async () => {
+    const d1 = new FakeD1();
+    await setOrgModelKey(
+      { AGENT_AUDIT: d1 as unknown as D1Database, MODEL_CREDENTIAL_KEY: hexKey },
+      "org_a",
+      "anthropic",
+      "sk-ant-org-a",
+    );
+    const other = await forwardWith(d1, mockGatewayEnv(d1), "org_b");
+    expect(other.res.status).toBe(200);
+    expect(other.calls[0]?.get("x-api-key")).toBeNull();
+
+    const none = await forwardWith(d1, mockGatewayEnv(d1), undefined);
+    expect(none.calls[0]?.get("x-api-key")).toBeNull();
+  });
+
+  it("fails closed when a stored org key cannot be decrypted", async () => {
+    const d1 = new FakeD1();
+    await setOrgModelKey(
+      { AGENT_AUDIT: d1 as unknown as D1Database, MODEL_CREDENTIAL_KEY: hexKey },
+      "org_a",
+      "anthropic",
+      "sk-ant-org-a",
+    );
+    const noKeyEnv = { ...mockGatewayEnv(d1), MODEL_CREDENTIAL_KEY: undefined } as EgressEnv;
+    const missing = await forwardWith(d1, noKeyEnv, "org_a");
+    expect(missing.res.status).toBe(502);
+    expect(missing.calls).toHaveLength(0);
+
+    const wrongKeyEnv = { ...mockGatewayEnv(d1), MODEL_CREDENTIAL_KEY: "cd".repeat(32) } as EgressEnv;
+    const wrong = await forwardWith(d1, wrongKeyEnv, "org_a");
+    expect(wrong.res.status).toBe(502);
+    expect(wrong.calls).toHaveLength(0);
+  });
+
+  it("dispatch hands the config's orgId to the forwarder", async () => {
+    const d1 = new FakeD1();
+    await setOrgModelKey(
+      { AGENT_AUDIT: d1 as unknown as D1Database, MODEL_CREDENTIAL_KEY: hexKey },
+      "org_a",
+      "anthropic",
+      "sk-ant-org-a",
+    );
+    const calls: Headers[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(new Headers(init?.headers));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const config = defaultOutboundConfig();
+      config.allowedHosts.push("api.anthropic.com");
+      const req = () => new Request("https://api.anthropic.com/v1/messages", { method: "POST", body: "{}" });
+      await dispatchOutboundRequest(req(), mockGatewayEnv(d1), { ...config, orgId: "org_a" });
+      await dispatchOutboundRequest(req(), mockGatewayEnv(d1), config);
+      expect(calls[0]?.get("x-api-key")).toBe("sk-ant-org-a");
+      expect(calls[1]?.get("x-api-key")).toBeNull();
     } finally {
       globalThis.fetch = originalFetch;
     }

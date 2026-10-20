@@ -6,6 +6,7 @@ import {
   createSandboxProviderFromRegistrySync,
   parseSandboxProviderConfig,
   parseSandboxProviderId,
+  SandboxError,
   registerBuiltinSandboxProviders,
   type SandboxInstance,
   type SandboxProvider,
@@ -60,8 +61,19 @@ function buildProvider(
   const cached = providerCache.get(cacheKey);
   if (cached) return cached;
 
-  const runnerUrl = remoteOverrides?.runnerUrl?.trim() || env.SHIBA_COMPUTESDK_RUNNER_URL?.trim();
-  const runnerToken = remoteOverrides?.runnerToken?.trim() || env.SHIBA_COMPUTESDK_RUNNER_TOKEN?.trim();
+  // An org-supplied URL must never be paired with the deployment token.
+  const orgRunnerUrl = remoteOverrides?.runnerUrl?.trim();
+  const runnerUrl = orgRunnerUrl || env.SHIBA_COMPUTESDK_RUNNER_URL?.trim();
+  const runnerToken = orgRunnerUrl
+    ? remoteOverrides?.runnerToken?.trim()
+    : env.SHIBA_COMPUTESDK_RUNNER_TOKEN?.trim();
+  if (id === "computesdk" && orgRunnerUrl && !runnerToken) {
+    throw new SandboxError(
+      "provider_misconfigured",
+      "Org sandbox runner token is missing or unreadable; save the runner token again.",
+      { provider: "computesdk" },
+    );
+  }
   const backendProvider =
     remoteOverrides?.backendProvider?.trim().toLowerCase() ||
     env.SHIBA_COMPUTESDK_PROVIDER?.trim().toLowerCase() ||
@@ -125,6 +137,11 @@ export async function resolveSandboxProviderForSelection(
     const cacheKey = `org:${orgId}:computesdk:${updatedAt}`;
     const cached = providerCache.get(cacheKey);
     if (cached) return cached;
+
+    const orgPrefix = `org:${orgId}:computesdk:`;
+    for (const key of providerCache.keys()) {
+      if (key.startsWith(orgPrefix)) providerCache.delete(key);
+    }
 
     const runnerUrl = selection.orgSettings.runnerUrl;
     const runnerToken = (await getDecryptedOrgRunnerToken(env, orgId)) ?? undefined;

@@ -97,8 +97,6 @@ export async function getDecryptedOrgSecret(
   kind: string,
   name: string,
 ): Promise<string | null> {
-  const modelKey = env.MODEL_CREDENTIAL_KEY?.trim();
-  if (!modelKey || modelKey.length !== 64) return null;
   await ensure(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT cipher FROM org_secrets WHERE org_id = ? AND kind = ? AND name = ?`,
@@ -107,6 +105,11 @@ export async function getDecryptedOrgSecret(
     .first<{ cipher: string }>();
 
   if (!row) return null;
+  // A stored secret that cannot be read must fail, not fall back to a shared credential.
+  const modelKey = env.MODEL_CREDENTIAL_KEY?.trim();
+  if (!modelKey || modelKey.length !== 64) {
+    throw new Error("MODEL_CREDENTIAL_KEY is not configured.");
+  }
   return decryptAuthJson(row.cipher, modelKey, orgId, name, kind);
 }
 

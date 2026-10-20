@@ -9,7 +9,7 @@ import {
 } from "./org-sandbox-store.js";
 import { listSandboxProviderCatalog } from "./sandbox/provider-catalog.js";
 import { resolveSandboxSelection } from "./sandbox/selection.js";
-import { validateRunnerUrl } from "./security.js";
+import { InputError, validateRunnerUrl } from "./security.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 
 function decodePatch(body: unknown): SetOrgSandboxParams | null {
@@ -38,6 +38,14 @@ function decodePatch(body: unknown): SetOrgSandboxParams | null {
     ...(runnerUrl ? { runnerUrl } : {}),
     ...(runnerToken ? { runnerToken } : {}),
   };
+}
+
+function normalizeRunnerUrl(raw: string): string | null {
+  try {
+    return validateRunnerUrl(raw);
+  } catch {
+    return null;
+  }
 }
 
 async function pingRunner(
@@ -106,7 +114,7 @@ export async function handleOrgSandboxSettings(
     if (!runnerUrl || !runnerToken) {
       const existing = await getOrgSandboxProvider(env, auth.orgId);
       // The stored token only ever goes to the stored URL, never to a caller-supplied one.
-      if (runnerUrl && runnerUrl !== existing?.runnerUrl && !runnerToken) {
+      if (runnerUrl && !runnerToken && normalizeRunnerUrl(runnerUrl) !== existing?.runnerUrl) {
         return Response.json(
           { ok: false, error: "runnerToken is required when testing a new runnerUrl." },
           { status: 400 },
@@ -181,7 +189,15 @@ export async function handleOrgSandboxSettings(
         );
       }
     }
-    const saved = await setOrgSandboxProvider(env, auth.orgId, patch);
+    let saved: Awaited<ReturnType<typeof setOrgSandboxProvider>>;
+    try {
+      saved = await setOrgSandboxProvider(env, auth.orgId, patch);
+    } catch (error) {
+      if (error instanceof InputError) {
+        return Response.json({ ok: false, error: error.message }, { status: 400 });
+      }
+      throw error;
+    }
     const selection = await resolveSandboxSelection(env, { orgId: auth.orgId });
     return Response.json({ ok: true, settings: saved, effective: selection });
   }

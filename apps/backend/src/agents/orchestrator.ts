@@ -1460,7 +1460,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const signals: RunSignal[] = [];
     const summary = `screen_${action.type} (${argvPreview.length} command${argvPreview.length === 1 ? "" : "s"})`;
     try {
-      const ops = await acquireSandboxOps(this.env, run.sandboxId);
+      const ops = await acquireSandboxOps(this.env, run.sandboxId, undefined, undefined, sandboxSelectionForRun(run));
       const result = await runScreenAction(ops, action, signals);
       // Persist the exec trail + spine note in one commit — the row
       // shows what the screen did even when the caller disconnects.
