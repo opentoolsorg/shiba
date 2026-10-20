@@ -1,15 +1,8 @@
+import { access } from "node:fs/promises";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  ModelConfigWire,
-  SetupStatus,
-  WhoamiWire,
-} from "../../frontend/src/live-status";
-import {
-  SUBSCRIPTION_AUTH,
-  SubscriptionConnect,
-} from "../../frontend/src/components/SubscriptionConnect";
+import type { ModelConfigWire, SetupStatus, WhoamiWire } from "../../frontend/src/live-status";
 
 const liveStatusMocks = vi.hoisted(() => ({
   useSetupStatus: vi.fn(),
@@ -27,6 +20,7 @@ vi.mock("../../frontend/src/live-status", async (importOriginal) => {
   };
 });
 
+import { FirstRunWizard } from "../../frontend/src/components/FirstRunWizard";
 import { ProvidersView } from "../../frontend/src/components/ProvidersView";
 import { SettingsSectionBody } from "../../frontend/src/components/settings-sections";
 
@@ -81,14 +75,14 @@ describe("provider and settings connection surfaces", () => {
     expect(html).not.toContain("GITHUB_WEBHOOK_SECRET");
   });
 
-  it("places model connections in Providers between Connectors and sandbox CLIs", () => {
+  it("keeps model connections on Providers, under the ACP adapter list", () => {
     const html = renderToStaticMarkup(React.createElement(ProvidersView));
-    const connectors = html.indexOf("Connectors");
+    const adapters = html.indexOf("Sandbox adapters");
     const modelConnections = html.indexOf("Model connections");
-    const sandboxClis = html.indexOf("Sandbox Coding CLIs");
-    expect(modelConnections).toBeGreaterThan(connectors);
-    expect(sandboxClis).toBeGreaterThan(modelConnections);
+    expect(adapters).toBeGreaterThan(-1);
+    expect(modelConnections).toBeGreaterThan(adapters);
     expect(html).toContain("Named credentials a run can route through.");
+    expect(html).toContain("Loading providers");
     expect(html).toContain('<option value="grok">grok</option>');
     expect(html).not.toContain('value="cursor"');
   });
@@ -99,38 +93,24 @@ describe("provider and settings connection surfaces", () => {
     expect(html).not.toContain("Model connections");
   });
 
-  it("shows a credential-specific deployment hint on subscription connect cards", () => {
+  it("sends onboarding to Providers instead of the subscription connect API", () => {
     const html = renderToStaticMarkup(
-      React.createElement(SubscriptionConnect, {
-        spec: SUBSCRIPTION_AUTH["claude-subscription"],
-        credential: {
-          kind: "worker-secret",
-          label: "Claude subscription token",
-          configured: false,
-          setupHint: "claude setup-token, then npx wrangler secret put CLAUDE_SUBSCRIPTION_TOKEN",
-        },
-        onStatus: () => {},
+      React.createElement(FirstRunWizard, {
+        open: true,
+        onClose: () => {},
+        onNavigate: () => {},
       }),
     );
-    expect(html).toContain(
-      "Needs a deployment secret: claude setup-token, then npx wrangler secret put CLAUDE_SUBSCRIPTION_TOKEN",
-    );
-    expect(html).not.toContain("This provider needs a deployment credential");
+    expect(html).toContain("Loading providers");
+    expect(html).toContain("Open Providers");
+    expect(html).not.toContain("/api/auth/claude-subscription");
+    expect(html).not.toContain("/api/auth/codex-subscription");
+    expect(html).not.toContain("/api/auth/cursor-subscription");
   });
 
-  it("falls back to the generic deployment-credential hint when setupHint is empty", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(SubscriptionConnect, {
-        spec: SUBSCRIPTION_AUTH["claude-subscription"],
-        credential: {
-          kind: "worker-secret",
-          label: "Claude subscription token",
-          configured: false,
-          setupHint: "   ",
-        },
-        onStatus: () => {},
-      }),
-    );
-    expect(html).toContain("This provider needs a deployment credential before you can connect.");
+  it("no longer ships the legacy SubscriptionConnect control", async () => {
+    await expect(
+      access(new URL("../../frontend/src/components/SubscriptionConnect.tsx", import.meta.url)),
+    ).rejects.toThrow();
   });
 });
