@@ -24,6 +24,7 @@ export * from "./pr-owner.js";
 export * from "./browser-e2e.js";
 export * from "./steering.js";
 export * from "./auth.js";
+export * from "./acp-providers.js";
 export * from "./codex-home.js";
 export * from "./antigravity.js";
 export * from "./local-runtime.js";
