@@ -5,10 +5,11 @@
  *   3. Connect Model   — configure provider API key with live probe.
  * Collapses operator-only infra behind an expandable section.
  */
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useState, type JSX } from "react";
 import type { AppNavView } from "./AppNavRail";
 import { ToneChip } from "./ToneChip";
 import { useSetupStatus } from "../live-status";
+import { useOrgConnections } from "./org-connections";
 
 export const ONBOARDING_STORAGE_KEY = "shiba-onboarding-v1";
 
@@ -132,19 +133,7 @@ export function FirstRunWizard({
 }): JSX.Element | null {
   const [step, setStep] = useState(0);
   const setup = useSetupStatus();
-
-  // Sandbox connection state
-  const [runnerUrl, setRunnerUrl] = useState("");
-  const [runnerToken, setRunnerToken] = useState("");
-  const [runnerBackend, setRunnerBackend] = useState("e2b");
-  const [testingSandbox, setTestingSandbox] = useState(false);
-  const [sandboxResult, setSandboxResult] = useState<{ ok: boolean; message: string } | null>(null);
-
-  // Model key connection state
-  const [provider, setProvider] = useState("anthropic");
-  const [apiKey, setApiKey] = useState("");
-  const [testingModel, setTestingModel] = useState(false);
-  const [modelResult, setModelResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const connections = useOrgConnections();
 
   // Operator section collapse state
   const [showOperatorSection, setShowOperatorSection] = useState(false);
@@ -161,61 +150,6 @@ export function FirstRunWizard({
       // private mode
     }
     onClose();
-  };
-
-  const handleTestSandbox = async () => {
-    setTestingSandbox(true);
-    setSandboxResult(null);
-    try {
-      if (runnerUrl && runnerToken) {
-        await fetch("/api/org/sandbox", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            providerId: "computesdk",
-            computesdkBackend: runnerBackend,
-            runnerUrl,
-            runnerToken,
-          }),
-        });
-      }
-      const res = await fetch("/api/org/sandbox/test", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(runnerUrl && runnerToken ? { runnerUrl, runnerToken } : {}),
-      });
-      const data = (await res.json()) as { ok: boolean; message: string; error?: string };
-      setSandboxResult({ ok: data.ok, message: data.message || data.error || (data.ok ? "Connected" : "Failed") });
-    } catch (e) {
-      setSandboxResult({ ok: false, message: e instanceof Error ? e.message : "Connection failed" });
-    } finally {
-      setTestingSandbox(false);
-    }
-  };
-
-  const handleTestModel = async () => {
-    setTestingModel(true);
-    setModelResult(null);
-    try {
-      if (apiKey) {
-        await fetch(`/api/org/model-keys/${provider}`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ apiKey }),
-        });
-      }
-      const res = await fetch("/api/org/model-keys/test", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider, ...(apiKey ? { apiKey } : {}) }),
-      });
-      const data = (await res.json()) as { ok: boolean; message: string; error?: string };
-      setModelResult({ ok: data.ok, message: data.message || data.error || (data.ok ? "Connected" : "Failed") });
-    } catch (e) {
-      setModelResult({ ok: false, message: e instanceof Error ? e.message : "Connection failed" });
-    } finally {
-      setTestingModel(false);
-    }
   };
 
   return (
@@ -275,8 +209,8 @@ export function FirstRunWizard({
               <label className="text-[11px] font-medium text-[var(--text)] block mb-1">Runner URL:</label>
               <input
                 type="text"
-                value={runnerUrl}
-                onChange={(e) => setRunnerUrl(e.target.value)}
+                value={connections.runnerUrl}
+                onChange={(e) => connections.setRunnerUrl(e.target.value)}
                 placeholder="https://runner.your-domain.com"
                 className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
               />
@@ -284,19 +218,25 @@ export function FirstRunWizard({
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[11px] font-medium text-[var(--text)] block mb-1">Token:</label>
-                <input
-                  type="password"
-                  value={runnerToken}
-                  onChange={(e) => setRunnerToken(e.target.value)}
-                  placeholder="Bearer token"
-                  className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
-                />
+                {connections.sandboxConfigured && !connections.runnerToken ? (
+                  <div className="text-[11px] font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--primary)]">
+                    Configured (ends with …{connections.sandboxLast4 ?? "••••"})
+                  </div>
+                ) : (
+                  <input
+                    type="password"
+                    value={connections.runnerToken}
+                    onChange={(e) => connections.setRunnerToken(e.target.value)}
+                    placeholder="Bearer token"
+                    className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
+                  />
+                )}
               </div>
               <div>
                 <label className="text-[11px] font-medium text-[var(--text)] block mb-1">Backend:</label>
                 <select
-                  value={runnerBackend}
-                  onChange={(e) => setRunnerBackend(e.target.value)}
+                  value={connections.runnerBackend}
+                  onChange={(e) => connections.setRunnerBackend(e.target.value as any)}
                   className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
                 >
                   <option value="e2b">E2B</option>
@@ -305,18 +245,40 @@ export function FirstRunWizard({
                 </select>
               </div>
             </div>
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
               <button
                 type="button"
-                onClick={handleTestSandbox}
-                disabled={testingSandbox}
+                onClick={() => void connections.testSandbox()}
+                disabled={connections.testingSandbox || connections.savingSandbox}
                 className="rounded-[var(--radius-button)] bg-[var(--secondary)] px-3 py-1 font-mono text-[11px] font-semibold text-[var(--text)] border border-[var(--border-1)] hover:bg-[var(--secondary)]/80"
               >
-                {testingSandbox ? "Testing…" : "Save & Test"}
+                {connections.testingSandbox ? "Testing…" : "Test Runner"}
               </button>
-              {sandboxResult ? (
-                <span className={`text-[11px] font-mono ${sandboxResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
-                  {sandboxResult.ok ? "✓ " : "✗ "} {sandboxResult.message}
+              <button
+                type="button"
+                onClick={() => void connections.saveSandbox()}
+                disabled={!connections.canSaveSandbox || connections.savingSandbox}
+                className={`rounded-[var(--radius-button)] px-3 py-1 font-mono text-[11px] font-semibold border transition-colors ${
+                  connections.canSaveSandbox
+                    ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
+                    : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
+                }`}
+              >
+                {connections.savingSandbox ? "Saving…" : "Save Runner"}
+              </button>
+              {connections.sandboxTestResult ? (
+                <span className={`text-[11px] font-mono ${connections.sandboxTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
+                  {connections.sandboxTestResult.ok ? "✓ " : "✗ "} {connections.sandboxTestResult.message}
+                </span>
+              ) : null}
+              {connections.sandboxSaveError ? (
+                <span className="text-[11px] font-mono text-[var(--destructive)] block w-full mt-1">
+                  ✗ {connections.sandboxSaveError}
+                </span>
+              ) : null}
+              {connections.sandboxConfigured && !connections.sandboxSaveError ? (
+                <span className="text-[11px] font-mono text-[var(--primary)]">
+                  ✓ Saved and configured
                 </span>
               ) : null}
             </div>
@@ -336,8 +298,8 @@ export function FirstRunWizard({
               <div>
                 <label className="text-[11px] font-medium text-[var(--text)] block mb-1">Provider:</label>
                 <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value)}
+                  value={connections.modelProvider}
+                  onChange={(e) => connections.setModelProvider(e.target.value as any)}
                   className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
                 >
                   <option value="anthropic">Anthropic</option>
@@ -348,27 +310,55 @@ export function FirstRunWizard({
               </div>
               <div className="col-span-2">
                 <label className="text-[11px] font-medium text-[var(--text)] block mb-1">API Key:</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
-                />
+                {connections.modelConfigured && !connections.modelApiKey ? (
+                  <div className="text-[11px] font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--primary)]">
+                    Configured (ends with …{connections.modelLast4 ?? "••••"})
+                  </div>
+                ) : (
+                  <input
+                    type="password"
+                    value={connections.modelApiKey}
+                    onChange={(e) => connections.setModelApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
+                  />
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
               <button
                 type="button"
-                onClick={handleTestModel}
-                disabled={testingModel}
+                onClick={() => void connections.testModel()}
+                disabled={connections.testingModel || connections.savingModel}
                 className="rounded-[var(--radius-button)] bg-[var(--secondary)] px-3 py-1 font-mono text-[11px] font-semibold text-[var(--text)] border border-[var(--border-1)] hover:bg-[var(--secondary)]/80"
               >
-                {testingModel ? "Testing…" : "Save & Test"}
+                {connections.testingModel ? "Testing…" : "Test Key"}
               </button>
-              {modelResult ? (
-                <span className={`text-[11px] font-mono ${modelResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
-                  {modelResult.ok ? "✓ " : "✗ "} {modelResult.message}
+              <button
+                type="button"
+                onClick={() => void connections.saveModel()}
+                disabled={!connections.canSaveModel || connections.savingModel}
+                className={`rounded-[var(--radius-button)] px-3 py-1 font-mono text-[11px] font-semibold border transition-colors ${
+                  connections.canSaveModel
+                    ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
+                    : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
+                }`}
+              >
+                {connections.savingModel ? "Saving…" : "Save Key"}
+              </button>
+              {connections.modelTestResult ? (
+                <span className={`text-[11px] font-mono ${connections.modelTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
+                  {connections.modelTestResult.ok ? "✓ " : "✗ "} {connections.modelTestResult.message}
+                </span>
+              ) : null}
+              {connections.modelSaveError ? (
+                <span className="text-[11px] font-mono text-[var(--destructive)] block w-full mt-1">
+                  ✗ {connections.modelSaveError}
+                </span>
+              ) : null}
+              {connections.modelConfigured && !connections.modelSaveError ? (
+                <span className="text-[11px] font-mono text-[var(--primary)]">
+                  ✓ Saved and configured
                 </span>
               ) : null}
             </div>

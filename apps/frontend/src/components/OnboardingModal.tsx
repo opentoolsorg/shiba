@@ -1,10 +1,12 @@
 import React, { useEffect, useId, useState } from "react";
+import { useOrgConnections } from "./org-connections";
 
 export interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectStarterTask?: (repoUrl: string, task: string, harness: string) => void;
   onOpenInbox?: () => void;
+  initialExpandedStep?: string | null;
 }
 
 export interface SetupStep {
@@ -164,6 +166,7 @@ export function OnboardingModal({
   onClose,
   onSelectStarterTask,
   onOpenInbox,
+  initialExpandedStep = "github-token",
 }: OnboardingModalProps): React.JSX.Element | null {
   const [completedSteps, setCompletedSteps] = useState<string[]>(() => {
     try {
@@ -177,24 +180,12 @@ export function OnboardingModal({
     return [];
   });
 
-  const [expandedStep, setExpandedStep] = useState<string | null>("github-token");
+  const [expandedStep, setExpandedStep] = useState<string | null>(initialExpandedStep);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showOperatorSteps, setShowOperatorSteps] = useState(false);
   const [detected, setDetected] = useState<Set<string>>(new Set());
 
-  // Sandbox test state
-  const [runnerUrl, setRunnerUrl] = useState("");
-  const [runnerToken, setRunnerToken] = useState("");
-  const [runnerBackend, setRunnerBackend] = useState("e2b");
-  const [sandboxTesting, setSandboxTesting] = useState(false);
-  const [sandboxTestResult, setSandboxTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-
-  // Model key test state
-  const [modelProvider, setModelProvider] = useState("anthropic");
-  const [modelApiKey, setModelApiKey] = useState("");
-  const [modelTesting, setModelTesting] = useState(false);
-  const [modelTestResult, setModelTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-
+  const connections = useOrgConnections();
   const modalTitleId = useId();
 
   useEffect(() => {
@@ -218,6 +209,18 @@ export function OnboardingModal({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (connections.sandboxConfigured) {
+      setDetected((prev) => new Set([...prev, "connect-sandbox"]));
+    }
+  }, [connections.sandboxConfigured]);
+
+  useEffect(() => {
+    if (connections.modelConfigured) {
+      setDetected((prev) => new Set([...prev, "connect-model"]));
+    }
+  }, [connections.modelConfigured]);
+
   if (!isOpen) return null;
 
   const toggleStep = (stepId: string) => {
@@ -234,67 +237,6 @@ export function OnboardingModal({
 
   const isStepDone = (id: string) => completedSteps.includes(id) || detected.has(id);
   const requiredDone = CORE_STEPS.every((s) => isStepDone(s.id));
-
-  const handleTestSandbox = async () => {
-    setSandboxTesting(true);
-    setSandboxTestResult(null);
-    try {
-      if (runnerUrl && runnerToken) {
-        await fetch("/api/org/sandbox", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            providerId: "computesdk",
-            computesdkBackend: runnerBackend,
-            runnerUrl,
-            runnerToken,
-          }),
-        });
-      }
-      const res = await fetch("/api/org/sandbox/test", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(runnerUrl && runnerToken ? { runnerUrl, runnerToken } : {}),
-      });
-      const data = (await res.json()) as { ok: boolean; message: string; error?: string };
-      setSandboxTestResult({ ok: data.ok, message: data.message || data.error || (data.ok ? "Connected" : "Failed") });
-      if (data.ok) {
-        setDetected((prev) => new Set([...prev, "connect-sandbox"]));
-      }
-    } catch (e) {
-      setSandboxTestResult({ ok: false, message: e instanceof Error ? e.message : "Network error" });
-    } finally {
-      setSandboxTesting(false);
-    }
-  };
-
-  const handleTestModel = async () => {
-    setModelTesting(true);
-    setModelTestResult(null);
-    try {
-      if (modelApiKey) {
-        await fetch(`/api/org/model-keys/${modelProvider}`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ apiKey: modelApiKey }),
-        });
-      }
-      const res = await fetch("/api/org/model-keys/test", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider: modelProvider, ...(modelApiKey ? { apiKey: modelApiKey } : {}) }),
-      });
-      const data = (await res.json()) as { ok: boolean; message: string; error?: string };
-      setModelTestResult({ ok: data.ok, message: data.message || data.error || (data.ok ? "Connected" : "Failed") });
-      if (data.ok) {
-        setDetected((prev) => new Set([...prev, "connect-model"]));
-      }
-    } catch (e) {
-      setModelTestResult({ ok: false, message: e instanceof Error ? e.message : "Network error" });
-    } finally {
-      setModelTesting(false);
-    }
-  };
 
   return (
     <div
@@ -407,8 +349,8 @@ export function OnboardingModal({
                           </label>
                           <input
                             type="text"
-                            value={runnerUrl}
-                            onChange={(e) => setRunnerUrl(e.target.value)}
+                            value={connections.runnerUrl}
+                            onChange={(e) => connections.setRunnerUrl(e.target.value)}
                             placeholder="https://runner.your-org.com"
                             className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
                           />
@@ -418,21 +360,27 @@ export function OnboardingModal({
                             <label className="text-[11px] font-semibold text-[var(--fg)] block mb-1">
                               Bearer Token:
                             </label>
-                            <input
-                              type="password"
-                              value={runnerToken}
-                              onChange={(e) => setRunnerToken(e.target.value)}
-                              placeholder="Bearer token"
-                              className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
-                            />
+                            {connections.sandboxConfigured && !connections.runnerToken ? (
+                              <div className="text-[11px] font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--primary)]">
+                                Configured (ends with …{connections.sandboxLast4 ?? "••••"})
+                              </div>
+                            ) : (
+                              <input
+                                type="password"
+                                value={connections.runnerToken}
+                                onChange={(e) => connections.setRunnerToken(e.target.value)}
+                                placeholder="Bearer token"
+                                className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
+                              />
+                            )}
                           </div>
                           <div>
                             <label className="text-[11px] font-semibold text-[var(--fg)] block mb-1">
                               Backend:
                             </label>
                             <select
-                              value={runnerBackend}
-                              onChange={(e) => setRunnerBackend(e.target.value)}
+                              value={connections.runnerBackend}
+                              onChange={(e) => connections.setRunnerBackend(e.target.value as any)}
                               className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
                             >
                               <option value="e2b">E2B</option>
@@ -441,18 +389,40 @@ export function OnboardingModal({
                             </select>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 pt-1">
+                        <div className="flex items-center gap-2 pt-1 flex-wrap">
                           <button
                             type="button"
-                            onClick={handleTestSandbox}
-                            disabled={sandboxTesting}
+                            onClick={() => void connections.testSandbox()}
+                            disabled={connections.testingSandbox || connections.savingSandbox}
                             className="text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] bg-[var(--secondary)] hover:bg-[var(--secondary)]/80 text-[var(--fg)] border border-[var(--border-1)]"
                           >
-                            {sandboxTesting ? "Testing..." : "Save & Test Runner"}
+                            {connections.testingSandbox ? "Testing..." : "Test Runner"}
                           </button>
-                          {sandboxTestResult ? (
-                            <span className={`text-[11px] font-mono ${sandboxTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
-                              {sandboxTestResult.ok ? "✓ " : "✗ "} {sandboxTestResult.message}
+                          <button
+                            type="button"
+                            onClick={() => void connections.saveSandbox()}
+                            disabled={!connections.canSaveSandbox || connections.savingSandbox}
+                            className={`text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] border transition-colors ${
+                              connections.canSaveSandbox
+                                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
+                                : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
+                            }`}
+                          >
+                            {connections.savingSandbox ? "Saving..." : "Save Runner"}
+                          </button>
+                          {connections.sandboxTestResult ? (
+                            <span className={`text-[11px] font-mono ${connections.sandboxTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
+                              {connections.sandboxTestResult.ok ? "✓ " : "✗ "} {connections.sandboxTestResult.message}
+                            </span>
+                          ) : null}
+                          {connections.sandboxSaveError ? (
+                            <span className="text-[11px] font-mono text-[var(--destructive)] block w-full mt-1">
+                              ✗ {connections.sandboxSaveError}
+                            </span>
+                          ) : null}
+                          {connections.sandboxConfigured && !connections.sandboxSaveError ? (
+                            <span className="text-[11px] font-mono text-[var(--primary)]">
+                              ✓ Saved and configured
                             </span>
                           ) : null}
                         </div>
@@ -467,8 +437,8 @@ export function OnboardingModal({
                               Provider:
                             </label>
                             <select
-                              value={modelProvider}
-                              onChange={(e) => setModelProvider(e.target.value)}
+                              value={connections.modelProvider}
+                              onChange={(e) => connections.setModelProvider(e.target.value as any)}
                               className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
                             >
                               <option value="anthropic">Anthropic</option>
@@ -481,27 +451,55 @@ export function OnboardingModal({
                             <label className="text-[11px] font-semibold text-[var(--fg)] block mb-1">
                               API Key:
                             </label>
-                            <input
-                              type="password"
-                              value={modelApiKey}
-                              onChange={(e) => setModelApiKey(e.target.value)}
-                              placeholder="sk-..."
-                              className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
-                            />
+                            {connections.modelConfigured && !connections.modelApiKey ? (
+                              <div className="text-[11px] font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--primary)]">
+                                Configured (ends with …{connections.modelLast4 ?? "••••"})
+                              </div>
+                            ) : (
+                              <input
+                                type="password"
+                                value={connections.modelApiKey}
+                                onChange={(e) => connections.setModelApiKey(e.target.value)}
+                                placeholder="sk-..."
+                                className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
+                              />
+                            )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 pt-1">
+                        <div className="flex items-center gap-2 pt-1 flex-wrap">
                           <button
                             type="button"
-                            onClick={handleTestModel}
-                            disabled={modelTesting}
+                            onClick={() => void connections.testModel()}
+                            disabled={connections.testingModel || connections.savingModel}
                             className="text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] bg-[var(--secondary)] hover:bg-[var(--secondary)]/80 text-[var(--fg)] border border-[var(--border-1)]"
                           >
-                            {modelTesting ? "Testing..." : "Save & Test Key"}
+                            {connections.testingModel ? "Testing..." : "Test Key"}
                           </button>
-                          {modelTestResult ? (
-                            <span className={`text-[11px] font-mono ${modelTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
-                              {modelTestResult.ok ? "✓ " : "✗ "} {modelTestResult.message}
+                          <button
+                            type="button"
+                            onClick={() => void connections.saveModel()}
+                            disabled={!connections.canSaveModel || connections.savingModel}
+                            className={`text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] border transition-colors ${
+                              connections.canSaveModel
+                                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
+                                : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
+                            }`}
+                          >
+                            {connections.savingModel ? "Saving..." : "Save Key"}
+                          </button>
+                          {connections.modelTestResult ? (
+                            <span className={`text-[11px] font-mono ${connections.modelTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
+                              {connections.modelTestResult.ok ? "✓ " : "✗ "} {connections.modelTestResult.message}
+                            </span>
+                          ) : null}
+                          {connections.modelSaveError ? (
+                            <span className="text-[11px] font-mono text-[var(--destructive)] block w-full mt-1">
+                              ✗ {connections.modelSaveError}
+                            </span>
+                          ) : null}
+                          {connections.modelConfigured && !connections.modelSaveError ? (
+                            <span className="text-[11px] font-mono text-[var(--primary)]">
+                              ✓ Saved and configured
                             </span>
                           ) : null}
                         </div>
@@ -605,7 +603,7 @@ export function OnboardingModal({
                         href={`/docs/onboarding/#${step.docAnchor}`}
                         className="text-[11px] font-mono text-[var(--primary)] hover:underline shrink-0"
                       >
-                        Learn more
+                        Learn more about {step.title}
                       </a>
                     </div>
                   );
