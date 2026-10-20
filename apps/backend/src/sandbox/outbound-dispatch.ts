@@ -20,7 +20,7 @@ import {
 } from "../egress.js";
 import type { NamedOutboundHandler, OutboundConfig, OutboundHostRule } from "./outbound-config.js";
 
-const BUILTIN_FORWARDERS: Record<string, (request: Request, env: EgressEnv) => Promise<Response>> = {
+const BUILTIN_FORWARDERS: Record<string, (request: Request, env: EgressEnv, orgId?: string) => Promise<Response>> = {
   "generativelanguage.googleapis.com": forwardGoogle,
   "api.anthropic.com": forwardAnthropic,
   "api.openai.com": forwardOpenAI,
@@ -94,7 +94,7 @@ export async function dispatchOutboundRequest(
     if (!forward) {
       return new Response("Invalid provider destination.", { status: 403 });
     }
-    return forward(request, env);
+    return forward(request, env, config.orgId);
   }
   const handler = namedHandler(rule.handler);
   const ctx: OutboundHandlerCtx = rule.params ? { params: rule.params } : {};

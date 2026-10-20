@@ -8,7 +8,7 @@
 import type { Env as WorkerEnv } from "./env.js";
 import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
-import { parseCodexAuthJson } from "@shiba/shared";
+import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
 
 export type EgressEnv = Pick<
   WorkerEnv,
@@ -32,6 +32,7 @@ export type EgressEnv = Pick<
  */
 export interface OutboundHandlerCtx {
   params?: unknown;
+  orgId?: string;
 }
 
 function approvedPath(ctx?: OutboundHandlerCtx): string | undefined {
@@ -68,7 +69,12 @@ export const GATEWAY_PROVIDERS: Record<string, string> = {
   "opencode.ai": "opencode-go",
 };
 
-async function forwardProvider(request: Request, env: EgressEnv, host: string): Promise<Response> {
+async function forwardProvider(
+  request: Request,
+  env: EgressEnv,
+  host: string,
+  orgId?: string,
+): Promise<Response> {
   const source = new URL(request.url);
   if (source.protocol !== "https:" || source.hostname !== host) {
     return new Response("Invalid provider destination.", { status: 403 });
@@ -88,7 +94,25 @@ async function forwardProvider(request: Request, env: EgressEnv, host: string): 
     target.search = stripCredentialParams(source.search);
     const headers = outboundHeaders(request);
     if (env.AI_GATEWAY_TOKEN) headers.set("cf-aig-authorization", `Bearer ${env.AI_GATEWAY_TOKEN}`);
-    // The gateway injects its stored BYOK credential; preserve the native body/stream.
+
+    // If org has configured a native API key for this provider, inject its header.
+    if (orgId && env.AGENT_AUDIT) {
+      if (host === "api.anthropic.com") {
+        const key = await getDecryptedOrgModelKey(env, orgId, "anthropic");
+        if (key) headers.set("x-api-key", key);
+      } else if (host === "api.openai.com") {
+        const key = await getDecryptedOrgModelKey(env, orgId, "openai");
+        if (key) headers.set("authorization", `Bearer ${key}`);
+      } else if (host === "api.x.ai") {
+        const key = await getDecryptedOrgModelKey(env, orgId, "xai");
+        if (key) headers.set("authorization", `Bearer ${key}`);
+      } else if (host === "generativelanguage.googleapis.com") {
+        const key = await getDecryptedOrgModelKey(env, orgId, "google");
+        if (key) headers.set("x-goog-api-key", key);
+      }
+    }
+
+    // The gateway injects its stored BYOK credential if no native auth header was set; preserve body/stream.
     return await fetch(target, {
       method: request.method,
       headers,
@@ -101,20 +125,40 @@ async function forwardProvider(request: Request, env: EgressEnv, host: string): 
   }
 }
 
-export function forwardGoogle(request: Request, env: EgressEnv): Promise<Response> {
-  return forwardProvider(request, env, "generativelanguage.googleapis.com");
+export function forwardGoogle(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx | string,
+): Promise<Response> {
+  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
+  return forwardProvider(request, env, "generativelanguage.googleapis.com", orgId);
 }
 
-export function forwardAnthropic(request: Request, env: EgressEnv): Promise<Response> {
-  return forwardProvider(request, env, "api.anthropic.com");
+export function forwardAnthropic(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx | string,
+): Promise<Response> {
+  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
+  return forwardProvider(request, env, "api.anthropic.com", orgId);
 }
 
-export function forwardOpenAI(request: Request, env: EgressEnv): Promise<Response> {
-  return forwardProvider(request, env, "api.openai.com");
+export function forwardOpenAI(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx | string,
+): Promise<Response> {
+  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
+  return forwardProvider(request, env, "api.openai.com", orgId);
 }
 
-export function forwardXAI(request: Request, env: EgressEnv): Promise<Response> {
-  return forwardProvider(request, env, "api.x.ai");
+export function forwardXAI(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx | string,
+): Promise<Response> {
+  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
+  return forwardProvider(request, env, "api.x.ai", orgId);
 }
 
 /**
@@ -124,8 +168,13 @@ export function forwardXAI(request: Request, env: EgressEnv): Promise<Response> 
  * container-supplied gateway controls are stripped by outboundHeaders; a
  * stable per-run session id rides through untouched.
  */
-export function forwardOpenCodeGo(request: Request, env: EgressEnv): Promise<Response> {
-  return forwardProvider(request, env, "opencode.ai");
+export function forwardOpenCodeGo(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx | string,
+): Promise<Response> {
+  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
+  return forwardProvider(request, env, "opencode.ai", orgId);
 }
 
 /**

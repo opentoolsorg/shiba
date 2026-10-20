@@ -1049,6 +1049,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         baseBranch: input.baseBranch,
         publishPullRequest: input.publishPullRequest,
         sandboxId,
+        ...(reserved.orgId ? { orgId: reserved.orgId } : pointer?.orgId ? { orgId: pointer.orgId } : {}),
         codingModel,
         harness: resolvedHarness as CodingTaskInput["harness"],
         route,
@@ -1794,6 +1795,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             : {}),
           ...(taskSandboxProvider ? { sandboxProvider: taskSandboxProvider } : {}),
           ...(customAgentId ? { customAgentId } : {}),
+          ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
           createdAt: Date.now(),
         }),
         ...(queueCommandId !== undefined
@@ -2412,6 +2414,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           : {}),
         ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
+        ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
         createdAt: Date.now(),
       }),
     });
@@ -2443,6 +2446,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       publishPullRequest: record.publishPullRequest ?? false,
       ...(record.reviewAfterPublish !== undefined ? { reviewAfterPublish: record.reviewAfterPublish } : {}),
       queuedBy: record.queuedBy,
+      ...(record.orgId ? { orgId: record.orgId } : {}),
       ...(record.route ? { route: record.route } : {}),
       ...(record.authAccount ? { authAccount: record.authAccount } : {}),
       ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),

@@ -39,6 +39,7 @@ import { handleOAuth } from "./oauth-mcp.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
+import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
 import { handleRuns } from "./runs-routes.js";
 import { handleSwarm } from "./swarm-routes.js";
@@ -257,6 +258,8 @@ export default {
       if (customAgentsResponse) return customAgentsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
       if (orgSandboxResponse) return orgSandboxResponse;
+      const orgModelKeysResponse = await handleOrgModelKeys(request, env);
+      if (orgModelKeysResponse) return orgModelKeysResponse;
       const userOpenAiSubscriptionResponse = await handleUserOpenAiSubscription(request, env);
       if (userOpenAiSubscriptionResponse) return userOpenAiSubscriptionResponse;
       const subscriptionAuthResponse = await handleSubscriptionAuth(request, env);

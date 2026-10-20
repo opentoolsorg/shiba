@@ -124,6 +124,7 @@ export interface PendingApproval {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  orgId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
    * already resolved into `route` at queue time — this rides along as
@@ -183,6 +184,7 @@ export interface CreateApprovalInput {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  orgId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
   payload?: JsonValue;
@@ -225,6 +227,7 @@ export function createPendingApproval(
       ...(input.denId !== undefined ? { denId: input.denId } : {}),
       ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
       ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+      ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.payload !== undefined ? { payload: input.payload } : {}),

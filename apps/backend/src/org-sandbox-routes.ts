@@ -1,27 +1,89 @@
 import { parseSandboxProviderId } from "@shiba/sandbox";
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
-import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
-import { getOrgSandboxProvider, setOrgSandboxProvider } from "./org-sandbox-store.js";
+import {
+  getDecryptedOrgRunnerToken,
+  getOrgSandboxProvider,
+  type SetOrgSandboxParams,
+  setOrgSandboxProvider,
+} from "./org-sandbox-store.js";
 import { listSandboxProviderCatalog } from "./sandbox/provider-catalog.js";
 import { resolveSandboxSelection } from "./sandbox/selection.js";
+import { validateRunnerUrl } from "./security.js";
+import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 
-function decodePatch(body: unknown): { providerId: string; computesdkBackend?: string } | null {
+function decodePatch(body: unknown): SetOrgSandboxParams | null {
   if (typeof body !== "object" || body === null) return null;
-  const raw = body as { providerId?: unknown; computesdkBackend?: unknown };
+  const raw = body as {
+    providerId?: unknown;
+    computesdkBackend?: unknown;
+    runnerUrl?: unknown;
+    runnerToken?: unknown;
+  };
   if (typeof raw.providerId !== "string" || !raw.providerId.trim()) return null;
   const computesdkBackend =
     typeof raw.computesdkBackend === "string" && raw.computesdkBackend.trim()
       ? raw.computesdkBackend.trim()
       : undefined;
-  return { providerId: raw.providerId.trim(), ...(computesdkBackend ? { computesdkBackend } : {}) };
+  const runnerUrl =
+    typeof raw.runnerUrl === "string" && raw.runnerUrl.trim() ? raw.runnerUrl.trim() : undefined;
+  const runnerToken =
+    typeof raw.runnerToken === "string" && raw.runnerToken.trim()
+      ? raw.runnerToken.trim()
+      : undefined;
+
+  return {
+    providerId: raw.providerId.trim(),
+    ...(computesdkBackend ? { computesdkBackend } : {}),
+    ...(runnerUrl ? { runnerUrl } : {}),
+    ...(runnerToken ? { runnerToken } : {}),
+  };
 }
 
-export async function handleOrgSandboxSettings(request: Request, env: Env): Promise<Response | null> {
+async function pingRunner(
+  baseUrl: string,
+  token: string,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    const validated = validateRunnerUrl(baseUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const headers = { authorization: `Bearer ${token}` };
+    const pingUrl = `${validated}/v1/ping`;
+    const res = await fetch(pingUrl, {
+      method: "GET",
+      headers,
+      redirect: "manual",
+      signal: controller.signal,
+    }).catch(() => null);
+
+    clearTimeout(timeout);
+    if (!res) {
+      return { ok: false, message: "Could not reach runner endpoint." };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, message: "Runner rejected authentication token (401/403)." };
+    }
+    if (res.status >= 200 && res.status < 300) {
+      return { ok: true, message: "ComputeSDK runner reached and authenticated successfully." };
+    }
+    return { ok: false, message: `Runner returned HTTP status ${res.status}.` };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Runner ping failed." };
+  }
+}
+
+export async function handleOrgSandboxSettings(
+  request: Request,
+  env: Env,
+): Promise<Response | null> {
   const url = new URL(request.url);
-  if (url.pathname !== "/api/org/sandbox") return null;
+  if (url.pathname !== "/api/org/sandbox" && url.pathname !== "/api/org/sandbox/test") return null;
   if (!env.AGENT_AUDIT) {
-    return Response.json({ ok: false, error: "AGENT_AUDIT D1 binding is not configured." }, { status: 503 });
+    return Response.json(
+      { ok: false, error: "AGENT_AUDIT D1 binding is not configured." },
+      { status: 503 },
+    );
   }
 
   const auth = await resolveOrgForApiRequest(request, env);
@@ -29,6 +91,48 @@ export async function handleOrgSandboxSettings(request: Request, env: Env): Prom
   if (auth.principal) {
     if (request.method === "GET" && !requireV1Read(auth.principal)) return v1Forbidden();
     if (request.method !== "GET" && !requireV1Write(auth.principal)) return v1Forbidden();
+  }
+
+  if (url.pathname === "/api/org/sandbox/test" && request.method === "POST") {
+    let body: { runnerUrl?: string; runnerToken?: string } = {};
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      // Body may be empty if testing saved configuration
+    }
+    let runnerUrl = body.runnerUrl?.trim();
+    let runnerToken = body.runnerToken?.trim();
+
+    if (!runnerUrl || !runnerToken) {
+      const existing = await getOrgSandboxProvider(env, auth.orgId);
+      // The stored token only ever goes to the stored URL, never to a caller-supplied one.
+      if (runnerUrl && runnerUrl !== existing?.runnerUrl && !runnerToken) {
+        return Response.json(
+          { ok: false, error: "runnerToken is required when testing a new runnerUrl." },
+          { status: 400 },
+        );
+      }
+      runnerUrl ||= existing?.runnerUrl;
+      if (!runnerToken) {
+        runnerToken = (await getDecryptedOrgRunnerToken(env, auth.orgId)) ?? undefined;
+      }
+    }
+
+    if (!runnerUrl) {
+      return Response.json(
+        { ok: false, error: "runnerUrl is required to test runner." },
+        { status: 400 },
+      );
+    }
+    if (!runnerToken) {
+      return Response.json(
+        { ok: false, error: "runnerToken is required to test runner." },
+        { status: 400 },
+      );
+    }
+
+    const testResult = await pingRunner(runnerUrl, runnerToken);
+    return Response.json({ ok: testResult.ok, message: testResult.message });
   }
 
   if (request.method === "GET") {
@@ -67,12 +171,17 @@ export async function handleOrgSandboxSettings(request: Request, env: Env): Prom
         { status: 400 },
       );
     }
-    const saved = await setOrgSandboxProvider(
-      env,
-      auth.orgId,
-      patch.providerId,
-      patch.computesdkBackend,
-    );
+    if (patch.runnerUrl) {
+      try {
+        validateRunnerUrl(patch.runnerUrl);
+      } catch (error) {
+        return Response.json(
+          { ok: false, error: error instanceof Error ? error.message : "invalid_runner_url" },
+          { status: 400 },
+        );
+      }
+    }
+    const saved = await setOrgSandboxProvider(env, auth.orgId, patch);
     const selection = await resolveSandboxSelection(env, { orgId: auth.orgId });
     return Response.json({ ok: true, settings: saved, effective: selection });
   }
