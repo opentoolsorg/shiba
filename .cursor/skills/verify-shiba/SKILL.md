@@ -5,11 +5,11 @@ description: Drive and prove the shiba dashboard locally (task composer, approva
 
 # verify-shiba
 
-Prove dashboard behaviour from the real UI path. Never claim live GitHub success from mock boundary mode.
+Prove dashboard behaviour from the real UI path. The local CI workaround submits and approves via API; evidence labels approval as `approve (API)`, not a dashboard click. Findings are still required to render in the run-specific Diff view. Never claim live GitHub success from mock boundary mode.
 
 ## Launch
 
-Run `scripts/launch.sh`. It installs, builds, copies `.dev.vars` from the example when missing (never prints values), applies local D1 migrations, starts `wrangler dev`, and writes PID/port under `.verify/`.
+Run `scripts/launch.sh`. It installs, builds, writes an invocation-scoped `.verify/run.env` (derived from `.dev.vars`, or the example when missing; never prints values; `.dev.vars` is never modified) passed to `wrangler dev --env-file`, applies local D1 migrations, starts `wrangler dev`, and writes PID/port under `.verify/`.
 
 Ready means `/api/setup/status` returns JSON (not SPA HTML) **and** `/app/` returns HTML.
 
@@ -31,7 +31,7 @@ Features live in `features/`.
 
 ## Assert
 
-`node scripts/assert-journey.mjs` after `drive.mjs`. Polls `/api/runs`, `/api/v1/threads/:id/pr/review`, and the GitHub stub `GET /__shiba/state`. **Fails the process** on missing evidence. Container-only checks are marked `skipped` when `containers-mode` is disabled (CI path).
+`node scripts/assert-journey.mjs` after `drive.mjs`. Polls `/api/runs`, `/api/v1/threads/:id/pr/review`, and, in recorded mock mode only, the GitHub stub `GET /__shiba/state`. Live mode uses authenticated, read-only `gh api --hostname github.com --method GET` pull/review/comment read-backs (requires an existing gh login); missing or mismatched proof fails explicitly, without consulting any stub. **Fails the process** on missing evidence. Container-only checks are marked `skipped` when `containers-mode` is disabled (CI path).
 
 ## Journeys
 
@@ -42,7 +42,7 @@ Features live in `features/`.
 | `sandbox-run-and-diff` | needs `VERIFY_ENABLE_CONTAINERS=1` + Docker | real container + diff (skipped honestly in CI) |
 | `review-findings` | same loop as `core-loop-mock` | findings UI + API/stub read-backs |
 
-When containers are disabled, `launch.sh` sets `SHIBA_VERIFY_STANDIN=1` in `.dev.vars` so publish/review still complete deterministically. That is **not** live model or live GitHub proof.
+The stand-in (`SHIBA_VERIFY_STANDIN=1` in `run.env`) is on only when containers are disabled **and** GitHub is the loopback mock; every other launch forces it to `0`, overriding stale values. The Worker guard (`verifyStandinEnabled`) also requires `GITHUB_API_BASE` to be an explicit `http://127.0.0.1|localhost|[::1]` origin, so live or non-loopback GitHub never gets synthetic runs. `VERIFY_ENABLE_CONTAINERS=1` with Docker unavailable exits 1 (no silent stand-in), and `VERIFY_GITHUB=live` drops any stale mock base. `VERIFY_PLAN_ONLY=1` writes the mode files and `run.env` then exits (used by `apps/backend/test/verify-standin-guard.test.ts`). The stand-in is **not** live model or live GitHub proof.
 
 ## Run locally
 
