@@ -1,6 +1,6 @@
 import { parseSandboxProviderId, type SandboxProviderId } from "@shiba/sandbox";
 import type { Env } from "../env.js";
-import { getOrgSandboxProvider } from "../org-sandbox-store.js";
+import { getOrgSandboxProvider, type OrgSandboxSettings } from "../org-sandbox-store.js";
 
 export interface SandboxSelectionContext {
   orgId?: string;
@@ -13,6 +13,7 @@ export interface SandboxSelectionContext {
 export interface ResolvedSandboxSelection {
   providerId: SandboxProviderId;
   source: "task" | "custom_agent" | "org" | "deployment";
+  orgSettings?: OrgSandboxSettings;
 }
 
 /**
@@ -22,10 +23,10 @@ export async function resolveSandboxSelection(
   env: Env,
   ctx: SandboxSelectionContext = {},
 ): Promise<ResolvedSandboxSelection> {
-  const tryId = (raw: string | undefined, source: ResolvedSandboxSelection["source"]) => {
+  const tryId = (raw: string | undefined, source: ResolvedSandboxSelection["source"], orgSettings?: OrgSandboxSettings) => {
     if (!raw?.trim()) return null;
     const providerId = parseSandboxProviderId(raw.trim());
-    return { providerId, source };
+    return { providerId, source, ...(orgSettings ? { orgSettings } : {}) };
   };
 
   const fromTask = tryId(ctx.taskProviderId, "task");
@@ -36,7 +37,7 @@ export async function resolveSandboxSelection(
 
   if (ctx.orgId && env.AGENT_AUDIT) {
     const orgRow = await getOrgSandboxProvider(env, ctx.orgId);
-    const fromOrg = tryId(orgRow?.providerId, "org");
+    const fromOrg = tryId(orgRow?.providerId, "org", orgRow ?? undefined);
     if (fromOrg) return fromOrg;
   }
 

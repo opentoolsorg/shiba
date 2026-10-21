@@ -184,12 +184,14 @@ invariants as non-negotiable acceptance criteria, not as context.
               (automations: approval by default, narrow opt-in unattended)
 4  dispatch   approved input frozen; route revalidated at dispatch
 5  sandbox    ephemeral container: clone (scoped) → run the harness CLI
-6  egress     AI Gateway swaps the dummy key for the real provider key
+6  egress     AI Gateway swaps the dummy key for the real provider key (or injects org-configured provider API key)
 7  collect    diff, exit code, structured result envelope (error ≠ completed)
 8  publish    branch + PR; optional screenshot (T33, shipped — needs
               WORKER_HOSTNAME for the public asset URL)
 9  cleanup    container destroyed; short sleep tail; result + receipts recorded
 ```
+
+**Per-org sandbox runners and model keys**: Orgs can bring their own sandbox runners (ComputeSDK remote runner URL and token encrypted at rest via AES-GCM in D1) and paste raw provider API keys (`anthropic`, `openai`, `google`, `xai`, stored encrypted in D1 write-only). At edge egress, `orgId` resolves decrypted keys and injects native auth headers (`x-api-key`, `Authorization: Bearer`, `x-goog-api-key`) through Cloudflare AI Gateway, falling back to deployment BYOK aliases when unconfigured. Runner URLs are HTTPS-only and SSRF-validated against private, loopback, link-local, and CGNAT networks.
 
 Steps **3** and **6** are the load-bearing ones. Everything else is
 replaceable — which is why resumable runs (`PLAN.md` §4) and the parity waves

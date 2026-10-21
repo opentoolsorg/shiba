@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleOrgSandboxSettings } from "../src/org-sandbox-routes.js";
 import type { Env } from "../src/env.js";
+import { handleOrgSandboxSettings } from "../src/org-sandbox-routes.js";
 
 vi.mock("../src/request-auth.js", () => ({
   isAuthorizedRequest: vi.fn(async () => true),
@@ -10,7 +10,11 @@ function mockD1(): D1Database {
   const settings = new Map<string, Record<string, unknown>>();
   const stmt = (sql: string, args: unknown[] = []) => ({
     async run() {
-      if (sql.includes("CREATE TABLE") || sql.includes("audit_log") || sql.includes("CREATE INDEX")) {
+      if (
+        sql.includes("CREATE TABLE") ||
+        sql.includes("audit_log") ||
+        sql.includes("CREATE INDEX")
+      ) {
         return { success: true };
       }
       if (sql.includes("INSERT INTO org_sandbox_settings")) {
@@ -49,7 +53,10 @@ function envWithAudit(): Env {
 
 describe("handleOrgSandboxSettings", () => {
   it("GET returns provider catalog", async () => {
-    const res = await handleOrgSandboxSettings(new Request("https://x/api/org/sandbox"), envWithAudit());
+    const res = await handleOrgSandboxSettings(
+      new Request("https://x/api/org/sandbox"),
+      envWithAudit(),
+    );
     expect(res?.status).toBe(200);
     const body = (await res?.json()) as { ok?: boolean; providers?: unknown[] };
     expect(body.ok).toBe(true);

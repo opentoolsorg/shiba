@@ -280,17 +280,11 @@ describe("dashboard rendering", () => {
       onClose: () => {},
       onSelectStarterTask: () => {},
     }));
-    expect(markup).toContain("Setup &amp; Onboarding Guide");
-    expect(markup).toContain("Cloudflare Workers Paid &amp; Container Sandbox");
-    expect(markup).toContain("Cloudflare AI Gateway &amp; Stored BYOK Keys");
-    expect(markup).toContain("Cloudflare Access &amp; Webhook Bypass Policies");
-    expect(markup).toContain("GitHub Personal Access Token &amp; Repo Scoping");
-    expect(markup).toContain("First Live Run &amp; Approval Gate");
-    expect(markup).toContain("All (6)");
-    // Nothing is verified before /api/setup/status answers, so no step starts done.
-    expect(markup).toContain("Pending (6)");
-    expect(markup).toContain("Completed (0)");
-    expect(markup).toContain('role="progressbar"');
+    expect(markup).toContain("Quick Setup &amp; Onboarding");
+    expect(markup).toContain("Connect GitHub");
+    expect(markup).toContain("Connect Sandbox Runner");
+    expect(markup).toContain("Connect Model Keys");
+    expect(markup).toContain("Operator &amp; Self-Hosting Setup");
     expect(markup).toContain('role="checkbox"');
   });
   it("renders sidebar toggle button and keyboard shortcuts for sidebar", () => {

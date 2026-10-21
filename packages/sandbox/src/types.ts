@@ -32,6 +32,8 @@ export interface SandboxEgressPin {
   >;
   /** GitHub REST scope: allowed repo path prefix, e.g. `/owner/repo`. */
   githubRepoPath?: string;
+  /** Org context for per-org model key and egress handling. */
+  orgId?: string;
 }
 
 export interface ExecResult {

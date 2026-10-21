@@ -77,6 +77,18 @@ export class Sandbox extends DurableObject<Env> {
     this.ctx.storage.kv.put(OUTBOUND_CONFIG_KEY, config);
   }
 
+  async setOutboundOrgId(orgId: string): Promise<void> {
+    const normalizedOrgId = orgId.trim();
+    if (!normalizedOrgId) throw new Error("Sandbox organization ID is required.");
+    const config = this.getOutboundConfig();
+    if (config.orgId && config.orgId !== normalizedOrgId) {
+      throw new Error("Sandbox is already bound to a different organization.");
+    }
+    if (config.orgId === normalizedOrgId) return;
+    config.orgId = normalizedOrgId;
+    this.persistOutbound(config);
+  }
+
   async approveHarnessEgress(hosts: string[]): Promise<void> {
     const config = this.getOutboundConfig();
     config.allowedHosts = [...hosts];

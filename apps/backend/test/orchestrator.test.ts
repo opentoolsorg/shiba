@@ -9,6 +9,7 @@ import { createPendingApproval, resolvePendingApproval } from "../src/pending-ap
 import { approveDirect } from "./seeding.js";
 import {
   destroyManagedContainer,
+  forgetLeaked,
   leakedContainers,
   setSandboxHandleResolver,
 } from "../src/sandbox/lifecycle.js";
@@ -51,6 +52,9 @@ function retained(status: "running" | "completed" = "running") {
 }
 
 beforeEach(() => { vi.resetAllMocks(); mocks.destroy.mockResolvedValue(undefined); });
+afterEach(() => {
+  for (const leak of leakedContainers()) forgetLeaked(leak.sandboxId);
+});
 
 describe("orchestrator run routes", () => {
   it("still reclaims stale containers when draining the outbox fails", async () => {
@@ -530,10 +534,12 @@ describe("orchestrator run routes", () => {
 
   it("retries a leaked container's destroy during reclaim", async () => {
     const instance = agent();
+    const selection = { orgId: "org-leaked", taskProviderId: "computesdk" };
     // Seed the leak registry: a failed destroy records the sandbox for retry.
     mocks.destroy.mockRejectedValueOnce(new Error("destroy failed"));
-    await destroyManagedContainer(instance.env, "leaked-sbx");
+    await destroyManagedContainer(instance.env, "leaked-sbx", undefined, selection);
     expect(leakedContainers().map((leak) => leak.sandboxId)).toEqual(["leaked-sbx"]);
+    expect(leakedContainers()[0]?.selection).toEqual(selection);
     const response = await instance.onRequest(new Request("https://internal/api/runs"));
     expect(response.status).toBe(200);
     // The reclaim pass re-destroyed the leaked sandbox and cleared its entry.
@@ -543,14 +549,30 @@ describe("orchestrator run routes", () => {
 
   it("mirrors a failed reclaim-destroy into this DO's state only", async () => {
     const instance = agent();
+    const selection = { orgId: "org-leaked", taskProviderId: "computesdk" };
     mocks.destroy.mockRejectedValueOnce(new Error("destroy failed"));
-    await destroyManagedContainer(instance.env, "leaked-sbx");
+    await destroyManagedContainer(instance.env, "leaked-sbx", undefined, selection);
     // The reclaim retry fails again — the leak hooks passed with that call
     // persist it into this DO's state (not a module-global sink that could
     // write into a sibling DO's state in the same isolate).
     mocks.destroy.mockRejectedValueOnce(new Error("still down"));
     await instance.reclaimRuns();
-    expect(instance.state.leakedContainers?.["leaked-sbx"]).toBeDefined();
+    expect(instance.state.leakedContainers?.["leaked-sbx"]).toMatchObject({ selection });
+  });
+
+  it("does not destroy a legacy leaked sandbox without provider context", async () => {
+    const instance = agent();
+    instance.setState({
+      runs: [],
+      leakedContainers: {
+        "legacy-leak": { sandboxId: "legacy-leak", leakedAt: Date.now(), error: "old record" },
+      },
+    });
+
+    await instance.reclaimRuns();
+
+    expect(mocks.destroy).not.toHaveBeenCalled();
+    expect(instance.state.leakedContainers?.["legacy-leak"]).toBeDefined();
   });
 
   it("approve at the concurrency cap stays pending and returns 409, no execution", async () => {

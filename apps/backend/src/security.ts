@@ -5,6 +5,7 @@
 
 export const GITHUB_HOST = "github.com";
 export const MAX_REPO_URL_LENGTH = 2048;
+export const MAX_RUNNER_URL_LENGTH = 1024;
 
 export class InputError extends Error {
   readonly code = "input_error";
@@ -165,4 +166,76 @@ export async function verifyGitHubWebhookSignature(args: {
     diff |= expected.charCodeAt(i) ^ actual.charCodeAt(i);
   }
   return diff === 0;
+}
+
+export function isPrivateOrLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").trim();
+  if (!host) return true;
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".lan")
+  ) {
+    return true;
+  }
+  // IPv4 dotted quad check
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) {
+    const parts = host.split(".").map(Number);
+    if (parts.some((p) => p < 0 || p > 255)) return true;
+    const [b0, b1] = parts as [number, number, number, number];
+    // 0.0.0.0/8
+    if (b0 === 0) return true;
+    // 10.0.0.0/8
+    if (b0 === 10) return true;
+    // 127.0.0.0/8 (loopback)
+    if (b0 === 127) return true;
+    // 169.254.0.0/16 (link-local)
+    if (b0 === 169 && b1 === 254) return true;
+    // 172.16.0.0/12 (private)
+    if (b0 === 172 && b1 >= 16 && b1 <= 31) return true;
+    // 192.168.0.0/16 (private)
+    if (b0 === 192 && b1 === 168) return true;
+    // Broadcast / CGNAT (100.64.0.0/10)
+    if (b0 === 100 && b1 >= 64 && b1 <= 127) return true;
+  }
+  // IPv6 checks
+  if (
+    host === "::1" ||
+    host === "0:0:0:0:0:0:0:1" ||
+    host === "::" ||
+    host.startsWith("fe80:") || // link-local
+    host.startsWith("::ffff:") || // IPv4-mapped
+    (host.includes(":") && (host.startsWith("fc") || host.startsWith("fd"))) // unique local
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function validateRunnerUrl(raw: string): string {
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new InputError("Runner URL must be a non-empty string.");
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length > MAX_RUNNER_URL_LENGTH) {
+    throw new InputError(`Runner URL must be at most ${MAX_RUNNER_URL_LENGTH} characters.`);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new InputError("Runner URL is not a valid URL.");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new InputError("Runner URL must use HTTPS.");
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw new InputError("Runner URL must not embed credentials.");
+  }
+  if (isPrivateOrLoopbackHost(parsed.hostname)) {
+    throw new InputError("Runner URL must not point to private, loopback, or link-local hosts.");
+  }
+  return parsed.origin;
 }

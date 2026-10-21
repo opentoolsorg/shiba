@@ -21,6 +21,8 @@ export interface OutboundConfig {
   /** Deny-by-default gate — only these hostnames may leave the container. */
   allowedHosts: string[];
   outboundByHost: Record<string, OutboundHostRule>;
+  /** Org context for per-org credential injection at egress. */
+  orgId?: string;
 }
 
 export const OUTBOUND_CONFIG_KEY = "outbound-config-v1";
@@ -59,5 +61,6 @@ export function loadOutboundConfig(raw: unknown): OutboundConfig {
     typeof (raw as OutboundConfig).outboundByHost === "object" && (raw as OutboundConfig).outboundByHost !== null
       ? { ...(raw as OutboundConfig).outboundByHost }
       : defaultOutboundConfig().outboundByHost;
-  return { allowedHosts, outboundByHost };
+  const orgId = typeof (raw as OutboundConfig).orgId === "string" ? (raw as OutboundConfig).orgId : undefined;
+  return { allowedHosts, outboundByHost, ...(orgId ? { orgId } : {}) };
 }

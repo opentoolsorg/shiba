@@ -19,6 +19,7 @@ export function getSandbox(
 /** Minimal RPC surface for @shiba/sandbox Cloudflare adapter and tests. */
 export type SandboxRpcFacade = Pick<
   Sandbox,
+  | "setOutboundOrgId"
   | "approveHarnessEgress"
   | "approveEgressOverrides"
   | "approveRepoScope"

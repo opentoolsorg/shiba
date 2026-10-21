@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Node/Bun sidecar: exposes ComputeSDK instances over HTTP for the Worker
- * (`SHIBA_COMPUTESDK_RUNNER_URL` + `SHIBA_COMPUTESDK_RUNNER_TOKEN`).
+ * (`SHIBA_COMPUTESDK_RUNNER_URL` + `SHIBA_COMPUTESDK_RUNNER_TOKEN`, or per-org
+ * runner settings configured in Settings -> Sandbox).
  *
  * Usage:
  *   SHIBA_COMPUTESDK_PROVIDER=e2b E2B_API_KEY=... SHIBA_COMPUTESDK_RUNNER_TOKEN=secret node scripts/computesdk-runner.mjs
@@ -33,6 +34,13 @@ const server = createServer(async (req, res) => {
   const auth = req.headers.authorization ?? "";
   if (auth !== `Bearer ${token}`) return unauthorized(res);
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+
+  if (url.pathname === "/healthz" || url.pathname === "/v1/ping") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, status: "healthy" }));
+    return;
+  }
+
   const client = await clientPromise;
 
   if (url.pathname === "/v1/instances" && req.method === "POST") {

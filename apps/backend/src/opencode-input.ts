@@ -17,6 +17,8 @@ const codingTaskInputSchema = z.object({
   baseBranch: z.string().min(1),
   publishPullRequest: z.boolean(),
   sandboxId: z.string().min(1),
+  /** Org context for per-org sandbox settings and model keys. */
+  orgId: z.string().min(1).max(128).optional(),
   /** Frozen sandbox provider id for this run (task/org/agent override). */
   sandboxProvider: z.string().min(1).max(64).optional(),
   customAgentId: z.string().min(1).max(128).optional(),

@@ -74,6 +74,7 @@ export interface DelegatedRun {
    * tokens only ever see their own runs through the run tools.
    */
   queuedBy?: string;
+  orgId?: string;
   /**
    * The frozen, approval-gated route (connection/model/harness ids only).
    * Absent on runs that predate route freezing. Never carries credentials.

@@ -1,10 +1,6 @@
 import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
-import {
-  authorizeV1Request,
-  v1Unauthorized,
-  type V1Principal,
-} from "./v1-auth.js";
+import { authorizeV1Request, type V1Principal, v1Unauthorized } from "./v1-auth.js";
 
 export const DASHBOARD_ORG_ID = "self-hosted";
 
