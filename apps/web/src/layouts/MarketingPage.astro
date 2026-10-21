@@ -30,6 +30,9 @@ const {
 } = Astro.props;
 const canonical = new URL(path, 'https://tryshiba.dev').href;
 const ogImageUrl = new URL(ogImage, 'https://tryshiba.dev').href;
+// Organization logo must be square; the 1200x630 OG banner is rejected by Google.
+const logoUrl = 'https://tryshiba.dev/assets/mascot/shiba-logo-512.png';
+const author = { '@type': 'Person', name: 'Prince Pal', sameAs: ['https://github.com/princepal9120'] };
 
 const defaultSchemas: Array<Record<string, unknown>> = [
   {
@@ -37,8 +40,9 @@ const defaultSchemas: Array<Record<string, unknown>> = [
     '@type': 'Organization',
     name: 'Shiba',
     url: 'https://tryshiba.dev/',
-    logo: ogImageUrl,
-    sameAs: ['https://github.com/princepal9120/shiba'],
+    logo: { '@type': 'ImageObject', url: logoUrl, width: 512, height: 512 },
+    founder: author,
+    sameAs: ['https://github.com/princepal9120/shiba', 'https://github.com/princepal9120'],
   },
 ];
 
@@ -64,31 +68,37 @@ const finalSchemas = schema
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
-    <link rel="apple-touch-icon" href="/app/apple-touch-icon.png" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="canonical" href={canonical} />
     <link rel="sitemap" href="/sitemap.xml" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
-    <meta name="author" content="Shiba Open Source" />
+    <meta name="author" content="Prince Pal" />
     <meta name="theme-color" content="#191a18" />
 
     <!-- Open Graph -->
     <meta property="og:type" content={type} />
     <meta property="og:site_name" content="Shiba" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:url" content={canonical} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImageUrl} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:image:alt" content="Shiba: It asks before it writes code. A self-hosted AI software engineer on Cloudflare." />
     {publishedTime && <meta property="article:published_time" content={publishedTime} />}
     {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- TODO: set to the real handle once one exists -->
+    <meta name="twitter:site" content="@shiba_dev" />
+    <meta name="twitter:image:alt" content="Shiba: It asks before it writes code. A self-hosted AI software engineer on Cloudflare." />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
