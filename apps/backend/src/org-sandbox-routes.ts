@@ -105,9 +105,7 @@ export async function handleOrgSandboxSettings(
     let body: { runnerUrl?: string; runnerToken?: string } = {};
     try {
       body = (await request.json()) as typeof body;
-    } catch {
-      // Body may be empty if testing saved configuration
-    }
+    } catch {}
     let runnerUrl = body.runnerUrl?.trim();
     let runnerToken = body.runnerToken?.trim();
 

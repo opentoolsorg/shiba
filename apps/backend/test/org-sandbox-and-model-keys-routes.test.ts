@@ -53,6 +53,36 @@ describe("org sandbox and model keys routes security", () => {
     }
   }
 
+  it("returns 401 for org model keys when Access is required and identity is missing", async () => {
+    const d1 = new FakeD1();
+    const env = {
+      AGENT_AUDIT: d1 as unknown as D1Database,
+      MODEL_CREDENTIAL_KEY: hexKey,
+      REQUIRE_ACCESS: "1",
+    } as unknown as Env;
+
+    const res = await handleOrgModelKeys(
+      new Request("https://app.example.com/api/org/model-keys", { method: "GET" }),
+      env,
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  it("returns 401 for org sandbox when Access is required and identity is missing", async () => {
+    const d1 = new FakeD1();
+    const env = {
+      AGENT_AUDIT: d1 as unknown as D1Database,
+      MODEL_CREDENTIAL_KEY: hexKey,
+      REQUIRE_ACCESS: "1",
+    } as unknown as Env;
+
+    const res = await handleOrgSandboxSettings(
+      new Request("https://app.example.com/api/org/sandbox", { method: "GET" }),
+      env,
+    );
+    expect(res?.status).toBe(401);
+  });
+
   it("never echoes secret values in model keys responses", async () => {
     const d1 = new FakeD1();
     const env = {

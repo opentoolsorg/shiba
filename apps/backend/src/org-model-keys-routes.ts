@@ -93,7 +93,6 @@ export async function handleOrgModelKeys(request: Request, env: Env): Promise<Re
     if (request.method !== "GET" && !requireV1Write(auth.principal)) return v1Forbidden();
   }
 
-  // GET /api/org/model-keys
   if (url.pathname === "/api/org/model-keys" && request.method === "GET") {
     const keys = await listOrgModelKeyStatuses(env, auth.orgId);
     return Response.json(
@@ -102,7 +101,6 @@ export async function handleOrgModelKeys(request: Request, env: Env): Promise<Re
     );
   }
 
-  // POST /api/org/model-keys/test
   if (url.pathname === "/api/org/model-keys/test" && request.method === "POST") {
     let body: { provider?: string; apiKey?: string } = {};
     try {
@@ -129,8 +127,6 @@ export async function handleOrgModelKeys(request: Request, env: Env): Promise<Re
     return Response.json({ ok: testResult.ok, message: testResult.message });
   }
 
-  // PUT /api/org/model-keys/:provider
-  // DELETE /api/org/model-keys/:provider
   const match = url.pathname.match(/^\/api\/org\/model-keys\/([a-zA-Z0-9_-]+)$/);
   if (match && match[1]) {
     const provider = match[1].toLowerCase();
