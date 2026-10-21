@@ -3,20 +3,84 @@ import ReachAnywhere from '../components/ReachAnywhere.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 
 const description =
-  'Self-hosted, approval-gated coding agent for your Cloudflare account: sandbox runs, optional PR publish, optional review round, pluggable sandboxes, and org custom agents. AGPL-3.0.';
-const schema = {
-  '@context': 'https://schema.org',
-  '@type': 'SoftwareApplication',
-  name: 'Shiba',
-  url: 'https://tryshiba.dev/',
-  description,
-  applicationCategory: 'DeveloperApplication',
-  operatingSystem: 'Web',
-  license: 'https://spdx.org/licenses/AGPL-3.0-only.html',
-  sameAs: ['https://github.com/princepal9120/shiba'],
-};
+  'Shiba is a free, open-source AI coding agent you self-host on Cloudflare. Pick your model, approve every task, review the diff, ship a PR.';
+
+const faqItems = [
+  {
+    q: 'What is Shiba?',
+    a: 'Shiba is a free, open-source AI coding agent you self-host on your own Cloudflare account. It queues coding tasks, waits for human approval before execution, runs work in isolated sandboxes, and presents diffs for review with optional GitHub PR publishing.',
+  },
+  {
+    q: 'How is Shiba different from Devin?',
+    a: 'Devin is a proprietary, hosted commercial coding agent where the provider selects models and manages sandboxes. Shiba is open source (AGPL-3.0) and self-hosted on your Cloudflare account, letting you choose models per run and keep provider keys outside the sandbox.',
+  },
+  {
+    q: 'Is Shiba free?',
+    a: 'Yes. Shiba is free and open-source software under the AGPL-3.0 license. You only pay for your own Cloudflare infrastructure usage and model-provider API costs directly.',
+  },
+  {
+    q: 'Which models and harnesses does Shiba support?',
+    a: 'Shiba supports 7 harnesses: OpenCode, Claude Code, Codex, Devin CLI, Cursor, Antigravity, and Grok. Models are chosen per run via Cloudflare AI Gateway BYOK and deployment connections.',
+  },
+  {
+    q: 'Where does my code run?',
+    a: 'Your code executes in isolated Cloudflare Sandbox containers within your own Cloudflare account using Worker-side egress controls. Shiba does not host your repository, credentials, or API keys.',
+  },
+  {
+    q: 'Is Shiba production-ready?',
+    a: 'No. Shiba is an early prototype under active development. See the roadmap section below for details on shipped capabilities versus features that are not yet live-verified.',
+  },
+];
+
+const schema = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Shiba',
+    url: 'https://tryshiba.dev/',
+    description,
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Web, Cloudflare',
+    offers: {
+      '@type': 'Offer',
+      price: '0',
+      priceCurrency: 'USD',
+    },
+    license: 'https://spdx.org/licenses/AGPL-3.0-only.html',
+    codeRepository: 'https://github.com/princepal9120/shiba',
+    author: {
+      '@type': 'Person',
+      name: 'Prince Pal',
+      sameAs: ['https://github.com/princepal9120'],
+    },
+    featureList: [
+      'approval before execution',
+      'isolated Cloudflare Sandbox runs',
+      'diff review',
+      'optional PR publish + review round',
+      'bring-your-own model/AI Gateway BYOK',
+      '7 harnesses OpenCode/Claude Code/Codex/Devin CLI/Cursor/Antigravity/Grok',
+      'custom agents',
+      '/api/v1 + @shiba/sdk',
+    ],
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqItems.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: item.a,
+      },
+    })),
+  },
+];
 
 const comparisons = [
+  { point: 'Pricing', shiba: 'Free software (pay Cloudflare + model costs directly)', them: 'Commercial subscription / usage billing' },
+  { point: 'Status', shiba: 'Early prototype (under active development)', them: 'Commercial product' },
   { point: 'Runs in infrastructure you own', shiba: 'Your Cloudflare account (default sandbox)', them: "The provider's account" },
   { point: 'Model and harness per run', shiba: 'Pinned per approval; connections + purpose policy', them: 'Chosen by the provider' },
   { point: 'Approval before code runs', shiba: 'Required by default', them: 'Varies by product' },
@@ -46,11 +110,12 @@ const roadmapRows = [
 ];
 ---
 
-<MarketingPage title="Shiba — self-hosted AI coworker on Cloudflare" description={description} path="/" schema={schema}>
+<MarketingPage title="Shiba — Open-Source, Self-Hosted AI Coding Agent (Devin Alternative)" description={description} path="/" schema={schema}>
   <section class="shell home-hero" aria-labelledby="home-title">
     <div class="hero-copy">
       <p class="eyebrow">AGPL · SELF-HOSTED · CLOUDFLARE WORKERS</p>
       <h1 id="home-title">It asks before<br /><em>it writes code.</em><span class="hero-caret" aria-hidden="true"></span></h1>
+      <p class="hero-subline">The open-source, self-hosted AI coding agent on Cloudflare.</p>
       <p class="hero-lead">Queue a coding task, approve the exact input, run it in an isolated sandbox, then read the diff — and optionally open a pull request with a follow-up review round. You operate the Worker; Shiba does not host your repo or keys.</p>
       <div class="hero-actions">
         <a class="button" href="/docs/self-hosting/">Self-host on Cloudflare <span aria-hidden="true">↗</span></a>
@@ -216,19 +281,46 @@ const roadmapRows = [
   </section>
 
   <section class="shell home-section compare" data-reveal aria-labelledby="compare-title">
-    <div class="section-head"><h2 id="compare-title">Why switch off a hosted agent.</h2><p class="micro">SHIBA VS A MANAGED CLOUD AGENT</p></div>
-    <div class="compare-grid" role="table" aria-label="Shiba compared with a managed cloud coding agent">
-      <div class="compare-row compare-head" role="row">
-        <span role="columnheader"></span>
-        <span role="columnheader" class="compare-shiba"><span class="compare-col-label">Shiba</span><span class="compare-col-full">SHIBA</span></span>
-        <span role="columnheader"><span class="compare-col-label">Managed cloud agent</span><span class="compare-col-full">MANAGED CLOUD AGENT</span></span>
-      </div>
-      {comparisons.map((row) => (
-        <div class="compare-row" role="row">
-          <span role="cell">{row.point}</span>
-          <span role="cell" class="compare-shiba"><span class="compare-col-label">Shiba</span><span class="compare-col-full">{row.shiba}</span></span>
-          <span role="cell"><span class="compare-col-label">Managed cloud agent</span><span class="compare-col-full">{row.them}</span></span>
-        </div>
+    <div class="section-head"><h2 id="compare-title">Why switch off a hosted agent.</h2><p class="micro">SHIBA VS DEVIN / MANAGED CLOUD AGENTS</p></div>
+    <div class="compare-table-wrap">
+      <table class="compare-table" aria-label="Shiba vs Devin / managed cloud agents">
+        <caption class="sr-only">Shiba vs Devin / managed cloud agents</caption>
+        <thead>
+          <tr class="compare-head">
+            <th scope="col" class="compare-point-th">Comparison point</th>
+            <th scope="col" class="compare-shiba"><span class="compare-col-label">Shiba</span><span class="compare-col-full">SHIBA</span></th>
+            <th scope="col"><span class="compare-col-label">Devin / managed cloud agent</span><span class="compare-col-full">DEVIN / MANAGED CLOUD AGENT</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {comparisons.map((row) => (
+            <tr class="compare-row">
+              <th scope="row" class="compare-point-cell" data-label="Point">{row.point}</th>
+              <td class="compare-shiba" data-label="Shiba">{row.shiba}</td>
+              <td class="compare-them" data-label="Devin / managed cloud agent">{row.them}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="faq" class="shell home-section faq-section" data-reveal aria-labelledby="faq-title">
+    <div class="section-head">
+      <h2 id="faq-title">Questions</h2>
+      <p class="micro">FREQUENTLY ASKED QUESTIONS</p>
+    </div>
+    <div class="faq-list">
+      {faqItems.map((item) => (
+        <details class="faq-item">
+          <summary class="faq-question">
+            <span>{item.q}</span>
+            <span class="faq-toggle" aria-hidden="true">+</span>
+          </summary>
+          <div class="faq-answer">
+            <p>{item.a}</p>
+          </div>
+        </details>
       ))}
     </div>
   </section>
@@ -302,7 +394,8 @@ const roadmapRows = [
      10.9cqi keeps "Your AI software engineer." on one line at every column
      width; balance is the backstop when webfont metrics fall back. */
   .hero-copy { container-type:inline-size; }
-  .hero-copy h1 { max-width:none; margin:var(--hero-gap-tight) 0 var(--hero-gap-lg); font-size:clamp(32px,10.9cqi,84px); line-height:1.03; text-wrap:balance; }
+  .hero-copy h1 { max-width:none; margin:var(--hero-gap-tight) 0 8px; font-size:clamp(32px,10.9cqi,84px); line-height:1.03; text-wrap:balance; }
+  .hero-subline { font-family:'Geist',sans-serif; font-size:15px; font-weight:500; color:var(--ink); margin:0 0 var(--hero-gap-lg); line-height:1.5; letter-spacing:-0.01em; }
   .hero-copy h1 em, .home-section h2 em { color:var(--navy); font-weight:400; }
   .hero-lead { max-width:46ch; font-size:16px; line-height:1.65; text-wrap:pretty; }
   .hero-actions, .closing-actions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:28px; }
@@ -407,21 +500,32 @@ const roadmapRows = [
   .capability-card h3 { font-size:27px; margin:30px 0 9px; }
   .capability-card p { font-size:13px; line-height:1.7; margin:0; }
   /* Comparison table — the decision aid, on the page where the decision is
-     made. Ruled rows rather than cards: the reader is scanning for a
-     difference, so aligned columns and hairlines beat boxed tiles. */
-  .compare-grid { margin-top:30px; border:1px solid var(--line-2); background:var(--card); box-shadow:3px 3px 0 var(--paper-shadow); }
-  .compare-row { display:grid; grid-template-columns:1.15fr 1fr 1fr; border-top:1px solid var(--line); }
-  .compare-row:first-child { border-top:0; }
-  .compare-row > span { padding:14px 16px; font-size:13px; line-height:1.5; color:var(--ink-2); border-left:1px solid var(--line); }
-  .compare-row > span:first-child { border-left:0; color:var(--ink); }
-  .compare-head > span { font:9px 'Geist Mono',monospace; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-2); }
+     made. Real semantic table with ruled rows and clean border styling. */
+  .compare-table-wrap { margin-top:30px; border:1px solid var(--line-2); background:var(--card); box-shadow:3px 3px 0 var(--paper-shadow); overflow-x:auto; }
+  .compare-table { width:100%; border-collapse:collapse; text-align:left; }
+  .compare-head th { padding:14px 16px; font:9px 'Geist Mono',monospace; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-2); border-left:1px solid var(--line); border-bottom:1px solid var(--line); font-weight:500; }
+  .compare-head th.compare-point-th { border-left:0; }
+  .compare-row { border-top:1px solid var(--line); }
+  .compare-row th.compare-point-cell { padding:14px 16px; font-size:13px; font-weight:600; line-height:1.5; color:var(--ink); border-left:0; text-align:left; vertical-align:top; }
+  .compare-row td { padding:14px 16px; font-size:13px; line-height:1.5; color:var(--ink-2); border-left:1px solid var(--line); vertical-align:top; }
   /* The Shiba column is the one the page argues for. Tinting a single column
      keeps the navy accent in one place instead of scattering it. */
   .compare-shiba { background:var(--panel-2); color:var(--ink); font-weight:500; }
-  .compare-head .compare-shiba { color:var(--navy); font-weight:600; }
-  /* The per-cell column label is redundant beside its header on wide screens
-     and load-bearing once the columns stack, so it is switched, not repeated. */
+  .compare-head th.compare-shiba { color:var(--navy); font-weight:600; }
   .compare-col-label { display:none; }
+
+  /* FAQ section */
+  .faq-section { padding-top:85px; }
+  .faq-list { margin-top:30px; border:1px solid var(--line-2); background:var(--card); box-shadow:3px 3px 0 var(--paper-shadow); }
+  .faq-item { border-top:1px solid var(--line); }
+  .faq-item:first-child { border-top:0; }
+  .faq-question { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 24px; cursor:pointer; font-family:'Geist',sans-serif; font-size:15px; font-weight:600; color:var(--ink); list-style:none; user-select:none; }
+  .faq-question::-webkit-details-marker { display:none; }
+  .faq-toggle { font-family:'Geist Mono',monospace; font-size:16px; color:var(--navy); transition:transform 200ms ease; flex:none; }
+  .faq-item[open] .faq-toggle { transform:rotate(45deg); }
+  .faq-item[open] .faq-question { background:var(--panel-2); }
+  .faq-answer { padding:0 24px 20px; font-size:14px; line-height:1.7; color:var(--ink-2); }
+  .faq-answer p { margin:0; }
   .steps-grid h3 { font-size:27px; margin:18px 0 10px; }
   .steps-grid p { font-size:13px; line-height:1.7; margin:0; }
   .steps-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; padding-top:36px; }
@@ -473,14 +577,47 @@ const roadmapRows = [
   @media(max-width:500px) { .channels-grid { grid-template-columns:1fr; } .capability-grid { grid-template-columns:1fr; } .capability-card { min-height:0; } .hero-actions .button { width:100%; } .closing { padding:22px; } .closing-actions { width:100%; } .closing-actions .button { width:100%; } }
   /* Stacked on narrow screens: each comparison point becomes a labelled block
      so no column is squeezed below readability. */
-  @media(max-width:640px) {
-    .compare-row { grid-template-columns:1fr; }
-    .compare-row > span { border-left:0; padding:8px 16px; }
-    .compare-row > span:first-child { padding-top:16px; font-weight:600; color:var(--ink); }
-    .compare-shiba { border-left:3px solid var(--navy) !important; padding-left:13px !important; }
-    .compare-row > span:nth-child(3) { padding-bottom:16px; }
-    .compare-col-label { display:block; font:9px 'Geist Mono',monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-2); margin-bottom:3px; }
-    .compare-head { display:none; }
+  @media(max-width:720px) {
+    .compare-table,
+    .compare-table thead,
+    .compare-table tbody,
+    .compare-row,
+    .compare-row th,
+    .compare-row td {
+      display: block;
+      width: 100%;
+    }
+    .compare-head { display: none; }
+    .compare-row { border-top: 1px solid var(--line); }
+    .compare-row:first-child { border-top: 0; }
+    .compare-row th.compare-point-cell {
+      border-left: 0;
+      padding: 16px 16px 6px;
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 14px;
+    }
+    .compare-row td {
+      border-left: 0;
+      padding: 8px 16px;
+      position: relative;
+    }
+    .compare-row td::before {
+      content: attr(data-label);
+      display: block;
+      font: 9px 'Geist Mono', monospace;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--ink-2);
+      margin-bottom: 3px;
+    }
+    .compare-row td.compare-shiba {
+      border-left: 3px solid var(--navy) !important;
+      padding-left: 13px !important;
+    }
+    .compare-row td:last-child {
+      padding-bottom: 16px;
+    }
   }
 
   .channels-section { padding-top:85px; }

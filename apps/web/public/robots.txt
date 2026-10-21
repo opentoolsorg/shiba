@@ -1,4 +1,17 @@
+# LLM-readable site summary: https://tryshiba.dev/llms.txt
 User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /app/
+Disallow: /agents/
+Disallow: /mcp/
+
+# A bot-specific group replaces the * group, so the disallows repeat.
+User-agent: GPTBot
+User-agent: ClaudeBot
+User-agent: PerplexityBot
+User-agent: Google-Extended
+User-agent: Applebot-Extended
 Allow: /
 Disallow: /api/
 Disallow: /app/
