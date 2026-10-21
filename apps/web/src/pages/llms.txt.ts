@@ -3,7 +3,6 @@ import { CATEGORY_LABEL, getPublishedPosts } from "../lib/journal";
 
 const SITE = "https://tryshiba.dev";
 
-// llms.txt (llmstxt.org): plain-markdown index so AI answer engines can discover and cite Shiba.
 export async function GET() {
 	const docs = (await getCollection("docs")).filter((d) => d.id.startsWith("docs/"));
 	const links = docs
