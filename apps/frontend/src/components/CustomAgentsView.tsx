@@ -355,7 +355,7 @@ export function CustomAgentsView(): JSX.Element {
 }
 
 /** Picker options for TaskComposer and automations. */
-export function useCustomAgentOptions(): {
+export function useCustomAgentOptions(enabled = true): {
   agents: CustomAgentWire[];
   loading: boolean;
   error: string | null;
@@ -380,7 +380,13 @@ export function useCustomAgentOptions(): {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(refresh, [refresh]);
+  useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+    refresh();
+  }, [refresh, enabled]);
 
   return { agents, loading, error, refresh };
 }

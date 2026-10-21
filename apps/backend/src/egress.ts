@@ -9,6 +9,7 @@ import type { Env as WorkerEnv } from "./env.js";
 import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
 import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
+import { readAdapterAuthorization } from "./provider-login.js";
 
 export type EgressEnv = Pick<
   WorkerEnv,
@@ -24,7 +25,7 @@ export type EgressEnv = Pick<
   | "MODEL_CREDENTIAL_KEY"
   | "SHIBA_SINGLE_USER"
   | "AGENT_AUDIT"
->;
+> & { AGENT_TOKENS?: KVNamespace };
 
 /**
  * Handler ctx carries the per-run params passed to `setOutboundByHost`. The
@@ -69,6 +70,51 @@ export const GATEWAY_PROVIDERS: Record<string, string> = {
   "opencode.ai": "opencode-go",
 };
 
+const ANTHROPIC_SUBSCRIPTION_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens", "/v1/models"]);
+
+function openAiSubscriptionPath(pathname: string): boolean {
+  return pathname === "/v1/responses" || pathname === "/v1/chat/completions" || pathname === "/v1/models";
+}
+
+/** Direct vendor call for a connected adapter subscription. Never the AI Gateway. */
+async function forwardSubscriptionDirect(
+  request: Request,
+  host: string,
+  subscription: { authorization: string; accountId: string | null; provider: "codex" | "claude" },
+): Promise<Response> {
+  const target = new URL(request.url);
+  const allowed =
+    host === "api.anthropic.com"
+      ? ANTHROPIC_SUBSCRIPTION_PATHS.has(target.pathname)
+      : openAiSubscriptionPath(target.pathname);
+  if (!allowed || target.username !== "" || target.password !== "") {
+    return new Response("Invalid subscription destination.", { status: 403 });
+  }
+  if (request.method !== "GET" && request.method !== "POST") {
+    return new Response("Method not allowed.", { status: 405 });
+  }
+  target.search = stripCredentialParams(target.search);
+  const headers = outboundHeaders(request);
+  headers.set("Authorization", subscription.authorization);
+  if (subscription.provider === "claude") {
+    headers.set("anthropic-beta", "claude-code-20250219,oauth-2025-04-20");
+    headers.set("anthropic-version", "2023-06-01");
+  } else if (subscription.accountId) {
+    headers.set("chatgpt-account-id", subscription.accountId);
+    headers.set("OpenAI-Beta", "responses=experimental");
+  }
+  try {
+    return await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "POST" ? request.body : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    return new Response("Subscription request failed.", { status: 502 });
+  }
+}
+
 async function forwardProvider(
   request: Request,
   env: EgressEnv,
@@ -85,6 +131,10 @@ async function forwardProvider(
   const slug = GATEWAY_PROVIDERS[host];
   if (!slug) {
     return new Response("Invalid provider destination.", { status: 403 });
+  }
+  const subscription = await readAdapterAuthorization(env, host).catch(() => null);
+  if (subscription) {
+    return forwardSubscriptionDirect(request, host, subscription);
   }
   try {
     // getUrl resolves the account from the binding; no account-id var or public callback.

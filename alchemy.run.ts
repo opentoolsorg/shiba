@@ -312,6 +312,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       // Built-in dashboard auth signing secret (better-auth.ts): absent =
       // the lane is dark and the gate falls back to Access/fail-closed.
       "BETTER_AUTH_SECRET",
+      // First-account gate for public hosts. Either secret is enough.
+      // Unset on a public URL refuses sign-up. Loopback dev does not need them.
+      "BETTER_AUTH_BOOTSTRAP_TOKEN",
+      "BETTER_AUTH_OWNER_EMAIL",
       "GMAIL_CLIENT_SECRET",
       "GMAIL_TOKEN_KEY",
       "MODEL_CREDENTIAL_KEY",

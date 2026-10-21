@@ -86,7 +86,7 @@ export type LoadState<T> =
   | { kind: "error"; message: string }
   | { kind: "data"; data: T };
 
-function useApiJson<T>(path: string): {
+function useApiJson<T>(path: string, enabled = true): {
   state: LoadState<T>;
   reload: () => void;
   /** True while a fetch is in flight — pollers must wait for it to settle. */
@@ -96,6 +96,10 @@ function useApiJson<T>(path: string): {
   const [inFlight, setInFlight] = useState(true);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (!enabled) {
+      setInFlight(false);
+      return;
+    }
     let cancelled = false;
     setInFlight(true);
     void fetch(path)
@@ -118,7 +122,7 @@ function useApiJson<T>(path: string): {
     return () => {
       cancelled = true;
     };
-  }, [path, attempt]);
+  }, [path, attempt, enabled]);
   const reload = useCallback(() => {
     setInFlight(true);
     setAttempt((n) => n + 1);
@@ -134,12 +138,12 @@ export function useSetupStatus(): {
   return useApiJson<SetupStatus>("/api/setup/status");
 }
 
-export function useAgentsDirectory(): {
+export function useAgentsDirectory(enabled = true): {
   state: LoadState<AgentsDirectory>;
   reload: () => void;
   inFlight: boolean;
 } {
-  return useApiJson<AgentsDirectory>("/api/agents");
+  return useApiJson<AgentsDirectory>("/api/agents", enabled);
 }
 
 /** GET /api/whoami — the dashboard's signed-in identity and which auth lane proved it. */
@@ -297,12 +301,12 @@ export interface ModelConfigWire {
   effectiveRoles?: RoleModelWire[];
 }
 
-export function useModelConfig(): {
+export function useModelConfig(enabled = true): {
   state: LoadState<ModelConfigWire>;
   reload: () => void;
   inFlight: boolean;
 } {
-  return useApiJson<ModelConfigWire>("/api/model-config");
+  return useApiJson<ModelConfigWire>("/api/model-config", enabled);
 }
 
 /** One ready connection as the coding-model picker lists it (app.tsx). */

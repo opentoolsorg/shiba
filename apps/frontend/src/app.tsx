@@ -46,7 +46,7 @@ import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavRail";
-import { AuthScreen } from "./components/AuthScreen";
+import { AuthScreen, SessionPending, SessionProblem } from "./components/AuthScreen";
 import { authClient } from "./auth-client";
 import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
@@ -69,6 +69,7 @@ function useRetainedRuns(
   sessionId: string,
   sessionApiAvailable: boolean,
   fullDetail: boolean,
+  enabled: boolean,
 ): { runs: RetainedRun[]; error: string | null; detailReady: boolean; listSettled: boolean } {
   const [runs, setRuns] = useState<RetainedRun[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +80,7 @@ function useRetainedRuns(
   const [detailReady, setDetailReady] = useState(false);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     if (!fullDetail) setDetailReady(false);
     let sessionScoped = sessionApiAvailable;
@@ -123,7 +125,7 @@ function useRetainedRuns(
     return () => {
       cancelled = true;
     };
-  }, [refreshToken, sessionId, sessionApiAvailable, fullDetail]);
+  }, [refreshToken, sessionId, sessionApiAvailable, fullDetail, enabled]);
 
   return { runs, error, detailReady, listSettled };
 }
@@ -262,7 +264,11 @@ async function fetchIdentity(): Promise<IdentityResult> {
   try {
     // manual: Cloudflare Access answers an expired session with a cross-origin
     // login redirect, which would otherwise surface as an opaque CORS failure.
-    res = await fetch("/api/whoami", { redirect: "manual", cache: "no-store" });
+    res = await fetch("/api/whoami", {
+      redirect: "manual",
+      cache: "no-store",
+      signal: AbortSignal.timeout(12_000),
+    });
   } catch {
     return { issue: "unreachable", message: "Network error reaching /api/whoami." };
   }
@@ -363,6 +369,11 @@ const STARTER_TEMPLATES = [
 ];
 
 export function App(): React.JSX.Element {
+  // Declared first so every dashboard fetch can wait until whoami names an agent.
+  const [orchestratorName, setOrchestratorName] = useState<string | null>(null);
+  const [identityError, setIdentityError] = useState<string | null>(null);
+  const [identityIssue, setIdentityIssue] = useState<IdentityIssue | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const savedRepos = useSavedRepos();
@@ -373,7 +384,7 @@ export function App(): React.JSX.Element {
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
-  const { agents: customAgentRecords } = useCustomAgentOptions();
+  const { agents: customAgentRecords } = useCustomAgentOptions(orchestratorName !== null);
   const customAgentPickerOptions = useMemo(
     () =>
       customAgentRecords.map((agent) => ({
@@ -517,7 +528,7 @@ export function App(): React.JSX.Element {
   // Header setup pill: count deployment-proven steps; refreshes when the
   // onboarding modal closes so fixes show up immediately.
   useEffect(() => {
-    if (showOnboardingModal) return;
+    if (showOnboardingModal || orchestratorName === null) return;
     let cancelled = false;
     detectSetupSteps()
       .then((found) => {
@@ -527,7 +538,7 @@ export function App(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [showOnboardingModal]);
+  }, [showOnboardingModal, orchestratorName]);
 
   // The view itself is read in the useState initializers; only the run pick needs an effect.
   useEffect(() => {
@@ -539,13 +550,15 @@ export function App(): React.JSX.Element {
   const router = useRouter();
   const urlSynced = useRef(false);
   useEffect(() => {
+    // Tasks live at `/` once someone is signed in. Leave `/app/` alone until then.
+    if (orchestratorName === null) return;
     const path = pathForView(mainView);
     const first = !urlSynced.current;
     urlSynced.current = true;
     if (window.location.pathname === path) return;
     if (first) router.history.replace(path + window.location.search);
     else router.history.push(path);
-  }, [mainView, router]);
+  }, [mainView, router, orchestratorName]);
 
   useEffect(() => {
     const onPop = () => {
@@ -570,12 +583,6 @@ export function App(): React.JSX.Element {
 
   // /api/runs routes by Access identity; the chat socket must use the same
   // DO name or the dashboard would read one identity's runs and chat to another.
-  const [orchestratorName, setOrchestratorName] = useState<string | null>(null);
-  const [identityError, setIdentityError] = useState<string | null>(null);
-  const [identityIssue, setIdentityIssue] = useState<IdentityIssue | null>(null);
-  // Which auth lane proved (or refused) the identity — drives the login
-  // surface (better-auth form vs Access reload) and the sign-out control.
-  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   // Bumping this re-runs the whoami check (retry timer, "Retry now", wake-up).
   const [identityAttempt, setIdentityAttempt] = useState(0);
   const identityFailures = useRef(0);
@@ -693,6 +700,7 @@ export function App(): React.JSX.Element {
   const { runsById } = useAgentToolEvents({ agent });
 
   useEffect(() => {
+    if (orchestratorName === null) return;
     let cancelled = false;
     fetch("/api/sessions", { cache: "no-store" })
       .then(async (response) => {
@@ -732,6 +740,7 @@ export function App(): React.JSX.Element {
       selectedSessionId,
       sessionApiAvailable,
       mainView === "diff",
+      orchestratorName !== null,
     );
   const {
     approvals: storedApprovals,
@@ -742,7 +751,8 @@ export function App(): React.JSX.Element {
     // Approvals data renders on the approvals board, the tasks strip, and
     // the dashboard decided tail — the nav badge between them refreshes
     // on entry to any of the three.
-    mainView === "approvals" || mainView === "tasks" || mainView === "dashboard",
+    orchestratorName !== null &&
+      (mainView === "approvals" || mainView === "tasks" || mainView === "dashboard"),
   );
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
@@ -753,7 +763,7 @@ export function App(): React.JSX.Element {
   }, [storedApprovals]);
   const agentPrincipals = useAgentPrincipals(
     refreshToken,
-    mainView === "tasks" || mainView === "dashboard",
+    orchestratorName !== null && (mainView === "tasks" || mainView === "dashboard"),
   );
 
   const toolRuns = useMemo(() => Object.values(runsById) as ToolRunRecord[], [runsById]);
@@ -1384,8 +1394,8 @@ export function App(): React.JSX.Element {
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
   // Model-by-purpose config: connections + the coding-purpose suggestion list.
-  const modelConfig = useModelConfig();
-  const agentsDirectory = useAgentsDirectory();
+  const modelConfig = useModelConfig(orchestratorName !== null);
+  const agentsDirectory = useAgentsDirectory(orchestratorName !== null);
   const modelConnections = useMemo(
     () =>
       modelConfig.state.kind === "data"
@@ -1668,12 +1678,14 @@ export function App(): React.JSX.Element {
     },
   ];
 
-  // Built-in login lane: the Worker 401s with code "better-auth".
-  if (identityIssue === "signin" && authMode === "better-auth") {
-    return <AuthScreen onSignedIn={retryIdentity} />;
-  }
-
-  if (identityIssue === "signin" || identityIssue === "unconfigured") {
+  // The shell stays unmounted until whoami names an agent. Otherwise every
+  // panel fetches /api/* and toasts 401s over a brief flash of the composer.
+  if (orchestratorName === null) {
+    if (identityIssue === null) return <SessionPending />;
+    if (identityIssue === "signin" && authMode === "better-auth") {
+      return <AuthScreen onSignedIn={retryIdentity} />;
+    }
+    if (identityIssue === "signin" || identityIssue === "unconfigured") {
     const accessUnconfigured = identityIssue === "unconfigured";
     return (
       <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
@@ -1709,6 +1721,13 @@ export function App(): React.JSX.Element {
           )}
         </div>
       </div>
+    );
+    }
+    return (
+      <SessionProblem
+        message={identityError ?? "The dashboard could not check your session."}
+        onRetry={retryIdentity}
+      />
     );
   }
 

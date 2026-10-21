@@ -10,6 +10,8 @@ import {
 import type { Env } from "./env.js";
 import { ACP_LANES, HARNESS_DEFAULT_MODELS, HARNESSES } from "./harness/index.js";
 import type { AgentHarnessName } from "./harness/types.js";
+import type { LoginFinish, LoginStart, ProviderLogin } from "./provider-login.js";
+import { ProviderLoginError } from "./provider-login.js";
 import { InputError } from "./security.js";
 
 const DEVICE_TTL_MS = 15 * 60 * 1000;
@@ -91,7 +93,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     id: "claude",
     label: "Claude Code",
     blurb:
-      "Claude Code via the Agent Client Protocol adapter claude-agent-acp. Sign-in reuses the Claude subscription probe.",
+      "Claude Code via claude-agent-acp. Sign in with your Claude account (paste the code Claude shows) or use an API credential. The sandbox only sees a dummy key.",
     adapter: "claude-agent-acp",
     packageName: "@agentclientprotocol/claude-agent-acp",
     license: "Apache-2.0",
@@ -108,7 +110,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     id: "codex",
     label: "Codex",
     blurb:
-      "Codex via codex-acp. Sign-in reuses the ChatGPT subscription probe (Sign in with ChatGPT).",
+      "Codex via codex-acp. Sign in with ChatGPT: open the device page, enter the code, then finish. Or use an API credential. The sandbox only sees a dummy key.",
     adapter: "codex-acp",
     packageName: "@agentclientprotocol/codex-acp",
     license: "Apache-2.0",
@@ -216,6 +218,8 @@ export interface ProviderDeps {
   now?: () => number;
   confirmOauth?: OauthConfirm;
   inspectOauth?: OauthConfirm;
+  /** Real vendor sign-in. When set, oauth connect/verify uses it instead of the local confirmation code. */
+  login?: ProviderLogin;
 }
 
 function nowMs(deps: ProviderDeps): number {
@@ -410,6 +414,27 @@ export async function connectProvider(
         `${provider.label} has no sign-in flow. Connect with the API credential instead.`,
       );
     }
+    if (deps.login) {
+      let started: LoginStart;
+      try {
+        started = await deps.login.start(env, provider.id, org, now);
+      } catch (error) {
+        if (error instanceof ProviderLoginError) {
+          throw new ProviderFlowError(error.message, error.status);
+        }
+        throw error;
+      }
+      await writeRecord(env, org, provider.id, {
+        phase: "waiting",
+        authMode: "oauth",
+        ...(started.userCode ? { userCode: started.userCode } : {}),
+        verificationUri: started.verificationUri,
+        expiresAt: started.expiresAt,
+        message: started.message,
+        updatedAt: now,
+      });
+      return readProviderSnapshot(env, org, deps);
+    }
     const code = deviceCode();
     await writeRecord(env, org, provider.id, {
       phase: "waiting",
@@ -468,6 +493,39 @@ export async function verifyProvider(
     });
     return readProviderSnapshot(env, org, deps);
   }
+  if (deps.login) {
+    const pasted = typeof userCode === "string" ? userCode : "";
+    let verdict: LoginFinish;
+    try {
+      verdict = await deps.login.finish(env, provider.id, org, pasted, now);
+    } catch (error) {
+      if (error instanceof ProviderLoginError) {
+        if (error.status === 400) throw new InputError(error.message);
+        throw new ProviderFlowError(error.message, error.status);
+      }
+      throw error;
+    }
+    const fresh = await readRecord(env, org, provider.id);
+    // A disconnect during the vendor round-trip wins. A userCode mismatch
+    // must not discard a finished grant: that left Finish looking idle.
+    if (fresh === null || fresh.phase !== "waiting") {
+      return readProviderSnapshot(env, org, deps);
+    }
+    await writeRecord(env, org, provider.id, {
+      phase: verdict.phase,
+      authMode: "oauth",
+      message: verdict.message,
+      ...(verdict.phase === "waiting"
+        ? {
+            ...(fresh.userCode ? { userCode: fresh.userCode } : {}),
+            ...(fresh.verificationUri ? { verificationUri: fresh.verificationUri } : {}),
+            ...(fresh.expiresAt !== undefined ? { expiresAt: fresh.expiresAt } : {}),
+          }
+        : {}),
+      updatedAt: now,
+    });
+    return readProviderSnapshot(env, org, deps);
+  }
   if (
     typeof userCode !== "string" ||
     userCode.trim() === "" ||
@@ -518,6 +576,10 @@ export async function testProvider(
     message = ok
       ? `Credential ${name} is still present.`
       : `Credential missing. Set ${provider.credentialEnv.join(" or ")}.`;
+  } else if (deps.login && record.authMode === "oauth") {
+    const verdict = await deps.login.probe(env, provider.id, org, now);
+    ok = verdict.ok;
+    message = verdict.message;
   } else if (deps.inspectOauth !== undefined) {
     const verdict = await deps.inspectOauth(env, provider, org);
     const name = presentCredential(env, provider.credentialEnv);
@@ -551,6 +613,7 @@ export async function disconnectProvider(
   deps: ProviderDeps = {},
 ): Promise<AcpProvidersSnapshot> {
   const provider = acpProvider(id);
+  if (deps.login) await deps.login.forget(env, provider.id, org);
   await deleteRecord(env, org, provider.id);
   if ((await readDefault(env, org)) === provider.id) {
     await writeDefault(env, org, null);

@@ -73,32 +73,68 @@ function WaitingSignIn({
   card: AcpProviderCard;
   busy: boolean;
   action: CardAction | null;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, code?: string) => void;
   onDisconnect: (id: string) => void;
 }): JSX.Element {
+  const [pasted, setPasted] = useState("");
+  const pasteMode = !card.connection.userCode;
   return (
     <div className="mt-3 border border-[var(--border-1)] bg-[var(--panel)] px-3 py-3">
-      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-        Confirmation code
-      </p>
-      <p
-        data-testid={`provider-user-code-${card.id}`}
-        className="mt-1 font-mono text-lg tracking-[0.18em] text-[var(--fg)]"
-      >
-        {card.connection.userCode}
-      </p>
+      <ol className="mb-3 list-decimal space-y-1 pl-4 font-mono text-[11px] leading-relaxed text-[var(--fg)]">
+        <li>Open the vendor sign-in page.</li>
+        <li>{pasteMode ? "Approve access, then paste the code it displays." : "Enter the code below on that page."}</li>
+        <li>Choose Finish sign-in. This page checks the result. It does not send the code anywhere else.</li>
+      </ol>
+      {pasteMode ? (
+        <label className="block">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            Code from the vendor
+          </span>
+          <input
+            data-testid={`provider-paste-${card.id}`}
+            value={pasted}
+            onChange={(event) => setPasted(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="code#state"
+            className="mt-1 w-full border border-[var(--border-1)] bg-[var(--card)] px-2 py-1.5 font-mono text-[12px] text-[var(--fg)]"
+          />
+        </label>
+      ) : (
+        <>
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            Confirmation code
+          </p>
+          <p
+            data-testid={`provider-user-code-${card.id}`}
+            className="mt-1 font-mono text-lg tracking-[0.18em] text-[var(--fg)]"
+          >
+            {card.connection.userCode}
+          </p>
+        </>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {card.connection.verificationUri ? (
           <a
             href={card.connection.verificationUri}
             target="_blank"
             rel="noopener noreferrer"
+            data-testid={`provider-open-${card.id}`}
             className={SECONDARY}
+            onClick={(event) => {
+              const opened = window.open(card.connection.verificationUri ?? "", "_blank", "noopener,noreferrer");
+              if (opened) event.preventDefault();
+            }}
           >
             <NewTabLabel>Open sign-in</NewTabLabel>
           </a>
         ) : null}
-        <button type="button" disabled={busy} onClick={() => onVerify(card.id)} className={PRIMARY}>
+        <button
+          type="button"
+          disabled={busy || (pasteMode && pasted.trim() === "")}
+          onClick={() => onVerify(card.id, pasteMode ? pasted.trim() : undefined)}
+          className={PRIMARY}
+        >
           {actionLabel(busy, action, "verify", "Finish sign-in", "Checking…")}
         </button>
         <button
@@ -211,13 +247,13 @@ function ProviderActions(props: {
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, code?: string) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
 }): JSX.Element {
   const { card, action } = props;
-  if (card.connection.phase === "waiting" && card.connection.userCode) {
+  if (card.connection.phase === "waiting") {
     return (
       <WaitingSignIn
         card={card}
@@ -269,7 +305,7 @@ function ProviderCard({
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, code?: string) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -302,7 +338,11 @@ function ProviderCard({
       <div className="flex flex-1 flex-col px-3 py-3">
         <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.blurb}</p>
         {card.connection.message ? (
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]">
+          <p
+            role="status"
+            data-testid={`provider-signin-message-${card.id}`}
+            className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]"
+          >
             {card.connection.message}
           </p>
         ) : null}
@@ -340,11 +380,20 @@ async function postProvider(
   path: string,
   body: Record<string, unknown>,
 ): Promise<AcpProvidersSnapshot> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new Error("The provider request did not answer in time. Try again.");
+    }
+    throw error;
+  }
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(payload.error ?? `Request failed (${response.status}).`);
@@ -374,7 +423,7 @@ function AdapterBody({
   busyAction?: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, code?: string) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -442,7 +491,7 @@ export function ProvidersBoard({
   onRetry: () => void;
   onConnectOauth: (id: string) => void;
   onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, code?: string) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -462,7 +511,7 @@ export function ProvidersBoard({
     >
       <PageHeader
         title="Providers"
-        detail="Sandbox adapters for Claude Code, Codex, Gemini, Grok, and OpenCode. Sign in, or use a worker secret. Keys are never pasted here."
+        detail="Claude Code and Codex can use your own subscription. Gemini, Grok, and OpenCode use an API credential. Keys are never pasted into this form."
       >
         {defaultLabel ? (
           <span
@@ -600,9 +649,9 @@ export function ProvidersView(): JSX.Element {
           postProvider(`/api/providers/${id}/connect`, { mode: "api-key" }),
         )
       }
-      onVerify={(id) =>
+      onVerify={(id, code) =>
         void run(id, "verify", () =>
-          postProvider(`/api/providers/${id}/verify`, { userCode: codeFor(id) }),
+          postProvider(`/api/providers/${id}/verify`, { userCode: code ?? codeFor(id) }),
         )
       }
       onTest={(id) => void run(id, "test", () => postProvider(`/api/providers/${id}/test`, {}))}

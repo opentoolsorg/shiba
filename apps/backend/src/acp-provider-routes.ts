@@ -176,6 +176,7 @@ export async function handleAcpProviders(
   const flowDeps: ProviderDeps = {
     confirmOauth: confirm,
     inspectOauth: inspect,
+    ...(deps.login !== undefined ? { login: deps.login } : {}),
     ...(deps.now !== undefined ? { now: deps.now } : {}),
   };
   try {

@@ -3,7 +3,7 @@ import ReachAnywhere from '../components/ReachAnywhere.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 
 const description =
-  'Shiba is a free, open-source AI coding agent you self-host on Cloudflare. Pick your model, approve every task, review the diff, ship a PR.';
+  'Shiba is an open-source, self-hosted coding agent in the Devin style. You run it on your Cloudflare account, approve each task, and keep model keys out of the sandbox.';
 
 const faqItems = [
   {
@@ -12,15 +12,23 @@ const faqItems = [
   },
   {
     q: 'How is Shiba different from Devin?',
-    a: 'Devin is a proprietary, hosted commercial coding agent where the provider selects models and manages sandboxes. Shiba is open source (AGPL-3.0) and self-hosted on your Cloudflare account, letting you choose models per run and keep provider keys outside the sandbox.',
+    a: 'Devin is a hosted commercial product. Shiba is AGPL-3.0 software you deploy yourself. You pick the harness and model, approve the task before a sandbox starts, and the provider credential stays on the Worker, not in the container. A live cloud coding run is not yet recorded in VERIFICATION.md.',
   },
   {
-    q: 'Is Shiba free?',
-    a: 'Yes. Shiba is free and open-source software under the AGPL-3.0 license. You only pay for your own Cloudflare infrastructure usage and model-provider API costs directly.',
+    q: 'How is Shiba different from OpenHands?',
+    a: 'OpenHands is another open-source coding agent, usually run as your own server. Shiba is a Cloudflare Worker plus Durable Objects and a Sandbox container. The default path is approval-gated, single-tenant, and account-owned. It is not a drop-in OpenHands host.',
   },
   {
-    q: 'Which models and harnesses does Shiba support?',
-    a: 'Shiba supports 7 harnesses: OpenCode, Claude Code, Codex, Devin CLI, Cursor, Antigravity, and Grok. Models are chosen per run via Cloudflare AI Gateway BYOK and deployment connections.',
+    q: 'Is Shiba free and open source?',
+    a: 'The software is free under AGPL-3.0-only. You pay your Cloudflare account and your model provider. There is no Shiba subscription fee in this repository.',
+  },
+  {
+    q: 'How do I self-host it?',
+    a: 'Clone the repo, install Node.js 22.13+ and pnpm 10+, then run pnpm shiba dev for a local Worker. A Cloudflare deploy uses pnpm run bootstrap (Alchemy) with a Workers Paid plan and Docker when you want real Sandbox containers. The docs cover self-hosting, configuration, and local development.',
+  },
+  {
+    q: 'Which models and subscriptions work?',
+    a: 'API-key mode uses Cloudflare AI Gateway BYOK for OpenCode, Claude Code, Codex, Gemini, and Grok. Claude Code and Codex adapter cards can also start a subscription sign-in (ChatGPT device code, or a Claude code you paste). Those tokens stay encrypted on the Worker. Devin, Cursor, and Antigravity have separate opt-in lanes. A successful live inference run is not claimed until you record one.',
   },
   {
     q: 'Where does my code run?',
@@ -90,9 +98,9 @@ const comparisons = [
 
 const capabilities = [
   { number: '01', symbol: '▣', title: 'Approval before execution', detail: 'Inspect repo, branch, task, harness, and model route on the card. No sandbox starts until you approve (unless you explicitly configure unattended automations).' },
-  { number: '02', symbol: '▧', title: 'Isolated sandboxes', detail: 'Default: Cloudflare Containers with Worker-side egress (`SandboxOutbound`). Alternate providers exist for local dev and experiments — see docs for enforcement limits.' },
+  { number: '02', symbol: '▧', title: 'Isolated sandboxes', detail: 'Default: Cloudflare Containers with Worker-side egress (SandboxOutbound). Other providers exist for local dev and experiments. Read the docs for what each one enforces.' },
   { number: '03', symbol: '◫', title: 'Diff, PR, review', detail: 'Watch progress and diffs in the dashboard. Optional GitHub PR publish, then an optional read-only review round. A live GitHub round is not recorded in VERIFICATION.md yet.' },
-  { number: '04', symbol: '⌁', title: 'Your models', detail: 'Route runs through AI Gateway BYOK and deployment connections. ChatGPT Sign-in (SIWC) and subscription harnesses are optional, flag-gated paths — not the default.' },
+  { number: '04', symbol: '⌁', title: 'Your models', detail: 'API keys go through AI Gateway BYOK. Claude Code and Codex can also use a subscription sign-in you complete yourself. The container still gets a dummy key.' },
   { number: '05', symbol: '◎', title: 'Custom agents', detail: 'Save org presets (harness, model, sandbox defaults) in the dashboard and reference them from tasks or the public API.' },
   { number: '06', symbol: '≋', title: 'Triggers + API', detail: 'Dashboard, Slack, Telegram, Discord, automations, and `/api/v1` with `@shiba/sdk`. Desktop app and native iPhone client are not shipped.' },
 ];
@@ -100,7 +108,7 @@ const capabilities = [
 const sandboxRows = [
   { id: 'cloudflare', label: 'Cloudflare', note: 'Default production path; edge egress enforcement', status: 'Default' },
   { id: 'docker-local', label: 'Docker (local)', note: 'Local engine; requires explicit unenforced-egress opt-in', status: 'Dev' },
-  { id: 'computesdk', label: 'ComputeSDK', note: 'E2B / Daytona / Modal / … via host runner — not Worker-native', status: 'Experimental' },
+  { id: 'computesdk', label: 'ComputeSDK', note: 'E2B, Daytona, Modal, and similar host runners. Not the Worker-native path.', status: 'Experimental' },
 ];
 
 const roadmapRows = [
@@ -110,17 +118,17 @@ const roadmapRows = [
 ];
 ---
 
-<MarketingPage title="Shiba — Open-Source, Self-Hosted AI Coding Agent (Devin Alternative)" description={description} path="/" schema={schema}>
+<MarketingPage title="Shiba: open-source, self-hosted Devin-style coding agent" description={description} path="/" schema={schema}>
   <section class="shell home-hero" aria-labelledby="home-title">
     <div class="hero-copy">
       <p class="eyebrow">AGPL · SELF-HOSTED · CLOUDFLARE WORKERS</p>
       <h1 id="home-title">It asks before<br /><em>it writes code.</em><span class="hero-caret" aria-hidden="true"></span></h1>
-      <p class="hero-subline">The open-source, self-hosted AI coding agent on Cloudflare.</p>
-      <p class="hero-lead">Queue a coding task, approve the exact input, run it in an isolated sandbox, then read the diff — and optionally open a pull request with a follow-up review round. You operate the Worker; Shiba does not host your repo or keys.</p>
+      <p class="hero-subline">An open-source, self-hosted coding agent for people who want a Devin-style loop on their own Cloudflare account.</p>
+      <p class="hero-lead">Give it a GitHub task. Approve the exact plan. It edits in a sandbox, and you read the diff. Optional pull request when a GitHub token is set. Shiba does not host your repo or your model keys.</p>
       <div class="hero-actions">
-        <a class="button" href="/docs/self-hosting/">Self-host on Cloudflare <span aria-hidden="true">↗</span></a>
+        <a class="button" href="/docs/self-hosting/">Deploy on Cloudflare <span aria-hidden="true">↗</span></a>
         <a class="button button-outline" href="/docs/getting-started/">Local quickstart</a>
-        <a class="button button-outline" href="https://github.com/princepal9120/shiba">Source</a>
+        <a class="button button-outline" href="https://github.com/princepal9120/shiba">Star on GitHub</a>
       </div>
       <p class="hero-note"><span>Local dev: <code>pnpm shiba dev</code> after Docker is running. What is not live-verified is in the roadmap below.</span></p>
     </div>
@@ -174,7 +182,7 @@ const roadmapRows = [
   <section id="harnesses" class="shell harness-section" data-reveal aria-labelledby="harness-title">
     <p class="eyebrow">TOOLS &amp; MODEL PROVIDERS</p>
     <h2 id="harness-title">Bring your tools. Keep control.</h2>
-    <p class="harness-lead">OpenCode, Claude Code, Codex, Devin CLI, Cursor, Antigravity, and Grok have harness adapters. Pi and the subscription lanes (Claude, Codex, Cursor, Devin, Antigravity) are in the registry and stay off until you set their flags.</p>
+    <p class="harness-lead">OpenCode, Claude Code, Codex, Gemini, Grok, Devin CLI, Cursor, and Antigravity have harness code in this repo. Claude Code and Codex adapter cards can sign in with your subscription. The others use an API credential through AI Gateway. A live model call still depends on that credential.</p>
     <div class="harness-grid" role="list" aria-label="Coding tools and model providers">
       <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/opencode.svg" alt="" width="32" height="32" /></span><span class="harness-label">OpenCode<small>IN CODE</small></span></div>
       <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/claude.svg" alt="" width="32" height="32" /></span><span class="harness-label">Claude Code<small>IN CODE</small></span></div>
@@ -192,7 +200,7 @@ const roadmapRows = [
       <h2 id="sandbox-title">Pick where the sandbox runs</h2>
       <p class="micro">PROVIDER PLUG-INS</p>
     </div>
-    <p class="sandbox-intro">Production on Cloudflare uses the default provider with Worker-side egress. Other adapters trade enforcement for flexibility — read the matrix before enabling them.</p>
+    <p class="sandbox-intro">Production on Cloudflare uses the default provider with Worker-side egress. Other adapters trade enforcement for flexibility. Read the matrix before enabling them.</p>
     <div class="sandbox-table" role="table" aria-label="Sandbox providers">
       <div class="sandbox-row sandbox-head" role="row">
         <span role="columnheader">Provider</span>

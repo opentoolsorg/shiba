@@ -48,7 +48,7 @@ describe("marketing landing page", () => {
 
   test("renders the custom landing page, not the Starlight splash", () => {
     const markup = html();
-    expect(markup).toContain("Shiba — Open-Source, Self-Hosted AI Coding Agent (Devin Alternative)");
+    expect(markup).toContain("Shiba: open-source, self-hosted Devin-style coding agent");
     expect(markup).toContain("pnpm shiba dev");
     // Hero headline as shipped: it asks before it writes code.
     expect(markup).toContain("It asks before");
