@@ -11,11 +11,15 @@ export function decideChain(
   run: DelegatedRun,
   rounds: ReviewRound[],
   headSha: string,
+  loop?: { enabled: boolean } | null,
 ): ChainDecision {
   if (run.reviewOf) return { kind: "none", reason: "reviewer run" };
   if (run.status !== "completed") return { kind: "none", reason: "not completed" };
   if (!run.pullUrl) return { kind: "none", reason: "no pull request" };
-  if (run.reviewAfterPublish !== true) return { kind: "none", reason: "review not approved" };
+  if (loop?.enabled === false) return { kind: "none", reason: "review loop disabled" };
+  if (loop?.enabled !== true && run.reviewAfterPublish !== true) {
+    return { kind: "none", reason: "review not approved" };
+  }
   if (blockingRoundForHead(rounds, run.runId, headSha)) {
     return { kind: "none", reason: "round exists for head" };
   }

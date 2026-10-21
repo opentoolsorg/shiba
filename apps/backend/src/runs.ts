@@ -2,10 +2,10 @@
  * Durable run registry helpers. The orchestrator keeps these records in
  * Durable Object state; the Worker gates drill-in routes on them.
  *
- * Cloudbox-style: a run is an append-only receipt log. Runs are one-shot:
- * completed/error/cancelled/aborted are terminal, and there is no
- * stop/resume — resumable runs are a real architecture change and were
- * deliberately cut (PLAN.md §4, "Future work").
+ * Cloudbox-style: a run is an append-only receipt log. completed/error/
+ * cancelled/aborted are terminal. A restart re-dispatches only while the
+ * checkpoint is still `queued` or `dispatching` and no sandbox signal has
+ * landed; later checkpoints become `unknown` instead of a second publish.
  *
  * T40: transition legality now lives in the pure decider
  * (`decideRunTransition` in @shiba/shared); these functions are the thin

@@ -4,6 +4,7 @@
  * and never enters the container, a clone URL, a command, the process
  * environment, logs, or UI output.
  */
+import { fetchWithBackoff, isTimeoutError } from "./http-retry.js";
 import { parseGitHubRepoUrl, redactSecrets } from "./security.js";
 
 export interface CapturedFile {
@@ -66,7 +67,20 @@ async function api<T>(
 ): Promise<T> {
   const timeout = AbortSignal.timeout(API_TIMEOUT_MS);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  const response = await deps.fetchImpl(`${deps.apiBase}${path}`, { ...init, signal: combined });
+  let response: Response;
+  try {
+    response = await fetchWithBackoff(`${deps.apiBase}${path}`, { ...init, signal: combined }, {
+      fetchImpl: deps.fetchImpl,
+      signal: combined,
+      attempts: 3,
+      baseDelayMs: 200,
+    });
+  } catch (error) {
+    if (isTimeoutError(error) || (error instanceof Error && /status 408/.test(error.message))) {
+      throw new Error("GitHub API request timed out (status 408)");
+    }
+    throw error;
+  }
   const text = await response.text();
   if (!response.ok) {
     throw new Error(describeError(response.status, text));

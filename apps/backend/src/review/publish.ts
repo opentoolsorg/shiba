@@ -1,5 +1,6 @@
 import type { FindingSeverity, ReviewFinding, ReviewRound } from "@shiba/shared";
 import { selectPostable } from "@shiba/shared";
+import { fetchWithBackoff } from "../http-retry.js";
 import { redactSecrets } from "../security.js";
 
 export interface PostReviewDeps {
@@ -43,7 +44,11 @@ export async function postReview(
   const { owner, repo, number, headSha } = round.pull;
   const path = `/repos/${owner}/${repo}/pulls/${number}/reviews`;
   try {
-    const listed = await fetchImpl(`${apiBase}${path}`, { headers: headers(token) });
+    const listed = await fetchWithBackoff(`${apiBase}${path}`, { headers: headers(token) }, {
+      fetchImpl,
+      attempts: 3,
+      baseDelayMs: 200,
+    });
     const listedText = await listed.text();
     if (!listed.ok) throw new Error(`GitHub list reviews failed ${listed.status}: ${listedText.slice(0, 300)}`);
     const reviews: unknown = listedText ? JSON.parse(listedText) : [];

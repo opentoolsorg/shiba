@@ -38,6 +38,7 @@ import {
   reviewRoundWriteRejected,
   runInputHash,
   type FindingSeverity,
+  type ReviewLoopSettings,
   type ReviewRound,
   canStartRunWithBudget,
   denIdWireFields,
@@ -101,10 +102,14 @@ import {
   resolvePendingApproval,
 } from "../pending-approvals.js";
 import { makeReceipt } from "../receipts.js";
+import { logStructured } from "../log.js";
+import { runTimedOut } from "../public-error.js";
+import { restartDisposition } from "../run-resume.js";
 import { fetchAgentsMd } from "../review/agents-md.js";
 import { decideChain } from "../review/chain.js";
 import { mergePullRequest, type MergeMethod } from "../review/merge.js";
 import { reviewerTask } from "../review/prompt.js";
+import { reviewRetryPlan, shouldQueueAutoMerge } from "../review/retry-plan.js";
 import { postReview } from "../review/publish.js";
 import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
@@ -198,6 +203,8 @@ export interface OrchestratorState {
   commandReceipts?: Record<string, CommandReceipt>;
   /** Review rounds for this thread. GitHub is the system of record for the posted review. */
   reviewRounds?: ReviewRound[];
+  /** v1 review-loop settings keyed by coding run id. */
+  reviewLoops?: Record<string, ReviewLoopSettings>;
   /** `owner/repo#n` → coding run that opened the PR (webhook wake target). */
   prBindings?: Record<string, string>;
   /**
@@ -622,21 +629,38 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         new WebSocketRequestResponsePair('{"type":"shiba:ping"}', '{"type":"shiba:pong"}'),
       );
     }
-    const interrupted = this.approvals
-      .filter((approval) => approval.status === "approved")
-      .map((approval) => this.store.get(`agent-tool:${approval.approvalId}`))
-      .filter((run): run is DelegatedRun => run !== null && isActiveStatus(run.status));
-    // Do not retry potentially published work after losing the execution context.
-    for (const run of interrupted) {
+    // Pre-sandbox checkpoints resume under the same frozen approval. A run
+    // that may have touched git or a container stays unknown — resuming it
+    // could publish twice.
+    const unknownSandboxes: string[] = [];
+    for (const run of this.store.list()) {
+      if (!isActiveStatus(run.status)) continue;
+      if (restartDisposition(run) === "resume") {
+        const stamped: DelegatedRun = { ...run, resumeAttemptedAt: Date.now(), checkpoint: "dispatching" };
+        this.store.replace(run.runId, stamped);
+        const approval = this.approvals.find((item) => item.approvalId === run.approval?.approvalId);
+        logStructured("info", {
+          event: "run.resume",
+          runId: run.runId,
+          threadId: run.reviewOf ?? run.parentRunId ?? run.runId,
+          checkpoint: run.checkpoint ?? "queued",
+        });
+        this.dispatchApprovedRun(stamped, approval, approval?.approvalId ?? run.approval?.approvalId ?? run.runId);
+        continue;
+      }
       const updated = this.store.transition(run.runId, "unknown", {
         error:
           "Execution interrupted by orchestrator restart. Inspect repository state before retrying.",
         errorCode: "outcome_unknown",
       });
-      if (updated !== null) this.postOutcomeUnknown(updated);
+      if (updated !== null) {
+        this.postOutcomeUnknown(updated);
+        if (updated.reviewOf) this.failReviewRound(updated, updated.error ?? "restart");
+        unknownSandboxes.push(run.sandboxId);
+      }
     }
     // Teardown runs in the background: awaiting container I/O here would block the DO's start.
-    this.holdOpen(this.destroyEach(interrupted.map((run) => run.sandboxId)));
+    this.holdOpen(this.destroyEach(unknownSandboxes));
     // Before anything re-drives, free the draft claims a dead attempt
     // could leave behind: a `sending` row at DO start belongs to a
     // dispatch that died with the last lifetime — claims are only
@@ -764,6 +788,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       this.dispatchApprovedRun(run, approval, approval.approvalId);
     }
     this.sweepStaleDrafts(true);
+    this.resumeStuckReviewRounds();
   }
 
   override getModel(): string {
@@ -1058,6 +1083,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         // child was running) drops the transition AND every side effect.
         const updated = this.store.transition(runId, status, patch, generation);
         if (updated === null) return null;
+        this.stampCheckpoint(runId, "terminal");
+        logStructured(status === "completed" ? "info" : "error", {
+          event: "run.settled",
+          runId,
+          threadId: updated.reviewOf ?? updated.parentRunId ?? runId,
+          status: updated.status,
+          ...(updated.errorCode ? { errorCode: updated.errorCode } : {}),
+          checkpoint: "terminal",
+          ...(updated.usage ? { usage: updated.usage } : {}),
+        });
         if (threadText) {
           this.postToThread(threadText);
         }
@@ -1090,6 +1125,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (running === null || running.status !== "running") {
         return `Run ${runId} did not start — it is already ${this.store.get(runId)?.status ?? "missing"}.`;
       }
+      this.stampCheckpoint(runId, "executing");
+      logStructured("info", {
+        event: "run.executing",
+        runId,
+        threadId: running.reviewOf ?? running.parentRunId ?? runId,
+        status: "running",
+        checkpoint: "executing",
+      });
       const generation = running.generation;
       failureRun = running;
       // Durable backstop: reclaim fires at the deadline even when no request ever arrives.
@@ -1220,6 +1263,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                   }),
                 );
                 if (finished !== null) {
+                  this.stampCheckpoint(runId, "settling");
                   yield* Effect.promise(() => this.afterRunSettled(finished, output));
                 }
                 // TypeSafe Score: grade the run quality (fail-open — never
@@ -2523,16 +2567,34 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
   }
 
-  private async queueReviewForCodingRun(parent: DelegatedRun, headSha: string): Promise<void> {
-    if (decideChain(parent, this.state.reviewRounds ?? [], headSha).kind !== "queue_review") return;
-    const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
-    if (!pull || !parent.pullUrl) return;
+  private reviewLoopFor(runId: string): ReviewLoopSettings | undefined {
+    return this.state.reviewLoops?.[runId];
+  }
+
+  private async queueReviewForCodingRun(
+    parent: DelegatedRun,
+    headSha: string,
+    opts?: { force?: boolean },
+  ): Promise<void> {
+    const loop = this.reviewLoopFor(parent.runId);
+    const decision = decideChain(parent, this.state.reviewRounds ?? [], headSha, loop);
     const roundId = `${parent.runId}:${headSha}`;
     const prior = (this.state.reviewRounds ?? []).find((item) => item.roundId === roundId);
+    if (opts?.force) {
+      if (prior?.status === "posted") return;
+    } else if (decision.kind !== "queue_review") {
+      return;
+    }
+    const pull = parent.pullUrl ? this.parsePull(parent.pullUrl) : null;
+    if (!pull || !parent.pullUrl) return;
     const generation =
-      prior?.status === "failed" ? (prior.generation ?? 0) + 1 : prior?.generation ?? 0;
+      prior?.status === "failed" ? (prior.generation ?? 0) + 1 : (prior?.generation ?? -1) + 1;
     // Reserve the round before any await so concurrent wakes cannot double-queue.
-    if (decideChain(parent, this.state.reviewRounds ?? [], headSha).kind !== "queue_review") return;
+    // Force skips the chain check so a retry can replace a failed round. A posted
+    // round already returned above.
+    if (!opts?.force && decideChain(parent, this.state.reviewRounds ?? [], headSha, loop).kind !== "queue_review") {
+      return;
+    }
     const reserved = this.writeRound({
       roundId,
       codingRunId: parent.runId,
@@ -2568,7 +2630,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       });
       return;
     }
-    const callId = `chain-review:${parent.runId}:${headSha}`;
+    const callId = `chain-review:${parent.runId}:${headSha}:${generation}`;
     const fields = {
       repoUrl: parent.repoUrl,
       task,
@@ -2601,7 +2663,34 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       summary: "",
       generation,
     });
+    this.stampCheckpoint(reviewRun.runId, "queued");
+    logStructured("info", {
+      event: "review.queued",
+      runId: reviewRun.runId,
+      threadId: parent.runId,
+      checkpoint: "queued",
+    });
     this.dispatchApprovedRun(reviewRun, undefined, callId);
+  }
+
+  /** Re-queue reviewer rounds whose run died with the previous DO lifetime. */
+  private resumeStuckReviewRounds(): void {
+    // A fresh Durable Object has no state until the first write. onStart
+    // still runs, and reading reviewRounds on undefined crashes the Worker.
+    for (const round of this.state?.reviewRounds ?? []) {
+      if (round.status !== "queued" && round.status !== "running") continue;
+      const review = this.store.get(round.reviewRunId);
+      if (review && (isActiveStatus(review.status) || review.resumeAttemptedAt !== undefined)) continue;
+      const parent = this.store.get(round.codingRunId);
+      if (!parent) continue;
+      logStructured("info", {
+        event: "review.resume",
+        runId: round.reviewRunId,
+        threadId: round.codingRunId,
+        status: round.status,
+      });
+      void this.queueReviewForCodingRun(parent, round.pull.headSha, { force: true });
+    }
   }
 
   private failReviewRound(run: DelegatedRun, error: string): void {
@@ -2859,7 +2948,20 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         apiBase: githubCred.apiBase,
         inlineThreshold: this.inlineReviewThreshold(),
       });
-      this.writeRound({ ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() });
+      const postedRound: ReviewRound = {
+        ...round,
+        status: "posted",
+        githubReviewId: posted.githubReviewId,
+        postedAt: Date.now(),
+      };
+      this.writeRound(postedRound);
+      logStructured("info", {
+        event: "review.posted",
+        runId: run.runId,
+        threadId: postedRound.codingRunId,
+        status: "posted",
+      });
+      await this.maybeAutoMerge(postedRound);
     } catch (error) {
       this.writeRound({
         ...round,
@@ -2881,11 +2983,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     approvalId: string,
   ): void {
     const dispatch = async () => {
+      this.stampCheckpoint(run.runId, "dispatching");
       const generation = this.store.get(run.runId)?.generation;
       try {
         const delegate = this.getTools()["delegate_coding_task"] as {
           execute: (input: unknown, options?: unknown) => Promise<unknown>;
         };
+        // The tool object exists, so this attempt has started. A later
+        // restart must not call execute again; a crash inside getTools
+        // (before this line) still resumes from the dispatching checkpoint.
+        const invoked = this.store.get(run.runId);
+        if (invoked && invoked.resumeAttemptedAt === undefined) {
+          this.store.replace(run.runId, { ...invoked, resumeAttemptedAt: Date.now() });
+        }
         await delegate.execute({
           repoUrl: run.repoUrl,
           task: run.task,
@@ -3050,16 +3160,45 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return this.store.archiveRun(runId);
   }
 
-  async cancelRun(runId: string): Promise<DelegatedRun | null> {
+  async cancelRun(runId: string, nested = false): Promise<DelegatedRun | null> {
     const run = this.store.get(runId);
     if (!run) return null;
     if (!isActiveStatus(run.status)) return run;
     // Cancellation is deliberately unfenced: it is allowed to win races.
     const updated = this.store.transition(runId, "cancelled", { errorCode: "cancelled" });
     this.runControllers.get(runId)?.abort();
+    this.stampCheckpoint(runId, "terminal");
+    logStructured("info", {
+      event: "run.cancelled",
+      runId,
+      threadId: run.reviewOf ?? run.parentRunId ?? runId,
+      status: "cancelled",
+      errorCode: "cancelled",
+    });
+    if (run.reviewOf) this.failReviewRound(updated ?? run, "cancelled");
     this.postToThread(slackRunCancelled({ repoUrl: run.repoUrl }));
     await this.releaseSandboxForRun(run);
-    return updated;
+    if (!nested) await this.cancelDependents(runId);
+    return this.store.get(runId) ?? updated;
+  }
+
+  /** Cancel reviewer children and subagents still in flight for this run. */
+  private async cancelDependents(runId: string): Promise<void> {
+    const kids = this.store
+      .list()
+      .filter(
+        (item) =>
+          item.runId !== runId &&
+          isActiveStatus(item.status) &&
+          (item.reviewOf === runId || item.parentRunId === runId),
+      );
+    for (const kid of kids) await this.cancelRun(kid.runId, true);
+  }
+
+  private stampCheckpoint(runId: string, checkpoint: NonNullable<DelegatedRun["checkpoint"]>): void {
+    const current = this.store.get(runId);
+    if (!current || current.checkpoint === checkpoint) return;
+    this.store.replace(runId, { ...current, checkpoint });
   }
 
   private async steerRun(
@@ -3267,8 +3406,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   /** Wire projection for API responses: errorCode -> {status, code, userMessage}. */
-  private serializeRun(run: DelegatedRun): DelegatedRun & { errorWire?: RunErrorWire } {
-    return run.errorCode ? { ...run, errorWire: runErrorWire(run.errorCode) } : run;
+  private serializeRun(run: DelegatedRun): DelegatedRun & { errorWire?: RunErrorWire; timedOut?: boolean } {
+    const timedOut = runTimedOut(run);
+    const projected = run.errorCode ? { ...run, errorWire: runErrorWire(run.errorCode) } : run;
+    return timedOut ? { ...projected, timedOut: true } : projected;
   }
 
   /** Mirror the per-isolate leak registry into DO state so hibernation
@@ -3936,31 +4077,153 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return Response.json({ ok: true, round, rounds });
     }
     if (request.method === "POST" && match[2] === "retry") {
-      if (!round) return Response.json({ ok: false, error: "round_not_found" }, { status: 404 });
-      const cred = await resolveGitHubCredential(
-        this.env,
-        round.pull ? `https://github.com/${round.pull.owner}/${round.pull.repo}` : undefined,
-      );
-      if (!cred) return Response.json({ ok: false, error: "github_not_configured" }, { status: 503 });
-      try {
-        const posted = await postReview(round, cred.token, {
-          apiBase: cred.apiBase,
-          inlineThreshold: this.inlineReviewThreshold(),
-        });
-        const next: ReviewRound = { ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() };
-        this.writeRound(next);
-        return Response.json({ ok: true, round: next });
-      } catch (error) {
-        const failed: ReviewRound = {
-          ...round,
-          status: "failed",
-          error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 500),
-        };
-        this.writeRound(failed);
-        return Response.json({ ok: false, round: failed }, { status: 502 });
-      }
+      return this.retryReview(runId, round);
     }
     return Response.json({ error: "Method not allowed." }, { status: 405 });
+  }
+
+  private async retryReview(runId: string, round: ReviewRound | null): Promise<Response> {
+    if (!round) return Response.json({ ok: false, error: "round_not_found" }, { status: 404 });
+    const reviewRun = round.reviewRunId.startsWith("pending:") ? null : this.store.get(round.reviewRunId);
+    const plan = reviewRetryPlan(round, reviewRun);
+    if (plan === "noop") return Response.json({ ok: true, round, action: "noop" });
+    if (plan === "rerun") {
+      const parent = this.store.get(round.codingRunId) ?? this.store.get(runId);
+      if (!parent?.pullUrl) {
+        return Response.json(
+          { ok: false, error: "pull_request_not_found", userMessage: "This thread has no pull request to review." },
+          { status: 409 },
+        );
+      }
+      if (reviewRun && isActiveStatus(reviewRun.status)) await this.cancelRun(reviewRun.runId);
+      const headSha = round.pull.headSha && round.pull.headSha !== "head"
+        ? round.pull.headSha
+        : await this.pullHeadSha(round.pull.owner, round.pull.repo, round.pull.number);
+      logStructured("info", { event: "review.retry", runId: round.reviewRunId, threadId: parent.runId, detail: "rerun" });
+      await this.queueReviewForCodingRun(parent, headSha, { force: true });
+      const next =
+        (this.state.reviewRounds ?? []).find((item) => item.codingRunId === parent.runId && item.pull.headSha === headSha) ??
+        round;
+      return Response.json({ ok: true, round: next, action: "rerun" });
+    }
+    const cred = await resolveGitHubCredential(
+      this.env,
+      round.pull ? `https://github.com/${round.pull.owner}/${round.pull.repo}` : undefined,
+    );
+    if (!cred) {
+      return Response.json(
+        { ok: false, error: "github_not_configured", userMessage: "GitHub is not configured, so the review cannot be posted." },
+        { status: 503 },
+      );
+    }
+    try {
+      const posted = await postReview(round, cred.token, {
+        apiBase: cred.apiBase,
+        inlineThreshold: this.inlineReviewThreshold(),
+      });
+      const next: ReviewRound = { ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() };
+      this.writeRound(next);
+      logStructured("info", { event: "review.retry", runId: round.reviewRunId, threadId: round.codingRunId, detail: "repost" });
+      await this.maybeAutoMerge(next);
+      return Response.json({ ok: true, round: next, action: "repost" });
+    } catch (error) {
+      const failed: ReviewRound = {
+        ...round,
+        status: "failed",
+        error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 500),
+      };
+      this.writeRound(failed);
+      return Response.json(
+        { ok: false, round: failed, userMessage: "GitHub rejected the review post. You can retry again." },
+        { status: 502 },
+      );
+    }
+  }
+
+  private async maybeAutoMerge(round: ReviewRound): Promise<void> {
+    const loop = this.reviewLoopFor(round.codingRunId);
+    if (!shouldQueueAutoMerge(loop, round)) return;
+    if (!/^[a-fA-F0-9]{40,64}$/.test(round.pull.headSha)) {
+      logStructured("warn", {
+        event: "review.automerge_skipped",
+        runId: round.reviewRunId,
+        threadId: round.codingRunId,
+        detail: "head_sha_unavailable",
+      });
+      return;
+    }
+    logStructured("info", {
+      event: "review.automerge_queued",
+      runId: round.reviewRunId,
+      threadId: round.codingRunId,
+    });
+    await this.queuePrMergeApproval({
+      threadKey: round.codingRunId,
+      payload: {
+        owner: round.pull.owner,
+        repo: round.pull.repo,
+        number: round.pull.number,
+        expectedHeadSha: round.pull.headSha,
+        mergeMethod: "squash",
+      },
+    });
+  }
+
+  private async handleReviewLoop(request: Request, threadId: string): Promise<Response> {
+    const current = this.state.reviewLoops?.[threadId] ?? null;
+    if (request.method === "GET") return Response.json({ ok: true, reviewLoop: current });
+    if (request.method !== "PATCH") return Response.json({ error: "Method not allowed." }, { status: 405 });
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ ok: false, error: "invalid_json" }, { status: 400 });
+    }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return Response.json({ ok: false, error: "invalid_request" }, { status: 400 });
+    }
+    const record = body as Record<string, unknown>;
+    const allowed = new Set(["enabled", "autoMerge", "pullRequestId"]);
+    if (Object.keys(record).some((key) => !allowed.has(key))) {
+      return Response.json({ ok: false, error: "invalid_request" }, { status: 400 });
+    }
+    if (
+      (record.enabled !== undefined && typeof record.enabled !== "boolean") ||
+      (record.autoMerge !== undefined && typeof record.autoMerge !== "boolean") ||
+      (record.pullRequestId !== undefined && (typeof record.pullRequestId !== "string" || !record.pullRequestId))
+    ) {
+      return Response.json({ ok: false, error: "invalid_request" }, { status: 400 });
+    }
+    const next: ReviewLoopSettings = {
+      threadId,
+      enabled: record.enabled !== undefined ? record.enabled : (current?.enabled ?? false),
+      autoMerge: record.autoMerge !== undefined ? record.autoMerge : (current?.autoMerge ?? false),
+      ...(record.pullRequestId !== undefined
+        ? { pullRequestId: record.pullRequestId }
+        : current?.pullRequestId
+          ? { pullRequestId: current.pullRequestId }
+          : {}),
+      updatedAt: Date.now(),
+    };
+    this.setState({ ...this.state, reviewLoops: { ...this.state.reviewLoops, [threadId]: next } });
+    logStructured("info", {
+      event: "review.loop",
+      runId: threadId,
+      threadId,
+      detail: next.enabled ? "enabled" : "disabled",
+    });
+    if (next.enabled) {
+      const parent = this.store.get(threadId);
+      if (parent?.pullUrl && parent.status === "completed") {
+        const pull = this.parsePull(parent.pullUrl);
+        const headSha = pull ? await this.pullHeadSha(pull.owner, pull.repo, pull.number) : "head";
+        await this.queueReviewForCodingRun(parent, headSha);
+      }
+      const latest =
+        latestRoundForCodingRun(this.state.reviewRounds ?? [], threadId) ?? null;
+      if (latest) await this.maybeAutoMerge(latest);
+    }
+    return Response.json({ ok: true, reviewLoop: this.state.reviewLoops?.[threadId] ?? next });
   }
 
   override async onRequest(request: Request): Promise<Response> {
@@ -4204,6 +4467,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(typeof record.commitMessage === "string" ? { commitMessage: record.commitMessage } : {}),
         },
       });
+    }
+    const reviewLoopMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review-loop$/);
+    if (reviewLoopMatch) {
+      let threadId: string;
+      try {
+        threadId = decodeURIComponent(reviewLoopMatch[1] ?? "");
+      } catch {
+        return Response.json({ ok: false, error: "invalid_thread" }, { status: 400 });
+      }
+      return this.handleReviewLoop(request, threadId);
     }
     const reviewMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review(?:\/(retry))?$/);
     if (reviewMatch) return this.handleReviewRoute(request, reviewMatch);
