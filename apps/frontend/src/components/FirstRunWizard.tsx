@@ -1,22 +1,16 @@
-/**
- * FirstRunWizard — the post-signup onboarding flow. Three steps:
- *   1. Connect GitHub  — configure repository access for tasks and PRs.
- *   2. Connect Sandbox — configure custom ComputeSDK runner URL, token, and backend with test ping.
- *   3. Connect Model   — configure provider API key with live probe.
- * Collapses operator-only infra behind an expandable section.
- */
-import { useState, type JSX } from "react";
+import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
+import { type JSX, useEffect, useRef, useState } from "react";
+import { useMailboxes, useSetupStatus } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
+import { providerPhaseLabel } from "./provider-phase";
 import { ToneChip } from "./ToneChip";
-import { useSetupStatus } from "../live-status";
-import { useOrgConnections } from "./org-connections";
 
 export const ONBOARDING_STORAGE_KEY = "shiba-onboarding-v1";
 
 const STEPS = [
-  { id: "github", title: "Connect GitHub", blurb: "Configure repository permissions for tasks and pull requests" },
-  { id: "sandbox", title: "Connect Sandbox", blurb: "Configure your ComputeSDK runner (e2b, modal, or daytona)" },
-  { id: "model", title: "Connect Model", blurb: "Provide API keys for Anthropic, OpenAI, Google, or xAI" },
+  { id: "channels", title: "Your channels", blurb: "Where tasks and approvals reach you" },
+  { id: "agent", title: "Your agent", blurb: "ACP adapters that run in the sandbox" },
+  { id: "models", title: "Model routing", blurb: "Which agent handles each kind of task" },
 ] as const;
 
 function WizardShell({
@@ -45,9 +39,7 @@ function WizardShell({
               <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
                 Welcome — {step + 1} of {STEPS.length}
               </div>
-              <h2 className="mt-0.5 text-base font-semibold text-[var(--text)]">
-                {current.title}
-              </h2>
+              <h2 className="mt-0.5 text-base font-semibold text-[var(--text)]">{current.title}</h2>
               <p className="mt-0.5 text-xs text-[var(--muted-foreground-2)]">{current.blurb}</p>
             </div>
             <button
@@ -116,30 +108,92 @@ function Footer({
   );
 }
 
+function ChannelRow({
+  name,
+  status,
+  children,
+}: {
+  name: string;
+  status: React.ReactNode;
+  children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-[var(--border-1)]/60 py-2.5 last:border-b-0">
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-[var(--text)]">{name}</div>
+        <div className="mt-0.5 text-[11px] leading-snug text-[var(--muted-foreground-2)]">
+          {children}
+        </div>
+      </div>
+      <div className="shrink-0 pt-0.5">{status}</div>
+    </div>
+  );
+}
+
 export function FirstRunWizard({
   open,
   onClose,
   onNavigate,
   onOpenModels,
   onOpenChecklist,
-  onSelectStarterTask,
 }: {
   open: boolean;
   onClose: () => void;
   onNavigate?: (view: AppNavView) => void;
   onOpenModels?: () => void;
   onOpenChecklist?: () => void;
-  onSelectStarterTask?: (repoUrl: string, task: string, harness: string) => void;
 }): JSX.Element | null {
   const [step, setStep] = useState(0);
+  const [providers, setProviders] = useState<AcpProviderCard[] | null>(null);
+  const [providersError, setProvidersError] = useState(false);
+  const [routingRetried, setRoutingRetried] = useState(false);
+  const routingRef = useRef<HTMLDivElement>(null);
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
   const setup = useSetupStatus();
-  const connections = useOrgConnections();
-
-  // Operator section collapse state
-  const [showOperatorSection, setShowOperatorSection] = useState(false);
+  const mailboxes = useMailboxes();
 
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
-  const githubConfigured = Boolean(status?.github.token || status?.github.app);
+  const mailboxList = mailboxes.state.kind === "data" ? mailboxes.state.data.mailboxes : undefined;
+  const roles = status?.models.roles ?? [];
+  const connectedProviders = (providers ?? []).filter(
+    (card) => card.connection.phase === "connected",
+  ).length;
+  const checkingProviders = providers === null && !providersError;
+
+  useEffect(() => {
+    if (routingRetried && !setup.inFlight && setup.state.kind === "data") {
+      const active = document.activeElement;
+      if (!active || active === document.body || active === retryButtonRef.current) {
+        routingRef.current?.focus();
+      }
+    }
+  }, [routingRetried, setup.inFlight, setup.state.kind]);
+
+  useEffect(() => {
+    if (!open || step !== 2) setRoutingRetried(false);
+  }, [open, step]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetch("/api/providers")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Providers request failed: ${response.status}`);
+        return (await response.json()) as AcpProvidersSnapshot;
+      })
+      .then((body) => {
+        if (!cancelled) {
+          setProviders(Array.isArray(body.providers) ? body.providers : []);
+          setProvidersError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setProvidersError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -147,7 +201,7 @@ export function FirstRunWizard({
     try {
       localStorage.setItem(ONBOARDING_STORAGE_KEY, "done");
     } catch {
-      // private mode
+      // private mode — just close
     }
     onClose();
   };
@@ -160,7 +214,7 @@ export function FirstRunWizard({
         <>
           <Footer step={step} setStep={setStep} onFinish={finish} />
           {onOpenChecklist ? (
-            <p className="mt-3 border-t border-[var(--border-1)]/60 pt-3 flex items-center justify-between">
+            <p className="mt-3 border-t border-[var(--border-1)]/60 pt-3">
               <button
                 type="button"
                 onClick={() => {
@@ -169,240 +223,243 @@ export function FirstRunWizard({
                 }}
                 className="font-mono text-[10px] text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
               >
-                Open deployment checklist →
+                Operator? Open the deployment checklist →
               </button>
             </p>
           ) : null}
         </>
       }
     >
-      {/* Step 0: Connect GitHub */}
-      {step === 0 ? (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] p-3">
-            <div>
-              <div className="text-[13px] font-semibold text-[var(--text)]">GitHub Integration</div>
-              <div className="text-[11px] text-[var(--muted-foreground-2)]">
-                Required for repository checkouts and pull requests
-              </div>
-            </div>
-            <ToneChip
-              tone={githubConfigured ? "ok" : "pending"}
-              label={githubConfigured ? "Configured" : "Needs Token"}
-            />
-          </div>
+      <p role="status" className="sr-only">
+        {step !== 2
+          ? ""
+          : setup.inFlight
+            ? "Checking model routing…"
+            : routingRetried && setup.state.kind === "data"
+              ? "Model routing loaded."
+              : routingRetried
+                ? "Model routing still could not be loaded."
+                : ""}
+      </p>
+      {step > 0 ? (
+        <div role="status" className="mb-3 space-y-1.5">
+          <ToneChip
+            tone={connectedProviders > 0 ? "ok" : "neutral"}
+            label={`${connectedProviders} provider${connectedProviders === 1 ? "" : "s"} connected`}
+          />
           <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
-            Configure a fine-grained GitHub PAT or App token with repo read/write permissions via `GITHUB_TOKEN` secret. Egress is strictly scoped to approved repositories.
+            {checkingProviders
+              ? "Checking provider connections…"
+              : providersError
+                ? "Provider status could not be checked. Only confirmed connections are counted."
+                : connectedProviders === 0
+                  ? "No provider connected yet. Sign in on the Providers page."
+                  : "Connection status comes from the provider registry. Model routing is configured separately."}
           </p>
         </div>
       ) : null}
-
-      {/* Step 1: Connect Sandbox */}
-      {step === 1 ? (
-        <div className="space-y-3">
-          <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] p-3 space-y-2">
-            <div className="text-[13px] font-semibold text-[var(--text)]">ComputeSDK Sandbox Runner</div>
-            <p className="text-[11px] text-[var(--muted-foreground-2)]">
-              Paste your runner sidecar URL and bearer token (E2B, Modal, or Daytona). Encrypted at rest.
-            </p>
-            <div>
-              <label className="text-[11px] font-medium text-[var(--text)] block mb-1">Runner URL:</label>
-              <input
-                type="text"
-                value={connections.runnerUrl}
-                onChange={(e) => connections.setRunnerUrl(e.target.value)}
-                placeholder="https://runner.your-domain.com"
-                className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] font-medium text-[var(--text)] block mb-1">Token:</label>
-                {connections.sandboxConfigured && !connections.runnerToken ? (
-                  <div className="text-[11px] font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--primary)]">
-                    Configured (ends with …{connections.sandboxLast4 ?? "••••"})
-                  </div>
-                ) : (
-                  <input
-                    type="password"
-                    value={connections.runnerToken}
-                    onChange={(e) => connections.setRunnerToken(e.target.value)}
-                    placeholder="Bearer token"
-                    className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
-                  />
-                )}
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-[var(--text)] block mb-1">Backend:</label>
-                <select
-                  value={connections.runnerBackend}
-                  onChange={(e) => connections.setRunnerBackend(e.target.value as any)}
-                  className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
-                >
-                  <option value="e2b">E2B</option>
-                  <option value="modal">Modal</option>
-                  <option value="daytona">Daytona</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 pt-1 flex-wrap">
-              <button
-                type="button"
-                onClick={() => void connections.testSandbox()}
-                disabled={connections.testingSandbox || connections.savingSandbox}
-                className="rounded-[var(--radius-button)] bg-[var(--secondary)] px-3 py-1 font-mono text-[11px] font-semibold text-[var(--text)] border border-[var(--border-1)] hover:bg-[var(--secondary)]/80"
-              >
-                {connections.testingSandbox ? "Testing…" : "Test Runner"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void connections.saveSandbox()}
-                disabled={!connections.canSaveSandbox || connections.savingSandbox}
-                className={`rounded-[var(--radius-button)] px-3 py-1 font-mono text-[11px] font-semibold border transition-colors ${
-                  connections.canSaveSandbox
-                    ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
-                    : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
-                }`}
-              >
-                {connections.savingSandbox ? "Saving…" : "Save Runner"}
-              </button>
-              {connections.sandboxTestResult ? (
-                <span className={`text-[11px] font-mono ${connections.sandboxTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
-                  {connections.sandboxTestResult.ok ? "✓ " : "✗ "} {connections.sandboxTestResult.message}
-                </span>
-              ) : null}
-              {connections.sandboxSaveError ? (
-                <span className="text-[11px] font-mono text-[var(--destructive)] block w-full mt-1">
-                  ✗ {connections.sandboxSaveError}
-                </span>
-              ) : null}
-              {connections.sandboxConfigured && !connections.sandboxSaveError ? (
-                <span className="text-[11px] font-mono text-[var(--primary)]">
-                  ✓ Saved and configured
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Step 2: Connect Model */}
-      {step === 2 ? (
-        <div className="space-y-3">
-          <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] p-3 space-y-2">
-            <div className="text-[13px] font-semibold text-[var(--text)]">Provider Model Keys</div>
-            <p className="text-[11px] text-[var(--muted-foreground-2)]">
-              Paste your raw provider API key. Egress proxy attaches the required headers per request.
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-[11px] font-medium text-[var(--text)] block mb-1">Provider:</label>
-                <select
-                  value={connections.modelProvider}
-                  onChange={(e) => connections.setModelProvider(e.target.value as any)}
-                  className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
-                >
-                  <option value="anthropic">Anthropic</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="google">Google</option>
-                  <option value="xai">xAI</option>
-                </select>
-              </div>
-              <div className="col-span-2">
-                <label className="text-[11px] font-medium text-[var(--text)] block mb-1">API Key:</label>
-                {connections.modelConfigured && !connections.modelApiKey ? (
-                  <div className="text-[11px] font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--primary)]">
-                    Configured (ends with …{connections.modelLast4 ?? "••••"})
-                  </div>
-                ) : (
-                  <input
-                    type="password"
-                    value={connections.modelApiKey}
-                    onChange={(e) => connections.setModelApiKey(e.target.value)}
-                    placeholder="sk-..."
-                    className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--text)]"
-                  />
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 pt-1 flex-wrap">
-              <button
-                type="button"
-                onClick={() => void connections.testModel()}
-                disabled={connections.testingModel || connections.savingModel}
-                className="rounded-[var(--radius-button)] bg-[var(--secondary)] px-3 py-1 font-mono text-[11px] font-semibold text-[var(--text)] border border-[var(--border-1)] hover:bg-[var(--secondary)]/80"
-              >
-                {connections.testingModel ? "Testing…" : "Test Key"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void connections.saveModel()}
-                disabled={!connections.canSaveModel || connections.savingModel}
-                className={`rounded-[var(--radius-button)] px-3 py-1 font-mono text-[11px] font-semibold border transition-colors ${
-                  connections.canSaveModel
-                    ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
-                    : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
-                }`}
-              >
-                {connections.savingModel ? "Saving…" : "Save Key"}
-              </button>
-              {connections.modelTestResult ? (
-                <span className={`text-[11px] font-mono ${connections.modelTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
-                  {connections.modelTestResult.ok ? "✓ " : "✗ "} {connections.modelTestResult.message}
-                </span>
-              ) : null}
-              {connections.modelSaveError ? (
-                <span className="text-[11px] font-mono text-[var(--destructive)] block w-full mt-1">
-                  ✗ {connections.modelSaveError}
-                </span>
-              ) : null}
-              {connections.modelConfigured && !connections.modelSaveError ? (
-                <span className="text-[11px] font-mono text-[var(--primary)]">
-                  ✓ Saved and configured
-                </span>
-              ) : null}
-            </div>
-          </div>
-
-          {onSelectStarterTask ? (
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  finish();
-                  onSelectStarterTask(
-                    "https://github.com/cloudflare/ai-chat",
-                    "Add unit tests for error handling and verify the test suite passes.",
-                    "opencode"
-                  );
-                }}
-                className="w-full rounded-[var(--radius-button)] bg-[var(--primary-soft)] border border-[var(--primary)]/40 p-2.5 text-center text-xs font-semibold text-[var(--primary)] hover:bg-[var(--primary-soft-hover)] transition-colors"
-              >
-                🚀 Ready! Launch Starter Coding Task →
-              </button>
-            </div>
+      {step === 0 ? (
+        <div>
+          <ChannelRow
+            name="GitHub"
+            status={
+              setup.state.kind === "error" && !setup.inFlight ? (
+                <ToneChip tone="pending" label="Could not check" />
+              ) : setup.inFlight || status === undefined ? (
+                <ToneChip tone="neutral" label="Checking…" />
+              ) : status.github.token && status.github.webhookSecret ? (
+                <ToneChip tone="ok" label="Configured" />
+              ) : status.github.token || status.github.webhookSecret ? (
+                <ToneChip tone="pending" label="Partly configured" />
+              ) : (
+                <ToneChip tone="neutral" label="Not set up" />
+              )
+            }
+          >
+            Pull requests and repo events.
+          </ChannelRow>
+          <ChannelRow
+            name="Slack"
+            status={
+              setup.state.kind === "error" && !setup.inFlight ? (
+                <ToneChip tone="pending" label="Could not check" />
+              ) : setup.inFlight || status === undefined ? (
+                <ToneChip tone="neutral" label="Checking…" />
+              ) : status.slack.signingSecret &&
+                status.slack.botToken &&
+                status.slack.approvers > 0 ? (
+                <ToneChip tone="ok" label="Configured" />
+              ) : status.slack.signingSecret || status.slack.botToken ? (
+                <ToneChip tone="pending" label="Partly configured" />
+              ) : (
+                <ToneChip tone="neutral" label="Not set up" />
+              )
+            }
+          >
+            Approve runs in chat.
+          </ChannelRow>
+          <ChannelRow name="Telegram" status={<ToneChip tone="neutral" label="Not reported" />}>
+            Task intake through a bot. This deployment does not report connection status here.
+          </ChannelRow>
+          <ChannelRow name="Discord" status={<ToneChip tone="neutral" label="Not reported" />}>
+            Commands and progress posts. This deployment does not report connection status here.
+          </ChannelRow>
+          <ChannelRow
+            name="Email"
+            status={
+              mailboxes.state.kind === "error" ? (
+                <ToneChip tone="pending" label="Could not check" />
+              ) : mailboxList === undefined ? (
+                <ToneChip tone="neutral" label="Checking…" />
+              ) : mailboxList.length > 0 ? (
+                <ToneChip tone="ok" label="Mailbox available" />
+              ) : (
+                <ToneChip tone="neutral" label="Not set up" />
+              )
+            }
+          >
+            Inbound triage and approved sends.
+            {status !== undefined && !status.mailbox.sendEnabled
+              ? " Outbound sending is not enabled."
+              : ""}
+          </ChannelRow>
+          <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+            Configuration does not confirm live delivery. Channel setup is managed by your
+            deployment administrator; review details on the Integrations page.
+          </p>
+          {onNavigate ? (
+            <button
+              type="button"
+              onClick={() => {
+                finish();
+                onNavigate("integrations");
+              }}
+              className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
+            >
+              Open Integrations →
+            </button>
           ) : null}
         </div>
       ) : null}
 
-      {/* Operator Setup Collapsed Section */}
-      <div className="mt-4 border-t border-[var(--border-1)]/60 pt-3">
-        <button
-          type="button"
-          onClick={() => setShowOperatorSection(!showOperatorSection)}
-          className="flex w-full items-center justify-between text-[11px] font-medium text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
-        >
-          <span>Operator setup (Workers Paid, Access bypass, Slack)</span>
-          <span className="font-mono text-[10px]">{showOperatorSection ? "▲" : "▼"}</span>
-        </button>
-        {showOperatorSection ? (
-          <div className="mt-2 space-y-1.5 text-[11px] text-[var(--muted-foreground-2)] border-l-2 border-[var(--border-1)] pl-2.5">
-            <div>• <strong>Workers Paid:</strong> Required for Durable Object SQLite storage and container sandbox.</div>
-            <div>• <strong>Access Bypass:</strong> Add webhook bypass rules for /api/slack/* and /api/github/webhook.</div>
-            <div>• <strong>Slack:</strong> Add SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET for chat approval cards.</div>
-          </div>
+      <div hidden={step !== 1}>
+        {providers === null && !providersError ? (
+          <p className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
+            Loading providers…
+          </p>
+        ) : providersError ? (
+          <p className="text-[11px] text-[var(--warning-fg)]">
+            Provider status could not be loaded. Open Providers to try again.
+          </p>
+        ) : (
+          (providers ?? []).map((card) => {
+            const phase = providerPhaseLabel(card.connection);
+            return (
+              <div
+                key={card.id}
+                className="border-b border-[var(--border-1)]/60 py-3 last:border-b-0"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-medium text-[var(--text)]">{card.label}</div>
+                    <div className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">
+                      {card.blurb}
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    <ToneChip tone={phase.tone} label={phase.label} />
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+          Sign-in, the API credential, test, and the org default are on Providers. Cursor, Devin,
+          and Antigravity subscription lanes stay on their operator routes.
+        </p>
+        {onNavigate ? (
+          <button
+            type="button"
+            onClick={() => {
+              finish();
+              onNavigate("providers");
+            }}
+            className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            Open Providers →
+          </button>
         ) : null}
       </div>
+
+      {step === 2 ? (
+        <div ref={routingRef} tabIndex={-1}>
+          {setup.state.kind === "error" ? (
+            <div className="space-y-2 text-[11px] text-[var(--warning-fg)]">
+              <p>Model routing could not be loaded. You can continue setup and check it later.</p>
+              <button
+                ref={retryButtonRef}
+                type="button"
+                onClick={() => {
+                  if (!setup.inFlight) {
+                    setRoutingRetried(true);
+                    setup.reload();
+                  }
+                }}
+                aria-disabled={setup.inFlight}
+                className="font-mono text-[var(--primary)] hover:text-[var(--primary)] aria-disabled:cursor-wait aria-disabled:opacity-60 aria-disabled:hover:text-[var(--primary)]"
+              >
+                Retry routing check
+              </button>
+            </div>
+          ) : setup.inFlight ? (
+            <p className="text-[11px] text-[var(--muted-foreground-2)]">Checking model routing…</p>
+          ) : roles.length === 0 ? (
+            <p className="text-[11px] text-[var(--muted-foreground-2)]">
+              This deployment has not reported per-role routing. Ask your administrator to check the
+              model configuration.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {roles.map((row) => (
+                <div
+                  key={row.role}
+                  className="border-b border-[var(--border-1)]/60 py-2 last:border-b-0"
+                >
+                  <div className="text-[13px] font-medium text-[var(--text)]">{row.role}</div>
+                  <div className="mt-0.5 break-words font-mono text-[10px] text-[var(--muted-foreground-2)]">
+                    harness: {row.harness || "Not resolved"}
+                  </div>
+                  <div className="break-words font-mono text-[10px] text-[var(--muted-foreground-2)]">
+                    model: {row.model || "Not resolved"}
+                  </div>
+                  {row.error ? (
+                    <p className="mt-1 break-words text-[11px] text-[var(--destructive)]">
+                      Routing needs attention: {row.error}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+            Routing decides which agent handles each task role. Tune it any time in Settings →
+            Models.
+          </p>
+          {onOpenModels ? (
+            <button
+              type="button"
+              onClick={() => {
+                finish();
+                onOpenModels();
+              }}
+              className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
+            >
+              Open Settings → Models
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </WizardShell>
   );
 }

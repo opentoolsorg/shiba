@@ -62,13 +62,15 @@ describe("OnboardingModal component tests", () => {
 });
 
 describe("FirstRunWizard component tests", () => {
-  it("renders step 1 with GitHub integration details", () => {
+  it("renders the channel first-run step and links to the setup checklist", () => {
     const html = renderToStaticMarkup(
-      React.createElement(FirstRunWizard, { open: true, onClose: () => {} })
+      React.createElement(FirstRunWizard, { open: true, onClose: () => {}, onOpenChecklist: () => {} })
     );
 
     expect(html).toContain("Welcome — 1 of 3");
-    expect(html).toContain("GitHub Integration");
+    expect(html).toContain("Your channels");
+    expect(html).toContain("GitHub");
+    expect(html).toContain("Open the deployment checklist");
     expect(html).toContain("Skip setup");
     expect(html).toContain("Next");
   });
