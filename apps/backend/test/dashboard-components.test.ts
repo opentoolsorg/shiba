@@ -90,13 +90,13 @@ describe("dashboard components SSR (T14 sweep)", () => {
     const html = renderToStaticMarkup(
       React.createElement(OnboardingModal, { isOpen: true, onClose: () => {} }),
     );
-    expect(html).toContain("Setup &amp; Onboarding Guide");
-    expect(html).toContain("Cloudflare Workers Paid");
-    // workers-paid is expanded by default but not done until /api/setup/status proves it.
+    expect(html).toContain("Quick Setup &amp; Onboarding");
+    expect(html).toContain("Connect GitHub");
+    expect(html).toContain("Connect Sandbox Runner");
+    expect(html).toContain("Connect Model Keys");
     expect(html).toContain("Mark as Completed ✓");
-    expect(html).toContain("Mark Cloudflare AI Gateway &amp; Stored BYOK Keys as complete");
-    expect(html).toContain("Connect a cloud agent mailbox");
-    expect(html).toContain("Open Inbox setup");
+    expect(html).toContain("Operator &amp; Self-Hosting Setup");
+    expect(html).toContain("Open Inbox Setup");
     expect(html).not.toContain("Mark all done");
     expect(html).not.toContain("All systems configured!");
   });

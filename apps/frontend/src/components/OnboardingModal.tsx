@@ -1,10 +1,12 @@
 import React, { useEffect, useId, useState } from "react";
+import { useOrgConnections } from "./org-connections";
 
 export interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectStarterTask?: (repoUrl: string, task: string, harness: string) => void;
   onOpenInbox?: () => void;
+  initialExpandedStep?: string | null;
 }
 
 export interface SetupStep {
@@ -19,109 +21,94 @@ export interface SetupStep {
   docAnchor: string;
 }
 
-export const ONBOARDING_STEPS: SetupStep[] = [
-  {
-    id: "workers-paid",
-    title: "Cloudflare Workers Paid & Container Sandbox",
-    category: "Infrastructure",
-    required: true,
-    summary: "Workers Paid ($5/mo) enables Durable Objects with SQLite backend and Sandbox containers.",
-    detail:
-      "PLAN.md Phase P0 (T1-T2) requires SQLite storage migrations (new_sqlite_classes) for CodingOrchestrator and Sandbox. The micro-container runs standard-1 (1 vCPU, 4 GiB) with a maximum ceiling of standard-4 (4 vCPU, 12 GiB, 20 GB).",
-    codeSnippet: `// wrangler.jsonc
-"migrations": [{ "tag": "v1", "new_sqlite_classes": ["CodingOrchestrator", "OpenCodeAgent", "Sandbox"] }],
-"containers": [{
-  "class_name": "Sandbox",
-  "name": "shiba-sandbox",
-  "image": "./Dockerfile",
-  "instance_type": "standard-1",
-  "max_instances": 5
-}]`,
-    planRef: "PLAN.md §5 (T1, T2)",
-    docAnchor: "2-infrastructure-setup-planmd-5-t1t2",
-  },
-  {
-    id: "ai-gateway",
-    title: "Cloudflare AI Gateway & Stored BYOK Keys",
-    category: "AI Gateway",
-    required: true,
-    summary: "Store your Gemini, Anthropic, or OpenAI API keys inside Cloudflare AI Gateway BYOK.",
-    detail:
-      "PLAN.md §5 (T3, T4) & §11 (T23): AI Gateway acts as the secure reverse proxy. The container never holds real API keys; it runs with a dummy key, and the Worker's Sandbox egress proxy injects the stored credential.",
-    codeSnippet: `# In Cloudflare Dashboard -> AI Gateway -> Your Gateway (e.g. 'default')
-# Add Bring-Your-Own-Keys (BYOK):
-# 1. Google AI Studio (for Gemini 3.8 Flash / 3.5 Flash Lite)
-# 2. Anthropic (for Claude 3.7 / Sonnet 4.6)
-# 3. OpenAI (for Codex / GPT-4o / GPT-5)`,
-    planRef: "PLAN.md §5 (T3, T4) & §8",
-    docAnchor: "3-ai-gateway--byok-keys-planmd-5--8",
-  },
-  {
-    id: "access-bypass",
-    title: "Cloudflare Access & Webhook Bypass Policies",
-    category: "Security",
-    required: true,
-    summary: "Protect the dashboard with Zero Trust Access while exempting Slack & GitHub signature webhooks.",
-    detail:
-      "PLAN.md §6 (T7) & §9 (T12a): Protect your Worker domain with Cloudflare Access. You MUST add an Access Bypass rule for '/api/slack/*' and '/api/github/webhook' because Slack HMAC signatures and GitHub webhooks cannot pass an interactive browser login.",
-    codeSnippet: `# Cloudflare Zero Trust Dashboard:
-# 1. Application: Protect https://<your-worker-domain>/
-# 2. Policy 1 (Allow): Allow your organization emails/groups.
-# 3. Policy 2 (Bypass): Path begins with '/api/slack/' or '/api/github/webhook'.
-# In .dev.vars or Wrangler vars:
-REQUIRE_ACCESS=true`,
-    planRef: "PLAN.md §6 (T7) & §9 (T12)",
-    docAnchor: "4-cloudflare-access--mandatory-webhook-bypasses-planmd-6--9",
-  },
+export const CORE_STEPS = [
   {
     id: "github-token",
-    title: "GitHub Personal Access Token & Repo Scoping",
+    title: "Connect GitHub",
     category: "Integration",
     required: true,
-    summary: "Configure GITHUB_TOKEN with PR write permissions. Egress proxy strictly isolates target repos.",
+    summary: "Provide a GitHub token or App with repository and pull request permissions.",
     detail:
-      "PLAN.md §6 (T6): Store a Fine-Grained GitHub PAT or App token with 'Contents: Read & write' and 'Pull requests: Read & write'. The container egress proxy strictly scopes traffic to '/owner/repo' of the approved task, preventing arbitrary token exfiltration.",
+      "Configure your fine-grained GitHub PAT or App credentials so Shiba can clone repositories and publish approved pull requests. Container egress is scoped strictly to approved repositories.",
     codeSnippet: `# Store in production Worker secrets:
 npx wrangler secret put GITHUB_TOKEN
-# Or for local testing in .dev.vars:
+# Or for local development in .dev.vars:
 GITHUB_TOKEN=ghp_yourTokenHere`,
     planRef: "PLAN.md §6 (T6)",
     docAnchor: "5-github-token--scoped-permissions-planmd-6-t6",
   },
   {
-    id: "slack-bot",
-    title: "Slack Bot App & Approver Allowlist (Optional)",
-    category: "Slack Bot",
-    required: false,
-    summary: "Enable on-call @shiba mentions in Slack with Block Kit approval cards.",
+    id: "connect-sandbox",
+    title: "Connect Sandbox Runner",
+    category: "Sandbox",
+    required: true,
+    summary: "Bring your own ComputeSDK runner (e2b, modal, or daytona) with URL and bearer token.",
     detail:
-      "PLAN.md §9 (T12-T15): Create a Slack App with scopes (app_mentions:read, chat:write, channels:history). Point Events to /api/slack/events (acking <3s) and Interactivity to /api/slack/interact. Set SLACK_APPROVERS to allowlisted Slack user IDs (fails closed if empty).",
-    codeSnippet: `npx wrangler secret put SLACK_BOT_TOKEN
-npx wrangler secret put SLACK_SIGNING_SECRET
-# Allowlist user IDs permitted to click Approve in Block Kit:
-SLACK_APPROVERS=U01234567,U09876543
-# Optional default repo mapping for channels:
-SLACK_CHANNEL_REPOS=C04INCIDENTS:myorg/backend-api`,
-    planRef: "PLAN.md §9 (T12, T15)",
-    docAnchor: "6-slack-bot-integration-planmd-9-optional",
+      "Run your own sandbox container sidecar. Provide your HTTPS runner endpoint and bearer token to execute tasks in dedicated micro-environments. Credentials are encrypted at rest with AES-GCM.",
+    codeSnippet: `# Example runner sidecar:
+SHIBA_COMPUTESDK_PROVIDER=e2b E2B_API_KEY=... SHIBA_COMPUTESDK_RUNNER_TOKEN=secret node scripts/computesdk-runner.mjs`,
+    planRef: "PLAN.md §5 (T1, T2)",
+    docAnchor: "2-infrastructure-setup-planmd-5-t1t2",
   },
   {
-    id: "first-run",
-    title: "First Live Run & Approval Gate (The Aha Moment)",
-    category: "Verification",
+    id: "connect-model",
+    title: "Connect Model Keys",
+    category: "Models",
     required: true,
-    summary: "Submit a coding task, review the structured approval card, and watch the isolated container work.",
+    summary: "Paste raw provider API keys for Anthropic, OpenAI, Google, or xAI.",
     detail:
-      "PLAN.md §7 (T10): The core value of Shiba is human-in-the-loop security. When a task is submitted, Think plans it and requests approval with exact tool arguments. Once approved, the micro-container clones the repo, streams progress, tests changes, and produces a diff or PR.",
-    codeSnippet: `# Example task to test:
-Repository: https://github.com/cloudflare/ai-chat
-Base branch: main
-Coding agent harness: opencode (or claude-code / codex)
-Task: Fix lint errors and verify test suite runs cleanly.`,
-    planRef: "PLAN.md §7 (T10)",
-    docAnchor: "7-first-acceptance-run-planmd-7-t10",
+      "Store native API keys for your preferred model providers encrypted at rest in D1. Outbound requests automatically inject the correct headers at the egress gateway.",
+    codeSnippet: `# Models supported:
+Anthropic (x-api-key)
+OpenAI (Authorization: Bearer)
+Google AI Studio (x-goog-api-key)
+xAI (Authorization: Bearer)`,
+    planRef: "PLAN.md §5 (T3, T4)",
+    docAnchor: "3-ai-gateway--byok-keys-planmd-5--8",
   },
 ];
+
+export const OPERATOR_STEPS = [
+  {
+    id: "workers-paid",
+    title: "Cloudflare Workers Paid",
+    category: "Infrastructure",
+    required: false,
+    summary: "Workers Paid enables Durable Objects with SQLite storage and sandbox containers.",
+    detail:
+      "SQLite storage migrations (new_sqlite_classes) enable durable state for CodingOrchestrator and Sandbox DOs.",
+    codeSnippet: `// wrangler.jsonc
+"migrations": [{ "tag": "v1", "new_sqlite_classes": ["CodingOrchestrator", "OpenCodeAgent", "Sandbox"] }]`,
+    planRef: "PLAN.md §5 (T1)",
+    docAnchor: "2-infrastructure-setup-planmd-5-t1t2",
+  },
+  {
+    id: "access-bypass",
+    title: "Cloudflare Access & Webhook Bypass",
+    category: "Security",
+    required: false,
+    summary: "Protect the dashboard while exempting Slack and GitHub signature webhooks.",
+    detail:
+      "Protect your worker with Cloudflare Zero Trust Access. Add bypass rules for webhook paths (/api/slack/* and /api/github/webhook).",
+    codeSnippet: `REQUIRE_ACCESS=true`,
+    planRef: "PLAN.md §6 (T7)",
+    docAnchor: "4-cloudflare-access--mandatory-webhook-bypasses-planmd-6--9",
+  },
+  {
+    id: "slack-bot",
+    title: "Slack Bot Integration",
+    category: "Slack",
+    required: false,
+    summary: "Enable on-call task approvals directly within Slack channels.",
+    detail:
+      "Create a Slack App with chat:write, app_mentions:read, and allowlist specific user IDs permitted to approve coding runs.",
+    codeSnippet: `SLACK_APPROVERS=U01234567,U09876543`,
+    planRef: "PLAN.md §9 (T12)",
+    docAnchor: "6-slack-bot-integration-planmd-9-optional",
+  },
+];
+
+export const ONBOARDING_STEPS: SetupStep[] = [...CORE_STEPS, ...OPERATOR_STEPS];
 
 const STORAGE_KEY = "shiba_onboarding_completed_steps";
 
@@ -132,28 +119,45 @@ interface SetupStatusShape {
   slack?: { signingSecret?: boolean; botToken?: boolean; approvers?: number };
 }
 
-/**
- * Detect which onboarding steps the deployment itself proves done.
- * Shared by the modal checklist and the header setup pill.
- */
 export async function detectSetupSteps(): Promise<Set<string>> {
   const found = new Set<string>();
   const status = (await fetch("/api/setup/status")
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null)) as SetupStatusShape | null;
-  // Only a Worker answers /api/setup/status with JSON, so that proves step 1.
+
   if (status !== null && typeof status === "object") {
     found.add("workers-paid");
-    if (status.gateway?.reachable === "yes") found.add("ai-gateway");
+    if (status.gateway?.reachable === "yes") found.add("connect-model");
     if (status.access?.required) found.add("access-bypass");
     if (status.github?.token) found.add("github-token");
     if (status.slack?.signingSecret && status.slack?.botToken && (status.slack?.approvers ?? 0) > 0)
       found.add("slack-bot");
-    const runs = (await fetch("/api/runs")
-      .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null)) as { runs?: unknown[] } | null;
-    if ((runs?.runs?.length ?? 0) > 0) found.add("first-run");
   }
+
+  // Check org sandbox settings
+  try {
+    const sandboxRes = (await fetch("/api/org/sandbox").then((r) => (r.ok ? r.json() : null))) as {
+      settings?: { runnerUrl?: string; providerId?: string };
+    } | null;
+    if (sandboxRes?.settings?.runnerUrl || sandboxRes?.settings?.providerId) {
+      found.add("connect-sandbox");
+    }
+  } catch {
+    // ignore
+  }
+
+  // Check org model keys
+  try {
+    const keysRes = (await fetch("/api/org/model-keys").then((r) => (r.ok ? r.json() : null))) as {
+      keys?: Array<{ configured: boolean }>;
+    } | null;
+    if (keysRes?.keys?.some((k) => k.configured)) {
+      found.add("connect-model");
+    }
+  } catch {
+    // ignore
+  }
+
   return found;
 }
 
@@ -162,6 +166,7 @@ export function OnboardingModal({
   onClose,
   onSelectStarterTask,
   onOpenInbox,
+  initialExpandedStep = "github-token",
 }: OnboardingModalProps): React.JSX.Element | null {
   const [completedSteps, setCompletedSteps] = useState<string[]>(() => {
     try {
@@ -175,10 +180,12 @@ export function OnboardingModal({
     return [];
   });
 
-  const [expandedStep, setExpandedStep] = useState<string | null>("workers-paid");
+  const [expandedStep, setExpandedStep] = useState<string | null>(initialExpandedStep);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "pending" | "completed">("all");
+  const [showOperatorSteps, setShowOperatorSteps] = useState(false);
   const [detected, setDetected] = useState<Set<string>>(new Set());
+
+  const connections = useOrgConnections();
   const modalTitleId = useId();
 
   useEffect(() => {
@@ -189,15 +196,30 @@ export function OnboardingModal({
     }
   }, [completedSteps]);
 
-  // Live-detect configured pieces from the deployment itself.
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
     detectSetupSteps()
-      .then((found) => { if (!cancelled) setDetected(found); })
+      .then((found) => {
+        if (!cancelled) setDetected(found);
+      })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
+
+  useEffect(() => {
+    if (connections.sandboxConfigured) {
+      setDetected((prev) => new Set([...prev, "connect-sandbox"]));
+    }
+  }, [connections.sandboxConfigured]);
+
+  useEffect(() => {
+    if (connections.modelConfigured) {
+      setDetected((prev) => new Set([...prev, "connect-model"]));
+    }
+  }, [connections.modelConfigured]);
 
   if (!isOpen) return null;
 
@@ -214,21 +236,7 @@ export function OnboardingModal({
   };
 
   const isStepDone = (id: string) => completedSteps.includes(id) || detected.has(id);
-  const totalSteps = ONBOARDING_STEPS.length;
-  const completedCount = ONBOARDING_STEPS.filter((s) => isStepDone(s.id)).length;
-  const progressPercent = Math.round((completedCount / totalSteps) * 100);
-  const isAllComplete = completedCount === totalSteps;
-  const resetChecklist = () => {
-    setCompletedSteps([]);
-    setExpandedStep("workers-paid");
-  };
-
-  const filteredSteps = ONBOARDING_STEPS.filter((step) => {
-    const isDone = isStepDone(step.id);
-    if (filter === "pending") return !isDone;
-    if (filter === "completed") return isDone;
-    return true;
-  });
+  const requiredDone = CORE_STEPS.every((s) => isStepDone(s.id));
 
   return (
     <div
@@ -246,13 +254,10 @@ export function OnboardingModal({
             </div>
             <div>
               <h2 id={modalTitleId} className="text-lg font-bold text-[var(--fg)] flex items-center gap-2 text-balance">
-                Setup & Onboarding Guide
-                <span className="text-[10px] font-mono font-normal text-[var(--primary)] bg-[var(--primary-soft)] border border-[var(--primary)]/15 px-2 py-0.5 rounded-[var(--radius-button)]">
-                  PLAN.md End-to-End
-                </span>
+                Quick Setup & Onboarding
               </h2>
               <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5 text-pretty">
-                Everything required to deploy, secure, and run your self-hosted AI coding engineer.
+                Configure your GitHub repo, sandbox runner, and model keys to start coding.
               </p>
             </div>
           </div>
@@ -266,113 +271,10 @@ export function OnboardingModal({
           </button>
         </div>
 
-        <div className="mt-3 border border-[var(--primary)]/25 bg-[var(--primary)]/5 p-3 text-xs text-[var(--fg)] shrink-0">
-          <div className="font-semibold">Connect a cloud agent mailbox</div>
-          <p className="mt-1 text-[var(--muted-foreground-2)]">Prefer email first? Register an address, route it in Cloudflare, connect a scoped MCP token, then receive a test message. Registration alone does not prove delivery.</p>
-          <div className="mt-2 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => { onOpenInbox?.(); onClose(); }}
-              className="text-[var(--primary)] font-semibold hover:underline"
-            >
-              Open Inbox setup →
-            </button>
-            <a href="/docs/mcp/#pair-a-cloud-agent-with-its-mailbox" className="text-[var(--primary)] hover:underline">Pairing guide</a>
-          </div>
-        </div>
-
-        {/* Progress Tracker with Endowed Progress */}
-        <div className="py-3.5 border-b border-[var(--border-1)] shrink-0">
-          <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="font-semibold text-[var(--fg)] flex items-center gap-2">
-              <span>Setup progress (reported + detected)</span>
-              <span className="text-[11px] font-mono text-[var(--primary)] font-normal tabular-nums">
-                {completedCount} of {totalSteps} steps completed
-              </span>
-            </span>
-            <span className="font-mono text-[var(--primary)] font-bold tabular-nums">{progressPercent}%</span>
-          </div>
-          <div className="w-full bg-[var(--panel)] rounded-[var(--radius-button)] h-2 overflow-hidden border border-[var(--border-1)]">
-            <div
-              className="bg-[var(--primary)] h-full rounded-[var(--radius-button)] transition-all duration-300 ease-out"
-              style={{ width: `${progressPercent}%` }}
-              role="progressbar"
-              aria-valuenow={progressPercent}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            />
-          </div>
-
-          {/* Filter & Action Toolbar */}
-          <div className="flex items-center justify-between mt-3 text-xs flex-wrap gap-2">
-            <div className="inline-flex items-center p-0.5 bg-[var(--card)] rounded-[var(--radius-button)] border border-[var(--border-1)] text-[11px] font-mono">
-              <button
-                type="button"
-                onClick={() => setFilter("all")}
-                className={`px-2.5 py-0.5 rounded-[var(--radius-button)] transition-colors ${filter === "all" ? "bg-[var(--secondary)] text-[var(--fg)] font-semibold" : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}
-              >
-                All ({totalSteps})
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilter("pending")}
-                className={`px-2.5 py-0.5 rounded-[var(--radius-button)] transition-colors ${filter === "pending" ? "bg-[var(--secondary)] text-[var(--primary)] font-semibold" : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}
-              >
-                Pending ({totalSteps - completedCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilter("completed")}
-                className={`px-2.5 py-0.5 rounded-[var(--radius-button)] transition-colors ${filter === "completed" ? "bg-[var(--secondary)] text-[var(--primary)] font-semibold" : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}
-              >
-                Completed ({completedCount})
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 text-[11px] font-mono">
-              {completedCount > 1 ? (
-                <button
-                  type="button"
-                  onClick={resetChecklist}
-                  className="text-[var(--muted-foreground-2)] hover:text-[var(--destructive)] transition-colors"
-                >
-                  Reset
-                </button>
-              ) : null}
-            </div>
-          </div>
-          {isAllComplete ? (
-            <div className="mt-3 text-xs bg-[var(--primary-soft)] border border-[var(--primary)]/40 text-[var(--primary)] px-3 py-2 rounded-[var(--radius-button)] flex items-center justify-between">
-              <span><strong>Checklist reviewed.</strong> Confirm live readiness before using real repositories.</span>
-              <button
-                type="button"
-                onClick={() => {
-                  onSelectStarterTask?.(
-                    "https://github.com/cloudflare/ai-chat",
-                    "Add unit tests for error handling and verify the test suite passes.",
-                    "opencode"
-                  );
-                  onClose();
-                }}
-                className="bg-[var(--primary)] text-white font-semibold text-[11px] px-3 py-1 rounded-[var(--radius-button)] hover:bg-[var(--primary-soft-hover)] transition-colors shadow-[var(--sh-card)] ml-2 shrink-0"
-              >
-                Run First Task →
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        {/* Step-by-Step Checklist */}
-        <div className="py-3 flex flex-col gap-2.5 max-h-[55dvh] overflow-y-auto pr-1 flex-1 min-h-0">
-          {filteredSteps.length === 0 ? (
-            <div className="text-center py-8 text-xs text-[var(--muted-foreground-2)] border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)]">
-              No steps match this filter.
-            </div>
-          ) : (
-            filteredSteps.map((step) => {
-              const idx = ONBOARDING_STEPS.findIndex((s) => s.id === step.id);
+        {/* 3 Core Steps Checklist */}
+        <div className="py-4 flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto">
+          {CORE_STEPS.map((step, idx) => {
             const isDone = isStepDone(step.id);
-            const isDetected = detected.has(step.id) && !completedSteps.includes(step.id);
             const isExpanded = expandedStep === step.id;
 
             return (
@@ -414,19 +316,13 @@ export function OnboardingModal({
                         <span className={`text-xs font-semibold ${isDone ? "text-[var(--primary)] line-through opacity-80" : "text-[var(--fg)]"}`}>
                           {step.title}
                         </span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-[var(--radius-button)] bg-[var(--panel)] border border-[var(--border-1)] text-[var(--muted-foreground-2)]">
-                          {step.category}
-                        </span>
-                        {!step.required ? (
-                          <span className="text-[10px] text-[var(--muted-foreground-2)] italic">(optional)</span>
-                        ) : null}
-                        {isDetected ? (
+                        {isDone ? (
                           <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-[var(--radius-button)] bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)]">
-                            detected live
+                            ready
                           </span>
                         ) : null}
                       </div>
-                      <p className="text-xs text-[var(--muted-foreground-2)] mt-1 leading-relaxed line-clamp-1">
+                      <p className="text-xs text-[var(--muted-foreground-2)] mt-1 leading-relaxed">
                         {step.summary}
                       </p>
                     </button>
@@ -437,22 +333,178 @@ export function OnboardingModal({
                     onClick={() => setExpandedStep(isExpanded ? null : step.id)}
                     className="text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)] font-mono px-2 py-1 rounded-[var(--radius-button)] hover:bg-[var(--secondary)] transition-colors shrink-0"
                   >
-                    {isExpanded ? "▲ Hide" : "▼ Details"}
+                    {isExpanded ? "▲ Hide" : "▼ Setup"}
                   </button>
                 </div>
 
                 {isExpanded ? (
                   <div className="px-3 sm:px-4 pb-3.5 pt-1 border-t border-[var(--border-1)] text-xs text-[var(--muted-foreground-2)] flex flex-col gap-2.5">
                     <p className="leading-relaxed text-[var(--fg)]">{step.detail}</p>
-                    <div className="flex items-center justify-between text-[11px] font-mono text-[var(--muted-foreground-2)]">
-                      <span>Source: <strong className="text-[var(--primary)]">{step.planRef}</strong></span>
-                      <a
-                        href={`/docs/onboarding/#${step.docAnchor}`}
-                        className="text-[var(--primary)] hover:underline inline-flex items-center gap-1"
-                      >
-                        Read Onboarding Docs →
-                      </a>
-                    </div>
+
+                    {step.id === "connect-sandbox" ? (
+                      <div className="space-y-2.5 p-3 rounded-[var(--radius-button)] bg-[var(--card)] border border-[var(--border-1)]">
+                        <div>
+                          <label className="text-[11px] font-semibold text-[var(--fg)] block mb-1">
+                            Runner URL (HTTPS only):
+                          </label>
+                          <input
+                            type="text"
+                            value={connections.runnerUrl}
+                            onChange={(e) => connections.setRunnerUrl(e.target.value)}
+                            placeholder="https://runner.your-org.com"
+                            className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] font-semibold text-[var(--fg)] block mb-1">
+                              Bearer Token:
+                            </label>
+                            {connections.sandboxConfigured && !connections.runnerToken ? (
+                              <div className="text-[11px] font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--primary)]">
+                                Configured (ends with …{connections.sandboxLast4 ?? "••••"})
+                              </div>
+                            ) : (
+                              <input
+                                type="password"
+                                value={connections.runnerToken}
+                                onChange={(e) => connections.setRunnerToken(e.target.value)}
+                                placeholder="Bearer token"
+                                className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
+                              />
+                            )}
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-semibold text-[var(--fg)] block mb-1">
+                              Backend:
+                            </label>
+                            <select
+                              value={connections.runnerBackend}
+                              onChange={(e) => connections.setRunnerBackend(e.target.value as any)}
+                              className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
+                            >
+                              <option value="e2b">E2B</option>
+                              <option value="modal">Modal</option>
+                              <option value="daytona">Daytona</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => void connections.testSandbox()}
+                            disabled={connections.testingSandbox || connections.savingSandbox}
+                            className="text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] bg-[var(--secondary)] hover:bg-[var(--secondary)]/80 text-[var(--fg)] border border-[var(--border-1)]"
+                          >
+                            {connections.testingSandbox ? "Testing..." : "Test Runner"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void connections.saveSandbox()}
+                            disabled={!connections.canSaveSandbox || connections.savingSandbox}
+                            className={`text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] border transition-colors ${
+                              connections.canSaveSandbox
+                                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
+                                : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
+                            }`}
+                          >
+                            {connections.savingSandbox ? "Saving..." : "Save Runner"}
+                          </button>
+                          {connections.sandboxTestResult ? (
+                            <span className={`text-[11px] font-mono ${connections.sandboxTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
+                              {connections.sandboxTestResult.ok ? "✓ " : "✗ "} {connections.sandboxTestResult.message}
+                            </span>
+                          ) : null}
+                          {connections.sandboxSaveError ? (
+                            <span className="text-[11px] font-mono text-[var(--destructive)] block w-full mt-1">
+                              ✗ {connections.sandboxSaveError}
+                            </span>
+                          ) : null}
+                          {connections.sandboxConfigured && !connections.sandboxSaveError ? (
+                            <span className="text-[11px] font-mono text-[var(--primary)]">
+                              ✓ Saved and configured
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {step.id === "connect-model" ? (
+                      <div className="space-y-2.5 p-3 rounded-[var(--radius-button)] bg-[var(--card)] border border-[var(--border-1)]">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="text-[11px] font-semibold text-[var(--fg)] block mb-1">
+                              Provider:
+                            </label>
+                            <select
+                              value={connections.modelProvider}
+                              onChange={(e) => connections.setModelProvider(e.target.value as any)}
+                              className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
+                            >
+                              <option value="anthropic">Anthropic</option>
+                              <option value="openai">OpenAI</option>
+                              <option value="google">Google AI Studio</option>
+                              <option value="xai">xAI</option>
+                            </select>
+                          </div>
+                          <div className="col-span-2">
+                            <label className="text-[11px] font-semibold text-[var(--fg)] block mb-1">
+                              API Key:
+                            </label>
+                            {connections.modelConfigured && !connections.modelApiKey ? (
+                              <div className="text-[11px] font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--primary)]">
+                                Configured (ends with …{connections.modelLast4 ?? "••••"})
+                              </div>
+                            ) : (
+                              <input
+                                type="password"
+                                value={connections.modelApiKey}
+                                onChange={(e) => connections.setModelApiKey(e.target.value)}
+                                placeholder="sk-..."
+                                className="w-full text-xs font-mono p-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]"
+                              />
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => void connections.testModel()}
+                            disabled={connections.testingModel || connections.savingModel}
+                            className="text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] bg-[var(--secondary)] hover:bg-[var(--secondary)]/80 text-[var(--fg)] border border-[var(--border-1)]"
+                          >
+                            {connections.testingModel ? "Testing..." : "Test Key"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void connections.saveModel()}
+                            disabled={!connections.canSaveModel || connections.savingModel}
+                            className={`text-xs font-semibold px-3 py-1 rounded-[var(--radius-button)] border transition-colors ${
+                              connections.canSaveModel
+                                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-soft-hover)] border-transparent"
+                                : "bg-[var(--card)] text-[var(--muted-foreground-2)] border-[var(--border-1)] cursor-not-allowed opacity-60"
+                            }`}
+                          >
+                            {connections.savingModel ? "Saving..." : "Save Key"}
+                          </button>
+                          {connections.modelTestResult ? (
+                            <span className={`text-[11px] font-mono ${connections.modelTestResult.ok ? "text-[var(--primary)]" : "text-[var(--destructive)]"}`}>
+                              {connections.modelTestResult.ok ? "✓ " : "✗ "} {connections.modelTestResult.message}
+                            </span>
+                          ) : null}
+                          {connections.modelSaveError ? (
+                            <span className="text-[11px] font-mono text-[var(--destructive)] block w-full mt-1">
+                              ✗ {connections.modelSaveError}
+                            </span>
+                          ) : null}
+                          {connections.modelConfigured && !connections.modelSaveError ? (
+                            <span className="text-[11px] font-mono text-[var(--primary)]">
+                              ✓ Saved and configured
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
 
                     {step.codeSnippet ? (
                       <div className="relative mt-1">
@@ -481,49 +533,107 @@ export function OnboardingModal({
                       >
                         {isDone ? "Mark as Incomplete" : "Mark as Completed ✓"}
                       </button>
-
-                      {step.id === "first-run" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectStarterTask?.(
-                              "https://github.com/cloudflare/ai-chat",
-                              "Verify test suite passes and add error boundary tests.",
-                              "opencode"
-                            );
-                            onClose();
-                          }}
-                          className="text-xs bg-[var(--primary)] text-white font-semibold px-3 py-1.5 rounded-[var(--radius-button)] hover:bg-[var(--primary-soft-hover)] transition-colors shadow-[var(--sh-card)]"
-                        >
-                          Fill Starter Task & Start →
-                        </button>
-                      ) : null}
+                      <a
+                        href={`/docs/onboarding/#${step.docAnchor}`}
+                        className="text-[11px] text-[var(--primary)] hover:underline font-mono"
+                      >
+                        Learn more →
+                      </a>
                     </div>
                   </div>
                 ) : null}
               </div>
             );
-            })
-          )}
+          })}
+
+          {/* Starter Task Action Banner (Shown once required checks pass) */}
+          {requiredDone ? (
+            <div className="mt-2 text-xs bg-[var(--primary-soft)] border border-[var(--primary)]/40 text-[var(--primary)] p-3 rounded-[var(--radius-button)] flex items-center justify-between">
+              <div>
+                <strong className="block text-[var(--fg)] font-semibold">Core setup complete!</strong>
+                <span className="text-[var(--muted-foreground-2)]">You are ready to launch your first acceptance coding run.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectStarterTask?.(
+                    "https://github.com/cloudflare/ai-chat",
+                    "Add unit tests for error handling and verify the test suite passes.",
+                    "opencode"
+                  );
+                  onClose();
+                }}
+                className="bg-[var(--primary)] text-white font-semibold text-[11px] px-3.5 py-1.5 rounded-[var(--radius-button)] hover:bg-[var(--primary-soft-hover)] transition-colors shadow-[var(--sh-card)] ml-3 shrink-0"
+              >
+                Run Starter Task →
+              </button>
+            </div>
+          ) : null}
+
+          {/* Operator Setup Collapsed Section */}
+          <div className="mt-3 pt-3 border-t border-[var(--border-1)]">
+            <button
+              type="button"
+              onClick={() => setShowOperatorSteps(!showOperatorSteps)}
+              className="w-full flex items-center justify-between text-xs font-semibold text-[var(--muted-foreground-2)] hover:text-[var(--fg)] p-2 rounded-[var(--radius-button)] hover:bg-[var(--secondary)]/50 transition-colors"
+            >
+              <span>Operator & Self-Hosting Setup (Workers Paid, Access, Slack)</span>
+              <span className="font-mono text-[11px]">{showOperatorSteps ? "▲ Hide" : "▼ Show"}</span>
+            </button>
+
+            {showOperatorSteps ? (
+              <div className="mt-2 space-y-2">
+                {OPERATOR_STEPS.map((step) => {
+                  const isDone = isStepDone(step.id);
+                  return (
+                    <div
+                      key={step.id}
+                      className="p-2.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-xs flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-[var(--fg)] flex items-center gap-2">
+                          <span>{step.title}</span>
+                          {isDone ? (
+                            <span className="text-[10px] text-[var(--primary)] font-mono">✓ Configured</span>
+                          ) : null}
+                        </div>
+                        <p className="text-[11px] text-[var(--muted-foreground-2)] mt-0.5">{step.summary}</p>
+                      </div>
+                      <a
+                        href={`/docs/onboarding/#${step.docAnchor}`}
+                        className="text-[11px] font-mono text-[var(--primary)] hover:underline shrink-0"
+                      >
+                        Learn more about {step.title}
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {/* Modal Footer */}
         <div className="pt-3.5 border-t border-[var(--border-1)] flex items-center justify-between gap-3 shrink-0 flex-wrap">
-          <a
-            href="/docs/onboarding/"
-            className="text-xs text-[var(--primary)] hover:underline font-mono inline-flex items-center gap-1"
-          >
-            Full Architecture & Verification Guide ↗
-          </a>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-1.5 rounded-[var(--radius-button)] text-xs font-medium text-[var(--fg)] bg-[var(--card)] border border-[var(--border-1)] hover:bg-[var(--secondary)] transition-colors"
+              onClick={() => {
+                onOpenInbox?.();
+                onClose();
+              }}
+              className="text-xs text-[var(--primary)] hover:underline font-mono"
             >
-              Close Guide
+              Open Inbox Setup →
             </button>
           </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-[var(--radius-button)] text-xs font-medium text-[var(--fg)] bg-[var(--card)] border border-[var(--border-1)] hover:bg-[var(--secondary)] transition-colors"
+          >
+            Close Guide
+          </button>
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ import {
   createSandboxProviderFromRegistrySync,
   parseSandboxProviderConfig,
   parseSandboxProviderId,
+  SandboxError,
   registerBuiltinSandboxProviders,
   type SandboxInstance,
   type SandboxProvider,
@@ -16,6 +17,7 @@ import type { Env } from "../env.js";
 import { getSandbox, type SandboxRpcFacade } from "./client.js";
 import { buildComputesdkHostLoader } from "./computesdk-lazy.js";
 import { resolveSandboxSelection, type SandboxSelectionContext } from "./selection.js";
+import { getDecryptedOrgRunnerToken } from "../org-sandbox-store.js";
 import "./custom-providers.js";
 
 registerBuiltinSandboxProviders();
@@ -50,21 +52,49 @@ function sandboxEnvSlice(env: Env): Record<string, string | undefined> {
   };
 }
 
-function buildProvider(env: Env, id: SandboxProviderId): SandboxProvider {
-  const cached = providerCache.get(id);
+function buildProvider(
+  env: Env,
+  id: SandboxProviderId,
+  cacheKey = id,
+  remoteOverrides?: { runnerUrl?: string; runnerToken?: string; backendProvider?: string },
+): SandboxProvider {
+  const cached = providerCache.get(cacheKey);
   if (cached) return cached;
 
-  const config = parseSandboxProviderConfig({ ...sandboxEnvSlice(env), SHIBA_SANDBOX_PROVIDER: id }, id);
+  // An org-supplied URL must never be paired with the deployment token.
+  const orgRunnerUrl = remoteOverrides?.runnerUrl?.trim();
+  const runnerUrl = orgRunnerUrl || env.SHIBA_COMPUTESDK_RUNNER_URL?.trim();
+  const runnerToken = orgRunnerUrl
+    ? remoteOverrides?.runnerToken?.trim()
+    : env.SHIBA_COMPUTESDK_RUNNER_TOKEN?.trim();
+  if (id === "computesdk" && orgRunnerUrl && !runnerToken) {
+    throw new SandboxError(
+      "provider_misconfigured",
+      "Org sandbox runner token is missing or unreadable; save the runner token again.",
+      { provider: "computesdk" },
+    );
+  }
+  const backendProvider =
+    remoteOverrides?.backendProvider?.trim().toLowerCase() ||
+    env.SHIBA_COMPUTESDK_PROVIDER?.trim().toLowerCase() ||
+    "e2b";
+
+  const config = parseSandboxProviderConfig(
+    {
+      ...sandboxEnvSlice(env),
+      SHIBA_SANDBOX_PROVIDER: id,
+      ...(id === "computesdk" && backendProvider ? { SHIBA_COMPUTESDK_PROVIDER: backendProvider } : {}),
+    },
+    id,
+  );
   const allowUnenforcedEgress = truthyFlag(env.SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS);
 
-  const runnerUrl = env.SHIBA_COMPUTESDK_RUNNER_URL?.trim();
-  const runnerToken = env.SHIBA_COMPUTESDK_RUNNER_TOKEN?.trim();
   const computesdkRemoteClient =
     id === "computesdk" && runnerUrl && runnerToken
       ? createComputesdkRemoteSandboxProvider({
           baseUrl: runnerUrl,
           token: runnerToken,
-          backendProvider: env.SHIBA_COMPUTESDK_PROVIDER?.trim().toLowerCase() || "e2b",
+          backendProvider,
           defaultTimeoutMs: config.options.timeoutMs,
         })
       : undefined;
@@ -81,7 +111,7 @@ function buildProvider(env: Env, id: SandboxProviderId): SandboxProvider {
     });
 
   assertProviderAllowed(provider, { allowUnenforcedEgress });
-  providerCache.set(id, provider);
+  providerCache.set(cacheKey, provider);
   return provider;
 }
 
@@ -101,6 +131,28 @@ export async function resolveSandboxProviderForSelection(
   ctx: SandboxSelectionContext = {},
 ): Promise<SandboxProvider> {
   const selection = await resolveSandboxSelection(env, ctx);
+  if (selection.source === "org" && selection.providerId === "computesdk" && selection.orgSettings?.orgId) {
+    const orgId = selection.orgSettings.orgId;
+    const updatedAt = selection.orgSettings.updatedAt ?? 0;
+    const cacheKey = `org:${orgId}:computesdk:${updatedAt}`;
+    const cached = providerCache.get(cacheKey);
+    if (cached) return cached;
+
+    const orgPrefix = `org:${orgId}:computesdk:`;
+    for (const key of providerCache.keys()) {
+      if (key.startsWith(orgPrefix)) providerCache.delete(key);
+    }
+
+    const runnerUrl = selection.orgSettings.runnerUrl;
+    const runnerToken = (await getDecryptedOrgRunnerToken(env, orgId)) ?? undefined;
+    const backendProvider = selection.orgSettings.computesdkBackend;
+
+    return buildProvider(env, "computesdk", cacheKey, {
+      runnerUrl,
+      runnerToken,
+      backendProvider,
+    });
+  }
   return resolveSandboxProviderForId(env, selection.providerId);
 }
 

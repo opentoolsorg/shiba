@@ -14,6 +14,7 @@ export interface CloudflareSandboxRpc {
     overrides: Array<{ host: string; handler: string; params?: Record<string, string> }>,
   ): Promise<void>;
   approveRepoScope(allowedPath: string): Promise<void>;
+  setOutboundOrgId?(orgId: string): Promise<void>;
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
   writeFile(path: string, content: string): Promise<void>;
   exec(
@@ -83,6 +84,9 @@ function wrapRpc(
       }
       if (pin.githubRepoPath) {
         await rpc.approveRepoScope(pin.githubRepoPath);
+      }
+      if (pin.orgId && rpc.setOutboundOrgId) {
+        await rpc.setOutboundOrgId(pin.orgId);
       }
     },
 

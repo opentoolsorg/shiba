@@ -88,6 +88,7 @@ export async function pinSandboxEgress(
     allowedHosts: egressHosts ?? [],
     ...(outboundByHost ? { outboundByHost } : {}),
     githubRepoPath: `/${owner}/${repo}`,
+    ...(selection.orgId ? { orgId: selection.orgId } : {}),
   });
 }
 
@@ -298,8 +299,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             }
             const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
             const overrides = harness.egressOverrides?.(runInput);
+            const effectiveOrgId = runInput.orgId || "self-hosted";
             const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides, {
-              orgId: "self-hosted",
+              orgId: effectiveOrgId,
               taskProviderId: runInput.sandboxProvider,
             });
             result = await adapter.runCodingTask(ops, runInput, emit, {
