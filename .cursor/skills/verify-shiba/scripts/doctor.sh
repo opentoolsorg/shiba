@@ -42,7 +42,8 @@ HAVE=$(npx wrangler --version | awk '{print $NF}')
 echo "wrangler package=$PKG have=$HAVE"
 BODY=$(curl -sS "http://127.0.0.1:$PORT/api/setup/status")
 echo "$BODY" | python3 -c "import sys,json; json.load(sys.stdin)"
-if grep -q '^GITHUB_TOKEN=.\+' "$ROOT/apps/backend/.dev.vars" 2>/dev/null; then
+# The effective env is the invocation-scoped run.env written by launch.sh, not .dev.vars.
+if grep -q '^GITHUB_TOKEN=.\+' "$VERIFY_DIR/run.env" 2>/dev/null; then
   echo "GITHUB_TOKEN=present"
 else
   echo "GITHUB_TOKEN=absent"
