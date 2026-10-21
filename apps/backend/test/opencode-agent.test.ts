@@ -103,6 +103,13 @@ describe("OpenCodeAgent response boundary", () => {
     expect(text).toContain("Pull request: https://github.com/owner/repo/pull/1");
   });
 
+  it("forwards GITHUB_API_BASE to publication so a mock GitHub receives the PR write", async () => {
+    const instance = agent({ ...INPUT, publishPullRequest: true }, "token");
+    Object.assign(instance.env, { GITHUB_API_BASE: "http://127.0.0.1:4010" });
+    await responseFor(instance);
+    expect(mocks.publish).toHaveBeenCalledWith(expect.anything(), { apiBase: "http://127.0.0.1:4010" });
+  });
+
   it("returns a structured safe failure when runtime throws", async () => {
     mocks.run.mockRejectedValue(new Error("Failed ghp_1234567890abcdef"));
     const { chunks, text, result } = await responseFor(agent());

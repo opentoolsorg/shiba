@@ -5,6 +5,7 @@ import {
   formatStandInReviewOutput,
   isReviewerStandIn,
 } from "../src/verify-standin.js";
+import { parseUnifiedDiff } from "../src/v1/diffs.js";
 import { parseReviewEnvelope } from "@shiba/shared";
 import type { CodingTaskInput } from "../src/opencode-input.js";
 
@@ -26,6 +27,10 @@ describe("verify stand-in", () => {
   it("produces diff evidence for coding runs", () => {
     const result = buildStandInCodingResult();
     expect(result.status).toBe("completed");
+    const files = parseUnifiedDiff(result.diff);
+    expect(files).toEqual([expect.objectContaining({ path: "README.md", additions: 1, deletions: 0 })]);
+    expect(result.diff).toContain("@@ -1 +1,2 @@\n # verify-shiba\n+verify-shiba stand-in change\n");
+    expect(result.files[0]?.content).toBe("# verify-shiba\nverify-shiba stand-in change\n");
     expect(result.changedFiles.length).toBeGreaterThan(0);
     expect(result.files.length).toBeGreaterThan(0);
   });

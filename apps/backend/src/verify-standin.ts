@@ -27,7 +27,7 @@ export function buildStandInCodingResult(): CodingTaskResult {
     exitCode: 0,
     stderrTail: "",
     changedFiles: ["README.md"],
-    diff: `--- a/README.md\n+++ b/README.md\n@@ -1 +1,2 @@\n+${line}`,
+    diff: `diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1,2 @@\n # verify-shiba\n+${line}`,
     files: [{ path: "README.md", content: `# verify-shiba\n${line}`, encoding: "utf8" }],
     summary: "verify-shiba stand-in coding run completed.",
   };

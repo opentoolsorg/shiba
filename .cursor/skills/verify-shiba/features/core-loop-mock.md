@@ -5,7 +5,7 @@ End-to-end Phase 1 loop in **mock GitHub** boundary mode (not live GitHub succes
 ## What it proves
 
 1. Task queued via dashboard/`POST /api/runs` → approval card
-2. Approve → coding run completes (`SHIBA_VERIFY_STANDIN=1` when containers are off)
+2. Approve → coding run completes (`SHIBA_VERIFY_STANDIN=1` in `.verify/run.env` only when containers are off and GitHub is the loopback mock)
 3. Worker publishes a PR against the loopback GitHub stub
 4. Chained reviewer posts a COMMENT review to the stub
 5. `GET /api/v1/threads/:id/pr/review` shows a **posted** round with findings
