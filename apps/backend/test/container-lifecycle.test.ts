@@ -617,11 +617,12 @@ describe("destroyManagedContainer", () => {
 
   it("records a leak when destroy fails, then clears it on a successful retry", async () => {
     const env = fakeEnv();
+    const selection = { orgId: "org-doomed", taskProviderId: "computesdk" };
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const countBefore = leakedContainerCount();
     try {
       mocks.destroy.mockRejectedValueOnce(new Error("socket reset mid-destroy"));
-      await destroyManagedContainer(env, "sbx-doomed");
+      await destroyManagedContainer(env, "sbx-doomed", undefined, selection);
     } finally {
       warnSpy.mockRestore();
     }
@@ -631,9 +632,10 @@ describe("destroyManagedContainer", () => {
     expect(entry).toBeDefined();
     // The registry keeps a redacted copy of the failure for reclaim diagnostics.
     expect(entry!.error).toContain("socket reset");
+    expect(entry!.selection).toEqual(selection);
 
     mocks.destroy.mockResolvedValueOnce(undefined);
-    await destroyManagedContainer(env, "sbx-doomed");
+    await destroyManagedContainer(env, "sbx-doomed", undefined, selection);
     expect(leakedContainers().some((leak) => leak.sandboxId === "sbx-doomed")).toBe(false);
   });
 

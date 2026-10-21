@@ -108,6 +108,8 @@ export interface LeakedContainer {
   readonly leakedAt: number;
   /** Redacted error text — safe to log or surface in reclaim diagnostics. */
   readonly error: string;
+  /** Needed to retry destruction against the provider that created the sandbox. */
+  readonly selection?: SandboxSelectionContext;
 }
 
 // Per-isolate: a Durable Object hibernation resets this registry. Callers
@@ -152,10 +154,20 @@ export function forgetLeaked(sandboxId: string, hooks?: LeakHooks): void {
   safeHook("Leak-forget", sandboxId, () => hooks?.onForget?.(sandboxId));
 }
 
-function recordLeak(sandboxId: string, error: unknown, hooks?: LeakHooks): void {
+function recordLeak(
+  sandboxId: string,
+  error: unknown,
+  hooks?: LeakHooks,
+  selection?: SandboxSelectionContext,
+): void {
   leakedCount += 1;
   const message = redactSecrets(error instanceof Error ? error.message : String(error));
-  const leak = { sandboxId, leakedAt: Date.now(), error: message.slice(0, 2000) };
+  const leak = {
+    sandboxId,
+    leakedAt: Date.now(),
+    error: message.slice(0, 2000),
+    ...(selection ? { selection } : {}),
+  };
   leakedRegistry.set(sandboxId, leak);
   safeHook("Leak", sandboxId, () => hooks?.onLeak?.(leak));
 }
@@ -181,6 +193,7 @@ export const acquireContainer = (opts: {
   sandboxId: string;
   signal?: AbortSignal;
   hooks?: LeakHooks;
+  selection?: SandboxSelectionContext;
   releaseTimeoutMs?: number;
 }): Effect.Effect<ManagedContainer, RunError, Scope.Scope> =>
   Effect.acquireRelease(
@@ -203,7 +216,7 @@ export const acquireContainer = (opts: {
           return;
         }
         container.markLeaked();
-        recordLeak(opts.sandboxId, Cause.squash(exit.cause), opts.hooks);
+        recordLeak(opts.sandboxId, Cause.squash(exit.cause), opts.hooks, opts.selection);
         console.error(`Failed to release sandbox container ${opts.sandboxId}`);
         // Keep the task's failure/interruption authoritative; cleanup has
         // already been logged and recorded for retry. A successful task
@@ -237,6 +250,7 @@ export async function runWithContainer<T>(
     sandboxId: string;
     signal?: AbortSignal;
     hooks?: LeakHooks;
+    selection?: SandboxSelectionContext;
     releaseTimeoutMs?: number;
   },
   task: (container: ManagedContainer) => T | Promise<T>,
@@ -329,7 +343,7 @@ export async function destroyManagedContainer(
   } catch (error) {
     // Cleanup failure must not overwrite the recorded outcome.
     console.warn(`Failed to destroy sandbox ${sandboxId}: ${redactSecrets(String(error))}`);
-    recordLeak(sandboxId, error, hooks);
+    recordLeak(sandboxId, error, hooks, selection);
   }
 }
 

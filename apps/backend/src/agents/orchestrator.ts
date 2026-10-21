@@ -140,9 +140,11 @@ import { handleSteeringRequest } from "../steering.js";
 import {
   acquireSandboxOps,
   destroyManagedContainer,
+  type LeakedContainer,
   type LeakHooks,
   leakedContainers,
 } from "../sandbox/lifecycle.js";
+import type { SandboxSelectionContext } from "../sandbox/selection.js";
 import {
   type ScreenAction,
   ScreenActionError,
@@ -186,7 +188,7 @@ export interface OrchestratorState {
   runs: DelegatedRun[];
   pendingApprovals?: PendingApproval[];
   /** Leaks recorded before a hibernation still get their destroy retried. */
-  leakedContainers?: Record<string, { sandboxId: string; leakedAt: number; error: string }>;
+  leakedContainers?: Record<string, LeakedContainer>;
   webSessions?: WebSessionRecord[];
   /**
    * Set by session teardown on a `web:` session DO. The registry tombstone
@@ -632,7 +634,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // Pre-sandbox checkpoints resume under the same frozen approval. A run
     // that may have touched git or a container stays unknown — resuming it
     // could publish twice.
-    const unknownSandboxes: string[] = [];
+    const unknownSandboxes: Array<{ sandboxId: string; selection: SandboxSelectionContext }> = [];
     for (const run of this.store.list()) {
       if (!isActiveStatus(run.status)) continue;
       if (restartDisposition(run) === "resume") {
@@ -656,7 +658,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (updated !== null) {
         this.postOutcomeUnknown(updated);
         if (updated.reviewOf) this.failReviewRound(updated, updated.error ?? "restart");
-        unknownSandboxes.push(run.sandboxId);
+        unknownSandboxes.push({ sandboxId: updated.sandboxId, selection: sandboxSelectionForRun(updated) });
       }
     }
     // Teardown runs in the background: awaiting container I/O here would block the DO's start.
@@ -3444,9 +3446,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   /** Sequential destroy; one throw or hang (bounded by CLEANUP_TIMEOUT_MS) can't skip the rest. */
-  private async destroyEach(sandboxIds: string[]): Promise<void> {
-    for (const sandboxId of sandboxIds) {
-      await this.guardCleanup(() => this.destroySandbox(sandboxId));
+  private async destroyEach(
+    requests: readonly { sandboxId: string; selection: SandboxSelectionContext }[],
+  ): Promise<void> {
+    for (const { sandboxId, selection } of requests) {
+      await this.guardCleanup(() => this.destroySandbox(sandboxId, selection));
     }
   }
 
@@ -3483,7 +3487,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   private async releaseSandboxForRun(run: DelegatedRun): Promise<void> {
     if (shouldDestroySandboxAfterRun(run, this.store.list())) {
-      await this.destroySandbox(run.sandboxId, run);
+      await this.destroySandbox(run.sandboxId, sandboxSelectionForRun(run));
     }
   }
 
@@ -3578,8 +3582,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // Digest is computed on read; pack projection is derived from runs at snapshot time.
   }
 
-  private async destroySandbox(sandboxId: string, run?: DelegatedRun): Promise<void> {
-    const selection = run ? sandboxSelectionForRun(run) : {};
+  private async destroySandbox(sandboxId: string, selection: SandboxSelectionContext): Promise<void> {
     await destroyManagedContainer(this.env, sandboxId, this.leakHooks(), selection);
   }
 
@@ -3622,16 +3625,30 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         this.postOutcomeUnknown(run);
         this.runControllers.get(run.runId)?.abort();
       }
-      await this.destroyEach(reclaimedRuns.map((run) => run.sandboxId));
+      await this.destroyEach(
+        reclaimedRuns.map((run) => ({ sandboxId: run.sandboxId, selection: sandboxSelectionForRun(run) })),
+      );
     }
     // Leaked containers outlive the run that leaked them: retry destroy on
     // every reclaim pass; a successful destroy clears its own registry entry.
     // Durable entries from before a hibernation union with this isolate's.
-    const leaks = new Map<string, { sandboxId: string; leakedAt: number; error: string }>(
+    const leaks = new Map<string, LeakedContainer>(
       Object.values(this.state?.leakedContainers ?? {}).map((leak) => [leak.sandboxId, leak]),
     );
-    for (const leak of leakedContainers()) leaks.set(leak.sandboxId, leak);
-    await this.destroyEach([...leaks.values()].map((leak) => leak.sandboxId));
+    for (const leak of leakedContainers()) {
+      const persisted = leaks.get(leak.sandboxId);
+      const selection = leak.selection ?? persisted?.selection;
+      leaks.set(leak.sandboxId, selection ? { ...leak, selection } : leak);
+    }
+    const runsBySandboxId = new Map(this.store.list().map((run) => [run.sandboxId, run]));
+    const requests = [...leaks.values()].flatMap((leak) => {
+      const run = runsBySandboxId.get(leak.sandboxId);
+      const selection = leak.selection ?? (run ? sandboxSelectionForRun(run) : undefined);
+      // Older durable leak records did not include provider context. Never
+      // retry those against the deployment provider by silently defaulting.
+      return selection ? [{ sandboxId: leak.sandboxId, selection }] : [];
+    });
+    await this.destroyEach(requests);
   }
 
   async clearRuns(): Promise<void> {

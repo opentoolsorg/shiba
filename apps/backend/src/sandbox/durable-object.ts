@@ -78,8 +78,14 @@ export class Sandbox extends DurableObject<Env> {
   }
 
   async setOutboundOrgId(orgId: string): Promise<void> {
+    const normalizedOrgId = orgId.trim();
+    if (!normalizedOrgId) throw new Error("Sandbox organization ID is required.");
     const config = this.getOutboundConfig();
-    config.orgId = orgId;
+    if (config.orgId && config.orgId !== normalizedOrgId) {
+      throw new Error("Sandbox is already bound to a different organization.");
+    }
+    if (config.orgId === normalizedOrgId) return;
+    config.orgId = normalizedOrgId;
     this.persistOutbound(config);
   }
 
