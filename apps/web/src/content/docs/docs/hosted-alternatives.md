@@ -58,3 +58,6 @@ Do not present this page as an official comparison to any trademarked product. C
 - [Self-hosting on Cloudflare](/docs/self-hosting/)
 - [Getting started](/docs/getting-started/)
 - [Readiness checklist](/docs/readiness/)
+- [Why I built Shiba](/why-shiba/) — founder story and managed-vs-self-hosted framing
+- [Open source Devin alternative guide](/open-source-devin-alternative/) — evaluation walkthrough
+- [Journal](/blog/) — guides and engineering notes on approval gates and sandbox boundaries

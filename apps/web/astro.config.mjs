@@ -21,6 +21,19 @@ export default defineConfig({
 			title: 'Shiba',
 			description:
 				'Open-source, self-hosted AI software engineer for approval-gated tasks in Cloudflare Sandbox.',
+			components: {
+				Head: './src/components/starlight/Head.astro',
+			},
+			head: [
+				{
+					tag: 'link',
+					attrs: { rel: 'sitemap', href: '/sitemap.xml' },
+				},
+				{
+					tag: 'meta',
+					attrs: { name: 'robots', content: 'index, follow, max-image-preview:large' },
+				},
+			],
 			logo: {
 				src: './src/assets/logo.png',
 				alt: 'AI Coworker Logo',
