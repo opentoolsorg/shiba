@@ -9,6 +9,8 @@ OpenCode, Claude Code, Codex, and Devin are implemented harness choices.
 The deployed resources are declared in `apps/backend/wrangler.jsonc`; the runtime flow is
 implemented in `apps/backend/src/agents/orchestrator.ts` and `apps/backend/src/runtime.ts`.
 
+**On the marketing site:** [homepage](/), [why Shiba](/why-shiba/), [hosted-alternatives comparison](/docs/hosted-alternatives/), and the [Journal](/blog/).
+
 <div class="docs-hero-card">
   <div class="docs-hero-icon">⚡</div>
   <div class="docs-hero-body">
