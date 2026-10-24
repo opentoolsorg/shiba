@@ -42,8 +42,9 @@ function renderRail(extra?: Partial<Parameters<typeof AppNavRail>[0]>) {
 
 describe("workspaceLabel", () => {
   it("does not invent an operator name when email is missing", () => {
-    expect(workspaceLabel(null)).toEqual({ name: "Operator", detail: "This workspace" });
-    expect(workspaceLabel("ada@example.com").name).toBe("ada");
+    expect(workspaceLabel(null)).toEqual({ name: "Signed in", detail: "This workspace" });
+    expect(workspaceLabel("ada@example.com")).toEqual({ name: "ada", detail: "ada@example.com" });
+    expect(workspaceLabel("operator-7")).toEqual({ name: "operator-7", detail: "This workspace" });
   });
 });
 

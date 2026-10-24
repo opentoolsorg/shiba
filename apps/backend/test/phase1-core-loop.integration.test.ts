@@ -270,6 +270,46 @@ beforeEach(() => {
 });
 
 describe("Phase 1 core loop (integration)", () => {
+  it("does not start work before approval, then records a diff and a stub pull request", async () => {
+    const github = createMockGitHubFetch();
+    vi.stubGlobal("fetch", github.fetchImpl);
+    wireFakeHarness(github);
+    const instance = agent({ AI_GATEWAY_TOKEN: undefined, SHIBA_VERIFY_STANDIN: "1" });
+    const queued = await instance.onRequest(
+      new Request("https://internal/api/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoUrl: REPO,
+          task: "Add a README",
+          publishPullRequest: true,
+        }),
+      }),
+    );
+    expect(queued.status).toBe(200);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.destroy).not.toHaveBeenCalled();
+    const { approvalId } = (await queued.json()) as { approvalId: string };
+    const approved = await instance.onRequest(
+      new Request("https://internal/api/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "tester" }),
+      }),
+    );
+    expect(approved.status).toBe(200);
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalled());
+    const coding = instance.state.runs.find((run) => run.runId === `agent-tool:${approvalId}`);
+    expect(coding?.status).toBe("completed");
+    expect(coding?.pullUrl).toBe(PULL_URL);
+    expect(coding?.diff ?? "").not.toBe("");
+    expect(github.calls.some((call) => call.url.includes("/pulls") && call.init?.method === "POST")).toBe(true);
+    expect(github.calls.some((call) => /api\.openai\.com|generativelanguage|api\.anthropic\.com/.test(call.url))).toBe(
+      false,
+    );
+    vi.unstubAllGlobals();
+  });
+
   it("queues, approves, publishes a PR, chains review, stores findings, and posts the round", async () => {
     const github = createMockGitHubFetch();
     vi.stubGlobal("fetch", github.fetchImpl);

@@ -6,6 +6,7 @@ import {
   denyUnscopedGitHub,
   forwardAnthropic,
   forwardClaudeSubscription,
+  forwardCodexPlan,
   forwardCodexSubscription,
   forwardCursorSubscription,
   forwardDevinApi,
@@ -28,6 +29,7 @@ export const outboundHandlers: Record<string, HostHandler> = {
   githubScoped: forwardGitHubScoped,
   claudeSubscription: forwardClaudeSubscription,
   codexSubscription: forwardCodexSubscription,
+  codexPlan: forwardCodexPlan,
   cursorSubscription: forwardCursorSubscription,
   devinSubscription: forwardDevinSubscription,
 };
