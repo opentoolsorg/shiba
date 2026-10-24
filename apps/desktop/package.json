@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src",
     "test": "vitest run",
-    "test:e2e": "pnpm build && vitest run --config vitest.e2e.config.mts",
+    "test:e2e": "pnpm build && node -e \"require('electron')\" && vitest run --config vitest.e2e.config.mts",
     "dist": "pnpm build && electron-builder --publish never",
     "dist:local": "pnpm dist && ./scripts/adhoc-sign.sh release/mac-arm64/Shiba.app"
   },

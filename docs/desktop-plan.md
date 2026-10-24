@@ -119,7 +119,7 @@ Status is for this branch.
 
 **Owns:** `apps/desktop/test/*.test.ts`, `apps/desktop/test/smoke.e2e.ts`, `apps/desktop/test/journey.e2e.ts`.
 
-**Interface:** unit tests run under `pnpm --filter @shiba/desktop test`. Electron tests run under `pnpm --filter @shiba/desktop test:e2e` (built `dist/`, a display). The journey stub stands in for `app.tryshiba.dev`: probe reports unpaired, then the page sends a task, approves, shows the patch, and opens the pull URL.
+**Interface:** unit tests run under `pnpm --filter @shiba/desktop test`. Electron tests run under `pnpm --filter @shiba/desktop test:e2e` (built `dist/`, a display). That script downloads the Electron binary once, then runs one e2e file at a time. Electron 44 has no postinstall, and two workers extracting the zip together truncate the macOS framework. The journey stub stands in for `app.tryshiba.dev`: probe reports unpaired, then the page sends a task, approves, shows the patch, and opens the pull URL.
 
 ## Run locally
 
