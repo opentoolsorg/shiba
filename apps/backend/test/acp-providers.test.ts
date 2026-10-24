@@ -74,13 +74,18 @@ describe("provider registry", () => {
       "codex",
       "gemini",
       "grok",
+      "cursor",
       "opencode",
     ]);
     for (const provider of ACP_PROVIDER_REGISTRY) {
       if (provider.protocol === "acp") {
-        const lane = ACP_LANES[provider.harness as keyof typeof ACP_LANES];
-        expect(lane, provider.id).toBeDefined();
-        expect(provider.spawn).toEqual(lane.spec.spawn);
+        if (provider.harness === "antigravity-subscription" || provider.harness === "cursor-subscription") {
+          expect(provider.spawn.length).toBeGreaterThan(0);
+        } else {
+          const lane = ACP_LANES[provider.harness as keyof typeof ACP_LANES];
+          expect(lane, provider.id).toBeDefined();
+          expect(provider.spawn).toEqual(lane.spec.spawn);
+        }
         expect(acpAdapterPlan(provider.id).harness).toBe(provider.harness);
       }
     }
@@ -96,6 +101,7 @@ describe("GET /api/providers", () => {
     expect(body.org).toBe("default");
     expect(body.defaultProviderId).toBeNull();
     expect(body.providers.map((provider) => provider.connection.phase)).toEqual([
+      "disconnected",
       "disconnected",
       "disconnected",
       "disconnected",
@@ -117,7 +123,7 @@ describe("GET /api/providers", () => {
   it("still lists providers when the connection store is missing", async () => {
     const response = await handleAcpProviders(request("/api/providers"), {} as Env);
     const body = await snapshot(response);
-    expect(body.providers).toHaveLength(5);
+    expect(body.providers).toHaveLength(6);
   });
 });
 
@@ -371,9 +377,9 @@ describe("API-key fallback", () => {
     );
   });
 
-  it("refuses OAuth for a provider that has no subscription lane", async () => {
+  it("refuses OAuth for a provider that has no OAuth lane", async () => {
     const response = await handleAcpProviders(
-      request("/api/providers/grok/connect", {
+      request("/api/providers/opencode/connect", {
         method: "POST",
         body: JSON.stringify({ mode: "oauth" }),
       }),

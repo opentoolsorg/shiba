@@ -42,6 +42,8 @@ export interface Env {
   ModelConfig: DurableObjectNamespace;
   /** Per-user ChatGPT SIWC refresh + sign-in state. */
   ChatGptAuth?: DurableObjectNamespace;
+  /** Per-user Antigravity / Cursor / xAI OAuth on the Providers card. */
+  UserProviderOAuth?: DurableObjectNamespace;
   /** Private launch/contributor registrations. */
   Waitlist: DurableObjectNamespace;
   /**

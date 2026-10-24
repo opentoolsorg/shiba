@@ -9,7 +9,9 @@ import {
   forwardClaudeSubscription,
   forwardCodexPlan,
   forwardCodexSubscription,
+  forwardAntigravityUser,
   forwardCursorSubscription,
+  forwardCursorUser,
   forwardDevinApi,
   forwardDevinInference,
   forwardDevinSubscription,
@@ -19,6 +21,7 @@ import {
   forwardOpenAI,
   forwardOpenCodeGo,
   forwardXAI,
+  forwardXaiUser,
 } from "../egress.js";
 import type { NamedOutboundHandler, OutboundConfig, OutboundHostRule } from "./outbound-config.js";
 
@@ -49,6 +52,12 @@ function namedHandler(
       return forwardCodexPlan;
     case "cursorSubscription":
       return forwardCursorSubscription;
+    case "cursorUser":
+      return forwardCursorUser;
+    case "antigravityUser":
+      return forwardAntigravityUser;
+    case "xaiUser":
+      return forwardXaiUser;
     case "devinSubscription":
       return forwardDevinSubscription;
     default:

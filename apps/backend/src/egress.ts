@@ -7,6 +7,7 @@
  */
 import type { Env as WorkerEnv } from "./env.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
+import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
 import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
 import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
@@ -27,6 +28,7 @@ export type EgressEnv = Pick<
   | "SHIBA_SINGLE_USER"
   | "AGENT_AUDIT"
   | "ChatGptAuth"
+  | "UserProviderOAuth"
 > & {
   /** Present when a user has saved a provider key. */
   AGENT_TOKENS?: WorkerEnv["AGENT_TOKENS"];
@@ -473,6 +475,128 @@ export async function forwardCursorSubscription(
     });
   } catch {
     // Fetch errors can embed authenticated request details; never surface them.
+    return new Response("Subscription request failed.", { status: 502 });
+  }
+}
+
+async function loadUserOAuthAccess(
+  env: EgressEnv,
+  userId: string,
+  provider: "antigravity" | "cursor" | "xai",
+): Promise<{ accessToken: string; projectId?: string } | null> {
+  if (userId === "" || !env.UserProviderOAuth) return null;
+  const response = await userProviderOAuthStub(env, userId).fetch(
+    `https://user-provider-oauth.internal/access?provider=${provider}`,
+  );
+  if (!response.ok) return null;
+  const body = (await response.json().catch(() => null)) as {
+    accessToken?: unknown;
+    projectId?: unknown;
+  } | null;
+  if (typeof body?.accessToken !== "string" || body.accessToken === "") return null;
+  return {
+    accessToken: body.accessToken,
+    ...(typeof body.projectId === "string" && body.projectId !== "" ? { projectId: body.projectId } : {}),
+  };
+}
+
+/** Per-user Antigravity / Cloud Code Assist OAuth at egress. */
+export async function forwardAntigravityUser(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx,
+): Promise<Response> {
+  const params = (ctx?.params ?? {}) as Record<string, unknown>;
+  const userId = typeof params.userId === "string" ? params.userId.trim() : "";
+  const auth = await loadUserOAuthAccess(env, userId, "antigravity");
+  const target = new URL(request.url);
+  const allowed =
+    target.hostname === "cloudcode-pa.googleapis.com" || target.hostname === "daily-cloudcode-pa.googleapis.com";
+  if (target.protocol !== "https:" || !allowed || target.username !== "" || target.password !== "") {
+    return new Response("Invalid Antigravity destination.", { status: 403 });
+  }
+  if (!auth) {
+    return new Response("No Gemini (Antigravity) account is connected for this user.", { status: 503 });
+  }
+  target.search = stripCredentialParams(target.search);
+  const headers = outboundHeaders(request);
+  headers.set("Authorization", `Bearer ${auth.accessToken}`);
+  if (auth.projectId) headers.set("x-goog-user-project", auth.projectId);
+  try {
+    return await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "POST" ? request.body : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    return new Response("Subscription request failed.", { status: 502 });
+  }
+}
+
+/** Per-user Cursor OAuth at egress (api2 + repo2). */
+export async function forwardCursorUser(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx,
+): Promise<Response> {
+  const params = (ctx?.params ?? {}) as Record<string, unknown>;
+  const userId = typeof params.userId === "string" ? params.userId.trim() : "";
+  const auth = await loadUserOAuthAccess(env, userId, "cursor");
+  const target = new URL(request.url);
+  if (
+    target.protocol !== "https:" ||
+    (target.hostname !== "api2.cursor.sh" && target.hostname !== "repo2.cursor.sh") ||
+    target.username !== "" ||
+    target.password !== ""
+  ) {
+    return new Response("Invalid Cursor destination.", { status: 403 });
+  }
+  if (!auth) {
+    return new Response("No Cursor account is connected for this user.", { status: 503 });
+  }
+  target.search = stripCredentialParams(target.search);
+  const headers = outboundHeaders(request);
+  headers.set("Authorization", `Bearer ${auth.accessToken}`);
+  try {
+    return await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "POST" ? request.body : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    return new Response("Subscription request failed.", { status: 502 });
+  }
+}
+
+/** Per-user xAI / Grok OAuth at egress. */
+export async function forwardXaiUser(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx,
+): Promise<Response> {
+  const params = (ctx?.params ?? {}) as Record<string, unknown>;
+  const userId = typeof params.userId === "string" ? params.userId.trim() : "";
+  const auth = await loadUserOAuthAccess(env, userId, "xai");
+  const target = new URL(request.url);
+  if (target.protocol !== "https:" || target.hostname !== "api.x.ai" || target.username !== "" || target.password !== "") {
+    return new Response("Invalid xAI destination.", { status: 403 });
+  }
+  if (!auth) {
+    return new Response("No Grok account is connected for this user.", { status: 503 });
+  }
+  target.search = stripCredentialParams(target.search);
+  const headers = outboundHeaders(request);
+  headers.set("Authorization", `Bearer ${auth.accessToken}`);
+  try {
+    return await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "POST" ? request.body : undefined,
+      redirect: "manual",
+    });
+  } catch {
     return new Response("Subscription request failed.", { status: 502 });
   }
 }

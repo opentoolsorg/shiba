@@ -19,6 +19,7 @@ import { piHarness } from "./pi.js";
 import { buildOpencodeConfig, OPENCODE_PROVIDERS, opencodeHarness } from "./opencode.js";
 import type { Env } from "../env.js";
 import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
+import { userProviderOAuthReady } from "../user-provider-oauth-store.js";
 import { GIT_EGRESS_HOSTS, type AgentHarness, type AgentHarnessName, type RuntimeName } from "./types.js";
 
 /**
@@ -164,10 +165,11 @@ const HARNESS_GATES: Partial<Record<AgentHarnessName, (env: HarnessGateEnv) => b
   "codex-subscription": (env) =>
     env?.SHIBA_CODEX_SUBSCRIPTION === "1" || modelCredentialKeyConfigured(env as Env),
   // T50: the OAuth-in-container flow is opt-in separately (§18.12).
-  "antigravity-subscription": (env) => env?.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "1",
+  "antigravity-subscription": (env) =>
+    env?.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "1" || userProviderOAuthReady(env as Env),
   // Worker-secret subscription keys (CURSOR_SUBSCRIPTION_TOKEN /
   // DEVIN_SUBSCRIPTION_TOKEN), opt-in like the other subscription harnesses.
-  "cursor-subscription": (env) => env?.SHIBA_CURSOR_SUBSCRIPTION === "1",
+  "cursor-subscription": (env) => env?.SHIBA_CURSOR_SUBSCRIPTION === "1" || userProviderOAuthReady(env as Env),
   "devin-subscription": (env) => env?.SHIBA_DEVIN_SUBSCRIPTION === "1",
   // Registry agents are arbitrary binaries — the lane stays dark until an
   // operator pins a snapshot (ACP_REGISTRY_JSON) AND names allowed ids.

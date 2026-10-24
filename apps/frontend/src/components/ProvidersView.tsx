@@ -99,7 +99,10 @@ function WaitingSignIn({
   const [callbackUrl, setCallbackUrl] = useState("");
   const [credential, setCredential] = useState("");
   const device = Boolean(card.connection.userCode);
-  const needsCallback = card.connection.signInKind === "chatgpt-pkce";
+  const needsCallback =
+    card.connection.signInKind === "chatgpt-pkce" ||
+    card.connection.signInKind === "antigravity-pkce" ||
+    card.connection.signInKind === "xai-pkce";
   const needsToken = card.connection.signInKind === "claude-setup-token";
   const steps = card.connection.operatorSteps ?? [];
   const verificationUri = card.connection.verificationUri;
@@ -606,7 +609,7 @@ export function ProvidersBoard({
     >
       <PageHeader
         title="Providers"
-        detail="Codex uses your ChatGPT plan. Claude pairs a computer or takes a setup token. Gemini, Grok, and OpenCode take a key you paste here. Keys stay encrypted and are attached at egress."
+        detail="Codex uses your ChatGPT plan. Claude pairs a computer or takes a setup token. Gemini (Antigravity), Grok, and Cursor support Connect with sign-in; OpenCode and API-key lanes still accept a pasted key. Credentials stay encrypted and attach at egress."
       >
         {defaultLabel ? (
           <span

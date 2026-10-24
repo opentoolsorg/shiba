@@ -149,6 +149,7 @@
       { "name": "ModelConfig", "class_name": "ModelConfig" },
       { "name": "LocalDispatch", "class_name": "LocalDispatch" },
       { "name": "ChatGptAuth", "class_name": "ChatGptAuth" },
+      { "name": "UserProviderOAuth", "class_name": "UserProviderOAuth" },
     ],
   },
   // Email attachment bodies >256KB go here, keyed `emailId/partId`
@@ -216,6 +217,7 @@
     { "tag": "alchemy:v10" },
     { "tag": "alchemy:v11" },
     { "tag": "v12", "new_sqlite_classes": ["ChatGptAuth"] },
+    { "tag": "v13", "new_sqlite_classes": ["UserProviderOAuth"] },
     // Live script tag after the Oct 20 alchemy deploy; all classes above already exist.
     { "tag": "alchemy:v22" },
   ],

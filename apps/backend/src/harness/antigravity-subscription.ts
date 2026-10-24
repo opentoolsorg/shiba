@@ -97,6 +97,17 @@ export class AntigravitySubscriptionHarness implements AgentHarness {
     return [...ANTIGRAVITY_SUBSCRIPTION_HOSTS];
   }
 
+  /** Per-user Antigravity OAuth on the Providers card — tokens attach at egress. */
+  egressOverrides(input: CodingTaskInput) {
+    const userId = input.initiatorUserId?.trim() ?? "";
+    if (userId === "") return [];
+    return ANTIGRAVITY_SUBSCRIPTION_HOSTS.map((host) => ({
+      host,
+      handler: "antigravityUser" as const,
+      params: { userId },
+    }));
+  }
+
   /** `agy:profile:<dir>` — the account the conversation belongs to. */
   continuationKey(input: { authAccount?: string }): string {
     return `agy:profile:${antigravitySubscriptionProfileDir(input)}`;
