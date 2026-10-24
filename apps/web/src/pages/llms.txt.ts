@@ -36,6 +36,9 @@ export async function GET() {
 - Why I am building Shiba: ${SITE}/why-shiba/
 - Journal (guides and engineering notes): ${SITE}/blog/
 - Join waitlist & contribute: ${SITE}/waitlist/
+- Privacy notice: ${SITE}/privacy/
+- Terms of use: ${SITE}/terms/
+- Docs welcome splash: ${SITE}/welcome/
 
 ## Core Architecture & Security
 

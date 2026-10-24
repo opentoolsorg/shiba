@@ -1,0 +1,55 @@
+---
+import Default from '@astrojs/starlight/components/Head.astro';
+
+const SITE = 'https://tryshiba.dev';
+const OG_IMAGE = `${SITE}/assets/og/shiba-og.png`;
+const OG_ALT =
+	'Shiba: It asks before it writes code. A self-hosted AI software engineer on Cloudflare.';
+
+const route = Astro.locals.starlightRoute;
+const { entry, id } = route;
+const title = entry.data.title;
+const description = entry.data.description ?? '';
+
+function pagePath(slug: string): string {
+	if (slug === 'welcome') return '/welcome/';
+	return `/${slug}/`;
+}
+
+const path = pagePath(id);
+const crumbs: Array<{ name: string; path: string }> = [{ name: 'Home', path: '/' }];
+if (id === 'welcome') {
+	crumbs.push({ name: title, path });
+} else if (id.startsWith('docs/')) {
+	crumbs.push({ name: 'Docs', path: '/docs/overview/' });
+	crumbs.push({ name: title, path });
+}
+
+const breadcrumbSchema =
+	crumbs.length > 1
+		? {
+				'@context': 'https://schema.org',
+				'@type': 'BreadcrumbList',
+				itemListElement: crumbs.map((crumb, idx) => ({
+					'@type': 'ListItem',
+					position: idx + 1,
+					name: crumb.name,
+					item: new URL(crumb.path, SITE).href,
+				})),
+			}
+		: null;
+
+const pageTitle = `${title} | Shiba`;
+---
+
+<Default />
+<meta property="og:image" content={OG_IMAGE} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:alt" content={OG_ALT} />
+<meta name="twitter:title" content={pageTitle} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={OG_IMAGE} />
+<meta name="twitter:image:alt" content={OG_ALT} />
+{breadcrumbSchema && <script type="application/ld+json" set:html={JSON.stringify(breadcrumbSchema)} />}

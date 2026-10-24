@@ -28,7 +28,7 @@ const faqItems = [
   },
   {
     q: 'Which models and subscriptions work?',
-    a: 'API-key mode uses Cloudflare AI Gateway BYOK for OpenCode, Claude Code, Codex, Gemini, and Grok. Claude Code and Codex adapter cards can also start a subscription sign-in (ChatGPT device code, or a Claude code you paste). Those tokens stay encrypted on the Worker. Devin, Cursor, and Antigravity have separate opt-in lanes. A successful live inference run is not claimed until you record one.',
+    a: 'Gemini, Grok, and OpenCode take a key you paste on the Providers page. Egress sends it to the provider. Claude Code pairs a computer or takes a setup token. Codex uses a ChatGPT device code. Those secrets stay encrypted on the Worker. Devin, Cursor, and Antigravity have separate opt-in lanes. A successful live inference run is not claimed until you record one.',
   },
   {
     q: 'Where does my code run?',
@@ -100,7 +100,7 @@ const capabilities = [
   { number: '01', symbol: '▣', title: 'Approval before execution', detail: 'Inspect repo, branch, task, harness, and model route on the card. No sandbox starts until you approve (unless you explicitly configure unattended automations).' },
   { number: '02', symbol: '▧', title: 'Isolated sandboxes', detail: 'Default: Cloudflare Containers with Worker-side egress (SandboxOutbound). Other providers exist for local dev and experiments. Read the docs for what each one enforces.' },
   { number: '03', symbol: '◫', title: 'Diff, PR, review', detail: 'Watch progress and diffs in the dashboard. Optional GitHub PR publish, then an optional read-only review round. A live GitHub round is not recorded in VERIFICATION.md yet.' },
-  { number: '04', symbol: '⌁', title: 'Your models', detail: 'API keys go through AI Gateway BYOK. Claude Code and Codex can also use a subscription sign-in you complete yourself. The container still gets a dummy key.' },
+  { number: '04', symbol: '⌁', title: 'Your models', detail: 'Paste a provider key, or sign in to Claude Code or Codex. Egress attaches the secret. The container still gets a dummy key.' },
   { number: '05', symbol: '◎', title: 'Custom agents', detail: 'Save org presets (harness, model, sandbox defaults) in the dashboard and reference them from tasks or the public API.' },
   { number: '06', symbol: '≋', title: 'Triggers + API', detail: 'Dashboard, Slack, Telegram, Discord, automations, and `/api/v1` with `@shiba/sdk`. Desktop app and native iPhone client are not shipped.' },
 ];
@@ -182,7 +182,7 @@ const roadmapRows = [
   <section id="harnesses" class="shell harness-section" data-reveal aria-labelledby="harness-title">
     <p class="eyebrow">TOOLS &amp; MODEL PROVIDERS</p>
     <h2 id="harness-title">Bring your tools. Keep control.</h2>
-    <p class="harness-lead">OpenCode, Claude Code, Codex, Gemini, Grok, Devin CLI, Cursor, and Antigravity have harness code in this repo. Claude Code and Codex adapter cards can sign in with your subscription. The others use an API credential through AI Gateway. A live model call still depends on that credential.</p>
+    <p class="harness-lead">OpenCode, Claude Code, Codex, Gemini, Grok, Devin CLI, Cursor, and Antigravity have harness code in this repo. Claude Code and Codex can sign in from the Providers page. Gemini, Grok, and OpenCode take a key you paste. A live model call still depends on that credential.</p>
     <div class="harness-grid" role="list" aria-label="Coding tools and model providers">
       <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/opencode.svg" alt="" width="32" height="32" /></span><span class="harness-label">OpenCode<small>IN CODE</small></span></div>
       <div class="harness-item integrated" role="listitem"><span class="harness-icon"><img src="/assets/harnesses/claude.svg" alt="" width="32" height="32" /></span><span class="harness-label">Claude Code<small>IN CODE</small></span></div>

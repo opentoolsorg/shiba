@@ -154,6 +154,11 @@ describe("the ACP driver event parser", () => {
 });
 
 describe("per-lane spec hooks (ce-code-review fixes)", () => {
+  it("opencode-acp can call DeepSeek with the same saved key", () => {
+    const hosts = resolveHarness("opencode-acp").egressHosts("opencode-go/deepseek-v3.2");
+    expect(hosts).toEqual(expect.arrayContaining(["opencode.ai", "api.deepseek.com"]));
+  });
+
   it("devin-acp egress includes the codeium inference host, not just api.devin.ai", () => {
     const hosts = resolveHarness("devin-acp").egressHosts("devin/swe-2-medium");
     expect(hosts).toEqual(expect.arrayContaining(["api.devin.ai", "server.codeium.com"]));

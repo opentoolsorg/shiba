@@ -24,6 +24,8 @@ export interface RunPreflightInput {
   sandboxProvider?: string;
   customAgentProviderId?: string;
   orgId?: string;
+  initiatorUserId?: string;
+  runtime?: string;
 }
 
 function minimalCodingInput(params: RunPreflightInput): CodingTaskInput {
@@ -37,6 +39,7 @@ function minimalCodingInput(params: RunPreflightInput): CodingTaskInput {
     harness: params.harness as CodingTaskInput["harness"],
     ...(params.authAccount !== undefined ? { authAccount: params.authAccount } : {}),
     route: params.route,
+    ...(params.initiatorUserId ? { initiatorUserId: params.initiatorUserId } : {}),
   };
 }
 
@@ -76,18 +79,22 @@ export async function assertRunPreflight(
     );
   }
 
+  const localDaemon = params.runtime === "local";
   if (
     catalog?.credential.kind === "ai-gateway-byok" &&
     !env.AI_GATEWAY_TOKEN?.trim() &&
-    !verifyStandinEnabled(env)
+    !verifyStandinEnabled(env) &&
+    !localDaemon
   ) {
     throw new Error(
       "AI Gateway is not configured (AI_GATEWAY_TOKEN is unset). " +
-        "Add the gateway token or connect a subscription harness with /api/auth/*.",
+        "Add the gateway token, connect Codex with Sign in with ChatGPT, or run Claude on a paired local daemon.",
     );
   }
 
   await assertHarnessAuthorized(env, harness, minimalCodingInput(params));
+
+  if (localDaemon) return;
 
   await assertSandboxRunPreflight(
     env,

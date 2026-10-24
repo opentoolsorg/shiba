@@ -52,7 +52,7 @@ import {
 } from "../src/harness/codex-subscription.js";
 import { CodexErrorEvent } from "../src/harness/codex.js";
 import { resolveHarness, SANDBOX_HARNESS_NAMES, sandboxHarnessNames } from "../src/harness/index.js";
-import { forwardCodexSubscription, GATEWAY_PROVIDERS, parseCodexAuthJson, type EgressEnv } from "../src/egress.js";
+import { forwardCodexPlan, forwardCodexSubscription, GATEWAY_PROVIDERS, parseCodexAuthJson, type EgressEnv } from "../src/egress.js";
 import { assertHarnessAuthorized } from "../src/auth/index.js";
 import { codexSubscriptionSecretName } from "@shiba/auth";
 import { outboundHandlers } from "../src/sandbox.js";
@@ -196,12 +196,18 @@ describe("two-level CODEX_HOME (the §18.11 port)", () => {
 });
 
 describe("SIWC plan runtime (ACCESS_TOKEN only in sandbox)", () => {
-  it("env() sets CODEX_HOME and ACCESS_TOKEN only when provided on input", () => {
+  it("env() gives the sandbox a placeholder, never the ChatGPT access token", () => {
     const run = input({ initiatorUserId: "owner-1", chatgptAccessToken: "short-lived-at" });
     const env = codexSubscriptionHarness.env(run, null);
     expect(env.CODEX_HOME).toContain("/root/.shiba/codex/plan/");
-    expect(env.ACCESS_TOKEN).toBe("short-lived-at");
+    expect(env.ACCESS_TOKEN).toBe("shiba-egress-placeholder");
+    expect(JSON.stringify(env)).not.toContain("short-lived-at");
     expect(env.OPENAI_API_KEY).toBeUndefined();
+    const files = codexSubscriptionHarness.configFile(run, run.sandboxId);
+    expect(JSON.stringify(files)).not.toContain("short-lived-at");
+    expect(codexSubscriptionHarness.egressOverrides(run)).toEqual([
+      { host: "api.openai.com", handler: "codexPlan", params: { userId: "owner-1" } },
+    ]);
   });
 
   it("configFile writes the codex app-server driver", () => {
@@ -219,8 +225,41 @@ describe("egress — api.openai.com only for plan inference", () => {
     expect(outboundHandlers.codexSubscription).toBe(forwardCodexSubscription);
   });
 
-  it("has no egress overrides", () => {
-    expect("egressOverrides" in codexSubscriptionHarness).toBe(false);
+  it("routes plan inference through the egress token handler", () => {
+    expect(codexSubscriptionHarness.egressOverrides(input({ initiatorUserId: "ada" }))[0]?.handler).toBe(
+      "codexPlan",
+    );
+    expect(outboundHandlers.codexPlan).toBe(forwardCodexPlan);
+  });
+
+  it("attaches the plan token at egress and drops the container authorization", async () => {
+    const seen: { authorization: string | null } = { authorization: null };
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      seen.authorization = new Headers(init?.headers).get("authorization");
+      return new Response("ok", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+    const env = {
+      ChatGptAuth: {
+        idFromName: () => "id",
+        get: () => ({
+          fetch: async () => Response.json({ accessToken: "plan-access-token", planUsageEnabled: true }),
+        }),
+      },
+    } as unknown as EgressEnv;
+    const response = await forwardCodexPlan(
+      new Request("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { authorization: "Bearer shiba-egress-placeholder" },
+        body: "{}",
+      }),
+      env,
+      { params: { userId: "ada" } },
+    );
+    expect(response.status).toBe(200);
+    expect(seen.authorization).toBe("Bearer plan-access-token");
+    expect(await response.text()).not.toContain("plan-access-token");
+    vi.unstubAllGlobals();
   });
 
   it("egressHosts is api.openai.com only", () => {

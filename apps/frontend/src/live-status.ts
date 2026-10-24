@@ -93,34 +93,46 @@ function useApiJson<T>(path: string, enabled = true): {
   inFlight: boolean;
 } {
   const [state, setState] = useState<LoadState<T>>({ kind: "loading" });
-  const [inFlight, setInFlight] = useState(true);
+  const [inFlight, setInFlight] = useState(enabled);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!enabled) {
       setInFlight(false);
       return;
     }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 12_000);
     let cancelled = false;
     setInFlight(true);
-    void fetch(path)
+    void fetch(path, { credentials: "same-origin", signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error(`GET ${path} failed: ${response.status}`);
         const body = (await response.json()) as T;
+        if (body === null || typeof body !== "object") {
+          throw new Error(`GET ${path} did not return a JSON object.`);
+        }
         if (!cancelled) setState({ kind: "data", data: body });
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          setState({
-            kind: "error",
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
+        if (cancelled) return;
+        const aborted = error instanceof DOMException && error.name === "AbortError";
+        setState({
+          kind: "error",
+          message: aborted
+            ? `GET ${path} timed out. Retry.`
+            : error instanceof Error
+              ? error.message
+              : String(error),
+        });
       })
       .finally(() => {
+        window.clearTimeout(timer);
         if (!cancelled) setInFlight(false);
       });
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      controller.abort();
     };
   }, [path, attempt, enabled]);
   const reload = useCallback(() => {
@@ -138,12 +150,12 @@ export function useSetupStatus(): {
   return useApiJson<SetupStatus>("/api/setup/status");
 }
 
-export function useAgentsDirectory(enabled = true): {
+export function useAgentsDirectory(): {
   state: LoadState<AgentsDirectory>;
   reload: () => void;
   inFlight: boolean;
 } {
-  return useApiJson<AgentsDirectory>("/api/agents", enabled);
+  return useApiJson<AgentsDirectory>("/api/agents");
 }
 
 /** GET /api/whoami — the dashboard's signed-in identity and which auth lane proved it. */
@@ -301,12 +313,12 @@ export interface ModelConfigWire {
   effectiveRoles?: RoleModelWire[];
 }
 
-export function useModelConfig(enabled = true): {
+export function useModelConfig(): {
   state: LoadState<ModelConfigWire>;
   reload: () => void;
   inFlight: boolean;
 } {
-  return useApiJson<ModelConfigWire>("/api/model-config", enabled);
+  return useApiJson<ModelConfigWire>("/api/model-config");
 }
 
 /** One ready connection as the coding-model picker lists it (app.tsx). */

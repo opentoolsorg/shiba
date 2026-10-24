@@ -27,11 +27,28 @@ import {
   verifyIdToken,
 } from "./chatgpt/siwc-oauth.js";
 import { createSandboxOAuthRunner, sandboxOAuthEnabled } from "./chatgpt/sandbox-oauth-client.js";
+import {
+  CODEX_DEVICE_CLIENT_ID,
+  CODEX_DEVICE_REDIRECT,
+  exchangeDeviceCode,
+  finishDevicePoll,
+  requestDeviceCode,
+  type DeviceCodeTokens,
+} from "./chatgpt/device-auth.js";
 import { deleteConnection, loadConnection, loadHostId, saveConnection, saveHostId } from "./chatgpt/connection-store.js";
+import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { redactSecrets } from "./security.js";
 
 const PENDING_KEY = "pending";
+const DEVICE_PENDING_KEY = "device-pending";
 const PENDING_TTL_MS = 15 * 60_000;
+
+interface DevicePending {
+  deviceAuthId: string;
+  userCode: string;
+  intervalMs: number;
+  createdAt: number;
+}
 
 export function chatGptAuthStub(env: Pick<Env, "ChatGptAuth">, userId: string): DurableObjectStub {
   if (!env.ChatGptAuth) throw new Error("ChatGptAuth binding is not configured.");
@@ -62,6 +79,12 @@ export class ChatGptAuth extends DurableObject<Env> {
         const body = (await request.json().catch(() => null)) as { callbackUrl?: unknown } | null;
         const callbackUrl = typeof body?.callbackUrl === "string" ? body.callbackUrl : "";
         return await this.completeSignIn(callbackUrl);
+      }
+      if (url.pathname === "/device/begin" && request.method === "POST") {
+        return await this.beginDeviceSignIn();
+      }
+      if (url.pathname === "/device/finish" && request.method === "POST") {
+        return await this.finishDeviceSignIn();
       }
       if (url.pathname === "/access" && request.method === "GET") {
         const record = await this.ensureFreshAccess();
@@ -217,6 +240,87 @@ export class ChatGptAuth extends DurableObject<Env> {
       await saveConnection(this.env, this.userId(), refreshed);
     }
     return refreshed;
+  }
+
+  private async beginDeviceSignIn(): Promise<Response> {
+    if (!modelCredentialKeyConfigured(this.env)) {
+      return Response.json({ error: "Sign-in storage is not ready on this deployment." }, { status: 503 });
+    }
+    let started;
+    try {
+      started = await requestDeviceCode(fetch);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ChatGPT device sign-in could not start.";
+      return Response.json({ error: message }, { status: 502 });
+    }
+    const pending: DevicePending = {
+      deviceAuthId: started.deviceAuthId,
+      userCode: started.userCode,
+      intervalMs: started.intervalMs,
+      createdAt: Date.now(),
+    };
+    await this.ctx.storage.put(DEVICE_PENDING_KEY, pending);
+    return Response.json({
+      userCode: started.userCode,
+      verificationUri: started.verificationUri,
+      expiresAt: pending.createdAt + PENDING_TTL_MS,
+    });
+  }
+
+  private async finishDeviceSignIn(): Promise<Response> {
+    const pending = await this.ctx.storage.get<DevicePending>(DEVICE_PENDING_KEY);
+    if (!pending || Date.now() - pending.createdAt > PENDING_TTL_MS) {
+      return Response.json({ error: "No device sign-in is in progress. Start again." }, { status: 409 });
+    }
+    const poll = await finishDevicePoll(fetch, pending);
+    if (poll.status === "pending") {
+      return Response.json({
+        pending: true,
+        message: "Still waiting. Enter the code at auth.openai.com/codex/device, then choose Finish sign-in again.",
+      });
+    }
+    if (poll.status === "error") {
+      return Response.json({ error: poll.message }, { status: 502 });
+    }
+    let tokens: DeviceCodeTokens;
+    try {
+      tokens = poll.status === "tokens" ? poll.tokens : await exchangeDeviceCode(fetch, poll.authorizationCode, poll.codeVerifier);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ChatGPT token exchange failed.";
+      return Response.json({ error: message }, { status: 502 });
+    }
+    await this.saveDeviceTokens(tokens);
+    await this.ctx.storage.delete(DEVICE_PENDING_KEY);
+    return Response.json({
+      connected: true,
+      planUsageEnabled: true,
+      message:
+        "ChatGPT plan connected. The access token stays encrypted for this user and is attached at egress.",
+    });
+  }
+
+  private async saveDeviceTokens(tokens: DeviceCodeTokens): Promise<void> {
+    const userId = this.userId();
+    let hostId = await loadHostId(this.env, userId);
+    if (!hostId) {
+      hostId = newHostId();
+      await saveHostId(this.env, userId, hostId);
+    }
+    const now = Date.now();
+    await saveConnection(this.env, userId, {
+      hostId,
+      clientId: CODEX_DEVICE_CLIENT_ID,
+      redirectUri: CODEX_DEVICE_REDIRECT,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresAt: now + tokens.expiresIn * 1000,
+      earliestRefreshAt: null,
+      scopes: [],
+      subject: tokens.accountId ?? "codex-device",
+      email: tokens.email,
+      planUsageEnabled: true,
+      grantKind: "device",
+    });
   }
 
   private async logout(): Promise<Response> {

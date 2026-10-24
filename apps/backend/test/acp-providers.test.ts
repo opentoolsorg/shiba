@@ -59,6 +59,13 @@ async function snapshot(response: Response | null): Promise<AcpProvidersSnapshot
 }
 
 const confirmOk = async () => ({ ok: true, message: "mocked device grant" });
+const beginWaiting = async () => ({
+  ok: true,
+  pending: true,
+  message: "paste the callback",
+  signInKind: "chatgpt-pkce" as const,
+  verificationUri: "https://auth.openai.com/oauth/authorize?x=1",
+});
 
 describe("provider registry", () => {
   it("lists an ACP adapter for each dashboard provider, and refuses to call Grok an ACP server", () => {
@@ -143,32 +150,38 @@ describe("root cause: subscription routes 404 without the flag", () => {
         body: JSON.stringify({ mode: "oauth" }),
       }),
       env(),
-      { confirmOauth: confirmOk },
     );
     const body = await snapshot(started);
     const claude = body.providers.find((provider) => provider.id === "claude");
     expect(claude?.connection.phase).toBe("waiting");
-    expect(claude?.connection.userCode).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
-    expect(claude?.connection.verificationUri).toBe("https://claude.ai/login");
+    expect(claude?.connection.signInKind).toBe("claude-setup-token");
+    expect(claude?.connection.userCode).toBeNull();
+    expect(claude?.connection.verificationUri).toBeNull();
+    expect(claude?.connection.operatorSteps?.join("\n")).toMatch(/claude setup-token/);
+    expect(JSON.stringify(body)).not.toMatch(/SHIBA_CLAUDE_SUBSCRIPTION|CLAUDE_SUBSCRIPTION_TOKEN/);
+    expect(JSON.stringify(body)).not.toContain("https://claude.ai/login");
   });
 });
 
-describe("device-code sign-in", () => {
+describe("sign-in is not a local confirmation code", () => {
   const kv = new FakeKV();
   let now = 1_700_000_000_000;
   const deps = {
     now: () => now,
-    confirmOauth: vi.fn(confirmOk),
+    beginOauth: vi.fn(beginWaiting),
+    completeOauth: vi.fn(confirmOk),
   };
 
   beforeEach(() => {
     kv.map.clear();
     now = 1_700_000_000_000;
-    deps.confirmOauth.mockClear();
-    deps.confirmOauth.mockImplementation(confirmOk);
+    deps.beginOauth.mockClear();
+    deps.completeOauth.mockClear();
+    deps.beginOauth.mockImplementation(beginWaiting);
+    deps.completeOauth.mockImplementation(confirmOk);
   });
 
-  it("redeems a matching code through the injected OAuth probe and rejects a mismatch", async () => {
+  it("starts a real authorize URL and finishes when the callback is accepted", async () => {
     const deployment = env({}, kv);
     const started = await snapshot(
       await handleAcpProviders(
@@ -180,25 +193,18 @@ describe("device-code sign-in", () => {
         deps,
       ),
     );
-    const code = started.providers.find((provider) => provider.id === "codex")?.connection.userCode;
-    expect(code).toBeTruthy();
+    const waiting = started.providers.find((provider) => provider.id === "codex");
+    expect(waiting?.connection.phase).toBe("waiting");
+    expect(waiting?.connection.userCode).toBeNull();
+    expect(waiting?.connection.verificationUri).toBe("https://auth.openai.com/oauth/authorize?x=1");
+    expect(waiting?.connection.verificationUri).not.toBe("https://chatgpt.com/");
 
-    const wrong = await handleAcpProviders(
-      request("/api/providers/codex/verify", {
-        method: "POST",
-        body: JSON.stringify({ userCode: "XXXX-XXXX" }),
-      }),
-      deployment,
-      deps,
-    );
-    expect(wrong?.status).toBe(400);
-    expect(deps.confirmOauth).not.toHaveBeenCalled();
-
+    const callback = "http://127.0.0.1:1455/auth/callback?code=abc&state=xyz";
     const done = await snapshot(
       await handleAcpProviders(
         request("/api/providers/codex/verify", {
           method: "POST",
-          body: JSON.stringify({ userCode: code }),
+          body: JSON.stringify({ callbackUrl: callback }),
         }),
         deployment,
         deps,
@@ -207,14 +213,14 @@ describe("device-code sign-in", () => {
     const codex = done.providers.find((provider) => provider.id === "codex");
     expect(codex?.connection.phase).toBe("connected");
     expect(codex?.connection.authMode).toBe("oauth");
-    expect(codex?.connection.testOk).toBeNull();
     expect(codex?.connection.message).toBe("mocked device grant");
-    expect(deps.confirmOauth).toHaveBeenCalledOnce();
+    expect(deps.completeOauth).toHaveBeenCalledOnce();
+    expect([...kv.map.values()].join("\n")).not.toContain(callback);
   });
 
-  it("fails an expired code without calling the probe", async () => {
+  it("fails an expired sign-in without calling complete", async () => {
     const deployment = env({}, kv);
-    const started = await snapshot(
+    await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/connect", {
           method: "POST",
@@ -224,14 +230,12 @@ describe("device-code sign-in", () => {
         deps,
       ),
     );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection
-      .userCode;
     now += 16 * 60 * 1000;
     const expired = await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/verify", {
           method: "POST",
-          body: JSON.stringify({ userCode: code }),
+          body: JSON.stringify({}),
         }),
         deployment,
         deps,
@@ -240,7 +244,7 @@ describe("device-code sign-in", () => {
     expect(expired.providers.find((provider) => provider.id === "claude")?.connection.phase).toBe(
       "failed",
     );
-    expect(deps.confirmOauth).not.toHaveBeenCalled();
+    expect(deps.completeOauth).not.toHaveBeenCalled();
   });
 
   it("refuses pasted key material and does not store it", async () => {
@@ -310,12 +314,12 @@ describe("API-key fallback", () => {
       ),
     );
     const claude = body.providers.find((provider) => provider.id === "claude");
-    expect(claude?.connection.phase).toBe("failed");
-    expect(claude?.connection.message).toContain("AI_GATEWAY_TOKEN");
+    expect(claude?.connection.phase).toBe("disconnected");
+    expect(claude?.connection.message ?? "").not.toContain("AI_GATEWAY_TOKEN");
     expect(JSON.stringify(body)).not.toContain("setup-token-canary-value");
   });
 
-  it("fails closed when no credential is provisioned", async () => {
+  it("stays not connected when no key is pasted and no gateway token is set", async () => {
     const body = await snapshot(
       await handleAcpProviders(
         request("/api/providers/gemini/connect", {
@@ -326,8 +330,45 @@ describe("API-key fallback", () => {
       ),
     );
     const gemini = body.providers.find((provider) => provider.id === "gemini");
-    expect(gemini?.connection.phase).toBe("failed");
-    expect(gemini?.connection.message).toContain("AI_GATEWAY_TOKEN");
+    expect(gemini?.connection.phase).toBe("disconnected");
+    expect(gemini?.connection.message ?? "").not.toContain("AI_GATEWAY_TOKEN");
+  });
+
+  it("stores a pasted provider key encrypted and does not echo it", async () => {
+    const kv = new FakeKV();
+    const secret = "AIza-test-key-value";
+    const deployment = env({ MODEL_CREDENTIAL_KEY: "ab".repeat(32) }, kv);
+    const body = await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/gemini/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "api-key", credential: secret }),
+        }),
+        deployment,
+      ),
+    );
+    const gemini = body.providers.find((provider) => provider.id === "gemini");
+    expect(gemini?.connection.phase).toBe("connected");
+    expect(gemini?.connection.message).toMatch(/stored/i);
+    expect(JSON.stringify(body)).not.toContain(secret);
+    expect([...kv.map.values()].join("\n")).not.toContain(secret);
+  });
+
+  it("renders a stale gateway failure as not connected", async () => {
+    const kv = new FakeKV();
+    await kv.put(
+      "acp_provider:default:grok",
+      JSON.stringify({
+        phase: "failed",
+        authMode: "api-key",
+        message: "No credential is provisioned. Set AI_GATEWAY_TOKEN.",
+        updatedAt: 1,
+      }),
+    );
+    const body = await snapshot(await handleAcpProviders(request("/api/providers"), env({}, kv)));
+    expect(body.providers.find((provider) => provider.id === "grok")?.connection.phase).toBe(
+      "disconnected",
+    );
   });
 
   it("refuses OAuth for a provider that has no subscription lane", async () => {
@@ -343,29 +384,17 @@ describe("API-key fallback", () => {
 });
 
 describe("subscription probe reuse", () => {
-  it("redeems Claude sign-in through the subscription controller when the lane is on", async () => {
+  it("redeems Claude setup-token through the subscription controller when the lane is on", async () => {
     const kv = new FakeKV();
     const deployment = env(
       { SHIBA_CLAUDE_SUBSCRIPTION: "1", CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value" },
       kv,
     );
-    const started = await snapshot(
+    const done = await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/connect", {
           method: "POST",
-          body: JSON.stringify({ mode: "oauth" }),
-        }),
-        deployment,
-        { forwardClaude: async () => new Response("{}", { status: 200 }) },
-      ),
-    );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection
-      .userCode;
-    const done = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/verify", {
-          method: "POST",
-          body: JSON.stringify({ userCode: code }),
+          body: JSON.stringify({ mode: "setup-token" }),
         }),
         deployment,
         { forwardClaude: async () => new Response("{}", { status: 200 }) },
@@ -373,6 +402,7 @@ describe("subscription probe reuse", () => {
     );
     const claude = done.providers.find((provider) => provider.id === "claude");
     expect(claude?.connection.phase).toBe("connected");
+    expect(claude?.connection.userCode).toBeNull();
     expect(claude?.connection.message).toContain("setup-token reached the API");
     expect(JSON.stringify(done)).not.toContain("setup-token-canary-value");
     expect([...kv.map.values()].join("\n")).not.toContain("setup-token-canary-value");
@@ -383,23 +413,11 @@ describe("subscription probe reuse", () => {
       SHIBA_CLAUDE_SUBSCRIPTION: "1",
       CLAUDE_SUBSCRIPTION_TOKEN: "setup-token-canary-value",
     });
-    const started = await snapshot(
+    const done = await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/connect", {
           method: "POST",
-          body: JSON.stringify({ mode: "oauth" }),
-        }),
-        deployment,
-        { forwardClaude: async () => new Response("no", { status: 401 }) },
-      ),
-    );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection
-      .userCode;
-    const done = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/verify", {
-          method: "POST",
-          body: JSON.stringify({ userCode: code }),
+          body: JSON.stringify({ mode: "setup-token" }),
         }),
         deployment,
         { forwardClaude: async () => new Response("no", { status: 401 }) },
@@ -424,23 +442,11 @@ describe("subscription probe reuse", () => {
       kv,
     );
     const forwardClaude = async () => new Response("no", { status: 401 });
-    const started = await snapshot(
+    const done = await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/connect", {
           method: "POST",
-          body: JSON.stringify({ mode: "oauth" }),
-        }),
-        deployment,
-        { forwardClaude },
-      ),
-    );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection
-      .userCode;
-    const done = await snapshot(
-      await handleAcpProviders(
-        request("/api/providers/claude/verify", {
-          method: "POST",
-          body: JSON.stringify({ userCode: code }),
+          body: JSON.stringify({ mode: "setup-token" }),
         }),
         deployment,
         { forwardClaude },
@@ -459,8 +465,8 @@ describe("subscription probe reuse", () => {
       ),
     );
     const testedCard = tested.providers.find((provider) => provider.id === "claude");
-    expect(testedCard?.connection.testOk).toBe(false);
-    expect(testedCard?.connection.message).toContain("AI_GATEWAY_TOKEN");
+    expect(testedCard?.connection.testOk).toBe(true);
+    expect(testedCard?.connection.message ?? "").not.toContain("AI_GATEWAY_TOKEN");
     expect(testedCard?.connection.message).not.toContain("setup-token-canary-value");
     expect(kv.map.get(flowKey)).toBe(preserved);
   });
@@ -468,25 +474,24 @@ describe("subscription probe reuse", () => {
   it("does not write a test result over a disconnect that landed during the read", async () => {
     const kv = new FakeKV();
     const deployment = env({ SHIBA_CLAUDE_SUBSCRIPTION: "1" }, kv);
-    const started = await snapshot(
+    await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/connect", {
           method: "POST",
           body: JSON.stringify({ mode: "oauth" }),
         }),
         deployment,
+        { beginOauth: beginWaiting },
       ),
     );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection
-      .userCode;
     await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/verify", {
           method: "POST",
-          body: JSON.stringify({ userCode: code }),
+          body: JSON.stringify({}),
         }),
         deployment,
-        { confirmOauth: async () => ({ ok: true, message: "granted" }) },
+        { completeOauth: async () => ({ ok: true, message: "granted" }) },
       ),
     );
     let release: (value: { ok: boolean; message: string }) => void = () => {};
@@ -522,23 +527,22 @@ describe("subscription probe reuse", () => {
   it("does not recreate a provider row when disconnect lands during sign-in confirmation", async () => {
     const kv = new FakeKV();
     const deployment = env({ SHIBA_CLAUDE_SUBSCRIPTION: "1" }, kv);
-    const started = await snapshot(
+    await snapshot(
       await handleAcpProviders(
         request("/api/providers/claude/connect", {
           method: "POST",
           body: JSON.stringify({ mode: "oauth" }),
         }),
         deployment,
+        { beginOauth: beginWaiting },
       ),
     );
-    const code = started.providers.find((provider) => provider.id === "claude")?.connection
-      .userCode;
     let release: (value: { ok: boolean; message: string }) => void = () => {};
     let entered: () => void = () => {};
     const enteredGate = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    const confirmOauth = () => {
+    const completeOauth = () => {
       entered();
       return new Promise<{ ok: boolean; message: string }>((resolve) => {
         release = resolve;
@@ -547,10 +551,10 @@ describe("subscription probe reuse", () => {
     const confirming = handleAcpProviders(
       request("/api/providers/claude/verify", {
         method: "POST",
-        body: JSON.stringify({ userCode: code }),
+        body: JSON.stringify({}),
       }),
       deployment,
-      { confirmOauth },
+      { completeOauth },
     );
     await enteredGate;
     await snapshot(
@@ -696,8 +700,10 @@ describe("Providers page states", () => {
                 phase: "waiting",
                 authMode: "oauth",
                 message: "Open the sign-in page.",
-                userCode: "ABCD-EFGH",
-                verificationUri: "https://chatgpt.com/",
+                userCode: null,
+                verificationUri: "https://auth.openai.com/oauth/authorize?x=1",
+                signInKind: "chatgpt-pkce",
+                operatorSteps: ["Paste the http://127.0.0.1 callback URL."],
                 expiresAt: 2,
                 testedAt: null,
                 testOk: null,
@@ -728,6 +734,7 @@ describe("Providers page states", () => {
         actionError: null,
         onRetry: () => {},
         onConnectOauth: () => {},
+        onConnectSetupToken: () => {},
         onConnectApiKey: () => {},
         onVerify: () => {},
         onTest: () => {},
@@ -737,7 +744,10 @@ describe("Providers page states", () => {
     );
     expect(html).toContain("Org default · Claude Code");
     expect(html).toContain("Ready");
-    expect(html).toContain("ABCD-EFGH");
+    expect(html).toContain("Open ChatGPT sign-in");
+    expect(html).toContain("Paste callback URL");
+    expect(html).not.toContain("https://chatgpt.com/");
+    expect(html).not.toContain("Confirmation code");
     expect(html).toContain("Sign-in pending");
     expect(html).toContain("Connection failed");
     expect(html).toContain("Finish sign-in");
@@ -796,6 +806,7 @@ describe("Providers page states", () => {
         actionError: null,
         onRetry: () => {},
         onConnectOauth: () => {},
+        onConnectSetupToken: () => {},
         onConnectApiKey: () => {},
         onVerify: () => {},
         onTest: () => {},
@@ -818,6 +829,7 @@ describe("Providers page states", () => {
         actionError: null,
         onRetry: () => {},
         onConnectOauth: () => {},
+        onConnectSetupToken: () => {},
         onConnectApiKey: () => {},
         onVerify: () => {},
         onTest: () => {},

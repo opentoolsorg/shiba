@@ -100,6 +100,7 @@ const STATUS_LABELS: Record<string, string> = {
   unknown: "Unknown",
   live: "Live",
   ready: "Ready",
+  "needs-provider": "Needs a provider",
   "waiting-approval": "Waiting",
 };
 

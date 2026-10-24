@@ -12,6 +12,7 @@ import { useEffect, useState, type FormEvent, type JSX } from "react";
 import { authClient } from "../auth-client";
 import { signInReturnPath } from "../auth-next";
 import { AUTH_CLIENT_TIMEOUT_MS, AuthTimeoutError, withAuthTimeout } from "../auth-timeout";
+import { ShibaMark } from "./ShibaMark";
 
 const BOOTSTRAP_HEADER = "x-shiba-bootstrap-token";
 
@@ -23,7 +24,7 @@ interface BootstrapPolicy {
 
 export function SessionPending(): JSX.Element {
   return (
-    <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6">
+    <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center">
       <p role="status" className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
         Checking your session…
       </p>
@@ -137,11 +138,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
   return (
     <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
-        <img
-          src="/assets/mascot/pet-logo.png"
-          alt="Shiba"
-          className="size-14 rounded-full bg-white object-contain border border-[var(--primary)]/40"
-        />
+        <ShibaMark />
         <h1 className="text-xl">
           {mode === "signup" ? "Create the dashboard account" : "Sign in to continue"}
         </h1>

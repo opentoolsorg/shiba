@@ -9,6 +9,7 @@ export type NamedOutboundHandler =
   | "githubScoped"
   | "claudeSubscription"
   | "codexSubscription"
+  | "codexPlan"
   | "cursorSubscription"
   | "devinSubscription";
 
@@ -39,6 +40,7 @@ export const DEFAULT_OUTBOUND_BY_HOST: Record<string, OutboundHostRule> = {
   "api.openai.com": { kind: "builtin", host: "api.openai.com" },
   "api.x.ai": { kind: "builtin", host: "api.x.ai" },
   "opencode.ai": { kind: "builtin", host: "opencode.ai" },
+  "api.deepseek.com": { kind: "builtin", host: "api.deepseek.com" },
   "api.devin.ai": { kind: "builtin", host: "api.devin.ai" },
   "server.codeium.com": { kind: "builtin", host: "server.codeium.com" },
   "github.com": { kind: "named", handler: "denyUnscopedGitHub" },

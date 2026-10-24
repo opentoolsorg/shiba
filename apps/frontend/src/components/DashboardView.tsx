@@ -24,6 +24,7 @@ export interface DashboardViewProps {
   agents: AgentPrincipal[];
   connectionLabel: string;
   connectionTone: "ok" | "pending" | "error";
+  launchBlocked?: boolean;
   runsError: string | null;
   onNavigate: (view: AppNavView) => void;
   onNewTask: () => void;
@@ -52,6 +53,7 @@ export function DashboardView({
   agents,
   connectionLabel,
   connectionTone,
+  launchBlocked = false,
   runsError,
   onNavigate,
   onNewTask,
@@ -97,6 +99,14 @@ export function DashboardView({
             <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5">
               Everything your agent plane is doing, at a glance.
             </p>
+            {launchBlocked ? (
+              <p
+                data-testid="launch-blocked-banner"
+                className="mt-2 border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--fg)]"
+              >
+                Can't launch yet: connect a provider. Open Providers and finish Codex or Claude sign-in, or set AI_GATEWAY_TOKEN.
+              </p>
+            ) : null}
           </div>
           <button
             type="button"

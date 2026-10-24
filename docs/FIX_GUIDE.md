@@ -5,7 +5,7 @@ Prince can follow this after the auth and provider-sign-in fix is deployed. Name
 ## What was going wrong
 
 1. Sign-up and sign-in left the button on "Working…" because the browser waited with no timeout. A stuck or slow auth request never surfaced an error. The Worker now stops an auth call at 12 seconds and returns HTTP 504. The form stops at 15 seconds and shows the error. The button becomes usable again.
-2. "Open sign-in" on the live build opened a normal ChatGPT or Claude homepage and "Finish sign-in" only checked a pre-stored Worker secret (`SHIBA_CLAUDE_SUBSCRIPTION` / `SHIBA_CODEX_SUBSCRIPTION` plus `CLAUDE_SUBSCRIPTION_TOKEN` or `CODEX_SUBSCRIPTION_AUTH_JSON`). It did not run a vendor login, so the card stayed "Sign-in pending". Codex now uses the ChatGPT device code at `https://auth.openai.com/codex/device`. Claude Code now uses the Claude authorize page and a pasted `code#state`. Finish exchanges that grant and the status becomes Connected. A later run to `api.openai.com` or `api.anthropic.com` sends that access token from the Worker. The container still only has a dummy key.
+2. Provider cards on production showed Connection failed, or a Codex device code that never finished. Codex now polls the real ChatGPT device endpoints and stores the token encrypted. Claude Connect starts a local pairing command or a setup-token paste, with no operator flag. Gemini, Grok, and OpenCode take a pasted key, stored encrypted and sent to the provider at egress. An unconfigured card stays Not connected. The container still only has a dummy key.
 3. Logged-out `/app/` painted the full shell and fired `/api/sessions`, `/api/runs`, `/api/agents`, and the rest, which 401. The first paint was an empty dark page. The shell now waits for `/api/whoami`. Until then the page says "Checking your session…". `/app/` stays put until sign-in. After sign-in, the tasks view lives at `/`. That path change is intentional. `/api/setup/status` stays private. The login page does not need it. A 401 there before login is the gate, not a missing route.
 
 A probe on 2026-10-21 (no account was created by it):
@@ -108,28 +108,26 @@ Open the dashboard, sign in, then Sandbox adapters (Settings, providers).
 ### Claude Code
 
 1. `MODEL_CREDENTIAL_KEY` must already be set, then redeploy or restart so the Worker sees it.
-2. Choose **Connect with sign-in**. Pass: status "Sign-in pending", no user code, a paste box.
-3. **Open sign-in**. Pass: a tab on `https://claude.ai/oauth/authorize` (not `https://claude.ai/login`). Approve with the Claude account.
-4. Copy the value Claude shows. It looks like `code#state`. Paste it. Choose **Finish sign-in**.
-5. Pass: the chip says **Connected**. The message says the subscription is connected. The JSON from the API does not contain the access token.
-6. Storing a Claude.ai subscription token in this app can conflict with Anthropic's terms. API-key mode remains if you do not want that.
+2. Choose **Connect with sign-in**. Pass: status "Sign-in pending". If a local daemon can be paired, the card shows the pair command. Otherwise it shows a setup-token field. The card does not name an environment variable.
+3. For the token path: on your computer run `claude setup-token`, paste the token, choose **Finish sign-in**.
+4. Pass: the chip says **Connected**. The API JSON does not contain the token.
 
 ### Codex
 
 1. Same `MODEL_CREDENTIAL_KEY` requirement.
-2. **Connect with sign-in**. Pass: a short code such as `ABCD-EFGH`, and **Open sign-in** points at `https://auth.openai.com/codex/device`.
-3. Open that page, sign in to ChatGPT, enter the code.
-4. **Finish sign-in**. If you finish before ChatGPT accepts the code, the chip stays "Sign-in pending" and the message says to finish on the device page and try again. That is the waiting state, not a dead button.
+2. **Connect with sign-in**. Pass: a short code such as `ABCD-EFGH`, and the link points at `https://auth.openai.com/codex/device`.
+3. Open that page, sign in to ChatGPT, enter the code, approve it.
+4. **Finish sign-in**. If you finish before ChatGPT accepts the code, the chip stays "Sign-in pending". That is the waiting state, not a dead button.
 5. Pass: chip says **Connected**.
 
 ### Gemini, OpenCode, Grok
 
-These three do not have the device or PKCE grant. Choose **Use API credential**. That checks `AI_GATEWAY_TOKEN` only. The form never accepts a pasted key.
+Paste the provider key (Gemini, xAI, or OpenCode/DeepSeek) and choose **Use API credential**. The key is stored encrypted for that user. Egress sends it to the provider. The sandbox only sees a placeholder.
 
-- Pass: chip **Connected**, message names `AI_GATEWAY_TOKEN`.
-- Fail, and the honest one: chip **Connection failed**, message says no credential is provisioned. Set `AI_GATEWAY_TOKEN` with `wrangler secret put` and choose the button again.
+- Pass: chip **Connected**. The API JSON does not contain the key.
+- Nothing pasted and nothing saved: chip stays **Not connected**. It does not say Connection failed.
 
-A run uses a subscription grant only when the task harness talks to that vendor. Pick **Claude Code** or **Codex** in the task composer. The default OpenCode harness uses the gateway, not the ChatGPT or Claude token.
+A run uses a saved grant only when the task harness talks to that vendor. Pick the matching harness in the task composer.
 
 ## 6. Smoke test
 

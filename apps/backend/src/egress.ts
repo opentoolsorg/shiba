@@ -6,10 +6,11 @@
  * `cloudflare:` builtins and cannot be loaded by the node test runner.
  */
 import type { Env as WorkerEnv } from "./env.js";
+import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
 import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
-import { readAdapterAuthorization } from "./provider-login.js";
+import { kindForHost, readProviderSecretForOrg, type UserSecretKind } from "./user-provider-keys.js";
 
 export type EgressEnv = Pick<
   WorkerEnv,
@@ -25,7 +26,11 @@ export type EgressEnv = Pick<
   | "MODEL_CREDENTIAL_KEY"
   | "SHIBA_SINGLE_USER"
   | "AGENT_AUDIT"
-> & { AGENT_TOKENS?: KVNamespace };
+  | "ChatGptAuth"
+> & {
+  /** Present when a user has saved a provider key. */
+  AGENT_TOKENS?: WorkerEnv["AGENT_TOKENS"];
+};
 
 /**
  * Handler ctx carries the per-run params passed to `setOutboundByHost`. The
@@ -41,6 +46,44 @@ function approvedPath(ctx?: OutboundHandlerCtx): string | undefined {
   if (typeof params !== "object" || params === null) return undefined;
   const value = (params as { allowedPath?: unknown }).allowedPath;
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function applyUserKey(headers: Headers, kind: UserSecretKind, secret: string): void {
+  if (kind === "google") {
+    headers.set("x-goog-api-key", secret);
+    return;
+  }
+  headers.set("Authorization", `Bearer ${secret}`);
+  if (kind === "claude-setup") {
+    headers.set("anthropic-beta", "oauth-2025-04-20");
+    headers.set("anthropic-version", "2023-06-01");
+  }
+}
+
+/** Saved user key: call the provider host directly. The gateway is not involved. */
+async function fetchWithUserKey(
+  request: Request,
+  host: string,
+  kind: UserSecretKind,
+  secret: string,
+): Promise<Response> {
+  const target = new URL(request.url);
+  if (target.protocol !== "https:" || target.hostname !== host) {
+    return new Response("Invalid provider destination.", { status: 403 });
+  }
+  target.search = stripCredentialParams(target.search);
+  const headers = outboundHeaders(request);
+  applyUserKey(headers, kind, secret);
+  try {
+    return await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "POST" ? request.body : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    return new Response("Provider request failed.", { status: 502 });
+  }
 }
 
 function outboundHeaders(request: Request): Headers {
@@ -70,51 +113,6 @@ export const GATEWAY_PROVIDERS: Record<string, string> = {
   "opencode.ai": "opencode-go",
 };
 
-const ANTHROPIC_SUBSCRIPTION_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens", "/v1/models"]);
-
-function openAiSubscriptionPath(pathname: string): boolean {
-  return pathname === "/v1/responses" || pathname === "/v1/chat/completions" || pathname === "/v1/models";
-}
-
-/** Direct vendor call for a connected adapter subscription. Never the AI Gateway. */
-async function forwardSubscriptionDirect(
-  request: Request,
-  host: string,
-  subscription: { authorization: string; accountId: string | null; provider: "codex" | "claude" },
-): Promise<Response> {
-  const target = new URL(request.url);
-  const allowed =
-    host === "api.anthropic.com"
-      ? ANTHROPIC_SUBSCRIPTION_PATHS.has(target.pathname)
-      : openAiSubscriptionPath(target.pathname);
-  if (!allowed || target.username !== "" || target.password !== "") {
-    return new Response("Invalid subscription destination.", { status: 403 });
-  }
-  if (request.method !== "GET" && request.method !== "POST") {
-    return new Response("Method not allowed.", { status: 405 });
-  }
-  target.search = stripCredentialParams(target.search);
-  const headers = outboundHeaders(request);
-  headers.set("Authorization", subscription.authorization);
-  if (subscription.provider === "claude") {
-    headers.set("anthropic-beta", "claude-code-20250219,oauth-2025-04-20");
-    headers.set("anthropic-version", "2023-06-01");
-  } else if (subscription.accountId) {
-    headers.set("chatgpt-account-id", subscription.accountId);
-    headers.set("OpenAI-Beta", "responses=experimental");
-  }
-  try {
-    return await fetch(target, {
-      method: request.method,
-      headers,
-      body: request.method === "POST" ? request.body : undefined,
-      redirect: "manual",
-    });
-  } catch {
-    return new Response("Subscription request failed.", { status: 502 });
-  }
-}
-
 async function forwardProvider(
   request: Request,
   env: EgressEnv,
@@ -128,13 +126,17 @@ async function forwardProvider(
   if (request.method !== "POST" && request.method !== "GET") {
     return new Response("Method not allowed.", { status: 405 });
   }
+  const kind = kindForHost(host);
+  if (kind) {
+    const secret = await readProviderSecretForOrg(env, orgId, kind);
+    if (secret) return fetchWithUserKey(request, host, kind, secret);
+  }
   const slug = GATEWAY_PROVIDERS[host];
   if (!slug) {
+    if (host === "api.deepseek.com") {
+      return new Response("No saved key for this provider. Paste one on the Providers page.", { status: 503 });
+    }
     return new Response("Invalid provider destination.", { status: 403 });
-  }
-  const subscription = await readAdapterAuthorization(env, host).catch(() => null);
-  if (subscription) {
-    return forwardSubscriptionDirect(request, host, subscription);
   }
   try {
     // getUrl resolves the account from the binding; no account-id var or public callback.
@@ -227,6 +229,16 @@ export function forwardOpenCodeGo(
   return forwardProvider(request, env, "opencode.ai", orgId);
 }
 
+/** DeepSeek uses the same saved OpenCode key. There is no gateway slug. */
+export function forwardDeepSeek(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx | string,
+): Promise<Response> {
+  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
+  return forwardProvider(request, env, "api.deepseek.com", orgId);
+}
+
 /**
  * T48 — the claude-subscription egress branch. The container holds only a
  * placeholder credentials.json; the real `claude setup-token` bearer is
@@ -247,7 +259,9 @@ export async function forwardClaudeSubscription(
     account === "default"
       ? "CLAUDE_SUBSCRIPTION_TOKEN"
       : `CLAUDE_SUBSCRIPTION_TOKEN_${account.toUpperCase().replace(/-/g, "_")}`;
-  const token = (env as Record<string, unknown>)[secretName];
+  const saved = await readProviderSecretForOrg(env, ctx?.orgId, "claude-setup");
+  const configured = (env as Record<string, unknown>)[secretName];
+  const token = saved ?? (typeof configured === "string" ? configured : undefined);
   const target = new URL(request.url);
   if (
     target.protocol !== "https:" ||
@@ -290,6 +304,61 @@ export async function forwardClaudeSubscription(
  * Harness runs mount auth.json in the sandbox (chatgpt.com bot-challenges
  * Worker fetches — 2026-10-19). Deny-by-default path pin for verify probes.
  */
+/**
+ * ChatGPT plan inference for `codex-subscription`. The container's
+ * ACCESS_TOKEN is a placeholder. This handler loads the per-user token from
+ * ChatGptAuth and attaches it here — never in the sandbox, logs, or the UI.
+ */
+export async function forwardCodexPlan(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx,
+): Promise<Response> {
+  const target = new URL(request.url);
+  if (
+    target.protocol !== "https:" ||
+    target.hostname !== "api.openai.com" ||
+    target.port !== "" ||
+    !target.pathname.startsWith("/v1/") ||
+    target.username !== "" ||
+    target.password !== ""
+  ) {
+    return new Response("Invalid subscription destination.", { status: 403 });
+  }
+  if (request.method !== "GET" && request.method !== "POST") {
+    return new Response("Method not allowed.", { status: 405 });
+  }
+  const params = (ctx?.params ?? {}) as Record<string, unknown>;
+  const userId = typeof params.userId === "string" ? params.userId.trim() : "";
+  if (userId === "" || !env.ChatGptAuth) {
+    return new Response("No ChatGPT plan is connected for this run.", { status: 503 });
+  }
+  const access = await chatGptAuthStub(env, userId).fetch("https://chatgpt-auth.internal/access");
+  if (!access.ok) {
+    return new Response("ChatGPT plan access is not available for this run.", { status: 503 });
+  }
+  const body = (await access.json().catch(() => null)) as {
+    accessToken?: unknown;
+    planUsageEnabled?: unknown;
+  } | null;
+  if (typeof body?.accessToken !== "string" || body.accessToken === "" || body.planUsageEnabled === false) {
+    return new Response("ChatGPT plan access is not available for this run.", { status: 503 });
+  }
+  target.search = stripCredentialParams(target.search);
+  const headers = outboundHeaders(request);
+  headers.set("Authorization", `Bearer ${body.accessToken}`);
+  try {
+    return await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "POST" ? request.body : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    return new Response("Subscription request failed.", { status: 502 });
+  }
+}
+
 export async function forwardCodexSubscription(
   request: Request,
   env: EgressEnv,

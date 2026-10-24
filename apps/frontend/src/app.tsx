@@ -47,6 +47,7 @@ import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavRail";
 import { AuthScreen, SessionPending, SessionProblem } from "./components/AuthScreen";
+import { ShibaMark } from "./components/ShibaMark";
 import { authClient } from "./auth-client";
 import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
@@ -80,7 +81,10 @@ function useRetainedRuns(
   const [detailReady, setDetailReady] = useState(false);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      setListSettled(true);
+      return;
+    }
     let cancelled = false;
     if (!fullDetail) setDetailReady(false);
     let sessionScoped = sessionApiAvailable;
@@ -254,6 +258,12 @@ async function isSessionNotFoundBody(response: Response): Promise<boolean> {
 }
 
 type IdentityIssue = "signin" | "unconfigured" | "unreachable" | "error";
+
+/** Static dashboard tests set this. The browser never does, so first paint waits for /api/whoami. */
+function testAgentName(): string | null {
+  const name = (globalThis as { __shibaTestAgent?: unknown }).__shibaTestAgent;
+  return typeof name === "string" && name !== "" ? name : null;
+}
 type AuthMode = "better-auth" | "access" | "none";
 type IdentityResult =
   | { agent: string; auth?: AuthMode }
@@ -369,11 +379,6 @@ const STARTER_TEMPLATES = [
 ];
 
 export function App(): React.JSX.Element {
-  // Declared first so every dashboard fetch can wait until whoami names an agent.
-  const [orchestratorName, setOrchestratorName] = useState<string | null>(null);
-  const [identityError, setIdentityError] = useState<string | null>(null);
-  const [identityIssue, setIdentityIssue] = useState<IdentityIssue | null>(null);
-  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const savedRepos = useSavedRepos();
@@ -384,7 +389,7 @@ export function App(): React.JSX.Element {
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
-  const { agents: customAgentRecords } = useCustomAgentOptions(orchestratorName !== null);
+  const { agents: customAgentRecords } = useCustomAgentOptions();
   const customAgentPickerOptions = useMemo(
     () =>
       customAgentRecords.map((agent) => ({
@@ -525,21 +530,6 @@ export function App(): React.JSX.Element {
     });
   }, []);
 
-  // Header setup pill: count deployment-proven steps; refreshes when the
-  // onboarding modal closes so fixes show up immediately.
-  useEffect(() => {
-    if (showOnboardingModal || orchestratorName === null) return;
-    let cancelled = false;
-    detectSetupSteps()
-      .then((found) => {
-        if (!cancelled) setSetupDone(found.size);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [showOnboardingModal, orchestratorName]);
-
   // The view itself is read in the useState initializers; only the run pick needs an effect.
   useEffect(() => {
     const runParam = new URLSearchParams(window.location.search).get("run");
@@ -550,15 +540,13 @@ export function App(): React.JSX.Element {
   const router = useRouter();
   const urlSynced = useRef(false);
   useEffect(() => {
-    // Tasks live at `/` once someone is signed in. Leave `/app/` alone until then.
-    if (orchestratorName === null) return;
     const path = pathForView(mainView);
     const first = !urlSynced.current;
     urlSynced.current = true;
     if (window.location.pathname === path) return;
     if (first) router.history.replace(path + window.location.search);
     else router.history.push(path);
-  }, [mainView, router, orchestratorName]);
+  }, [mainView, router]);
 
   useEffect(() => {
     const onPop = () => {
@@ -583,10 +571,64 @@ export function App(): React.JSX.Element {
 
   // /api/runs routes by Access identity; the chat socket must use the same
   // DO name or the dashboard would read one identity's runs and chat to another.
+  const [orchestratorName, setOrchestratorName] = useState<string | null>(testAgentName);
+  const [identityError, setIdentityError] = useState<string | null>(null);
+  const [identityIssue, setIdentityIssue] = useState<IdentityIssue | null>(null);
+  // Which auth lane proved (or refused) the identity — drives the login
+  // surface (better-auth form vs Access reload) and the sign-out control.
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   // Bumping this re-runs the whoami check (retry timer, "Retry now", wake-up).
   const [identityAttempt, setIdentityAttempt] = useState(0);
   const identityFailures = useRef(0);
   const retryIdentity = useCallback(() => setIdentityAttempt((n) => n + 1), []);
+  const signedIn = orchestratorName !== null && identityIssue === null;
+  const [launchBlocked, setLaunchBlocked] = useState(false);
+  useEffect(() => {
+    if (!signedIn) {
+      setLaunchBlocked(false);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      fetch("/api/setup/status", { credentials: "same-origin" }).then((response) =>
+        response.ok ? response.json() : null,
+      ),
+      fetch("/api/providers", { credentials: "same-origin" }).then((response) =>
+        response.ok ? response.json() : null,
+      ),
+    ])
+      .then(([setup, providers]) => {
+        if (cancelled) return;
+        const gateway = Boolean(
+          setup && typeof setup === "object" && (setup as { gateway?: { token?: boolean } }).gateway?.token,
+        );
+        const list =
+          providers && typeof providers === "object"
+            ? (providers as { providers?: { connection?: { phase?: string } }[] }).providers
+            : undefined;
+        const connected = Array.isArray(list) && list.some((provider) => provider.connection?.phase === "connected");
+        setLaunchBlocked(!gateway && !connected);
+      })
+      .catch(() => {
+        if (!cancelled) setLaunchBlocked(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn]);
+  // Header setup pill: count deployment-proven steps only after whoami.
+  useEffect(() => {
+    if (showOnboardingModal || !signedIn) return;
+    let cancelled = false;
+    detectSetupSteps()
+      .then((found) => {
+        if (!cancelled) setSetupDone(found.size);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [showOnboardingModal, signedIn]);
   // First-run wizard: opens once per browser after the first authenticated
   // session on the better-auth lane (Access identities are operators, not
   // the signup path the wizard serves).
@@ -700,9 +742,12 @@ export function App(): React.JSX.Element {
   const { runsById } = useAgentToolEvents({ agent });
 
   useEffect(() => {
-    if (orchestratorName === null) return;
+    if (!signedIn) {
+      setSessionsLoaded(true);
+      return;
+    }
     let cancelled = false;
-    fetch("/api/sessions", { cache: "no-store" })
+    fetch("/api/sessions", { cache: "no-store", credentials: "same-origin" })
       .then(async (response) => {
         // Older backends have no sessions API: stay on the implicit default
         // session and use unscoped run routes instead of erroring.
@@ -710,6 +755,8 @@ export function App(): React.JSX.Element {
           if (!cancelled) setSessionApiAvailable(false);
           return;
         }
+        // A signed-out page must not toast a 401. whoami owns the sign-in screen.
+        if (response.status === 401) return;
         if (!response.ok) throw new Error(`Sessions request failed: ${response.status}`);
         const body = (await response.json()) as {
           sessions?: { id: string; name: string; agentName: string; updatedAt: number }[];
@@ -731,7 +778,7 @@ export function App(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [orchestratorName]);
+  }, [signedIn]);
   // Ordinary views read the lean summary projection; only the diff
   // inspector pulls the full run payload (diff/receipts/signals/steering).
   const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
@@ -740,7 +787,7 @@ export function App(): React.JSX.Element {
       selectedSessionId,
       sessionApiAvailable,
       mainView === "diff",
-      orchestratorName !== null,
+      signedIn,
     );
   const {
     approvals: storedApprovals,
@@ -751,8 +798,7 @@ export function App(): React.JSX.Element {
     // Approvals data renders on the approvals board, the tasks strip, and
     // the dashboard decided tail — the nav badge between them refreshes
     // on entry to any of the three.
-    orchestratorName !== null &&
-      (mainView === "approvals" || mainView === "tasks" || mainView === "dashboard"),
+    signedIn && (mainView === "approvals" || mainView === "tasks" || mainView === "dashboard"),
   );
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
@@ -763,7 +809,7 @@ export function App(): React.JSX.Element {
   }, [storedApprovals]);
   const agentPrincipals = useAgentPrincipals(
     refreshToken,
-    orchestratorName !== null && (mainView === "tasks" || mainView === "dashboard"),
+    signedIn && (mainView === "tasks" || mainView === "dashboard"),
   );
 
   const toolRuns = useMemo(() => Object.values(runsById) as ToolRunRecord[], [runsById]);
@@ -1394,8 +1440,8 @@ export function App(): React.JSX.Element {
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
   // Model-by-purpose config: connections + the coding-purpose suggestion list.
-  const modelConfig = useModelConfig(orchestratorName !== null);
-  const agentsDirectory = useAgentsDirectory(orchestratorName !== null);
+  const modelConfig = useModelConfig();
+  const agentsDirectory = useAgentsDirectory();
   const modelConnections = useMemo(
     () =>
       modelConfig.state.kind === "data"
@@ -1446,7 +1492,9 @@ export function App(): React.JSX.Element {
       status:
         session.id === selectedSessionId && (chat.isStreaming || chat.status === "streaming")
           ? "running"
-          : "ready",
+          : launchBlocked
+            ? "needs-provider"
+            : "ready",
       updatedAt: session.updatedAt,
       live:
         session.id === selectedSessionId &&
@@ -1461,7 +1509,9 @@ export function App(): React.JSX.Element {
         status:
           selectedSessionId === "default" && (chat.isStreaming || chat.status === "streaming")
             ? "running"
-            : "ready",
+            : launchBlocked
+              ? "needs-provider"
+              : "ready",
         updatedAt: 0,
         live:
           selectedSessionId === "default" &&
@@ -1507,6 +1557,7 @@ export function App(): React.JSX.Element {
     seenAt,
     webSessions,
     selectedSessionId,
+    launchBlocked,
   ]);
 
   const threadsLoading =
@@ -1634,9 +1685,11 @@ export function App(): React.JSX.Element {
     ? `Identity error: ${identityError}`
     : agent.connectionError
       ? `Connection error: ${agent.connectionError.message ?? "unknown"}`
-      : agent.identified
-        ? "Connected"
-        : "Connecting";
+      : launchBlocked
+        ? "Can't launch yet"
+        : agent.identified
+          ? "Connected"
+          : "Connecting";
 
   const busy =
     isSubmitting ||
@@ -1678,23 +1731,21 @@ export function App(): React.JSX.Element {
     },
   ];
 
-  // The shell stays unmounted until whoami names an agent. Otherwise every
-  // panel fetches /api/* and toasts 401s over a brief flash of the composer.
-  if (orchestratorName === null) {
-    if (identityIssue === null) return <SessionPending />;
-    if (identityIssue === "signin" && authMode === "better-auth") {
-      return <AuthScreen onSignedIn={retryIdentity} />;
-    }
-    if (identityIssue === "signin" || identityIssue === "unconfigured") {
+  if (orchestratorName === null && identityIssue === null) {
+    return <SessionPending />;
+  }
+
+  // Built-in login lane: the Worker 401s with code "better-auth".
+  if (identityIssue === "signin" && authMode === "better-auth") {
+    return <AuthScreen onSignedIn={retryIdentity} />;
+  }
+
+  if (identityIssue === "signin" || identityIssue === "unconfigured") {
     const accessUnconfigured = identityIssue === "unconfigured";
     return (
       <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
-          <img
-            src="/assets/mascot/pet-logo.png"
-            alt="Shiba"
-            className="size-14 rounded-full bg-white object-contain border border-[var(--primary)]/40"
-          />
+          <ShibaMark />
           <h1 className="text-xl text-[var(--fg)]">
             {accessUnconfigured ? "Dashboard access isn't configured" : "Sign in to continue"}
           </h1>
@@ -1722,10 +1773,16 @@ export function App(): React.JSX.Element {
         </div>
       </div>
     );
-    }
+  }
+
+  if (identityIssue === "unreachable" || identityIssue === "error") {
     return (
       <SessionProblem
-        message={identityError ?? "The dashboard could not check your session."}
+        message={
+          identityIssue === "unreachable"
+            ? "Backend not connected — open your Worker URL."
+            : `Identity lookup failed: ${identityError ?? "unknown error"}`
+        }
         onRetry={retryIdentity}
       />
     );
@@ -1756,7 +1813,7 @@ export function App(): React.JSX.Element {
         setupTotal={SETUP_TOTAL_STEPS}
         onOpenSetup={() => setShowFirstRun(true)}
         onOpenShortcuts={() => setShowShortcutsModal(true)}
-        accountEmail={authMode === "better-auth" ? orchestratorName : null}
+        accountEmail={orchestratorName}
         onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
         sessions={sessions}
         selectedSessionId={selectedRunId ?? selectedSessionId}
@@ -1769,9 +1826,9 @@ export function App(): React.JSX.Element {
         connectionTone={
           identityError || agent.connectionError
             ? "error"
-            : agent.identified
-              ? "ok"
-              : "pending"
+            : launchBlocked || !agent.identified
+              ? "pending"
+              : "ok"
         }
       />
 
@@ -1806,7 +1863,7 @@ export function App(): React.JSX.Element {
                 setMobileNavOpen(false);
                 setShowShortcutsModal(true);
               }}
-              accountEmail={authMode === "better-auth" ? orchestratorName : null}
+              accountEmail={orchestratorName}
               onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
               onClose={() => setMobileNavOpen(false)}
               sessions={sessions}
@@ -1828,9 +1885,9 @@ export function App(): React.JSX.Element {
               connectionTone={
                 identityError || agent.connectionError
                   ? "error"
-                  : agent.identified
-                    ? "ok"
-                    : "pending"
+                  : launchBlocked || !agent.identified
+                    ? "pending"
+                    : "ok"
               }
             />
           </div>
@@ -1955,13 +2012,14 @@ export function App(): React.JSX.Element {
               pendingApprovals={pendingApprovals}
               storedApprovals={visibleStoredApprovals}
               agents={agentPrincipals}
+              launchBlocked={launchBlocked}
               connectionLabel={connectionState}
               connectionTone={
                 identityError || agent.connectionError
                   ? "error"
-                  : agent.identified
-                    ? "ok"
-                    : "pending"
+                  : launchBlocked || !agent.identified
+                    ? "pending"
+                    : "ok"
               }
               runsError={runsError}
               onNavigate={openView}
@@ -1993,9 +2051,9 @@ export function App(): React.JSX.Element {
                       connectionTone={
                         identityError || agent.connectionError
                           ? "error"
-                          : agent.identified
-                            ? "ok"
-                            : "pending"
+                          : launchBlocked || !agent.identified
+                            ? "pending"
+                            : "ok"
                       }
                       setupDone={setupDone}
                       setupTotal={SETUP_TOTAL_STEPS}

@@ -6,7 +6,7 @@ import { providerPhaseLabel } from "./provider-phase";
 import { EmptyState, PageHeader, StatusNotice } from "./surface";
 import { ToneChip } from "./ToneChip";
 
-type CardAction = "oauth" | "api-key" | "verify" | "test" | "disconnect" | "default";
+type CardAction = "oauth" | "setup-token" | "api-key" | "verify" | "test" | "disconnect" | "default";
 
 function actionLabel(
   busy: boolean,
@@ -63,6 +63,26 @@ function NewTabLabel({ children }: { children: string }): JSX.Element {
   );
 }
 
+function OperatorSteps({ id, steps }: { id: string; steps: readonly string[] }): JSX.Element | null {
+  if (steps.length === 0) return null;
+  return (
+    <ol
+      data-testid={`provider-steps-${id}`}
+      className="mt-2 list-decimal space-y-1 pl-4 font-mono text-[11px] leading-relaxed text-[var(--fg)]"
+    >
+      {steps.map((step) => (
+        <li key={step}>{step}</li>
+      ))}
+    </ol>
+  );
+}
+
+const PASTE_KEY_LABEL: Record<string, string> = {
+  gemini: "Gemini API key",
+  grok: "xAI API key",
+  opencode: "OpenCode or DeepSeek API key",
+};
+
 function WaitingSignIn({
   card,
   busy,
@@ -73,66 +93,105 @@ function WaitingSignIn({
   card: AcpProviderCard;
   busy: boolean;
   action: CardAction | null;
-  onVerify: (id: string, code?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onDisconnect: (id: string) => void;
 }): JSX.Element {
-  const [pasted, setPasted] = useState("");
-  const pasteMode = !card.connection.userCode;
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const [credential, setCredential] = useState("");
+  const device = Boolean(card.connection.userCode);
+  const needsCallback = card.connection.signInKind === "chatgpt-pkce";
+  const needsToken = card.connection.signInKind === "claude-setup-token";
+  const steps = card.connection.operatorSteps ?? [];
+  const verificationUri = card.connection.verificationUri;
+  function finish(): void {
+    if (device && callbackUrl.trim() !== "") {
+      onVerify(card.id, { callbackUrl: callbackUrl.trim() });
+      return;
+    }
+    if (device && card.connection.userCode) {
+      onVerify(card.id, { userCode: card.connection.userCode });
+      return;
+    }
+    if (needsToken) {
+      onVerify(card.id, { credential: credential.trim() });
+      return;
+    }
+    if (needsCallback) {
+      onVerify(card.id, { callbackUrl: callbackUrl.trim() });
+      return;
+    }
+    onVerify(card.id, {});
+  }
   return (
     <div className="mt-3 border border-[var(--border-1)] bg-[var(--panel)] px-3 py-3">
-      <ol className="mb-3 list-decimal space-y-1 pl-4 font-mono text-[11px] leading-relaxed text-[var(--fg)]">
-        <li>Open the vendor sign-in page.</li>
-        <li>{pasteMode ? "Approve access, then paste the code it displays." : "Enter the code below on that page."}</li>
-        <li>Choose Finish sign-in. This page checks the result. It does not send the code anywhere else.</li>
-      </ol>
-      {pasteMode ? (
-        <label className="block">
+      <OperatorSteps id={card.id} steps={steps} />
+      {device ? (
+        <p className="mt-3 font-mono text-lg tracking-[0.18em] text-[var(--fg)]">{card.connection.userCode}</p>
+      ) : null}
+      {needsCallback || device ? (
+        <label className="mt-3 block">
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-            Code from the vendor
+            {device ? "Callback URL (optional)" : "Paste callback URL"}
           </span>
-          <input
-            data-testid={`provider-paste-${card.id}`}
-            value={pasted}
-            onChange={(event) => setPasted(event.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="code#state"
-            className="mt-1 w-full border border-[var(--border-1)] bg-[var(--card)] px-2 py-1.5 font-mono text-[12px] text-[var(--fg)]"
+          <textarea
+            data-testid={`provider-callback-${card.id}`}
+            className="mt-1 min-h-[72px] w-full border border-[var(--border-1)] bg-[var(--card)] p-2 font-mono text-[11px] text-[var(--fg)]"
+            value={callbackUrl}
+            onChange={(event) => setCallbackUrl(event.target.value)}
+            placeholder="http://127.0.0.1:52841/auth/callback?state=…&code=…"
+            disabled={busy}
           />
         </label>
-      ) : (
-        <>
-          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-            Confirmation code
-          </p>
-          <p
-            data-testid={`provider-user-code-${card.id}`}
-            className="mt-1 font-mono text-lg tracking-[0.18em] text-[var(--fg)]"
-          >
-            {card.connection.userCode}
-          </p>
-        </>
-      )}
+      ) : null}
+      {needsToken ? (
+        <label className="mt-3 block">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            Setup token
+          </span>
+          <input
+            type="password"
+            data-testid={`provider-setup-token-${card.id}`}
+            className="mt-1 w-full border border-[var(--border-1)] bg-[var(--card)] p-2 font-mono text-[11px] text-[var(--fg)]"
+            value={credential}
+            onChange={(event) => setCredential(event.target.value)}
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+      ) : null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {card.connection.verificationUri ? (
+        {verificationUri && device ? (
           <a
-            href={card.connection.verificationUri}
+            href={verificationUri}
+            data-testid={`provider-open-${card.id}`}
             target="_blank"
             rel="noopener noreferrer"
-            data-testid={`provider-open-${card.id}`}
             className={SECONDARY}
             onClick={(event) => {
-              const opened = window.open(card.connection.verificationUri ?? "", "_blank", "noopener,noreferrer");
-              if (opened) event.preventDefault();
+              event.preventDefault();
+              window.open(verificationUri, "_blank", "noopener,noreferrer");
             }}
           >
-            <NewTabLabel>Open sign-in</NewTabLabel>
+            <NewTabLabel>Open device page</NewTabLabel>
+          </a>
+        ) : null}
+        {verificationUri && !device ? (
+          <a
+            href={verificationUri}
+            data-testid={`provider-authorize-${card.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={SECONDARY}
+          >
+            <NewTabLabel>
+              {card.connection.signInKind === "chatgpt-pkce" ? "Open ChatGPT sign-in" : "Open sign-in"}
+            </NewTabLabel>
           </a>
         ) : null}
         <button
           type="button"
-          disabled={busy || (pasteMode && pasted.trim() === "")}
-          onClick={() => onVerify(card.id, pasteMode ? pasted.trim() : undefined)}
+          disabled={busy || (needsCallback && callbackUrl.trim() === "") || (needsToken && credential.trim() === "")}
+          onClick={finish}
           className={PRIMARY}
         >
           {actionLabel(busy, action, "verify", "Finish sign-in", "Checking…")}
@@ -155,16 +214,37 @@ function DisconnectedActions({
   busy,
   action,
   onConnectOauth,
+  onConnectSetupToken,
   onConnectApiKey,
 }: {
   card: AcpProviderCard;
   busy: boolean;
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
+  onConnectSetupToken: (id: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
 }): JSX.Element {
+  const [secret, setSecret] = useState("");
+  const pasteLabel = PASTE_KEY_LABEL[card.id];
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
+    <div className="mt-3 flex flex-col gap-2">
+      {pasteLabel ? (
+        <label className="block">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            {pasteLabel}
+          </span>
+          <input
+            type="password"
+            data-testid={`provider-key-${card.id}`}
+            className="mt-1 w-full border border-[var(--border-1)] bg-[var(--card)] p-2 font-mono text-[11px] text-[var(--fg)]"
+            value={secret}
+            onChange={(event) => setSecret(event.target.value)}
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
       {card.capabilities.oauth ? (
         <button
           type="button"
@@ -176,17 +256,29 @@ function DisconnectedActions({
           {actionLabel(busy, action, "oauth", "Connect with sign-in", "Working…")}
         </button>
       ) : null}
+      {card.id === "claude" ? (
+        <button
+          type="button"
+          data-testid="provider-connect-setup-token-claude"
+          disabled={busy}
+          onClick={() => onConnectSetupToken(card.id)}
+          className={SECONDARY}
+        >
+          {actionLabel(busy, action, "setup-token", "Use setup-token (opt-in)", "Checking…")}
+        </button>
+      ) : null}
       {card.capabilities.apiKey ? (
         <button
           type="button"
           data-testid={`provider-connect-key-${card.id}`}
-          disabled={busy}
-          onClick={() => onConnectApiKey(card.id)}
+          disabled={busy || (pasteLabel !== undefined && secret.trim() === "")}
+          onClick={() => onConnectApiKey(card.id, pasteLabel ? secret.trim() : undefined)}
           className={card.capabilities.oauth ? SECONDARY : PRIMARY}
         >
           {actionLabel(busy, action, "api-key", "Use API credential", "Working…")}
         </button>
       ) : null}
+      </div>
     </div>
   );
 }
@@ -246,8 +338,9 @@ function ProviderActions(props: {
   busy: boolean;
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string, code?: string) => void;
+  onConnectSetupToken: (id: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -282,6 +375,7 @@ function ProviderActions(props: {
       busy={props.busy}
       action={action}
       onConnectOauth={props.onConnectOauth}
+      onConnectSetupToken={props.onConnectSetupToken}
       onConnectApiKey={props.onConnectApiKey}
     />
   );
@@ -293,6 +387,7 @@ function ProviderCard({
   busy,
   action,
   onConnectOauth,
+  onConnectSetupToken,
   onConnectApiKey,
   onVerify,
   onTest,
@@ -304,8 +399,9 @@ function ProviderCard({
   busy: boolean;
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string, code?: string) => void;
+  onConnectSetupToken: (id: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -339,18 +435,21 @@ function ProviderCard({
         <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.blurb}</p>
         {card.connection.message ? (
           <p
-            role="status"
             data-testid={`provider-signin-message-${card.id}`}
             className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]"
           >
             {card.connection.message}
           </p>
         ) : null}
+        {card.connection.phase === "waiting" ? null : (
+          <OperatorSteps id={card.id} steps={card.connection.operatorSteps ?? []} />
+        )}
         <ProviderActions
           card={card}
           busy={busy}
           action={action}
           onConnectOauth={onConnectOauth}
+          onConnectSetupToken={onConnectSetupToken}
           onConnectApiKey={onConnectApiKey}
           onVerify={onVerify}
           onTest={onTest}
@@ -380,20 +479,11 @@ async function postProvider(
   path: string,
   body: Record<string, unknown>,
 ): Promise<AcpProvidersSnapshot> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(20_000),
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new Error("The provider request did not answer in time. Try again.");
-    }
-    throw error;
-  }
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(payload.error ?? `Request failed (${response.status}).`);
@@ -411,6 +501,7 @@ function AdapterBody({
   busyId,
   busyAction = null,
   onConnectOauth,
+  onConnectSetupToken,
   onConnectApiKey,
   onVerify,
   onTest,
@@ -422,8 +513,9 @@ function AdapterBody({
   busyId: string | null;
   busyAction?: CardAction | null;
   onConnectOauth: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string, code?: string) => void;
+  onConnectSetupToken: (id: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -456,6 +548,7 @@ function AdapterBody({
           busy={busyId === card.id}
           action={busyId === card.id ? busyAction : null}
           onConnectOauth={onConnectOauth}
+          onConnectSetupToken={onConnectSetupToken}
           onConnectApiKey={onConnectApiKey}
           onVerify={onVerify}
           onTest={onTest}
@@ -476,6 +569,7 @@ export function ProvidersBoard({
   actionError,
   onRetry,
   onConnectOauth,
+  onConnectSetupToken,
   onConnectApiKey,
   onVerify,
   onTest,
@@ -490,8 +584,9 @@ export function ProvidersBoard({
   actionError: string | null;
   onRetry: () => void;
   onConnectOauth: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string, code?: string) => void;
+  onConnectSetupToken: (id: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -511,7 +606,7 @@ export function ProvidersBoard({
     >
       <PageHeader
         title="Providers"
-        detail="Claude Code and Codex can use your own subscription. Gemini, Grok, and OpenCode use an API credential. Keys are never pasted into this form."
+        detail="Codex uses your ChatGPT plan. Claude pairs a computer or takes a setup token. Gemini, Grok, and OpenCode take a key you paste here. Keys stay encrypted and are attached at egress."
       >
         {defaultLabel ? (
           <span
@@ -549,6 +644,7 @@ export function ProvidersBoard({
                 busyId={busyId}
                 busyAction={busyAction}
                 onConnectOauth={onConnectOauth}
+                onConnectSetupToken={onConnectSetupToken}
                 onConnectApiKey={onConnectApiKey}
                 onVerify={onVerify}
                 onTest={onTest}
@@ -629,9 +725,6 @@ export function ProvidersView(): JSX.Element {
     [],
   );
 
-  const codeFor = (id: string) =>
-    snapshot?.providers.find((provider) => provider.id === id)?.connection.userCode ?? "";
-
   return (
     <ProvidersBoard
       snapshot={snapshot}
@@ -644,15 +737,21 @@ export function ProvidersView(): JSX.Element {
       onConnectOauth={(id) =>
         void run(id, "oauth", () => postProvider(`/api/providers/${id}/connect`, { mode: "oauth" }))
       }
-      onConnectApiKey={(id) =>
-        void run(id, "api-key", () =>
-          postProvider(`/api/providers/${id}/connect`, { mode: "api-key" }),
+      onConnectSetupToken={(id) =>
+        void run(id, "setup-token", () =>
+          postProvider(`/api/providers/${id}/connect`, { mode: "setup-token" }),
         )
       }
-      onVerify={(id, code) =>
-        void run(id, "verify", () =>
-          postProvider(`/api/providers/${id}/verify`, { userCode: code ?? codeFor(id) }),
+      onConnectApiKey={(id, credential) =>
+        void run(id, "api-key", () =>
+          postProvider(
+            `/api/providers/${id}/connect`,
+            credential ? { mode: "api-key", credential } : { mode: "api-key" },
+          ),
         )
+      }
+      onVerify={(id, body) =>
+        void run(id, "verify", () => postProvider(`/api/providers/${id}/verify`, body))
       }
       onTest={(id) => void run(id, "test", () => postProvider(`/api/providers/${id}/test`, {}))}
       onDisconnect={(id) =>

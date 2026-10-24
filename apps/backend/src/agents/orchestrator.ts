@@ -926,6 +926,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         repoUrl: input.repoUrl,
         publishPullRequest: input.publishPullRequest,
         orgId: orgIdFromIntake(input as Record<string, unknown>),
+        initiatorUserId: initiatorUserIdFromOrchestratorName(this.name),
+        runtime: input.runtime,
       },
       snapshot,
     );
@@ -1654,6 +1656,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // exact harness/model/connection that will execute, and an inadmissible
     // selection is refused before any approval exists — no container starts.
     let route: ApprovedRoute | undefined;
+    const runtimeRawEarly = typeof input.runtime === "string" ? input.runtime.trim() : "";
+    if (runtimeRawEarly !== "" && runtimeRawEarly !== "sandbox" && runtimeRawEarly !== "local") {
+      return Response.json(
+        { error: `Unknown runtime "${runtimeRawEarly.slice(0, 40)}": expected "sandbox" or "local".` },
+        { status: 400 },
+      );
+    }
+    const runtimeForPreflight = runtimeRawEarly === "local" ? ("local" as const) : undefined;
     try {
       const resolved = await this.resolveRoute({
         repoUrl,
@@ -1663,6 +1673,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         harness: harnessOverride ? (harnessOverride as DelegateInput["harness"]) : undefined,
         codingModel: codingModelOverride,
         connectionId: connectionIdOverride,
+        ...(runtimeForPreflight ? { runtime: runtimeForPreflight } : {}),
         ...(role !== "" ? { role } : {}),
       });
       route = resolved.route;
@@ -1684,6 +1695,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           publishPullRequest,
           sandboxProvider: taskSandboxProvider || undefined,
           orgId: intakeOrgId,
+          initiatorUserId: initiatorUserIdFromOrchestratorName(this.name),
+          runtime: runtimeForPreflight,
         },
         snapshot,
       );
@@ -1705,14 +1718,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // posts never carry that voucher — they refuse here, before an approval
     // exists. The delegate tool path re-checks the same rule against the DO
     // name in executeDelegatedTask.
-    const runtimeRaw = typeof input.runtime === "string" ? input.runtime.trim() : "";
-    if (runtimeRaw !== "" && runtimeRaw !== "sandbox" && runtimeRaw !== "local") {
-      return Response.json(
-        { error: `Unknown runtime "${runtimeRaw.slice(0, 40)}": expected "sandbox" or "local".` },
-        { status: 400 },
-      );
-    }
-    const runtime = runtimeRaw === "local" ? ("local" as const) : undefined;
+    const runtime = runtimeForPreflight;
     const targetMachineId =
       typeof input.targetMachineId === "string" ? input.targetMachineId.trim() : input.targetMachineId;
     if (
