@@ -217,8 +217,8 @@
     { "tag": "alchemy:v10" },
     { "tag": "alchemy:v11" },
     { "tag": "v12", "new_sqlite_classes": ["ChatGptAuth"] },
-    { "tag": "v13", "new_sqlite_classes": ["UserProviderOAuth"] },
     // Live script tag after the Oct 20 alchemy deploy; all classes above already exist.
     { "tag": "alchemy:v22" },
+    { "tag": "v13", "new_sqlite_classes": ["UserProviderOAuth"] },
   ],
 }

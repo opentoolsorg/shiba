@@ -4,10 +4,8 @@
  */
 import { generatePkce, randomBase64Url } from "./pkce.js";
 import type { UserOAuthRecord } from "./types.js";
+import type { AntigravityOAuthClient } from "./antigravity-client.js";
 
-export const ANTIGRAVITY_CLIENT_ID =
-  "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
-const ANTIGRAVITY_CLIENT_SECRET = "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";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const PROD_API = "https://cloudcode-pa.googleapis.com";
@@ -31,12 +29,12 @@ export interface AntigravityBeginResult {
   codeVerifier: string;
 }
 
-export async function beginAntigravityOAuth(): Promise<AntigravityBeginResult> {
+export async function beginAntigravityOAuth(client: AntigravityOAuthClient): Promise<AntigravityBeginResult> {
   const state = randomBase64Url(24);
   const { verifier, challenge } = await generatePkce();
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: ANTIGRAVITY_CLIENT_ID,
+    client_id: client.clientId,
     redirect_uri: ANTIGRAVITY_REDIRECT_URI,
     scope: SCOPES.join(" "),
     code_challenge: challenge,
@@ -60,11 +58,11 @@ interface GoogleTokenPayload {
   id_token?: unknown;
 }
 
-async function postToken(body: Record<string, string>): Promise<GoogleTokenPayload> {
+async function postToken(client: AntigravityOAuthClient, body: Record<string, string>): Promise<GoogleTokenPayload> {
   const response = await fetch(TOKEN_ENDPOINT, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(body).toString(),
+    body: new URLSearchParams({ ...body, client_id: client.clientId, client_secret: client.clientSecret }).toString(),
   });
   if (!response.ok) {
     throw new Error(`Antigravity token request failed: ${response.status}`);
@@ -169,11 +167,13 @@ function recordFromPayload(payload: GoogleTokenPayload, refreshFallback = ""): U
   };
 }
 
-export async function exchangeAntigravityCode(code: string, codeVerifier: string): Promise<UserOAuthRecord> {
-  const payload = await postToken({
+export async function exchangeAntigravityCode(
+  client: AntigravityOAuthClient,
+  code: string,
+  codeVerifier: string,
+): Promise<UserOAuthRecord> {
+  const payload = await postToken(client, {
     grant_type: "authorization_code",
-    client_id: ANTIGRAVITY_CLIENT_ID,
-    client_secret: ANTIGRAVITY_CLIENT_SECRET,
     code,
     redirect_uri: ANTIGRAVITY_REDIRECT_URI,
     code_verifier: codeVerifier,
@@ -188,11 +188,12 @@ export async function exchangeAntigravityCode(code: string, codeVerifier: string
   return { ...record, projectId };
 }
 
-export async function refreshAntigravityToken(refreshToken: string): Promise<UserOAuthRecord> {
-  const payload = await postToken({
+export async function refreshAntigravityToken(
+  client: AntigravityOAuthClient,
+  refreshToken: string,
+): Promise<UserOAuthRecord> {
+  const payload = await postToken(client, {
     grant_type: "refresh_token",
-    client_id: ANTIGRAVITY_CLIENT_ID,
-    client_secret: ANTIGRAVITY_CLIENT_SECRET,
     refresh_token: refreshToken,
   });
   const record = recordFromPayload(payload, refreshToken);

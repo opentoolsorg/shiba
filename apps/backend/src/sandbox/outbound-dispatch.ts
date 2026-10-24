@@ -15,6 +15,7 @@ import {
   forwardDevinApi,
   forwardDevinInference,
   forwardDevinSubscription,
+  forwardDevinUser,
   forwardGitHubScoped,
   forwardGoogle,
   forwardDeepSeek,
@@ -25,7 +26,10 @@ import {
 } from "../egress.js";
 import type { NamedOutboundHandler, OutboundConfig, OutboundHostRule } from "./outbound-config.js";
 
-const BUILTIN_FORWARDERS: Record<string, (request: Request, env: EgressEnv, orgId?: string) => Promise<Response>> = {
+const BUILTIN_FORWARDERS: Record<
+  string,
+  (request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx) => Promise<Response>
+> = {
   "generativelanguage.googleapis.com": forwardGoogle,
   "api.anthropic.com": forwardAnthropic,
   "api.openai.com": forwardOpenAI,
@@ -58,6 +62,8 @@ function namedHandler(
       return forwardAntigravityUser;
     case "xaiUser":
       return forwardXaiUser;
+    case "devinUser":
+      return forwardDevinUser;
     case "devinSubscription":
       return forwardDevinSubscription;
     default:
@@ -108,7 +114,7 @@ export async function dispatchOutboundRequest(
     if (!forward) {
       return new Response("Invalid provider destination.", { status: 403 });
     }
-    return forward(request, env, config.orgId);
+    return forward(request, env, config.orgId ? { orgId: config.orgId } : undefined);
   }
   const handler = namedHandler(rule.handler);
   const ctx: OutboundHandlerCtx = {

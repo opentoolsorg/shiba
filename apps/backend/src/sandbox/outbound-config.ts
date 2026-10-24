@@ -14,6 +14,7 @@ export type NamedOutboundHandler =
   | "cursorUser"
   | "antigravityUser"
   | "xaiUser"
+  | "devinUser"
   | "devinSubscription";
 
 /** Host → either a built-in forwarder (egress.ts) or a named handler slot. */

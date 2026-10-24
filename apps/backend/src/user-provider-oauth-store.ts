@@ -96,3 +96,55 @@ export async function deleteUserOAuthRecord(
 export function userProviderOAuthReady(env: Pick<Env, "MODEL_CREDENTIAL_KEY" | "UserProviderOAuth">): boolean {
   return modelCredentialKeyConfigured(env) && env.UserProviderOAuth !== undefined;
 }
+
+function pendingFieldKind(provider: UserOAuthProvider, field: string): string {
+  return `oauth-pending:${provider}:${field}`;
+}
+
+export async function sealOAuthPendingField(
+  env: Env,
+  userId: string,
+  provider: UserOAuthProvider,
+  field: string,
+  plaintext: string,
+): Promise<string> {
+  if (!modelCredentialKeyConfigured(env)) {
+    throw new Error("MODEL_CREDENTIAL_KEY is not configured.");
+  }
+  return encryptAuthJson(
+    plaintext,
+    env.MODEL_CREDENTIAL_KEY!,
+    DEFAULT_WORKSPACE_ID,
+    userId,
+    pendingFieldKind(provider, field),
+  );
+}
+
+export async function openOAuthPendingField(
+  env: Env,
+  userId: string,
+  provider: UserOAuthProvider,
+  field: string,
+  cipher: string,
+): Promise<string> {
+  if (!modelCredentialKeyConfigured(env)) {
+    throw new Error("MODEL_CREDENTIAL_KEY is not configured.");
+  }
+  return decryptAuthJson(
+    cipher,
+    env.MODEL_CREDENTIAL_KEY!,
+    DEFAULT_WORKSPACE_ID,
+    userId,
+    pendingFieldKind(provider, field),
+  );
+}
+
+export async function userOAuthStatus(
+  env: Env,
+  userId: string,
+  provider: UserOAuthProvider,
+): Promise<{ connected: boolean; expiresAt?: number }> {
+  const record = await loadUserOAuthRecord(env, userId, provider);
+  if (!record) return { connected: false };
+  return { connected: true, expiresAt: record.expiresAt };
+}

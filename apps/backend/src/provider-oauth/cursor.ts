@@ -60,6 +60,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** One poll attempt — the dashboard calls Finish sign-in repeatedly until connected. */
+export async function pollCursorOnce(
+  uuid: string,
+  verifier: string,
+): Promise<{ status: "pending" } | { status: "connected"; record: UserOAuthRecord }> {
+  const url = `${CURSOR_POLL_URL}?uuid=${encodeURIComponent(uuid)}&verifier=${encodeURIComponent(verifier)}`;
+  const response = await fetch(url);
+  if (response.status === 404) {
+    return { status: "pending" };
+  }
+  if (response.ok) {
+    const data = (await response.json()) as { accessToken?: string; refreshToken?: string };
+    if (!data.accessToken || !data.refreshToken) {
+      throw new Error("Cursor auth response missing tokens.");
+    }
+    return { status: "connected", record: recordFromTokens(data.accessToken, data.refreshToken) };
+  }
+  if (POLL_TERMINAL_STATUSES.has(response.status)) {
+    throw new Error(`Cursor login rejected (HTTP ${response.status}). Start sign-in again.`);
+  }
+  throw new Error(`Cursor auth poll failed: ${response.status}`);
+}
+
 export async function pollCursorOAuth(
   uuid: string,
   verifier: string,

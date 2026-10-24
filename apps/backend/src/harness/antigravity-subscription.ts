@@ -97,11 +97,11 @@ export class AntigravitySubscriptionHarness implements AgentHarness {
     return [...ANTIGRAVITY_SUBSCRIPTION_HOSTS];
   }
 
-  /** Per-user Antigravity OAuth on the Providers card — tokens attach at egress. */
+  /** Per-user Antigravity OAuth on Cloud Code hosts only — CDN / Gemini API stay on the profile path. */
   egressOverrides(input: CodingTaskInput) {
     const userId = input.initiatorUserId?.trim() ?? "";
     if (userId === "") return [];
-    return ANTIGRAVITY_SUBSCRIPTION_HOSTS.map((host) => ({
+    return (["cloudcode-pa.googleapis.com", "daily-cloudcode-pa.googleapis.com"] as const).map((host) => ({
       host,
       handler: "antigravityUser" as const,
       params: { userId },

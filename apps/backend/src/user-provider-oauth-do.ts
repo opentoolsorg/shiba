@@ -9,7 +9,8 @@ import {
   parseAntigravityCallbackCode,
   refreshAntigravityToken,
 } from "./provider-oauth/antigravity.js";
-import { beginCursorOAuth, pollCursorOAuth, refreshCursorToken } from "./provider-oauth/cursor.js";
+import { resolveAntigravityOAuthClient } from "./provider-oauth/antigravity-client.js";
+import { beginCursorOAuth, pollCursorOnce, refreshCursorToken } from "./provider-oauth/cursor.js";
 import {
   beginXaiOAuth,
   discoverXaiEndpoints,
@@ -21,7 +22,9 @@ import type { PendingCursorSignIn, PendingPkceSignIn, UserOAuthProvider } from "
 import {
   deleteUserOAuthRecord,
   loadUserOAuthRecord,
+  openOAuthPendingField,
   saveUserOAuthRecord,
+  sealOAuthPendingField,
 } from "./user-provider-oauth-store.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { redactSecrets } from "./security.js";
@@ -86,7 +89,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Provider OAuth failed.";
       console.error("UserProviderOAuth", redactSecrets(message));
-      return Response.json({ error: message }, { status: 400 });
+      return Response.json({ error: "Sign-in could not be completed. Start again." }, { status: 400 });
     }
   }
 
@@ -101,11 +104,13 @@ export class UserProviderOAuth extends DurableObject<Env> {
   }
 
   private async begin(provider: UserOAuthProvider): Promise<Response> {
+    const userId = this.userId();
     if (provider === "antigravity") {
-      const flow = await beginAntigravityOAuth();
+      const client = resolveAntigravityOAuthClient(this.env);
+      const flow = await beginAntigravityOAuth(client);
       const pending: PendingPkceSignIn = {
         state: flow.state,
-        codeVerifier: flow.codeVerifier,
+        codeVerifierCipher: await sealOAuthPendingField(this.env, userId, provider, "code-verifier", flow.codeVerifier),
         redirectUri: flow.redirectUri,
         createdAt: Date.now(),
       };
@@ -120,7 +125,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       const flow = await beginCursorOAuth();
       const pending: PendingCursorSignIn = {
         uuid: flow.uuid,
-        verifier: flow.verifier,
+        verifierCipher: await sealOAuthPendingField(this.env, userId, provider, "verifier", flow.verifier),
         createdAt: Date.now(),
       };
       await this.ctx.storage.put(pendingKey(provider), pending);
@@ -133,9 +138,10 @@ export class UserProviderOAuth extends DurableObject<Env> {
       const flow = await beginXaiOAuth();
       const pending: PendingPkceSignIn = {
         state: flow.state,
-        codeVerifier: flow.codeVerifier,
+        codeVerifierCipher: await sealOAuthPendingField(this.env, userId, provider, "code-verifier", flow.codeVerifier),
         redirectUri: flow.redirectUri,
         createdAt: Date.now(),
+        nonce: flow.nonce,
       };
       await this.ctx.storage.put(pendingKey(provider), pending);
       await this.ctx.storage.put(xaiTokenEndpointKey(), flow.tokenEndpoint);
@@ -153,21 +159,24 @@ export class UserProviderOAuth extends DurableObject<Env> {
     if (!pendingRaw || Date.now() - pendingRaw.createdAt > PENDING_TTL_MS) {
       return Response.json({ error: "No active sign-in. Start again.", pending: true }, { status: 400 });
     }
+    const userId = this.userId();
 
     if (provider === "cursor") {
       const pending = pendingRaw as PendingCursorSignIn;
-      try {
-        const record = await pollCursorOAuth(pending.uuid, pending.verifier);
-        await saveUserOAuthRecord(this.env, this.userId(), provider, record);
-        await this.ctx.storage.delete(pendingKey(provider));
+      const verifier = await openOAuthPendingField(this.env, userId, provider, "verifier", pending.verifierCipher);
+      const poll = await pollCursorOnce(pending.uuid, verifier);
+      if (poll.status === "pending") {
         return Response.json({
-          connected: true,
-          message: "Cursor account connected. Tokens stay encrypted and attach at egress.",
+          pending: true,
+          message: "Still waiting for Cursor approval in the browser. Finish sign-in again in a few seconds.",
         });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Still waiting for Cursor approval.";
-        return Response.json({ pending: true, message }, { status: 200 });
       }
+      await saveUserOAuthRecord(this.env, userId, provider, poll.record);
+      await this.ctx.storage.delete(pendingKey(provider));
+      return Response.json({
+        connected: true,
+        message: "Cursor account connected. Tokens stay encrypted and attach at egress.",
+      });
     }
 
     const pending = pendingRaw as PendingPkceSignIn;
@@ -178,21 +187,30 @@ export class UserProviderOAuth extends DurableObject<Env> {
       });
     }
 
+    const codeVerifier = await openOAuthPendingField(
+      this.env,
+      userId,
+      provider,
+      "code-verifier",
+      pending.codeVerifierCipher,
+    );
+
     let record;
     if (provider === "antigravity") {
+      const client = resolveAntigravityOAuthClient(this.env);
       const code = parseAntigravityCallbackCode(callbackUrl, pending.state);
-      record = await exchangeAntigravityCode(code, pending.codeVerifier);
+      record = await exchangeAntigravityCode(client, code, codeVerifier);
     } else if (provider === "xai") {
       const tokenEndpoint =
         (await this.ctx.storage.get<string>(xaiTokenEndpointKey())) ?? (await discoverXaiEndpoints()).tokenEndpoint;
       const code = parseXaiCallbackCode(callbackUrl, pending.state);
-      record = await exchangeXaiCode(code, pending.codeVerifier, tokenEndpoint);
+      record = await exchangeXaiCode(code, codeVerifier, tokenEndpoint, pending.nonce);
       await this.ctx.storage.put(xaiTokenEndpointKey(), tokenEndpoint);
     } else {
       return Response.json({ error: "Unknown provider." }, { status: 400 });
     }
 
-    await saveUserOAuthRecord(this.env, this.userId(), provider, record);
+    await saveUserOAuthRecord(this.env, userId, provider, record);
     await this.ctx.storage.delete(pendingKey(provider));
     const label =
       provider === "antigravity"
@@ -212,7 +230,8 @@ export class UserProviderOAuth extends DurableObject<Env> {
     if (record.expiresAt > Date.now() + 60_000) return record;
     let refreshed;
     if (provider === "antigravity") {
-      refreshed = await refreshAntigravityToken(record.refreshToken);
+      const client = resolveAntigravityOAuthClient(this.env);
+      refreshed = await refreshAntigravityToken(client, record.refreshToken);
     } else if (provider === "cursor") {
       refreshed = await refreshCursorToken(record.refreshToken);
     } else {

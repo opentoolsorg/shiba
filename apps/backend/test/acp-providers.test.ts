@@ -74,6 +74,7 @@ describe("provider registry", () => {
       "codex",
       "gemini",
       "grok",
+      "devin",
       "cursor",
       "opencode",
     ]);
@@ -107,6 +108,7 @@ describe("GET /api/providers", () => {
       "disconnected",
       "disconnected",
       "disconnected",
+      "disconnected",
     ]);
     expect(body.providers.find((provider) => provider.id === "claude")?.capabilities).toMatchObject(
       {
@@ -123,7 +125,7 @@ describe("GET /api/providers", () => {
   it("still lists providers when the connection store is missing", async () => {
     const response = await handleAcpProviders(request("/api/providers"), {} as Env);
     const body = await snapshot(response);
-    expect(body.providers).toHaveLength(6);
+    expect(body.providers).toHaveLength(7);
   });
 });
 

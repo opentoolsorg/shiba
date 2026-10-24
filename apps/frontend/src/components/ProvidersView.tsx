@@ -80,6 +80,7 @@ function OperatorSteps({ id, steps }: { id: string; steps: readonly string[] }):
 const PASTE_KEY_LABEL: Record<string, string> = {
   gemini: "Gemini API key",
   grok: "xAI API key",
+  devin: "Devin API key (cog_… from app.devin.ai)",
   opencode: "OpenCode or DeepSeek API key",
 };
 
@@ -103,9 +104,11 @@ function WaitingSignIn({
     card.connection.signInKind === "chatgpt-pkce" ||
     card.connection.signInKind === "antigravity-pkce" ||
     card.connection.signInKind === "xai-pkce";
+  const cursorPoll = card.connection.signInKind === "cursor-pkce";
   const needsToken = card.connection.signInKind === "claude-setup-token";
   const steps = card.connection.operatorSteps ?? [];
   const verificationUri = card.connection.verificationUri;
+  const finishRef = useRef<() => void>(() => {});
   function finish(): void {
     if (device && callbackUrl.trim() !== "") {
       onVerify(card.id, { callbackUrl: callbackUrl.trim() });
@@ -125,6 +128,14 @@ function WaitingSignIn({
     }
     onVerify(card.id, {});
   }
+  finishRef.current = finish;
+  useEffect(() => {
+    if (!cursorPoll || busy) return;
+    const timer = window.setInterval(() => {
+      finishRef.current();
+    }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [cursorPoll, busy, card.id]);
   return (
     <div className="mt-3 border border-[var(--border-1)] bg-[var(--panel)] px-3 py-3">
       <OperatorSteps id={card.id} steps={steps} />
@@ -193,7 +204,11 @@ function WaitingSignIn({
         ) : null}
         <button
           type="button"
-          disabled={busy || (needsCallback && callbackUrl.trim() === "") || (needsToken && credential.trim() === "")}
+          disabled={
+            busy ||
+            (needsCallback && callbackUrl.trim() === "") ||
+            (needsToken && credential.trim() === "")
+          }
           onClick={finish}
           className={PRIMARY}
         >

@@ -630,6 +630,7 @@ describe("agent cli catalog", () => {
       "claude-login",
       "codex",
       "devin",
+      "devin-api",
       "grok",
       "pi",
       "claude-acp",

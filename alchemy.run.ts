@@ -310,6 +310,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       // devin-subscription: the operator's Devin API key/session token;
       // per-account secrets (DEVIN_SUBSCRIPTION_TOKEN_<ACCOUNT>) resolve by name.
       "DEVIN_SUBSCRIPTION_TOKEN",
+      "GOOGLE_ANTIGRAVITY_CLIENT_SECRET",
       // T51: the bearer the `shiba local` daemon presents on /api/local/*.
       "LOCAL_ADAPTER_TOKEN",
       // Built-in dashboard auth signing secret (better-auth.ts): absent =

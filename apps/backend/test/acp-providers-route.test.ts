@@ -59,6 +59,7 @@ describe("worker /api/providers", () => {
       "codex",
       "gemini",
       "grok",
+      "devin",
       "cursor",
       "opencode",
     ]);

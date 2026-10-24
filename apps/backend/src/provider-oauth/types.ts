@@ -13,13 +13,16 @@ export interface UserOAuthRecord {
 
 export interface PendingPkceSignIn {
   state: string;
-  codeVerifier: string;
+  /** AES-GCM blob — never store the raw PKCE verifier in DO storage. */
+  codeVerifierCipher: string;
   redirectUri: string;
   createdAt: number;
+  /** xAI OIDC nonce echoed in id_token. */
+  nonce?: string;
 }
 
 export interface PendingCursorSignIn {
   uuid: string;
-  verifier: string;
+  verifierCipher: string;
   createdAt: number;
 }

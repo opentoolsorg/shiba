@@ -511,15 +511,27 @@ export async function forwardAntigravityUser(
   const auth = await loadUserOAuthAccess(env, userId, "antigravity");
   const target = new URL(request.url);
   const allowed =
-    target.hostname === "cloudcode-pa.googleapis.com" || target.hostname === "daily-cloudcode-pa.googleapis.com";
+    target.hostname === "cloudcode-pa.googleapis.com" ||
+    target.hostname === "daily-cloudcode-pa.googleapis.com" ||
+    target.hostname === "dl.google.com" ||
+    target.hostname === "generativelanguage.googleapis.com";
   if (target.protocol !== "https:" || !allowed || target.username !== "" || target.password !== "") {
     return new Response("Invalid Antigravity destination.", { status: 403 });
   }
-  if (!auth) {
-    return new Response("No Gemini (Antigravity) account is connected for this user.", { status: 503 });
-  }
   target.search = stripCredentialParams(target.search);
   const headers = outboundHeaders(request);
+  if (!auth) {
+    try {
+      return await fetch(target, {
+        method: request.method,
+        headers,
+        body: request.method === "POST" ? request.body : undefined,
+        redirect: "manual",
+      });
+    } catch {
+      return new Response("Subscription request failed.", { status: 502 });
+    }
+  }
   headers.set("Authorization", `Bearer ${auth.accessToken}`);
   if (auth.projectId) headers.set("x-goog-user-project", auth.projectId);
   try {
@@ -553,7 +565,8 @@ export async function forwardCursorUser(
     return new Response("Invalid Cursor destination.", { status: 403 });
   }
   if (!auth) {
-    return new Response("No Cursor account is connected for this user.", { status: 503 });
+    const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
+    return forwardCursorSubscription(request, env, { ...ctx, params: { account } });
   }
   target.search = stripCredentialParams(target.search);
   const headers = outboundHeaders(request);
@@ -584,7 +597,7 @@ export async function forwardXaiUser(
     return new Response("Invalid xAI destination.", { status: 403 });
   }
   if (!auth) {
-    return new Response("No Grok account is connected for this user.", { status: 503 });
+    return forwardXAI(request, env, ctx?.orgId);
   }
   target.search = stripCredentialParams(target.search);
   const headers = outboundHeaders(request);
@@ -799,14 +812,60 @@ function rewriteDevinKey(body: ArrayBuffer, apiKey: string): ArrayBuffer {
   }
 }
 
+async function resolveDevinApiKey(
+  env: EgressEnv,
+  userId: string | undefined,
+  orgId?: string,
+): Promise<string | undefined> {
+  const trimmed = userId?.trim() ?? "";
+  if (trimmed !== "") {
+    const userKey = await readProviderSecretForOrg(env, trimmed, "devin");
+    if (userKey) return userKey;
+  }
+  if (orgId) {
+    const orgKey = await readProviderSecretForOrg(env, orgId, "devin");
+    if (orgKey) return orgKey;
+  }
+  return env.DEVIN_API_KEY;
+}
+
+/** Per-user Devin API key at egress (Providers card), else deployment DEVIN_API_KEY. */
+export async function forwardDevinUser(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx,
+): Promise<Response> {
+  const params = (ctx?.params ?? {}) as Record<string, unknown>;
+  const userId = typeof params.userId === "string" ? params.userId : undefined;
+  const target = new URL(request.url);
+  const host = target.hostname;
+  if (target.protocol !== "https:" || (host !== "api.devin.ai" && host !== "server.codeium.com")) {
+    return new Response("Invalid Devin destination.", { status: 403 });
+  }
+  const apiKey = await resolveDevinApiKey(env, userId, ctx?.orgId);
+  return forwardDevin(request, env, host, apiKey);
+}
+
 /** api.devin.ai — Devin control plane (sessions, billing, org). */
-export function forwardDevinApi(request: Request, env: EgressEnv): Promise<Response> {
-  return forwardDevin(request, env, "api.devin.ai");
+export async function forwardDevinApi(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+  const target = new URL(request.url);
+  if (target.hostname !== "api.devin.ai") {
+    return new Response("Invalid Devin destination.", { status: 403 });
+  }
+  return forwardDevinUser(request, env, ctx);
 }
 
 /** server.codeium.com — inference backend Devin Pro accounts talk to. */
-export function forwardDevinInference(request: Request, env: EgressEnv): Promise<Response> {
-  return forwardDevin(request, env, "server.codeium.com");
+export async function forwardDevinInference(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx,
+): Promise<Response> {
+  const target = new URL(request.url);
+  if (target.hostname !== "server.codeium.com") {
+    return new Response("Invalid Devin destination.", { status: 403 });
+  }
+  return forwardDevinUser(request, env, ctx);
 }
 
 /**

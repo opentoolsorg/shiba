@@ -5,7 +5,7 @@
 import type { Env } from "./env.js";
 import { decryptAuthJson, encryptAuthJson, modelCredentialKeyConfigured } from "./subscription-credentials.js";
 
-export const USER_SECRET_KINDS = ["google", "xai", "opencode", "claude-setup"] as const;
+export const USER_SECRET_KINDS = ["google", "xai", "opencode", "claude-setup", "devin"] as const;
 export type UserSecretKind = (typeof USER_SECRET_KINDS)[number];
 
 const SECRET_PREFIX = "user_provider_secret:";
@@ -28,6 +28,7 @@ export function pasteProviderKind(id: string): UserSecretKind | null {
   if (id === "gemini") return "google";
   if (id === "grok") return "xai";
   if (id === "opencode") return "opencode";
+  if (id === "devin") return "devin";
   return null;
 }
 
@@ -36,6 +37,7 @@ export function kindForHost(host: string): UserSecretKind | null {
   if (host === "api.x.ai") return "xai";
   if (host === "opencode.ai" || host === "api.deepseek.com") return "opencode";
   if (host === "api.anthropic.com") return "claude-setup";
+  if (host === "api.devin.ai" || host === "server.codeium.com") return "devin";
   return null;
 }
 

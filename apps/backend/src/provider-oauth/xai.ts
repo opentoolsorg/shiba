@@ -18,6 +18,7 @@ export interface XaiBeginResult {
   state: string;
   codeVerifier: string;
   tokenEndpoint: string;
+  nonce: string;
 }
 
 function validateEndpoint(rawUrl: string): string {
@@ -52,6 +53,7 @@ export async function discoverXaiEndpoints(): Promise<{ authorizationEndpoint: s
 export async function beginXaiOAuth(): Promise<XaiBeginResult> {
   const discovery = await discoverXaiEndpoints();
   const state = randomBase64Url(24);
+  const nonce = crypto.randomUUID();
   const { verifier, challenge } = await generatePkce();
   const params = new URLSearchParams({
     response_type: "code",
@@ -61,7 +63,7 @@ export async function beginXaiOAuth(): Promise<XaiBeginResult> {
     code_challenge: challenge,
     code_challenge_method: "S256",
     state,
-    nonce: crypto.randomUUID(),
+    nonce,
   });
   return {
     authorizeUrl: `${discovery.authorizationEndpoint}?${params.toString()}`,
@@ -69,6 +71,7 @@ export async function beginXaiOAuth(): Promise<XaiBeginResult> {
     state,
     codeVerifier: verifier,
     tokenEndpoint: discovery.tokenEndpoint,
+    nonce,
   };
 }
 
@@ -79,21 +82,35 @@ interface XaiTokenPayload {
   id_token?: unknown;
 }
 
-function jwtIdentity(accessToken: string, idToken?: string): { email?: string; accountId?: string } {
-  const part = (idToken ?? accessToken).split(".")[1];
-  if (!part) return {};
+function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
+  const part = token.split(".")[1];
+  if (!part) return undefined;
+  const padded = part + "=".repeat((4 - (part.length % 4)) % 4);
   try {
-    const payload = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/"))) as {
-      email?: unknown;
-      sub?: unknown;
-    };
-    return {
-      ...(typeof payload.email === "string" && payload.email ? { email: payload.email.toLowerCase() } : {}),
-      ...(typeof payload.sub === "string" && payload.sub ? { accountId: payload.sub } : {}),
-    };
+    return JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
   } catch {
-    return {};
+    return undefined;
   }
+}
+
+function jwtIdentity(
+  accessToken: string,
+  idToken?: string,
+  expectedNonce?: string,
+): { email?: string; accountId?: string } {
+  if (idToken && expectedNonce) {
+    const payload = decodeJwtPayload(idToken);
+    const nonce = payload?.nonce;
+    if (typeof nonce !== "string" || nonce !== expectedNonce) {
+      throw new Error("xAI id_token nonce did not match the sign-in request.");
+    }
+  }
+  const payload = decodeJwtPayload(idToken ?? accessToken);
+  if (!payload) return {};
+  return {
+    ...(typeof payload.email === "string" && payload.email ? { email: payload.email.toLowerCase() } : {}),
+    ...(typeof payload.sub === "string" && payload.sub ? { accountId: payload.sub } : {}),
+  };
 }
 
 async function postToken(tokenEndpoint: string, body: Record<string, string>): Promise<XaiTokenPayload> {
@@ -106,7 +123,7 @@ async function postToken(tokenEndpoint: string, body: Record<string, string>): P
   return (await response.json()) as XaiTokenPayload;
 }
 
-function recordFromPayload(payload: XaiTokenPayload, refreshFallback = ""): UserOAuthRecord {
+function recordFromPayload(payload: XaiTokenPayload, refreshFallback = "", expectedNonce?: string): UserOAuthRecord {
   if (typeof payload.access_token !== "string" || payload.access_token === "") {
     throw new Error("xAI token response did not include an access token.");
   }
@@ -118,7 +135,7 @@ function recordFromPayload(payload: XaiTokenPayload, refreshFallback = ""): User
   const expiresIn =
     typeof payload.expires_in === "number" && Number.isFinite(payload.expires_in) ? payload.expires_in : 3600;
   const idToken = typeof payload.id_token === "string" ? payload.id_token : undefined;
-  const identity = jwtIdentity(payload.access_token, idToken);
+  const identity = jwtIdentity(payload.access_token, idToken, expectedNonce);
   return {
     accessToken: payload.access_token,
     refreshToken: refresh,
@@ -132,6 +149,7 @@ export async function exchangeXaiCode(
   code: string,
   codeVerifier: string,
   tokenEndpoint: string,
+  expectedNonce?: string,
 ): Promise<UserOAuthRecord> {
   const payload = await postToken(tokenEndpoint, {
     grant_type: "authorization_code",
@@ -140,7 +158,7 @@ export async function exchangeXaiCode(
     redirect_uri: XAI_REDIRECT_URI,
     code_verifier: codeVerifier,
   });
-  return recordFromPayload(payload);
+  return recordFromPayload(payload, "", expectedNonce);
 }
 
 export async function refreshXaiToken(refreshToken: string, tokenEndpoint: string): Promise<UserOAuthRecord> {

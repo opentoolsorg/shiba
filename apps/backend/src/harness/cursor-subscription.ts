@@ -66,10 +66,11 @@ export class CursorSubscriptionHarness implements AgentHarness {
   egressOverrides(input: CodingTaskInput) {
     const userId = input.initiatorUserId?.trim() ?? "";
     if (userId !== "") {
+      const account = cursorSubscriptionAccount(input);
       return CURSOR_EGRESS_HOSTS.map((host) => ({
         host,
         handler: "cursorUser" as const,
-        params: { userId },
+        params: { userId, account },
       }));
     }
     const account = cursorSubscriptionAccount(input);
