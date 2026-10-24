@@ -749,7 +749,7 @@ describe("Providers page states", () => {
     expect(html).toContain("Org default · Claude Code");
     expect(html).toContain("Ready");
     expect(html).toContain("Open ChatGPT sign-in");
-    expect(html).toContain("Paste callback URL");
+    expect(html).toContain("Callback URL (optional if loopback is running)");
     expect(html).not.toContain("https://chatgpt.com/");
     expect(html).not.toContain("Confirmation code");
     expect(html).toContain("Sign-in pending");
