@@ -72,6 +72,8 @@ export interface QueuedRunInput {
   envNames?: string[];
   envDigest?: string;
   envSealed?: string;
+  /** T72: approval-hashed opt-in to the repo's setup script. */
+  runSetup?: boolean;
 }
 
 export type RunCommand =
@@ -161,6 +163,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.role !== undefined ? { role: run.role } : {}),
       ...(run.envNames !== undefined ? { envNames: run.envNames } : {}),
       ...(run.envDigest !== undefined ? { envDigest: run.envDigest } : {}),
+      ...(run.runSetup === true ? { runSetup: true } : {}),
     })
   );
 }
@@ -225,6 +228,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.envNames !== undefined ? { envNames: command.input.envNames } : {}),
           ...(command.input.envDigest !== undefined ? { envDigest: command.input.envDigest } : {}),
           ...(command.input.envSealed !== undefined ? { envSealed: command.input.envSealed } : {}),
+          ...(command.input.runSetup === true ? { runSetup: true } : {}),
           ...(approval !== undefined ? { approval } : {}),
           status: "pending",
           generation: 0,
@@ -276,7 +280,8 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.subagentSandbox === command.input.subagentSandbox &&
           run.captainId === command.input.captainId &&
           run.role === command.input.role &&
-          run.envDigest === command.input.envDigest;
+          run.envDigest === command.input.envDigest &&
+          (run.runSetup === true) === (command.input.runSetup === true);
         if (sameInput) {
           return { events: [{ type: "run.queued", commandId: command.commandId, at, run, replayed: true }] };
         }

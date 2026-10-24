@@ -162,6 +162,8 @@ export interface DelegatedRun {
   envNames?: string[];
   envDigest?: string;
   envSealed?: string;
+  /** T72: approval-hashed opt-in to the repo's setup script. */
+  runSetup?: boolean;
   /**
    * Durable phase written before the next await. A Worker/DO restart
    * resumes `queued` and `dispatching` runs that have not touched a

@@ -872,6 +872,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return tools;
   }
 
+  /** T72: only the human's composer tick can opt a chat run into repo setup — never the model's tool call. */
+  private composerRunSetup(): boolean {
+    const last = this.messages?.filter((m) => m.role === "user").at(-1);
+    return (last?.metadata as { shibaTask?: { runSetup?: unknown } } | undefined)?.shibaTask?.runSetup === true;
+  }
+
   /** T68: the sealed env the dashboard attached to the latest user message, if any. */
   private composerEnv(): unknown {
     const last = this.messages?.filter((m) => m.role === "user").at(-1);
@@ -1133,6 +1139,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(reserved.forkedFrom !== undefined
           ? { forkCheckpointRef: reserved.forkedFrom.checkpointRef }
           : {}),
+        ...(reserved.runSetup === true ? { runSetup: true } : {}),
         // T68: read from the hashed run record; the child opens it with envOwner.
         ...(reserved.envSealed !== undefined && reserved.envDigest !== undefined
           ? { envSealed: reserved.envSealed, envDigest: reserved.envDigest, envOwner: this.name }
@@ -1577,6 +1584,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     connectionId?: unknown;
     reasoningEffort?: unknown;
     environment?: unknown;
+    runSetup?: unknown;
     authAccount?: unknown;
     runtime?: unknown;
     targetMachineId?: unknown;
@@ -1827,6 +1835,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         );
       }
     }
+    if (input.runSetup !== undefined && typeof input.runSetup !== "boolean") {
+      return Response.json({ error: "runSetup must be a boolean." }, { status: 400 });
+    }
+    const runSetup = input.runSetup === true;
+    if (runSetup && (runtime ?? resolveRuntimeName(this.env.RUNTIME)) === "local") {
+      return Response.json({ error: "Repo setup isn't supported on the local runtime yet." }, { status: 400 });
+    }
     let runEnv: FrozenRunEnv | undefined;
     try {
       runEnv = await this.intakeRunEnv(input.environment, runtime);
@@ -1886,6 +1901,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(taskSandboxProvider ? { sandboxProvider: taskSandboxProvider } : {}),
           ...(customAgentId ? { customAgentId } : {}),
           ...(runEnv ?? {}),
+          ...(runSetup ? { runSetup: true } : {}),
           ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
           createdAt: Date.now(),
         }),
@@ -2060,6 +2076,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(parent.envDigest !== undefined && parent.envSealed !== undefined
             ? { envNames: parent.envNames ?? [], envDigest: parent.envDigest, envSealed: parent.envSealed }
             : {}),
+          ...(parent.runSetup === true ? { runSetup: true } : {}),
           forkedFrom,
           ...(agentPrincipal !== null ? { queuedBy: agentPrincipal } : {}),
           createdAt: Date.now(),
@@ -2501,6 +2518,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       connectionId,
     });
     const runEnv = await this.intakeRunEnv(this.composerEnv(), input.runtime);
+    const runSetup = this.composerRunSetup();
+    if (runSetup && (input.runtime ?? resolveRuntimeName(this.env.RUNTIME)) === "local") {
+      throw new Error("Repo setup isn't supported on the local runtime yet.");
+    }
     this.setState({
       ...this.state,
       pendingApprovals: createPendingApproval(this.approvals, {
@@ -2515,6 +2536,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(sandboxProvider ? { sandboxProvider } : {}),
         ...(customAgentId ? { customAgentId } : {}),
         ...(runEnv ?? {}),
+        ...(runSetup ? { runSetup: true } : {}),
         ...(typeof input.authAccount === "string" && input.authAccount.trim()
           ? { authAccount: input.authAccount.trim().slice(0, 32) }
           : {}),
@@ -2570,6 +2592,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.envDigest !== undefined
         ? { envNames: record.envNames ?? [], envDigest: record.envDigest, envSealed: record.envSealed }
         : {}),
+      ...(record.runSetup === true ? { runSetup: true } : {}),
       ...(continuationKey !== undefined ? { continuationKey } : {}),
       decisionTap: (command, decision) => this.spineTap(command, decision),
       // T40: the run carries its approval evidence from birth — who decided,
@@ -2593,6 +2616,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.subagentSandbox !== undefined ? { subagentSandbox: record.subagentSandbox } : {}),
         ...denIdWireFields(resolveDenId(record)),
         ...(record.envDigest !== undefined ? { envNames: record.envNames ?? [], envDigest: record.envDigest } : {}),
+        ...(record.runSetup === true ? { runSetup: true } : {}),
       }),
     });
   }
@@ -2867,6 +2891,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         // The follow-up runs on the model, effort and account the human already approved, not deployment defaults.
         ...(coding.route !== undefined ? { route: coding.route } : {}),
         ...(coding.authAccount !== undefined ? { authAccount: coding.authAccount } : {}),
+        // A CI fix usually needs the same environment the tests ran in.
+        ...(coding.runSetup === true ? { runSetup: true } : {}),
         createdAt: Date.now(),
       });
       this.writeApprovals(approvals);

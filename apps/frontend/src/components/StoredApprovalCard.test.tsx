@@ -71,4 +71,34 @@ describe("StoredApprovalCard", () => {
     expect(screen.getByText("Env:").parentElement?.textContent).toContain("Env: DATABASE_URL");
     expect(screen.queryByText(secret)).toBeNull();
   });
+
+  it("renders the Setup line when runSetup: true and omits it otherwise", () => {
+    const { rerender } = render(
+      <StoredApprovalCard
+        approval={{
+          ...approval,
+          runSetup: true,
+        }}
+        decided={false}
+        onDecide={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("runs .shiba/setup.json initialize")).toBeTruthy();
+    expect(screen.getByText("Setup:").parentElement?.textContent).toContain(
+      "Setup: runs .shiba/setup.json initialize",
+    );
+
+    rerender(
+      <StoredApprovalCard
+        approval={{
+          ...approval,
+          runSetup: false,
+        }}
+        decided={false}
+        onDecide={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Setup:")).toBeNull();
+    expect(screen.queryByText(/runs \.shiba\/setup\.json initialize/)).toBeNull();
+  });
 });
