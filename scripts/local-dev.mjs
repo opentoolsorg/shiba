@@ -1,17 +1,31 @@
 #!/usr/bin/env node
 /**
- * `pnpm dev` — dashboard (Vite :5173), Worker (wrangler :8788), OAuth loopback.
+ * `pnpm dev` — Worker (:8788), dashboard (Vite :5173), OAuth loopback (51121/56121).
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import {
+  DEFAULT_PERSIST,
+  DEFAULT_PORT,
+  ensureDevVars,
+  planDevSteps,
+  WRANGLER_CONFIG,
+} from "./shiba-dev-lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PORT = Number.parseInt(process.env.SHIBA_DEV_PORT ?? String(DEFAULT_PORT), 10);
+const persistAbs = resolve(ROOT, process.env.SHIBA_PERSIST_TO ?? DEFAULT_PERSIST);
 
 const children = [];
 
-function run(cmd, args, label) {
-  const child = spawn(cmd, args, { cwd: ROOT, stdio: "inherit", env: process.env });
+function run(cmd, args, label, opts = {}) {
+  const child = spawn(cmd, args, {
+    cwd: ROOT,
+    stdio: "inherit",
+    env: { ...process.env, ...opts.env },
+    ...opts,
+  });
   child.on("exit", (code, signal) => {
     if (signal) return;
     if (code !== 0 && code !== null) {
@@ -33,5 +47,47 @@ function shutdown(code = 0) {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
-run("node", ["scripts/oauth-loopback.mjs"], "oauth-loopback");
-run("pnpm", ["exec", "turbo", "run", "dev", "--filter=@shiba/backend", "--filter=@shiba/frontend"], "turbo-dev");
+ensureDevVars({ root: ROOT });
+
+spawnSync(
+  "npx",
+  [
+    "wrangler",
+    "d1",
+    "migrations",
+    "apply",
+    "shiba-audit",
+    "--local",
+    `--config=${WRANGLER_CONFIG}`,
+    `--persist-to=${persistAbs}`,
+  ],
+  { cwd: ROOT, stdio: "inherit", env: { ...process.env, CI: "1" } },
+);
+
+run("node", ["scripts/oauth-loopback.mjs"], "oauth-loopback", {
+  env: { SHIBA_WORKER_URL: `http://127.0.0.1:${PORT}` },
+});
+
+const wranglerStep = planDevSteps({
+  root: ROOT,
+  port: PORT,
+  persistTo: process.env.SHIBA_PERSIST_TO ?? DEFAULT_PERSIST,
+  skipInstall: true,
+  skipBuild: true,
+  skipImage: true,
+  containers: false,
+}).steps.find((step) => step.id === "wrangler-dev");
+
+if (wranglerStep) {
+  run(wranglerStep.cmd, wranglerStep.args, "wrangler-dev", { env: wranglerStep.env });
+}
+
+run(
+  "pnpm",
+  ["exec", "turbo", "run", "dev", "--filter=@shiba/frontend"],
+  "vite-dev",
+);
+
+console.log(
+  `[local-dev] dashboard http://localhost:5173  worker http://127.0.0.1:${PORT}  persist ${persistAbs}`,
+);

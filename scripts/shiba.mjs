@@ -303,6 +303,7 @@ async function cmdDev() {
     cwd: REPO_ROOT,
     stdio: "inherit",
     detached: false,
+    env: { ...process.env, SHIBA_WORKER_URL: `http://127.0.0.1:${port}` },
   });
   oauthLoopback.on("exit", (code) => {
     if (code !== 0 && code !== null) {

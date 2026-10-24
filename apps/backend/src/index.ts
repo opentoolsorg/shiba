@@ -49,6 +49,7 @@ import { handleV1 } from "./v1-routes.js";
 import { handleUsage } from "./usage-routes.js";
 import { handleScreenshot } from "./screenshots-routes.js";
 import { handleE2eEvidence } from "./e2e-evidence-routes.js";
+import { handleDevOAuthLoopback } from "./dev-oauth-loopback-routes.js";
 import { handleWebSessions } from "./sessions-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
@@ -331,6 +332,10 @@ export default {
       const e2eEvidenceResponse = await handleE2eEvidence(request, env);
       if (e2eEvidenceResponse) {
         return e2eEvidenceResponse;
+      }
+      const devOAuthLoopbackResponse = await handleDevOAuthLoopback(request, env);
+      if (devOAuthLoopbackResponse) {
+        return devOAuthLoopbackResponse;
       }
       const webSessionsResponse = await handleWebSessions(request, env);
       if (webSessionsResponse) {

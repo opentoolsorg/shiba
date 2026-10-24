@@ -1,12 +1,20 @@
 import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
+import { desktopCanSignInClaude, desktopCodexAuthorizationUrl } from "../desktop-provider";
 import { LoadErrorState } from "./LoadErrorState";
 import { ConnectionsCard } from "./ModelRoutingSection";
 import { providerPhaseLabel } from "./provider-phase";
 import { EmptyState, PageHeader, StatusNotice } from "./surface";
 import { ToneChip } from "./ToneChip";
 
-type CardAction = "oauth" | "setup-token" | "api-key" | "verify" | "test" | "disconnect" | "default";
+type CardAction =
+  | "oauth"
+  | "setup-token"
+  | "api-key"
+  | "verify"
+  | "test"
+  | "disconnect"
+  | "default";
 
 const SHIBA_OAUTH_CALLBACK_MESSAGE = "shiba-oauth-callback";
 
@@ -76,7 +84,13 @@ function NewTabLabel({ children }: { children: string }): JSX.Element {
   );
 }
 
-function OperatorSteps({ id, steps }: { id: string; steps: readonly string[] }): JSX.Element | null {
+function OperatorSteps({
+  id,
+  steps,
+}: {
+  id: string;
+  steps: readonly string[];
+}): JSX.Element | null {
   if (steps.length === 0) return null;
   return (
     <ol
@@ -110,6 +124,7 @@ function WaitingSignIn({
 }): JSX.Element {
   const [callbackUrl, setCallbackUrl] = useState("");
   const [credential, setCredential] = useState("");
+  const [desktopError, setDesktopError] = useState<string | null>(null);
   const device = Boolean(card.connection.userCode);
   const needsCallback =
     card.connection.signInKind === "chatgpt-pkce" ||
@@ -120,6 +135,7 @@ function WaitingSignIn({
   const steps = card.connection.operatorSteps ?? [];
   const verificationUri = card.connection.verificationUri;
   const finishRef = useRef<() => void>(() => {});
+  const codexAuthorization = desktopCodexAuthorizationUrl(verificationUri);
   function finish(): void {
     if (device && callbackUrl.trim() !== "") {
       onVerify(card.id, { callbackUrl: callbackUrl.trim() });
@@ -168,16 +184,42 @@ function WaitingSignIn({
     }, 3_000);
     return () => window.clearInterval(timer);
   }, [cursorPoll, busy, card.id]);
+  useEffect(() => {
+    if (!needsCallback || busy) return;
+    let since = 0;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/dev/oauth-loopback?since=${since}`);
+        if (!response.ok) return;
+        const data = (await response.json()) as { callbacks?: { id: number; url: string }[] };
+        for (const row of data.callbacks ?? []) {
+          since = Math.max(since, row.id);
+          if (!isProviderLoopbackCallback(row.url)) continue;
+          setCallbackUrl(row.url);
+          onVerify(card.id, { callbackUrl: row.url });
+        }
+      } catch {
+        // Worker may still be starting.
+      }
+    };
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 1_500);
+    void poll();
+    return () => window.clearInterval(timer);
+  }, [needsCallback, busy, card.id, onVerify]);
   return (
     <div className="mt-3 border border-[var(--border-1)] bg-[var(--panel)] px-3 py-3">
       <OperatorSteps id={card.id} steps={steps} />
       {device ? (
-        <p className="mt-3 font-mono text-lg tracking-[0.18em] text-[var(--fg)]">{card.connection.userCode}</p>
+        <p className="mt-3 font-mono text-lg tracking-[0.18em] text-[var(--fg)]">
+          {card.connection.userCode}
+        </p>
       ) : null}
       {needsCallback || device ? (
         <label className="mt-3 block">
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-            {device ? "Callback URL (optional)" : "Paste callback URL"}
+            {device ? "Callback URL (optional)" : "Callback URL (optional if loopback is running)"}
           </span>
           <textarea
             data-testid={`provider-callback-${card.id}`}
@@ -230,17 +272,32 @@ function WaitingSignIn({
             className={SECONDARY}
           >
             <NewTabLabel>
-              {card.connection.signInKind === "chatgpt-pkce" ? "Open ChatGPT sign-in" : "Open sign-in"}
+              {card.connection.signInKind === "chatgpt-pkce"
+                ? "Open ChatGPT sign-in"
+                : "Open sign-in"}
             </NewTabLabel>
           </a>
         ) : null}
+        {codexAuthorization && typeof window !== "undefined" && window.shibaDesktop ? (
+          <button
+            type="button"
+            data-testid={`provider-receive-${card.id}`}
+            disabled={busy}
+            onClick={() => {
+              setDesktopError(null);
+              void window.shibaDesktop?.receiveCodexCallback(codexAuthorization).then((result) => {
+                if (result.ok) onVerify(card.id, { callbackUrl: result.callbackUrl });
+                else setDesktopError(result.error);
+              });
+            }}
+            className={SECONDARY}
+          >
+            Receive callback on this computer
+          </button>
+        ) : null}
         <button
           type="button"
-          disabled={
-            busy ||
-            (needsCallback && callbackUrl.trim() === "") ||
-            (needsToken && credential.trim() === "")
-          }
+          disabled={busy || (needsToken && credential.trim() === "")}
           onClick={finish}
           className={PRIMARY}
         >
@@ -255,6 +312,11 @@ function WaitingSignIn({
           {actionLabel(busy, action, "disconnect", "Cancel", "Working…")}
         </button>
       </div>
+      {desktopError ? (
+        <p className="mt-2 text-xs text-[var(--destructive)]" role="alert">
+          {desktopError}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -275,7 +337,12 @@ function DisconnectedActions({
   onConnectApiKey: (id: string, credential?: string) => void;
 }): JSX.Element {
   const [secret, setSecret] = useState("");
+  const [desktopError, setDesktopError] = useState<string | null>(null);
   const pasteLabel = PASTE_KEY_LABEL[card.id];
+  const claudeOnDesktop = desktopCanSignInClaude(
+    typeof window === "undefined" ? undefined : window.shibaDesktop,
+    card.id,
+  );
   return (
     <div className="mt-3 flex flex-col gap-2">
       {pasteLabel ? (
@@ -295,40 +362,62 @@ function DisconnectedActions({
         </label>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
-      {card.capabilities.oauth ? (
-        <button
-          type="button"
-          data-testid={`provider-connect-oauth-${card.id}`}
-          disabled={busy}
-          onClick={() => onConnectOauth(card.id)}
-          className={PRIMARY}
-        >
-          {actionLabel(busy, action, "oauth", "Connect with sign-in", "Working…")}
-        </button>
-      ) : null}
-      {card.id === "claude" ? (
-        <button
-          type="button"
-          data-testid="provider-connect-setup-token-claude"
-          disabled={busy}
-          onClick={() => onConnectSetupToken(card.id)}
-          className={SECONDARY}
-        >
-          {actionLabel(busy, action, "setup-token", "Use setup-token (opt-in)", "Checking…")}
-        </button>
-      ) : null}
-      {card.capabilities.apiKey ? (
-        <button
-          type="button"
-          data-testid={`provider-connect-key-${card.id}`}
-          disabled={busy || (pasteLabel !== undefined && secret.trim() === "")}
-          onClick={() => onConnectApiKey(card.id, pasteLabel ? secret.trim() : undefined)}
-          className={card.capabilities.oauth ? SECONDARY : PRIMARY}
-        >
-          {actionLabel(busy, action, "api-key", "Use API credential", "Working…")}
-        </button>
-      ) : null}
+        {card.capabilities.oauth ? (
+          <button
+            type="button"
+            data-testid={`provider-connect-oauth-${card.id}`}
+            disabled={busy}
+            onClick={() => onConnectOauth(card.id)}
+            className={PRIMARY}
+          >
+            {actionLabel(busy, action, "oauth", "Connect with sign-in", "Working…")}
+          </button>
+        ) : null}
+        {claudeOnDesktop ? (
+          <button
+            type="button"
+            data-testid="provider-claude-login"
+            disabled={busy}
+            onClick={() => {
+              setDesktopError(null);
+              void window.shibaDesktop?.startClaudeLogin().then((result) => {
+                if (result.ok) onConnectOauth(card.id);
+                else setDesktopError(result.error);
+              });
+            }}
+            className={SECONDARY}
+          >
+            {actionLabel(busy, action, "oauth", "Sign in with Claude Code", "Working…")}
+          </button>
+        ) : null}
+        {card.id === "claude" ? (
+          <button
+            type="button"
+            data-testid="provider-connect-setup-token-claude"
+            disabled={busy}
+            onClick={() => onConnectSetupToken(card.id)}
+            className={SECONDARY}
+          >
+            {actionLabel(busy, action, "setup-token", "Use setup-token (opt-in)", "Checking…")}
+          </button>
+        ) : null}
+        {card.capabilities.apiKey ? (
+          <button
+            type="button"
+            data-testid={`provider-connect-key-${card.id}`}
+            disabled={busy || (pasteLabel !== undefined && secret.trim() === "")}
+            onClick={() => onConnectApiKey(card.id, pasteLabel ? secret.trim() : undefined)}
+            className={card.capabilities.oauth ? SECONDARY : PRIMARY}
+          >
+            {actionLabel(busy, action, "api-key", "Use API credential", "Working…")}
+          </button>
+        ) : null}
       </div>
+      {desktopError ? (
+        <p className="text-xs text-[var(--destructive)]" role="alert">
+          {desktopError}
+        </p>
+      ) : null}
     </div>
   );
 }
