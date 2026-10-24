@@ -262,11 +262,11 @@ export const delegateInputSchema = z.object({
     .describe(
       "Coding agent harness. Defaults to the deployment's AGENT_HARNESS, else opencode. " +
         "API-key harnesses: claude-code needs an anthropic/* model; codex an openai/* model; " +
-        "devin a devin/* model; grok an xai/* model. Subscription harnesses use their " +
+        "grok an xai/* model. Subscription harnesses use their " +
         "<provider>-subscription/* model namespace and are only registered when the matching " +
         "SHIBA_*_SUBSCRIPTION=1 flag is set (anthropic-subscription, openai-subscription, " +
-        "google-subscription, cursor-subscription, devin-subscription). ACP lanes " +
-        "(claude-acp, codex-acp, gemini-acp, opencode-acp, devin-acp) drive the pinned " +
+        "google-subscription, cursor-subscription). ACP lanes " +
+        "(claude-acp, codex-acp, gemini-acp, opencode-acp) drive the pinned " +
         "CLIs through the Agent Client Protocol in-container.",
     ),
   role: z
@@ -818,8 +818,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       "You never edit repositories yourself. When the user describes a coding task,",
       "call delegate_coding_task with the repository URL and the task.",
       "Pass the harness id the user asked for verbatim when they name one (API-key lanes like",
-      "opencode, claude-code, codex, devin, grok; *-subscription lanes; ACP lanes like claude-acp,",
-      "codex-acp, gemini-acp, opencode-acp, devin-acp), a codingModel as provider/model when they",
+      "opencode, claude-code, codex, grok; *-subscription lanes; ACP lanes like claude-acp,",
+      "codex-acp, gemini-acp, opencode-acp), a codingModel as provider/model when they",
       "name a model, and a connectionId (conn_*) when they pick a model connection; otherwise leave",
       "them unset.",
       "The tool requires human approval before anything runs: summarize exactly",
@@ -2876,6 +2876,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           : await this.pullHeadSha(repo.split("/")[0]!, repo.split("/")[1]!, pullNumber);
       await this.queueReviewForCodingRun(coding, headSha);
       return Response.json({ ok: true, wake: wake.kind, queued: "review" });
+    }
+    // T68: the parent's sealed env was discarded when it went terminal; refuse rather than run the follow-up without it.
+    if (coding.envDigest !== undefined) {
+      return Response.json({ ok: true, wake: wake.kind, skipped: "environment_discarded" });
     }
     const task = wakeFollowUpTask(wake.kind, { repo, pullNumber, headSha: mapped.headSha });
     const approvalId = `wake:${wake.kind}:${repo}:${pullNumber}:${Date.now()}`;

@@ -287,6 +287,31 @@ describe("runtime", () => {
     expect(JSON.stringify(result)).not.toContain(SECRET.slice(9));
   });
 
+  it("scrubs complete output lines before a harness parser truncates them", async () => {
+    const messages: string[] = [];
+    const ops = {
+      async gitCheckout() {},
+      async writeFile() {},
+      async exec(command: string, opts?: Parameters<SandboxOps["exec"]>[1]) {
+        if (command.includes("opencode")) {
+          opts?.onOutput?.("stdout", `${SECRET}${"y".repeat(490)}\n`);
+        }
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+      async readFile() {
+        return { kind: "utf8", content: "" };
+      },
+    } as unknown as SandboxOps;
+    const harness = Object.assign(Object.create(opencodeHarness) as typeof opencodeHarness, {
+      parseEvent: (line: string) => ({ kind: "text" as const, text: line.slice(-500) }),
+    });
+    await new SandboxRuntimeAdapter(harness).runCodingTask(ops, INPUT, (event) => {
+      messages.push(event.message);
+    }, { env: { DATABASE_URL: SECRET }, scrub: runEnvScrubber({ DATABASE_URL: SECRET }) });
+    expect(messages.some((message) => message.includes("[opencode]"))).toBe(true);
+    expect(messages.join("\n")).not.toContain(SECRET.slice(-10));
+  });
+
   it("the local adapter refuses env", async () => {
     const adapter = new LocalRuntimeAdapter(opencodeHarness, { client: {} as LocalDispatchClient });
     const result = await adapter.runCodingTask({} as SandboxOps, INPUT, () => {}, { env: { A: "1" } });
@@ -318,6 +343,8 @@ describe("leak guard", () => {
   it("fails the run and drops a change that contains an approved value", () => {
     for (const leak of [
       { diff: `+const url = "${SECRET}";` },
+      { diff: `+++${SECRET}` },
+      { diff: `+++ ${SECRET}` },
       { files: [{ path: "b.bin", content: btoa(`raw ${SECRET}`), encoding: "base64" as const }] },
     ]) {
       const guarded = guardRunEnvLeak({ ...RESULT, ...leak }, values);

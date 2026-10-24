@@ -1,8 +1,4 @@
-/**
- * T68: per-run env values sealed under MODEL_CREDENTIAL_KEY. The digest is a
- * keyed HMAC, so a stored record can't confirm a guessed value offline; the
- * AAD binds a blob to its owning orchestrator and that digest.
- */
+// HMAC prevents offline guessing; AES-GCM binds sealed values to the owner and digest.
 import { parseRunEnv, type RunEnvVar } from "@shiba/shared";
 import type { Env } from "./env.js";
 import type { CodingTaskResult } from "./opencode-input.js";
@@ -97,11 +93,11 @@ function runEnvLeakName(text: string, values: Record<string, string>): string | 
   return valueForms(values).find(([, form]) => text.includes(form))?.[0];
 }
 
-/** Only lines the change adds — a value already in the repo (a local dev URL) isn't a leak. */
+// Include +++ headers: added content starting with ++ is indistinguishable without parsing hunks.
 function addedLines(diff: string): string {
   return diff
     .split("\n")
-    .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+    .filter((line) => line.startsWith("+"))
     .join("\n");
 }
 
@@ -110,11 +106,7 @@ export function runEnvDiffLeakName(diff: string, values: Record<string, string>)
   return runEnvLeakName(addedLines(diff), values);
 }
 
-/**
- * Scrub every text field a result carries out of the sandbox. A diff or file
- * holding an approved value can't be scrubbed without corrupting the change,
- * so the run fails and the change is dropped instead of returned or published.
- */
+// Redacting file contents would corrupt the change; fail and drop it instead.
 export function guardRunEnvLeak(result: CodingTaskResult, values: Record<string, string>): CodingTaskResult {
   const scrub = runEnvScrubber(values);
   const scrubbed: CodingTaskResult = {
