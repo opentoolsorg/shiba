@@ -10,6 +10,7 @@
  * DEVIN_API_KEY Worker secret, whose presence IS observable (never the value).
  */
 import type { Env } from "../env.js";
+import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
 import { HARNESS_DEFAULT_MODELS, HARNESS_NAMES, sandboxHarnessNames } from "./index.js";
 
 export interface AgentCliCredential {
@@ -93,7 +94,7 @@ const GATEWAY_PROVIDER: Record<string, string> = {
  * values never leave the Worker.
  */
 export function agentCliCatalog(
-  env: Pick<Env, "DEVIN_API_KEY" | "SHIBA_CLAUDE_SUBSCRIPTION" | "CLAUDE_SUBSCRIPTION_TOKEN" | "SHIBA_CODEX_SUBSCRIPTION" | "CODEX_SUBSCRIPTION_AUTH_JSON" | "SHIBA_ANTIGRAVITY_SUBSCRIPTION" | "SHIBA_CURSOR_SUBSCRIPTION" | "CURSOR_SUBSCRIPTION_TOKEN" | "SHIBA_DEVIN_SUBSCRIPTION" | "DEVIN_SUBSCRIPTION_TOKEN" | "ACP_REGISTRY_ALLOWLIST">,
+  env: Pick<Env, "DEVIN_API_KEY" | "SHIBA_CLAUDE_SUBSCRIPTION" | "CLAUDE_SUBSCRIPTION_TOKEN" | "SHIBA_CODEX_SUBSCRIPTION" | "CODEX_SUBSCRIPTION_AUTH_JSON" | "MODEL_CREDENTIAL_KEY" | "SHIBA_ANTIGRAVITY_SUBSCRIPTION" | "SHIBA_CURSOR_SUBSCRIPTION" | "CURSOR_SUBSCRIPTION_TOKEN" | "SHIBA_DEVIN_SUBSCRIPTION" | "DEVIN_SUBSCRIPTION_TOKEN" | "ACP_REGISTRY_ALLOWLIST">,
 ): AgentCliInfo[] {
   return sandboxHarnessNames(env).map((id) => {
     const meta = CATALOG_META[id];
@@ -125,8 +126,10 @@ export function agentCliCatalog(
             ? {
                 kind: "worker-secret",
                 label: "CODEX_SUBSCRIPTION_AUTH_JSON",
-                configured: Boolean(env.CODEX_SUBSCRIPTION_AUTH_JSON),
-                setupHint: "codex login, then npx wrangler secret put CODEX_SUBSCRIPTION_AUTH_JSON < ~/.codex/auth.json",
+                configured:
+                  Boolean(env.CODEX_SUBSCRIPTION_AUTH_JSON) || modelCredentialKeyConfigured(env),
+                setupHint:
+                  "Connect Codex on Providers (MODEL_CREDENTIAL_KEY + Sign in with ChatGPT), or codex login then npx wrangler secret put CODEX_SUBSCRIPTION_AUTH_JSON < ~/.codex/auth.json",
               }
             : id === "antigravity-subscription"
               ? {

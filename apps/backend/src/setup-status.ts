@@ -32,13 +32,17 @@ export interface SetupStatus {
 
 /** HEAD the resolved gateway URL: distinguishes reachable/401/other without a body. */
 async function probeGateway(env: Env): Promise<SetupStatus["gateway"]["reachable"]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2_500);
   try {
     const url = await env.AI.gateway(env.GATEWAY_ID || "default").getUrl("google-ai-studio");
-    const response = await fetch(url, { method: "HEAD" });
+    const response = await fetch(url, { method: "HEAD", signal: controller.signal });
     if (response.status === 401 || response.status === 403) return "unauthorized";
     return response.status < 500 ? "yes" : "error";
   } catch {
     return "error";
+  } finally {
+    clearTimeout(timer);
   }
 }
 

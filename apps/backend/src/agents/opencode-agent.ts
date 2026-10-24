@@ -287,12 +287,19 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                   throw new Error(body?.error ?? "ChatGPT plan access is not available for this user.");
                 }
                 const access = (await accessResponse.json()) as {
-                  accessToken: string;
+                  accessToken?: unknown;
                   threadId?: string | null;
+                  planUsageEnabled?: boolean;
                 };
+                if (typeof access.accessToken !== "string" || access.accessToken === "" || access.planUsageEnabled === false) {
+                  throw new Error(
+                    access.planUsageEnabled === false
+                      ? "ChatGPT is connected but plan usage is disabled. Re-consent in Providers."
+                      : "ChatGPT plan access is not available for this user.",
+                  );
+                }
                 runInput = {
                   ...input,
-                  chatgptAccessToken: access.accessToken,
                   ...(access.threadId ? { chatgptThreadId: access.threadId } : {}),
                 };
               }

@@ -89,6 +89,16 @@ export interface TaskComposerProps {
 const HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = [
   { value: "opencode", label: "OpenCode", desc: "Default autonomous coding engine" },
   { value: "claude-code", label: "Claude Code", desc: "Anthropic Claude Code CLI" },
+  {
+    value: "codex-subscription",
+    label: "Codex (ChatGPT plan)",
+    desc: "Your ChatGPT subscription — no AI Gateway token",
+  },
+  {
+    value: "claude-subscription",
+    label: "Claude (setup-token)",
+    desc: "Opt-in setup-token. Prefer Local + Claude Code",
+  },
   { value: "pi", label: "Pi", desc: "Earendil Pi agent — Anthropic, OpenAI, Google, xAI" },
 ];
 

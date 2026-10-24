@@ -117,9 +117,12 @@ export interface AppNavRailProps {
 
 export function workspaceLabel(accountEmail: string | null | undefined): { name: string; detail: string } {
   const email = accountEmail?.trim();
-  if (!email) return { name: "Operator", detail: "This workspace" };
-  const name = email.split("@")[0] || "Operator";
-  return { name, detail: "This workspace" };
+  if (!email) return { name: "Signed in", detail: "This workspace" };
+  if (email.includes("@")) {
+    const name = email.split("@")[0] || email;
+    return { name, detail: email };
+  }
+  return { name: email, detail: "This workspace" };
 }
 
 const ICONS: Record<AppNavView, LucideIcon> = {

@@ -14,15 +14,24 @@ export interface AcpProviderCapabilities {
 export type AcpConnectionPhase = "disconnected" | "waiting" | "connected" | "failed";
 export type AcpAuthMode = "oauth" | "api-key";
 
+/** How a waiting or connected sign-in was started. Never a locally invented device code. */
+export const ACP_SIGN_IN_KINDS = ["chatgpt-pkce", "claude-daemon", "claude-setup-token"] as const;
+export type AcpSignInKind = (typeof ACP_SIGN_IN_KINDS)[number];
+
 export interface AcpProviderConnection {
   phase: AcpConnectionPhase;
   authMode: AcpAuthMode | null;
   message: string | null;
+  /** Unused by the current sign-in flows. Older rows may still carry a retired local code. */
   userCode: string | null;
+  /** Real vendor authorize URL when a ChatGPT PKCE sign-in is waiting. Never a marketing homepage. */
   verificationUri: string | null;
   expiresAt: number | null;
   testedAt: number | null;
   testOk: boolean | null;
+  signInKind?: AcpSignInKind | null;
+  /** Exact operator steps when the lane cannot connect, or the remaining steps while it is waiting. */
+  operatorSteps?: string[];
 }
 
 export interface AcpProviderCard {

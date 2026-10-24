@@ -49,7 +49,7 @@ export function PurposeRoutingCard(): JSX.Element {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const policyModels = state.kind === "data" ? state.data.policy.models : {};
+  const policyModels = state.kind === "data" ? (state.data.policy?.models ?? {}) : {};
   const value = (purpose: string) => (draft ? (draft[purpose] ?? "") : (policyModels[purpose] ?? ""));
 
   const save = async () => {

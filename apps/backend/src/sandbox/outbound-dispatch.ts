@@ -7,6 +7,7 @@ import {
   denyUnscopedGitHub,
   forwardAnthropic,
   forwardClaudeSubscription,
+  forwardCodexPlan,
   forwardCodexSubscription,
   forwardCursorSubscription,
   forwardDevinApi,
@@ -42,6 +43,8 @@ function namedHandler(
       return forwardClaudeSubscription;
     case "codexSubscription":
       return forwardCodexSubscription;
+    case "codexPlan":
+      return forwardCodexPlan;
     case "cursorSubscription":
       return forwardCursorSubscription;
     case "devinSubscription":

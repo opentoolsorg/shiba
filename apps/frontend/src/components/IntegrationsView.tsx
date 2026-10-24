@@ -85,8 +85,9 @@ function IntegrationGroup({
   );
 }
 
-function slackChip(slack: SetupStatus["slack"] | undefined): JSX.Element {
-  if (!slack) return <ToneChip tone="neutral" label="Checking…" />;
+function slackChip(slack: SetupStatus["slack"] | undefined, loading: boolean): JSX.Element {
+  if (loading) return <ToneChip tone="neutral" label="Checking…" />;
+  if (!slack) return <ToneChip tone="neutral" label="Not set up" />;
   const configured = slack.signingSecret && slack.botToken && slack.approvers > 0;
   const partial =
     slack.signingSecret || slack.botToken || slack.approvers > 0 || slack.channelRepos;
@@ -95,16 +96,18 @@ function slackChip(slack: SetupStatus["slack"] | undefined): JSX.Element {
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
-function githubChip(github: SetupStatus["github"] | undefined): JSX.Element {
-  if (!github) return <ToneChip tone="neutral" label="Checking…" />;
+function githubChip(github: SetupStatus["github"] | undefined, loading: boolean): JSX.Element {
+  if (loading) return <ToneChip tone="neutral" label="Checking…" />;
+  if (!github) return <ToneChip tone="neutral" label="Not set up" />;
   if (github.publish && github.webhookSecret) return <ToneChip tone="ok" label="Connected" />;
   if (github.publish || github.webhookSecret || github.app)
     return <ToneChip tone="pending" label="Partially set up" />;
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
-function linearChip(linear: SetupStatus["linear"] | undefined): JSX.Element {
-  if (!linear) return <ToneChip tone="neutral" label="Checking…" />;
+function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean): JSX.Element {
+  if (loading) return <ToneChip tone="neutral" label="Checking…" />;
+  if (!linear) return <ToneChip tone="neutral" label="Not set up" />;
   if (linear.webhookSecret && linear.apiToken && linear.defaultRepo) {
     return <ToneChip tone="ok" label="Configured (mock)" />;
   }
@@ -123,6 +126,7 @@ export function IntegrationsView({
   const mailboxes = useMailboxes();
 
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
+  const loading = setup.state.kind === "loading";
   const mailboxList = mailboxes.state.kind === "data" ? mailboxes.state.data.mailboxes : undefined;
 
   const failed = setup.state.kind === "error" ? setup.state : null;
@@ -153,7 +157,7 @@ export function IntegrationsView({
           >
             <IntegrationRow
               name="GitHub"
-              status={githubChip(status?.github)}
+              status={githubChip(status?.github, loading)}
               action={
                 status && !(status.github.publish && status.github.webhookSecret)
                   ? {
@@ -175,7 +179,7 @@ export function IntegrationsView({
             </IntegrationRow>
             <IntegrationRow
               name="Linear"
-              status={linearChip(status?.linear)}
+              status={linearChip(status?.linear, loading)}
               action={{
                 label: "Agent docs ↗",
                 href: "/docs/linear-agent-session/",
@@ -195,7 +199,7 @@ export function IntegrationsView({
           >
             <IntegrationRow
               name="Slack"
-              status={slackChip(status?.slack)}
+              status={slackChip(status?.slack, loading)}
               action={
                 status && !(status.slack.signingSecret && status.slack.botToken)
                   ? { label: "Open Slack apps ↗", href: "https://api.slack.com/apps" }
@@ -244,7 +248,7 @@ export function IntegrationsView({
                 mailboxList === undefined ? (
                   <ToneChip
                     tone="neutral"
-                    label={mailboxes.state.kind === "error" ? "Status error" : "Checking…"}
+                    label={mailboxes.state.kind === "error" ? "Status error" : mailboxes.state.kind === "loading" ? "Checking…" : "Not set up"}
                   />
                 ) : mailboxList.length > 0 ? (
                   <ToneChip tone="ok" label={`${mailboxList.length} connected`} />

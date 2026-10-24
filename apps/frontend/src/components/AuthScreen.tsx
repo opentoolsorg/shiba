@@ -10,6 +10,7 @@
 import { useState, type FormEvent, type JSX } from "react";
 import { authClient } from "../auth-client";
 import { signInReturnPath } from "../auth-next";
+import { ShibaMark } from "./ShibaMark";
 
 export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Element {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -61,11 +62,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
   return (
     <div className="h-dvh bg-[var(--bg)] text-[var(--fg)] font-sans flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] max-w-sm w-full p-6 shadow-[var(--sh-overlay)] flex flex-col items-center text-center gap-3">
-        <img
-          src="/assets/mascot/pet-logo.png"
-          alt="Shiba"
-          className="size-14 rounded-full bg-white object-contain border border-[var(--primary)]/40"
-        />
+        <ShibaMark />
         <h1 className="text-xl">
           {mode === "signup" ? "Create the dashboard account" : "Sign in to continue"}
         </h1>

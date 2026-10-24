@@ -6,6 +6,7 @@
  * `cloudflare:` builtins and cannot be loaded by the node test runner.
  */
 import type { Env as WorkerEnv } from "./env.js";
+import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
 import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
@@ -24,6 +25,7 @@ export type EgressEnv = Pick<
   | "MODEL_CREDENTIAL_KEY"
   | "SHIBA_SINGLE_USER"
   | "AGENT_AUDIT"
+  | "ChatGptAuth"
 >;
 
 /**
@@ -240,6 +242,61 @@ export async function forwardClaudeSubscription(
  * Harness runs mount auth.json in the sandbox (chatgpt.com bot-challenges
  * Worker fetches — 2026-10-19). Deny-by-default path pin for verify probes.
  */
+/**
+ * ChatGPT plan inference for `codex-subscription`. The container's
+ * ACCESS_TOKEN is a placeholder. This handler loads the per-user token from
+ * ChatGptAuth and attaches it here — never in the sandbox, logs, or the UI.
+ */
+export async function forwardCodexPlan(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx,
+): Promise<Response> {
+  const target = new URL(request.url);
+  if (
+    target.protocol !== "https:" ||
+    target.hostname !== "api.openai.com" ||
+    target.port !== "" ||
+    !target.pathname.startsWith("/v1/") ||
+    target.username !== "" ||
+    target.password !== ""
+  ) {
+    return new Response("Invalid subscription destination.", { status: 403 });
+  }
+  if (request.method !== "GET" && request.method !== "POST") {
+    return new Response("Method not allowed.", { status: 405 });
+  }
+  const params = (ctx?.params ?? {}) as Record<string, unknown>;
+  const userId = typeof params.userId === "string" ? params.userId.trim() : "";
+  if (userId === "" || !env.ChatGptAuth) {
+    return new Response("No ChatGPT plan is connected for this run.", { status: 503 });
+  }
+  const access = await chatGptAuthStub(env, userId).fetch("https://chatgpt-auth.internal/access");
+  if (!access.ok) {
+    return new Response("ChatGPT plan access is not available for this run.", { status: 503 });
+  }
+  const body = (await access.json().catch(() => null)) as {
+    accessToken?: unknown;
+    planUsageEnabled?: unknown;
+  } | null;
+  if (typeof body?.accessToken !== "string" || body.accessToken === "" || body.planUsageEnabled === false) {
+    return new Response("ChatGPT plan access is not available for this run.", { status: 503 });
+  }
+  target.search = stripCredentialParams(target.search);
+  const headers = outboundHeaders(request);
+  headers.set("Authorization", `Bearer ${body.accessToken}`);
+  try {
+    return await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "POST" ? request.body : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    return new Response("Subscription request failed.", { status: 502 });
+  }
+}
+
 export async function forwardCodexSubscription(
   request: Request,
   env: EgressEnv,

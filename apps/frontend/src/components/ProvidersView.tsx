@@ -6,7 +6,7 @@ import { providerPhaseLabel } from "./provider-phase";
 import { EmptyState, PageHeader, StatusNotice } from "./surface";
 import { ToneChip } from "./ToneChip";
 
-type CardAction = "oauth" | "api-key" | "verify" | "test" | "disconnect" | "default";
+type CardAction = "oauth" | "setup-token" | "api-key" | "verify" | "test" | "disconnect" | "default";
 
 function actionLabel(
   busy: boolean,
@@ -63,6 +63,20 @@ function NewTabLabel({ children }: { children: string }): JSX.Element {
   );
 }
 
+function OperatorSteps({ id, steps }: { id: string; steps: readonly string[] }): JSX.Element | null {
+  if (steps.length === 0) return null;
+  return (
+    <ol
+      data-testid={`provider-steps-${id}`}
+      className="mt-2 list-decimal space-y-1 pl-4 font-mono text-[11px] leading-relaxed text-[var(--fg)]"
+    >
+      {steps.map((step) => (
+        <li key={step}>{step}</li>
+      ))}
+    </ol>
+  );
+}
+
 function WaitingSignIn({
   card,
   busy,
@@ -73,32 +87,50 @@ function WaitingSignIn({
   card: AcpProviderCard;
   busy: boolean;
   action: CardAction | null;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, callbackUrl: string) => void;
   onDisconnect: (id: string) => void;
 }): JSX.Element {
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const needsCallback = card.connection.signInKind === "chatgpt-pkce";
+  const steps = card.connection.operatorSteps ?? [];
   return (
     <div className="mt-3 border border-[var(--border-1)] bg-[var(--panel)] px-3 py-3">
-      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-        Confirmation code
-      </p>
-      <p
-        data-testid={`provider-user-code-${card.id}`}
-        className="mt-1 font-mono text-lg tracking-[0.18em] text-[var(--fg)]"
-      >
-        {card.connection.userCode}
-      </p>
+      <OperatorSteps id={card.id} steps={steps} />
+      {needsCallback ? (
+        <label className="mt-3 block">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            Paste callback URL
+          </span>
+          <textarea
+            data-testid={`provider-callback-${card.id}`}
+            className="mt-1 min-h-[72px] w-full border border-[var(--border-1)] bg-[var(--card)] p-2 font-mono text-[11px] text-[var(--fg)]"
+            value={callbackUrl}
+            onChange={(event) => setCallbackUrl(event.target.value)}
+            placeholder="http://127.0.0.1:52841/auth/callback?state=…&code=…"
+            disabled={busy}
+          />
+        </label>
+      ) : null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {card.connection.verificationUri ? (
           <a
             href={card.connection.verificationUri}
+            data-testid={`provider-authorize-${card.id}`}
             target="_blank"
             rel="noopener noreferrer"
             className={SECONDARY}
           >
-            <NewTabLabel>Open sign-in</NewTabLabel>
+            <NewTabLabel>
+              {card.connection.signInKind === "chatgpt-pkce" ? "Open ChatGPT sign-in" : "Open sign-in"}
+            </NewTabLabel>
           </a>
         ) : null}
-        <button type="button" disabled={busy} onClick={() => onVerify(card.id)} className={PRIMARY}>
+        <button
+          type="button"
+          disabled={busy || (needsCallback && callbackUrl.trim() === "")}
+          onClick={() => onVerify(card.id, callbackUrl.trim())}
+          className={PRIMARY}
+        >
           {actionLabel(busy, action, "verify", "Finish sign-in", "Checking…")}
         </button>
         <button
@@ -119,12 +151,14 @@ function DisconnectedActions({
   busy,
   action,
   onConnectOauth,
+  onConnectSetupToken,
   onConnectApiKey,
 }: {
   card: AcpProviderCard;
   busy: boolean;
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
+  onConnectSetupToken: (id: string) => void;
   onConnectApiKey: (id: string) => void;
 }): JSX.Element {
   return (
@@ -138,6 +172,17 @@ function DisconnectedActions({
           className={PRIMARY}
         >
           {actionLabel(busy, action, "oauth", "Connect with sign-in", "Working…")}
+        </button>
+      ) : null}
+      {card.id === "claude" ? (
+        <button
+          type="button"
+          data-testid="provider-connect-setup-token-claude"
+          disabled={busy}
+          onClick={() => onConnectSetupToken(card.id)}
+          className={SECONDARY}
+        >
+          {actionLabel(busy, action, "setup-token", "Use setup-token (opt-in)", "Checking…")}
         </button>
       ) : null}
       {card.capabilities.apiKey ? (
@@ -210,14 +255,15 @@ function ProviderActions(props: {
   busy: boolean;
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
+  onConnectSetupToken: (id: string) => void;
   onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, callbackUrl: string) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
 }): JSX.Element {
   const { card, action } = props;
-  if (card.connection.phase === "waiting" && card.connection.userCode) {
+  if (card.connection.phase === "waiting") {
     return (
       <WaitingSignIn
         card={card}
@@ -246,6 +292,7 @@ function ProviderActions(props: {
       busy={props.busy}
       action={action}
       onConnectOauth={props.onConnectOauth}
+      onConnectSetupToken={props.onConnectSetupToken}
       onConnectApiKey={props.onConnectApiKey}
     />
   );
@@ -257,6 +304,7 @@ function ProviderCard({
   busy,
   action,
   onConnectOauth,
+  onConnectSetupToken,
   onConnectApiKey,
   onVerify,
   onTest,
@@ -268,8 +316,9 @@ function ProviderCard({
   busy: boolean;
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
+  onConnectSetupToken: (id: string) => void;
   onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, callbackUrl: string) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -306,11 +355,15 @@ function ProviderCard({
             {card.connection.message}
           </p>
         ) : null}
+        {card.connection.phase === "waiting" ? null : (
+          <OperatorSteps id={card.id} steps={card.connection.operatorSteps ?? []} />
+        )}
         <ProviderActions
           card={card}
           busy={busy}
           action={action}
           onConnectOauth={onConnectOauth}
+          onConnectSetupToken={onConnectSetupToken}
           onConnectApiKey={onConnectApiKey}
           onVerify={onVerify}
           onTest={onTest}
@@ -362,6 +415,7 @@ function AdapterBody({
   busyId,
   busyAction = null,
   onConnectOauth,
+  onConnectSetupToken,
   onConnectApiKey,
   onVerify,
   onTest,
@@ -373,8 +427,9 @@ function AdapterBody({
   busyId: string | null;
   busyAction?: CardAction | null;
   onConnectOauth: (id: string) => void;
+  onConnectSetupToken: (id: string) => void;
   onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, callbackUrl: string) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -407,6 +462,7 @@ function AdapterBody({
           busy={busyId === card.id}
           action={busyId === card.id ? busyAction : null}
           onConnectOauth={onConnectOauth}
+          onConnectSetupToken={onConnectSetupToken}
           onConnectApiKey={onConnectApiKey}
           onVerify={onVerify}
           onTest={onTest}
@@ -427,6 +483,7 @@ export function ProvidersBoard({
   actionError,
   onRetry,
   onConnectOauth,
+  onConnectSetupToken,
   onConnectApiKey,
   onVerify,
   onTest,
@@ -441,8 +498,9 @@ export function ProvidersBoard({
   actionError: string | null;
   onRetry: () => void;
   onConnectOauth: (id: string) => void;
+  onConnectSetupToken: (id: string) => void;
   onConnectApiKey: (id: string) => void;
-  onVerify: (id: string) => void;
+  onVerify: (id: string, callbackUrl: string) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -462,7 +520,7 @@ export function ProvidersBoard({
     >
       <PageHeader
         title="Providers"
-        detail="Sandbox adapters for Claude Code, Codex, Gemini, Grok, and OpenCode. Sign in, or use a worker secret. Keys are never pasted here."
+        detail="Codex uses your ChatGPT plan. Claude runs on a paired computer. Gemini, Grok, and OpenCode need AI Gateway. Keys are never pasted here."
       >
         {defaultLabel ? (
           <span
@@ -500,6 +558,7 @@ export function ProvidersBoard({
                 busyId={busyId}
                 busyAction={busyAction}
                 onConnectOauth={onConnectOauth}
+                onConnectSetupToken={onConnectSetupToken}
                 onConnectApiKey={onConnectApiKey}
                 onVerify={onVerify}
                 onTest={onTest}
@@ -580,9 +639,6 @@ export function ProvidersView(): JSX.Element {
     [],
   );
 
-  const codeFor = (id: string) =>
-    snapshot?.providers.find((provider) => provider.id === id)?.connection.userCode ?? "";
-
   return (
     <ProvidersBoard
       snapshot={snapshot}
@@ -595,14 +651,19 @@ export function ProvidersView(): JSX.Element {
       onConnectOauth={(id) =>
         void run(id, "oauth", () => postProvider(`/api/providers/${id}/connect`, { mode: "oauth" }))
       }
+      onConnectSetupToken={(id) =>
+        void run(id, "setup-token", () =>
+          postProvider(`/api/providers/${id}/connect`, { mode: "setup-token" }),
+        )
+      }
       onConnectApiKey={(id) =>
         void run(id, "api-key", () =>
           postProvider(`/api/providers/${id}/connect`, { mode: "api-key" }),
         )
       }
-      onVerify={(id) =>
+      onVerify={(id, callbackUrl) =>
         void run(id, "verify", () =>
-          postProvider(`/api/providers/${id}/verify`, { userCode: codeFor(id) }),
+          postProvider(`/api/providers/${id}/verify`, callbackUrl === "" ? {} : { callbackUrl }),
         )
       }
       onTest={(id) => void run(id, "test", () => postProvider(`/api/providers/${id}/test`, {}))}
