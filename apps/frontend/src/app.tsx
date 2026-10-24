@@ -399,6 +399,7 @@ export function App(): React.JSX.Element {
   });
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
+  const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
   const { agents: customAgentRecords } = useCustomAgentOptions();
@@ -1024,6 +1025,10 @@ export function App(): React.JSX.Element {
           setNotice("Environment variables aren't supported for runs on this computer yet.");
           return;
         }
+        if (runSetup) {
+          setNotice("Repo setup isn't supported for runs on this computer yet.");
+          return;
+        }
         setNotice(null);
         // GAP-3 (DESKTOP-PLAN §11.5): submit through POST /api/runs with
         // runtime:"local" — handleRuns stamps the dashboard intake voucher
@@ -1171,6 +1176,7 @@ export function App(): React.JSX.Element {
         ...(codingModel.trim() ? [`Coding model: ${codingModel.trim()}`] : []),
         ...(effort ? [`Reasoning effort: ${effort}`] : []),
         ...(sealedEnv ? [`Environment variables: ${sealedEnv.names.join(", ")}`] : []),
+        ...(runSetup ? ["Run repo setup: yes"] : []),
         ...(connectionId.trim() ? [`Model connection: ${connectionId.trim()}`] : []),
         `Open a pull request with the result: ${publishPullRequest ? "yes" : "no"}`,
         ...(publishPullRequest
@@ -1207,6 +1213,7 @@ export function App(): React.JSX.Element {
               ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
               ...(effort ? { reasoningEffort: effort } : {}),
               ...(sealedEnv ? { environment: { sealed: sealedEnv.sealed, digest: sealedEnv.digest } } : {}),
+              ...(runSetup ? { runSetup: true } : {}),
               ...(customAgentId ? { customAgentId } : {}),
             },
           },
@@ -1235,6 +1242,7 @@ export function App(): React.JSX.Element {
       task,
       publishPullRequest,
       reviewAfterPublish,
+      runSetup,
       harness,
       customAgentId,
       codingModel,
@@ -2463,6 +2471,8 @@ export function App(): React.JSX.Element {
                       if (value) setReviewAfterPublish(true);
                     }}
                     onReviewAfterPublishChange={setReviewAfterPublish}
+                    runSetup={runSetup}
+                    onRunSetupChange={setRunSetup}
                     onHarnessChange={setHarness}
                     customAgents={customAgentPickerOptions}
                     customAgentId={customAgentId}

@@ -99,6 +99,8 @@ export interface TaskComposerProps {
   baseBranch: string;
   publishPullRequest: boolean;
   reviewAfterPublish?: boolean;
+  runSetup?: boolean;
+  onRunSetupChange?: (value: boolean) => void;
   harness: string;
   /** T63 — desktop "Run on" control. Rendered only when the shell reports a
    *  paired, ready daemon (localRunAvailable). "sandbox" keeps the chat path. */
@@ -264,6 +266,7 @@ export function TaskComposer({
   baseBranch,
   publishPullRequest,
   reviewAfterPublish = false,
+  runSetup = false,
   harness,
   runTarget = "sandbox",
   onRunTargetChange,
@@ -277,6 +280,7 @@ export function TaskComposer({
   onBaseBranchChange,
   onPublishPullRequestChange,
   onReviewAfterPublishChange,
+  onRunSetupChange,
   onHarnessChange,
   onSubmit,
   onClear,
@@ -1058,6 +1062,23 @@ export function TaskComposer({
                   {reviewAfterPublish ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
                 </button>
               ) : null}
+
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={runSetup}
+                aria-label="Run repo setup"
+                className="flex items-center gap-2 text-xs text-[var(--fg)] hover:bg-[var(--secondary-hover)] p-1.5 rounded-[var(--radius-button)] transition-colors cursor-pointer text-left"
+                onClick={() => onRunSetupChange?.(!runSetup)}
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block">Run repo setup</span>
+                  <span className="block text-[10px] text-[var(--muted-foreground-2)]">
+                    Runs .shiba/setup.json initialize before the agent
+                  </span>
+                </span>
+                {runSetup ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+              </button>
 
               {onCustomAgentChange && customAgents.length > 0 ? (
                 <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">

@@ -32,6 +32,7 @@ import { OpenCodeErrorEvent as OpenCodeErrorEventImpl, opencodeHarness } from ".
 import { HARNESS_RETRY, withRetry } from "./harness/retry.js";
 import type { AgentHarness } from "./harness/types.js";
 import { boundTail, redactSecrets, shellJoin, shellQuote } from "./security.js";
+import { runRepoSetup, setupOverlap } from "./repo-setup.js";
 import { DUMMY_PROVIDER_KEY } from "./provider-gateway.js";
 import { ScopedExecRefusal, scopedExec } from "./exec-allowlist.js";
 import { captureCheckpoint, checkpointRef, diffCheckpoints, pruneCheckpoints } from "./git-checkpoint.js";
@@ -227,6 +228,20 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       return failureResult(`Clone failed: ${shortError(error)}`, 0, "", signals);
     }
 
+    // T72: only when the human opted in; before the baseline so installs and generated files aren't part of the change.
+    let setupCommit: string | null = null;
+    if (input.runSetup === true) {
+      const setup = await runRepoSetup(ops, workdir, {
+        ...(opts?.env !== undefined ? { env: opts.env } : {}),
+        scrub,
+        signals,
+        signal: opts?.signal,
+        emit,
+      });
+      if (setup.failure !== null) return failureResult(setup.failure, 0, "", signals);
+      setupCommit = setup.commit;
+    }
+
     // T44: baseline checkpoint — the whole worktree at post-clone, before
     // any harness mutation, under a hidden ref that dies with the sandbox.
     const baselineRef = checkpointRef(input.sandboxId, 0);
@@ -347,6 +362,27 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         opts?.signal,
       );
       milestone("collect.complete", `${collection.changedFiles.length} files`);
+      // A path both setup and the agent changed would publish setup's edits (and anything it wrote) as the agent's.
+      let overlap: string[] = [];
+      if (setupCommit !== null) {
+        try {
+          overlap = await setupOverlap(ops, workdir, setupCommit, collection.changedFiles, {
+            signals,
+            signal: opts?.signal,
+          });
+        } catch (error) {
+          return failureResult(`Repo setup check failed: ${shortError(error)}`, 0, stderrTail, signals, output.usage);
+        }
+      }
+      if (overlap.length > 0) {
+        return failureResult(
+          `The agent changed files the repo setup also changed (${overlap.slice(0, 5).join(", ")}); keep .shiba/setup.json from editing tracked files.`,
+          0,
+          stderrTail,
+          signals,
+          output.usage,
+        );
+      }
       await emit({ phase: "collect", message: `Done: ${collection.changedFiles.length} changed files.`, fraction: 1 });
       const completed: CodingTaskResult = {
         status: "completed",
@@ -470,6 +506,9 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     // ponytail: intake refuses env for local runs; this guards a forged envelope. Lift when the daemon can take sealed env.
     if (opts?.env !== undefined) {
       return failureResult("Per-run environment variables are not supported on the local runtime.", 0, "", signals);
+    }
+    if (input.runSetup === true) {
+      return failureResult("Repo setup is not supported on the local runtime.", 0, "", signals);
     }
     if (!this.harness.capabilities(input.codingModel).supportedRuntimes.includes("local")) {
       return failureResult(

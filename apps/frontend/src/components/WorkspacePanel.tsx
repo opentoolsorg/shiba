@@ -70,6 +70,7 @@ export function StoredApprovalCard({
       ...(approval.reviewAfterPublish !== undefined
         ? { reviewAfterPublish: approval.reviewAfterPublish }
         : {}),
+      ...(approval.runSetup !== undefined ? { runSetup: approval.runSetup } : {}),
       ...(approval.testCommand?.length ? { testCommand: approval.testCommand } : {}),
     } satisfies Record<string, unknown>);
   return (
@@ -99,6 +100,11 @@ export function StoredApprovalCard({
       {approval.envNames?.length ? (
         <p className="text-[11px] font-mono text-[var(--muted-foreground-2)] break-words mb-1">
           <span className="font-semibold text-[var(--fg)]">Env:</span> {approval.envNames.join(", ")}
+        </p>
+      ) : null}
+      {approval.runSetup ? (
+        <p className="text-[11px] font-mono text-[var(--muted-foreground-2)] break-words mb-1">
+          <span className="font-semibold text-[var(--fg)]">Setup:</span> runs .shiba/setup.json initialize
         </p>
       ) : null}
       {approval.testCommand?.length ? (

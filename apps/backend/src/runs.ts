@@ -81,6 +81,7 @@ export function createRun(args: {
   envNames?: string[];
   envDigest?: string;
   envSealed?: string;
+  runSetup?: boolean;
   subagentBudgetRemaining?: number;
   /** T40: approval evidence stamped at queue time (the resolve path). */
   approval?: ApprovalEvidence;
@@ -119,6 +120,7 @@ export function createRun(args: {
       ...(args.envNames !== undefined ? { envNames: args.envNames } : {}),
       ...(args.envDigest !== undefined ? { envDigest: args.envDigest } : {}),
       ...(args.envSealed !== undefined ? { envSealed: args.envSealed } : {}),
+      ...(args.runSetup === true ? { runSetup: true } : {}),
     },
     ...(args.approval !== undefined ? { approval: args.approval } : {}),
     at: now,

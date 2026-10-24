@@ -51,6 +51,27 @@ The **Effort** chip next to the model picker sets how hard the model thinks on t
 
 Other harnesses take no effort. A run that asks for a level its harness can't honor is refused before an approval card exists. The effort is part of the frozen route, so the approval card shows it (`codex · openai/gpt-5 · effort high · via …`), the approval hash covers it, and steering, forks and API retries keep it.
 
+### Repo setup
+
+To have a run prepare the repository before the agent starts, commit a `.shiba/setup.json` and tick **Run repo setup** in the composer's thread configuration menu:
+
+```json
+{
+  "format_version": 1,
+  "scripts": { "initialize": "pnpm install --frozen-lockfile && pnpm build" },
+  "timeouts": { "initialize": 900 }
+}
+```
+
+- **Opt-in:** the setup script runs only when that box is ticked for the run. The tick is part of what you approve, and the approval card says `Setup: runs .shiba/setup.json initialize`. Steering, forks, API retries and CI follow-ups keep it.
+- **Who can opt in:** only the box in the composer, or the authenticated `/api/runs` API. The chat agent's own tool call can't turn setup on.
+- **Execution:** the script runs with `sh -c` in the cloned repository and gets the run's environment variables. It's the only repo-authored shell the runtime itself executes; every other command still has to match the exec allowlist. Exec receipts record the step as `.shiba/setup.json#initialize`, not the script text.
+- **Timeout:** `timeouts.initialize` defaults to 600 seconds, with a maximum of 900 to keep the run within its deadline. Unknown keys in the file are refused. `scripts.refresh`, `timeouts.refresh` and `entries` are accepted but not run yet.
+- **Baseline:** once the script succeeds, its effects are set aside in a local-only git commit (hooks off, never pushed). Installs, rewritten lockfiles and generated files never appear in the change or the pull request.
+- **Overlap:** if the agent then changes a file the setup script also changed, the run fails rather than publish setup's edits as the agent's. Keep the script from editing tracked files.
+- **Failure:** a missing or invalid file, or a non-zero exit, fails the run before the agent starts. The error shows the script's output tail, redacted like everything else.
+- **Not supported:** runs on the local runtime don't take repo setup yet. Subagents and Captain crew runs don't run setup. A background process the script leaves running can still write into the repository.
+
 ### Environment variables
 
 **+ → Environment variables** attaches name/value pairs to one run, for things like a test database URL. The values never sit in plain text anywhere shiba stores or returns them:

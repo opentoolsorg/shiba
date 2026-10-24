@@ -238,6 +238,7 @@ export async function handleSteeringRequest(
         ...(run.envDigest !== undefined
           ? { envNames: run.envNames ?? [], envDigest: run.envDigest, envSealed: run.envSealed }
           : {}),
+        ...(run.runSetup === true ? { runSetup: true } : {}),
         ...(by !== undefined ? { queuedBy: by } : run.queuedBy !== undefined ? { queuedBy: run.queuedBy } : {}),
         createdAt: now,
       }),

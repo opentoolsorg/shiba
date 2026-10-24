@@ -124,6 +124,21 @@ describe("TaskComposer", () => {
     expect(onEnvVarsChange).toHaveBeenCalledWith([]);
   });
 
+  it("opening Thread configuration shows the Run repo setup checkbox, and toggling it calls onRunSetupChange(true)", () => {
+    const onRunSetupChange = vi.fn();
+    renderComposer("docked", { onRunSetupChange });
+    const configBtn = screen.getByRole("button", { name: "Thread configuration" });
+    fireEvent.click(configBtn);
+
+    const setupCheckbox = screen.getByRole("menuitemcheckbox", { name: "Run repo setup" });
+    expect(setupCheckbox).toBeTruthy();
+    expect(setupCheckbox.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByText("Runs .shiba/setup.json initialize before the agent")).toBeTruthy();
+
+    fireEvent.click(setupCheckbox);
+    expect(onRunSetupChange).toHaveBeenCalledWith(true);
+  });
+
   describe("voice dictation", () => {
     it("renders no button when unsupported", () => {
       renderComposer("docked");

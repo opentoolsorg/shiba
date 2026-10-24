@@ -136,6 +136,7 @@ export async function handleRuns(ctx: V1Context): Promise<Response | null> {
         ? { harness: run.route.harness, codingModel: run.route.modelId, connectionId: run.route.connectionId }
         : {}),
       ...(run.route?.reasoningEffort ? { reasoningEffort: run.route.reasoningEffort } : {}),
+      ...(run.runSetup === true ? { runSetup: true } : {}),
       ...(run.authAccount ? { authAccount: run.authAccount } : {}),
       ...(run.runtime ? { runtime: run.runtime } : {}),
       ...(run.targetMachineId ? { targetMachineId: run.targetMachineId } : {}),

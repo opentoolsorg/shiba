@@ -87,6 +87,9 @@
 | T65 packaging, CI, assets | **Unsigned local build config only (2026-10-08).** `electron-builder.yml` (fuses per D8), `.github/workflows/desktop.yml`, `smoke.e2e.ts`, and icon/tray assets (`icon.png`, `icon.icns`, `trayTemplate.png`/`@2x`) from the mascot SVG. Signed/notarized build **pending human secrets.** Evidence: `apps/web/docs/evidence/desktop/T64-T65-static.md`, `apps/web/docs/evidence/desktop/T65-assets-bookkeeping.md`. |
 | T66 desktop docs + acceptance | **Docs written; acceptance remains "local prototype" (2026-10-08).** `remote-access.md` "Desktop app" section added. DESKTOP-PLAN §7 manual acceptance has no real-deployment dated entry yet — **blocked-for-manual.** Evidence: `apps/web/docs/evidence/desktop/T66-docs.md`. |
 | T67 reasoning effort per run | **Done in code (2026-10-24), not live-verified.** `ApprovedRoute.reasoningEffort` is hashed with the route, and the `HARNESS_REASONING_EFFORTS` map refuses unsupported combinations before a card exists. Argv: claude `--effort`, codex `-c model_reasoning_effort`, opencode `--variant`. The composer has an effort chip. Steering, fork, v1 retry and wake keep the effort. Two review passes; gate green. Evidence in VERIFICATION.md (2026-10-24). No real CLI was run with the flags. |
+| T72 repo setup `.shiba/setup.json` | **First slice done (2026-10-25), not run in a real sandbox.** Opt-in per run, hashed, and shown on the card. `scripts.initialize` runs via `sh -c` before the baseline checkpoint. Its effects are set aside in a local-only commit. An agent edit to a setup-touched path fails the run. Two review passes; gate green. `refresh`, `entries` and the Setup tab wait for T74. Evidence in VERIFICATION.md (2026-10-25). |
+| T71 `?prompt=` deep link | **Done (2026-10-25), unit-tested only.** `readPromptParam` prefills an empty composer (capped at 4000 chars), strips the param via `replaceState`, and never submits. The run-title half of T71 is not built. Evidence in VERIFICATION.md (2026-10-25). |
+| T87 voice dictation | **Done (2026-10-25), not tried in a real browser.** The composer mic uses the browser's speech recognition API and is hidden when unsupported. Final results append to the task; it stops on submit and on unmount. Evidence in VERIFICATION.md (2026-10-25). |
 | T68 per-run environment variables | **Done in code (2026-10-24), not live-verified.** Values are sealed under `MODEL_CREDENTIAL_KEY` with an HMAC digest; names + digest are hashed. The child opens them at sandbox start and scrubs them from output before truncation. A change that adds a value fails the run. The blob is discarded at terminal and never returned by the API. Two review passes; gate green. Evidence in VERIFICATION.md (2026-10-24). Residual: the encrypted blob stays in chat metadata (rotate the key to retire it). |
 
 ### 2.1 Shipped beyond the tracker (2026-10-05 note)
@@ -1491,6 +1494,16 @@ Optional title, otherwise derived from the first line. `/app/?prompt=` prefills 
 
 ### T72 · Repo setup file `.shiba/setup.json`
 `format_version: 1`, `scripts.initialize` / `scripts.refresh`, per-script timeouts, and named `entries`. Initialize runs before the first turn, and a failure is reported to the agent and the run. A Setup tab shows the output. **Accept:** a repo whose tests need setup passes without the agent rediscovering it.
+
+*As built (2026-10-25), first slice:*
+- Owner's decision: **opt-in per run**. `runSetup` is part of the approval hash, and the card shows it.
+- `scripts.initialize` runs through `scopedExec` with a one-call `[["sh","-c"]]` allowlist, before the baseline checkpoint, with the approved env and the per-run scrubber.
+- Its effects are folded into a local-only commit (hooks and signing off), so collection, the diff and the PR see only the agent's work.
+- An agent edit to a path setup changed fails the run.
+- Only the composer or `/api/runs` can opt in, never the model's tool call.
+- Timeout is capped at 900 s; the shape is strict; receipts are labeled.
+- Any failure fails the run before the harness starts.
+- Not yet built: `scripts.refresh` and named `entries` (accepted in the file, not run) and the Setup tab (T74). The local runtime refuses setup.
 
 ### T73 · Per-run machine size
 One Sandbox container class per instance type, picked by `machineSize` (hashed). Composer ⚙ menu; config generated for every class. **Accept:** `nproc`/`free` inside the run match the approved size.

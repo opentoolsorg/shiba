@@ -128,6 +128,8 @@ export interface PendingApproval {
   envNames?: string[];
   envDigest?: string;
   envSealed?: string;
+  /** T72: the human opted in to the repo's `.shiba/setup.json` initialize. */
+  runSetup?: boolean;
   orgId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
@@ -191,6 +193,7 @@ export interface CreateApprovalInput {
   envNames?: string[];
   envDigest?: string;
   envSealed?: string;
+  runSetup?: boolean;
   orgId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
@@ -237,6 +240,7 @@ export function createPendingApproval(
       ...(input.envNames !== undefined ? { envNames: input.envNames } : {}),
       ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
       ...(input.envSealed !== undefined ? { envSealed: input.envSealed } : {}),
+      ...(input.runSetup === true ? { runSetup: true } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
@@ -390,6 +394,8 @@ export interface RunInputFields {
   /** T68: what the human approves about env — names and a digest, never values. */
   envNames?: string[];
   envDigest?: string;
+  /** T72: running the repo's own setup script is part of what the human approves. */
+  runSetup?: boolean;
   role?: AgentRole;
 }
 
@@ -503,6 +509,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
     ...(input.envNames !== undefined ? { envNames: input.envNames } : {}),
     ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
+    ...(input.runSetup === true ? { runSetup: true } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });
