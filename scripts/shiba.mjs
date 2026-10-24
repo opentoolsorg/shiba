@@ -299,11 +299,22 @@ async function cmdDev() {
     containers,
   });
 
+  ensureDevVars();
+  const devVarsPath = resolve(REPO_ROOT, DEV_VARS_PATH);
+  const loopbackSecret =
+    process.env.SHIBA_DEV_OAUTH_LOOPBACK_SECRET?.trim() ??
+    (existsSync(devVarsPath)
+      ? (parseDevVars(readFileSync(devVarsPath, "utf8")).get("SHIBA_DEV_OAUTH_LOOPBACK_SECRET")?.trim() ?? "")
+      : "");
   const oauthLoopback = spawn("node", ["scripts/oauth-loopback.mjs"], {
     cwd: REPO_ROOT,
     stdio: "inherit",
     detached: false,
-    env: { ...process.env, SHIBA_WORKER_URL: `http://127.0.0.1:${port}` },
+    env: {
+      ...process.env,
+      SHIBA_WORKER_URL: `http://127.0.0.1:${port}`,
+      SHIBA_DEV_OAUTH_LOOPBACK_SECRET: loopbackSecret,
+    },
   });
   oauthLoopback.on("exit", (code) => {
     if (code !== 0 && code !== null) {

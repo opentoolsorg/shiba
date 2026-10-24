@@ -60,6 +60,7 @@ interface StoredConnection {
   userCode?: string;
   verificationUri?: string;
   signInKind?: AcpSignInKind;
+  oauthState?: string;
   operatorSteps?: string[];
   expiresAt?: number;
   testedAt?: number;
@@ -77,6 +78,7 @@ const DISCONNECTED: AcpProviderConnection = {
   testedAt: null,
   testOk: null,
   signInKind: null,
+  oauthState: null,
   operatorSteps: [],
 };
 
@@ -232,6 +234,7 @@ export interface SignInSession {
   userCode?: string;
   verificationUri?: string;
   signInKind?: AcpSignInKind;
+  oauthState?: string;
   operatorSteps?: string[];
   expiresAt?: number;
 }
@@ -402,8 +405,22 @@ function publicConnection(record: StoredConnection | null, now: number): AcpProv
     testedAt: record.testedAt ?? null,
     testOk: record.testOk ?? null,
     signInKind: expired ? null : (record.signInKind ?? null),
+    oauthState:
+      expired || record.phase !== "waiting" ? null : (record.oauthState ?? null),
     operatorSteps: expired ? ["Choose Connect with sign-in again."] : (record.operatorSteps ?? []),
   };
+}
+
+/** Pending OAuth state for loopback dev polling — only while waiting. */
+export async function waitingProviderOauthState(
+  env: Env,
+  org: string,
+  id: AcpProviderId,
+): Promise<string | null> {
+  const record = await readRecord(env, org, id);
+  if (record === null || record.phase !== "waiting") return null;
+  const state = record.oauthState?.trim() ?? "";
+  return state === "" ? null : state;
 }
 
 function effectiveHarness(provider: ProviderDefinition, record: StoredConnection | null): AgentHarnessName {
@@ -475,6 +492,7 @@ function storedFromSession(session: SignInSession, now: number): StoredConnectio
     ...(session.userCode ? { userCode: session.userCode } : {}),
     ...(session.verificationUri ? { verificationUri: session.verificationUri } : {}),
     ...(session.signInKind ? { signInKind: session.signInKind } : {}),
+    ...(session.oauthState ? { oauthState: session.oauthState } : {}),
     ...(session.operatorSteps ? { operatorSteps: session.operatorSteps } : {}),
     ...(session.pending ? { expiresAt: session.expiresAt ?? now + DEVICE_TTL_MS } : {}),
     updatedAt: now,

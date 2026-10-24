@@ -104,6 +104,9 @@
 
 # --- Providers (per-user OAuth — opencodex-style local dev) ---------------
 
+# Minted by `pnpm dev` / `pnpm shiba dev` — loopback OAuth POST to the Worker.
+# SHIBA_DEV_OAUTH_LOOPBACK_SECRET=
+
 # Required for Dashboard Providers sign-in (encrypts tokens in D1). 64 hex chars.
 # MODEL_CREDENTIAL_KEY=
 # Antigravity / Gemini card: Google OAuth client secret (Worker egress exchange).

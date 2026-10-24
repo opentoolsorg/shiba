@@ -360,6 +360,11 @@ export interface Env {
    */
   MODEL_CREDENTIAL_KEY?: string;
   /**
+   * Local dev only: shared secret between `scripts/oauth-loopback.mjs` and
+   * `/api/dev/oauth-loopback` POST (minted into `.dev.vars` by `pnpm dev`).
+   */
+  SHIBA_DEV_OAUTH_LOOPBACK_SECRET?: string;
+  /**
    * When "1", ChatGptAuth may run OAuth exchange/refresh inside a short-lived
    * auth sandbox when Worker fetches to auth.openai.com get a bot challenge.
    */

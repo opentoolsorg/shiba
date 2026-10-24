@@ -38,6 +38,8 @@ export interface AcpProviderConnection {
   testedAt: number | null;
   testOk: boolean | null;
   signInKind?: AcpSignInKind | null;
+  /** PKCE OAuth state while sign-in is waiting (local loopback polling). */
+  oauthState?: string | null;
   /** Exact operator steps when the lane cannot connect, or the remaining steps while it is waiting. */
   operatorSteps?: string[];
 }

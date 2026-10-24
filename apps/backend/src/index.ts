@@ -211,6 +211,10 @@ export default {
       // request. The gate then composes both identity systems.
       const betterAuthResponse = await handleBetterAuth(request, env);
       if (betterAuthResponse) return betterAuthResponse;
+      const devOAuthLoopbackResponse = await handleDevOAuthLoopback(request, env);
+      if (devOAuthLoopbackResponse) {
+        return devOAuthLoopbackResponse;
+      }
       if (request.method === "GET" || request.method === "HEAD") {
         const section = url.pathname.split("/")[1] ?? "";
         if (MARKETING_SECTIONS.has(section)) {
@@ -332,10 +336,6 @@ export default {
       const e2eEvidenceResponse = await handleE2eEvidence(request, env);
       if (e2eEvidenceResponse) {
         return e2eEvidenceResponse;
-      }
-      const devOAuthLoopbackResponse = await handleDevOAuthLoopback(request, env);
-      if (devOAuthLoopbackResponse) {
-        return devOAuthLoopbackResponse;
       }
       const webSessionsResponse = await handleWebSessions(request, env);
       if (webSessionsResponse) {

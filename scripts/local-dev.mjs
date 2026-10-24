@@ -5,10 +5,13 @@
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import {
   DEFAULT_PERSIST,
   DEFAULT_PORT,
+  DEV_VARS_PATH,
   ensureDevVars,
+  parseDevVars,
   planDevSteps,
   WRANGLER_CONFIG,
 } from "./shiba-dev-lib.mjs";
@@ -48,6 +51,8 @@ process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
 ensureDevVars({ root: ROOT });
+const devVars = parseDevVars(readFileSync(resolve(ROOT, DEV_VARS_PATH), "utf8"));
+const loopbackSecret = devVars.get("SHIBA_DEV_OAUTH_LOOPBACK_SECRET")?.trim() ?? "";
 
 spawnSync(
   "npx",
@@ -65,7 +70,10 @@ spawnSync(
 );
 
 run("node", ["scripts/oauth-loopback.mjs"], "oauth-loopback", {
-  env: { SHIBA_WORKER_URL: `http://127.0.0.1:${PORT}` },
+  env: {
+    SHIBA_WORKER_URL: `http://127.0.0.1:${PORT}`,
+    SHIBA_DEV_OAUTH_LOOPBACK_SECRET: loopbackSecret,
+  },
 });
 
 const wranglerStep = planDevSteps({

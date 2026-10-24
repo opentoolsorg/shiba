@@ -6,6 +6,8 @@ import { createServer } from "node:http";
 
 export const SHIBA_OAUTH_CALLBACK_MESSAGE = "shiba-oauth-callback";
 
+export const DEV_OAUTH_LOOPBACK_HEADER = "x-shiba-dev-oauth-loopback-secret";
+
 const DEFAULT_WORKER_URL = "http://127.0.0.1:8788";
 
 /** @type {readonly { port: number; pathname: string }[]} */
@@ -20,10 +22,15 @@ export const OAUTH_LOOPBACK_BINDINGS = [
  */
 export async function notifyWorkerOAuthCallback(callbackUrl) {
   const base = (process.env.SHIBA_WORKER_URL ?? DEFAULT_WORKER_URL).replace(/\/$/, "");
+  const secret = process.env.SHIBA_DEV_OAUTH_LOOPBACK_SECRET?.trim() ?? "";
+  const headers = { "content-type": "application/json" };
+  if (secret !== "") {
+    headers[DEV_OAUTH_LOOPBACK_HEADER] = secret;
+  }
   try {
     const response = await fetch(`${base}/api/dev/oauth-loopback`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({ url: callbackUrl }),
     });
     if (!response.ok) {

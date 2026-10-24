@@ -186,18 +186,19 @@ function WaitingSignIn({
   }, [cursorPoll, busy, card.id]);
   useEffect(() => {
     if (!needsCallback || busy) return;
-    let since = 0;
+    const oauthState = card.connection.oauthState?.trim() ?? "";
+    if (oauthState === "") return;
     const poll = async () => {
       try {
-        const response = await fetch(`/api/dev/oauth-loopback?since=${since}`);
+        const response = await fetch(
+          `/api/dev/oauth-loopback?state=${encodeURIComponent(oauthState)}&provider=${encodeURIComponent(card.id)}`,
+        );
         if (!response.ok) return;
-        const data = (await response.json()) as { callbacks?: { id: number; url: string }[] };
-        for (const row of data.callbacks ?? []) {
-          since = Math.max(since, row.id);
-          if (!isProviderLoopbackCallback(row.url)) continue;
-          setCallbackUrl(row.url);
-          onVerify(card.id, { callbackUrl: row.url });
-        }
+        const data = (await response.json()) as { callbackUrl?: string | null };
+        const url = data.callbackUrl?.trim() ?? "";
+        if (url === "" || !isProviderLoopbackCallback(url)) return;
+        setCallbackUrl(url);
+        onVerify(card.id, { callbackUrl: url });
       } catch {
         // Worker may still be starting.
       }
@@ -207,7 +208,7 @@ function WaitingSignIn({
     }, 1_500);
     void poll();
     return () => window.clearInterval(timer);
-  }, [needsCallback, busy, card.id, onVerify]);
+  }, [needsCallback, busy, card.id, card.connection.oauthState, onVerify]);
   return (
     <div className="mt-3 border border-[var(--border-1)] bg-[var(--panel)] px-3 py-3">
       <OperatorSteps id={card.id} steps={steps} />

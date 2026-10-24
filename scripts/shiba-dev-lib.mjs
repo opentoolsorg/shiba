@@ -22,6 +22,7 @@ export const AUTO_GENERATE_KEYS = [
   "LOCAL_ADAPTER_TOKEN",
   "GITHUB_WEBHOOK_SECRET",
   "TRIGGER_TOKEN",
+  "SHIBA_DEV_OAUTH_LOOPBACK_SECRET",
 ];
 
 export function randomHex(bytes) {

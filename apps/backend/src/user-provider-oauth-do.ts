@@ -118,6 +118,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       return Response.json({
         verificationUri: flow.authorizeUrl,
         signInKind: "antigravity-pkce",
+        oauthState: flow.state,
         redirectUri: flow.redirectUri,
       });
     }
@@ -148,6 +149,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       return Response.json({
         verificationUri: flow.authorizeUrl,
         signInKind: "xai-pkce",
+        oauthState: flow.state,
         redirectUri: flow.redirectUri,
       });
     }

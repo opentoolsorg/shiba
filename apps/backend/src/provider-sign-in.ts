@@ -40,6 +40,7 @@ export interface SignInSession {
   userCode?: string;
   verificationUri?: string;
   signInKind?: AcpSignInKind;
+  oauthState?: string;
   operatorSteps?: string[];
   expiresAt?: number;
 }
@@ -513,6 +514,7 @@ async function beginUserOAuth(env: Env, org: string, provider: UserOAuthProvider
   const body = (await response.json().catch(() => null)) as {
     verificationUri?: unknown;
     signInKind?: unknown;
+    oauthState?: unknown;
     error?: unknown;
   } | null;
   if (!response.ok) {
@@ -534,10 +536,12 @@ async function beginUserOAuth(env: Env, org: string, provider: UserOAuthProvider
   }
   const signInKind =
     typeof body?.signInKind === "string" ? (body.signInKind as SignInSession["signInKind"]) : undefined;
+  const oauthState = typeof body?.oauthState === "string" ? body.oauthState : undefined;
   return {
     ok: true,
     pending: true,
     signInKind,
+    oauthState,
     verificationUri,
     expiresAt: Date.now() + SIGN_IN_TTL_MS,
     message: steps[0] ?? "Continue sign-in in your browser.",
