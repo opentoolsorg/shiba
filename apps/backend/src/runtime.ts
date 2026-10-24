@@ -33,7 +33,6 @@ import { ClaudeUsageLimitError } from "./harness/claude-subscription.js";
 import { CodexErrorEvent } from "./harness/codex.js";
 import { CodexUsageLimitError } from "./harness/codex-subscription.js";
 import { CursorErrorEvent } from "./harness/cursor.js";
-import { DevinErrorEvent } from "./harness/devin.js";
 import { GrokErrorEvent } from "./harness/grok.js";
 import {
   OpenCodeErrorEvent as OpenCodeErrorEventImpl,
@@ -364,7 +363,6 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         error instanceof PiErrorEvent ||
         error instanceof PiEventError ||
         error instanceof CursorErrorEvent ||
-        error instanceof DevinErrorEvent ||
         error instanceof AcpErrorEvent ||
         error instanceof AcpEventError ||
         error instanceof ClaudeUsageLimitError ||
@@ -908,7 +906,6 @@ function streamProgress(
             error instanceof PiErrorEvent ||
             error instanceof PiEventError ||
             error instanceof CursorErrorEvent ||
-            error instanceof DevinErrorEvent ||
             error instanceof AcpErrorEvent ||
             error instanceof AcpEventError ||
             error instanceof ClaudeUsageLimitError ||
