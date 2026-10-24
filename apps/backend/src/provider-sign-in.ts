@@ -70,14 +70,14 @@ export const CLAUDE_DAEMON_STEPS = [
 
 const GEMINI_ANTIGRAVITY_STEPS = [
   "Connect with sign-in. The card opens Google OAuth for Antigravity / Cloud Code Assist.",
-  "After Google redirects, paste the full http://127.0.0.1:51121/callback URL below.",
-  "Choose Finish sign-in. Tokens stay encrypted for you and attach at egress when a run calls Google.",
+  "With pnpm dev or pnpm shiba dev, the loopback listener on 127.0.0.1:51121 completes sign-in automatically.",
+  "Otherwise paste the full http://127.0.0.1:51121/callback URL, then choose Finish sign-in.",
 ];
 
 const GROK_OAUTH_STEPS = [
   "Connect with sign-in. The card opens xAI OAuth for your Grok account.",
-  "Paste the http://127.0.0.1:56121/callback URL from the browser after sign-in.",
-  "Choose Finish sign-in. Tokens stay encrypted and attach at egress for api.x.ai.",
+  "With pnpm dev or pnpm shiba dev, the loopback listener on 127.0.0.1:56121 completes sign-in automatically.",
+  "Otherwise paste the http://127.0.0.1:56121/callback URL, then choose Finish sign-in.",
 ];
 
 const CURSOR_OAUTH_STEPS = [

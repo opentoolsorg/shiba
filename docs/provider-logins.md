@@ -48,7 +48,7 @@ sequenceDiagram
 | Client secret | Public desktop secret in opencodex; override `GOOGLE_ANTIGRAVITY_CLIENT_SECRET` |
 | Auth | `https://accounts.google.com/o/oauth2/v2/auth` |
 | Token | `https://oauth2.googleapis.com/token` |
-| Redirect | `http://127.0.0.1:51121/callback` (paste callback — no Worker loopback listener) |
+| Redirect | `http://127.0.0.1:51121/callback` (`pnpm dev` / `pnpm shiba dev` start a local listener; paste only if that listener is off) |
 | PKCE | S256 |
 | Scopes | `cloud-platform`, `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs` |
 | Post-login | `loadCodeAssist` → `onboardUser` if needed; **projectId required** |
@@ -86,7 +86,7 @@ sequenceDiagram
 |------|--------|
 | Discovery | `https://auth.x.ai/.well-known/openid-configuration` |
 | Client ID | `b1a00492-073a-47ea-816f-4c329264a828` |
-| Redirect | `http://127.0.0.1:56121/callback` |
+| Redirect | `http://127.0.0.1:56121/callback` (auto via `pnpm dev` loopback listener) |
 | Scope | `openid profile email offline_access grok-cli:access api:access` |
 | Refresh | `grant_type=refresh_token` to discovered token endpoint |
 | Egress | `api.x.ai` via `xaiUser` |

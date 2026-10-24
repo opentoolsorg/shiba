@@ -75,7 +75,6 @@ describe("provider registry", () => {
       "gemini",
       "grok",
       "cursor",
-      "opencode",
     ]);
     for (const provider of ACP_PROVIDER_REGISTRY) {
       if (provider.protocol === "acp") {
@@ -106,7 +105,6 @@ describe("GET /api/providers", () => {
       "disconnected",
       "disconnected",
       "disconnected",
-      "disconnected",
     ]);
     expect(body.providers.find((provider) => provider.id === "claude")?.capabilities).toMatchObject(
       {
@@ -123,7 +121,7 @@ describe("GET /api/providers", () => {
   it("still lists providers when the connection store is missing", async () => {
     const response = await handleAcpProviders(request("/api/providers"), {} as Env);
     const body = await snapshot(response);
-    expect(body.providers).toHaveLength(6);
+    expect(body.providers).toHaveLength(5);
   });
 });
 
@@ -377,7 +375,7 @@ describe("API-key fallback", () => {
     );
   });
 
-  it("refuses OAuth for a provider that has no OAuth lane", async () => {
+  it("refuses unknown provider ids", async () => {
     const response = await handleAcpProviders(
       request("/api/providers/opencode/connect", {
         method: "POST",
@@ -385,7 +383,7 @@ describe("API-key fallback", () => {
       }),
       env(),
     );
-    expect(response?.status).toBe(400);
+    expect(response?.status).toBe(404);
   });
 });
 
@@ -586,7 +584,7 @@ describe("per-org default", () => {
     const connect = (email: string) =>
       handleAcpProviders(
         request(
-          "/api/providers/opencode/connect",
+          "/api/providers/grok/connect",
           { method: "POST", body: JSON.stringify({ mode: "api-key" }) },
           email,
         ),
@@ -597,7 +595,7 @@ describe("per-org default", () => {
     const ada = await snapshot(
       await handleAcpProviders(
         request(
-          "/api/providers/opencode/default",
+          "/api/providers/grok/default",
           { method: "POST", body: "{}" },
           "ada@example.com",
         ),
@@ -605,7 +603,7 @@ describe("per-org default", () => {
       ),
     );
     expect(ada.org).toBe("ada@example.com");
-    expect(ada.defaultProviderId).toBe("opencode");
+    expect(ada.defaultProviderId).toBe("grok");
 
     const grace = await snapshot(
       await handleAcpProviders(
@@ -614,12 +612,12 @@ describe("per-org default", () => {
       ),
     );
     expect(grace.defaultProviderId).toBeNull();
-    expect(grace.providers.find((provider) => provider.id === "opencode")?.isDefault).toBe(false);
+    expect(grace.providers.find((provider) => provider.id === "grok")?.isDefault).toBe(false);
 
     const cleared = await snapshot(
       await handleAcpProviders(
         request(
-          "/api/providers/opencode/disconnect",
+          "/api/providers/grok/disconnect",
           { method: "POST", body: "{}" },
           "ada@example.com",
         ),
@@ -627,7 +625,7 @@ describe("per-org default", () => {
       ),
     );
     expect(cleared.defaultProviderId).toBeNull();
-    expect(cleared.providers.find((provider) => provider.id === "opencode")?.connection.phase).toBe(
+    expect(cleared.providers.find((provider) => provider.id === "grok")?.connection.phase).toBe(
       "disconnected",
     );
     expect(JSON.stringify(cleared)).not.toContain("gateway-canary");

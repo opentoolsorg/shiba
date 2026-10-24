@@ -56,11 +56,21 @@ At runtime the Worker serves **`app-public/`** via the `ASSETS` binding with `no
 
 Requirements: Node.js **22.13.0+**, pnpm **10.0.0+**, and a **running Docker engine** for Sandbox containers.
 
+### Run Shiba locally (Worker + dashboard + OAuth loopback)
+
 ~~~sh
-pnpm shiba dev
+pnpm install
+cp apps/backend/.dev.vars.example apps/backend/.dev.vars   # if missing
+pnpm shiba dev --skip-setup                              # or: pnpm shiba setup once
+pnpm dev
 ~~~
 
-Same as `bash scripts/dev.sh`: checks prerequisites, writes `apps/backend/.dev.vars` from the example (minting local secrets without overwriting yours), applies local D1 migrations, builds the Sandbox image, and runs `wrangler dev` on **http://127.0.0.1:8788/app/**. Then add **`GITHUB_TOKEN`** and **AI Gateway BYOK** (or `AI_GATEWAY_TOKEN`) in `.dev.vars`; run `npx wrangler login` once if Wrangler needs Cloudflare for containers.
+- **`pnpm dev`** starts the OAuth loopback listeners (`127.0.0.1:51121` Antigravity, `127.0.0.1:56121` xAI), **Vite** on **http://localhost:5173** (proxies `/api` to the Worker), and expects the Worker on **http://127.0.0.1:8788** from `pnpm shiba dev` in another terminal — or run only **`pnpm shiba dev`** for Worker + loopback without Vite (**http://127.0.0.1:8788/app/**).
+- In **`.dev.vars`**: set **`GITHUB_TOKEN`** (repo + PR scope), **`MODEL_CREDENTIAL_KEY`** (32+ chars for encrypted provider tokens), and **`GOOGLE_ANTIGRAVITY_CLIENT_SECRET`** when signing in Gemini/Antigravity. Optional: **`AI_GATEWAY_TOKEN`** if your gateway is auth-gated.
+- Open **Providers** and connect **Codex** (device code), **Claude** (daemon or setup-token), **Cursor** (browser + Finish), **Grok** and **Antigravity** (browser; loopback completes without pasting the callback URL when `pnpm dev` or `pnpm shiba dev` is running).
+- **Task flow**: compose a task → approve the delegation card → inspect the diff → approve publish/PR. Each step waits for you.
+
+`pnpm shiba dev` (same as `bash scripts/dev.sh`) also mints local secrets, applies D1 migrations, builds the Sandbox image, and starts OAuth loopback before `wrangler dev`. Run `npx wrangler login` once if Wrangler needs Cloudflare for container pulls.
 
 Preview steps: `pnpm shiba dev --dry-run`. API/UI smoke without Docker: see [local development](apps/web/src/content/docs/docs/local-development.md).
 

@@ -8,6 +8,19 @@ import { ToneChip } from "./ToneChip";
 
 type CardAction = "oauth" | "setup-token" | "api-key" | "verify" | "test" | "disconnect" | "default";
 
+const SHIBA_OAUTH_CALLBACK_MESSAGE = "shiba-oauth-callback";
+
+function isProviderLoopbackCallback(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" || parsed.hostname !== "127.0.0.1") return false;
+    if (parsed.pathname !== "/callback" && parsed.pathname !== "/auth/callback") return false;
+    return parsed.port === "51121" || parsed.port === "56121" || parsed.port === "" || parsed.pathname === "/auth/callback";
+  } catch {
+    return false;
+  }
+}
+
 function actionLabel(
   busy: boolean,
   action: CardAction | null,
@@ -80,7 +93,6 @@ function OperatorSteps({ id, steps }: { id: string; steps: readonly string[] }):
 const PASTE_KEY_LABEL: Record<string, string> = {
   gemini: "Gemini API key",
   grok: "xAI API key",
-  opencode: "OpenCode or DeepSeek API key",
 };
 
 function WaitingSignIn({
@@ -128,6 +140,27 @@ function WaitingSignIn({
     onVerify(card.id, {});
   }
   finishRef.current = finish;
+  useEffect(() => {
+    if (!needsCallback && !device) return;
+    function onMessage(event: MessageEvent): void {
+      if (!event.origin.startsWith("http://127.0.0.1:")) return;
+      const data = event.data;
+      if (
+        typeof data !== "object" ||
+        data === null ||
+        (data as { type?: unknown }).type !== SHIBA_OAUTH_CALLBACK_MESSAGE ||
+        typeof (data as { url?: unknown }).url !== "string"
+      ) {
+        return;
+      }
+      const url = (data as { url: string }).url;
+      if (!isProviderLoopbackCallback(url)) return;
+      setCallbackUrl(url);
+      onVerify(card.id, { callbackUrl: url });
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [needsCallback, device, card.id, onVerify]);
   useEffect(() => {
     if (!cursorPoll || busy) return;
     const timer = window.setInterval(() => {

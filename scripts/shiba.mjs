@@ -3,7 +3,7 @@
  * Shiba operator CLI — `pnpm shiba dev` / `pnpm shiba doctor` / `pnpm shiba setup`.
  * Node stdlib only. Never prints secret values.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
@@ -297,6 +297,17 @@ async function cmdDev() {
     port,
     persistTo,
     containers,
+  });
+
+  const oauthLoopback = spawn("node", ["scripts/oauth-loopback.mjs"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    detached: false,
+  });
+  oauthLoopback.on("exit", (code) => {
+    if (code !== 0 && code !== null) {
+      console.error(`[oauth-loopback] exited ${code}`);
+    }
   });
 
   let generatedKeys = [];

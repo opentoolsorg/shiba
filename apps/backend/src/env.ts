@@ -129,8 +129,6 @@ export interface Env {
   CLAUDE_CODE_MODEL?: string;
   /** Optional default model for the codex harness, e.g. openai/gpt-5.3-codex. */
   CODEX_MODEL?: string;
-  /** Optional default model for the devin harness, e.g. devin/swe-2. */
-  DEVIN_MODEL?: string;
   /** Optional default model for the grok harness, e.g. xai/grok-4.6. */
   GROK_MODEL?: string;
   /** Optional default model for the pi harness, e.g. anthropic/claude-sonnet-4-6. */
@@ -401,31 +399,8 @@ export interface Env {
   CURSOR_SUBSCRIPTION_TOKEN?: string;
   /** Per-deploy model override for the cursor-subscription lane. */
   CURSOR_SUBSCRIPTION_MODEL?: string;
-  /**
-   * Opt-in flag: "1" opens the /api/auth/devin-subscription lane.
-   * Absent the surface is dark — 404 as if unregistered.
-   */
-  SHIBA_DEVIN_SUBSCRIPTION?: string;
-  /**
-   * Credential: the operator's Devin API key/session token, stored as a
-   * Wrangler secret and read only by the subscription egress branch —
-   * the container holds a dummy credentials.toml, never the token.
-   * Named accounts: DEVIN_SUBSCRIPTION_TOKEN_<ACCOUNT> (resolved by name,
-   * not declared here). Distinct from DEVIN_API_KEY, the deployment-wide
-   * credential the plain devin harness uses.
-   */
-  DEVIN_SUBSCRIPTION_TOKEN?: string;
-  /** Per-deploy model override for the devin-subscription lane. */
-  DEVIN_SUBSCRIPTION_MODEL?: string;
   /** Per-deploy default for the `acp` registry lane (an `acp/<id>` model id). */
   ACP_MODEL?: string;
-  /**
-   * Optional. Devin account API key for the devin harness — injected as a
-   * Bearer header by the egress forwarders on api.devin.ai and
-   * server.codeium.com. Never sent to containers; the sandboxed CLI holds a
-   * dummy credentials.toml. Unset means devin runs fail auth honestly.
-   */
-  DEVIN_API_KEY?: string;
   /** Optional. Verifies incoming GitHub webhook signatures. */
   GITHUB_WEBHOOK_SECRET?: string;
   /**

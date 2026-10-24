@@ -38,9 +38,6 @@
 # Required when the gateway is auth-gated or has no BYOK key stored.
 # AI_GATEWAY_TOKEN=
 
-# Devin harness API key (Worker egress only; not AI Gateway BYOK).
-# DEVIN_API_KEY=
-
 # --- Dashboard auth (loopback dev: leave Access/Better Auth unset) -----------
 
 # Set to any value to enforce Cloudflare Access on /app and /api locally too.
@@ -115,7 +112,6 @@
 # Set 1 to allow Worker-secret codex-subscription fallback (single-operator).
 # SHIBA_SINGLE_USER=
 # CURSOR_SUBSCRIPTION_TOKEN=
-# DEVIN_SUBSCRIPTION_TOKEN=
 
 # --- Gmail read-only connection (optional) -----------------------------------
 

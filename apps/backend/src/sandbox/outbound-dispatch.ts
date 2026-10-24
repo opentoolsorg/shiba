@@ -12,9 +12,6 @@ import {
   forwardAntigravityUser,
   forwardCursorSubscription,
   forwardCursorUser,
-  forwardDevinApi,
-  forwardDevinInference,
-  forwardDevinSubscription,
   forwardGitHubScoped,
   forwardGoogle,
   forwardDeepSeek,
@@ -35,8 +32,6 @@ const BUILTIN_FORWARDERS: Record<
   "api.x.ai": forwardXAI,
   "opencode.ai": forwardOpenCodeGo,
   "api.deepseek.com": forwardDeepSeek,
-  "api.devin.ai": forwardDevinApi,
-  "server.codeium.com": forwardDevinInference,
 };
 
 function namedHandler(
@@ -61,8 +56,6 @@ function namedHandler(
       return forwardAntigravityUser;
     case "xaiUser":
       return forwardXaiUser;
-    case "devinSubscription":
-      return forwardDevinSubscription;
     default:
       return () => Promise.resolve(new Response("Unknown outbound handler.", { status: 500 }));
   }

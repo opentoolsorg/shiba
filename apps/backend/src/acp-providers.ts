@@ -183,22 +183,6 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     subscription: "cursor-subscription",
     credentialEnv: ["CURSOR_SUBSCRIPTION_TOKEN"],
   },
-  {
-    id: "opencode",
-    label: "OpenCode",
-    blurb:
-      "OpenCode's ACP server (`opencode acp`). Paste an OpenCode or DeepSeek API key. Egress sends it to the provider.",
-    adapter: "opencode",
-    packageName: "opencode-ai",
-    license: "MIT",
-    harness: "opencode-acp",
-    protocol: "acp",
-    spawn: ACP_LANES["opencode-acp"].spec.spawn,
-    docsUrl: "https://opencode.ai/docs/",
-    oauth: false,
-    subscription: null,
-    credentialEnv: ["AI_GATEWAY_TOKEN"],
-  },
 ];
 
 const BY_ID = new Map(ACP_PROVIDER_REGISTRY.map((provider) => [provider.id, provider]));
