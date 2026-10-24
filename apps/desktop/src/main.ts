@@ -152,9 +152,10 @@ function loadDashboard(): void {
   void mainWindow?.loadURL(`${origin}/app/`);
 }
 
-function guardNavigation(win: BrowserWindow): void {
+function guardNavigation(win: BrowserWindow, allowFileUrl?: string): void {
   const wc = win.webContents;
   const gate = (event: { preventDefault(): void }, url: string) => {
+    if (allowFileUrl && sameFileUrl(url, allowFileUrl)) return;
     const decision = decideNavigation(url, configuredOrigin(), authHosts());
     if (decision === "allow") return;
     event.preventDefault();
@@ -174,6 +175,20 @@ function guardNavigation(win: BrowserWindow): void {
     if (origin && validatedUrl.startsWith(origin))
       loadSetup(`Could not load ${origin}: ${description}`);
   });
+}
+
+function sameFileUrl(target: string, fileUrl: string): boolean {
+  try {
+    const next = new URL(target);
+    const allowed = new URL(fileUrl);
+    return (
+      next.protocol === "file:" &&
+      allowed.protocol === "file:" &&
+      next.pathname === allowed.pathname
+    );
+  } catch {
+    return false;
+  }
 }
 
 function saveBoundsSoon(win: BrowserWindow): void {
@@ -247,8 +262,11 @@ function presentDiff(patch: string): void {
     },
   });
   diffWindow = win;
+  guardNavigation(win, DIFF_URL);
   win.on("closed", () => {
-    if (diffWindow === win) diffWindow = null;
+    if (diffWindow !== win) return;
+    diffWindow = null;
+    diffPatch = "";
   });
   void win.loadURL(DIFF_URL);
 }

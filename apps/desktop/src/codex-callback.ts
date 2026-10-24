@@ -1,14 +1,25 @@
 import { createServer, type Server } from "node:http";
 
-const CALLBACK_PATH = "/auth/callback";
 const STATE_PATTERN = /^[A-Za-z0-9._~-]{8,256}$/;
 export const CODEX_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Loopback redirects this computer can receive. Ports for Antigravity and xAI are fixed. */
+const LOOPBACK_PROVIDERS: readonly {
+  hosts: readonly string[];
+  callbackPath: string;
+  port: number | null;
+}[] = [
+  { hosts: ["auth.openai.com"], callbackPath: "/auth/callback", port: null },
+  { hosts: ["accounts.google.com"], callbackPath: "/callback", port: 51121 },
+  { hosts: ["auth.x.ai", "accounts.x.ai"], callbackPath: "/callback", port: 56121 },
+];
 
 export interface CodexAuthorization {
   authorizationUrl: string;
   redirectUri: string;
   state: string;
   port: number;
+  callbackPath: string;
 }
 
 export type CodexAuthorizationParse =
@@ -28,7 +39,8 @@ export function parseCodexAuthorizationUrl(value: string): CodexAuthorizationPar
   if (url.protocol !== "https:" || url.username || url.password) {
     return { ok: false, error: "ChatGPT sign-in must start at https://auth.openai.com." };
   }
-  if (url.hostname !== "auth.openai.com") {
+  const provider = LOOPBACK_PROVIDERS.find((item) => item.hosts.includes(url.hostname));
+  if (!provider) {
     return { ok: false, error: "ChatGPT sign-in must start at https://auth.openai.com." };
   }
   if (
@@ -42,11 +54,14 @@ export function parseCodexAuthorizationUrl(value: string): CodexAuthorizationPar
     return { ok: false, error: "ChatGPT sign-in state is not valid." };
   }
   const redirect = url.searchParams.get("redirect_uri") ?? "";
-  const redirectParsed = parseLoopbackRedirect(redirect);
+  const redirectParsed = parseLoopbackRedirect(redirect, provider);
   if (!redirectParsed) {
     return {
       ok: false,
-      error: "ChatGPT sign-in must redirect to http://127.0.0.1:<port>/auth/callback.",
+      error:
+        provider.port === null
+          ? "ChatGPT sign-in must redirect to http://127.0.0.1:<port>/auth/callback."
+          : `Sign-in must redirect to http://127.0.0.1:${provider.port}${provider.callbackPath}.`,
     };
   }
   return {
@@ -56,6 +71,7 @@ export function parseCodexAuthorizationUrl(value: string): CodexAuthorizationPar
       redirectUri: redirectParsed.href,
       state,
       port: redirectParsed.port,
+      callbackPath: provider.callbackPath,
     },
   };
 }
@@ -68,32 +84,45 @@ export function parseLoopbackCallback(value: string, expected?: CodexAuthorizati
   } catch {
     return null;
   }
-  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.pathname !== CALLBACK_PATH) {
-    return null;
-  }
+  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1") return null;
   const port = Number(url.port);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) return null;
+  const allowed = expected
+    ? url.pathname === expected.callbackPath && port === expected.port
+    : LOOPBACK_PROVIDERS.some(
+        (item) =>
+          url.pathname === item.callbackPath && (item.port === null || item.port === port),
+      );
+  if (!allowed) return null;
   const state = url.searchParams.get("state") ?? "";
   if (!STATE_PATTERN.test(state)) return null;
   if (!url.searchParams.get("code") && !url.searchParams.get("error")) return null;
-  if (expected && (state !== expected.state || port !== expected.port)) return null;
+  if (expected && state !== expected.state) return null;
   url.hash = "";
   return url.toString();
 }
 
-function parseLoopbackRedirect(value: string): { href: string; port: number } | null {
+function parseLoopbackRedirect(
+  value: string,
+  provider: (typeof LOOPBACK_PROVIDERS)[number],
+): { href: string; port: number } | null {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
     return null;
   }
-  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.pathname !== CALLBACK_PATH) {
+  if (
+    url.protocol !== "http:" ||
+    url.hostname !== "127.0.0.1" ||
+    url.pathname !== provider.callbackPath
+  ) {
     return null;
   }
   if (url.username || url.password || url.search || url.hash) return null;
   const port = Number(url.port);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) return null;
+  if (provider.port !== null && port !== provider.port) return null;
   return { href: url.origin + url.pathname, port };
 }
 

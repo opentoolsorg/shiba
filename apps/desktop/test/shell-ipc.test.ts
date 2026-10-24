@@ -62,6 +62,19 @@ describe("shell ipc", () => {
     expect(deps.openExternal).not.toHaveBeenCalled();
   });
 
+  it("rejects desktop:codex-callback from an untrusted frame", async () => {
+    const { deps, handlers } = makeDeps();
+    expect(
+      await invoke(
+        handlers,
+        "desktop:codex-callback",
+        "https://evil.example/",
+        "https://auth.openai.com/oauth/authorize",
+      ),
+    ).toEqual({ ok: false, error: "Untrusted sender." });
+    expect(deps.receiveCodex).not.toHaveBeenCalled();
+  });
+
   it("opens a dashboard view and a github pull request", async () => {
     const { deps, handlers } = makeDeps();
     await invoke(handlers, "desktop:open-view", `${ORIGIN}/app/`, "approvals");

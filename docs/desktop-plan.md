@@ -38,17 +38,17 @@ Electron main
   preload        ->  window.shibaDesktop             (origin-gated)
   utilityProcess ->  scripts/shiba-local-daemon.mjs  (claim / run / result)
   loopback       ->  ChatGPT PKCE callback, handed back to POST /api/providers/codex/verify
-  spawn          ->  claude auth login               (stdio ignored; real HOME)
+  spawn          ->  claude auth login, then auth status (stdio ignored; real HOME)
 ```
 
 Default origin is `https://app.tryshiba.dev`. A saved self-hosted URL replaces
 it. Unpackaged `SHIBA_DESKTOP_URL` overrides both. `SHIBA_DESKTOP_SETUP=1`, or
 an empty `SHIBA_DESKTOP_URL`, opens the bundled setup page.
 
-The run HOME stays disposable. `scripts/link-operator-auth.mjs` symlinks
-`~/.claude` and `~/.codex` into that home when the envelope did not already
-create them, so subscription files stay on this computer and are not copied
-to the Worker.
+The run HOME stays disposable. `scripts/link-operator-auth.mjs` copies
+`.codex/auth.json` and `.claude/.credentials.json` into that home as mode
+0444. It does not symlink the operator directories, so a task cannot write
+the real credential files. The copies are not sent to the Worker.
 
 ## Workstreams
 
@@ -72,7 +72,7 @@ Status is for this branch.
 
 **Owns:** `scripts/shiba-local-daemon.mjs`, `scripts/link-operator-auth.mjs`, `src/supervisor.ts`, `src/controller.ts`, pairing IPC.
 
-**Interface:** the renderer supplies a pairing token. Main builds `--connect <origin> --pair <token>`. The adapter bearer stays in `~/.shiba-local/config.json` and is never returned over IPC. `linkOperatorAuth(homeDir, userHome)` is the subscription-directory seam.
+**Interface:** the renderer supplies a pairing token. Main builds `--connect <origin> --pair <token>`. The adapter bearer stays in `~/.shiba-local/config.json` and is never returned over IPC. `copyOperatorAuth(homeDir, userHome)` copies the subscription auth files into the run HOME.
 
 ### 4. Provider logins — built
 
@@ -171,4 +171,4 @@ pnpm --filter @shiba/frontend test -- src/desktop-provider.test.ts
 - No GitHub release is published.
 - A live walk against `https://app.tryshiba.dev` with a real Claude Code or Codex subscription is a manual check. The Electron journey uses a loopback stand-in.
 - Linux and Windows targets are not in v1.
-- The daemon still gives each run its own HOME. Only `~/.claude` and `~/.codex` are linked in, and only when the run did not already write those names.
+- The daemon still gives each run its own HOME. Only `.codex/auth.json` and `.claude/.credentials.json` are copied in, read-only, and only when the run did not already write those files.

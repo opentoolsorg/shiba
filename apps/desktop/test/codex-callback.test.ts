@@ -17,10 +17,18 @@ async function freePort(): Promise<number> {
 }
 
 function authorize(port: number, state = "state-state"): string {
-  const url = new URL("https://auth.openai.com/oauth/authorize");
+  return authorizeProvider(
+    "https://auth.openai.com/oauth/authorize",
+    `http://127.0.0.1:${port}/auth/callback`,
+    state,
+  );
+}
+
+function authorizeProvider(base: string, redirect: string, state = "state-state"): string {
+  const url = new URL(base);
   url.searchParams.set("code_challenge", "challenge-challenge");
   url.searchParams.set("code_challenge_method", "S256");
-  url.searchParams.set("redirect_uri", `http://127.0.0.1:${port}/auth/callback`);
+  url.searchParams.set("redirect_uri", redirect);
   url.searchParams.set("state", state);
   return url.toString();
 }
@@ -30,6 +38,43 @@ describe("parseCodexAuthorizationUrl", () => {
     expect(parseCodexAuthorizationUrl("https://auth.openai.com/codex/device").ok).toBe(false);
     expect(parseCodexAuthorizationUrl("https://evil.example/oauth/authorize").ok).toBe(false);
     expect(parseCodexAuthorizationUrl("http://auth.openai.com/oauth/authorize").ok).toBe(false);
+  });
+
+  it("accepts Antigravity and xAI loopback redirects and rejects a swapped port", () => {
+    const antigravity = authorizeProvider(
+      "https://accounts.google.com/o/oauth2/v2/auth",
+      "http://127.0.0.1:51121/callback",
+    );
+    const xai = authorizeProvider(
+      "https://auth.x.ai/oauth/authorize",
+      "http://127.0.0.1:56121/callback",
+    );
+    expect(parseCodexAuthorizationUrl(antigravity).ok).toBe(true);
+    expect(parseCodexAuthorizationUrl(xai).ok).toBe(true);
+    expect(
+      parseCodexAuthorizationUrl(
+        authorizeProvider(
+          "https://accounts.x.ai/oauth/authorize",
+          "http://127.0.0.1:56121/callback",
+        ),
+      ).ok,
+    ).toBe(true);
+    expect(
+      parseCodexAuthorizationUrl(
+        authorizeProvider(
+          "https://accounts.google.com/o/oauth2/v2/auth",
+          "http://127.0.0.1:1455/callback",
+        ),
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseCodexAuthorizationUrl(
+        authorizeProvider(
+          "https://accounts.x.ai/oauth/authorize",
+          "http://127.0.0.1:56121/auth/callback",
+        ),
+      ).ok,
+    ).toBe(false);
   });
 });
 
@@ -57,6 +102,22 @@ describe("receiveCodexCallback", () => {
       return true;
     });
     await expect(received).rejects.toThrow(/cancelled/);
+  });
+
+  it("receives an Antigravity callback on 127.0.0.1:51121/callback", async () => {
+    const authorizationUrl = authorizeProvider(
+      "https://accounts.google.com/o/oauth2/v2/auth",
+      "http://127.0.0.1:51121/callback",
+    );
+    const callbackUrl = "http://127.0.0.1:51121/callback?code=anti-code&state=state-state";
+    const received = receiveCodexCallback(authorizationUrl, async (opened) => {
+      expect(opened).toBe(authorizationUrl);
+      const response = await fetch(callbackUrl);
+      expect(response.status).toBe(200);
+      expect(await response.text()).not.toContain("anti-code");
+      return true;
+    });
+    await expect(received).resolves.toBe(callbackUrl);
   });
 
   it("accepts the same callback from a deep link", async () => {

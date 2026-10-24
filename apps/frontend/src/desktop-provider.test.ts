@@ -9,6 +9,20 @@ describe("desktopCodexAuthorizationUrl", () => {
     expect(desktopCodexAuthorizationUrl(AUTHORIZE)).toBe(new URL(AUTHORIZE).toString());
   });
 
+  it("accepts Antigravity and xAI loopback redirects", () => {
+    const antigravity =
+      "https://accounts.google.com/o/oauth2/v2/auth?code_challenge=abc&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A51121%2Fcallback&state=state-state";
+    const xai =
+      "https://auth.x.ai/oauth/authorize?code_challenge=abc&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A56121%2Fcallback&state=state-state";
+    expect(desktopCodexAuthorizationUrl(antigravity)).toBe(new URL(antigravity).toString());
+    expect(desktopCodexAuthorizationUrl(xai)).toBe(new URL(xai).toString());
+    expect(
+      desktopCodexAuthorizationUrl(
+        "https://accounts.google.com/o/oauth2/v2/auth?code_challenge=abc&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fcallback&state=state-state",
+      ),
+    ).toBeNull();
+  });
+
   it("rejects a device page, another host, and a missing challenge", () => {
     expect(desktopCodexAuthorizationUrl("https://auth.openai.com/codex/device")).toBeNull();
     expect(
