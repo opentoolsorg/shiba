@@ -48,8 +48,6 @@ export interface Env {
   GOOGLE_ANTIGRAVITY_CLIENT_ID?: string;
   /** Google OAuth client secret for Antigravity token exchange — Worker secret, never in the container. */
   GOOGLE_ANTIGRAVITY_CLIENT_SECRET?: string;
-  /** Devin API organization id for v3 session APIs (Settings → Devin API). */
-  DEVIN_ORG_ID?: string;
   /** Private launch/contributor registrations. */
   Waitlist: DurableObjectNamespace;
   /**

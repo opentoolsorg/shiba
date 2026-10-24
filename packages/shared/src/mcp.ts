@@ -19,7 +19,6 @@ export const HARNESS_IDS = [
   "codex",
   "codex-subscription",
   "devin",
-  "devin-api",
   "devin-subscription",
   "grok",
   "pi",

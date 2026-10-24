@@ -56,7 +56,6 @@ const CATALOG_META: Record<
   codex: { label: "Codex", binary: "codex", version: "0.157.1", docsUrl: "https://github.com/openai/codex" },
   "codex-subscription": { label: "Codex (subscription)", binary: "codex", version: "0.157.1", docsUrl: "https://github.com/openai/codex" },
   devin: { label: "Devin", binary: "devin", version: "3000.11.3", docsUrl: "https://cli.devin.ai/docs" },
-  "devin-api": { label: "Devin (API)", binary: "devin", version: "3000.11.3", docsUrl: "https://docs.devin.ai" },
   grok: { label: "Grok", binary: "grok", version: "1.0.41", docsUrl: "https://docs.x.ai" },
   pi: { label: "Pi", binary: "pi", version: "1.3.0", docsUrl: "https://github.com/earendil-works/pi" },
   cursor: { label: "Cursor", binary: "cursor-agent", version: "0.50.0", docsUrl: "https://docs.cursor.com" },
@@ -109,7 +108,7 @@ export function agentCliCatalog(
             configured: Boolean(env.ACP_REGISTRY_ALLOWLIST?.trim()),
             setupHint: "set ACP_REGISTRY_ALLOWLIST (+ ACP_REGISTRY_JSON snapshot)",
           }
-        : id === "devin" || id === "devin-api" || id === "devin-acp"
+        : id === "devin" || id === "devin-acp"
         ? {
             kind: "worker-secret",
             label: "DEVIN_API_KEY",

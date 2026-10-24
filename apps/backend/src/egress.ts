@@ -812,60 +812,26 @@ function rewriteDevinKey(body: ArrayBuffer, apiKey: string): ArrayBuffer {
   }
 }
 
-async function resolveDevinApiKey(
-  env: EgressEnv,
-  userId: string | undefined,
-  orgId?: string,
-): Promise<string | undefined> {
-  const trimmed = userId?.trim() ?? "";
-  if (trimmed !== "") {
-    const userKey = await readProviderSecretForOrg(env, trimmed, "devin");
-    if (userKey) return userKey;
-  }
-  if (orgId) {
-    const orgKey = await readProviderSecretForOrg(env, orgId, "devin");
-    if (orgKey) return orgKey;
-  }
-  return env.DEVIN_API_KEY;
-}
-
-/** Per-user Devin API key at egress (Providers card), else deployment DEVIN_API_KEY. */
-export async function forwardDevinUser(
-  request: Request,
-  env: EgressEnv,
-  ctx?: OutboundHandlerCtx,
-): Promise<Response> {
-  const params = (ctx?.params ?? {}) as Record<string, unknown>;
-  const userId = typeof params.userId === "string" ? params.userId : undefined;
-  const target = new URL(request.url);
-  const host = target.hostname;
-  if (target.protocol !== "https:" || (host !== "api.devin.ai" && host !== "server.codeium.com")) {
-    return new Response("Invalid Devin destination.", { status: 403 });
-  }
-  const apiKey = await resolveDevinApiKey(env, userId, ctx?.orgId);
-  return forwardDevin(request, env, host, apiKey);
-}
-
 /** api.devin.ai — Devin control plane (sessions, billing, org). */
-export async function forwardDevinApi(request: Request, env: EgressEnv, ctx?: OutboundHandlerCtx): Promise<Response> {
+export async function forwardDevinApi(request: Request, env: EgressEnv, _ctx?: OutboundHandlerCtx): Promise<Response> {
   const target = new URL(request.url);
   if (target.hostname !== "api.devin.ai") {
     return new Response("Invalid Devin destination.", { status: 403 });
   }
-  return forwardDevinUser(request, env, ctx);
+  return forwardDevin(request, env, "api.devin.ai");
 }
 
 /** server.codeium.com — inference backend Devin Pro accounts talk to. */
 export async function forwardDevinInference(
   request: Request,
   env: EgressEnv,
-  ctx?: OutboundHandlerCtx,
+  _ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
   const target = new URL(request.url);
   if (target.hostname !== "server.codeium.com") {
     return new Response("Invalid Devin destination.", { status: 403 });
   }
-  return forwardDevinUser(request, env, ctx);
+  return forwardDevin(request, env, "server.codeium.com");
 }
 
 /**

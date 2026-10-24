@@ -15,7 +15,6 @@ import {
   forwardDevinApi,
   forwardDevinInference,
   forwardDevinSubscription,
-  forwardDevinUser,
   forwardGitHubScoped,
   forwardGoogle,
   forwardDeepSeek,
@@ -62,8 +61,6 @@ function namedHandler(
       return forwardAntigravityUser;
     case "xaiUser":
       return forwardXaiUser;
-    case "devinUser":
-      return forwardDevinUser;
     case "devinSubscription":
       return forwardDevinSubscription;
     default:

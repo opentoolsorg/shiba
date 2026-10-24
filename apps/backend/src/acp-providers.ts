@@ -168,22 +168,6 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     credentialEnv: ["AI_GATEWAY_TOKEN"],
   },
   {
-    id: "devin",
-    label: "Devin",
-    blurb:
-      "Devin via the cloud API (app.devin.ai). Paste your Devin API key from Settings → Devin API; egress attaches it while the sandbox keeps a dummy credentials file.",
-    adapter: "devin",
-    packageName: "devin",
-    license: "see package",
-    harness: "devin-api",
-    protocol: "cli",
-    spawn: ["devin", "-p"],
-    docsUrl: "https://docs.devin.ai",
-    oauth: false,
-    subscription: null,
-    credentialEnv: ["DEVIN_API_KEY", "DEVIN_ORG_ID"],
-  },
-  {
     id: "cursor",
     label: "Cursor",
     blurb:

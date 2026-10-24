@@ -56,7 +56,6 @@ const PIN_SOURCE: Record<string, { npm?: string; arg?: string }> = {
   grok: { npm: "@xai-official/grok" },
   pi: { npm: "@earendil-works/pi-coding-agent" },
   devin: { arg: "DEVIN_CLI_VERSION" },
-  "devin-api": { arg: "DEVIN_CLI_VERSION" },
   "claude-acp": { npm: "@agentclientprotocol/claude-agent-acp" },
   "codex-acp": { npm: "@agentclientprotocol/codex-acp" },
   "gemini-acp": { npm: "@google/gemini-cli" },

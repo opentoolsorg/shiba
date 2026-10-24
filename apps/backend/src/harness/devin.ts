@@ -101,16 +101,6 @@ export class DevinHarness implements AgentHarness {
     return [...DEVIN_EGRESS_HOSTS];
   }
 
-  egressOverrides(input: CodingTaskInput) {
-    const userId = input.initiatorUserId?.trim() ?? "";
-    if (userId === "") return [];
-    return DEVIN_EGRESS_HOSTS.map((host) => ({
-      host,
-      handler: "devinUser" as const,
-      params: { userId },
-    }));
-  }
-
   configFile(_input: CodingTaskInput, _sandboxId: string): HarnessConfigFile {
     return devinCredentialsConfig();
   }

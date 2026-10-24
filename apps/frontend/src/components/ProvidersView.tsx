@@ -80,7 +80,6 @@ function OperatorSteps({ id, steps }: { id: string; steps: readonly string[] }):
 const PASTE_KEY_LABEL: Record<string, string> = {
   gemini: "Gemini API key",
   grok: "xAI API key",
-  devin: "Devin API key (cog_… from app.devin.ai)",
   opencode: "OpenCode or DeepSeek API key",
 };
 

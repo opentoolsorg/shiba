@@ -23,7 +23,6 @@ export type AgentHarnessName =
   | "codex"
   | "codex-subscription"
   | "devin"
-  | "devin-api"
   | "grok"
   | "pi"
   | "cursor"

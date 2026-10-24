@@ -13,7 +13,6 @@ import type { CodingTaskInput } from "../opencode-input.js";
 import { cursorHarness } from "./cursor.js";
 import { cursorSubscriptionHarness } from "./cursor-subscription.js";
 import { CONTAINER_XDG_DATA, devinCredentialsConfig, devinHarness } from "./devin.js";
-import { devinApiHarness } from "./devin-api.js";
 import { devinSubscriptionHarness } from "./devin-subscription.js";
 import { grokHarness } from "./grok.js";
 import { piHarness } from "./pi.js";
@@ -132,7 +131,6 @@ const REGISTRY = {
   codex: codexHarness,
   "codex-subscription": codexSubscriptionHarness,
   devin: devinHarness,
-  "devin-api": devinApiHarness,
   grok: grokHarness,
   pi: piHarness,
   cursor: cursorHarness,
@@ -299,7 +297,6 @@ const CORE_DEFAULT_MODELS = {
   // name the pinned CLI (3000.11.3) does not resolve, and "swe" is the
   // family alias.
   devin: "devin/swe-2-medium",
-  "devin-api": "devin/swe-2-medium",
   grok: "xai/grok-4.6",
   pi: "anthropic/claude-sonnet-4-6",
   cursor: "cursor/claude-4-5-sonnet",
@@ -339,7 +336,6 @@ const CORE_MODEL_ENV = {
   codex: "CODEX_MODEL",
   "codex-subscription": "CODEX_SUBSCRIPTION_MODEL",
   devin: "DEVIN_MODEL",
-  "devin-api": "DEVIN_MODEL",
   grok: "GROK_MODEL",
   pi: "PI_MODEL",
   cursor: "CODING_MODEL",
