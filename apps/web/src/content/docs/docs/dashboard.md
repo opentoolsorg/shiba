@@ -58,7 +58,7 @@ To have a run prepare the repository before the agent starts, commit a `.shiba/s
 ```json
 {
   "format_version": 1,
-  "scripts": { "initialize": "pnpm install --frozen-lockfile && pnpm build" },
+  "scripts": { "initialize": "mkdir -p .cache" },
   "timeouts": { "initialize": 900 }
 }
 ```
@@ -66,6 +66,7 @@ To have a run prepare the repository before the agent starts, commit a `.shiba/s
 - **Opt-in:** the setup script runs only when that box is ticked for the run. The tick is part of what you approve, and the approval card says `Setup: runs .shiba/setup.json initialize`. Steering, forks, API retries and CI follow-ups keep it.
 - **Who can opt in:** only the box in the composer, or the authenticated `/api/runs` API. The chat agent's own tool call can't turn setup on.
 - **Execution:** the script runs with `sh -c` in the cloned repository and gets the run's environment variables. It's the only repo-authored shell the runtime itself executes; every other command still has to match the exec allowlist. Exec receipts record the step as `.shiba/setup.json#initialize`, not the script text.
+- **Network:** setup does not widen the selected harness's egress allowlist. For most harnesses only provider and GitHub hosts are reachable; npm/PyPI downloads are blocked. Use offline setup or dependencies already available in the image. ACP may additionally admit its installer hosts.
 - **Timeout:** `timeouts.initialize` defaults to 600 seconds, with a maximum of 900 to keep the run within its deadline. Unknown keys in the file are refused. `scripts.refresh`, `timeouts.refresh` and `entries` are accepted but not run yet.
 - **Baseline:** once the script succeeds, its effects are set aside in a local-only git commit (hooks off, never pushed). Installs, rewritten lockfiles and generated files never appear in the change or the pull request.
 - **Overlap:** if the agent then changes a file the setup script also changed, the run fails rather than publish setup's edits as the agent's. Keep the script from editing tracked files.
@@ -90,7 +91,7 @@ To have a run prepare the repository before the agent starts, commit a `.shiba/s
 **After the run**
 - Once you decide the approval, the run holds the only copy of the encrypted blob. When the run finishes, that copy is discarded.
 - Forking a finished run that had environment variables, or retrying it through the API, is refused. Start a new run and enter the variables again.
-- A follow-up that a CI or review event opens is a new approval with no environment variables.
+- CI or review events cannot create a coding follow-up for a run whose environment was discarded; they return `environment_discarded` instead. Start a new run and supply the variables again.
 
 **Refused names:** names that steer the harness, egress, TLS trust, the dynamic loader or a toolchain's registry are refused. That covers `PATH`, `HOME`, `TMPDIR`, `*_PROXY`, `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED`, `BASH_ENV`, `LD_*`, `PYTHON*`, `NPM_CONFIG_*`, `PIP_*`, `XDG_*`, `GIT_*`, `GITHUB_*` and `SHIBA_*`, plus provider-key prefixes such as `OPENAI_*` and `ANTHROPIC_*`. Ordinary app variables such as `NODE_ENV` or `DATABASE_URL` are fine.
 

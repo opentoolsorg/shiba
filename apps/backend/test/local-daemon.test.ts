@@ -8,7 +8,7 @@ import { expect, it } from "vitest";
 
 const exec = promisify(execFile);
 
-it("executes a local run without exposing daemon or unrelated shell secrets to repository children", async () => {
+it.each([false, true])("executes a local run (session=%s) without exposing daemon or unrelated shell secrets to repository children", async (session) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "shiba-daemon-env-"));
   const repo = path.join(root, "repo");
   const bin = path.join(root, "bin");
@@ -29,6 +29,17 @@ it("executes a local run without exposing daemon or unrelated shell secrets to r
     'echo "secret isolation passed"',
   ].join("\n"), { mode: 0o755 });
 
+  const sessionScript = path.join(bin, "fake-claude.mjs");
+  await writeFile(sessionScript, `
+    import { createInterface } from "node:readline";
+    if (${JSON.stringify(forbidden)}.some((key) => process.env[key])) process.exit(42);
+    const effort = process.argv.indexOf("--effort");
+    if (effort < 0 || process.argv[effort + 1] !== "high") process.exit(45);
+    createInterface({ input: process.stdin }).on("line", () => {
+      process.stdout.write(JSON.stringify({ type: "result", result: "secret isolation passed" }) + "\\n");
+    });
+  `);
+
   let result: { status: string; summary: string } | undefined;
   const server = createServer(async (request, response) => {
     expect(request.headers.authorization).toBe("Bearer daemon-control-secret");
@@ -43,6 +54,8 @@ it("executes a local run without exposing daemon or unrelated shell secrets to r
         env: { RUN_SETTING: "approved-setting", LOCAL_ADAPTER_TOKEN: "envelope-forgery", GITHUB_TOKEN: "envelope-github" },
         configFiles: [], setupCommands: [], setupAllowlist: [], execAllowlist: [],
         argv: ["codex"], deadlineAt: Date.now() + 30_000,
+        task: "Check effort",
+        ...(session ? { session: { provider: "claude", model: "claude-test", permissionMode: "approval-required", reasoningEffort: "high", bin: process.execPath, binArgs: [sessionScript] } } : {}),
       } }));
     } else {
       if (request.url === "/api/local/result") result = body.result;
@@ -73,7 +86,7 @@ it("executes a local run without exposing daemon or unrelated shell secrets to r
     });
     expect(output).not.toContain("daemon-control-secret");
     expect(exitCode, output).toBe(0);
-    expect(result).toMatchObject({ status: "completed", summary: "secret isolation passed" });
+    expect(result).toMatchObject({ status: "completed", summary: session ? expect.stringContaining("secret isolation passed") : "secret isolation passed" });
   } finally {
     clearTimeout(timer);
     daemon.kill();

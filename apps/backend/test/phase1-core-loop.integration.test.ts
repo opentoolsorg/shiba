@@ -484,6 +484,38 @@ describe("Phase 1 core loop (integration)", () => {
     vi.unstubAllGlobals();
   });
 
+  it("refuses a CI wake for a run whose env was discarded instead of queueing it without env", async () => {
+    const instance = agent();
+    const coding = {
+      ...createRun({
+        runId: "agent-tool:env-wake",
+        sandboxId: "sb-env-wake",
+        repoUrl: REPO,
+        task: "Add a README",
+        baseBranch: "main",
+        publishPullRequest: true,
+        envNames: ["API_TOKEN"],
+        envDigest: "a".repeat(64),
+      }),
+      status: "completed" as const,
+      pullUrl: PULL_URL,
+    };
+    instance.setState({ runs: [coding] });
+    const wake = await instance.onRequest(
+      new Request("https://internal/internal/pr-lifecycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          githubEvent: "check_run",
+          mapped: { event: "check_run", action: "completed", repo: "o/r", pullNumber: 7 },
+        }),
+      }),
+    );
+    expect(wake.status).toBe(200);
+    expect(await wake.json()).toMatchObject({ wake: "ci_completed", skipped: "environment_discarded" });
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+  });
+
   it("stores a review loop and queues a merge approval for a clean posted round", async () => {
     const head = "c".repeat(40);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
