@@ -4,6 +4,7 @@ on:
     paths:
       - apps/desktop/**
       - scripts/shiba-local-daemon.mjs
+      - scripts/link-operator-auth.mjs
       - packages/shared/src/desktop-bridge.ts
       - .github/workflows/desktop.yml
   push:
@@ -56,7 +57,8 @@ jobs:
       - run: pnpm --filter @shiba/desktop test
       # Signing + notarization secrets are added by a human in repo settings.
       - run: pnpm --filter @shiba/desktop build
-      - run: pnpm --filter @shiba/desktop exec electron-builder --publish always
+      # Builds a signed artifact when secrets exist. Does not publish a GitHub release.
+      - run: pnpm --filter @shiba/desktop exec electron-builder --publish never
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}

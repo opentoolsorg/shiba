@@ -37,6 +37,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { linkOperatorAuth } from "./link-operator-auth.mjs";
 
 const LOCAL_RUN_ROOT_TOKEN = "${SHIBA_LOCAL_RUN_ROOT}";
 const MAX_STDERR_TAIL_CHARS = 8_000;
@@ -425,6 +426,10 @@ async function execute(envelope) {
 
     // 2. setup ops — the same prefix allowlist the sandbox adapter applies.
     await fs.mkdir(homeDir, { recursive: true });
+    // Subscription CLIs read ~/.claude and ~/.codex. The run HOME stays
+    // disposable; only those two directories are linked from the operator
+    // HOME, and only when the envelope did not already write them.
+    await linkOperatorAuth(homeDir, process.env.HOME);
     for (const argv of envelope.setupCommands) {
       const resolved = argv.map((part) => substitute(part, root));
       const result = await scopedLocalExec(resolved, envelope.setupAllowlist, {
