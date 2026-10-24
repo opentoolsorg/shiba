@@ -519,6 +519,16 @@ export async function forwardAntigravityUser(
   target.search = stripCredentialParams(target.search);
   const headers = outboundHeaders(request);
   if (!auth) {
+    // antigravity-subscription installs this handler whenever userId is set,
+    // but the in-container agy profile lane authenticates with its own bearer
+    // on Cloud Code hosts when the dashboard OAuth record is absent.
+    const cloudCodeHost =
+      target.hostname === "cloudcode-pa.googleapis.com" ||
+      target.hostname === "daily-cloudcode-pa.googleapis.com";
+    if (cloudCodeHost) {
+      const profileAuth = request.headers.get("authorization");
+      if (profileAuth) headers.set("Authorization", profileAuth);
+    }
     try {
       return await fetch(target, {
         method: request.method,

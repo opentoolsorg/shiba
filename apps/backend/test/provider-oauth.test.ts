@@ -180,6 +180,71 @@ describe("provider-oauth modules", () => {
     expect(response.status).toBe(200);
   });
 
+  it("antigravity egress without user OAuth preserves in-container profile bearer on Cloud Code hosts", async () => {
+    let seenAuth: string | null = null;
+    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const h =
+        init?.headers instanceof Headers
+          ? init.headers
+          : new Headers(init?.headers as HeadersInit | undefined);
+      seenAuth = h.get("authorization");
+      return new Response(seenAuth === "Bearer agy-profile-token" ? "ok" : "no", {
+        status: seenAuth === "Bearer agy-profile-token" ? 200 : 401,
+      });
+    }) as typeof fetch;
+
+    const egressEnv = oauthEnv(async (input) => {
+      if (String(input).includes("/access?")) {
+        return new Response("", { status: 404 });
+      }
+      return globalThis.fetch(input);
+    });
+
+    const response = await forwardAntigravityUser(
+      new Request("https://cloudcode-pa.googleapis.com/v1internal:generateContent", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer agy-profile-token",
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }),
+      egressEnv,
+      { params: { userId: "ada" } },
+    );
+    expect(response.status).toBe(200);
+    expect(seenAuth).toBe("Bearer agy-profile-token");
+  });
+
+  it("antigravity egress without user OAuth still strips authorization on non-Cloud-Code hosts", async () => {
+    let seenAuth: string | null = "unset";
+    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const h =
+        init?.headers instanceof Headers
+          ? init.headers
+          : new Headers(init?.headers as HeadersInit | undefined);
+      seenAuth = h.get("authorization");
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    const egressEnv = oauthEnv(async (input) => {
+      if (String(input).includes("/access?")) {
+        return new Response("", { status: 404 });
+      }
+      return globalThis.fetch(input);
+    });
+
+    await forwardAntigravityUser(
+      new Request("https://generativelanguage.googleapis.com/v1/models", {
+        method: "GET",
+        headers: { authorization: "Bearer agy-profile-token" },
+      }),
+      egressEnv,
+      { params: { userId: "ada" } },
+    );
+    expect(seenAuth).toBeNull();
+  });
+
   it("cursor: single poll, refresh, terminal rejection, and authenticated egress", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
