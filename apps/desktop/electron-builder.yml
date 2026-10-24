@@ -26,6 +26,8 @@ extraResources:
     to: daemon/shiba-local-daemon.mjs
   - from: ../../scripts/link-operator-auth.mjs
     to: daemon/link-operator-auth.mjs
+  - from: ../../scripts/agent-harness.mjs
+    to: daemon/agent-harness.mjs
 electronFuses:
   runAsNode: false
   enableNodeOptionsEnvironmentVariable: false
