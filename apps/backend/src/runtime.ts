@@ -100,6 +100,10 @@ export interface RuntimeAdapter {
     emit: ProgressEmitter,
     opts?: {
       signal?: AbortSignal;
+      /** T68: approved per-run env, already opened. Harness env wins on any shared key. */
+      env?: Record<string, string>;
+      /** T68: applied to sandbox output before truncation, so a cut can't leave part of a value behind. */
+      scrub?: (text: string) => string;
       /**
        * T42 run-signal collector: the adapter appends each milestone it
        * crosses, in order, and the result envelope carries the same list
@@ -160,7 +164,13 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     ops: SandboxOps,
     input: CodingTaskInput,
     emit: ProgressEmitter,
-    opts?: { signal?: AbortSignal; signals?: RunSignal[]; exportDiff?: (diff: string) => Promise<string> },
+    opts?: {
+      signal?: AbortSignal;
+      env?: Record<string, string>;
+      scrub?: (text: string) => string;
+      signals?: RunSignal[];
+      exportDiff?: (diff: string) => Promise<string>;
+    },
   ): Promise<CodingTaskResult> {
     const workdir = `/workspace/${input.sandboxId}`;
     const configValue = this.harness.configFile(input, input.sandboxId);
@@ -170,6 +180,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     const milestone = (kind: RunSignalKind, detail?: string) => {
       signals.push(detail !== undefined ? { kind, at: Date.now(), detail } : { kind, at: Date.now() });
     };
+    const scrub = opts?.scrub ?? ((text: string) => text);
 
     // T45: every exec this run sends to the sandbox goes through the scoped
     // executor — argv-prefix allowlist (adapter-internal git + the harness's
@@ -242,7 +253,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           signal: opts?.signal,
         });
         if (result.exitCode !== 0) {
-          return failureResult(`Home layout setup failed (${argv.join(" ")}): ${boundTail(result.stderr, 500)}`, 0, "", signals);
+          return failureResult(`Home layout setup failed (${argv.join(" ")}): ${boundTail(scrub(result.stderr), 500)}`, 0, "", signals);
         }
       }
       for (const file of configFiles) {
@@ -268,7 +279,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           timeoutMs: OPENCODE_TIMEOUT_MS,
           signal: opts?.signal,
           onOutput: output.onData,
-          env: this.harness.env(input, config?.path ?? null),
+          env: { ...opts?.env, ...this.harness.env(input, config?.path ?? null) },
         }),
         opts?.signal,
       );
@@ -303,9 +314,9 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       ) {
         return failureResult(error.message, 0, "", signals, output.usage);
       }
-      return failureResult(`${this.harness.name} execution failed: ${shortError(error)}`, 0, "", signals, output.usage);
+      return failureResult(`${this.harness.name} execution failed: ${scrub(shortError(error))}`, 0, "", signals, output.usage);
     }
-    const stderrTail = redactSecrets(boundTail(run.stderr, MAX_STDERR_TAIL_CHARS));
+    const stderrTail = redactSecrets(boundTail(scrub(run.stderr), MAX_STDERR_TAIL_CHARS));
     if (run.exitCode !== 0) {
       // stderr is the only diagnostic a harness failure carries; fold the tail
       // into the summary so the run record shows why the CLI died.
@@ -345,7 +356,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         diff: collection.diff,
         files: collection.files,
         signals,
-        summary: summarizeRun(this.harness.name, input, collection.changedFiles, boundTail(run.stdout, MAX_STDOUT_TAIL_CHARS)),
+        summary: summarizeRun(this.harness.name, input, collection.changedFiles, boundTail(scrub(run.stdout), MAX_STDOUT_TAIL_CHARS)),
         // Only what the harness stream actually reported — never estimated.
         ...(output.usage !== undefined ? { usage: output.usage } : {}),
       };
@@ -358,6 +369,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           await emit({ phase: "collect", message: `Running test command: ${input.testCommand.join(" ")}`, fraction: 0.9 });
           const testRun = await scoped.exec(shellJoin(input.testCommand), {
             cwd: workdir,
+            ...(opts?.env !== undefined ? { env: opts.env } : {}),
             timeoutMs: TEST_COMMAND_TIMEOUT_MS,
             signal: opts?.signal,
           });
@@ -366,7 +378,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           completed.testEvidence = {
             command: shellJoin(input.testCommand),
             exitCode: testRun.exitCode,
-            outputTail: boundTail(`${testRun.stdout}\n${testRun.stderr}`.trim(), TEST_EVIDENCE_TAIL_CHARS),
+            outputTail: boundTail(scrub(`${testRun.stdout}\n${testRun.stderr}`.trim()), TEST_EVIDENCE_TAIL_CHARS),
           };
           if (testRun.exitCode !== 0) {
             await emit({ phase: "collect", message: `Test command exited ${testRun.exitCode}.`, fraction: 0.92 });
@@ -449,12 +461,16 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     _ops: SandboxOps,
     input: CodingTaskInput,
     emit: ProgressEmitter,
-    opts?: { signal?: AbortSignal; signals?: RunSignal[] },
+    opts?: { signal?: AbortSignal; signals?: RunSignal[]; env?: Record<string, string> },
   ): Promise<CodingTaskResult> {
     const signals = opts?.signals ?? [];
     const milestone = (kind: RunSignalKind, detail?: string) => {
       signals.push(detail !== undefined ? { kind, at: Date.now(), detail } : { kind, at: Date.now() });
     };
+    // ponytail: intake refuses env for local runs; this guards a forged envelope. Lift when the daemon can take sealed env.
+    if (opts?.env !== undefined) {
+      return failureResult("Per-run environment variables are not supported on the local runtime.", 0, "", signals);
+    }
     if (!this.harness.capabilities(input.codingModel).supportedRuntimes.includes("local")) {
       return failureResult(
         `Harness ${this.harness.name} does not run on the local runtime.`,
