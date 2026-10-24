@@ -9,6 +9,7 @@ export type NamedOutboundHandler =
   | "githubScoped"
   | "claudeSubscription"
   | "codexSubscription"
+  | "codexPlan"
   | "cursorSubscription"
   | "devinSubscription";
 

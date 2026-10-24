@@ -77,6 +77,57 @@ describe("assertRunPreflight", () => {
     ).rejects.toThrow(/no authenticated account/);
   });
 
+  it("allows codex-subscription without AI_GATEWAY_TOKEN when the user's ChatGPT plan is connected", async () => {
+    const snapshot = { connections: [], policy: { version: 0, models: {}, updatedAt: 0 }, connectionOrder: [] };
+    const route = resolveCodingRoute(snapshot, {
+      connectionId: null,
+      model: "openai-subscription/gpt-5.3-codex",
+      harness: "codex-subscription",
+    });
+    await expect(
+      assertRunPreflight(
+        env({
+          AI_GATEWAY_TOKEN: "",
+          MODEL_CREDENTIAL_KEY: "ab".repeat(32),
+          ChatGptAuth: {
+            idFromName: () => "id",
+            get: () => ({
+              fetch: async () => Response.json({ connected: true, planUsageEnabled: true }),
+            }),
+          },
+        } as unknown as Partial<Env>),
+        {
+          harness: "codex-subscription",
+          codingModel: "openai-subscription/gpt-5.3-codex",
+          route,
+          initiatorUserId: "ada@example.com",
+        },
+        snapshot,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("allows a local Claude Code run without AI_GATEWAY_TOKEN", async () => {
+    const snapshot = { connections: [], policy: { version: 0, models: {}, updatedAt: 0 }, connectionOrder: [] };
+    const route = resolveCodingRoute(snapshot, {
+      connectionId: null,
+      model: "anthropic/claude-sonnet-4-6",
+      harness: "claude-code",
+    });
+    await expect(
+      assertRunPreflight(
+        env({ AI_GATEWAY_TOKEN: "" }),
+        {
+          harness: "claude-code",
+          codingModel: "anthropic/claude-sonnet-4-6",
+          route,
+          runtime: "local",
+        },
+        snapshot,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("allows BYOK harness queue when verify standin is enabled without AI_GATEWAY_TOKEN", async () => {
     const snapshot = { connections: [], policy: { version: 0, models: {}, updatedAt: 0 }, connectionOrder: [] };
     const route = resolveCodingRoute(snapshot, {

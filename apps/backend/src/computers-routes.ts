@@ -61,6 +61,43 @@ export async function verifyPairingToken(secret: string, token: string, now: num
   }
 }
 
+export async function mintDaemonPairing(
+  env: Env,
+  origin: string,
+): Promise<
+  | { ok: true; token: string; expiresAt: number; command: string }
+  | { ok: false; status: number; message: string }
+> {
+  if (env[LOCAL_RUNTIME_FLAG] !== "1" || env.LocalDispatch === undefined) {
+    return { ok: false, status: 404, message: "The local runtime is not enabled on this deployment." };
+  }
+  const secret = pairingSecret(env);
+  if (secret === undefined) {
+    return {
+      ok: false,
+      status: 503,
+      message: "Pairing is not configured: set PAIRING_SECRET or LOCAL_ADAPTER_TOKEN.",
+    };
+  }
+  const nonce = randomHex(16);
+  const expiresAt = Date.now() + LOCAL_PAIRING_TTL_MS;
+  const stored = await localDispatchStub(env).fetch(
+    new Request("https://local-dispatch/pairing-nonce", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nonce, expiresAt }),
+    }),
+  );
+  if (!stored.ok) return { ok: false, status: 500, message: "Could not mint a pairing token." };
+  const token = await signPairingToken(secret, nonce, expiresAt);
+  return {
+    ok: true,
+    token,
+    expiresAt,
+    command: `node scripts/shiba-local-daemon.mjs --connect ${origin} --pair ${token}`,
+  };
+}
+
 export async function handleComputers(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== "/api/computers" && !url.pathname.startsWith("/api/computers/")) {
@@ -94,23 +131,14 @@ export async function handleComputers(request: Request, env: Env): Promise<Respo
 
   if (url.pathname === "/api/computers/pairing-token") {
     if (request.method !== "POST") return methodNotAllowed();
-    const secret = pairingSecret(env);
-    if (secret === undefined) {
-      return Response.json({ error: "Pairing is not configured: set PAIRING_SECRET or LOCAL_ADAPTER_TOKEN." }, { status: 503 });
+    const minted = await mintDaemonPairing(env, url.origin);
+    if (!minted.ok) {
+      return Response.json({ error: minted.message }, { status: minted.status });
     }
-    const nonce = randomHex(16);
-    const expiresAt = Date.now() + LOCAL_PAIRING_TTL_MS;
-    const stored = await stub.fetch(new Request("https://local-dispatch/pairing-nonce", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nonce, expiresAt }),
-    }));
-    if (!stored.ok) return Response.json({ error: "Could not mint a pairing token." }, { status: 500 });
-    const token = await signPairingToken(secret, nonce, expiresAt);
     const response: PairingTokenResponse = {
-      token,
-      expiresAt,
-      connectCommand: `node scripts/shiba-local-daemon.mjs --connect ${url.origin} --pair ${token}`,
+      token: minted.token,
+      expiresAt: minted.expiresAt,
+      connectCommand: minted.command,
     };
     return Response.json(response);
   }

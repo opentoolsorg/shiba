@@ -5,10 +5,12 @@ import {
   type AcpProviderConnection,
   type AcpProviderId,
   type AcpProvidersSnapshot,
+  type AcpSignInKind,
   isAcpProviderId,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { ACP_LANES, HARNESS_DEFAULT_MODELS, HARNESSES } from "./harness/index.js";
+import { gatewayOperatorSteps } from "./provider-sign-in.js";
 import type { AgentHarnessName } from "./harness/types.js";
 import { InputError } from "./security.js";
 
@@ -40,7 +42,6 @@ interface ProviderDefinition {
   oauth: boolean;
   subscription: "claude-subscription" | "codex-subscription" | null;
   credentialEnv: readonly string[];
-  verificationUri: string | null;
 }
 
 interface StoredConnection {
@@ -49,6 +50,8 @@ interface StoredConnection {
   message?: string;
   userCode?: string;
   verificationUri?: string;
+  signInKind?: AcpSignInKind;
+  operatorSteps?: string[];
   expiresAt?: number;
   testedAt?: number;
   testOk?: boolean;
@@ -64,7 +67,11 @@ const DISCONNECTED: AcpProviderConnection = {
   expiresAt: null,
   testedAt: null,
   testOk: null,
+  signInKind: null,
+  operatorSteps: [],
 };
+
+const RETIRED_SIGN_IN_URIS = new Set(["https://chatgpt.com/", "https://claude.ai/login"]);
 
 function capabilities(
   harness: AgentHarnessName,
@@ -91,7 +98,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     id: "claude",
     label: "Claude Code",
     blurb:
-      "Claude Code via the Agent Client Protocol adapter claude-agent-acp. Sign-in reuses the Claude subscription probe.",
+      "Claude Code on your own machine. Connect pairs the local daemon; claude auth login stays there. Setup-token is an explicit opt-in.",
     adapter: "claude-agent-acp",
     packageName: "@agentclientprotocol/claude-agent-acp",
     license: "Apache-2.0",
@@ -102,13 +109,12 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     oauth: true,
     subscription: "claude-subscription",
     credentialEnv: ["AI_GATEWAY_TOKEN"],
-    verificationUri: "https://claude.ai/login",
   },
   {
     id: "codex",
     label: "Codex",
     blurb:
-      "Codex via codex-acp. Sign-in reuses the ChatGPT subscription probe (Sign in with ChatGPT).",
+      "Codex via your ChatGPT plan (Sign in with ChatGPT). The access token is encrypted per user and attached at egress.",
     adapter: "codex-acp",
     packageName: "@agentclientprotocol/codex-acp",
     license: "Apache-2.0",
@@ -119,7 +125,6 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     oauth: true,
     subscription: "codex-subscription",
     credentialEnv: ["AI_GATEWAY_TOKEN"],
-    verificationUri: "https://chatgpt.com/",
   },
   {
     id: "gemini",
@@ -135,7 +140,6 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     oauth: false,
     subscription: null,
     credentialEnv: ["AI_GATEWAY_TOKEN"],
-    verificationUri: null,
   },
   {
     id: "grok",
@@ -152,7 +156,6 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     oauth: false,
     subscription: null,
     credentialEnv: ["AI_GATEWAY_TOKEN"],
-    verificationUri: null,
   },
   {
     id: "opencode",
@@ -168,7 +171,6 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     oauth: false,
     subscription: null,
     credentialEnv: ["AI_GATEWAY_TOKEN"],
-    verificationUri: null,
   },
 ];
 
@@ -206,16 +208,44 @@ export function acpAdapterPlan(id: AcpProviderId): {
   };
 }
 
-export type OauthConfirm = (
-  env: Env,
-  provider: ProviderDefinition,
-  org: string,
-) => Promise<{ ok: boolean; message: string }>;
+export interface SignInContext {
+  mode: "oauth" | "setup-token";
+  origin: string;
+  now: number;
+}
+
+export interface SignInSession {
+  ok: boolean;
+  pending: boolean;
+  message: string;
+  verificationUri?: string;
+  signInKind?: AcpSignInKind;
+  operatorSteps?: string[];
+  expiresAt?: number;
+}
+
+export interface SignInVerdict {
+  ok: boolean;
+  message: string;
+  operatorSteps?: string[];
+}
 
 export interface ProviderDeps {
   now?: () => number;
-  confirmOauth?: OauthConfirm;
-  inspectOauth?: OauthConfirm;
+  origin?: string;
+  beginOauth?: (
+    env: Env,
+    provider: ProviderDefinition,
+    org: string,
+    ctx: SignInContext,
+  ) => Promise<SignInSession>;
+  completeOauth?: (
+    env: Env,
+    provider: ProviderDefinition,
+    org: string,
+    callbackUrl: string | null,
+  ) => Promise<SignInVerdict>;
+  inspectOauth?: (env: Env, provider: ProviderDefinition, org: string) => Promise<SignInVerdict>;
 }
 
 function nowMs(deps: ProviderDeps): number {
@@ -320,32 +350,38 @@ function presentCredential(env: Env, names: readonly string[]): string | null {
   return null;
 }
 
-function deviceCode(): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  let out = "";
-  for (const byte of bytes) {
-    out += alphabet[byte % alphabet.length] ?? "A";
-  }
-  return `${out.slice(0, 4)}-${out.slice(4)}`;
-}
-
 function publicConnection(record: StoredConnection | null, now: number): AcpProviderConnection {
   if (record === null) return DISCONNECTED;
+  const retired =
+    record.verificationUri !== undefined && RETIRED_SIGN_IN_URIS.has(record.verificationUri);
   const expired =
     record.phase === "waiting" && record.expiresAt !== undefined && record.expiresAt <= now;
+  if (retired) {
+    return {
+      phase: "failed",
+      authMode: record.authMode,
+      message:
+        "That sign-in code was generated on this page and was never sent to ChatGPT or Claude. Start sign-in again.",
+      userCode: null,
+      verificationUri: null,
+      expiresAt: null,
+      testedAt: record.testedAt ?? null,
+      testOk: record.testOk ?? null,
+      signInKind: null,
+      operatorSteps: ["Choose Connect with sign-in. The card shows the real address and the exact steps."],
+    };
+  }
   return {
     phase: expired ? "failed" : record.phase,
     authMode: record.authMode,
-    message: expired
-      ? "The confirmation code expired. Start sign-in again."
-      : (record.message ?? null),
-    userCode: expired ? null : (record.userCode ?? null),
+    message: expired ? "Sign-in expired. Start again." : (record.message ?? null),
+    userCode: null,
     verificationUri: expired ? null : (record.verificationUri ?? null),
     expiresAt: record.expiresAt ?? null,
     testedAt: record.testedAt ?? null,
     testOk: record.testOk ?? null,
+    signInKind: expired ? null : (record.signInKind ?? null),
+    operatorSteps: expired ? ["Choose Connect with sign-in again."] : (record.operatorSteps ?? []),
   };
 }
 
@@ -395,6 +431,19 @@ export async function readProviderSnapshot(
   return { org, defaultProviderId: defaultId, providers };
 }
 
+function storedFromSession(session: SignInSession, now: number): StoredConnection {
+  return {
+    phase: session.pending ? "waiting" : session.ok ? "connected" : "failed",
+    authMode: "oauth",
+    message: session.message,
+    ...(session.verificationUri ? { verificationUri: session.verificationUri } : {}),
+    ...(session.signInKind ? { signInKind: session.signInKind } : {}),
+    ...(session.operatorSteps ? { operatorSteps: session.operatorSteps } : {}),
+    ...(session.pending ? { expiresAt: session.expiresAt ?? now + DEVICE_TTL_MS } : {}),
+    updatedAt: now,
+  };
+}
+
 export async function connectProvider(
   env: Env,
   org: string,
@@ -404,32 +453,36 @@ export async function connectProvider(
 ): Promise<AcpProvidersSnapshot> {
   const provider = acpProvider(id);
   const now = nowMs(deps);
-  if (mode === "oauth") {
-    if (!provider.oauth || provider.verificationUri === null) {
+  if (mode === "oauth" || mode === "setup-token") {
+    if (mode === "oauth" && !provider.oauth) {
       throw new InputError(
         `${provider.label} has no sign-in flow. Connect with the API credential instead.`,
       );
     }
-    const code = deviceCode();
-    await writeRecord(env, org, provider.id, {
-      phase: "waiting",
-      authMode: "oauth",
-      userCode: code,
-      verificationUri: provider.verificationUri,
-      expiresAt: now + DEVICE_TTL_MS,
-      message:
-        "This code only confirms this page. Finish sign-in checks the subscription lane and does not send the code to the vendor.",
-      updatedAt: now,
+    if (mode === "setup-token" && provider.id !== "claude") {
+      throw new InputError(`${provider.label} has no setup-token lane.`);
+    }
+    const begin = deps.beginOauth;
+    if (begin === undefined) {
+      throw new ProviderFlowError("Sign-in is not configured.", 500);
+    }
+    const session = await begin(env, provider, org, {
+      mode,
+      origin: deps.origin ?? "",
+      now,
     });
+    await writeRecord(env, org, provider.id, storedFromSession(session, now));
     return readProviderSnapshot(env, org, deps);
   }
   if (mode === "api-key") {
     const name = presentCredential(env, provider.credentialEnv);
+    const steps = gatewayOperatorSteps(provider.label);
     if (name === null) {
       await writeRecord(env, org, provider.id, {
         phase: "failed",
         authMode: "api-key",
-        message: `No credential is provisioned. Set ${provider.credentialEnv.join(" or ")} with wrangler secret put. This API does not accept key material.`,
+        message: `${steps[0] ?? "No credential is provisioned."} ${steps[1] ?? ""}`.trim(),
+        operatorSteps: steps,
         updatedAt: now,
       });
       return readProviderSnapshot(env, org, deps);
@@ -442,14 +495,14 @@ export async function connectProvider(
     });
     return readProviderSnapshot(env, org, deps);
   }
-  throw new InputError('mode must be "oauth" or "api-key".');
+  throw new InputError('mode must be "oauth", "setup-token", or "api-key".');
 }
 
 export async function verifyProvider(
   env: Env,
   org: string,
   id: string,
-  userCode: unknown,
+  callbackUrl: unknown,
   deps: ProviderDeps = {},
 ): Promise<AcpProvidersSnapshot> {
   const provider = acpProvider(id);
@@ -462,37 +515,29 @@ export async function verifyProvider(
     await writeRecord(env, org, provider.id, {
       ...record,
       phase: "failed",
-      message: "The confirmation code expired. Start sign-in again.",
+      message: "Sign-in expired. Start again.",
       userCode: undefined,
+      verificationUri: undefined,
       updatedAt: now,
     });
     return readProviderSnapshot(env, org, deps);
   }
-  if (
-    typeof userCode !== "string" ||
-    userCode.trim() === "" ||
-    userCode.trim() !== record.userCode
-  ) {
-    throw new InputError("The confirmation code does not match this sign-in.");
-  }
-  const confirm = deps.confirmOauth;
-  if (confirm === undefined) {
+  const complete = deps.completeOauth;
+  if (complete === undefined) {
     throw new ProviderFlowError("Sign-in confirmation is not configured.", 500);
   }
-  const verdict = await confirm(env, provider, org);
+  const pasted = typeof callbackUrl === "string" && callbackUrl.trim() !== "" ? callbackUrl.trim() : null;
+  const verdict = await complete(env, provider, org, pasted);
   const fresh = await readRecord(env, org, provider.id);
-  if (
-    fresh === null ||
-    fresh.phase !== "waiting" ||
-    fresh.updatedAt !== record.updatedAt ||
-    fresh.userCode !== record.userCode
-  ) {
+  if (fresh === null || fresh.phase !== "waiting" || fresh.updatedAt !== record.updatedAt) {
     return readProviderSnapshot(env, org, deps);
   }
   await writeRecord(env, org, provider.id, {
     phase: verdict.ok ? "connected" : "failed",
     authMode: "oauth",
     message: verdict.message,
+    ...(fresh.signInKind ? { signInKind: fresh.signInKind } : {}),
+    ...(verdict.operatorSteps ? { operatorSteps: verdict.operatorSteps } : {}),
     updatedAt: now,
   });
   return readProviderSnapshot(env, org, deps);
@@ -512,23 +557,22 @@ export async function testProvider(
   }
   let ok = false;
   let message = record.message ?? "Test failed.";
+  let operatorSteps = record.operatorSteps;
   if (record.authMode === "api-key") {
     const name = presentCredential(env, provider.credentialEnv);
     ok = name !== null;
-    message = ok
-      ? `Credential ${name} is still present.`
-      : `Credential missing. Set ${provider.credentialEnv.join(" or ")}.`;
+    if (ok) {
+      message = `Credential ${name} is still present.`;
+      operatorSteps = undefined;
+    } else {
+      operatorSteps = gatewayOperatorSteps(provider.label);
+      message = operatorSteps[0] ?? "Credential missing.";
+    }
   } else if (deps.inspectOauth !== undefined) {
     const verdict = await deps.inspectOauth(env, provider, org);
-    const name = presentCredential(env, provider.credentialEnv);
-    if (!verdict.ok) {
-      message = verdict.message;
-    } else if (name === null) {
-      message = `Subscription lane is authenticated. Set ${provider.credentialEnv.join(" or ")} before the ${provider.harness} harness can run.`;
-    } else {
-      ok = true;
-      message = `Subscription lane is authenticated. Credential ${name} is present for the ${provider.harness} harness.`;
-    }
+    ok = verdict.ok;
+    message = verdict.message;
+    operatorSteps = verdict.operatorSteps;
   }
   const fresh = await readRecord(env, org, provider.id);
   if (fresh === null || fresh.phase !== "connected" || fresh.updatedAt !== record.updatedAt) {
@@ -537,6 +581,7 @@ export async function testProvider(
   await writeRecord(env, org, provider.id, {
     ...fresh,
     message,
+    ...(operatorSteps ? { operatorSteps } : { operatorSteps: undefined }),
     testedAt: now,
     testOk: ok,
     updatedAt: now,

@@ -1,10 +1,8 @@
+import { AuthFlowError } from "@shiba/auth";
 import type { SubscriptionForwarder } from "@shiba/auth";
-import { AuthFlowError, claudeSubscriptionAuth, codexSubscriptionAuth } from "@shiba/auth";
 import {
   connectProvider,
   disconnectProvider,
-  type OauthConfirm,
-  type ProviderDefinition,
   type ProviderDeps,
   ProviderFlowError,
   readProviderSnapshot,
@@ -12,14 +10,18 @@ import {
   testProvider,
   verifyProvider,
 } from "./acp-providers.js";
-import { type EgressEnv, forwardClaudeSubscription, forwardCodexSubscription } from "./egress.js";
 import type { Env } from "./env.js";
-import { codexSubscriptionInstanceId } from "./harness/codex-subscription.js";
+import {
+  beginProviderSignIn,
+  completeProviderSignIn,
+  inspectProviderSignIn,
+  type SignInLanes,
+} from "./provider-sign-in.js";
 import { resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { InputError } from "./security.js";
 
-const ALLOWED_BODY_KEYS = new Set(["mode", "usercode"]);
+const ALLOWED_BODY_KEYS = new Set(["mode", "usercode", "callbackurl"]);
 
 export interface ProviderRouteDeps extends ProviderDeps {
   forwardClaude?: SubscriptionForwarder;
@@ -54,94 +56,6 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   return record;
 }
 
-const QUIET_AUTH_PHASES = new Set(["idle", "cleared", "failed"]);
-
-async function subscriptionController(
-  env: Env,
-  provider: ProviderDefinition,
-  forwarders: { claude?: SubscriptionForwarder; codex?: SubscriptionForwarder },
-) {
-  if (provider.subscription === "claude-subscription") {
-    if (env.SHIBA_CLAUDE_SUBSCRIPTION !== "1") {
-      return {
-        controller: null,
-        message:
-          "Claude subscription sign-in is not enabled. Set SHIBA_CLAUDE_SUBSCRIPTION=1 and store CLAUDE_SUBSCRIPTION_TOKEN, or connect with the API credential.",
-      };
-    }
-    const forward =
-      forwarders.claude ??
-      ((request, e, ctx) => forwardClaudeSubscription(request, e as EgressEnv, ctx));
-    return { controller: claudeSubscriptionAuth(env, "claude-sub:default", forward), message: "" };
-  }
-  if (provider.subscription === "codex-subscription") {
-    if (env.SHIBA_CODEX_SUBSCRIPTION !== "1") {
-      return {
-        controller: null,
-        message:
-          "Codex subscription sign-in is not enabled. Set SHIBA_CODEX_SUBSCRIPTION=1 and store CODEX_SUBSCRIPTION_AUTH_JSON, or connect with the API credential.",
-      };
-    }
-    const forward =
-      forwarders.codex ??
-      ((request, e, ctx) => forwardCodexSubscription(request, e as EgressEnv, ctx));
-    return {
-      controller: codexSubscriptionAuth(
-        env,
-        codexSubscriptionInstanceId({ authAccount: "default" }),
-        forward,
-      ),
-      message: "",
-    };
-  }
-  return { controller: null, message: `${provider.label} has no subscription sign-in.` };
-}
-
-async function inspectProviderOauth(
-  env: Env,
-  provider: ProviderDefinition,
-  _org: string,
-  forwarders: { claude?: SubscriptionForwarder; codex?: SubscriptionForwarder } = {},
-): Promise<{ ok: boolean; message: string }> {
-  const lane = await subscriptionController(env, provider, forwarders);
-  if (lane.controller === null) return { ok: false, message: lane.message };
-  const current = await lane.controller.snapshot();
-  if (current.phase === "succeeded") {
-    return { ok: true, message: current.message ?? "Subscription lane is already authenticated." };
-  }
-  return {
-    ok: false,
-    message: `Subscription lane is ${current.phase}. Test does not start or restart sign-in.`,
-  };
-}
-
-async function confirmProviderOauth(
-  env: Env,
-  provider: ProviderDefinition,
-  org: string,
-  forwarders: { claude?: SubscriptionForwarder; codex?: SubscriptionForwarder } = {},
-): Promise<{ ok: boolean; message: string }> {
-  const lane = await subscriptionController(env, provider, forwarders);
-  if (lane.controller === null) return { ok: false, message: lane.message };
-  const current = await lane.controller.snapshot();
-  if (current.phase === "succeeded") {
-    return { ok: true, message: current.message ?? "Subscription lane is already authenticated." };
-  }
-  if (!QUIET_AUTH_PHASES.has(current.phase)) {
-    return {
-      ok: false,
-      message: `Subscription sign-in is ${current.phase}. This page will not interrupt it.`,
-    };
-  }
-  try {
-    await lane.controller.begin(org);
-    const snapshot = await lane.controller.verify(org);
-    return { ok: snapshot.phase === "succeeded", message: snapshot.message ?? snapshot.phase };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Sign-in failed." };
-  }
-}
-
 function jsonError(error: unknown): Response {
   if (error instanceof InputError) {
     return Response.json({ error: error.message }, { status: 400 });
@@ -168,14 +82,19 @@ export async function handleAcpProviders(
   if (url.pathname !== "/api/providers" && !url.pathname.startsWith("/api/providers/")) {
     return null;
   }
-  const forwarders = { claude: deps.forwardClaude, codex: deps.forwardCodex };
-  const confirm: OauthConfirm =
-    deps.confirmOauth ?? ((e, provider, org) => confirmProviderOauth(e, provider, org, forwarders));
-  const inspect: OauthConfirm =
-    deps.inspectOauth ?? ((e, provider, org) => inspectProviderOauth(e, provider, org, forwarders));
+  const lanes: SignInLanes = { forwardClaude: deps.forwardClaude };
+  const origin = url.origin;
   const flowDeps: ProviderDeps = {
-    confirmOauth: confirm,
-    inspectOauth: inspect,
+    origin,
+    beginOauth:
+      deps.beginOauth ??
+      ((e, provider, org, ctx) => beginProviderSignIn(e, provider, org, ctx, lanes)),
+    completeOauth:
+      deps.completeOauth ??
+      ((e, provider, org, callbackUrl) => completeProviderSignIn(e, provider, org, callbackUrl)),
+    inspectOauth:
+      deps.inspectOauth ??
+      ((e, provider, org) => inspectProviderSignIn(e, provider, org, lanes)),
     ...(deps.now !== undefined ? { now: deps.now } : {}),
   };
   try {
@@ -200,7 +119,7 @@ export async function handleAcpProviders(
       action === "connect"
         ? await connectProvider(env, org, id, body.mode, flowDeps)
         : action === "verify"
-          ? await verifyProvider(env, org, id, body.userCode, flowDeps)
+          ? await verifyProvider(env, org, id, body.callbackUrl, flowDeps)
           : action === "test"
             ? await testProvider(env, org, id, flowDeps)
             : action === "disconnect"

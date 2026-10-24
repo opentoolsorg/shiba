@@ -1,7 +1,7 @@
 /**
  * ChatGPT plan harness — Sign in with ChatGPT (SIWC) + `codex app-server`.
- * Only a short-lived ACCESS_TOKEN enters the sandbox; refresh stays on the
- * ChatGptAuth Durable Object (Worker-side when auth.openai.com allows it).
+ * The sandbox ACCESS_TOKEN is a placeholder. ChatGptAuth keeps the real token
+ * and forwardCodexPlan attaches it at egress. Refresh stays on the Worker.
  */
 import { resolveCodexSubscriptionHome, type CodexHomeLayout } from "@shiba/shared";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
@@ -28,6 +28,9 @@ import {
 
 export const CODEX_SUBSCRIPTION_PROVIDERS = ["openai-subscription"] as const;
 export const CODEX_SUBSCRIPTION_HOSTS = ["api.openai.com"] as const;
+
+/** Container stand-in. The real access token is attached by forwardCodexPlan. */
+export const CODEX_PLAN_EGRESS_PLACEHOLDER = "shiba-egress-placeholder";
 export const CODEX_SUBSCRIPTION_SHARED_HOME = "/root/.shiba/codex/shared";
 
 export function codexSubscriptionAccount(input: Pick<CodingTaskInput, "authAccount">): string {
@@ -75,6 +78,21 @@ export class CodexSubscriptionHarness implements AgentHarness {
     return [...CODEX_SUBSCRIPTION_HOSTS];
   }
 
+  /**
+   * Plan runs claim api.openai.com so the gateway BYOK handler is not used.
+   * params carry the user id, never the token. Device-auth keeps its volume.
+   */
+  egressOverrides(input: CodingTaskInput) {
+    if (usesCodexDeviceAuth(input)) return [];
+    return [
+      {
+        host: "api.openai.com",
+        handler: "codexPlan",
+        params: { userId: input.initiatorUserId?.trim() ?? "" },
+      },
+    ];
+  }
+
   continuationKey(input: { authAccount?: string }): string {
     return codexSubscriptionHome(input).continuationKey;
   }
@@ -111,7 +129,7 @@ export class CodexSubscriptionHarness implements AgentHarness {
       CODEX_HOME: usesCodexDeviceAuth(input) ? codexDeviceAuthHomeDir(input) : codexPlanHomeForRun(input),
       CODEX_DISABLE_TELEMETRY: "1",
     };
-    if (input.chatgptAccessToken) env.ACCESS_TOKEN = input.chatgptAccessToken;
+    if (!usesCodexDeviceAuth(input)) env.ACCESS_TOKEN = CODEX_PLAN_EGRESS_PLACEHOLDER;
     return env;
   }
 
