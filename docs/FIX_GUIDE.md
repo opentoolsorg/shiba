@@ -28,13 +28,16 @@ Set these on the live Worker. Wrangler names:
 | `AGENT_AUDIT` | D1 binding | Database name `shiba-audit`, id in `apps/backend/wrangler.jsonc`. Auth tables and `audit_log`. |
 | `BETTER_AUTH_BOOTSTRAP_TOKEN` | secret | One of the two first-account locks. The sign-up form sends it as header `x-shiba-bootstrap-token`. |
 | `BETTER_AUTH_OWNER_EMAIL` | secret | The other lock. Only this email can create the first account. Compared with case ignored. |
-| `MODEL_CREDENTIAL_KEY` | secret, 64 hex characters | Encrypts the Claude and Codex tokens in KV. Generate with `openssl rand -hex 32`. API-key mode does not need it. |
-| `AI_GATEWAY_TOKEN` | secret | Gemini, OpenCode, and Grok "Use API credential". Also the gateway path when no subscription grant is stored. |
-| `AGENT_TOKENS` | KV binding | Already in wrangler. Holds the encrypted provider grant. Not D1. |
+| `MODEL_CREDENTIAL_KEY` | secret, 64 hex characters | Encrypts Codex tokens, Claude setup tokens, and pasted Gemini, xAI, OpenCode, and DeepSeek keys. Generate with `openssl rand -hex 32`. Required before Finish sign-in or Use API credential can store anything. |
+| `AI_GATEWAY_TOKEN` | secret | Optional. Not used by the Providers cards. Leave unset if you do not want a gateway. |
+| `AGENT_TOKENS` | KV binding | Already in wrangler. Holds the encrypted provider grant and pasted keys. Not D1. |
+| `ChatGptAuth` | Durable Object | Already in wrangler. Holds the Codex device-code pending grant and the encrypted ChatGPT connection. |
 
 Set **either** `BETTER_AUTH_BOOTSTRAP_TOKEN` **or** `BETTER_AUTH_OWNER_EMAIL` before anyone can claim the public dashboard. You can set both. Loopback `wrangler dev` can still create the first account without them. `https://app.tryshiba.dev` cannot.
 
-Leave every other existing secret in place. An Alchemy deploy (`pnpm run deploy:alchemy`) **deletes Worker secrets that are missing from the root `.env`**. If you use Alchemy, copy every name in `apps/backend/worker-secrets.json` into `.env` first, including the two new ones. `wrangler secret put` does not delete the others.
+Leave every other existing secret in place. An Alchemy deploy (`pnpm run deploy:alchemy`) **deletes Worker secrets that are missing from the root `.env`**. If you use Alchemy, copy every name in `apps/backend/worker-secrets.json` into `.env` first, including `MODEL_CREDENTIAL_KEY`. `wrangler secret put` does not delete the others.
+
+Claude pairing on a local computer is optional. Set `SHIBA_LOCAL_RUNTIME=1` and either `PAIRING_SECRET` or `LOCAL_ADAPTER_TOKEN` when you want the card to show a pair command. Without those, Connect with sign-in asks for a `claude setup-token` paste. Do not set `SHIBA_CLAUDE_SUBSCRIPTION` for the dashboard card.
 
 ```bash
 npx wrangler secret put BETTER_AUTH_BOOTSTRAP_TOKEN --config apps/backend/wrangler.jsonc
@@ -122,7 +125,7 @@ Open the dashboard, sign in, then Sandbox adapters (Settings, providers).
 
 ### Gemini, OpenCode, Grok
 
-Paste the provider key (Gemini, xAI, or OpenCode/DeepSeek) and choose **Use API credential**. The key is stored encrypted for that user. Egress sends it to the provider. The sandbox only sees a placeholder.
+`MODEL_CREDENTIAL_KEY` must already be set. Paste the provider key (Gemini, xAI, or OpenCode/DeepSeek) and choose **Use API credential**. The key is stored encrypted for that user. Egress sends it to the provider. The sandbox only sees a placeholder. No gateway token is involved.
 
 - Pass: chip **Connected**. The API JSON does not contain the key.
 - Nothing pasted and nothing saved: chip stays **Not connected**. It does not say Connection failed.
