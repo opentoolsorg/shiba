@@ -51,6 +51,10 @@
 
 # Built-in email+password dashboard login (>=32 chars). Unset = lane dark.
 # BETTER_AUTH_SECRET=
+# Public hosts refuse the first account until one of these is set.
+# Loopback (wrangler dev) can sign up without them.
+# BETTER_AUTH_BOOTSTRAP_TOKEN=
+# BETTER_AUTH_OWNER_EMAIL=
 
 # --- Shared / edge approvals -------------------------------------------------
 

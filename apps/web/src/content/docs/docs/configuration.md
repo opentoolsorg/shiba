@@ -104,7 +104,9 @@ Intake is provably dashboard-only: `runtime: "local"` is refused at intake on ev
 | `SLACK_CHANNEL_REPOS` | Optional channel-to-repository mapping |
 | `TRIGGER_TOKEN` | Bearer token for `POST /api/trigger` (e.g. iPhone Apple Shortcuts); unset disables the route |
 | `TYPESAFE_API_KEY` | Optional TypeSafe integration |
-| `BETTER_AUTH_SECRET` | Turns on the built-in dashboard login: email+password accounts and signed-cookie sessions served at `/api/auth/*`, stored in the `AGENT_AUDIT` D1 database. The library requires >=32 characters — generate with `openssl rand -base64 48`. Unset (or shorter) keeps the lane dark and the gate falls back to Access / fail-closed. The first account registered is the only account — sign-up then closes; reopen by clearing the `user` table. Access still takes precedence when configured |
+| `BETTER_AUTH_SECRET` | Turns on the built-in dashboard login: email+password accounts and signed-cookie sessions served at `/api/auth/*`, stored in the `AGENT_AUDIT` D1 database. The library requires >=32 characters. Generate with `openssl rand -base64 48`. Unset (or shorter) keeps the lane dark and the gate falls back to Access / fail-closed. The first account is the only account. Sign-up then closes. Reopen by clearing the `user` table. Access still takes precedence when configured |
+| `BETTER_AUTH_BOOTSTRAP_TOKEN` | Setup token the first sign-up must send (`x-shiba-bootstrap-token`). On a public hostname, sign-up stays locked until this or `BETTER_AUTH_OWNER_EMAIL` is set. Loopback dev can create the first account without either |
+| `BETTER_AUTH_OWNER_EMAIL` | Allowlisted email for that first account. Compared case-insensitively. Any other address is refused |
 
 Local example:
 

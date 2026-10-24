@@ -27,6 +27,20 @@ function chatGpt(users: Map<string, { connected: boolean }>): Env["ChatGptAuth"]
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         const user = String(id);
+        if (url.endsWith("/device/begin")) {
+          return Response.json({
+            userCode: "3S97-5TB3",
+            verificationUri: "https://auth.openai.com/codex/device",
+          });
+        }
+        if (url.endsWith("/device/finish")) {
+          users.set(user, { connected: true });
+          return Response.json({
+            connected: true,
+            planUsageEnabled: true,
+            message: "ChatGPT plan connected.",
+          });
+        }
         if (url.endsWith("/begin")) {
           return Response.json({
             authorizeUrl: `https://auth.openai.com/oauth/authorize?login=${encodeURIComponent(user)}`,
@@ -75,6 +89,26 @@ async function card(response: Response | null, id: string) {
 }
 
 describe("provider sign-in breaker", () => {
+  it("finishes a device code and marks Codex connected", async () => {
+    const kv = new FakeKV();
+    const users = new Map<string, { connected: boolean }>();
+    const env = deployment(kv, users);
+    const started = await card(
+      await handleAcpProviders(request("/api/providers/codex/connect", { mode: "oauth" }), env),
+      "codex",
+    );
+    expect(started?.connection.phase).toBe("waiting");
+    expect(started?.connection.userCode).toBe("3S97-5TB3");
+    const done = await card(
+      await handleAcpProviders(request("/api/providers/codex/verify", { userCode: "3S97-5TB3" }), env),
+      "codex",
+    );
+    expect(done?.connection.phase).toBe("connected");
+    expect(done?.connection.message).toMatch(/connected/i);
+    expect(users.get("ada@example.com")?.connected).toBe(true);
+    expect([...kv.map.values()].join("\n")).not.toMatch(/access_token|refresh_token/);
+  });
+
   it("rejects a forged callback and does not store it", async () => {
     const kv = new FakeKV();
     const users = new Map<string, { connected: boolean }>();
@@ -84,6 +118,7 @@ describe("provider sign-in breaker", () => {
       "codex",
     );
     expect(started?.connection.phase).toBe("waiting");
+    expect(started?.connection.userCode).toBe("3S97-5TB3");
     expect(started?.connection.verificationUri).toContain("https://auth.openai.com/");
     const forged = "http://127.0.0.1:1455/auth/callback?code=forged-secret&state=nope";
     const failed = await card(

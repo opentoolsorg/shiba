@@ -1,26 +1,27 @@
 /**
  * Real provider sign-in for the dashboard cards.
  *
- * Codex uses the per-user Sign in with ChatGPT PKCE flow (paste the loopback
- * callback — Cloudflare has no listener on 127.0.0.1). Tokens stay encrypted
- * in ChatGptAuth; runs attach them at egress.
+ * Codex uses the ChatGPT device-code grant (the Codex CLI flow). A pasted
+ * loopback callback is only the fallback. Tokens stay encrypted in
+ * ChatGptAuth; runs attach them at egress.
  *
- * Claude prefers the operator's own `claude` CLI on a paired local daemon.
- * `claude setup-token` is an explicit opt-in that stores a Worker secret and
- * may conflict with Anthropic's terms.
+ * Claude tries a paired local daemon first. Otherwise the card waits for a
+ * `claude setup-token` paste, stored encrypted per user. Neither path asks
+ * the operator to set a flag.
  */
 import type { SubscriptionForwarder } from "@shiba/auth";
 import { claudeSubscriptionAuth } from "@shiba/auth";
 import { LOCAL_RUNTIME_FLAG, type AcpSignInKind, type ConnectedComputer } from "@shiba/shared";
+import { CODEX_DEVICE_VERIFICATION_URL } from "./chatgpt/device-auth.js";
 import { mintDaemonPairing } from "./computers-routes.js";
 import { type EgressEnv, forwardClaudeSubscription } from "./egress.js";
 import type { Env } from "./env.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { localDispatchStub } from "./local-dispatch.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
+import { assertPastableSecret, putUserProviderSecret } from "./user-provider-keys.js";
 
 const SIGN_IN_TTL_MS = 15 * 60 * 1000;
-const LEGAL = "https://code.claude.com/docs/en/legal-and-compliance";
 const QUIET_AUTH_PHASES = new Set(["idle", "cleared", "failed"]);
 
 export interface SignInContext {
@@ -33,6 +34,7 @@ export interface SignInSession {
   ok: boolean;
   pending: boolean;
   message: string;
+  userCode?: string;
   verificationUri?: string;
   signInKind?: AcpSignInKind;
   operatorSteps?: string[];
@@ -41,6 +43,7 @@ export interface SignInSession {
 
 export interface SignInVerdict {
   ok: boolean;
+  pending?: boolean;
   message: string;
   operatorSteps?: string[];
 }
@@ -50,28 +53,22 @@ export interface SignInLanes {
 }
 
 export const CODEX_OPERATOR_STEPS = [
-  "Set MODEL_CREDENTIAL_KEY to 64 hex characters: openssl rand -hex 32 | npx wrangler secret put MODEL_CREDENTIAL_KEY --config apps/backend/wrangler.jsonc",
-  "ChatGptAuth and AGENT_AUDIT are already bound on a standard deploy. No AI_GATEWAY_TOKEN, SHIBA_CODEX_SUBSCRIPTION, or CODEX_SUBSCRIPTION_AUTH_JSON is required for this lane.",
-  "Connect with sign-in, open the auth.openai.com link, sign in with the ChatGPT account that has Codex, and copy the final http://127.0.0.1:<port>/auth/callback address from the browser (the page itself will fail to load).",
-  "Paste that callback on this card and choose Finish sign-in. The code is exchanged on the Worker and stored encrypted for your user.",
-  "Run a task with harness Codex (ChatGPT plan) / codex-subscription. Approve it. The sandbox receives a placeholder; egress attaches the access token.",
+  "Connect with sign-in. The card shows a code and opens auth.openai.com/codex/device.",
+  "Sign in with the ChatGPT account that has Codex and enter that code.",
+  "Choose Finish sign-in. The access token stays encrypted for you and is attached when a run calls the provider.",
+  "If the device page fails, paste the http://127.0.0.1 callback from a ChatGPT sign-in window instead.",
 ];
 
 export const CLAUDE_DAEMON_STEPS = [
-  "Set SHIBA_LOCAL_RUNTIME=1 (wrangler var) so the dashboard can admit runtime local. LocalDispatch is already in wrangler.jsonc.",
-  "Set a pairing secret: npx wrangler secret put PAIRING_SECRET --config apps/backend/wrangler.jsonc (LOCAL_ADAPTER_TOKEN also works).",
-  "On your computer, install Claude Code and run: claude auth login",
-  "Connect with sign-in again. Run the one-time node scripts/shiba-local-daemon.mjs --connect <origin> --pair <token> command shown on this card.",
-  "After the daemon heartbeats, choose Finish sign-in. Submit the task with runtime Local and harness Claude Code. Shiba never reads the Claude credential.",
-  `Opt-in fallback only — may violate Anthropic's terms (${LEGAL}): set SHIBA_CLAUDE_SUBSCRIPTION=1, run claude setup-token, then npx wrangler secret put CLAUDE_SUBSCRIPTION_TOKEN --config apps/backend/wrangler.jsonc, and use Use setup-token on this card.`,
+  "Install Claude Code on your computer and run: claude auth login",
+  "Run the pairing command shown on this card.",
+  "After that computer reports in, choose Finish sign-in. Run the task with runtime Local and harness Claude Code.",
 ];
 
 const CLAUDE_SETUP_STEPS = [
-  `This path stores a Claude setup-token at the Worker egress boundary and may violate Anthropic's terms (${LEGAL}). Prefer the local daemon.`,
-  "Set SHIBA_CLAUDE_SUBSCRIPTION=1 on the Worker.",
-  "On your computer run: claude setup-token",
-  "npx wrangler secret put CLAUDE_SUBSCRIPTION_TOKEN --config apps/backend/wrangler.jsonc",
-  "Choose Use setup-token on this card again. Runs use harness claude-subscription. The container gets a placeholder; egress attaches the token. AI_GATEWAY_TOKEN is not used.",
+  "On your computer, run: claude setup-token",
+  "Paste the token below and choose Finish sign-in.",
+  "The token is stored encrypted for you. A run attaches it at egress. The sandbox only sees a placeholder.",
 ];
 
 function claudeForward(lanes: SignInLanes): SubscriptionForwarder {
@@ -92,15 +89,6 @@ function safeMessage(value: unknown, fallback: string): string {
     return fallback;
   }
   return message;
-}
-
-function isOpenAiAuthorize(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "auth.openai.com";
-  } catch {
-    return false;
-  }
 }
 
 export function isLoopbackCallback(value: string): boolean {
@@ -137,48 +125,95 @@ async function beginCodex(env: Env, org: string, ctx: SignInContext): Promise<Si
     return {
       ok: false,
       pending: false,
-      signInKind: "chatgpt-pkce",
-      message:
-        "ChatGPT sign-in is not available until per-user token storage is configured. This card will not invent a confirmation code.",
+      signInKind: "chatgpt-device",
+      message: "ChatGPT sign-in storage is not ready on this deployment. This card will not invent a confirmation code.",
       operatorSteps: CODEX_OPERATOR_STEPS,
     };
   }
-  const response = await chatGptAuthStub(env, org).fetch("https://chatgpt-auth.internal/begin", {
+  const response = await chatGptAuthStub(env, org).fetch("https://chatgpt-auth.internal/device/begin", {
     method: "POST",
   });
-  const body = (await response.json().catch(() => null)) as { authorizeUrl?: unknown; error?: unknown } | null;
+  const body = (await response.json().catch(() => null)) as {
+    userCode?: unknown;
+    verificationUri?: unknown;
+    expiresAt?: unknown;
+    error?: unknown;
+  } | null;
   if (!response.ok) {
     return {
       ok: false,
       pending: false,
-      signInKind: "chatgpt-pkce",
-      message: safeMessage(body, "ChatGPT sign-in could not start."),
+      signInKind: "chatgpt-device",
+      message: safeMessage(body, "ChatGPT device sign-in could not start."),
       operatorSteps: CODEX_OPERATOR_STEPS,
     };
   }
-  const authorizeUrl = typeof body?.authorizeUrl === "string" ? body.authorizeUrl : "";
-  if (!isOpenAiAuthorize(authorizeUrl)) {
+  const userCode = typeof body?.userCode === "string" ? body.userCode : "";
+  const verificationUri =
+    typeof body?.verificationUri === "string" && body.verificationUri.startsWith("https://auth.openai.com/")
+      ? body.verificationUri
+      : CODEX_DEVICE_VERIFICATION_URL;
+  if (userCode === "") {
     return {
       ok: false,
       pending: false,
-      signInKind: "chatgpt-pkce",
-      message: "ChatGPT sign-in returned an unexpected address. Start again.",
+      signInKind: "chatgpt-device",
+      message: "ChatGPT device sign-in returned no code. Start again.",
       operatorSteps: CODEX_OPERATOR_STEPS,
     };
   }
   return {
     ok: true,
     pending: true,
-    signInKind: "chatgpt-pkce",
-    verificationUri: authorizeUrl,
-    expiresAt: ctx.now + SIGN_IN_TTL_MS,
-    message:
-      "Open the auth.openai.com link, sign in, then paste the http://127.0.0.1 callback URL from the address bar. The browser error page is expected. Finish sign-in exchanges it here.",
+    signInKind: "chatgpt-device",
+    userCode,
+    verificationUri,
+    expiresAt: typeof body?.expiresAt === "number" ? body.expiresAt : ctx.now + SIGN_IN_TTL_MS,
+    message: "Enter this code at auth.openai.com/codex/device, then choose Finish sign-in.",
     operatorSteps: [
-      "Open the sign-in link and approve ChatGPT plan access (chatgpt.tokens.use.direct).",
-      "Copy the final http://127.0.0.1:<port>/auth/callback URL and paste it below.",
-      "Choose Finish sign-in. The access token stays encrypted on the Worker.",
+      "Open auth.openai.com/codex/device and sign in with the ChatGPT account that has Codex.",
+      `Enter the code ${userCode}.`,
+      "Choose Finish sign-in. The token stays encrypted for you.",
     ],
+  };
+}
+
+async function completeDevice(env: Env, org: string): Promise<SignInVerdict> {
+  if (!env.ChatGptAuth || !modelCredentialKeyConfigured(env)) {
+    return { ok: false, message: "ChatGPT sign-in storage is not ready on this deployment.", operatorSteps: CODEX_OPERATOR_STEPS };
+  }
+  const response = await chatGptAuthStub(env, org).fetch("https://chatgpt-auth.internal/device/finish", {
+    method: "POST",
+  });
+  const body = (await response.json().catch(() => null)) as {
+    pending?: unknown;
+    message?: unknown;
+    error?: unknown;
+    connected?: unknown;
+  } | null;
+  if (body?.pending === true) {
+    return {
+      ok: false,
+      pending: true,
+      message:
+        typeof body.message === "string"
+          ? body.message
+          : "Still waiting. Enter the code at auth.openai.com/codex/device, then choose Finish sign-in again.",
+    };
+  }
+  if (!response.ok || body?.connected === false) {
+    return {
+      ok: false,
+      message: safeMessage(body, "ChatGPT device sign-in could not be completed."),
+      operatorSteps: CODEX_OPERATOR_STEPS.slice(0, 3),
+    };
+  }
+  return {
+    ok: true,
+    message:
+      typeof body?.message === "string"
+        ? body.message
+        : "ChatGPT plan connected. The access token stays encrypted for this user and is attached at egress.",
   };
 }
 
@@ -228,7 +263,7 @@ async function completeCodex(env: Env, org: string, callbackUrl: string | null):
   return {
     ok: true,
     message:
-      "ChatGPT plan connected. Runs use codex-subscription. The access token stays encrypted for this user and is attached at egress. AI_GATEWAY_TOKEN is not required.",
+      "ChatGPT plan connected. Runs use codex-subscription. The access token stays encrypted for this user and is attached at egress.",
   };
 }
 
@@ -252,7 +287,7 @@ async function inspectCodex(env: Env, org: string): Promise<SignInVerdict> {
     return {
       ok: true,
       message:
-        "ChatGPT plan is connected for this user. codex-subscription can run without AI_GATEWAY_TOKEN. Egress attaches the access token; the sandbox only sees a placeholder.",
+        "ChatGPT plan is connected for this user. Egress attaches the access token; the sandbox only sees a placeholder.",
     };
   }
   if (body?.connected === true && body.planUsageEnabled === false) {
@@ -275,9 +310,7 @@ async function beginClaudeDaemon(env: Env, ctx: SignInContext): Promise<SignInSe
       ok: false,
       pending: false,
       signInKind: "claude-daemon",
-      message:
-        "Claude cannot sign in from this page. A Cloudflare container has no loopback, and storing a Claude.ai session here may violate Anthropic's terms. Pair your own claude CLI instead.",
-      operatorSteps: CLAUDE_DAEMON_STEPS,
+      message: "A paired computer is not available from this deployment.",
     };
   }
   const ready = readyClaudeDaemon(await listComputers(env));
@@ -286,7 +319,7 @@ async function beginClaudeDaemon(env: Env, ctx: SignInContext): Promise<SignInSe
       ok: true,
       pending: false,
       signInKind: "claude-daemon",
-      message: `Paired daemon ${ready.hostname} has the claude CLI. Run tasks with runtime Local and harness Claude Code. Credentials stay on that machine (claude auth login). AI_GATEWAY_TOKEN is not used.`,
+      message: `Paired daemon ${ready.hostname} has the claude CLI. Run tasks with runtime Local and harness Claude Code. Credentials stay on that machine (claude auth login).`,
       operatorSteps: [
         "On that machine, run claude auth login if you have not already.",
         "In the task composer, set runtime to Local and harness to Claude Code.",
@@ -299,8 +332,7 @@ async function beginClaudeDaemon(env: Env, ctx: SignInContext): Promise<SignInSe
       ok: false,
       pending: false,
       signInKind: "claude-daemon",
-      message: minted.message,
-      operatorSteps: CLAUDE_DAEMON_STEPS,
+      message: "Pairing is not available, so this card will ask for a setup token instead.",
     };
   }
   return {
@@ -337,30 +369,56 @@ async function completeClaudeDaemon(env: Env): Promise<SignInVerdict> {
   }
   return {
     ok: true,
-    message: `Paired daemon ${ready.hostname} has the claude CLI. Run tasks with runtime Local and harness Claude Code. Shiba does not copy the Claude credential. AI_GATEWAY_TOKEN is not required.`,
+    message: `Paired daemon ${ready.hostname} has the claude CLI. Run tasks with runtime Local and harness Claude Code. Shiba does not copy the Claude credential.`,
+  };
+}
+
+function claudePasteSession(ctx: SignInContext): SignInSession {
+  return {
+    ok: true,
+    pending: true,
+    signInKind: "claude-setup-token",
+    expiresAt: ctx.now + SIGN_IN_TTL_MS,
+    message: "Run claude setup-token on your computer, paste the token, then Finish sign-in.",
+    operatorSteps: CLAUDE_SETUP_STEPS,
+  };
+}
+
+async function storeClaudeSetupToken(env: Env, org: string, credential: string): Promise<SignInVerdict> {
+  let secret: string;
+  try {
+    secret = assertPastableSecret(credential);
+  } catch (error) {
+    return {
+      ok: false,
+      pending: true,
+      message: error instanceof Error ? error.message : "Paste the token from claude setup-token.",
+      operatorSteps: CLAUDE_SETUP_STEPS,
+    };
+  }
+  try {
+    await putUserProviderSecret(env, org, "claude-setup", secret);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "The token could not be stored.",
+      operatorSteps: CLAUDE_SETUP_STEPS,
+    };
+  }
+  return {
+    ok: true,
+    message:
+      "Claude setup token stored for this user. Runs attach it at egress. The sandbox only sees a placeholder.",
   };
 }
 
 async function beginClaudeSetupToken(env: Env, org: string, lanes: SignInLanes): Promise<SignInSession> {
   if (env.SHIBA_CLAUDE_SUBSCRIPTION !== "1") {
-    return {
-      ok: false,
-      pending: false,
-      signInKind: "claude-setup-token",
-      message:
-        "Setup-token is off. Claude sign-in on this card pairs a local daemon. Turn the flag on only if you accept storing a setup-token at egress.",
-      operatorSteps: CLAUDE_SETUP_STEPS,
-    };
+    return claudePasteSession({ mode: "setup-token", origin: "", now: Date.now() });
   }
   const token = env.CLAUDE_SUBSCRIPTION_TOKEN;
   if (typeof token !== "string" || token.trim() === "") {
-    return {
-      ok: false,
-      pending: false,
-      signInKind: "claude-setup-token",
-      message: "CLAUDE_SUBSCRIPTION_TOKEN is not set. This card does not accept a pasted token.",
-      operatorSteps: CLAUDE_SETUP_STEPS,
-    };
+    return claudePasteSession({ mode: "setup-token", origin: "", now: Date.now() });
   }
   const controller = claudeSubscriptionAuth(env, "claude-sub:default", claudeForward(lanes));
   const current = await controller.snapshot();
@@ -371,7 +429,7 @@ async function beginClaudeSetupToken(env: Env, org: string, lanes: SignInLanes):
       signInKind: "claude-setup-token",
       message:
         current.message ??
-        "Setup-token lane is already authenticated. Runs use claude-subscription without AI_GATEWAY_TOKEN. The container holds a placeholder.",
+        "Setup-token lane is already authenticated. The container holds a placeholder.",
     };
   }
   if (!QUIET_AUTH_PHASES.has(current.phase)) {
@@ -409,7 +467,7 @@ async function inspectClaude(env: Env, lanes: SignInLanes): Promise<SignInVerdic
   if (ready) {
     return {
       ok: true,
-      message: `Daemon ${ready.hostname} still reports the claude CLI. Local runs do not use AI_GATEWAY_TOKEN.`,
+      message: `Daemon ${ready.hostname} still reports the claude CLI.`,
     };
   }
   if (env.SHIBA_CLAUDE_SUBSCRIPTION === "1" && env.CLAUDE_SUBSCRIPTION_TOKEN?.trim()) {
@@ -420,7 +478,7 @@ async function inspectClaude(env: Env, lanes: SignInLanes): Promise<SignInVerdic
         ok: true,
         message:
           current.message ??
-          "Setup-token lane is authenticated. claude-subscription does not use AI_GATEWAY_TOKEN.",
+          "Setup-token lane is authenticated.",
       };
     }
     return {
@@ -455,8 +513,14 @@ export async function beginProviderSignIn(
     return beginCodex(env, org, ctx);
   }
   if (provider.id === "claude") {
-    if (ctx.mode === "setup-token") return beginClaudeSetupToken(env, org, lanes);
-    return beginClaudeDaemon(env, ctx);
+    if (ctx.mode === "setup-token" && env.SHIBA_CLAUDE_SUBSCRIPTION === "1" && env.CLAUDE_SUBSCRIPTION_TOKEN?.trim()) {
+      return beginClaudeSetupToken(env, org, lanes);
+    }
+    if (ctx.mode !== "setup-token") {
+      const daemon = await beginClaudeDaemon(env, ctx);
+      if (daemon.signInKind === "claude-daemon" && (daemon.ok || daemon.pending)) return daemon;
+    }
+    return claudePasteSession(ctx);
   }
   return {
     ok: false,
@@ -471,9 +535,27 @@ export async function completeProviderSignIn(
   provider: { id: string; label: string },
   org: string,
   callbackUrl: string | null,
+  credential?: string | null,
 ): Promise<SignInVerdict> {
-  if (provider.id === "codex") return completeCodex(env, org, callbackUrl);
-  if (provider.id === "claude") return completeClaudeDaemon(env);
+  if (provider.id === "codex") {
+    if (callbackUrl !== null && isLoopbackCallback(callbackUrl)) return completeCodex(env, org, callbackUrl);
+    return completeDevice(env, org);
+  }
+  if (provider.id === "claude") {
+    if (typeof credential === "string" && credential.trim() !== "") {
+      return storeClaudeSetupToken(env, org, credential);
+    }
+    if (env[LOCAL_RUNTIME_FLAG] === "1" && env.LocalDispatch !== undefined) {
+      const daemon = await completeClaudeDaemon(env);
+      if (daemon.ok) return daemon;
+    }
+    return {
+      ok: false,
+      pending: true,
+      message: "Paste the token from claude setup-token, then choose Finish sign-in.",
+      operatorSteps: CLAUDE_SETUP_STEPS,
+    };
+  }
   return { ok: false, message: `${provider.label} has no sign-in to finish.` };
 }
 
@@ -490,9 +572,7 @@ export async function inspectProviderSignIn(
 
 export function gatewayOperatorSteps(label: string): string[] {
   return [
-    `${label} has no subscription sign-in on this card. It runs only through Cloudflare AI Gateway BYOK.`,
-    "npx wrangler secret put AI_GATEWAY_TOKEN --config apps/backend/wrangler.jsonc",
-    "Store the provider API key in that AI Gateway (GATEWAY_ID, or default) as the BYOK credential for this provider.",
-    "This page does not accept a pasted API key, and there is no subscription lane that bypasses the gateway.",
+    `${label} can use a key saved on this card. Choose Use API credential and paste the key from the provider.`,
+    "The key is stored encrypted for you and attached at egress. The sandbox only sees a placeholder.",
   ];
 }

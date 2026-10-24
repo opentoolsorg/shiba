@@ -105,6 +105,9 @@
     //   turns on email+password sign-in at /api/auth/*.
     //   BETTER_AUTH_URL        canonical dashboard URL for cookie scope;
     //   unset = each request's own origin.
+    //   BETTER_AUTH_BOOTSTRAP_TOKEN  setup token the first sign-up must send.
+    //   BETTER_AUTH_OWNER_EMAIL      allowlisted email for that first account.
+    //   A public host refuses the first account until one of those is set.
     // T52 per-role routing pins (agents/roles.ts) — plain vars, never
     // secrets; absent = every role resolves through the deployment default.
     // Pinned for real in `vars` above (PLAN.md §19); this block documents

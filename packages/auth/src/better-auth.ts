@@ -12,10 +12,11 @@
  * audit.ts (`ensureBetterAuthSchema` runs the idempotent DDL before any
  * auth work, so a fresh deployment needs no manual migration step).
  *
- * Sign-up is bootstrap-only: the `user.create.before` hook refuses account
- * creation once a user row exists, so a public deployment can never grow a
- * second account through the open sign-up route. Operators reset access by
- * clearing the `user` table.
+ * Sign-up is bootstrap-only. A public deployment will not accept the first
+ * account unless `BETTER_AUTH_BOOTSTRAP_TOKEN` or `BETTER_AUTH_OWNER_EMAIL`
+ * is set. Loopback (local dev) may create that first account without either.
+ * Once a user row exists, further sign-up is refused. Operators reset access
+ * by clearing the `user` table.
  */
 import { APIError, betterAuth } from "better-auth";
 
@@ -27,6 +28,10 @@ export interface BetterAuthLaneEnv {
   AGENT_AUDIT?: D1Database;
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
+  /** Required on a public host before the first account, unless an owner email is set. */
+  BETTER_AUTH_BOOTSTRAP_TOKEN?: string;
+  /** Allowlisted email for the first account. Compared case-insensitively. */
+  BETTER_AUTH_OWNER_EMAIL?: string;
 }
 
 /** Callers pass a redactor so package logs never carry secret material. */
@@ -34,6 +39,10 @@ export type SecretRedactor = (message: string) => string;
 
 export const BETTER_AUTH_BASE_PATH = "/api/auth";
 export const BETTER_AUTH_MIN_SECRET_LENGTH = 32;
+/** Sent by the sign-up form. Never logged. */
+export const BETTER_AUTH_BOOTSTRAP_HEADER = "x-shiba-bootstrap-token";
+/** Bound on the auth handler so a stuck D1 call cannot leave the button spinning. */
+export const AUTH_HANDLER_DEADLINE_MS = 12_000;
 
 /** `/api/auth/<provider>-subscription*` belongs to the T47–T50 connect lanes. */
 const SUBSCRIPTION_AUTH_PATH =
@@ -137,6 +146,105 @@ const DEV_ORIGINS = [
   "http://127.0.0.1:8788",
 ];
 
+function configuredSecret(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed === "" ? null : trimmed;
+}
+
+export function bootstrapRequirements(env: BetterAuthLaneEnv): {
+  requiresToken: boolean;
+  requiresOwnerEmail: boolean;
+} {
+  return {
+    requiresToken: configuredSecret(env.BETTER_AUTH_BOOTSTRAP_TOKEN) !== null,
+    requiresOwnerEmail: configuredSecret(env.BETTER_AUTH_OWNER_EMAIL) !== null,
+  };
+}
+
+function isLoopbackRequest(request: Request | undefined): boolean {
+  if (!request) return false;
+  try {
+    const host = new URL(request.url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}
+
+/** Public description of first-account rules. Does not include the token or the email. */
+export function publicBootstrap(
+  env: BetterAuthLaneEnv,
+  request: Request,
+): { requiresToken: boolean; requiresOwnerEmail: boolean; locked: boolean } {
+  const requirements = bootstrapRequirements(env);
+  return {
+    ...requirements,
+    locked: !isLoopbackRequest(request) && !requirements.requiresToken && !requirements.requiresOwnerEmail,
+  };
+}
+
+function secretsEqual(expected: string, provided: string): boolean {
+  const a = new TextEncoder().encode(expected);
+  const b = new TextEncoder().encode(provided);
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return diff === 0;
+}
+
+function assertOwnerBootstrap(
+  env: BetterAuthLaneEnv,
+  request: Request | undefined,
+  email: string,
+): void {
+  const token = configuredSecret(env.BETTER_AUTH_BOOTSTRAP_TOKEN);
+  const owner = configuredSecret(env.BETTER_AUTH_OWNER_EMAIL);
+  if (owner && owner.toLowerCase() !== email.trim().toLowerCase()) {
+    throw new APIError("FORBIDDEN", {
+      message: "This email is not allowed to create the dashboard owner.",
+    });
+  }
+  if (token) {
+    const provided = request?.headers.get(BETTER_AUTH_BOOTSTRAP_HEADER) ?? "";
+    if (!secretsEqual(token, provided)) {
+      throw new APIError("FORBIDDEN", {
+        message: "A setup token is required to create the first account.",
+      });
+    }
+  }
+  if (!token && !owner && !isLoopbackRequest(request)) {
+    throw new APIError("FORBIDDEN", {
+      message: "Sign-up is locked until a setup token or an allowlisted owner email is configured.",
+    });
+  }
+}
+
+function withDeadline(work: Promise<Response>, ms: number): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      resolve(
+        Response.json(
+          {
+            error:
+              "Auth request timed out. Check that AGENT_AUDIT is bound and that D1 can answer.",
+          },
+          { status: 504 },
+        ),
+      );
+    }, ms);
+    work.then(
+      (response) => {
+        clearTimeout(timer);
+        resolve(response);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 function createBetterAuth(env: BetterAuthLaneEnv) {
   return betterAuth({
     appName: "shiba",
@@ -172,14 +280,18 @@ function createBetterAuth(env: BetterAuthLaneEnv) {
     databaseHooks: {
       user: {
         create: {
-          before: async (user) => {
+          before: async (user, context) => {
             const row = await env.AGENT_AUDIT?.prepare(
               `SELECT COUNT(*) AS c FROM "user"`,
             ).first<{ c: number }>();
-            if ((row?.c ?? 0) === 0) return { data: user };
-            throw new APIError("FORBIDDEN", {
-              message: "Sign-up is closed — an account already exists.",
-            });
+            if ((row?.c ?? 0) > 0) {
+              throw new APIError("FORBIDDEN", {
+                message: "Sign-up is closed. An account already exists.",
+              });
+            }
+            const email = typeof user.email === "string" ? user.email : "";
+            assertOwnerBootstrap(env, context?.request, email);
+            return { data: user };
           },
         },
       },
@@ -215,6 +327,11 @@ export async function handleBetterAuth(
   if (!isBetterAuthPath(url.pathname) || !isBetterAuthConfigured(env)) {
     return null;
   }
+  if (url.pathname === `${BETTER_AUTH_BASE_PATH}/bootstrap` && request.method === "GET") {
+    return Response.json(publicBootstrap(env, request), {
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
   if (env.AGENT_AUDIT === undefined) {
     return Response.json(
       { error: "Auth storage is not configured." },
@@ -222,8 +339,13 @@ export async function handleBetterAuth(
     );
   }
   try {
-    await ensureBetterAuthSchema(env as { AGENT_AUDIT: D1Database });
-    return await betterAuthFor(env).handler(request);
+    return await withDeadline(
+      (async () => {
+        await ensureBetterAuthSchema(env as { AGENT_AUDIT: D1Database });
+        return betterAuthFor(env).handler(request);
+      })(),
+      AUTH_HANDLER_DEADLINE_MS,
+    );
   } catch (error) {
     console.error(
       redact(error instanceof Error ? error.message : String(error)),

@@ -213,6 +213,8 @@ export interface ChatGptConnectionRecord {
   email: string | null;
   planUsageEnabled: boolean;
   threadId?: string;
+  /** Codex CLI device grant. Refresh omits the SIWC resource parameter. */
+  grantKind?: "device" | "siwc";
 }
 
 export function connectionStatusFromRecord(record: ChatGptConnectionRecord | null): {

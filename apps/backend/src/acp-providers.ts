@@ -11,6 +11,13 @@ import {
 import type { Env } from "./env.js";
 import { ACP_LANES, HARNESS_DEFAULT_MODELS, HARNESSES } from "./harness/index.js";
 import { gatewayOperatorSteps } from "./provider-sign-in.js";
+import {
+  assertPastableSecret,
+  deleteUserProviderSecret,
+  pasteProviderKind,
+  putUserProviderSecret,
+  readUserProviderSecret,
+} from "./user-provider-keys.js";
 import type { AgentHarnessName } from "./harness/types.js";
 import { InputError } from "./security.js";
 
@@ -98,7 +105,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     id: "claude",
     label: "Claude Code",
     blurb:
-      "Claude Code on your own machine. Connect pairs the local daemon; claude auth login stays there. Setup-token is an explicit opt-in.",
+      "Claude Code on your own machine. Connect pairs a local daemon, or you paste a token from the Claude CLI.",
     adapter: "claude-agent-acp",
     packageName: "@agentclientprotocol/claude-agent-acp",
     license: "Apache-2.0",
@@ -129,7 +136,8 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
   {
     id: "gemini",
     label: "Gemini CLI",
-    blurb: "Gemini CLI in ACP mode (`gemini --acp`). API-key mode uses the gateway credential.",
+    blurb:
+      "Gemini CLI in ACP mode (`gemini --acp`). Paste a Gemini API key. Egress sends it to Google. The sandbox only sees a placeholder.",
     adapter: "gemini",
     packageName: "@google/gemini-cli",
     license: "Apache-2.0",
@@ -145,7 +153,7 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
     id: "grok",
     label: "Grok",
     blurb:
-      "The pinned Grok CLI speaks streaming JSON, not ACP. Tasks use the grok harness. API-key mode uses the gateway credential.",
+      "The pinned Grok CLI speaks streaming JSON, not ACP. Tasks use the grok harness. Paste an xAI API key. Egress sends it to xAI.",
     adapter: "grok",
     packageName: "@xai-official/grok",
     license: "see package",
@@ -160,7 +168,8 @@ export const ACP_PROVIDER_REGISTRY: readonly ProviderDefinition[] = [
   {
     id: "opencode",
     label: "OpenCode",
-    blurb: "OpenCode's ACP server (`opencode acp`). API-key mode uses the gateway credential.",
+    blurb:
+      "OpenCode's ACP server (`opencode acp`). Paste an OpenCode or DeepSeek API key. Egress sends it to the provider.",
     adapter: "opencode",
     packageName: "opencode-ai",
     license: "MIT",
@@ -218,6 +227,7 @@ export interface SignInSession {
   ok: boolean;
   pending: boolean;
   message: string;
+  userCode?: string;
   verificationUri?: string;
   signInKind?: AcpSignInKind;
   operatorSteps?: string[];
@@ -226,6 +236,7 @@ export interface SignInSession {
 
 export interface SignInVerdict {
   ok: boolean;
+  pending?: boolean;
   message: string;
   operatorSteps?: string[];
 }
@@ -244,7 +255,10 @@ export interface ProviderDeps {
     provider: ProviderDefinition,
     org: string,
     callbackUrl: string | null,
+    credential?: string | null,
   ) => Promise<SignInVerdict>;
+  /** Pasted API key or Claude setup-token. Never written into the connection record. */
+  credential?: string;
   inspectOauth?: (env: Env, provider: ProviderDefinition, org: string) => Promise<SignInVerdict>;
 }
 
@@ -350,12 +364,17 @@ function presentCredential(env: Env, names: readonly string[]): string | null {
   return null;
 }
 
+const STALE_FAILURE = /AI_GATEWAY_TOKEN|SHIBA_CLAUDE_SUBSCRIPTION|CLAUDE_SUBSCRIPTION_TOKEN|No credential is provisioned|not enabled/;
+
 function publicConnection(record: StoredConnection | null, now: number): AcpProviderConnection {
   if (record === null) return DISCONNECTED;
   const retired =
     record.verificationUri !== undefined && RETIRED_SIGN_IN_URIS.has(record.verificationUri);
   const expired =
     record.phase === "waiting" && record.expiresAt !== undefined && record.expiresAt <= now;
+  if (record.phase === "failed" && STALE_FAILURE.test(record.message ?? "")) {
+    return DISCONNECTED;
+  }
   if (retired) {
     return {
       phase: "failed",
@@ -375,7 +394,7 @@ function publicConnection(record: StoredConnection | null, now: number): AcpProv
     phase: expired ? "failed" : record.phase,
     authMode: record.authMode,
     message: expired ? "Sign-in expired. Start again." : (record.message ?? null),
-    userCode: null,
+    userCode: !expired && record.signInKind === "chatgpt-device" ? (record.userCode ?? null) : null,
     verificationUri: expired ? null : (record.verificationUri ?? null),
     expiresAt: record.expiresAt ?? null,
     testedAt: record.testedAt ?? null,
@@ -436,6 +455,7 @@ function storedFromSession(session: SignInSession, now: number): StoredConnectio
     phase: session.pending ? "waiting" : session.ok ? "connected" : "failed",
     authMode: "oauth",
     message: session.message,
+    ...(session.userCode ? { userCode: session.userCode } : {}),
     ...(session.verificationUri ? { verificationUri: session.verificationUri } : {}),
     ...(session.signInKind ? { signInKind: session.signInKind } : {}),
     ...(session.operatorSteps ? { operatorSteps: session.operatorSteps } : {}),
@@ -475,16 +495,39 @@ export async function connectProvider(
     return readProviderSnapshot(env, org, deps);
   }
   if (mode === "api-key") {
-    const name = presentCredential(env, provider.credentialEnv);
-    const steps = gatewayOperatorSteps(provider.label);
-    if (name === null) {
+    const pasteKind = pasteProviderKind(provider.id);
+    const pasted = typeof deps.credential === "string" ? deps.credential : "";
+    if (pasteKind && pasted.trim() !== "") {
+      try {
+        const secret = assertPastableSecret(pasted);
+        await putUserProviderSecret(env, org, pasteKind, secret);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "The key could not be stored.";
+        const status = message.includes("not ready") ? 503 : 400;
+        throw new ProviderFlowError(message, status);
+      }
       await writeRecord(env, org, provider.id, {
-        phase: "failed",
+        phase: "connected",
         authMode: "api-key",
-        message: `${steps[0] ?? "No credential is provisioned."} ${steps[1] ?? ""}`.trim(),
-        operatorSteps: steps,
+        message: `${provider.label} key stored for this user. Egress sends it to the provider. The sandbox only sees a placeholder.`,
         updatedAt: now,
       });
+      return readProviderSnapshot(env, org, deps);
+    }
+    if (pasteKind && pasted.trim() === "") {
+      const existing = await readUserProviderSecret(env, org, pasteKind);
+      if (existing) {
+        await writeRecord(env, org, provider.id, {
+          phase: "connected",
+          authMode: "api-key",
+          message: `${provider.label} key is already stored for this user. Egress sends it to the provider.`,
+          updatedAt: now,
+        });
+        return readProviderSnapshot(env, org, deps);
+      }
+    }
+    const name = presentCredential(env, provider.credentialEnv);
+    if (name === null) {
       return readProviderSnapshot(env, org, deps);
     }
     await writeRecord(env, org, provider.id, {
@@ -527,9 +570,20 @@ export async function verifyProvider(
     throw new ProviderFlowError("Sign-in confirmation is not configured.", 500);
   }
   const pasted = typeof callbackUrl === "string" && callbackUrl.trim() !== "" ? callbackUrl.trim() : null;
-  const verdict = await complete(env, provider, org, pasted);
+  const credential = typeof deps.credential === "string" && deps.credential.trim() !== "" ? deps.credential : null;
+  const verdict = await complete(env, provider, org, pasted, credential);
   const fresh = await readRecord(env, org, provider.id);
   if (fresh === null || fresh.phase !== "waiting" || fresh.updatedAt !== record.updatedAt) {
+    return readProviderSnapshot(env, org, deps);
+  }
+  if (verdict.pending) {
+    await writeRecord(env, org, provider.id, {
+      ...fresh,
+      phase: "waiting",
+      message: verdict.message,
+      ...(verdict.operatorSteps ? { operatorSteps: verdict.operatorSteps } : {}),
+      updatedAt: now,
+    });
     return readProviderSnapshot(env, org, deps);
   }
   await writeRecord(env, org, provider.id, {
@@ -559,14 +613,24 @@ export async function testProvider(
   let message = record.message ?? "Test failed.";
   let operatorSteps = record.operatorSteps;
   if (record.authMode === "api-key") {
-    const name = presentCredential(env, provider.credentialEnv);
-    ok = name !== null;
-    if (ok) {
-      message = `Credential ${name} is still present.`;
-      operatorSteps = undefined;
+    const pasteKind = pasteProviderKind(provider.id);
+    if (pasteKind) {
+      const saved = await readUserProviderSecret(env, org, pasteKind);
+      ok = saved !== null;
+      message = ok
+        ? "Saved key is stored for this user. Egress attaches it. The sandbox only sees a placeholder."
+        : "No saved key for this user.";
+      operatorSteps = ok ? undefined : gatewayOperatorSteps(provider.label);
     } else {
-      operatorSteps = gatewayOperatorSteps(provider.label);
-      message = operatorSteps[0] ?? "Credential missing.";
+      const name = presentCredential(env, provider.credentialEnv);
+      ok = name !== null;
+      if (ok) {
+        message = `Credential ${name} is still present.`;
+        operatorSteps = undefined;
+      } else {
+        operatorSteps = gatewayOperatorSteps(provider.label);
+        message = operatorSteps[0] ?? "Credential missing.";
+      }
     }
   } else if (deps.inspectOauth !== undefined) {
     const verdict = await deps.inspectOauth(env, provider, org);
@@ -596,6 +660,9 @@ export async function disconnectProvider(
   deps: ProviderDeps = {},
 ): Promise<AcpProvidersSnapshot> {
   const provider = acpProvider(id);
+  const pasteKind = pasteProviderKind(provider.id);
+  if (pasteKind) await deleteUserProviderSecret(env, org, pasteKind);
+  if (provider.id === "claude") await deleteUserProviderSecret(env, org, "claude-setup");
   await deleteRecord(env, org, provider.id);
   if ((await readDefault(env, org)) === provider.id) {
     await writeDefault(env, org, null);

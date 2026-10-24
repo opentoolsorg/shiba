@@ -453,6 +453,18 @@ export interface Env {
    * origin validation. Unset falls back to each request's own origin.
    */
   BETTER_AUTH_URL?: string;
+  /**
+   * Optional. Required on a public hostname before the first dashboard
+   * account, unless BETTER_AUTH_OWNER_EMAIL is set. The sign-up form sends
+   * it as `x-shiba-bootstrap-token`. Loopback may create the first account
+   * without it.
+   */
+  BETTER_AUTH_BOOTSTRAP_TOKEN?: string;
+  /**
+   * Optional. Allowlisted email for the first dashboard account. Compared
+   * case-insensitively. Public hosts refuse every other address.
+   */
+  BETTER_AUTH_OWNER_EMAIL?: string;
   /** Gmail read-only OAuth. Absent/invalid config fails closed; no generic auth accounts. */
   GMAIL_CLIENT_ID?: string;
   GMAIL_CLIENT_SECRET?: string;

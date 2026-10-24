@@ -286,6 +286,103 @@ describe("end-to-end session flow", () => {
     expect(await isAuthorizedRequest(new Request("https://example.com/api/runs"), env)).toBe(false);
   });
 
+  it("refuses the first account on a public host until a setup token or owner email is set", async () => {
+    const env = makeEnv();
+    const res = await handleBetterAuth(
+      new Request("https://app.example/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://app.example" },
+        body: JSON.stringify({ name: "QA", email: "shiba-qa-test@example.com", password: "password-123" }),
+      }),
+      env,
+    );
+    expect(res?.status).toBe(403);
+    const body = (await res?.json()) as { message?: string };
+    expect(body.message).toMatch(/locked/i);
+    const row = await env.AGENT_AUDIT.prepare(`SELECT COUNT(*) AS c FROM "user"`).first<{ c: number }>();
+    expect(Number(row?.c ?? 0)).toBe(0);
+  });
+
+  it("accepts the first public account when the setup token matches", async () => {
+    const env = makeEnv({ BETTER_AUTH_BOOTSTRAP_TOKEN: "setup-token-value" });
+    const denied = await handleBetterAuth(
+      new Request("https://app.example/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://app.example" },
+        body: JSON.stringify({ name: "QA", email: "owner@example.com", password: "password-123" }),
+      }),
+      env,
+    );
+    expect(denied?.status).toBe(403);
+    const created = await handleBetterAuth(
+      new Request("https://app.example/api/auth/sign-up/email", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://app.example",
+          "x-shiba-bootstrap-token": "setup-token-value",
+        },
+        body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
+      }),
+      env,
+    );
+    expect(created?.status).toBe(200);
+    expect(created?.headers.get("set-cookie")).toContain("better-auth.session_token=");
+  });
+
+  it("accepts only the allowlisted owner email", async () => {
+    const env = makeEnv({ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" });
+    const denied = await handleBetterAuth(
+      new Request("https://app.example/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://app.example" },
+        body: JSON.stringify({ name: "Other", email: "other@example.com", password: "password-123" }),
+      }),
+      env,
+    );
+    expect(denied?.status).toBe(403);
+    const created = await signUp(env, "owner@example.com");
+    expect(created).toContain("better-auth.session_token=");
+  });
+
+  it("describes the bootstrap rules without echoing the secret", async () => {
+    const env = makeEnv({ BETTER_AUTH_BOOTSTRAP_TOKEN: "setup-token-value", BETTER_AUTH_OWNER_EMAIL: "owner@example.com" });
+    const res = await handleBetterAuth(new Request("https://app.example/api/auth/bootstrap"), env);
+    expect(res?.status).toBe(200);
+    const body = (await res?.json()) as { requiresToken: boolean; requiresOwnerEmail: boolean; locked: boolean };
+    expect(body).toEqual({ requiresToken: true, requiresOwnerEmail: true, locked: false });
+    expect(JSON.stringify(body)).not.toContain("setup-token-value");
+    expect(JSON.stringify(body)).not.toContain("owner@example.com");
+  });
+
+  it("returns 504 when auth storage does not answer", async () => {
+    vi.useFakeTimers();
+    try {
+      const hanging = {
+        prepare: () => ({
+          bind() {
+            return this;
+          },
+          run: () => new Promise(() => {}),
+          all: () => new Promise(() => {}),
+          first: () => new Promise(() => {}),
+        }),
+      };
+      const env = makeEnv({ AGENT_AUDIT: hanging });
+      const pending = handleBetterAuth(
+        jsonRequest("/api/auth/sign-in/email", { email: "owner@example.com", password: "password-123" }),
+        env,
+      );
+      await vi.advanceTimersByTimeAsync(12_000);
+      const res = await pending;
+      expect(res?.status).toBe(504);
+      const body = (await res?.json()) as { error?: string };
+      expect(body.error).toMatch(/timed out/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("is dark without the AGENT_AUDIT binding (503, never a silent account)", async () => {
     const env = makeEnv({ AGENT_AUDIT: undefined });
     const res = await handleBetterAuth(

@@ -21,7 +21,7 @@ import { resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { InputError } from "./security.js";
 
-const ALLOWED_BODY_KEYS = new Set(["mode", "usercode", "callbackurl"]);
+const ALLOWED_BODY_KEYS = new Set(["mode", "usercode", "callbackurl", "credential"]);
 
 export interface ProviderRouteDeps extends ProviderDeps {
   forwardClaude?: SubscriptionForwarder;
@@ -91,7 +91,8 @@ export async function handleAcpProviders(
       ((e, provider, org, ctx) => beginProviderSignIn(e, provider, org, ctx, lanes)),
     completeOauth:
       deps.completeOauth ??
-      ((e, provider, org, callbackUrl) => completeProviderSignIn(e, provider, org, callbackUrl)),
+      ((e, provider, org, callbackUrl, credential) =>
+        completeProviderSignIn(e, provider, org, callbackUrl, credential)),
     inspectOauth:
       deps.inspectOauth ??
       ((e, provider, org) => inspectProviderSignIn(e, provider, org, lanes)),
@@ -115,11 +116,13 @@ export async function handleAcpProviders(
     const id = match[1] as string;
     const action = match[2] as "connect" | "verify" | "test" | "disconnect" | "default";
     const body = await readBody(request);
+    const credential = typeof body.credential === "string" ? body.credential : undefined;
+    const requestDeps: ProviderDeps = credential !== undefined ? { ...flowDeps, credential } : flowDeps;
     const snapshot =
       action === "connect"
-        ? await connectProvider(env, org, id, body.mode, flowDeps)
+        ? await connectProvider(env, org, id, body.mode, requestDeps)
         : action === "verify"
-          ? await verifyProvider(env, org, id, body.callbackUrl, flowDeps)
+          ? await verifyProvider(env, org, id, body.callbackUrl, requestDeps)
           : action === "test"
             ? await testProvider(env, org, id, flowDeps)
             : action === "disconnect"
