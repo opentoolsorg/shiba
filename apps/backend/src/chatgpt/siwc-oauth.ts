@@ -2,6 +2,7 @@
  * OAuth discovery, token exchange, and id_token verification for ChatGPT SIWC.
  */
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+import { refreshDeviceTokens } from "./device-auth.js";
 import {
   CHATGPT_RESOURCE,
   type OpenIdDiscovery,
@@ -189,6 +190,26 @@ export async function refreshConnection(
   } = {},
 ): Promise<ChatGptConnectionRecord> {
   if (!record.refreshToken) throw new ChatGptOAuthError("ChatGPT connection expired.", "no_refresh", true);
+  if (record.grantKind === "device") {
+    if (record.expiresAt - now > 60_000) return record;
+    try {
+      const tokens = await refreshDeviceTokens(fetchImpl, record.refreshToken);
+      return {
+        ...record,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: now + tokens.expiresIn * 1000,
+        planUsageEnabled: true,
+        grantKind: "device",
+      };
+    } catch (error) {
+      throw new ChatGptOAuthError(
+        error instanceof Error ? "ChatGPT could not renew the saved sign-in." : "ChatGPT could not renew the saved sign-in.",
+        "invalid_grant",
+        true,
+      );
+    }
+  }
   if (record.earliestRefreshAt !== null && record.earliestRefreshAt > now && record.expiresAt > now) {
     return record;
   }

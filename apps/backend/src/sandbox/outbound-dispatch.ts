@@ -15,6 +15,7 @@ import {
   forwardDevinSubscription,
   forwardGitHubScoped,
   forwardGoogle,
+  forwardDeepSeek,
   forwardOpenAI,
   forwardOpenCodeGo,
   forwardXAI,
@@ -27,6 +28,7 @@ const BUILTIN_FORWARDERS: Record<string, (request: Request, env: EgressEnv, orgI
   "api.openai.com": forwardOpenAI,
   "api.x.ai": forwardXAI,
   "opencode.ai": forwardOpenCodeGo,
+  "api.deepseek.com": forwardDeepSeek,
   "api.devin.ai": forwardDevinApi,
   "server.codeium.com": forwardDevinInference,
 };
@@ -100,6 +102,9 @@ export async function dispatchOutboundRequest(
     return forward(request, env, config.orgId);
   }
   const handler = namedHandler(rule.handler);
-  const ctx: OutboundHandlerCtx = rule.params ? { params: rule.params } : {};
+  const ctx: OutboundHandlerCtx = {
+    ...(config.orgId ? { orgId: config.orgId } : {}),
+    ...(rule.params ? { params: rule.params } : {}),
+  };
   return handler(request, env, ctx);
 }

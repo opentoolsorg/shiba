@@ -160,7 +160,8 @@ export class OpenCodeHarness implements AgentHarness {
 
   egressHosts(model: string): string[] {
     const provider = assertSupportedModel(this.name, this.supportedProviders, model);
-    return [PROVIDER_HOSTS[provider] as string];
+    const host = PROVIDER_HOSTS[provider] as string;
+    return provider === "opencode-go" ? [host, "api.deepseek.com"] : [host];
   }
 
   configFile(input: CodingTaskInput, sandboxId: string): HarnessConfigFile {

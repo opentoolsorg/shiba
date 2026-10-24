@@ -46,7 +46,7 @@ import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavRail";
-import { AuthScreen } from "./components/AuthScreen";
+import { AuthScreen, SessionPending, SessionProblem } from "./components/AuthScreen";
 import { ShibaMark } from "./components/ShibaMark";
 import { authClient } from "./auth-client";
 import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
@@ -258,6 +258,12 @@ async function isSessionNotFoundBody(response: Response): Promise<boolean> {
 }
 
 type IdentityIssue = "signin" | "unconfigured" | "unreachable" | "error";
+
+/** Static dashboard tests set this. The browser never does, so first paint waits for /api/whoami. */
+function testAgentName(): string | null {
+  const name = (globalThis as { __shibaTestAgent?: unknown }).__shibaTestAgent;
+  return typeof name === "string" && name !== "" ? name : null;
+}
 type AuthMode = "better-auth" | "access" | "none";
 type IdentityResult =
   | { agent: string; auth?: AuthMode }
@@ -268,7 +274,11 @@ async function fetchIdentity(): Promise<IdentityResult> {
   try {
     // manual: Cloudflare Access answers an expired session with a cross-origin
     // login redirect, which would otherwise surface as an opaque CORS failure.
-    res = await fetch("/api/whoami", { redirect: "manual", cache: "no-store" });
+    res = await fetch("/api/whoami", {
+      redirect: "manual",
+      cache: "no-store",
+      signal: AbortSignal.timeout(12_000),
+    });
   } catch {
     return { issue: "unreachable", message: "Network error reaching /api/whoami." };
   }
@@ -561,7 +571,7 @@ export function App(): React.JSX.Element {
 
   // /api/runs routes by Access identity; the chat socket must use the same
   // DO name or the dashboard would read one identity's runs and chat to another.
-  const [orchestratorName, setOrchestratorName] = useState<string | null>(null);
+  const [orchestratorName, setOrchestratorName] = useState<string | null>(testAgentName);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [identityIssue, setIdentityIssue] = useState<IdentityIssue | null>(null);
   // Which auth lane proved (or refused) the identity — drives the login
@@ -1721,6 +1731,10 @@ export function App(): React.JSX.Element {
     },
   ];
 
+  if (orchestratorName === null && identityIssue === null) {
+    return <SessionPending />;
+  }
+
   // Built-in login lane: the Worker 401s with code "better-auth".
   if (identityIssue === "signin" && authMode === "better-auth") {
     return <AuthScreen onSignedIn={retryIdentity} />;
@@ -1758,6 +1772,19 @@ export function App(): React.JSX.Element {
           )}
         </div>
       </div>
+    );
+  }
+
+  if (identityIssue === "unreachable" || identityIssue === "error") {
+    return (
+      <SessionProblem
+        message={
+          identityIssue === "unreachable"
+            ? "Backend not connected — open your Worker URL."
+            : `Identity lookup failed: ${identityError ?? "unknown error"}`
+        }
+        onRetry={retryIdentity}
+      />
     );
   }
 

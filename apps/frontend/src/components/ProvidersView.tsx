@@ -77,6 +77,12 @@ function OperatorSteps({ id, steps }: { id: string; steps: readonly string[] }):
   );
 }
 
+const PASTE_KEY_LABEL: Record<string, string> = {
+  gemini: "Gemini API key",
+  grok: "xAI API key",
+  opencode: "OpenCode or DeepSeek API key",
+};
+
 function WaitingSignIn({
   card,
   busy,
@@ -87,19 +93,45 @@ function WaitingSignIn({
   card: AcpProviderCard;
   busy: boolean;
   action: CardAction | null;
-  onVerify: (id: string, callbackUrl: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onDisconnect: (id: string) => void;
 }): JSX.Element {
   const [callbackUrl, setCallbackUrl] = useState("");
+  const [credential, setCredential] = useState("");
+  const device = Boolean(card.connection.userCode);
   const needsCallback = card.connection.signInKind === "chatgpt-pkce";
+  const needsToken = card.connection.signInKind === "claude-setup-token";
   const steps = card.connection.operatorSteps ?? [];
+  const verificationUri = card.connection.verificationUri;
+  function finish(): void {
+    if (device && callbackUrl.trim() !== "") {
+      onVerify(card.id, { callbackUrl: callbackUrl.trim() });
+      return;
+    }
+    if (device && card.connection.userCode) {
+      onVerify(card.id, { userCode: card.connection.userCode });
+      return;
+    }
+    if (needsToken) {
+      onVerify(card.id, { credential: credential.trim() });
+      return;
+    }
+    if (needsCallback) {
+      onVerify(card.id, { callbackUrl: callbackUrl.trim() });
+      return;
+    }
+    onVerify(card.id, {});
+  }
   return (
     <div className="mt-3 border border-[var(--border-1)] bg-[var(--panel)] px-3 py-3">
       <OperatorSteps id={card.id} steps={steps} />
-      {needsCallback ? (
+      {device ? (
+        <p className="mt-3 font-mono text-lg tracking-[0.18em] text-[var(--fg)]">{card.connection.userCode}</p>
+      ) : null}
+      {needsCallback || device ? (
         <label className="mt-3 block">
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-            Paste callback URL
+            {device ? "Callback URL (optional)" : "Paste callback URL"}
           </span>
           <textarea
             data-testid={`provider-callback-${card.id}`}
@@ -111,10 +143,41 @@ function WaitingSignIn({
           />
         </label>
       ) : null}
+      {needsToken ? (
+        <label className="mt-3 block">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            Setup token
+          </span>
+          <input
+            type="password"
+            data-testid={`provider-setup-token-${card.id}`}
+            className="mt-1 w-full border border-[var(--border-1)] bg-[var(--card)] p-2 font-mono text-[11px] text-[var(--fg)]"
+            value={credential}
+            onChange={(event) => setCredential(event.target.value)}
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+      ) : null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {card.connection.verificationUri ? (
+        {verificationUri && device ? (
           <a
-            href={card.connection.verificationUri}
+            href={verificationUri}
+            data-testid={`provider-open-${card.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={SECONDARY}
+            onClick={(event) => {
+              event.preventDefault();
+              window.open(verificationUri, "_blank", "noopener,noreferrer");
+            }}
+          >
+            <NewTabLabel>Open device page</NewTabLabel>
+          </a>
+        ) : null}
+        {verificationUri && !device ? (
+          <a
+            href={verificationUri}
             data-testid={`provider-authorize-${card.id}`}
             target="_blank"
             rel="noopener noreferrer"
@@ -127,8 +190,8 @@ function WaitingSignIn({
         ) : null}
         <button
           type="button"
-          disabled={busy || (needsCallback && callbackUrl.trim() === "")}
-          onClick={() => onVerify(card.id, callbackUrl.trim())}
+          disabled={busy || (needsCallback && callbackUrl.trim() === "") || (needsToken && credential.trim() === "")}
+          onClick={finish}
           className={PRIMARY}
         >
           {actionLabel(busy, action, "verify", "Finish sign-in", "Checking…")}
@@ -159,10 +222,29 @@ function DisconnectedActions({
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectSetupToken: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
 }): JSX.Element {
+  const [secret, setSecret] = useState("");
+  const pasteLabel = PASTE_KEY_LABEL[card.id];
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
+    <div className="mt-3 flex flex-col gap-2">
+      {pasteLabel ? (
+        <label className="block">
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
+            {pasteLabel}
+          </span>
+          <input
+            type="password"
+            data-testid={`provider-key-${card.id}`}
+            className="mt-1 w-full border border-[var(--border-1)] bg-[var(--card)] p-2 font-mono text-[11px] text-[var(--fg)]"
+            value={secret}
+            onChange={(event) => setSecret(event.target.value)}
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
       {card.capabilities.oauth ? (
         <button
           type="button"
@@ -189,13 +271,14 @@ function DisconnectedActions({
         <button
           type="button"
           data-testid={`provider-connect-key-${card.id}`}
-          disabled={busy}
-          onClick={() => onConnectApiKey(card.id)}
+          disabled={busy || (pasteLabel !== undefined && secret.trim() === "")}
+          onClick={() => onConnectApiKey(card.id, pasteLabel ? secret.trim() : undefined)}
           className={card.capabilities.oauth ? SECONDARY : PRIMARY}
         >
           {actionLabel(busy, action, "api-key", "Use API credential", "Working…")}
         </button>
       ) : null}
+      </div>
     </div>
   );
 }
@@ -256,8 +339,8 @@ function ProviderActions(props: {
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectSetupToken: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string, callbackUrl: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -317,8 +400,8 @@ function ProviderCard({
   action: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectSetupToken: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string, callbackUrl: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -351,7 +434,10 @@ function ProviderCard({
       <div className="flex flex-1 flex-col px-3 py-3">
         <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.blurb}</p>
         {card.connection.message ? (
-          <p className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]">
+          <p
+            data-testid={`provider-signin-message-${card.id}`}
+            className="mt-2 font-mono text-[11px] leading-relaxed text-[var(--fg)]"
+          >
             {card.connection.message}
           </p>
         ) : null}
@@ -428,8 +514,8 @@ function AdapterBody({
   busyAction?: CardAction | null;
   onConnectOauth: (id: string) => void;
   onConnectSetupToken: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string, callbackUrl: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -499,8 +585,8 @@ export function ProvidersBoard({
   onRetry: () => void;
   onConnectOauth: (id: string) => void;
   onConnectSetupToken: (id: string) => void;
-  onConnectApiKey: (id: string) => void;
-  onVerify: (id: string, callbackUrl: string) => void;
+  onConnectApiKey: (id: string, credential?: string) => void;
+  onVerify: (id: string, body: Record<string, string>) => void;
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
@@ -520,7 +606,7 @@ export function ProvidersBoard({
     >
       <PageHeader
         title="Providers"
-        detail="Codex uses your ChatGPT plan. Claude runs on a paired computer. Gemini, Grok, and OpenCode need AI Gateway. Keys are never pasted here."
+        detail="Codex uses your ChatGPT plan. Claude pairs a computer or takes a setup token. Gemini, Grok, and OpenCode take a key you paste here. Keys stay encrypted and are attached at egress."
       >
         {defaultLabel ? (
           <span
@@ -656,15 +742,16 @@ export function ProvidersView(): JSX.Element {
           postProvider(`/api/providers/${id}/connect`, { mode: "setup-token" }),
         )
       }
-      onConnectApiKey={(id) =>
+      onConnectApiKey={(id, credential) =>
         void run(id, "api-key", () =>
-          postProvider(`/api/providers/${id}/connect`, { mode: "api-key" }),
+          postProvider(
+            `/api/providers/${id}/connect`,
+            credential ? { mode: "api-key", credential } : { mode: "api-key" },
+          ),
         )
       }
-      onVerify={(id, callbackUrl) =>
-        void run(id, "verify", () =>
-          postProvider(`/api/providers/${id}/verify`, callbackUrl === "" ? {} : { callbackUrl }),
-        )
+      onVerify={(id, body) =>
+        void run(id, "verify", () => postProvider(`/api/providers/${id}/verify`, body))
       }
       onTest={(id) => void run(id, "test", () => postProvider(`/api/providers/${id}/test`, {}))}
       onDisconnect={(id) =>

@@ -10,6 +10,7 @@ import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
 import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
+import { kindForHost, readProviderSecretForOrg, type UserSecretKind } from "./user-provider-keys.js";
 
 export type EgressEnv = Pick<
   WorkerEnv,
@@ -26,7 +27,10 @@ export type EgressEnv = Pick<
   | "SHIBA_SINGLE_USER"
   | "AGENT_AUDIT"
   | "ChatGptAuth"
->;
+> & {
+  /** Present when a user has saved a provider key. */
+  AGENT_TOKENS?: WorkerEnv["AGENT_TOKENS"];
+};
 
 /**
  * Handler ctx carries the per-run params passed to `setOutboundByHost`. The
@@ -42,6 +46,44 @@ function approvedPath(ctx?: OutboundHandlerCtx): string | undefined {
   if (typeof params !== "object" || params === null) return undefined;
   const value = (params as { allowedPath?: unknown }).allowedPath;
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function applyUserKey(headers: Headers, kind: UserSecretKind, secret: string): void {
+  if (kind === "google") {
+    headers.set("x-goog-api-key", secret);
+    return;
+  }
+  headers.set("Authorization", `Bearer ${secret}`);
+  if (kind === "claude-setup") {
+    headers.set("anthropic-beta", "oauth-2025-04-20");
+    headers.set("anthropic-version", "2023-06-01");
+  }
+}
+
+/** Saved user key: call the provider host directly. The gateway is not involved. */
+async function fetchWithUserKey(
+  request: Request,
+  host: string,
+  kind: UserSecretKind,
+  secret: string,
+): Promise<Response> {
+  const target = new URL(request.url);
+  if (target.protocol !== "https:" || target.hostname !== host) {
+    return new Response("Invalid provider destination.", { status: 403 });
+  }
+  target.search = stripCredentialParams(target.search);
+  const headers = outboundHeaders(request);
+  applyUserKey(headers, kind, secret);
+  try {
+    return await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === "POST" ? request.body : undefined,
+      redirect: "manual",
+    });
+  } catch {
+    return new Response("Provider request failed.", { status: 502 });
+  }
 }
 
 function outboundHeaders(request: Request): Headers {
@@ -84,8 +126,16 @@ async function forwardProvider(
   if (request.method !== "POST" && request.method !== "GET") {
     return new Response("Method not allowed.", { status: 405 });
   }
+  const kind = kindForHost(host);
+  if (kind) {
+    const secret = await readProviderSecretForOrg(env, orgId, kind);
+    if (secret) return fetchWithUserKey(request, host, kind, secret);
+  }
   const slug = GATEWAY_PROVIDERS[host];
   if (!slug) {
+    if (host === "api.deepseek.com") {
+      return new Response("No saved key for this provider. Paste one on the Providers page.", { status: 503 });
+    }
     return new Response("Invalid provider destination.", { status: 403 });
   }
   try {
@@ -179,6 +229,16 @@ export function forwardOpenCodeGo(
   return forwardProvider(request, env, "opencode.ai", orgId);
 }
 
+/** DeepSeek uses the same saved OpenCode key. There is no gateway slug. */
+export function forwardDeepSeek(
+  request: Request,
+  env: EgressEnv,
+  ctx?: OutboundHandlerCtx | string,
+): Promise<Response> {
+  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
+  return forwardProvider(request, env, "api.deepseek.com", orgId);
+}
+
 /**
  * T48 — the claude-subscription egress branch. The container holds only a
  * placeholder credentials.json; the real `claude setup-token` bearer is
@@ -199,7 +259,9 @@ export async function forwardClaudeSubscription(
     account === "default"
       ? "CLAUDE_SUBSCRIPTION_TOKEN"
       : `CLAUDE_SUBSCRIPTION_TOKEN_${account.toUpperCase().replace(/-/g, "_")}`;
-  const token = (env as Record<string, unknown>)[secretName];
+  const saved = await readProviderSecretForOrg(env, ctx?.orgId, "claude-setup");
+  const configured = (env as Record<string, unknown>)[secretName];
+  const token = saved ?? (typeof configured === "string" ? configured : undefined);
   const target = new URL(request.url);
   if (
     target.protocol !== "https:" ||

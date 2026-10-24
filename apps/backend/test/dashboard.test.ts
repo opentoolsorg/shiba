@@ -49,6 +49,7 @@ import { TaskForm } from "../../web/src/components/TaskForm";
 import { Tooltip } from "../../frontend/src/components/Tooltip";
 
 afterEach(() => {
+  delete (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent;
   mocks.chat.messages = [];
   mocks.chat.error = null;
   mocks.chat.isStreaming = false;
@@ -58,6 +59,7 @@ afterEach(() => {
 });
 
 function renderApp() {
+  (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent = "ada@example.com";
   return renderToStaticMarkup(React.createElement(App));
 }
 

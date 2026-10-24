@@ -153,11 +153,12 @@ describe("root cause: subscription routes 404 without the flag", () => {
     );
     const body = await snapshot(started);
     const claude = body.providers.find((provider) => provider.id === "claude");
-    expect(claude?.connection.phase).toBe("failed");
+    expect(claude?.connection.phase).toBe("waiting");
+    expect(claude?.connection.signInKind).toBe("claude-setup-token");
     expect(claude?.connection.userCode).toBeNull();
     expect(claude?.connection.verificationUri).toBeNull();
-    expect(claude?.connection.operatorSteps?.join("\n")).toMatch(/claude auth login/);
-    expect(claude?.connection.verificationUri).not.toBe("https://claude.ai/login");
+    expect(claude?.connection.operatorSteps?.join("\n")).toMatch(/claude setup-token/);
+    expect(JSON.stringify(body)).not.toMatch(/SHIBA_CLAUDE_SUBSCRIPTION|CLAUDE_SUBSCRIPTION_TOKEN/);
     expect(JSON.stringify(body)).not.toContain("https://claude.ai/login");
   });
 });
@@ -313,12 +314,12 @@ describe("API-key fallback", () => {
       ),
     );
     const claude = body.providers.find((provider) => provider.id === "claude");
-    expect(claude?.connection.phase).toBe("failed");
-    expect(claude?.connection.message).toContain("AI_GATEWAY_TOKEN");
+    expect(claude?.connection.phase).toBe("disconnected");
+    expect(claude?.connection.message ?? "").not.toContain("AI_GATEWAY_TOKEN");
     expect(JSON.stringify(body)).not.toContain("setup-token-canary-value");
   });
 
-  it("fails closed when no credential is provisioned", async () => {
+  it("stays not connected when no key is pasted and no gateway token is set", async () => {
     const body = await snapshot(
       await handleAcpProviders(
         request("/api/providers/gemini/connect", {
@@ -329,8 +330,45 @@ describe("API-key fallback", () => {
       ),
     );
     const gemini = body.providers.find((provider) => provider.id === "gemini");
-    expect(gemini?.connection.phase).toBe("failed");
-    expect(gemini?.connection.message).toContain("AI_GATEWAY_TOKEN");
+    expect(gemini?.connection.phase).toBe("disconnected");
+    expect(gemini?.connection.message ?? "").not.toContain("AI_GATEWAY_TOKEN");
+  });
+
+  it("stores a pasted provider key encrypted and does not echo it", async () => {
+    const kv = new FakeKV();
+    const secret = "AIza-test-key-value";
+    const deployment = env({ MODEL_CREDENTIAL_KEY: "ab".repeat(32) }, kv);
+    const body = await snapshot(
+      await handleAcpProviders(
+        request("/api/providers/gemini/connect", {
+          method: "POST",
+          body: JSON.stringify({ mode: "api-key", credential: secret }),
+        }),
+        deployment,
+      ),
+    );
+    const gemini = body.providers.find((provider) => provider.id === "gemini");
+    expect(gemini?.connection.phase).toBe("connected");
+    expect(gemini?.connection.message).toMatch(/stored/i);
+    expect(JSON.stringify(body)).not.toContain(secret);
+    expect([...kv.map.values()].join("\n")).not.toContain(secret);
+  });
+
+  it("renders a stale gateway failure as not connected", async () => {
+    const kv = new FakeKV();
+    await kv.put(
+      "acp_provider:default:grok",
+      JSON.stringify({
+        phase: "failed",
+        authMode: "api-key",
+        message: "No credential is provisioned. Set AI_GATEWAY_TOKEN.",
+        updatedAt: 1,
+      }),
+    );
+    const body = await snapshot(await handleAcpProviders(request("/api/providers"), env({}, kv)));
+    expect(body.providers.find((provider) => provider.id === "grok")?.connection.phase).toBe(
+      "disconnected",
+    );
   });
 
   it("refuses OAuth for a provider that has no subscription lane", async () => {
