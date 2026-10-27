@@ -163,6 +163,7 @@ const waitlistSchema = {
           <button
             type="submit"
             class="button w-full justify-center text-sm py-3.5 mt-2"
+            data-ml-goal="signup_click"
           >
             <span>Submit Registration →</span>
           </button>
@@ -297,6 +298,10 @@ const waitlistSchema = {
         ? "✓ You're already registered! Thanks for being an early supporter."
         : "✓ You're in! Thank you for supporting this approval-gated open-source project.";
       status.className = 'min-h-[24px] text-center text-xs font-mono font-bold status-ok';
+      if (!result.alreadyJoined) {
+        const ml = (window as { minilytics?: (cmd: 'goal', name: string) => void }).minilytics;
+        ml?.('goal', 'signup_completed');
+      }
       form.reset();
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : 'Registration failed. Please check your connection and try again.';

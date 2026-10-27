@@ -47,6 +47,7 @@ import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { AppNavRail, APP_NAV_ITEMS, type AppNavView } from "./components/AppNavRail";
 import { AuthScreen, SessionPending, SessionProblem } from "./components/AuthScreen";
+import { MinilyticsBoot } from "./components/MinilyticsBoot";
 import { ShibaMark } from "./components/ShibaMark";
 import { authClient } from "./auth-client";
 import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
@@ -1800,6 +1801,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-text)] flex pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+      <MinilyticsBoot signedIn={signedIn} agentName={orchestratorName} />
       {/* LEFT: app navigation rail (lg+; phones use the sheet below) */}
       <AppNavRail
         collapsed={sessionsCollapsed}

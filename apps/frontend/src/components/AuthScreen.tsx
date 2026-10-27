@@ -12,6 +12,7 @@ import { useEffect, useState, type FormEvent, type JSX } from "react";
 import { authClient } from "../auth-client";
 import { signInReturnPath } from "../auth-next";
 import { AUTH_CLIENT_TIMEOUT_MS, AuthTimeoutError, withAuthTimeout } from "../auth-timeout";
+import { identifyMinilyticsUser, trackMinilyticsGoal } from "../minilytics";
 import { ShibaMark } from "./ShibaMark";
 
 const BOOTSTRAP_HEADER = "x-shiba-bootstrap-token";
@@ -117,6 +118,10 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
         );
         return;
       }
+      if (mode === "signup") {
+        trackMinilyticsGoal("signup_completed");
+      }
+      await identifyMinilyticsUser(email.trim());
       // Back to the OAuth consent screen that sent us here, if any.
       const next = signInReturnPath(window.location.search);
       if (next !== null) {
@@ -205,6 +210,7 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: () => void }): JSX.Elem
           <button
             type="submit"
             disabled={pending || (mode === "signup" && policy?.locked === true)}
+            data-ml-goal={mode === "signup" ? "signup_click" : undefined}
             className="w-full min-h-11 rounded-[var(--radius-button)] bg-[var(--primary)] hover:bg-[var(--primary-soft-hover)] disabled:opacity-60 text-white text-sm font-semibold transition-colors shadow-[var(--sh-card)] active:scale-[0.98]"
           >
             {pending

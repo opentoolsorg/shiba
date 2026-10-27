@@ -4,6 +4,7 @@ import '../styles/tailwind.css';
 // scoped <style>, so descendants need the shared sheet imported here rather
 // than per-page — a page-level import would compile but resolve to no tokens.
 import '../styles/blog.css';
+import MinilyticsScript from '../components/MinilyticsScript.astro';
 
 interface Props {
   title: string;
@@ -113,6 +114,8 @@ const finalSchemas = schema
       <script type="application/ld+json" set:html={JSON.stringify(s)} />
     ))}
 
+    <MinilyticsScript />
+
     <!-- Instant Theme Initializer (No FOIT) -->
     <script is:inline>
       (function() {
@@ -133,7 +136,7 @@ const finalSchemas = schema
         <nav aria-label="Main navigation" class="nav-links" id="site-nav">
           <a href="/why-shiba/" class={path === '/why-shiba/' ? 'nav-link nav-active' : 'nav-link'}>Why Shiba</a>
           <a href="/#harnesses" class="nav-link">Agents</a>
-          <a href="/docs/costs/" class="nav-link">Cost</a>
+          <a href="/docs/costs/" class="nav-link" data-ml-goal="pricing_cta">Cost</a>
           <a href="/blog/" class={path.startsWith('/blog') ? 'nav-link nav-active' : 'nav-link'}>Journal</a>
           <a href="/docs/overview/" class={path.startsWith('/docs') ? 'nav-link nav-active' : 'nav-link'}>Docs</a>
           <a href="/docs/architecture/" class="nav-link">Architecture</a>
@@ -171,7 +174,7 @@ const finalSchemas = schema
             </svg>
             <span class="nav-gh-count" id="nav-gh-count" hidden>★ <span id="nav-gh-num"></span></span>
           </a>
-          <a class="nav-cta" href="/waitlist/">
+          <a class="nav-cta" href="/waitlist/" data-ml-goal="signup_click">
             <span class="nav-cta-prompt" aria-hidden="true">▸</span>
             <span>RUN IT ON YOUR REPO</span>
           </a>
@@ -200,7 +203,7 @@ const finalSchemas = schema
             <ul class="space-y-2 text-[var(--ink-2)]">
               <li><a href="/why-shiba/" class="hover:text-[var(--navy)] transition-colors">Why I'm building Shiba</a></li>
               <li><a href="/blog/" class="hover:text-[var(--navy)] transition-colors">Journal</a></li>
-              <li><a href="/waitlist/" class="hover:text-[var(--navy)] transition-colors">Join Waitlist &amp; Contribute</a></li>
+              <li><a href="/waitlist/" class="hover:text-[var(--navy)] transition-colors" data-ml-goal="signup_click">Join Waitlist &amp; Contribute</a></li>
               <li><a href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer" class="hover:text-[var(--navy)] transition-colors">GitHub Repository ↗</a></li>
             </ul>
           </div>

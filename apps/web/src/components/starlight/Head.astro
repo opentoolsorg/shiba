@@ -1,5 +1,6 @@
 ---
 import Default from '@astrojs/starlight/components/Head.astro';
+import MinilyticsScript from '../MinilyticsScript.astro';
 
 const SITE = 'https://tryshiba.dev';
 const OG_IMAGE = `${SITE}/assets/og/shiba-og.png`;
@@ -43,6 +44,7 @@ const pageTitle = `${title} | Shiba`;
 ---
 
 <Default />
+<MinilyticsScript />
 <meta property="og:image" content={OG_IMAGE} />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />

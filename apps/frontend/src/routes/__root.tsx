@@ -6,6 +6,7 @@ import {
   createRootRoute,
 } from "@tanstack/react-router";
 import appCss from "../styles.css?url";
+import { MinilyticsScriptLoader } from "../components/MinilyticsScriptLoader";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -61,6 +62,7 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body className="bg-[var(--bg)] text-[var(--fg)] antialiased selection:bg-[var(--primary)] selection:text-[var(--primary-text)] font-sans">
+        <MinilyticsScriptLoader />
         <Outlet />
         <Scripts />
       </body>
