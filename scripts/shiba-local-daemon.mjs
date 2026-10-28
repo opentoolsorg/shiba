@@ -597,6 +597,7 @@ async function execute(envelope, claimToken) {
       const outcome = await runSessionJob({
         provider: session.provider,
         model: session.model,
+        ...(session.reasoningEffort ? { reasoningEffort: session.reasoningEffort } : {}),
         permissionMode: session.permissionMode,
         cwd: cloneDir,
         // Session JSONL stays under the run home. The worktree diff must not

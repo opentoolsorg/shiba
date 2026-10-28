@@ -25,9 +25,13 @@ export interface SessionJobResult {
 }
 
 export function eventText(event: SessionEvent): string;
-export function runSessionJob(job: Record<string, unknown>): Promise<SessionJobResult>;
+export interface SessionSpec extends Record<string, unknown> {
+  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+}
+
+export function runSessionJob(job: SessionSpec): Promise<SessionJobResult>;
 export function createSessionManager(): {
-  open(spec: Record<string, unknown>): Promise<SessionHandle>;
+  open(spec: SessionSpec): Promise<SessionHandle>;
   list(): string[];
   closeAll(): Promise<void>;
 };
