@@ -5,6 +5,7 @@
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HARNESS_REASONING_EFFORTS, type ReasoningEffort } from "@shiba/shared";
 import type { VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
@@ -57,7 +58,7 @@ import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
-import { extractPendingApprovals, extractCompletedDiff, parseRepoName, runsListUrl, statusChipClass, statusLabel } from "./ui-helpers";
+import { extractPendingApprovals, extractCompletedDiff, parseRepoName, readPromptParam, runsListUrl, statusChipClass, statusLabel } from "./ui-helpers";
 import { createCompletionDrivenPoll, documentVisibilityPause } from "./polling";
 import type { AgentPrincipal, RetainedRun, StoredApproval, ToolRunRecord } from "./types";
 
@@ -388,12 +389,26 @@ export function App(): React.JSX.Element {
   const savedRepos = useSavedRepos();
   const savedSkills = useSavedSkills();
   const [baseBranch, setBaseBranch] = useState("main");
-  const [task, setTask] = useState("");
+  // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
+  const [task, setTask] = useState(() => {
+    const draft = readDraft("default");
+    if (typeof window === "undefined") return draft;
+    const { prompt, nextSearch } = readPromptParam(window.location.search);
+    if (prompt !== null) {
+      const nextUrl = window.location.pathname + nextSearch + window.location.hash;
+      window.history.replaceState(window.history.state, "", nextUrl);
+      if (!draft.trim()) return prompt;
+    }
+    return draft;
+  });
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
+  const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
   const [codingModel, setCodingModel] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
+  const [envVars, setEnvVars] = useState<{ name: string; value: string }[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -443,7 +458,7 @@ export function App(): React.JSX.Element {
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
-  const draftScope = useRef<string | null>(null);
+  const draftScope = useRef<string | null>("default");
   const pendingDraft = useRef<{ scope: string; text: string } | null>(null);
   const flushDraft = useCallback(() => {
     const pending = pendingDraft.current;
@@ -1030,6 +1045,10 @@ export function App(): React.JSX.Element {
         return;
       }
       const branch = baseBranch.trim() || "main";
+      const effort =
+        reasoningEffort && (HARNESS_REASONING_EFFORTS[harness] ?? []).includes(reasoningEffort)
+          ? reasoningEffort
+          : "";
       const attachedSkills = savedSkills.filter((skill) => selectedSkillIds.includes(skill.id));
       if (runTarget === "local" || customAgentId) {
         if (runTarget === "local" && (!selectedLocalMachineId || localComputersLoading || localComputersError)) {
@@ -1040,6 +1059,15 @@ export function App(): React.JSX.Element {
         }
         if (!sessionApiAvailable && selectedSessionId !== "default") {
           setNotice("This conversation cannot queue tasks until its session connection is available. Retry after reconnecting.");
+          return;
+        }
+        const directTarget = runTarget === "local" ? "runs on this computer" : "bot runs";
+        if (envVars.some((v) => v.name.trim() !== "")) {
+          setNotice(`Environment variables aren't supported for ${directTarget} yet.`);
+          return;
+        }
+        if (runSetup) {
+          setNotice(`Repo setup isn't supported for ${directTarget} yet.`);
           return;
         }
         setNotice(null);
@@ -1054,6 +1082,7 @@ export function App(): React.JSX.Element {
           ...(harness ? { harness } : {}),
           ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
           ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+          ...(effort ? { reasoningEffort: effort } : {}),
           publishPullRequest,
           ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
           ...(customAgentId ? { customAgentId } : {}),
@@ -1132,12 +1161,69 @@ export function App(): React.JSX.Element {
         );
         return;
       }
+      let sealedEnv: { sealed: string; names: string[]; digest: string } | null = null;
+      // Unnamed rows are dropped, like the direct-run guard above; parseRunEnv rejects a blank name.
+      const namedEnvVars = envVars.filter((v) => v.name.trim() !== "");
+      if (namedEnvVars.length > 0) {
+        // Claim the submit before the seal round-trip so a double-click can't queue two runs.
+        submitInFlight.current = true;
+        setIsSubmitting(true);
+        const sealFailed = (message: string) => {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+          setNotice(message);
+        };
+        const sealUrl = sessionApiAvailable
+          ? `/api/runs/env-seal?session=${encodeURIComponent(selectedSessionId)}`
+          : "/api/runs/env-seal";
+        try {
+          const sealRes = await fetch(sealUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              environmentVariables: namedEnvVars.map((v) => ({
+                name: v.name.trim(),
+                value: v.value,
+              })),
+            }),
+          });
+          const sealData = (await sealRes.json().catch(() => ({}))) as {
+            sealed?: string;
+            names?: string[];
+            digest?: string;
+            error?: string;
+          };
+          if (!sealRes.ok) {
+            sealFailed(sealData.error ?? `Failed to seal environment variables (${sealRes.status}).`);
+            return;
+          }
+          if (!sealData.sealed || !sealData.digest || !Array.isArray(sealData.names)) {
+            sealFailed("Failed to seal environment variables: invalid server response.");
+            return;
+          }
+          sealedEnv = {
+            sealed: sealData.sealed,
+            names: sealData.names,
+            digest: sealData.digest,
+          };
+        } catch (sealError) {
+          sealFailed(
+            `Failed to seal environment variables: ${
+              sealError instanceof Error ? sealError.message : String(sealError)
+            }`,
+          );
+          return;
+        }
+      }
       setNotice(null);
       const text = [
         `Repository: ${repoUrl.trim()}`,
         `Base branch: ${branch}`,
         `Coding agent harness: ${harness}`,
         ...(codingModel.trim() ? [`Coding model: ${codingModel.trim()}`] : []),
+        ...(effort ? [`Reasoning effort: ${effort}`] : []),
+        ...(sealedEnv ? [`Environment variables: ${sealedEnv.names.join(", ")}`] : []),
+        ...(runSetup ? ["Run repo setup: yes"] : []),
         ...(connectionId.trim() ? [`Model connection: ${connectionId.trim()}`] : []),
         `Open a pull request with the result: ${publishPullRequest ? "yes" : "no"}`,
         ...(publishPullRequest
@@ -1170,6 +1256,9 @@ export function App(): React.JSX.Element {
               ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
               ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
               ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+              ...(effort ? { reasoningEffort: effort } : {}),
+              ...(sealedEnv ? { environment: { sealed: sealedEnv.sealed, digest: sealedEnv.digest } } : {}),
+              ...(runSetup ? { runSetup: true } : {}),
               ...(customAgentId ? { customAgentId } : {}),
             },
           },
@@ -1179,6 +1268,7 @@ export function App(): React.JSX.Element {
           restoreDraft(draftSession, draft);
         } else {
           saveRepo(repoUrl.trim());
+          setEnvVars([]);
           refreshRuns();
         }
       } catch (error) {
@@ -1197,12 +1287,15 @@ export function App(): React.JSX.Element {
       task,
       publishPullRequest,
       reviewAfterPublish,
+      runSetup,
       harness,
       customAgentId,
       customAgentRecords,
       customAgentsLoading,
       customAgentsError,
       codingModel,
+      reasoningEffort,
+      envVars,
       connectionId,
       chat,
       agent,
@@ -2466,6 +2559,8 @@ export function App(): React.JSX.Element {
                       if (value) setReviewAfterPublish(true);
                     }}
                     onReviewAfterPublishChange={setReviewAfterPublish}
+                    runSetup={runSetup}
+                    onRunSetupChange={setRunSetup}
                     onHarnessChange={setHarness}
                     customAgents={customAgentPickerOptions}
                     customAgentId={customAgentId}
@@ -2476,9 +2571,13 @@ export function App(): React.JSX.Element {
                       connectionId,
                       onCodingModelChange: setCodingModel,
                       onConnectionChange: setConnectionId,
+                      reasoningEffort,
+                      onReasoningEffortChange: setReasoningEffort,
                       modelSuggestions: codingModelSuggestions,
                       connections: modelConnections,
                     }}
+                    envVars={envVars}
+                    onEnvVarsChange={setEnvVars}
                     variant={threadHasWork ? "docked" : "hero"}
                     onSubmit={submitTask}
                     onClear={() => setShowClearModal(true)}

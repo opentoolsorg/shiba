@@ -12,7 +12,7 @@ function Harness({ onSubmit }: { onSubmit: () => void }) {
   const fleet = useLocalRunTarget({ harness: "opencode", desktopStatus: null });
   return <TaskComposer repoUrl="https://github.com/example/project" task="Fix the parser" baseBranch="main"
     publishPullRequest={false} harness="opencode" busy={false} isSubmitting={false} clearing={false}
-    routing={{ codingModel: "", connectionId: "", onCodingModelChange: vi.fn(), onConnectionChange: vi.fn() }}
+    routing={{ codingModel: "", connectionId: "", onCodingModelChange: vi.fn(), onConnectionChange: vi.fn(), reasoningEffort: "" as const, onReasoningEffortChange: vi.fn() }}
     onRepoUrlChange={vi.fn()} onTaskChange={vi.fn()} onBaseBranchChange={vi.fn()} onPublishPullRequestChange={vi.fn()}
     onHarnessChange={vi.fn()} onSubmit={onSubmit} onClear={vi.fn()}
     runTarget={target} onRunTargetChange={setTarget} localRunAvailable={fleet.localRunAvailable}

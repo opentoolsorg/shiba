@@ -9,7 +9,7 @@ it("shows the chosen bot's required output contract before submission and update
   const props = {
     repoUrl: "https://github.com/example/work", task: "Plan the launch", baseBranch: "main",
     publishPullRequest: false, harness: "claude-code", busy: false, isSubmitting: false, clearing: false,
-    routing: { codingModel: "", connectionId: "", onCodingModelChange: vi.fn(), onConnectionChange: vi.fn() },
+    routing: { codingModel: "", connectionId: "", onCodingModelChange: vi.fn(), onConnectionChange: vi.fn(), reasoningEffort: "" as const, onReasoningEffortChange: vi.fn() },
     onRepoUrlChange: vi.fn(), onTaskChange: vi.fn(), onBaseBranchChange: vi.fn(), onPublishPullRequestChange: vi.fn(),
     onHarnessChange: vi.fn(), onSubmit: vi.fn(), onClear: vi.fn(),
     customAgents: [

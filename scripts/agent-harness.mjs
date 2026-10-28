@@ -482,6 +482,7 @@ async function openCodex(spec, emit) {
   const threadParams = {
     cwd: spec.cwd,
     model: spec.model,
+    ...(spec.reasoningEffort ? { config: { model_reasoning_effort: spec.reasoningEffort } } : {}),
     approvalPolicy: policy.approvalPolicy,
     sandbox: policy.sandbox,
     approvalsReviewer: "user",
@@ -530,6 +531,7 @@ async function openCodex(spec, emit) {
           threadId,
           cwd: spec.cwd,
           model: spec.model,
+          ...(spec.reasoningEffort ? { effort: spec.reasoningEffort } : {}),
           approvalPolicy: policy.approvalPolicy,
           sandboxPolicy: policy.sandboxPolicy,
           approvalsReviewer: "user",
@@ -609,6 +611,7 @@ async function openClaude(spec, emit) {
     claudePermissionMode(spec.permissionMode ?? "approval-required"),
     "--model",
     spec.model || "claude",
+    ...(spec.reasoningEffort ? ["--effort", spec.reasoningEffort] : []),
     "--add-dir",
     spec.cwd,
   ];

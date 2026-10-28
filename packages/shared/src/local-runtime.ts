@@ -14,6 +14,7 @@
  */
 import { expectedDeliverablesSchema } from "./deliverables.js";
 import { z } from "zod";
+import { REASONING_EFFORTS } from "./model.js";
 
 /** Runtimes an intake surface may ask for. "computer" stays env-only. */
 export const RUNTIME_SELECTIONS = ["sandbox", "local"] as const;
@@ -97,6 +98,7 @@ export const localRunEnvelopeSchema = z.object({
     .object({
       provider: z.enum(["codex", "claude"]),
       model: z.string().min(1).max(128),
+      reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
       permissionMode: z.enum(["approval-required", "accept-edits", "plan", "bypass"]),
       /** Executable. Absent means `codex` or `claude` on the daemon PATH. */
       bin: z.string().min(1).max(PATH_MAX).optional(),

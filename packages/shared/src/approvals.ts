@@ -126,6 +126,12 @@ export interface PendingApproval {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  /** T68: env names + digest are hashed; values exist only inside `envSealed`. */
+  envNames?: string[];
+  envDigest?: string;
+  envSealed?: string;
+  /** T72: the human opted in to the repo's `.shiba/setup.json` initialize. */
+  runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
   orgId?: string;
@@ -190,6 +196,10 @@ export interface CreateApprovalInput {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  envNames?: string[];
+  envDigest?: string;
+  envSealed?: string;
+  runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
   orgId?: string;
@@ -236,6 +246,10 @@ export function createPendingApproval(
       ...(input.denId !== undefined ? { denId: input.denId } : {}),
       ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
       ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+      ...(input.envNames !== undefined ? { envNames: input.envNames } : {}),
+      ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
+      ...(input.envSealed !== undefined ? { envSealed: input.envSealed } : {}),
+      ...(input.runSetup === true ? { runSetup: true } : {}),
       ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
@@ -389,6 +403,11 @@ export interface RunInputFields {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  /** T68: what the human approves about env — names and a digest, never values. */
+  envNames?: string[];
+  envDigest?: string;
+  /** T72: running the repo's own setup script is part of what the human approves. */
+  runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
   role?: AgentRole;
@@ -503,6 +522,9 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.denId !== undefined ? { denId: input.denId } : {}),
     ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
     ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+    ...(input.envNames !== undefined ? { envNames: input.envNames } : {}),
+    ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
+    ...(input.runSetup === true ? { runSetup: true } : {}),
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
