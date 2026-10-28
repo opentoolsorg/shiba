@@ -1,6 +1,6 @@
 # Shiba bot/thread implementation and Overlay audit
 
-Latest verification: [final recheck](final-recheck.md), **3,166 tests passed,
+Latest verification: [final recheck](final-recheck.md), **3,342 tests passed,
 3 skipped**, with browser/Electron and same-state local-daemon acceptance.
 That report supersedes the earlier counts and evidence pointers below.
 

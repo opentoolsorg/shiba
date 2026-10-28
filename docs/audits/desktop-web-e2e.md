@@ -1,6 +1,6 @@
 # Desktop and web verification
 
-See the [final recheck](final-recheck.md) for the latest **3,166 passed,
+See the [final recheck](final-recheck.md) for the latest **3,342 passed,
 3 skipped** repository suite and refreshed browser/Electron evidence.
 Earlier counts and run IDs below are historical.
 
