@@ -38,6 +38,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { copyOperatorAuth } from "./link-operator-auth.mjs";
+import { captureExpectedDeliverables } from "./local-deliverables.mjs";
 
 const LOCAL_RUN_ROOT_TOKEN = "${SHIBA_LOCAL_RUN_ROOT}";
 const MAX_STDERR_TAIL_CHARS = 8_000;
@@ -97,12 +98,49 @@ let harnesses = [];
 let activeRunId;
 let activeHarnessChild;
 let heldClaim;
+const groupedChildren = new WeakSet();
+
+/** Signal only a group that this daemon explicitly created for this child. */
+function signalOwnedChild(child, signal) {
+  if (!child) return;
+  if (groupedChildren.has(child) && Number.isInteger(child.pid) && child.pid > 1 && child.pid !== process.pid) {
+    try { process.kill(-child.pid, signal); } catch (error) { if (error.code !== "ESRCH") throw error; }
+  } else {
+    child.kill(signal);
+  }
+}
+
+function terminateOwnedChild(child) {
+  signalOwnedChild(child, "SIGTERM");
+  const escalation = setTimeout(() => signalOwnedChild(child, "SIGKILL"), 1500);
+  escalation.unref();
+  child.once("close", () => clearTimeout(escalation));
+}
+
+function ownChild(child, detached, execution) {
+  if (detached) {
+    groupedChildren.add(child);
+    // A CLI must not leave its tools running after its own process exits.
+    child.once("exit", () => {
+      signalOwnedChild(child, "SIGKILL");
+      groupedChildren.delete(child);
+    });
+  }
+  if (execution) {
+    const abort = () => terminateOwnedChild(child);
+    execution.signal.addEventListener("abort", abort, { once: true });
+    child.once("close", () => execution.signal.removeEventListener("abort", abort));
+    if (execution.signal.aborted || execution.finished()) abort();
+  }
+  return child;
+}
 
 async function post(sub, body) {
   const res = await fetch(`${workerUrl}/api/local/${sub}`, {
     method: "POST",
     headers: { ...AUTH, "content-type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await res.text();
   if (!res.ok)
@@ -168,7 +206,7 @@ async function acquireLock() {
       // process.exit skips async cleanup — release must be synchronous.
       process.on("exit", () => {
         // revoked()/fail() exit without gracefulStop; don't orphan a mid-run harness.
-        activeHarnessChild?.kill("SIGTERM");
+        signalOwnedChild(activeHarnessChild, "SIGKILL");
         try {
           unlinkSync(lockPath);
         } catch {}
@@ -276,20 +314,29 @@ function childEnvironment(harness) {
     opencode: ["OPENCODE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"],
     agy: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
   };
+  const provider = harness?.startsWith("claude") ? "claude" : harness?.startsWith("codex") ? "codex" : harness;
   return Object.fromEntries(
-    [...allowed, ...(providerKeys[harness] ?? [])]
+    [...allowed, ...(providerKeys[provider] ?? [])]
       .filter((key) => process.env[key] !== undefined)
       .map((key) => [key, process.env[key]]),
   );
 }
 
 function runProcess(argv, opts = {}) {
+  const execution = opts.execution;
+  if (execution && Date.now() >= execution.deadlineAt) execution.stop("Local run deadline exceeded.");
+  if (stopping || execution?.signal.aborted || execution?.finished()) {
+    return Promise.resolve({ stdout: "", stderr: "Local execution was stopped before spawning a command.", exitCode: -2, timedOut: true });
+  }
   return new Promise((resolve) => {
-    const child = spawn(argv[0], argv.slice(1), {
+    const detached = process.platform !== "win32";
+    const child = ownChild(spawn(argv[0], argv.slice(1), {
       cwd: opts.cwd,
       env: opts.env ?? childEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
-    });
+      detached,
+    }), detached, execution);
+    activeHarnessChild = child;
     opts.onChild?.(child);
     let stdout = "";
     let stderr = "";
@@ -297,7 +344,7 @@ function runProcess(argv, opts = {}) {
     const timer = opts.timeoutMs
       ? setTimeout(() => {
           killed = true;
-          child.kill("SIGTERM");
+          terminateOwnedChild(child);
         }, opts.timeoutMs)
       : null;
     child.stdout.on("data", (d) => {
@@ -309,10 +356,12 @@ function runProcess(argv, opts = {}) {
       opts.onStderr?.(d.toString());
     });
     child.on("error", (error) => {
+      if (activeHarnessChild === child) activeHarnessChild = undefined;
       if (timer) clearTimeout(timer);
       resolve({ stdout, stderr: `${stderr}\n${error.message}`.trim(), exitCode: -1, error });
     });
     child.on("close", (code) => {
+      if (activeHarnessChild === child) activeHarnessChild = undefined;
       if (timer) clearTimeout(timer);
       resolve({ stdout, stderr, exitCode: killed ? -2 : (code ?? -1), timedOut: killed });
     });
@@ -361,9 +410,15 @@ function errorResult(summary, exitCode = -1) {
   };
 }
 
-async function collectResult(envelope, root) {
+async function collectResult(envelope, root, execution) {
   const cloneDir = substitute(envelope.cloneDir, root);
-  const status = await runProcess(["git", "-C", cloneDir, "status", "--porcelain", "-uall"]);
+  let requestedFiles;
+  try {
+    requestedFiles = await captureExpectedDeliverables(cloneDir, envelope.expectedDeliverables);
+  } catch (error) {
+    return { error: error.message };
+  }
+  const status = await runProcess(["git", "-C", cloneDir, "status", "--porcelain", "-uall"], { execution });
   if (status.exitCode !== 0) {
     return { error: `git status failed: ${status.stderr.slice(0, 500)}` };
   }
@@ -378,11 +433,14 @@ async function collectResult(envelope, root) {
   }
   // Stage everything (this workspace is disposable) so the diff covers
   // untracked files exactly like the checkpoint diff does in-sandbox.
-  await runProcess(["git", "-C", cloneDir, "add", "-A"]);
-  const diff = await runProcess(["git", "-C", cloneDir, "diff", "--cached", "--no-color"]);
-  const files = [];
-  let totalChars = 0;
-  for (const filePath of changedFiles.slice(0, MAX_CAPTURED_FILES)) {
+  await runProcess(["git", "-C", cloneDir, "add", "-A"], { execution });
+  const diff = await runProcess(["git", "-C", cloneDir, "diff", "--cached", "--no-color"], { execution });
+  const files = [...requestedFiles];
+  const requestedPaths = new Set(requestedFiles.map((file) => file.path));
+  let totalChars = requestedFiles.reduce((sum, file) => sum + file.content.length, 0);
+  const remainingFiles = changedFiles.filter((filePath) => !requestedPaths.has(filePath))
+    .slice(0, Math.max(0, MAX_CAPTURED_FILES - files.length));
+  for (const filePath of remainingFiles) {
     const absolute = path.join(cloneDir, filePath);
     try {
       const stat = await fs.stat(absolute);
@@ -403,6 +461,8 @@ async function collectResult(envelope, root) {
 }
 
 async function execute(envelope, claimToken) {
+  // Receipts belong to one approved task, even in a long-lived daemon.
+  signals.length = 0;
   const startedAt = Date.now();
   const root = path.join(runRoot, "runs", envelope.sandboxId);
   const cloneDir = substitute(envelope.cloneDir, root);
@@ -416,20 +476,62 @@ async function execute(envelope, claimToken) {
 
   const deadline = envelope.deadlineAt - startedAt;
   const remaining = () => Math.max(1, deadline - (Date.now() - startedAt));
+  if (deadline <= 0) return errorResult("Local run deadline expired before execution.");
+  let stopReason = "";
+  const abortController = new AbortController();
+  let controlPending = false;
+  let executionFinished = false;
+  const stopExecution = (reason) => {
+    if (executionFinished || stopReason) return;
+    stopReason = reason;
+    abortController.abort();
+  };
+  const execution = { signal: abortController.signal, deadlineAt: envelope.deadlineAt,
+    stop: stopExecution, finished: () => executionFinished };
+  const stopped = () => {
+    if (Date.now() >= envelope.deadlineAt) stopExecution("Local run deadline exceeded.");
+    return stopReason !== "";
+  };
+  const deadlineTimer = setTimeout(() => stopExecution("Local run deadline exceeded."), deadline);
+  deadlineTimer.unref();
+  // A cancelled mailbox invalidates the claim (409). It must also stop
+  // laptop execution; silently ignoring that response leaves the CLI alive.
+  // This monitor covers both native sessions and older argv envelopes.
+  const controlTimer = setInterval(async () => {
+    if (Date.now() >= envelope.deadlineAt) stopExecution("Local run deadline exceeded.");
+    if (controlPending || stopReason) return;
+    controlPending = true;
+    try {
+      const control = await post("control", { sandboxId: envelope.sandboxId, claimToken });
+      if (executionFinished) return;
+      if (control.interrupt) stopExecution("Local run interrupted.");
+    } catch (error) {
+      if (executionFinished) return;
+      if (error.status === 401) revoked();
+      if (error.status === 409 || error.status === 404 || error.status === 403) {
+        stopExecution("Local run claim was revoked or cancelled.");
+      }
+    } finally {
+      controlPending = false;
+    }
+  }, 400);
+  controlTimer.unref();
 
-  await writeLease(envelope.sandboxId);
   try {
+    await writeLease(envelope.sandboxId);
     // 1. clone — git on the operator's PATH, operator's own git credentials.
     await fs.rm(cloneDir, { recursive: true, force: true });
     await fs.mkdir(cloneDir, { recursive: true });
     const clone = await runProcess(
       ["git", "clone", "--branch", envelope.baseBranch, envelope.repoUrl, cloneDir],
-      { timeoutMs: Math.min(remaining(), 5 * 60 * 1000) },
+      { timeoutMs: Math.min(remaining(), 5 * 60 * 1000), execution },
     );
+    if (stopReason) return errorResult(stopReason);
     if (clone.exitCode !== 0) {
       // Branch may not exist remotely; clone default then checkout.
       const fallback = await runProcess(["git", "clone", envelope.repoUrl, cloneDir], {
         timeoutMs: Math.min(remaining(), 5 * 60 * 1000),
+        execution,
       });
       if (fallback.exitCode !== 0) {
         return errorResult(`git clone failed: ${fallback.stderr.slice(0, 1000)}`);
@@ -444,7 +546,7 @@ async function execute(envelope, claimToken) {
           envelope.baseBranch,
           `origin/${envelope.baseBranch}`,
         ],
-        { timeoutMs: 60_000 },
+        { timeoutMs: 60_000, execution },
       );
       if (checkout.exitCode !== 0) {
         return errorResult(
@@ -459,11 +561,13 @@ async function execute(envelope, claimToken) {
     // read-only. Never symlink the operator's ~/.claude or ~/.codex.
     await copyOperatorAuth(homeDir, process.env.HOME);
     for (const argv of envelope.setupCommands) {
+      if (stopReason) return errorResult(stopReason);
       const resolved = argv.map((part) => substitute(part, root));
       const result = await scopedLocalExec(resolved, envelope.setupAllowlist, {
         cwd: cloneDir,
         timeoutMs: 60_000,
         env,
+        execution,
       });
       if (result.refused || result.exitCode !== 0) {
         return errorResult(
@@ -479,6 +583,7 @@ async function execute(envelope, claimToken) {
       await fs.writeFile(target, file.contents);
     }
     milestone("config.written", `${envelope.configFiles.length} files`);
+    if (stopReason) return errorResult(stopReason);
 
     // 4. the harness process. A session envelope drives Codex or Claude
     // through the session layer; older envelopes still exec argv.
@@ -486,6 +591,7 @@ async function execute(envelope, claimToken) {
     let run;
     if (envelope.session) {
       const { eventText, runSessionJob } = await import("./agent-harness.mjs");
+      if (stopped()) return errorResult(stopReason);
       const texts = [];
       const session = envelope.session;
       const outcome = await runSessionJob({
@@ -500,13 +606,15 @@ async function execute(envelope, claimToken) {
         env,
         checkpoints: true,
         emitStdout: false,
+        detached: process.platform !== "win32",
         ...(session.bin ? { bin: substitute(session.bin, root) } : {}),
         ...(session.binArgs
           ? { binArgs: session.binArgs.map((part) => substitute(part, root)) }
           : {}),
         ...(session.resumeThreadId ? { resumeThreadId: session.resumeThreadId } : {}),
         onChild: (child) => {
-          activeHarnessChild = child;
+          const owned = ownChild(child, process.platform !== "win32", execution);
+          if (!executionFinished) activeHarnessChild = owned;
         },
         onEvent: (event) => {
           const text = eventText(event);
@@ -549,13 +657,6 @@ async function execute(envelope, claimToken) {
           }
           return "deny";
         },
-        control: async () => {
-          try {
-            return await post("control", { sandboxId: envelope.sandboxId, claimToken });
-          } catch {
-            return {};
-          }
-        },
       });
       activeHarnessChild = undefined;
       run = {
@@ -569,6 +670,7 @@ async function execute(envelope, claimToken) {
         cwd: cloneDir,
         env,
         timeoutMs: remaining(),
+        execution,
         onChild: (child) => {
           activeHarnessChild = child;
         },
@@ -578,6 +680,8 @@ async function execute(envelope, claimToken) {
       activeHarnessChild = undefined;
     }
     milestone("harness.idle", `exitCode:${run.exitCode}`);
+    if (stopReason) return errorResult(stopReason, run.exitCode || -1);
+    if (run.timedOut) return errorResult("Local run deadline exceeded.", run.exitCode);
     const stderrTail = boundTail(run.stderr, MAX_STDERR_TAIL_CHARS);
     if (run.exitCode !== 0) {
       return {
@@ -597,7 +701,8 @@ async function execute(envelope, claimToken) {
     }
 
     // 5. collect — status + staged diff + file contents.
-    const collection = await collectResult(envelope, root);
+    const collection = await collectResult(envelope, root, execution);
+    if (stopped()) return errorResult(stopReason);
     if (collection.error) return errorResult(collection.error);
     milestone("collect.complete", `${collection.changedFiles.length} files`);
 
@@ -623,12 +728,15 @@ async function execute(envelope, claimToken) {
     // 6. test command — allowlisted exactly like scopedExec; a refusal is
     //    evidence for the Worker's verify gate, never a daemon-side verdict.
     if (envelope.testCommand !== undefined && envelope.testCommand.length > 0) {
+      if (stopped()) return errorResult(stopReason);
       const testArgv = envelope.testCommand.map((part) => substitute(part, root));
       const testRun = await scopedLocalExec(testArgv, envelope.execAllowlist, {
         cwd: cloneDir,
         env,
         timeoutMs: Math.min(remaining(), 5 * 60 * 1000),
+        execution,
       });
+      if (stopped()) return errorResult(stopReason, testRun.exitCode || -1);
       if (!testRun.refused) {
         result.testEvidence = {
           command: shellJoin(envelope.testCommand),
@@ -638,8 +746,13 @@ async function execute(envelope, claimToken) {
       }
       result.signals = [...signals];
     }
+    if (stopped()) return errorResult(stopReason);
     return result;
   } finally {
+    executionFinished = true;
+    abortController.abort();
+    clearInterval(controlTimer);
+    clearTimeout(deadlineTimer);
     await releaseLease(envelope.sandboxId);
   }
 }
@@ -702,6 +815,8 @@ async function pair(url, pairingToken) {
 }
 
 function revoked() {
+  // A revoked daemon cannot leave a permission-holding CLI behind.
+  signalOwnedChild(activeHarnessChild, "SIGKILL");
   fail("adapter token revoked; re-pair", EXIT_REVOKED);
 }
 
@@ -853,8 +968,8 @@ async function main() {
 /**
  * Stop mid-run like a crash that still reports: kill the harness child,
  * settle the held claim best-effort inside a 3s budget, drop its lease,
- * then exit with the signal's code. Only the direct child is killed —
- * a process-group kill would need detached:true, a behavior change.
+ * then exit with the signal's code. Unix/macOS children run in dedicated
+ * daemon-owned groups, so their tool subprocesses are stopped together.
  */
 let stopping = false;
 async function gracefulStop(code) {
@@ -862,7 +977,7 @@ async function gracefulStop(code) {
   stopping = true;
   const held = heldClaim;
   if (held === undefined) process.exit(code);
-  activeHarnessChild?.kill("SIGTERM");
+  signalOwnedChild(activeHarnessChild, "SIGTERM");
   try {
     await Promise.race([
       post("result", {
@@ -876,6 +991,7 @@ async function gracefulStop(code) {
     ]);
   } catch {}
   await releaseLease(held.sandboxId).catch(() => {});
+  if (activeHarnessChild?.exitCode === null) signalOwnedChild(activeHarnessChild, "SIGKILL");
   process.exit(code);
 }
 process.on("SIGINT", () => void gracefulStop(130));

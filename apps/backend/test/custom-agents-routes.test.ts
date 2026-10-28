@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { handleCustomAgents } from "../src/custom-agents-routes.js";
 import { handleOrgSandboxSettings } from "../src/org-sandbox-routes.js";
+import { createCustomAgent, getCustomAgentById } from "../src/custom-agents-store.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const authState = vi.hoisted(() => ({
   dashboard: false,
@@ -20,69 +22,87 @@ vi.mock("../src/v1-auth.js", async (importOriginal) => {
   };
 });
 
-function mockD1(): D1Database {
-  const agents = new Map<string, Record<string, unknown>>();
-  const settings = new Map<string, Record<string, unknown>>();
-  const stmt = (sql: string, args: unknown[] = []) => ({
-    async run() {
-      if (sql.includes("CREATE TABLE") || sql.includes("audit_log") || sql.includes("CREATE INDEX")) {
-        return { success: true };
-      }
-      if (sql.includes("INSERT INTO org_custom_agents")) {
-        const id = String(args[0]);
-        agents.set(id, {
-          id,
-          org_id: args[1],
-          slug: args[2],
-          version: 1,
-          config_json: args[3],
-          created_at: args[4],
-          updated_at: args[5],
-          deleted_at: null,
-        });
-      }
-      if (sql.includes("INSERT INTO org_sandbox_settings")) {
-        settings.set(String(args[0]), {
-          org_id: args[0],
-          provider_id: args[1],
-          computesdk_backend: args[2],
-          updated_at: args[3],
-        });
-      }
-      return { success: true };
-    },
-    async first() {
-      if (sql.includes("org_custom_agents") && sql.includes("id = ?")) {
-        const row = agents.get(String(args[1]));
-        if (!row || row.org_id !== args[0] || row.deleted_at != null) return null;
-        return row;
-      }
-      if (sql.includes("org_sandbox_settings")) {
-        return settings.get(String(args[0])) ?? null;
-      }
-      return null;
-    },
-    async all() {
-      if (sql.includes("FROM org_custom_agents WHERE org_id")) {
-        return {
-          results: [...agents.values()].filter((r) => r.org_id === args[0] && r.deleted_at == null),
-        };
-      }
-      return { results: [] };
-    },
+describe("custom agent archive and version HTTP contracts", () => {
+  const config = { name: "Scout", instructions: "Read before changing code.", harness: "opencode" };
+  const request = (path: string, method = "GET", body?: unknown) => new Request(`https://x/api/custom-agents${path}`, {
+    method, headers: { "content-type": "application/json" },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
-  const prepare = (sql: string) => ({
-    ...stmt(sql),
-    bind(...args: unknown[]) {
-      return stmt(sql, args);
-    },
+
+  it("archives/restores a profile independently from its retained configuration and history", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const created = await createCustomAgent(bindings, "self-hosted", "scout", config);
+    const archive = await handleCustomAgents(request(`/${created.id}/archive`, "POST"), bindings);
+    expect(archive?.status).toBe(200);
+    expect(await archive?.json()).toMatchObject({ agent: { id: created.id, version: 1, archivedAt: expect.any(Number), config } });
+    expect(await (await handleCustomAgents(request(""), bindings))?.json()).toMatchObject({ agents: [] });
+    expect(await (await handleCustomAgents(request("?archived=true"), bindings))?.json()).toMatchObject({ agents: [{ id: created.id, config }] });
+    expect((await handleCustomAgents(request(`/${created.id}`), bindings))?.status).toBe(200);
+    expect((await handleCustomAgents(request(`/${created.id}/restore`, "POST"), bindings))?.status).toBe(200);
+    expect(await (await handleCustomAgents(request(""), bindings))?.json()).toMatchObject({ agents: [{ id: created.id, config }] });
+    expect((await handleCustomAgents(request(`/${created.id}`, "DELETE"), bindings))?.status).toBe(200);
+    expect((await handleCustomAgents(request(`/${created.id}/restore`, "POST"), bindings))?.status).toBe(404);
   });
-  return { prepare } as unknown as D1Database;
-}
+
+  it("denies cross-org and read-only archive/restore requests", async () => {
+    const bindings = env();
+    const created = await createCustomAgent(bindings, "org-a", "scout", config);
+    authState.principal = { principal: "foreign", orgId: "org-b", scopes: ["api:read", "api:write"] };
+    for (const action of ["archive", "restore"]) {
+      expect((await handleCustomAgents(request(`/${created.id}/${action}`, "POST"), bindings))?.status).toBe(404);
+    }
+    authState.principal = { principal: "reader", orgId: "org-a", scopes: ["api:read"] };
+    expect((await handleCustomAgents(request(`/${created.id}/archive`, "POST"), bindings))?.status).toBe(403);
+    expect(await getCustomAgentById(bindings, "org-a", created.id)).not.toBeNull();
+  });
+
+  it("requires POST for explicit lifecycle paths and validates archive filters", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    for (const method of ["DELETE", "PATCH", "GET"]) {
+      expect((await handleCustomAgents(request("/existing/archive", method), bindings))?.status).toBe(405);
+    }
+    expect((await handleCustomAgents(request("?archived=maybe"), bindings))?.status).toBe(400);
+  });
+
+  it("returns one success and one409 for racing edits to the same expectedVersion", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const created = await createCustomAgent(bindings, "self-hosted", "scout", config);
+    const results = await Promise.all([
+      handleCustomAgents(request(`/${created.id}`, "PATCH", { config: { ...config, name: "First" }, expectedVersion: 1 }), bindings),
+      handleCustomAgents(request(`/${created.id}`, "PATCH", { config: { ...config, name: "Second" }, expectedVersion: 1 }), bindings),
+    ]);
+    expect(results.map((item) => item?.status).sort()).toEqual([200, 409]);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])("rejects invalid expectedVersion %s before mutation", async (expectedVersion) => {
+    authState.dashboard = true;
+    const bindings = env();
+    const created = await createCustomAgent(bindings, "self-hosted", "scout", config);
+    expect((await handleCustomAgents(request(`/${created.id}`, "PATCH", { config, expectedVersion }), bindings))?.status).toBe(400);
+    expect((await getCustomAgentById(bindings, "self-hosted", created.id))?.version).toBe(1);
+  });
+
+  it("rejects unsupported tool scopes without erasing legacy stored scopes", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const legacy = { ...config, toolScopes: ["browser:read"] };
+    const created = await createCustomAgent(bindings, "self-hosted", "scout", legacy);
+    const patch = await handleCustomAgents(request(`/${created.id}`, "PATCH", { config: legacy, expectedVersion: 1 }), bindings);
+    expect(patch?.status).toBe(400);
+    expect(await patch?.json()).toMatchObject({ error: "unsupported_tool_scopes" });
+    expect((await getCustomAgentById(bindings, "self-hosted", created.id))?.config.toolScopes).toEqual(["browser:read"]);
+    const create = await handleCustomAgents(request("", "POST", { slug: "other", config: legacy }), bindings);
+    expect(create?.status).toBe(400);
+    expect(await create?.json()).toMatchObject({ error: "unsupported_tool_scopes" });
+  });
+});
 
 function env(): Env {
   return {
-    AGENT_AUDIT: mockD1(),
+    AGENT_AUDIT: customAgentD1().database,
     SHIBA_SANDBOX_PROVIDER: "cloudflare",
     Sandbox: {} as unknown,
     AGENT_HARNESS: "opencode",

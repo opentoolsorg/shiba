@@ -108,6 +108,8 @@ export interface PendingApproval {
   targetMachineId?: string;
   /** The test command the human approved, as argv. */
   testCommand?: string[];
+  /** Exact workspace outputs required by this approval. */
+  expectedDeliverables?: string[];
   /**
    * Run-fork lineage frozen with the rest of the approved input: the
    * parent runId + the checkpoint ref the fork resumes from. The approval
@@ -124,6 +126,8 @@ export interface PendingApproval {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  /** Resolved profile version frozen with the approved effective instructions and route. */
+  customAgentVersion?: number;
   orgId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
@@ -175,6 +179,8 @@ export interface CreateApprovalInput {
   runtime?: RuntimeSelection;
   targetMachineId?: string;
   testCommand?: string[];
+  /** Exact workspace outputs required by this approval. */
+  expectedDeliverables?: string[];
   forkedFrom?: ForkLineage;
   subagentBudget?: number;
   parentRunId?: string;
@@ -184,6 +190,8 @@ export interface CreateApprovalInput {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  /** Resolved profile version frozen with the approved effective instructions and route. */
+  customAgentVersion?: number;
   orgId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
@@ -218,6 +226,7 @@ export function createPendingApproval(
       ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
       ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
       ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
+      ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: [...input.expectedDeliverables] } : {}),
       ...(input.forkedFrom !== undefined ? { forkedFrom: input.forkedFrom } : {}),
       ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
       ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
@@ -227,6 +236,7 @@ export function createPendingApproval(
       ...(input.denId !== undefined ? { denId: input.denId } : {}),
       ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
       ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+      ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
@@ -366,6 +376,8 @@ export interface RunInputFields {
   targetMachineId?: string;
   /** The test command — part of what the human approved. */
   testCommand?: string[];
+  /** Exact workspace outputs required by this approval. */
+  expectedDeliverables?: string[];
   /** Run-fork lineage — part of what the human approved. */
   forkedFrom?: ForkLineage;
   /** Phase 2b: subagent spawns the root approval may cover without a new card. */
@@ -377,6 +389,8 @@ export interface RunInputFields {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  /** Resolved profile version frozen with the approved effective instructions and route. */
+  customAgentVersion?: number;
   role?: AgentRole;
 }
 
@@ -478,6 +492,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
     ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
     ...(tc !== undefined && tc.length > 0 ? { testCommand: tc } : {}),
+    ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
     ...(input.forkedFrom !== undefined
       ? { forkedFrom: input.forkedFrom as unknown as JsonValue }
       : {}),
@@ -488,6 +503,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.denId !== undefined ? { denId: input.denId } : {}),
     ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
     ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+    ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });

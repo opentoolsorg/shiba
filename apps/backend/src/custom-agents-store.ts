@@ -13,7 +13,8 @@ const AGENT_TABLE_STATEMENTS: readonly string[] = [
      config_json TEXT NOT NULL,
      created_at INTEGER NOT NULL,
      updated_at INTEGER NOT NULL,
-     deleted_at INTEGER
+     deleted_at INTEGER,
+     archived_at INTEGER
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS org_custom_agents_org_slug ON org_custom_agents(org_id, slug)`,
   `CREATE TABLE IF NOT EXISTS org_custom_agent_versions (
@@ -34,6 +35,13 @@ async function ensureTables(env: AuditEnv): Promise<void> {
   for (const statement of AGENT_TABLE_STATEMENTS) {
     await env.AGENT_AUDIT.prepare(statement).run();
   }
+  // Existing installations initialized this table before archive existed.
+  // D1 serializes the additive ALTER; only an already-present column is benign.
+  try {
+    await env.AGENT_AUDIT.prepare(`ALTER TABLE org_custom_agents ADD COLUMN archived_at INTEGER`).run();
+  } catch (error) {
+    if (!/duplicate column/i.test(error instanceof Error ? error.message : String(error))) throw error;
+  }
   initialized.add(env.AGENT_AUDIT);
 }
 
@@ -48,6 +56,7 @@ function rowToRecord(row: Record<string, unknown>): CustomAgentRecord | null {
       config,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
+      ...(row.archived_at != null ? { archivedAt: Number(row.archived_at) } : {}),
       ...(row.deleted_at != null ? { deletedAt: Number(row.deleted_at) } : {}),
     };
   } catch {
@@ -55,10 +64,14 @@ function rowToRecord(row: Record<string, unknown>): CustomAgentRecord | null {
   }
 }
 
-export async function listCustomAgents(env: AuditEnv, orgId: string): Promise<CustomAgentRecord[]> {
+export async function listCustomAgents(
+  env: AuditEnv,
+  orgId: string,
+  options?: { archived?: boolean },
+): Promise<CustomAgentRecord[]> {
   await ensureTables(env);
   const result = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM org_custom_agents WHERE org_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC`,
+    `SELECT * FROM org_custom_agents WHERE org_id = ? AND deleted_at IS NULL AND archived_at IS ${options?.archived ? "NOT " : ""}NULL ORDER BY updated_at DESC`,
   )
     .bind(orgId)
     .all();
@@ -71,10 +84,11 @@ export async function getCustomAgentById(
   env: AuditEnv,
   orgId: string,
   id: string,
+  options?: { includeArchived?: boolean },
 ): Promise<CustomAgentRecord | null> {
   await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM org_custom_agents WHERE org_id = ? AND id = ? AND deleted_at IS NULL`,
+    `SELECT * FROM org_custom_agents WHERE org_id = ? AND id = ? AND deleted_at IS NULL${options?.includeArchived ? "" : " AND archived_at IS NULL"}`,
   )
     .bind(orgId, id)
     .first();
@@ -90,7 +104,7 @@ export async function getCustomAgentBySlug(
   if (!clean) return null;
   await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM org_custom_agents WHERE org_id = ? AND slug = ? AND deleted_at IS NULL`,
+    `SELECT * FROM org_custom_agents WHERE org_id = ? AND slug = ? AND deleted_at IS NULL AND archived_at IS NULL`,
   )
     .bind(orgId, clean)
     .first();
@@ -111,18 +125,16 @@ export async function createCustomAgent(
   const now = Date.now();
   const id = `cag-${randomHex(12)}`;
   const configJson = JSON.stringify(config);
-  await env.AGENT_AUDIT.prepare(
+  await env.AGENT_AUDIT.batch([env.AGENT_AUDIT.prepare(
     `INSERT INTO org_custom_agents (id, org_id, slug, version, config_json, created_at, updated_at)
      VALUES (?, ?, ?, 1, ?, ?, ?)`,
   )
-    .bind(id, orgId, cleanSlug, configJson, now, now)
-    .run();
-  await env.AGENT_AUDIT.prepare(
+    .bind(id, orgId, cleanSlug, configJson, now, now),
+  env.AGENT_AUDIT.prepare(
     `INSERT INTO org_custom_agent_versions (agent_id, org_id, version, config_json, saved_at)
      VALUES (?, ?, 1, ?, ?)`,
   )
-    .bind(id, orgId, configJson, now)
-    .run();
+    .bind(id, orgId, configJson, now)]);
   return {
     id,
     orgId,
@@ -149,22 +161,21 @@ export async function updateCustomAgent(
   const nextVersion = current.version + 1;
   const now = Date.now();
   const configJson = JSON.stringify(config);
-  await env.AGENT_AUDIT.prepare(
-    `UPDATE org_custom_agents SET version = ?, config_json = ?, updated_at = ? WHERE id = ? AND org_id = ?`,
-  )
-    .bind(nextVersion, configJson, now, id, orgId)
-    .run();
-  await env.AGENT_AUDIT.prepare(
+  const result = await env.AGENT_AUDIT.batch([env.AGENT_AUDIT.prepare(
+    `UPDATE org_custom_agents SET version = ?, config_json = ?, updated_at = ?
+     WHERE id = ? AND org_id = ? AND version = ? AND deleted_at IS NULL AND archived_at IS NULL`,
+  ).bind(nextVersion, configJson, now, id, orgId, current.version),
+  env.AGENT_AUDIT.prepare(
     `INSERT INTO org_custom_agent_versions (agent_id, org_id, version, config_json, saved_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  )
-    .bind(id, orgId, nextVersion, configJson, now)
-    .run();
+     SELECT id, org_id, version, config_json, updated_at FROM org_custom_agents
+     WHERE id = ? AND org_id = ? AND version = ? AND changes() = 1`,
+  ).bind(id, orgId, nextVersion)]);
+  if (result[0]?.meta.changes !== 1) throw new Error("Version conflict — reload and retry.");
   return { ...current, version: nextVersion, config, updatedAt: now };
 }
 
 export async function deleteCustomAgent(env: AuditEnv, orgId: string, id: string): Promise<void> {
-  const current = await getCustomAgentById(env, orgId, id);
+  const current = await getCustomAgentById(env, orgId, id, { includeArchived: true });
   if (!current) throw new Error("Agent not found.");
   const now = Date.now();
   await env.AGENT_AUDIT.prepare(
@@ -172,4 +183,23 @@ export async function deleteCustomAgent(env: AuditEnv, orgId: string, id: string
   )
     .bind(now, now, id, orgId)
     .run();
+}
+
+/** Archive is reversible and never deletes configuration or version history. */
+export async function setCustomAgentArchived(
+  env: AuditEnv,
+  orgId: string,
+  id: string,
+  archived: boolean,
+): Promise<CustomAgentRecord> {
+  const current = await getCustomAgentById(env, orgId, id, { includeArchived: true });
+  if (!current) throw new Error("Agent not found.");
+  const now = Date.now();
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE org_custom_agents SET archived_at = ?, updated_at = ?
+     WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+  ).bind(archived ? current.archivedAt ?? now : null, now, id, orgId).run();
+  const updated = await getCustomAgentById(env, orgId, id, { includeArchived: true });
+  if (!updated) throw new Error("Agent not found.");
+  return updated;
 }

@@ -222,8 +222,8 @@ export async function diffCheckpointRefs(cwd, fromRef, toRef, env) {
   return git(cwd, ["diff", "--no-color", fromRef, toRef], env);
 }
 
-function spawnChild(bin, args, cwd, env) {
-  const child = spawn(bin, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+function spawnChild(bin, args, cwd, env, detached = false) {
+  const child = spawn(bin, args, { cwd, env, detached, stdio: ["pipe", "pipe", "pipe"] });
   return child;
 }
 
@@ -356,7 +356,7 @@ async function openCodex(spec, emit) {
   const bin = spec.bin || "codex";
   const args = [...(spec.binArgs ?? []), "app-server", "--listen", "stdio://"];
   for (const entry of spec.launchArgs ?? []) args.push("-c", entry);
-  const child = spawnChild(bin, args, spec.cwd, spec.env ?? process.env);
+  const child = spawnChild(bin, args, spec.cwd, spec.env ?? process.env, spec.detached === true);
   spec.onChild?.(child);
   const rpc = attachJsonRpc(child);
   let threadId = spec.resumeThreadId ?? "";
@@ -613,7 +613,7 @@ async function openClaude(spec, emit) {
     spec.cwd,
   ];
   if (spec.resumeThreadId) args.push("--resume", spec.resumeThreadId);
-  const child = spawnChild(bin, args, spec.cwd, spec.env ?? process.env);
+  const child = spawnChild(bin, args, spec.cwd, spec.env ?? process.env, spec.detached === true);
   spec.onChild?.(child);
   let threadId = spec.resumeThreadId ?? "";
   let prompted = false;
