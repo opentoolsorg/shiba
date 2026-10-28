@@ -21,7 +21,7 @@
 - Pass 2 confirmed those fixed and raised 5 LOWs. Fixed: an unchecked `diff-tree` exit, a 1 MB cap on the path list, no timeouts on set-aside git, and hooks off only on the commit.
 - Kept by design: the overlap check also applies to runs that don't publish, because file contents still reach the API.
 
-*Gate (`pnpm typecheck && lint && lint:imports && test && build && test:built && check:ci`):* exit 0.
+*Gate (`pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built && pnpm check:ci`):* exit 0.
 
 | Package | Tests |
 | --- | --- |
@@ -63,13 +63,13 @@
 - **Pass 1:** 9 findings (1 high, 4 medium, 4 low). The high: env values weren't scrubbed from run output.
 - **Pass 2, re-verifying the fixes:** 7 resolved and 2 partial, and the fixes had introduced 1 medium and 2 low new issues. All of these were then fixed:
   - Output is scrubbed **before** truncation, including the JSON-escaped form.
-  - The decided approval keeps no blob; the minted run holds it, in the same state write.
+  - The decided approval keeps no blob; the minted run holds its own copy in the same state write, discarded at terminal cleanup. Chat metadata can retain ciphertext until key rotation or cleanup (see below).
   - The leak guard checks only added diff lines and binary files, so values the repo already had no longer fail runs.
   - The wake follow-up also carries `authAccount`.
   - The reserved-name list is wider.
 - **By design:** fork and v1 retry of a finished env run return 409.
 
-*Gate (`pnpm typecheck && lint && lint:imports && test && build && test:built`, then `check:ci`):* exit 0.
+*Gate (`pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built`, then `pnpm check:ci`):* exit 0.
 
 | Package | Tests |
 | --- | --- |
@@ -88,7 +88,7 @@ New tests: `reasoning-effort.test.ts`, `run-env.test.ts`, plus cases in `steerin
 - No deploy and no live container run.
 - No real CLI was invoked with the new flags; the argv is checked by tests only.
 - Per-model effort validity (e.g. a provider refusing `minimal` for some model) is unchecked and would fail inside the container after approval.
-- The encrypted env blob remains in chat message metadata and in the DO state broadcast to the owner's own dashboard. Rotating `MODEL_CREDENTIAL_KEY` retires it.
+- The encrypted env blob remains in chat message metadata and in the DO state broadcast to the owner's own dashboard, until key rotation or cleanup. Rotating `MODEL_CREDENTIAL_KEY` retires it.
 - The reserved-name list is a denylist and not exhaustive.
 - Values under 8 characters aren't scrubbed.
 - No tests yet for: the v1-retry 409, dispatch fail-closed, or the wake route/account carry. These are guard clauses, reviewed by probe only. The fork 409 and the fork carry are pinned in `run-fork.test.ts`; after that test was added, the backend suite alone ran 2602/2602.

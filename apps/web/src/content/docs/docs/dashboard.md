@@ -89,7 +89,7 @@ To have a run prepare the repository before the agent starts, commit a `.shiba/s
 - If the change adds a value (on an added diff line, or inside a changed binary file), the run fails and the change is dropped, never returned or published. A value the repository already contained, such as a local development URL in an untouched config line, doesn't count.
 
 **After the run**
-- Once you decide the approval, the run holds the only copy of the encrypted blob. When the run finishes, that copy is discarded.
+- Once you decide the approval, the run holds its own copy of the encrypted blob. When the run finishes, that copy is discarded. Chat message metadata can still retain the ciphertext until you rotate `MODEL_CREDENTIAL_KEY` or clear history.
 - Forking a finished run that had environment variables, or retrying it through the API, is refused. Start a new run and enter the variables again.
 - CI or review events cannot create a coding follow-up for a run whose environment was discarded; they return `environment_discarded` instead. Start a new run and supply the variables again.
 

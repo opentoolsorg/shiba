@@ -1162,8 +1162,9 @@ export function App(): React.JSX.Element {
         return;
       }
       let sealedEnv: { sealed: string; names: string[]; digest: string } | null = null;
-      const nonBlankEnvVars = envVars.filter((v) => v.name.trim() !== "" || v.value.trim() !== "");
-      if (nonBlankEnvVars.some((v) => v.name.trim() !== "")) {
+      // Unnamed rows are dropped, like the direct-run guard above; parseRunEnv rejects a blank name.
+      const namedEnvVars = envVars.filter((v) => v.name.trim() !== "");
+      if (namedEnvVars.length > 0) {
         // Claim the submit before the seal round-trip so a double-click can't queue two runs.
         submitInFlight.current = true;
         setIsSubmitting(true);
@@ -1180,7 +1181,7 @@ export function App(): React.JSX.Element {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-              environmentVariables: nonBlankEnvVars.map((v) => ({
+              environmentVariables: namedEnvVars.map((v) => ({
                 name: v.name.trim(),
                 value: v.value,
               })),
