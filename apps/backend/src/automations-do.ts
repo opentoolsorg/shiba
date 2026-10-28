@@ -16,6 +16,7 @@ import {
   linearEventToAutomation,
   slackEventToAutomation,
   type FireAutomationDeps,
+  type QueueAutomationRunInput,
 } from "./automation-runner.js";
 import { isGitHubPublishConfigured } from "./github-auth.js";
 import {
@@ -23,6 +24,7 @@ import {
   automationsEnabled,
   collectDueSchedules,
   createAutomation,
+  recordTrigger,
   parseAutomationWebhookPath,
   verifyWebhookSecret,
   type Automation,
@@ -42,6 +44,55 @@ export interface OrchestratorStub {
 }
 
 const WEBHOOK_BATCH_PREFIX = "webhook-batch:";
+const WEBHOOK_QUEUE_INTENT_PREFIX = "webhook-queue-intent:";
+const WEBHOOK_MAX_BODY_BYTES = 32_000;
+const WEBHOOK_MAX_BATCH_BODIES = 32;
+// Leave room below Durable Object's 128 KiB value limit for record metadata.
+const WEBHOOK_MAX_BATCH_BYTES = 96_000;
+const WEBHOOK_RETRY_BASE_MS = 30_000;
+const WEBHOOK_RETRY_MAX_MS = 300_000;
+
+interface WebhookBatch {
+  bodies: string[];
+  firstAt: number;
+  windowSeconds: number;
+  /** Persisted before queue I/O; a frozen batch cannot accept new payloads. */
+  commandId?: string;
+  attempts?: number;
+  retryAt?: number;
+  approvalId?: string;
+  chargedAt?: number;
+}
+
+interface WebhookQueueIntent extends Omit<QueueAutomationRunInput, "task"> {
+  prompt: string;
+}
+
+class QueueFailure extends Error {
+  constructor(message: string, readonly retryable: boolean) { super(message); }
+}
+
+/** Read the authenticated webhook without allocating an unbounded request body. */
+async function webhookBody(request: Request): Promise<string | null> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    bytes += chunk.value.byteLength;
+    if (bytes > WEBHOOK_MAX_BODY_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(chunk.value);
+  }
+  const joined = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(joined);
+}
 const DEDUPE_PREFIX = "dedupe:";
 const DEDUPE_TTL_MS = 3_600_000;
 const DEDUPE_GC_INTERVAL_MS = 60_000;
@@ -66,11 +117,17 @@ async function queueOnOrchestrator(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+      signal: AbortSignal.timeout(30_000),
     }),
   );
-  if (!queued.ok) throw new Error(`Queue failed (${queued.status}).`);
+  if (!queued.ok) throw new QueueFailure(
+    `Queue failed (${queued.status}).`,
+    queued.status === 408 || queued.status === 429 || queued.status >= 500,
+  );
   const body = (await queued.json().catch(() => ({}))) as { approvalId?: string };
-  if (!body.approvalId) throw new Error("Orchestrator did not return an approval id.");
+  if (typeof body.approvalId !== "string" || !body.approvalId) {
+    throw new QueueFailure("Orchestrator did not return an approval id.", true);
+  }
   return { approvalId: body.approvalId };
 }
 
@@ -83,9 +140,14 @@ async function resolveOnOrchestrator(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+      signal: AbortSignal.timeout(30_000),
     }),
   );
-  if (!resolved.ok) throw new Error(`Auto-approve failed (${resolved.status}).`);
+  if (!resolved.ok) throw new QueueFailure(
+    `Auto-approve failed (${resolved.status}).`,
+    // A pending approval returns 409 when all coding slots are busy.
+    resolved.status === 408 || resolved.status === 409 || resolved.status === 429 || resolved.status >= 500,
+  );
 }
 
 export class Automations {
@@ -149,9 +211,14 @@ export class Automations {
   }
 
   async tick(orchestrator: OrchestratorStub, nowMs = Date.now()): Promise<{ fired: number }> {
-    const store = await this.load();
+    const batchStore = await this.load();
     let fired = 0;
-    fired += await this.flushWebhookBatches(orchestrator, store, nowMs);
+    fired += await this.flushWebhookBatches(orchestrator, batchStore, nowMs);
+    // Each flushed batch persists its firing and daily budget through
+    // fireEvent. Schedules must use that updated state: saving the snapshot
+    // from before the flush would erase webhook counts and could authorize
+    // another run after the automation had already spent its daily budget.
+    const store = await this.load();
     const due = collectDueSchedules(store.list(), nowMs);
     if (due.length === 0) return { fired };
     const event: AutomationMatchEvent = { kind: "schedule", nowMs };
@@ -171,25 +238,138 @@ export class Automations {
     store: AutomationStore,
     nowMs: number,
   ): Promise<number> {
-    const batches = await this.ctx.storage.list<{ bodies: string[]; firstAt: number; windowSeconds: number }>({
+    const batches = await this.ctx.storage.list<WebhookBatch>({
       prefix: WEBHOOK_BATCH_PREFIX,
     });
     let fired = 0;
-    for (const [key, batch] of batches) {
-      if (!batch || !Array.isArray(batch.bodies) || batch.bodies.length === 0) continue;
-      const deadline = batch.firstAt + batch.windowSeconds * 1000;
-      if (nowMs < deadline) continue;
+    for (const [key] of batches) {
       const automationId = key.slice(WEBHOOK_BATCH_PREFIX.length);
+      const intentKey = WEBHOOK_QUEUE_INTENT_PREFIX + automationId;
       const automation = store.get(automationId);
-      await this.ctx.storage.delete(key);
-      if (!automation?.webhookSecret) continue;
-      const result = await this.fireEvent(
+      // Claim/freeze atomically with ingress appends. Never drop a payload
+      // accepted between the initial list and the external queue request.
+      const batch = await this.ctx.storage.transaction(async (transaction) => {
+        const current = await transaction.get<WebhookBatch>(key);
+        if (!current || !Array.isArray(current.bodies) || current.bodies.length === 0) return null;
+        if (nowMs < Math.max(current.firstAt + current.windowSeconds * 1000, current.retryAt ?? 0)) return null;
+        if (!automation?.webhookSecret) {
+          await transaction.delete(key);
+          await transaction.delete(intentKey);
+          return null;
+        }
+        const frozen: WebhookBatch = {
+          ...current,
+          commandId: current.commandId ?? `webhook-batch:${automationId}:${crypto.randomUUID()}`,
+          // Concurrent cron calls share this durable attempt lease. If the
+          // isolate dies before acknowledgement, a later tick can recover.
+          retryAt: nowMs + WEBHOOK_RETRY_MAX_MS,
+        };
+        await transaction.put(key, frozen);
+        return frozen;
+      });
+      if (!batch || !automation?.webhookSecret) continue;
+      let retryableFailure = false;
+      const deps = this.fireDeps(orchestrator, nowMs);
+      const priorIntent = await this.ctx.storage.get<WebhookQueueIntent>(intentKey);
+      const frozenIntent = priorIntent?.commandId === batch.commandId ? priorIntent : undefined;
+      // A saved approval has already charged this batch. Exclude only its
+      // own same-day charge while rechecking current policy for resolution.
+      const ownCharge = batch.approvalId && batch.chargedAt !== undefined
+        && automation.runDayStartedAt === Math.floor(batch.chargedAt / 86_400_000) * 86_400_000
+        && Math.floor(batch.chargedAt / 86_400_000) === Math.floor(nowMs / 86_400_000);
+      const evaluation = {
+        ...automation,
+        // Evaluate today's permissions against the repository and PR intent
+        // that was actually queued, rather than a subsequently edited task.
+        ...(frozenIntent ? { repoUrl: frozenIntent.repoUrl, prompt: frozenIntent.prompt } : {}),
+        ...(ownCharge ? { runsToday: Math.max(0, (automation.runsToday ?? 0) - 1) } : {}),
+      };
+      const result = await fireMatchingAutomations(
+        [evaluation],
         { kind: "webhook", secret: automation.webhookSecret, batchedBodies: batch.bodies },
-        orchestrator,
-        nowMs,
-        automation.id,
+        {
+          ...deps,
+          ...(frozenIntent ? { canPublishPullRequest: frozenIntent.publishPullRequest } : {}),
+          queueRun: async (input) => {
+            try {
+              if (batch.approvalId) return { approvalId: batch.approvalId };
+              const intent = await this.ctx.storage.transaction(async (transaction) => {
+                const existing = await transaction.get<WebhookQueueIntent>(intentKey);
+                if (existing && existing.commandId === batch.commandId) return existing;
+                // Bodies live in one record only: duplicating the full task
+                // here could exceed the per-value Durable Object size limit.
+                const { task: _task, ...fields } = input;
+                const frozen = { ...fields, prompt: automation.prompt, commandId: batch.commandId! };
+                await transaction.put(intentKey, frozen);
+                return frozen;
+              });
+              const { prompt, ...fields } = intent;
+              const queued = await deps.queueRun({
+                ...fields,
+                task: `${prompt}\n\n---\nWebhook payloads (${batch.bodies.length}):\n${batch.bodies.join("\n---\n")}`,
+              });
+              const committedBatch = await this.ctx.storage.transaction(async (transaction) => {
+                const current = await transaction.get<WebhookBatch>(key);
+                if (!current || current.commandId !== batch.commandId) throw new Error("Webhook batch changed during queueing.");
+                if (current.approvalId) return current;
+                const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+                const items = state.items.map((item) => item.id === automationId ? recordTrigger(item, nowMs) : item);
+                const next = { ...current, approvalId: queued.approvalId, chargedAt: nowMs };
+                await transaction.put("state", { items } satisfies AutomationsState);
+                await transaction.put(key, next);
+                return next;
+              });
+              Object.assign(batch, committedBatch);
+              return queued;
+            }
+            catch (error) {
+              retryableFailure = !(error instanceof QueueFailure) || error.retryable;
+              throw error;
+            }
+          },
+          resolveApproval: async (input) => {
+            try { await deps.resolveApproval!(input); }
+            catch (error) {
+              retryableFailure = !(error instanceof QueueFailure) || error.retryable;
+              throw error;
+            }
+          },
+        },
       );
-      fired += result.fired;
+      const outcome = result.results[0]!;
+      // If the outcome of an attempted queue is still unknown, a changed
+      // policy must pause recovery rather than discard its accepted payload.
+      // Never-attempted policy skips remain terminal and visible.
+      if (!outcome.fired && !batch.approvalId && !retryableFailure) {
+        const priorIntent = await this.ctx.storage.get<WebhookQueueIntent>(intentKey);
+        if (priorIntent?.commandId === batch.commandId && !outcome.reason.startsWith("Queue failed:")) {
+          retryableFailure = true;
+        }
+      }
+      // A successful queue's charge is already durable with its saved
+      // approval ID. Deleting the batch can never charge it a second time.
+      const committed = await this.ctx.storage.transaction(async (transaction) => {
+        const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+        const currentBatch = await transaction.get<WebhookBatch>(key);
+        if (currentBatch?.commandId !== batch.commandId) return false;
+        const items = state.items.map((item) => item.id !== automationId || outcome.fired ? item
+          : { ...item, lastSkip: { at: nowMs, reason: automation.enabled ? outcome.reason : "Automation is disabled." } });
+        await transaction.put("state", { items } satisfies AutomationsState);
+        if (retryableFailure) {
+          const attempts = (batch.attempts ?? 0) + 1;
+          await transaction.put(key, {
+            ...batch, attempts,
+            retryAt: nowMs + Math.min(WEBHOOK_RETRY_MAX_MS, WEBHOOK_RETRY_BASE_MS * 2 ** Math.min(attempts - 1, 4)),
+          } satisfies WebhookBatch);
+        } else {
+          // Success, permanent invalid input, and deliberate policy skips
+          // are terminal. The latter two retain their visible lastSkip.
+          await transaction.delete(key);
+          await transaction.delete(intentKey);
+        }
+        return true;
+      });
+      if (committed && outcome.fired) fired += 1;
     }
     return fired;
   }
@@ -650,21 +830,32 @@ export class Automations {
       const webhookTrigger = automation.triggers.find((t) => t.kind === "webhook");
       const batchWindow =
         webhookTrigger?.kind === "webhook" ? webhookTrigger.batchWindowSeconds ?? 0 : 0;
-      const rawPayload = await request.text();
+      const rawPayload = await webhookBody(request);
+      if (rawPayload === null) {
+        return Response.json({ error: "Webhook payload exceeds 32000 bytes." }, { status: 413 });
+      }
       const now = Date.now();
       if (batchWindow > 0) {
         const storageKey = WEBHOOK_BATCH_PREFIX + automation.id;
-        const existing = await this.ctx.storage.get<{ bodies: string[]; firstAt: number; windowSeconds: number }>(
-          storageKey,
-        );
-        const bodies = [...(existing?.bodies ?? []), rawPayload.slice(0, 32_000)];
-        const firstAt = existing?.firstAt ?? now;
-        await this.ctx.storage.put(storageKey, {
-          bodies,
-          firstAt,
-          windowSeconds: Math.min(300, Math.max(1, batchWindow)),
+        return this.ctx.storage.transaction(async (transaction) => {
+          const existing = await transaction.get<WebhookBatch>(storageKey);
+          if (existing?.commandId) {
+            return Response.json({ error: "Webhook batch is processing. Retry this delivery later." }, {
+              status: 503, headers: { "Retry-After": "30" },
+            });
+          }
+          const bodies = [...(existing?.bodies ?? []), rawPayload];
+          if (bodies.length > WEBHOOK_MAX_BATCH_BODIES || new TextEncoder().encode(JSON.stringify(bodies)).byteLength > WEBHOOK_MAX_BATCH_BYTES) {
+            return Response.json({ error: "Webhook batch is full. Retry this delivery later." }, {
+              status: 429, headers: { "Retry-After": String(Math.min(300, Math.max(1, batchWindow))) },
+            });
+          }
+          await transaction.put(storageKey, {
+            bodies, firstAt: existing?.firstAt ?? now,
+            windowSeconds: Math.min(300, Math.max(1, batchWindow)),
+          } satisfies WebhookBatch);
+          return Response.json({ ok: true, id: automation.id, batched: true, pending: bodies.length });
         });
-        return Response.json({ ok: true, id: automation.id, batched: true, pending: bodies.length });
       }
       const result = await this.fireEvent(
         { kind: "webhook", secret, batchedBodies: rawPayload ? [rawPayload] : [] },

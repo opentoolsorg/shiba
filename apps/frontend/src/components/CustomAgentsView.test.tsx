@@ -1,15 +1,94 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, fireEvent, waitFor } from "@testing-library/react";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-import { CustomAgentsView } from "./CustomAgentsView";
+import { CustomAgentsView, useCustomAgentOptions } from "./CustomAgentsView";
 
 describe("CustomAgentsView", () => {
+  it("does not resurrect a removed bot from a stale directory request", async () => {
+    let finishFirst!: (response: Response) => void;
+    const request = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishFirst = resolve; }))
+      .mockResolvedValueOnce(Response.json({ agents: [] }));
+    vi.stubGlobal("fetch", request);
+    const { result } = renderHook(() => useCustomAgentOptions());
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => finishFirst(Response.json({ agents: [{
+      id: "removed-bot", slug: "removed", version: 1,
+      config: { name: "Removed", instructions: "Old", harness: "opencode" },
+    }] })));
+    expect(result.current.agents).toEqual([]);
+  });
+
+  it("shows only this bot's named threads and opens the selected conversation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ agents: [{
+      id: "ag-1", slug: "reviewer", version: 1,
+      config: { name: "Reviewer", instructions: "Review carefully.", harness: "codex" },
+    }] })));
+    const onOpenThread = vi.fn();
+    render(<CustomAgentsView threads={[
+      { id: "a", name: "Review authentication", agentName: "web:user:a", updatedAt: 1, metadata: { customAgentId: "ag-1" } },
+      { id: "b", name: "Build another project", agentName: "web:user:b", updatedAt: 2, metadata: { customAgentId: "ag-2" } },
+      { id: "c", name: "Generic conversation", agentName: "web:user:c", updatedAt: 3 },
+    ]} onOpenThread={onOpenThread} />);
+    const thread = await screen.findByRole("button", { name: /Review authentication/ });
+    expect(screen.queryByText("Build another project")).toBeNull();
+    expect(screen.queryByText("Generic conversation")).toBeNull();
+    fireEvent.click(thread);
+    expect(onOpenThread).toHaveBeenCalledWith("a");
+  });
+
+  it("distinguishes unavailable thread history from an empty bot", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ agents: [{
+      id: "ag-1", slug: "reviewer", version: 1,
+      config: { name: "Reviewer", instructions: "Review carefully.", harness: "codex" },
+    }] })));
+    render(<CustomAgentsView onOpenThread={vi.fn()} threadsUnavailable />);
+    await screen.findByText("Reviewer");
+    expect(screen.getByText(/Thread history is unavailable/)).toBeTruthy();
+    expect(screen.queryByText("No threads yet.")).toBeNull();
+  });
+
+  it("starts a thread from an agent card without submitting a run", async () => {
+    const agent = {
+      id: "ag-1", slug: "reviewer", version: 1,
+      config: { name: "Reviewer", instructions: "Review carefully.", harness: "codex" },
+    };
+    const request = vi.fn().mockResolvedValue(Response.json({ agents: [agent] }));
+    vi.stubGlobal("fetch", request);
+    let finish!: () => void;
+    const onStartThread = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<CustomAgentsView onStartThread={onStartThread} />);
+    const start = await screen.findByRole("button", { name: "Launch bot Reviewer" });
+    fireEvent.click(start);
+    fireEvent.click(start);
+    expect(onStartThread).toHaveBeenCalledOnce();
+    expect(onStartThread).toHaveBeenCalledWith(agent);
+    expect(start.hasAttribute("disabled")).toBe(true);
+    expect(request).toHaveBeenCalledOnce();
+    finish();
+    await waitFor(() => expect(start.hasAttribute("disabled")).toBe(false));
+  });
+
+  it("shows thread creation errors and lets the user retry", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ agents: [{
+      id: "ag-1", slug: "reviewer", version: 1,
+      config: { name: "Reviewer", instructions: "Review carefully.", harness: "codex" },
+    }] })));
+    const onStartThread = vi.fn().mockRejectedValueOnce(new Error("Session limit reached")).mockResolvedValue(undefined);
+    render(<CustomAgentsView onStartThread={onStartThread} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Launch bot Reviewer" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Session limit reached"));
+    fireEvent.click(screen.getByRole("button", { name: "Launch bot Reviewer" }));
+    await waitFor(() => expect(onStartThread).toHaveBeenCalledTimes(2));
+  });
+
   it("lists agents from the API and opens the create form", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === "/api/custom-agents") {
@@ -41,9 +120,9 @@ describe("CustomAgentsView", () => {
       expect(screen.getByText("Reviewer")).toBeTruthy();
     });
     expect(screen.getByText(/reviewer/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Create agent" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create bot" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
     expect(screen.getByDisplayValue("Reviewer")).toBeTruthy();
   });
 
@@ -53,7 +132,7 @@ describe("CustomAgentsView", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const { rerender } = render(<CustomAgentsView />);
-    expect(screen.getByLabelText("Loading agents")).toBeTruthy();
+    expect(screen.getByLabelText("Loading bots")).toBeTruthy();
 
     const failed = vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }));
     vi.stubGlobal("fetch", failed);
@@ -75,9 +154,9 @@ describe("CustomAgentsView", () => {
     );
     render(<CustomAgentsView />);
     await waitFor(() => {
-      expect(screen.getByText("No custom agents")).toBeTruthy();
+      expect(screen.getByText("No bots")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     expect(screen.getByRole("alert").textContent).toContain("Slug, name, and instructions are required.");
   });
 
@@ -101,11 +180,11 @@ describe("CustomAgentsView", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<CustomAgentsView />);
     await waitFor(() => expect(screen.getByText("Reviewer")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    expect(screen.getByRole("button", { name: "Confirm delete" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete bot" }));
+    expect(screen.getByRole("button", { name: "Confirm delete bot" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete bot" }));
     await waitFor(() => {
-      expect(screen.getByText("Agent deleted.")).toBeTruthy();
+      expect(screen.getByText("Bot deleted.")).toBeTruthy();
     });
   });
 });

@@ -98,6 +98,7 @@ function launch(): Promise<ElectronApplication> {
   const userData = mkdtempSync(path.join(tmpdir(), "shiba-journey-"));
   userDataDirs.push(userData);
   return electron.launch({
+    chromiumSandbox: true,
     args: ["dist/main.js", `--user-data-dir=${userData}`],
     env: { ...(process.env as Record<string, string>), SHIBA_DESKTOP_URL: stubUrl },
   });

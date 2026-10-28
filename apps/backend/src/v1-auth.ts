@@ -47,7 +47,8 @@ const DASHBOARD_API_SCOPES = [...API_KEY_SCOPES] as Scope[];
 
 export async function authorizeV1Request(request: Request, env: Env): Promise<V1Principal | null> {
   const bearer = bearerToken(request);
-  if (bearer !== null) {
+  if (request.headers.has("authorization")) {
+    if (bearer === null) return null;
     const record = await resolveBearerRecord(env, bearer);
     if (!record || record.kind !== "api_key") {
       return null;

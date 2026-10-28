@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
-VERIFY_DIR="$ROOT/.verify"
+VERIFY_DIR=${VERIFY_DIR:-$ROOT/.verify}
 STAMP=${1:-$(date -u +%Y-%m-%dT%H%M%SZ)}
 DEST="$VERIFY_DIR/evidence/$STAMP"
 mkdir -p "$DEST"

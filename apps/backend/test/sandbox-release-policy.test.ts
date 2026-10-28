@@ -12,6 +12,10 @@ function run(partial: Partial<DelegatedRun> & Pick<DelegatedRun, "runId" | "sand
 }
 
 describe("shouldDestroySandboxAfterRun", () => {
+  it.each(["completed", "cancelled", "unknown"] as const)("does not destroy a %s local worktree as a cloud container", (status) => {
+    const local = run({ runId: "local", sandboxId: "local-worktree", status, runtime: "local" });
+    expect(shouldDestroySandboxAfterRun(local, [local])).toBe(false);
+  });
   it("does not destroy while another active run shares the sandbox", () => {
     const parent = run({ runId: "parent", sandboxId: "run-shared", status: "completed" });
     const child = run({ runId: "child", sandboxId: "run-shared", status: "running", subagentSandbox: "shared" });

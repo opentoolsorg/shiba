@@ -9,6 +9,7 @@ export interface CustomAgentRunOverrides {
   repoUrl?: string;
   sandboxProvider?: string;
   instructions?: string;
+  expectedDeliverables?: string[];
   customAgentId: string;
   customAgentVersion: number;
   approvalPolicy?: CustomAgentApprovalPolicy;
@@ -36,6 +37,7 @@ export function overridesFromCustomAgent(agent: CustomAgentRecord): CustomAgentR
     ...(cfg.defaultRepoUrl ? { repoUrl: cfg.defaultRepoUrl } : {}),
     ...(cfg.sandboxProvider ? { sandboxProvider: cfg.sandboxProvider } : {}),
     ...(cfg.instructions ? { instructions: cfg.instructions } : {}),
+    ...(cfg.expectedDeliverables !== undefined ? { expectedDeliverables: [...cfg.expectedDeliverables] } : {}),
     ...(cfg.approvalPolicy ? { approvalPolicy: cfg.approvalPolicy } : {}),
   };
 }

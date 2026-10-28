@@ -58,7 +58,7 @@ describe("v1 routes", () => {
     const response = await f.send("/api/v1/threads", "POST", { repoUrl: run.repoUrl, task: "Fix", session: "s1", queuedBy: "forged" });
     expect(await response?.json()).toMatchObject({ approvalId: "a1", status: "waiting" });
     expect(f.scopes[0]?.searchParams.get("session")).toBe("s1");
-    expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Fix", orgId: "self-hosted" });
+    expect(await f.calls[0]?.json()).toEqual({ repoUrl: run.repoUrl, task: "Fix", orgId: "self-hosted", threadKey: "caller" });
   });
   it("refuses messages on missing threads and interrupts active ones", async () => {
     expect((await fixture({ error: "missing" }, 404).send("/api/v1/threads/missing/message", "POST", { text: "Hi" }))?.status).toBe(404);
@@ -85,7 +85,7 @@ describe("v1 routes", () => {
       repoUrl: run.repoUrl,
       task: "Follow-up on run r1:\nAgain",
       continuesKey: "key",
-      threadKey: "thread",
+      threadKey: "caller",
       orgId: "self-hosted",
     });
   });
@@ -112,6 +112,7 @@ describe("v1 routes", () => {
       role: "reviewer",
       codingModel: model ?? "opencode-go/gpt-6.1-sol",
       commandId: `v1review:${run.repoUrl}:12:abc`,
+      threadKey: "caller",
       orgId: "self-hosted",
       task: reviewerTask({
         repoUrl: run.repoUrl,

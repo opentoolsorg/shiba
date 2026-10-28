@@ -12,6 +12,7 @@
  * Everything in this file is pure — shared between the Worker's envelope
  * builder, the dispatch DO's records, and (mirrored in JS) the daemon.
  */
+import { expectedDeliverablesSchema } from "./deliverables.js";
 import { z } from "zod";
 
 /** Runtimes an intake surface may ask for. "computer" stays env-only. */
@@ -58,6 +59,9 @@ export const localRunEnvelopeSchema = z.object({
   repoUrl: z.string().min(1).max(2048),
   baseBranch: z.string().min(1).max(256),
   task: z.string().min(1).max(TASK_MAX),
+  customAgentId: z.string().min(1).max(128).optional(),
+  customAgentVersion: z.number().int().positive().optional(),
+  orgId: z.string().min(1).max(128).optional(),
   harness: z.string().min(1).max(64),
   /** Root-tokenized absolute paths the daemon resolves before use. */
   cloneDir: z.string().min(1).max(PATH_MAX),
@@ -72,6 +76,7 @@ export const localRunEnvelopeSchema = z.object({
   argv: z.array(z.string().min(1).max(PATH_MAX)).min(1).max(64),
   env: z.record(z.string().min(1).max(128), z.string().max(ENV_VALUE_MAX)),
   testCommand: z.array(z.string().min(1).max(PATH_MAX)).max(8).optional(),
+  expectedDeliverables: expectedDeliverablesSchema.optional(),
   /**
    * The harness's declared argv-prefix allowlist — the daemon refuses the
    * test command against the same prefixes scopedExec would, so a local
@@ -197,7 +202,11 @@ export function buildLocalRunEnvelope(args: {
     repoUrl: string;
     baseBranch: string;
     task: string;
+    customAgentId?: string;
+    customAgentVersion?: number;
+    orgId?: string;
     testCommand?: string[];
+    expectedDeliverables?: string[];
   };
   harnessName: string;
   /** Container workdir the harness's argv/config were computed against. */
@@ -236,6 +245,10 @@ export function buildLocalRunEnvelope(args: {
     repoUrl: input.repoUrl,
     baseBranch: input.baseBranch,
     task: input.task,
+    ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+    ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+    ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+    ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: [...input.expectedDeliverables] } : {}),
     harness: args.harnessName,
     cloneDir: `${LOCAL_RUN_ROOT_TOKEN}/${LOCAL_WORK_SUBDIR}`,
     homeDir: `${LOCAL_RUN_ROOT_TOKEN}/${LOCAL_HOME_SUBDIR}`,

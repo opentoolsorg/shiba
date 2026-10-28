@@ -293,6 +293,54 @@ describe("desktop:pair", () => {
 });
 
 describe("desktop:unpair", () => {
+  it("refuses cross-origin revocation and preserves the pairing config", async () => {
+    const { deps, handlers } = makeDeps({
+      readLocalConfig: () => ({ workerUrl: "https://other.example.com", machineId: "other-machine" }),
+    });
+    writeFileSync(join(deps.runRoot, "config.json"), "{}");
+    registerDesktopIpc(deps);
+    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toEqual({
+      ok: false, error: "Switch to the paired Shiba URL before disconnecting this computer.",
+    });
+    expect(deps.sessionFetch).not.toHaveBeenCalled();
+    expect(deps.supervisor.stop).not.toHaveBeenCalled();
+    expect(existsSync(join(deps.runRoot, "config.json"))).toBe(true);
+  });
+
+  it("keeps config and resumes probing after a revoke network failure", async () => {
+    const probe = vi.fn();
+    const { deps, handlers } = makeDeps({
+      supervisor: { status: () => ({ state: "idle", machineId: "m1" }), stop: vi.fn(), forkDaemon: () => fakeChild(), probe },
+      sessionFetch: vi.fn(async () => { throw new Error("offline"); }),
+    });
+    writeFileSync(join(deps.runRoot, "config.json"), "{}");
+    registerDesktopIpc(deps);
+    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toEqual({
+      ok: false, error: "Could not revoke this computer. Check the connection and retry.",
+    });
+    expect(probe).toHaveBeenCalledOnce();
+    expect(existsSync(join(deps.runRoot, "config.json"))).toBe(true);
+  });
+
+  it("serializes pairing, native disconnect, renderer unpair and deployment changes together", async () => {
+    const child = fakeChild();
+    const onSetUrl = vi.fn();
+    const { deps, handlers } = makeDeps({
+      onSetUrl,
+      supervisor: { status: () => ({ state: "unpaired" }), stop: vi.fn(), forkDaemon: () => child },
+    });
+    const native = registerDesktopIpc(deps);
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await native.unpair()).toMatchObject({ ok: false });
+    expect(await invoke(handlers, "desktop:unpair", `${ORIGIN}/app/`)).toMatchObject({ ok: false });
+    expect(await invoke(handlers, "desktop:set-url", SETUP_URL, "https://new.example.com")).toMatchObject({ ok: false });
+    expect(deps.supervisor.stop).toHaveBeenCalledOnce();
+    expect(onSetUrl).not.toHaveBeenCalled();
+    child.emit("message", { type: "status", state: "polling" });
+    expect(await pending).toEqual({ ok: true });
+  });
+
   it("revokes, stops the daemon, and deletes config.json", async () => {
     const { deps, handlers } = makeDeps({
       supervisor: {

@@ -115,7 +115,14 @@ fi
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$VERIFY_DIR/playwright-browsers}"
 mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
 echo "$PLAYWRIGHT_BROWSERS_PATH" > "$VERIFY_DIR/playwright-browsers-path"
-npx --prefix "$SKILL" playwright install chromium
+if [ -n "${VERIFY_BROWSER_EXECUTABLE_PATH:-}" ]; then
+  if [ ! -x "$VERIFY_BROWSER_EXECUTABLE_PATH" ]; then
+    echo "VERIFY_BROWSER_EXECUTABLE_PATH is not executable" >&2
+    exit 1
+  fi
+else
+  npx --prefix "$SKILL" playwright install chromium
+fi
 python3 - "$VERIFY_DIR/wrangler.pid" "$VERIFY_DIR/wrangler.log" "${DEV[@]}" <<'PY'
 import subprocess, sys
 pidfile, log, *cmd = sys.argv[1:]

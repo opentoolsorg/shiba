@@ -1,6 +1,5 @@
 import { MAX_COMMAND_RECEIPTS, stableHash } from "@shiba/shared";
 import { agentCliCatalog } from "../harness/catalog.js";
-import { resolveUserId } from "../request-auth.js";
 import type { V1Context } from "./context.js";
 
 const OPERATIONS = [
@@ -30,10 +29,10 @@ export async function handleSystem(ctx: V1Context): Promise<Response | null> {
   }
   const catalog = agentCliCatalog(ctx.env);
   if (ctx.url.pathname === "/api/v1/capabilities") {
-    return Response.json({ ok: true, principalId: (await resolveUserId(ctx.request, ctx.env)) ?? "default",
-      orgId: "self-hosted", projectIds: null, permissions: null,
+    return Response.json({ ok: true, principalId: ctx.principal.principal,
+      orgId: ctx.principal.orgId, projectIds: null, permissions: null,
       operations: OPERATIONS.map(([operationId, method, path]) => ({ operationId, method, path: `/api/v1${path}`, permissions: [] })),
-      availability: { runs: true, models: catalog.length > 0, questions: false, compaction: false,
+      availability: { runs: ctx.principal.apiKey === undefined, models: catalog.length > 0, questions: false, compaction: false,
         fullTranscripts: false, operationReceipts: false, threadMetadata: false },
       // Zero means no time-based retention guarantee; receipts are count-bounded, not seven-day records.
       limits: { eventRetentionDays: 0, idempotencyRetentionDays: 0, credentialLifetimeDays: 0,

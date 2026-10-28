@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HarnessSessionPanel } from "./HarnessSessionPanel";
 
@@ -62,5 +62,38 @@ describe("HarnessSessionPanel", () => {
     );
     const view = render(<HarnessSessionPanel enabled />);
     await vi.waitFor(() => expect(view.container.textContent).toBe(""));
+  });
+
+  it("keeps a later bot's permission visible when an older session has no pending tools", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ runs: [
+        { sandboxId: "older-idle", events: [], diff: "", approvals: [] },
+        { ...board.runs[0], sandboxId: "current-bot" },
+      ] }),
+    })));
+    render(<HarnessSessionPanel enabled />);
+    const panels = await screen.findAllByRole("region", { name: "Live agent session" });
+    expect(panels).toHaveLength(2);
+    expect(within(panels[0]!).queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(within(panels[1]!).getByRole("button", { name: "Allow" })).toBeTruthy();
+  });
+
+  it("binds permission and interrupt decisions to the chosen bot when request IDs overlap", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ runs: [board.runs[0], { ...board.runs[0], sandboxId: "second-bot" }] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<HarnessSessionPanel enabled />);
+    const panels = await screen.findAllByRole("region", { name: "Live agent session" });
+    fireEvent.click(within(panels[1]!).getByRole("button", { name: "Allow" }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/computers/harness/decide", expect.objectContaining({
+      body: JSON.stringify({ sandboxId: "second-bot", requestId: "r1", decision: "allow" }),
+    }));
+    fireEvent.click(within(panels[1]!).getByRole("button", { name: "Interrupt" }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/computers/harness/control", expect.objectContaining({
+      body: JSON.stringify({ sandboxId: "second-bot", interrupt: true }),
+    }));
   });
 });

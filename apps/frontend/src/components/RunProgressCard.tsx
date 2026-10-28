@@ -2,9 +2,10 @@ import type { JSX } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { RetainedRun } from "../types";
 import { statusChipClass, statusLabel } from "../ui-helpers";
+import { RunDeliverables } from "./RunDeliverables";
 
 /** Latest retained run for the active task thread — honest status, not a spinner that never ends. */
-export function RunProgressCard({ run }: { run: RetainedRun | undefined }): JSX.Element | null {
+export function RunProgressCard({ run, sessionId }: { run: RetainedRun | undefined; sessionId?: string }): JSX.Element | null {
   if (!run) return null;
   const inFlight = run.status === "pending" || run.status === "running";
   const failed = run.status === "error" || run.status === "aborted" || run.status === "cancelled" || run.status === "unknown";
@@ -23,6 +24,7 @@ export function RunProgressCard({ run }: { run: RetainedRun | undefined }): JSX.
         </span>
       </div>
       <p className="text-xs text-[var(--muted-foreground-2)] line-clamp-2">{run.task}</p>
+      {run.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)]" data-testid="run-agent-version">Bot profile v{run.customAgentVersion}</p> : null}
       {inFlight ? (
         <p className="text-xs text-[var(--fg)] flex items-center gap-2">
           <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[var(--primary)]" aria-hidden="true" />
@@ -47,6 +49,7 @@ export function RunProgressCard({ run }: { run: RetainedRun | undefined }): JSX.
           Run finished but no pull request URL was recorded — check GitHub or the run transcript.
         </p>
       ) : null}
+      <RunDeliverables runId={run.runId} status={run.status} expected={run.expectedDeliverables} deliverables={run.deliverables} sessionId={sessionId} />
     </section>
   );
 }

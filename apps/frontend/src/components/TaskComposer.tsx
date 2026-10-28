@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import type { SavedSkill } from "../saved";
+import type { ConnectedComputer } from "@shiba/shared";
 
 /** Model-by-purpose routing controls — the picker's values and its option lists. */
 export interface ModelRoutingControl {
@@ -50,11 +51,16 @@ export interface TaskComposerProps {
   publishPullRequest: boolean;
   reviewAfterPublish?: boolean;
   harness: string;
-  /** T63 — desktop "Run on" control. Rendered only when the shell reports a
-   *  paired, ready daemon (localRunAvailable). "sandbox" keeps the chat path. */
+  /** Paired local computers are verified through the authenticated fleet API. */
   runTarget?: "sandbox" | "local";
   onRunTargetChange?: (value: "sandbox" | "local") => void;
   localRunAvailable?: boolean;
+  localComputers?: ConnectedComputer[];
+  targetMachineId?: string;
+  onTargetMachineChange?: (machineId: string) => void;
+  localComputersLoading?: boolean;
+  localComputersError?: string | null;
+  onRefreshLocalComputers?: () => void;
   routing: ModelRoutingControl;
   busy: boolean;
   isSubmitting: boolean;
@@ -74,8 +80,9 @@ export interface TaskComposerProps {
   selectedSkillIds?: string[];
   onToggleSkill?: (id: string) => void;
   /** Org custom agents from /api/custom-agents */
-  customAgents?: { id: string; name: string; slug: string; emoji?: string }[];
+  customAgents?: { id: string; name: string; slug: string; emoji?: string; expectedDeliverables?: readonly string[] }[];
   customAgentId?: string;
+  customAgentsLoading?: boolean;
   onCustomAgentChange?: (id: string) => void;
   /** "docked" = compact bar under the timeline; "hero" = centered empty-state card. */
   variant?: "docked" | "hero";
@@ -211,6 +218,12 @@ export function TaskComposer({
   runTarget = "sandbox",
   onRunTargetChange,
   localRunAvailable = false,
+  localComputers = [],
+  targetMachineId,
+  onTargetMachineChange,
+  localComputersLoading = false,
+  localComputersError = null,
+  onRefreshLocalComputers,
   routing,
   busy,
   isSubmitting,
@@ -229,10 +242,16 @@ export function TaskComposer({
   onToggleSkill,
   customAgents = [],
   customAgentId = "",
+  customAgentsLoading = false,
   onCustomAgentChange,
   variant = "docked",
 }: TaskComposerProps): JSX.Element {
-  const sendDisabled = busy || task.trim() === "" || repoUrl.trim() === "";
+  const localTargetBlocked = runTarget === "local" && (
+    !localRunAvailable || !targetMachineId || localComputersLoading || localComputersError !== null
+  );
+  const sendDisabled = busy || task.trim() === "" || repoUrl.trim() === "" || localTargetBlocked || Boolean(
+    customAgentId && (customAgentsLoading || !customAgents.some((agent) => agent.id === customAgentId)),
+  );
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hero = variant === "hero";
 
@@ -495,18 +514,19 @@ export function TaskComposer({
                   type="button"
                   role="menuitemradio"
                   aria-checked={runTarget === "local"}
+                  disabled={!localRunAvailable || localComputersLoading}
                   className={menuRowClass}
                   onClick={() => {
                     onRunTargetChange("local");
-                    setOpen(null);
+                    if (localComputers.length <= 1) setOpen(null);
                   }}
                 >
                   <Laptop aria-hidden="true" className={menuIconClass} />
                   <span className="flex-1 min-w-0">
-                    <span className="block font-medium">Local (This computer)</span>
+                    <span className="block font-medium">Local (Paired computer)</span>
                     <span className="block text-[10px] text-[var(--muted-foreground-2)]">
-                      {localRunAvailable
-                        ? "Paired daemon runs the harness locally"
+                      {localComputersLoading ? "Checking paired computers…" : localRunAvailable
+                        ? "Run on a paired computer"
                         : "Pair a computer in Remote Access first"}
                     </span>
                   </span>
@@ -514,11 +534,39 @@ export function TaskComposer({
                     <Check aria-hidden="true" className={menuCheckClass} />
                   ) : null}
                 </button>
+                {localComputers.length > 0 && onTargetMachineChange ? (
+                  <label className="mx-3 mt-2 mb-1 flex flex-col gap-1 text-xs text-[var(--muted-foreground-1)]">
+                    Computer
+                    <select aria-label="Local computer" value={targetMachineId ?? ""}
+                      disabled={localComputersLoading}
+                      onChange={(event) => {
+                        onTargetMachineChange(event.target.value);
+                        onRunTargetChange("local");
+                      }}
+                      className={inputClass}>
+                      <option value="" disabled>Choose a paired computer</option>
+                      {localComputers.map((computer) => <option key={computer.machineId} value={computer.machineId}>
+                        {computer.hostname}{computer.status === "busy" ? " (busy — task will wait)" : ""}
+                      </option>)}
+                    </select>
+                  </label>
+                ) : null}
+                {localComputersError ? <p role="status" className="px-3 py-1 text-xs text-[var(--warning-fg)]">{localComputersError}</p> : null}
+                {onRefreshLocalComputers ? <button type="button" disabled={localComputersLoading}
+                  onClick={onRefreshLocalComputers} className={`${menuRowClass} text-[var(--primary)]`}>
+                  Refresh paired computers
+                </button> : null}
               </div>
             </Popover>
           </div>
         ) : null}
       </div>
+
+      {runTarget === "local" ? <p role="status" className={`text-[10px] font-mono ${localTargetBlocked ? "text-[var(--warning-fg)]" : "text-[var(--muted-foreground-2)]"}`}>
+        {localComputersLoading ? "Checking paired computers before sending…" : localComputersError
+          ?? (targetMachineId ? `Local: ${localComputers.find((computer) => computer.machineId === targetMachineId)?.hostname ?? "Selected computer"}`
+            : localRunAvailable ? "Choose a paired computer before sending." : "No compatible paired computer is online. Refresh or choose Cloud explicitly.")}
+      </p> : null}
 
       {/* Main Textarea */}
       <input type="checkbox" checked={publishPullRequest} onChange={(e) => onPublishPullRequestChange(e.target.checked)} className="sr-only" aria-label="Create pull request" tabIndex={-1} /><span className="sr-only">Create PR OpenCode {harness}</span>
@@ -527,7 +575,7 @@ export function TaskComposer({
         value={task}
         onChange={(event) => onTaskChange(event.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Describe the change in this repository"
+        placeholder={selectedCustomAgent?.expectedDeliverables?.length ? "Describe the outcome and facts this bot should use" : "Describe the change in this repository"}
         rows={1}
         className={`w-full resize-none bg-transparent text-base lg:text-sm text-[var(--fg)] placeholder-[var(--muted-foreground-2)] focus:outline-none overflow-y-auto leading-relaxed ${
           hero ? "min-h-[96px] max-h-64" : "min-h-[72px] max-h-48"
@@ -538,8 +586,21 @@ export function TaskComposer({
       {/* Selected skills removable chips */}
       {selectedCustomAgent ? (
         <div className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
-          Custom agent: {selectedCustomAgent.emoji ? `${selectedCustomAgent.emoji} ` : ""}
+          Bot: {selectedCustomAgent.emoji ? `${selectedCustomAgent.emoji} ` : ""}
           {selectedCustomAgent.name}
+        </div>
+      ) : customAgentId ? (
+        <p role="status" className="text-[10px] text-[var(--warning-fg)] font-mono">
+          {customAgentsLoading ? "Loading bot…" : "Bot unavailable. Choose an available bot before sending."}
+        </p>
+      ) : null}
+
+      {selectedCustomAgent?.expectedDeliverables?.length ? (
+        <div className="text-[11px] text-[var(--muted-foreground-2)] flex flex-col gap-1">
+          <span>Required files in the approved repository:</span>
+          <ul aria-label="Required deliverables" className="flex flex-wrap gap-x-3 gap-y-1">
+            {selectedCustomAgent.expectedDeliverables.map((path) => <li key={path} className="font-mono break-all">{path}</li>)}
+          </ul>
         </div>
       ) : null}
 
@@ -762,7 +823,7 @@ export function TaskComposer({
 
               {onCustomAgentChange && customAgents.length > 0 ? (
                 <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">
-                  <span className="text-xs text-[var(--muted-foreground-1)]">Custom agent</span>
+                  <span className="text-xs text-[var(--muted-foreground-1)]">Bot</span>
                   <button
                     type="button"
                     role="menuitemradio"
@@ -774,7 +835,7 @@ export function TaskComposer({
                     }`}
                     onClick={() => onCustomAgentChange("")}
                   >
-                    <span className="flex-1 truncate">Default (no profile)</span>
+                    <span className="flex-1 truncate">Default (no bot)</span>
                     {customAgentId === "" ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
                   </button>
                   {customAgents.map((agent) => (

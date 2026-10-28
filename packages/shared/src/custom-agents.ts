@@ -19,6 +19,8 @@ export interface CustomAgentConfig {
   name: string;
   emoji?: string;
   instructions: string;
+  /** Optional workspace outputs frozen into each approval. */
+  expectedDeliverables?: readonly string[];
   harness: string;
   codingModel?: string;
   connectionId?: string;
@@ -37,6 +39,8 @@ export interface CustomAgentRecord {
   config: CustomAgentConfig;
   createdAt: number;
   updatedAt: number;
+  /** Archived profiles retain history but cannot start new execution. */
+  archivedAt?: number;
   deletedAt?: number;
 }
 
