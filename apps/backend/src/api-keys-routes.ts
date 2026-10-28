@@ -29,10 +29,11 @@ function publicKeyRow(record: TokenRecord) {
 export async function handleApiKeys(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== "/api/api-keys") return null;
-  const dashboard = await isAuthorizedRequest(request, env);
+  const dashboard = !request.headers.has("authorization") && await isAuthorizedRequest(request, env);
   const v1 = dashboard ? null : await authorizeV1Request(request, env);
   if (!dashboard) {
-    if (!v1 || !requireV1Scope(v1, "api:keys:admin")) return v1Unauthorized();
+    if (!v1) return v1Unauthorized();
+    if (!requireV1Scope(v1, "api:keys:admin")) return v1Forbidden();
   }
   const orgId = v1?.orgId ?? "self-hosted";
   if (request.method === "GET") {

@@ -15,7 +15,10 @@ import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
-import { CustomAgentsView, useCustomAgentOptions } from "./components/CustomAgentsView";
+import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
+import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
+import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
+import { formatSkillInstructions, taskWithSkillInstructions } from "./skill-prompt";
 import { RemoteAccessView } from "./components/RemoteAccessView";
 import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
 import { useSocketLiveness } from "./socket-liveness";
@@ -42,7 +45,8 @@ import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
 import { RunUsageCard } from "./components/RunUsageSummary";
 import { RunProgressCard } from "./components/RunProgressCard";
-import { targetMachineFields, useDesktopStatus } from "./desktop-status";
+import { useDesktopStatus } from "./desktop-status";
+import { useLocalRunTarget } from "./local-run-target";
 import { toast } from "sonner";
 import { BookOpen, FlaskConical, Sparkles, Zap } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -402,17 +406,6 @@ export function App(): React.JSX.Element {
   const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
-  const { agents: customAgentRecords } = useCustomAgentOptions();
-  const customAgentPickerOptions = useMemo(
-    () =>
-      customAgentRecords.map((agent) => ({
-        id: agent.id,
-        name: agent.config.name,
-        slug: agent.slug,
-        emoji: agent.config.emoji,
-      })),
-    [customAgentRecords],
-  );
   const [codingModel, setCodingModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
   const [envVars, setEnvVars] = useState<{ name: string; value: string }[]>([]);
@@ -490,25 +483,18 @@ export function App(): React.JSX.Element {
     if (draftScope.current === scope) setTask((current) => (current === "" ? text : current));
     else writeDraft(scope, text);
   }, []);
-  // T63 — "Run on: This computer" is offered only while the desktop shell
-  // reports a paired, reachable daemon (idle or busy).
+  // Local runs use the authenticated paired fleet in both web and desktop.
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
   const { status: desktopStatus } = useDesktopStatus();
-  const localRunAvailable = desktopStatus?.state === "idle" || desktopStatus?.state === "busy";
-  useEffect(() => {
-    if (runTarget === "local" && !localRunAvailable) setRunTarget("sandbox");
-  }, [runTarget, localRunAvailable]);
   // Only these harnesses run locally; anything else would show as a
   // deployment pin the backend then refuses.
   useEffect(() => {
-    if (runTarget === "local" && !["opencode", "claude-code", "codex"].includes(harness))
+    if (runTarget === "local" && !customAgentId && !["opencode", "claude-code", "codex"].includes(harness))
       setHarness("opencode");
-  }, [runTarget, harness]);
+  }, [runTarget, harness, customAgentId]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
-  const [webSessions, setWebSessions] = useState<
-    { id: string; name: string; agentName: string; updatedAt: number }[]
-  >([]);
+  const [webSessions, setWebSessions] = useState<WebThread[]>([]);
   // Persistent workspace panel removed from tasks view; functionality promoted to standalone views.
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -597,6 +583,37 @@ export function App(): React.JSX.Element {
   const identityFailures = useRef(0);
   const retryIdentity = useCallback(() => setIdentityAttempt((n) => n + 1), []);
   const signedIn = orchestratorName !== null && identityIssue === null;
+  const {
+    agents: customAgentRecords,
+    refresh: refreshCustomAgents,
+    loading: customAgentsLoading,
+    error: customAgentsError,
+  } = useCustomAgentOptions(signedIn);
+  const customAgentPickerOptions = useMemo(
+    () =>
+      customAgentRecords.map((agent) => ({
+        id: agent.id,
+        name: agent.config.name,
+        slug: agent.slug,
+        emoji: agent.config.emoji,
+        expectedDeliverables: agent.config.expectedDeliverables,
+      })),
+    [customAgentRecords],
+  );
+  const {
+    localRunAvailable,
+    targetMachineId: selectedLocalMachineId,
+    computers: localComputers,
+    loading: localComputersLoading,
+    error: localComputersError,
+    selectMachine: selectLocalMachine,
+    refresh: refreshLocalComputers,
+  } = useLocalRunTarget({
+    harness: customAgentId ? customAgentRecords.find((profile) => profile.id === customAgentId)?.config.harness ?? "" : harness,
+    desktopStatus,
+    enabled: signedIn,
+    identityKey: orchestratorName ?? "",
+  });
   const [launchBlocked, setLaunchBlocked] = useState(false);
   useEffect(() => {
     if (!signedIn) {
@@ -720,12 +737,29 @@ export function App(): React.JSX.Element {
   useEffect(() => () => window.clearTimeout(invalidateTimer.current), []);
 
   const activeWebSession = webSessions.find((session) => session.id === selectedSessionId);
+  const sessionCustomAgentId = threadAgentId(activeWebSession);
+  useEffect(() => {
+    // Also restore when the registry arrives after mount, not only on sidebar clicks.
+    setCustomAgentId(sessionCustomAgentId);
+  }, [selectedSessionId, sessionCustomAgentId]);
+  const applyThreadProfile = useCallback((profile: CustomAgentWire) => {
+    setHarness(profile.config.harness);
+    setCodingModel(profile.config.codingModel ?? "");
+    setConnectionId(profile.config.connectionId ?? "");
+    setRepoUrl(profile.config.defaultRepoUrl ?? "");
+    setPublishPullRequest(false);
+    setRunTarget("sandbox");
+  }, []);
+  useAgentThreadDefaults(selectedSessionId, sessionCustomAgentId, customAgentRecords, applyThreadProfile);
+  const chatAgentName = activeWebSession?.agentName ?? orchestratorName;
+  const chatAgentNameRef = useRef(chatAgentName);
+  chatAgentNameRef.current = chatAgentName;
   const agent = useAgent({
     agent: ORCHESTRATOR_AGENT,
     // Until /api/whoami resolves, don't connect at all — the Worker 403s any
     // name that isn't the caller's identity, so a placeholder DO name just
     // produces a 403 burst on every load.
-    name: activeWebSession?.agentName ?? orchestratorName ?? "identity-pending",
+    name: chatAgentName ?? "identity-pending",
     enabled: orchestratorName !== null,
     onStateUpdate: invalidateSoon,
     minReconnectionDelay: 1000,
@@ -736,20 +770,9 @@ export function App(): React.JSX.Element {
     agent,
     // Skip the /get-messages prefetch while the DO name is the pending
     // placeholder — it 403s by design. The socket object lags one render
-    // behind orchestratorName (it swaps in an effect), so gate on the name
-    // the hook actually resolves rather than on orchestratorName alone.
-    getInitialMessages: async ({ name, url }) => {
-      if (!url || name !== orchestratorName) return [];
-      const res = await fetch(`${url}/get-messages`, { credentials: "include" });
-      if (!res.ok) return [];
-      const text = await res.text();
-      if (!text.trim()) return [];
-      try {
-        return JSON.parse(text);
-      } catch {
-        return [];
-      }
-    },
+    // behind a thread switch (it swaps in an effect), so gate on the active
+    // base or named-session agent and discard responses from a previous thread.
+    getInitialMessages: ({ name, url }) => loadThreadMessages(name, url, chatAgentNameRef),
     onError: () => {
       submitFailed.current = true;
     },
@@ -774,7 +797,7 @@ export function App(): React.JSX.Element {
         if (response.status === 401) return;
         if (!response.ok) throw new Error(`Sessions request failed: ${response.status}`);
         const body = (await response.json()) as {
-          sessions?: { id: string; name: string; agentName: string; updatedAt: number }[];
+          sessions?: WebThread[];
         };
         if (!cancelled) {
           setSessionApiAvailable(true);
@@ -1007,6 +1030,12 @@ export function App(): React.JSX.Element {
     async (event?: React.FormEvent) => {
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current) return;
+      if (customAgentId && (customAgentsLoading || customAgentsError || !customAgentRecords.some((profile) => profile.id === customAgentId))) {
+        setNotice(customAgentsLoading
+          ? "Wait for the selected bot to load before sending."
+          : "The selected bot is unavailable. Choose an available bot before sending.");
+        return;
+      }
       if (!repoUrl.trim() || !task.trim()) {
         setNotice("Enter a repository URL and a task first.");
         return;
@@ -1020,24 +1049,35 @@ export function App(): React.JSX.Element {
         reasoningEffort && (HARNESS_REASONING_EFFORTS[harness] ?? []).includes(reasoningEffort)
           ? reasoningEffort
           : "";
-      if (runTarget === "local") {
+      const attachedSkills = savedSkills.filter((skill) => selectedSkillIds.includes(skill.id));
+      if (runTarget === "local" || customAgentId) {
+        if (runTarget === "local" && (!selectedLocalMachineId || localComputersLoading || localComputersError)) {
+          setNotice(localComputersError ?? (localComputersLoading
+            ? "Wait for paired computers to be checked before sending."
+            : "Choose an online paired computer that supports this bot before sending."));
+          return;
+        }
+        if (!sessionApiAvailable && selectedSessionId !== "default") {
+          setNotice("This conversation cannot queue tasks until its session connection is available. Retry after reconnecting.");
+          return;
+        }
+        const directTarget = runTarget === "local" ? "runs on this computer" : "bot runs";
         if (envVars.some((v) => v.name.trim() !== "")) {
-          setNotice("Environment variables aren't supported for runs on this computer yet.");
+          setNotice(`Environment variables aren't supported for ${directTarget} yet.`);
           return;
         }
         if (runSetup) {
-          setNotice("Repo setup isn't supported for runs on this computer yet.");
+          setNotice(`Repo setup isn't supported for ${directTarget} yet.`);
           return;
         }
         setNotice(null);
-        // GAP-3 (DESKTOP-PLAN §11.5): submit through POST /api/runs with
-        // runtime:"local" — handleRuns stamps the dashboard intake voucher
-        // and the approval card appears like any other run. HTTP-only, so the
-        // chat-socket identity guards below don't apply. Skills have no
-        // /api/runs field and are not sent for local runs.
+        // A selected bot is already a configured execution route. Queue it
+        // directly, just like a local task, without a separate planner call.
+        // The Worker resolves its saved profile and requires human approval
+        // of the frozen task before dispatching either runtime.
         const fields = {
           repoUrl: repoUrl.trim(),
-          task: task.trim(),
+          task: taskWithSkillInstructions(task, attachedSkills),
           baseBranch: branch,
           ...(harness ? { harness } : {}),
           ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
@@ -1047,9 +1087,14 @@ export function App(): React.JSX.Element {
           ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
           ...(customAgentId ? { customAgentId } : {}),
         };
-        const body = { ...fields, runtime: "local", ...targetMachineFields(desktopStatus) };
-        // Keyed on user-editable fields only, so a daemon re-pair doesn't mint a new commandId for a retry.
-        const key = JSON.stringify(fields);
+        const body = {
+          ...fields,
+          runtime: runTarget,
+          ...(runTarget === "local" ? { targetMachineId: selectedLocalMachineId } : {}),
+        };
+        // A retry retains its command ID across daemon re-pairing, but a
+        // different conversation or runtime is a distinct command.
+        const key = JSON.stringify({ ...fields, runtime: runTarget, session: selectedSessionId });
         if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID() };
         const commandId = runCommand.current.id;
         const draft = task;
@@ -1081,7 +1126,9 @@ export function App(): React.JSX.Element {
           }
           runCommand.current = null;
           saveRepo(repoUrl.trim());
-          setNotice("Queued — approve the run card to execute on this computer.");
+          setNotice(runTarget === "local"
+            ? "Queued — approve the run card to execute on this computer."
+            : "Bot task queued — review and approve the run card to launch it.");
           refreshRuns();
         } catch (error) {
           restoreDraft(draftSession, draft);
@@ -1168,7 +1215,6 @@ export function App(): React.JSX.Element {
         }
       }
       setNotice(null);
-      const attachedSkills = savedSkills.filter((skill) => selectedSkillIds.includes(skill.id));
       const text = [
         `Repository: ${repoUrl.trim()}`,
         `Base branch: ${branch}`,
@@ -1183,9 +1229,7 @@ export function App(): React.JSX.Element {
           ? [`Read-only review after the PR opens: ${reviewAfterPublish ? "yes" : "no"}`]
           : []),
         ...(attachedSkills.length > 0
-          ? [
-              `Skills: ${attachedSkills.map((skill) => (skill.repoUrl ? `${skill.name} (${skill.repoUrl})` : skill.name)).join(", ")}`,
-            ]
+          ? [formatSkillInstructions(attachedSkills)]
           : []),
         "",
         `Task: ${task.trim()}`,
@@ -1204,7 +1248,7 @@ export function App(): React.JSX.Element {
           metadata: {
             shibaTask: {
               repoUrl: repoUrl.trim(),
-              task: task.trim(),
+              task: taskWithSkillInstructions(task, attachedSkills),
               baseBranch: branch,
               harness,
               publishPullRequest,
@@ -1245,6 +1289,9 @@ export function App(): React.JSX.Element {
       runSetup,
       harness,
       customAgentId,
+      customAgentRecords,
+      customAgentsLoading,
+      customAgentsError,
       codingModel,
       reasoningEffort,
       envVars,
@@ -1259,7 +1306,9 @@ export function App(): React.JSX.Element {
       runTarget,
       sessionApiAvailable,
       selectedSessionId,
-      desktopStatus,
+      selectedLocalMachineId,
+      localComputersLoading,
+      localComputersError,
       restoreDraft,
     ],
   );
@@ -1505,7 +1554,7 @@ export function App(): React.JSX.Element {
       const completedDiff = extractCompletedDiff(tr);
       if (existing) {
         existing.status = tr.status || existing.status;
-        if (completedDiff) existing.diff = completedDiff;
+        if (!existing.diff?.trim() && completedDiff) existing.diff = completedDiff;
         if (tr.summary) existing.summary = tr.summary;
         if (tr.error) existing.error = tr.error;
       } else {
@@ -1561,8 +1610,9 @@ export function App(): React.JSX.Element {
     if (mainView === "tasks") {
       reloadModelConfig();
       reloadAgentsDirectory();
+      refreshCustomAgents();
     }
-  }, [mainView, reloadModelConfig, reloadAgentsDirectory]);
+  }, [mainView, reloadModelConfig, reloadAgentsDirectory, refreshCustomAgents]);
 
   const repoSuggestions = useMemo(() => {
     const merged = [...savedRepos, ...allRuns.map((run) => run.repoUrl)];
@@ -1697,6 +1747,7 @@ export function App(): React.JSX.Element {
         }
       }
       setSelectedSessionId(id);
+      setCustomAgentId(threadAgentId(session));
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
       setMainView("tasks");
@@ -1713,6 +1764,7 @@ export function App(): React.JSX.Element {
   const handleNewTask = useCallback(async () => {
     if (!sessionApiAvailable) {
       setSelectedSessionId("default");
+      setCustomAgentId("");
       setMobileSessionsOpen(false);
       setMainView("tasks");
       window.setTimeout(
@@ -1733,6 +1785,7 @@ export function App(): React.JSX.Element {
       if (response.status === 404 || response.status === 405) {
         setSessionApiAvailable(false);
         setSelectedSessionId("default");
+        setCustomAgentId("");
         setMobileSessionsOpen(false);
         setMainView("tasks");
         window.setTimeout(
@@ -1753,6 +1806,7 @@ export function App(): React.JSX.Element {
         ...current.filter((session) => session.id !== body.session.id),
       ]);
       setSelectedSessionId(body.session.id);
+      setCustomAgentId("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
@@ -1764,6 +1818,23 @@ export function App(): React.JSX.Element {
         ?.focus();
     }, 0);
   }, [sessionApiAvailable]);
+
+  const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
+    const session = await createAgentThread(profile);
+    setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
+    setSessionApiAvailable(true);
+    setSelectedSessionId(session.id);
+    setSelectedRunId(null);
+    setCustomAgentId(profile.id);
+    applyThreadProfile(profile);
+    setNotice(null);
+    refreshCustomAgents();
+    setMainView("tasks");
+    setMobileSessionsOpen(false);
+    window.setTimeout(() => {
+      document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
+    }, 0);
+  }, [refreshCustomAgents, applyThreadProfile]);
 
   const activeSandboxCount = useMemo(() => {
     return (
@@ -2241,6 +2312,14 @@ export function App(): React.JSX.Element {
                     <h1 className="text-base text-[var(--fg)] tracking-tight truncate">
                       {liveSession ? liveSession.title : "New coding task"}
                     </h1>
+                    {sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? (
+                      <ThreadTitleEditor
+                        key={selectedSessionId}
+                        sessionId={selectedSessionId}
+                        name={activeWebSession.name}
+                        onRenamed={(renamed) => setWebSessions((current) => applyThreadRename(current, renamed))}
+                      />
+                    ) : null}
                     <span
                       className={`text-[10px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 shrink-0 ${statusChipClass(liveSession?.status ?? "ready")}`}
                     >
@@ -2417,15 +2496,17 @@ export function App(): React.JSX.Element {
                   ) : null}
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
-                      <RunProgressCard run={reviewRun} />
+                      <RunProgressCard run={reviewRun} sessionId={selectedSessionId} />
                       <RunUsageCard runs={retainedRuns} />
                       <PullRequestCard
                         threadId={reviewThreadId}
+                        sessionId={selectedSessionId}
                         fallbackPullUrl={reviewRun?.pullUrl}
                         publishRequested={reviewRun?.publishPullRequest === true}
                       />
                       <ReviewFindings
                         threadId={reviewThreadId}
+                        sessionId={selectedSessionId}
                         reviewAfterPublish={reviewRun?.reviewAfterPublish === true}
                       />
                     </div>
@@ -2463,6 +2544,12 @@ export function App(): React.JSX.Element {
                     runTarget={runTarget}
                     onRunTargetChange={setRunTarget}
                     localRunAvailable={localRunAvailable}
+                    localComputers={localComputers}
+                    targetMachineId={selectedLocalMachineId}
+                    onTargetMachineChange={selectLocalMachine}
+                    localComputersLoading={localComputersLoading}
+                    localComputersError={localComputersError}
+                    onRefreshLocalComputers={refreshLocalComputers}
                     onRepoUrlChange={setRepoUrl}
                     onTaskChange={setTask}
                     onBaseBranchChange={setBaseBranch}
@@ -2476,6 +2563,7 @@ export function App(): React.JSX.Element {
                     onHarnessChange={setHarness}
                     customAgents={customAgentPickerOptions}
                     customAgentId={customAgentId}
+                    customAgentsLoading={customAgentsLoading}
                     onCustomAgentChange={setCustomAgentId}
                     routing={{
                       codingModel,
@@ -2524,6 +2612,7 @@ export function App(): React.JSX.Element {
           ) : mainView === "diff" ? (
             <DiffView
               runs={allRuns}
+              sessionId={selectedSessionId}
               selectedRunId={
                 selectedRunId ??
                 (allRuns.some((run) => run.runId === selectedSessionId) ? selectedSessionId : null)
@@ -2606,7 +2695,15 @@ export function App(): React.JSX.Element {
           ) : mainView === "skills" ? (
             <SkillsView />
           ) : mainView === "custom-agents" ? (
-            <CustomAgentsView />
+            <CustomAgentsView
+              onStartThread={handleStartAgentThread}
+              connections={modelConnections}
+              modelSuggestions={agentsDirectory.state.kind === "data" ? agentsDirectory.state.data.agents.map((agent) => agent.defaultModel).filter((model): model is string => typeof model === "string" && model.includes("/")) : []}
+              threads={webSessions}
+              threadsLoading={!sessionsLoaded}
+              threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
+              onOpenThread={(id) => { void handleSelectSession(id); }}
+            />
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (

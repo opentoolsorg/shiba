@@ -16,6 +16,7 @@ import { SubagentTree } from "./SubagentTree";
 export interface DiffViewProps {
   runs: VMRun[];
   selectedRunId?: string | null;
+  sessionId?: string;
   onSelectRun?: (runId: string) => void;
   /** Full run payload still loading — empty/"no diff" claims are premature. */
   loading?: boolean;
@@ -37,6 +38,7 @@ function preferredRunId(runs: VMRun[], selected?: string | null): string {
 export function DiffView({
   runs,
   selectedRunId,
+  sessionId,
   onSelectRun,
   loading = false,
   error = null,
@@ -143,7 +145,7 @@ export function DiffView({
         ) : activeRun ? (
           <div className="max-w-6xl mx-auto flex flex-col gap-4">
             <SubagentTree runs={runs} onSelectRun={handleSelect} />
-            <ReviewFindings key={activeRun.runId} threadId={activeRun.runId} />
+            <ReviewFindings key={activeRun.runId} threadId={activeRun.runId} sessionId={sessionId} />
             <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] flex items-center justify-between gap-4 flex-wrap shadow-[var(--sh-card)]">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">

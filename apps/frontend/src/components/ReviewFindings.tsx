@@ -3,6 +3,7 @@ import { LoaderCircle } from "lucide-react";
 import type { FindingTriage, ReviewFinding, ReviewRound } from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
 import { CardSkeleton } from "./surface";
+import { threadApiPath } from "../thread-api";
 
 const TRIAGE_OPTIONS: FindingTriage[] = ["open", "resolved", "irrelevant"];
 
@@ -11,8 +12,19 @@ type FetchState =
   | { kind: "error"; message: string }
   | { kind: "ready"; round: ReviewRound | null };
 
+interface TriageUpdate {
+  triage: FindingTriage;
+  status: "pending" | "saved" | "failed";
+}
+
+interface FindingMutations {
+  initial: FindingTriage;
+  updates: TriageUpdate[];
+}
+
 export interface ReviewFindingsProps {
   threadId: string;
+  sessionId?: string;
   /** Frozen at approval — controls empty copy when no round exists yet. */
   reviewAfterPublish?: boolean;
 }
@@ -20,17 +32,28 @@ export interface ReviewFindingsProps {
 /** One row per finding from GET /pr/review; triage is persisted on the orchestrator DO. */
 export function ReviewFindings({
   threadId,
+  sessionId,
   reviewAfterPublish = false,
 }: ReviewFindingsProps): JSX.Element | null {
-  const [fetchState, setFetchState] = useState<FetchState>({ kind: "loading" });
+  const scope = JSON.stringify([sessionId ?? "default", threadId]);
+  const activeScope = useRef<string | null>(scope);
+  activeScope.current = scope;
+  const dataScope = useRef(scope);
+  const loadSequence = useRef(0);
+  const retrySequence = useRef(0);
+  const findingMutations = useRef(new Map<string, FindingMutations>());
+  const [storedState, setFetchState] = useState<FetchState>({ kind: "loading" });
+  const fetchState: FetchState = dataScope.current === scope ? storedState : { kind: "loading" };
   const fetchStateRef = useRef(fetchState);
   fetchStateRef.current = fetchState;
   const [retryPending, setRetryPending] = useState(false);
 
   const load = useCallback(() => {
-    let cancelled = false;
+    const request = ++loadSequence.current;
+    findingMutations.current.clear();
+    dataScope.current = scope;
     setFetchState({ kind: "loading" });
-    void fetch(`/api/v1/threads/${encodeURIComponent(threadId)}/pr/review`)
+    void fetch(threadApiPath(threadId, "/pr/review", sessionId))
       .then(async (response) => {
         if (!response.ok) {
           const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -40,66 +63,112 @@ export function ReviewFindings({
         return { kind: "ready" as const, round: body.round ?? null };
       })
       .then((next) => {
-        if (!cancelled) setFetchState(next);
+        if (activeScope.current === scope && request === loadSequence.current) setFetchState(next);
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          setFetchState({
-            kind: "error",
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
+        if (activeScope.current !== scope || request !== loadSequence.current) return;
+        setFetchState({
+          kind: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [threadId]);
+  }, [threadId, sessionId, scope]);
 
   useEffect(() => {
-    return load();
-  }, [load]);
+    activeScope.current = scope;
+    setRetryPending(false);
+    load();
+    return () => {
+      activeScope.current = null;
+      loadSequence.current += 1;
+      retrySequence.current += 1;
+      findingMutations.current.clear();
+    };
+  }, [load, scope]);
 
   const setTriage = (findingId: string, triage: FindingTriage) => {
+    if (activeScope.current !== scope) return;
     const current = fetchStateRef.current;
-    const previous = current.kind === "ready" ? current.round : null;
-    if (previous) {
-      setFetchState({
-        kind: "ready",
-        round: {
-          ...previous,
-          findings: (previous.findings ?? []).map((finding) =>
-            finding.id === findingId ? { ...finding, triage } : finding,
-          ),
-        },
-      });
+    const finding = current.kind === "ready"
+      ? current.round?.findings?.find((item) => item.id === findingId)
+      : undefined;
+    if (!finding) return;
+
+    let mutations = findingMutations.current.get(findingId);
+    if (!mutations) {
+      mutations = { initial: finding.triage, updates: [] };
+      findingMutations.current.set(findingId, mutations);
     }
+    const pending = mutations;
+    const update: TriageUpdate = { triage, status: "pending" };
+    pending.updates.push(update);
+    const isCurrent = () => activeScope.current === scope
+      && findingMutations.current.get(findingId) === pending;
+    const reconcile = () => {
+      // Keep local intent order even when responses arrive out of order. Failed
+      // updates fall back to the last successful or still-pending edit, never an
+      // optimistic snapshot belonging to another finding.
+      const value = pending.updates.reduce(
+        (previous, item) => item.status === "failed" ? previous : item.triage,
+        pending.initial,
+      );
+      setFetchState((state) => state.kind === "ready" && state.round ? {
+        ...state,
+        round: {
+          ...state.round,
+          findings: state.round.findings?.map((item) => item.id === findingId ? { ...item, triage: value } : item),
+        },
+      } : state);
+      if (pending.updates.every((item) => item.status !== "pending")) {
+        findingMutations.current.delete(findingId);
+      }
+    };
+    reconcile();
     void fetch(
-      `/api/v1/threads/${encodeURIComponent(threadId)}/pr/review/findings/${encodeURIComponent(findingId)}/triage`,
+      threadApiPath(threadId, `/pr/review/findings/${encodeURIComponent(findingId)}/triage`, sessionId),
       { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ triage }) },
     )
       .then(async (response) => {
+        if (!isCurrent()) return;
         if (!response.ok) {
-          if (previous) setFetchState({ kind: "ready", round: previous });
-          return;
+          update.status = "failed";
+        } else {
+          const body = (await response.json()) as { round?: ReviewRound };
+          if (!isCurrent()) return;
+          update.status = "saved";
+          // The returned round can predate other in-flight finding edits.
+          update.triage = body.round?.findings?.find((item) => item.id === findingId)?.triage ?? triage;
         }
-        const body = (await response.json()) as { round?: ReviewRound };
-        if (body.round) setFetchState({ kind: "ready", round: body.round });
+        reconcile();
       })
       .catch(() => {
-        if (previous) setFetchState({ kind: "ready", round: previous });
+        if (!isCurrent()) return;
+        update.status = "failed";
+        reconcile();
       });
   };
 
   const retryReview = () => {
+    if (activeScope.current !== scope) return;
+    const request = ++retrySequence.current;
     setRetryPending(true);
-    void fetch(`/api/v1/threads/${encodeURIComponent(threadId)}/pr/review/retry`, {
+    void fetch(threadApiPath(threadId, "/pr/review/retry", sessionId), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
+    }).then(async (response) => {
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? `Review retry failed (${response.status}).`);
+      }
+      if (activeScope.current === scope && request === retrySequence.current) load();
+    }).catch((error: unknown) => {
+      if (activeScope.current === scope && request === retrySequence.current) {
+        setFetchState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      }
     })
       .finally(() => {
-        setRetryPending(false);
-        load();
+        if (activeScope.current === scope && request === retrySequence.current) setRetryPending(false);
       });
   };
 

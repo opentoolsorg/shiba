@@ -4,7 +4,7 @@
  * parseAgentToolInput. The child never scrapes arbitrary prose.
  */
 import { z } from "zod";
-import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema } from "@shiba/shared";
+import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, isSafeDeliverablePath } from "@shiba/shared";
 import { isApprovedRoute, type ApprovedRoute } from "./model-connections.js";
 import { parseGitHubRepoUrl } from "./security.js";
 
@@ -22,6 +22,7 @@ const codingTaskInputSchema = z.object({
   /** Frozen sandbox provider id for this run (task/org/agent override). */
   sandboxProvider: z.string().min(1).max(64).optional(),
   customAgentId: z.string().min(1).max(128).optional(),
+  customAgentVersion: z.number().int().positive().optional(),
   codingModel: z.string().min(1),
   /** Which coding agent runs the task. Validated at approval time, never in the container. */
   harness: z.enum(HARNESS_IDS).optional(),
@@ -69,6 +70,7 @@ const codingTaskInputSchema = z.object({
    * refused or exits nonzero.
    */
   testCommand: testCommandSchema.optional(),
+  expectedDeliverables: expectedDeliverablesSchema.optional(),
   /**
    * Run-fork lineage: `refs/shiba/checkpoints/<parentSandboxId>/<seq>` in
    * the parent worktree this run resumes from. The executor restores that
@@ -119,6 +121,12 @@ const codingTaskResultSchema = z.object({
   changedFiles: z.array(z.string()),
   diff: z.string(),
   files: z.array(changedFileSchema),
+  deliverables: z.array(z.object({
+    path: z.string().max(240).refine(isSafeDeliverablePath),
+    mediaType: z.string().max(100),
+    bytes: z.number().int().positive().max(16_384),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  })).max(8).refine((items) => items.reduce((sum, item) => sum + item.bytes, 0) <= 65_536).optional(),
   summary: z.string(),
   /**
    * The PR the child published, when it did. Carried on the envelope so the

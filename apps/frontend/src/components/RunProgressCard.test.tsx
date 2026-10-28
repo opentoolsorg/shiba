@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { RunProgressCard } from "./RunProgressCard";
 import type { RetainedRun } from "../types";
+
+afterEach(cleanup);
 
 const baseRun = (overrides: Partial<RetainedRun>): RetainedRun =>
   ({
@@ -20,6 +22,10 @@ const baseRun = (overrides: Partial<RetainedRun>): RetainedRun =>
   }) as RetainedRun;
 
 describe("RunProgressCard", () => {
+  it("shows the profile revision actually retained by a run", () => {
+    render(<RunProgressCard run={baseRun({ customAgentId: "cag-a", customAgentVersion: 2 })} />);
+    expect(screen.getByTestId("run-agent-version").textContent).toBe("Bot profile v2");
+  });
   it("returns null without a run", () => {
     const { container } = render(<RunProgressCard run={undefined} />);
     expect(container.firstChild).toBeNull();

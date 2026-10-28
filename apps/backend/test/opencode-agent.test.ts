@@ -52,6 +52,44 @@ beforeEach(() => {
   mocks.publish.mockResolvedValue({ pullUrl: "https://github.com/owner/repo/pull/1" });
 });
 
+describe("requested deliverable private persistence", () => {
+  it("stores only requested complete files and returns metadata without bodies in the assistant result", async () => {
+    const instance = agent({ ...INPUT, publishPullRequest: false, expectedDeliverables: ["reports/brief.md"] });
+    const put = vi.fn(async (_key: string, _body: string, _options: unknown) => ({ key: "stored" }));
+    Object.assign(instance.env, { ATTACHMENTS: { put } });
+    const content = "PRIVATE_REQUESTED_REPORT_BODY";
+    mocks.run.mockResolvedValue({ ...RESULT, files: [
+      { path: "reports/brief.md", content, encoding: "utf8" },
+      { path: "private.txt", content: "UNREQUESTED_FILE_BODY", encoding: "utf8" },
+    ] });
+    const { result, text } = await responseFor(instance);
+    expect(result.status).toBe("completed");
+    expect(put).toHaveBeenCalledOnce();
+    expect(put.mock.calls[0]?.[1]).toBe(content);
+    expect(result.deliverables).toEqual([{ path: "reports/brief.md", bytes: content.length, mediaType: "text/markdown; charset=utf-8", sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
+    expect(result.files).toEqual([]);
+    expect(text).not.toContain(content);
+    expect(text).not.toContain("UNREQUESTED_FILE_BODY");
+    expect(JSON.stringify(result)).not.toContain('"content"');
+  });
+
+  it.each(["missing", "storage-failure", "cancel-during-storage"])("does not expose a manifest after %s", async (failure) => {
+    const instance = agent({ ...INPUT, publishPullRequest: false, expectedDeliverables: ["brief.md"] });
+    const controller = new AbortController();
+    const put = vi.fn(async () => {
+      if (failure === "cancel-during-storage") controller.abort();
+      return failure === "storage-failure" ? null : { key: "stored" };
+    });
+    Object.assign(instance.env, { ATTACHMENTS: { put } });
+    mocks.run.mockResolvedValue({ ...RESULT, files: failure === "missing" ? [] : [{ path: "brief.md", content: "complete draft", encoding: "utf8" }] });
+    const { result } = await responseFor(instance, controller.signal);
+    expect(result.status).toBe("error");
+    expect(result.deliverables).toBeUndefined();
+    expect(result.files).toEqual([]);
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+});
+
 describe("OpenCodeAgent response boundary", () => {
   it("returns a complete assistant stream the SDK can reconstruct without manual persistence", async () => {
     const { chunks, result } = await responseFor(agent());

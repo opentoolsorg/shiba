@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { LoaderCircle } from "lucide-react";
 import { LoadErrorState } from "./LoadErrorState";
 import { CardSkeleton } from "./surface";
+import { threadApiPath } from "../thread-api";
 
 interface PullStatus {
   url?: string;
@@ -17,6 +18,7 @@ type FetchState =
 
 export interface PullRequestCardProps {
   threadId: string;
+  sessionId?: string;
   /** Registry pull URL when GitHub status is not ready yet. */
   fallbackPullUrl?: string;
   /** Run asked to publish a PR — show a waiting state instead of hiding the panel. */
@@ -26,15 +28,25 @@ export interface PullRequestCardProps {
 /** Reads GET /pr/status. Shows loading, waiting, error, and fallback link states. */
 export function PullRequestCard({
   threadId,
+  sessionId,
   fallbackPullUrl,
   publishRequested = false,
 }: PullRequestCardProps): JSX.Element | null {
-  const [fetchState, setFetchState] = useState<FetchState>({ kind: "loading" });
+  const scope = JSON.stringify([sessionId ?? "default", threadId]);
+  const activeScope = useRef<string | null>(scope);
+  activeScope.current = scope;
+  const dataScope = useRef(scope);
+  const loadSequence = useRef(0);
+  const mergeSequence = useRef(0);
+  const [storedState, setFetchState] = useState<FetchState>({ kind: "loading" });
+  const fetchState: FetchState = dataScope.current === scope ? storedState : { kind: "loading" };
   const [mergePending, setMergePending] = useState(false);
 
   const load = useCallback(() => {
+    const request = ++loadSequence.current;
+    dataScope.current = scope;
     setFetchState({ kind: "loading" });
-    void fetch(`/api/v1/threads/${encodeURIComponent(threadId)}/pr/status`)
+    void fetch(threadApiPath(threadId, "/pr/status", sessionId))
       .then(async (response) => {
         if (response.status === 404) {
           return { kind: "ready" as const, status: null, notFound: true };
@@ -51,28 +63,47 @@ export function PullRequestCard({
         };
       })
       .then((next) => {
-        setFetchState(next);
+        if (activeScope.current === scope && request === loadSequence.current) setFetchState(next);
       })
       .catch((error: unknown) => {
+        if (activeScope.current !== scope || request !== loadSequence.current) return;
         setFetchState({
           kind: "error",
           message: error instanceof Error ? error.message : String(error),
         });
       });
-  }, [threadId]);
+  }, [threadId, sessionId, scope]);
 
   useEffect(() => {
+    activeScope.current = scope;
+    setMergePending(false);
     load();
-  }, [load]);
+    return () => {
+      activeScope.current = null;
+      loadSequence.current += 1;
+      mergeSequence.current += 1;
+    };
+  }, [load, scope]);
 
   const requestMerge = () => {
+    if (activeScope.current !== scope) return;
+    const request = ++mergeSequence.current;
     setMergePending(true);
-    void fetch(`/api/v1/threads/${encodeURIComponent(threadId)}/pr/merge`, {
+    void fetch(threadApiPath(threadId, "/pr/merge", sessionId), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mergeMethod: "squash" }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? `Merge approval request failed (${response.status}).`);
+      }
+    }).catch((error: unknown) => {
+      if (activeScope.current === scope && request === mergeSequence.current) {
+        setFetchState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      }
     }).finally(() => {
-      setMergePending(false);
+      if (activeScope.current === scope && request === mergeSequence.current) setMergePending(false);
     });
   };
 

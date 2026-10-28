@@ -45,6 +45,7 @@ import {
   isReviewerStandIn,
   runVerifyStandInTask,
 } from "../verify-standin.js";
+import { persistRunDeliverables, verifyExpectedDeliverables } from "../run-deliverables.js";
 import { localDispatchStub } from "../local-dispatch.js";
 import { chatGptAuthStub } from "../chatgpt-auth-do.js";
 import { codexDeviceAuthDeploymentEnabled } from "../harness/codex-device-auth.js";
@@ -337,6 +338,12 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             if (runEnv !== undefined) result = guardRunEnvLeak(result, runEnv);
           }
           checkCancelled();
+          if (result.status === "completed" && input.expectedDeliverables?.length) {
+            const artifacts = await verifyExpectedDeliverables(input.expectedDeliverables, result.files);
+            const deliverables = await persistRunDeliverables(this.env, input.sandboxId, artifacts);
+            result = { ...result, deliverables };
+            checkCancelled();
+          }
           // UNINTERRUPTIBLE: publish + result commit. Once the remote PR write
           // starts, an abort must not lose the outcome — a fake-failed real PR
           // is worse than a late commit. The only abort check inside
@@ -427,6 +434,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       changedFiles: result.changedFiles.slice(0, 50).map((path) => this.safeText(path, 1024)),
       diff: this.safeText(result.diff, 20_000),
       files: [],
+      ...(result.deliverables ? { deliverables: result.deliverables } : {}),
       ...(result.testEvidence
         ? {
             testEvidence: {

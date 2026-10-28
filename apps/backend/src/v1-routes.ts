@@ -30,7 +30,7 @@ import { handleEvents } from "./v1/events.js";
 import { handleMessages } from "./v1/messages.js";
 import { handlePreviews } from "./v1/previews.js";
 import { handlePulls } from "./v1/pulls.js";
-import { handleRuns } from "./v1/runs.js";
+import { handleRuns, runDeliverableFields } from "./v1/runs.js";
 import { handleSystem } from "./v1/system.js";
 import { handleOrgAgents } from "./v1/org-agents.js";
 import { handleThreads } from "./v1/threads.js";
@@ -55,6 +55,7 @@ export function v1Thread(run: DelegatedRun) {
     pullUrl: run.pullUrl ?? null, summary: run.summary ?? null,
     error: publicRunMessage(run), errorCode: run.errorCode ?? null, timedOut: runTimedOut(run),
     usage: run.usage ?? null,
+    ...runDeliverableFields(run),
   };
 }
 
@@ -82,6 +83,27 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
   if (!principal) {
     return v1Unauthorized();
   }
+  // Group handlers dispatch before the legacy routes below. Gate them all
+  // before any reads or mutations so a read-only key cannot stop a run,
+  // archive a thread, or modify an automation through one of those groups.
+  const readOnly = request.method === "GET" || request.method === "HEAD";
+  if (readOnly ? !requireV1Read(principal) : !requireV1Write(principal)) {
+    return v1Forbidden();
+  }
+  // Org API keys must never fall back to the dashboard/default run DO.
+  // Runtime groups (including automations and message queues) still use
+  // shared or dashboard-owned stores; keep them closed until those stores
+  // and session resolution are consistently scoped to this principal.
+  const bearerSafePath = url.pathname === "/api/v1/capabilities"
+    || url.pathname === "/api/v1/model-providers"
+    || url.pathname === "/api/v1/org-agents" || url.pathname.startsWith("/api/v1/org-agents/");
+  if (principal.apiKey && !bearerSafePath) {
+    return Response.json({
+      ok: false,
+      error: "tenant_runtime_unavailable",
+      detail: "Org-scoped API key access to runtime stores is unavailable until tenant routing is configured.",
+    }, { status: 501 });
+  }
   // Hoplite-shape groups first; each returns null when the path is not theirs.
   if (request.method === "POST") url.pathname = url.pathname.replace(/^(\/api\/v1\/threads\/[^/]+)\/messages$/, "$1/message");
   const ctx: V1Context = { request, env, url, principal, forward: async (method, path, input) => {
@@ -93,7 +115,10 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     headers.delete(AGENT_PRINCIPAL_HEADER);
     headers.delete("content-length");
     if (input) headers.set("content-type", "application/json");
-    const internal = new Request(new URL(path, request.url), { method, headers, ...(input ? { body: JSON.stringify(input) } : {}) });
+    const frozenInput = method === "POST" && path === "/api/runs" && input
+      ? { ...input, threadKey: resolved.agentName, orgId: principal.orgId }
+      : input;
+    const internal = new Request(new URL(path, request.url), { method, headers, ...(frozenInput ? { body: JSON.stringify(frozenInput) } : {}) });
     await signInternalRequest(internal, env);
     return stub.fetch(internal);
   } };
@@ -155,8 +180,11 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     headers.delete(AGENT_PRINCIPAL_HEADER);
     headers.delete("content-length");
     if (input) headers.set("content-type", "application/json");
+    const frozenInput = method === "POST" && path === "/api/runs" && input
+      ? { ...input, threadKey: resolved.agentName, orgId: principal.orgId }
+      : input;
     const internal = new Request(new URL(path, request.url), {
-      method, headers, ...(input ? { body: JSON.stringify(input) } : {}),
+      method, headers, ...(frozenInput ? { body: JSON.stringify(frozenInput) } : {}),
     });
     await signInternalRequest(internal, env);
     return stub.fetch(internal);
@@ -255,7 +283,7 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     }
   }
   const input: Record<string, unknown> = { repoUrl, task };
-  for (const key of ["baseBranch", "publishPullRequest", "harness", "codingModel", "reasoningEffort", "runSetup", "role", "reviewAfterPublish"]) {
+  for (const key of ["baseBranch", "publishPullRequest", "harness", "codingModel", "reasoningEffort", "runSetup", "role", "reviewAfterPublish", "customAgentId", "expectedDeliverables"]) {
     if (body[key] !== undefined) input[key] = body[key];
   }
   if (requestId) {

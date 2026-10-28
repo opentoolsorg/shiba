@@ -524,7 +524,7 @@ function SandboxOrgSettingsSection({
   return (
     <SectionShell
       title="Sandbox provider"
-      description="Org-default sandbox backend (task → custom agent → org → deployment). Capability matrix is computed from each registered provider — including ComputeSDK and custom adapters."
+      description="Org-default sandbox backend (task → bot → org → deployment). Capability matrix is computed from each registered provider — including ComputeSDK and custom adapters."
     >
       {loading ? (
         <div role="status" aria-busy="true" aria-label="Loading sandbox settings">
@@ -603,7 +603,7 @@ function SandboxOrgSettingsSection({
               </table>
             </div>
           </Card>
-          <ViewLink view="custom-agents" label="Custom agents" onNavigate={onNavigate} />
+          <ViewLink view="custom-agents" label="Bots" onNavigate={onNavigate} />
         </>
       )}
     </SectionShell>

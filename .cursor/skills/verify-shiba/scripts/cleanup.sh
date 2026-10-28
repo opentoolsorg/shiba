@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
-VERIFY_DIR="$ROOT/.verify"
+VERIFY_DIR=${VERIFY_DIR:-$ROOT/.verify}
 kill_session() {
   local pid=$1
   [ -n "$pid" ] || return 0
@@ -13,12 +13,8 @@ kill_session() {
   done
   kill -9 -- "-$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
 }
-PORT=$(cat "$VERIFY_DIR/port" 2>/dev/null || echo 8788)
-if command -v fuser >/dev/null 2>&1; then
-  fuser -k "${PORT}/tcp" 2>/dev/null || true
-elif command -v lsof >/dev/null 2>&1; then
-  lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | xargs -r kill 2>/dev/null || true
-fi
+# A listener on the recorded port can belong to another invocation after a
+# restart. Only stop process groups explicitly recorded by this launch.
 if [ -f "$VERIFY_DIR/wrangler.pid" ]; then
   kill_session "$(cat "$VERIFY_DIR/wrangler.pid")"
   rm -f "$VERIFY_DIR/wrangler.pid"

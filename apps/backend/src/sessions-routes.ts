@@ -4,7 +4,10 @@
  * Extracted from index.ts.
  */
 import { getAgentByName } from "agents/routing";
+import { getCustomAgentById } from "./custom-agents-store.js";
 import type { Env } from "./env.js";
+import { resolveHarness } from "./harness/index.js";
+import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { redactSecrets } from "./security.js";
 import {
@@ -17,6 +20,39 @@ import {
   sanitizeSessionMetadata,
   type WebSessionRecord,
 } from "./web-sessions.js";
+
+/** Bot associations are references, not arbitrary user-supplied session labels. */
+async function validateThreadAgent(
+  metadata: Record<string, unknown> | undefined,
+  env: Env,
+): Promise<Response | null> {
+  if (!metadata || !Object.hasOwn(metadata, "customAgentId")) return null;
+  const id = metadata.customAgentId;
+  if (typeof id !== "string" || !id || id !== id.trim()) {
+    return Response.json({ error: "Invalid bot id." }, { status: 400 });
+  }
+  if (!env.AGENT_AUDIT) {
+    return Response.json({ error: "Bot registry is not configured." }, { status: 503 });
+  }
+  try {
+    // Web sessions are dashboard-owned. Resolve in the same dashboard org as
+    // CustomAgentsView rather than accepting an org from metadata or headers.
+    const agent = await getCustomAgentById(env, DASHBOARD_ORG_ID, id);
+    if (!agent) {
+      return Response.json({ error: "Bot not found." }, { status: 404 });
+    }
+    try {
+      if (typeof agent.config.harness !== "string" || !agent.config.harness.trim()) throw new Error();
+      resolveHarness(agent.config.harness, env);
+    } catch {
+      return Response.json({ error: "Bot harness is unavailable." }, { status: 409 });
+    }
+    return null;
+  } catch (error) {
+    console.error("Failed to validate thread agent:", redactSecrets(String(error)));
+    return Response.json({ error: "Bot registry is unavailable." }, { status: 503 });
+  }
+}
 
 /**
  * Safe per-user web-session listing, creation, inspection, and resume API (T30/T32).
@@ -79,6 +115,8 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           );
         }
       }
+      const invalidAgent = await validateThreadAgent(opts.metadata as Record<string, unknown> | undefined, env);
+      if (invalidAgent) return invalidAgent;
       let session: WebSessionRecord;
       try {
         session = createWebSession(userId, opts as { name?: string; metadata?: Record<string, unknown> });
@@ -225,6 +263,8 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           );
         }
       }
+      const invalidAgent = await validateThreadAgent(patch.metadata as Record<string, unknown> | undefined, env);
+      if (invalidAgent) return invalidAgent;
       try {
         const response = await stub.fetch(
           `https://internal/internal/web-sessions/${encodeURIComponent(sessionId)}`,

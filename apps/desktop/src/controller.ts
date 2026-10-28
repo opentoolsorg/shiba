@@ -54,6 +54,9 @@ export function createController(deps: ControllerDeps) {
   let restartTimer: ReturnType<typeof setTimeout> | undefined;
   let reprobeTimer: ReturnType<typeof setTimeout> | undefined;
   let probing = false;
+  let probeGeneration = 0;
+  let probeAgain = false;
+  let disposed = false;
   let retry = false;
   let lastIdle: DesktopStatus = { state: "idle" };
   // §3.4: "offline" needs 2 consecutive heartbeat {ok:false}; any other
@@ -125,6 +128,13 @@ export function createController(deps: ControllerDeps) {
   }
 
   async function stop(): Promise<void> {
+    // A delayed cookie probe must not restart a daemon after the user stops
+    // or replaces its deployment while the request is still in flight.
+    probeGeneration += 1;
+    probeAgain = false;
+    retry = false;
+    clearT(reprobeTimer);
+    reprobeTimer = undefined;
     clearT(restartTimer);
     const current = child;
     if (!current) return;
@@ -162,8 +172,10 @@ export function createController(deps: ControllerDeps) {
   }
 
   async function probe(): Promise<DesktopStatus> {
-    if (probing) return status;
+    if (disposed) return status;
+    if (probing) { probeAgain = true; return status; }
     probing = true;
+    const generation = probeGeneration;
     try {
       const origin = deps.getOrigin();
       if (!origin) { set({ state: "signed-out" }); return status; }
@@ -173,6 +185,8 @@ export function createController(deps: ControllerDeps) {
       } catch {
         code = 0;
       }
+      if (disposed || generation !== probeGeneration) return status;
+      if (origin !== deps.getOrigin()) { probeAgain = true; return status; }
       retry = code === 405 || code >= 500;
       if (retry) {
         // 405/5xx are outside §3.4: keep the current state and retry in 60s.
@@ -204,7 +218,10 @@ export function createController(deps: ControllerDeps) {
       return status;
     } finally {
       probing = false;
-      scheduleReprobe();
+      if (!disposed && probeAgain) {
+        probeAgain = false;
+        void probe();
+      } else if (!disposed && generation === probeGeneration) scheduleReprobe();
     }
   }
 
@@ -216,7 +233,13 @@ export function createController(deps: ControllerDeps) {
     /** Pairing forks run once; after the first "polling" they are the live daemon. */
     forkForPairing: (args: string[]) => start(args),
     setStatus: set,
-    dispose: () => { clearT(reprobeTimer); clearT(restartTimer); },
+    dispose: () => {
+      disposed = true;
+      probeGeneration += 1;
+      probeAgain = false;
+      clearT(reprobeTimer);
+      clearT(restartTimer);
+    },
   };
 }
 

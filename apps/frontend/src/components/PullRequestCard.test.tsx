@@ -1,14 +1,59 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PullRequestCard } from "./PullRequestCard";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("PullRequestCard", () => {
+  const pull = { url: "https://github.com/o/r/pull/1", state: "open", title: "Scoped pull request", checks: [] };
+
+  it.each([undefined, "default", "session/a&b"])("routes PR status and merge approval in session %s", async (sessionId) => {
+    const request = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST"
+      ? Response.json({ ok: true }) : Response.json({ pullRequestStatus: pull }));
+    vi.stubGlobal("fetch", request);
+    render(<PullRequestCard threadId="run:1" sessionId={sessionId} />);
+    await screen.findByRole("link", { name: "Scoped pull request" });
+    const query = sessionId === "session/a&b" ? "?session=session%2Fa%26b" : "";
+    expect(request).toHaveBeenCalledWith(`/api/v1/threads/run%3A1/pr/status${query}`);
+    fireEvent.click(screen.getByRole("button", { name: "Request merge (approval-gated)" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(`/api/v1/threads/run%3A1/pr/merge${query}`,
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ mergeMethod: "squash" }) })));
+  });
+
+  it("discards an old session's pull request response", async () => {
+    let finishOld!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishOld = resolve; }))
+      .mockImplementation(async () => Response.json({ pullRequestStatus: { ...pull, title: "Current PR" } })));
+    const { rerender } = render(<PullRequestCard threadId="run-1" sessionId="old" />);
+    rerender(<PullRequestCard threadId="run-1" sessionId="new" />);
+    await screen.findByRole("link", { name: "Current PR" });
+    await act(async () => { finishOld(Response.json({ pullRequestStatus: { ...pull, title: "Old private PR" } })); });
+    expect(screen.queryByRole("link", { name: "Old private PR" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Current PR" })).toBeTruthy();
+  });
+
+  it("does not apply a late merge error to another session", async () => {
+    let finishMerge!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return new Promise<Response>((resolve) => { finishMerge = resolve; });
+      return Response.json({ pullRequestStatus: { ...pull, title: url.includes("session=new") ? "Current PR" : "Old PR" } });
+    }));
+    const { rerender } = render(<PullRequestCard threadId="run-1" sessionId="old" />);
+    await screen.findByRole("link", { name: "Old PR" });
+    fireEvent.click(screen.getByRole("button", { name: "Request merge (approval-gated)" }));
+    rerender(<PullRequestCard threadId="run-1" sessionId="new" />);
+    await screen.findByRole("link", { name: "Current PR" });
+    await act(async () => { finishMerge(Response.json({ error: "Old merge failure" }, { status: 503 })); });
+    expect(screen.queryByText(/Old merge failure/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Current PR" })).toBeTruthy();
+  });
+
   it("shows loading then a linked PR", async () => {
     vi.stubGlobal(
       "fetch",

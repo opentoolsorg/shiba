@@ -14,11 +14,11 @@ const routing = {
   onReasoningEffortChange: vi.fn(),
 };
 
-function renderComposer(variant: "hero" | "docked", overrides?: Partial<TaskComposerProps>) {
+function renderComposer(variant: "hero" | "docked", overrides: Partial<TaskComposerProps> = {}) {
   render(
     <TaskComposer
-      repoUrl=""
-      task=""
+      repoUrl={overrides.repoUrl ?? ""}
+      task={overrides.task ?? ""}
       baseBranch="main"
       publishPullRequest={false}
       harness="opencode"
@@ -259,5 +259,17 @@ describe("TaskComposer", () => {
         delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
       }
     });
+  });
+
+  it("shows an unavailable saved bot and prevents a silent fallback to the standard agent", () => {
+    renderComposer("docked", { customAgentId: "deleted-bot", repoUrl: "https://github.com/example/a", task: "Fix login" });
+    expect(screen.getByRole("status").textContent).toContain("Bot unavailable");
+    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("distinguishes a loading bot from a deleted bot", () => {
+    renderComposer("docked", { customAgentId: "pending-bot", customAgentsLoading: true });
+    expect(screen.getByRole("status").textContent).toContain("Loading bot");
+    expect(screen.queryByText(/Bot unavailable/)).toBeNull();
   });
 });

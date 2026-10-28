@@ -3,10 +3,20 @@ on:
   pull_request:
     paths:
       - apps/desktop/**
+      - apps/frontend/**
+      - apps/backend/**
       - scripts/shiba-local-daemon.mjs
       - scripts/link-operator-auth.mjs
-      - packages/shared/src/desktop-bridge.ts
+      - packages/shared/**
+      - scripts/agent-harness.mjs
+      - scripts/local-deliverables.mjs
+      - .cursor/skills/verify-shiba/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - patches/**
       - .github/workflows/desktop.yml
+  workflow_dispatch:
   push:
     tags:
       - desktop-v*
@@ -14,8 +24,9 @@ permissions:
   contents: read
 jobs:
   desktop-pr:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/desktop-v')
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -30,6 +41,29 @@ jobs:
       # Electron smoke (T65/T66). The script builds dist/, downloads the Electron
       # binary once, then runs one e2e file at a time. macOS runners have a display.
       - run: pnpm --filter @shiba/desktop test:e2e
+      - name: Build the real dashboard and local Worker assets
+        run: pnpm build
+      - name: Install browser for the shared dashboard checks
+        run: |
+          npm install --prefix .cursor/skills/verify-shiba --no-save --package-lock=false
+          npx --prefix .cursor/skills/verify-shiba playwright install chromium
+      - name: Verify the configured agent lifecycle in Electron
+        env:
+          VERIFY_GITHUB: mock
+          VERIFY_FEATURE: core-loop-mock
+          VERIFY_ENABLE_CONTAINERS: 0
+          VERIFY_USE_RUNS_API: 1
+          VERIFY_SKIP_INSTALL: 1
+          VERIFY_SKIP_BUILD: 1
+          VERIFY_AGENT_THREADS: 1
+          VERIFY_AGENT_LIFECYCLE: 1
+          VERIFY_DESKTOP: 1
+        run: bash .cursor/skills/verify-shiba/scripts/run-ci.sh
+      - name: Verify Marketing deliverables in Electron with a fresh local Worker
+        env:
+          CI: true
+          VERIFY_DESKTOP: 1
+        run: node .cursor/skills/verify-shiba/scripts/run-employee-ci.mjs
       # Unsigned build: signing secrets are never present on PRs.
       # dist/ is gitignored — compile main.js before packaging (REVIEW3 F4).
       - run: pnpm --filter @shiba/desktop build
@@ -37,12 +71,24 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
         with:
           name: shiba-desktop-unsigned
-          path: apps/desktop/release/*.dmg
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            .verify/desktop-agent-lifecycle/**
+            .verify/desktop-shell/**
+            .verify/local-daemon-e2e/ui-employee-desktop/**
+            .verify/employee-ci-*/worker.log
+            .verify/employee-ci-*/migrate.log
+            .verify/employee-ci-*/result.json
+            .verify/evidence/**
           if-no-files-found: warn
+          retention-days: 14
   desktop-release:
     if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: desktop-pr
     runs-on: macos-latest
     permissions:
       contents: write

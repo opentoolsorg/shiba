@@ -3,10 +3,18 @@
   "info": {
     "title": "Shiba public API",
     "version": "1.0.0",
-    "description": "Self-hosted /api/v1 surface aligned with Capy resource names where practical. Authentication uses org-scoped API keys (Bearer shk_…) minted in the dashboard."
+    "description": "Self-hosted /api/v1 surface aligned with Capy resource names where practical. Authentication uses org-scoped API keys (Bearer shk_\u2026) minted in the dashboard."
   },
-  "servers": [{ "url": "/api/v1" }],
-  "security": [{ "bearerAuth": [] }],
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "components": {
     "securitySchemes": {
       "bearerAuth": {
@@ -18,74 +26,796 @@
     "schemas": {
       "AdmitReceipt": {
         "type": "object",
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "deduped": { "type": "boolean" },
-          "approvalId": { "type": "string" },
-          "status": { "type": "string", "enum": ["queued"] }
+          "id": {
+            "type": "string"
+          },
+          "deduped": {
+            "type": "boolean"
+          },
+          "approvalId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued"
+            ]
+          }
         }
       },
       "CreateThreadRequest": {
         "type": "object",
-        "required": ["requestId"],
+        "required": [
+          "requestId"
+        ],
         "properties": {
-          "requestId": { "type": "string", "maxLength": 191 },
-          "projectId": { "type": "string", "description": "Repository URL in self-hosted shiba." },
-          "repoUrl": { "type": "string" },
-          "message": { "type": "string" },
-          "task": { "type": "string" },
-          "publishPullRequest": { "type": "boolean" }
+          "requestId": {
+            "type": "string",
+            "maxLength": 191
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Repository URL in self-hosted shiba."
+          },
+          "repoUrl": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "publishPullRequest": {
+            "type": "boolean"
+          },
+          "customAgentId": {
+            "type": "string",
+            "description": "Select an available org-scoped bot profile; effective instructions, route, version and expected outputs freeze into the human approval."
+          },
+          "expectedDeliverables": {
+            "$ref": "#/components/schemas/ExpectedDeliverables"
+          }
         }
       },
       "SendMessageRequest": {
         "type": "object",
-        "required": ["text"],
+        "required": [
+          "text"
+        ],
         "properties": {
-          "text": { "type": "string" },
-          "delivery": { "type": "string", "enum": ["queue", "steer", "interrupt"] },
-          "clientKey": { "type": "string", "maxLength": 64 }
+          "text": {
+            "type": "string"
+          },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "queue",
+              "steer",
+              "interrupt"
+            ]
+          },
+          "clientKey": {
+            "type": "string",
+            "maxLength": 64
+          }
+        }
+      },
+      "ExpectedDeliverables": {
+        "type": "array",
+        "maxItems": 8,
+        "uniqueItems": true,
+        "description": "Optional approval-frozen workspace output paths, in delivery order. Paths are unique ignoring case; relative, non-hidden ASCII segments only (letters/digits, dot, underscore, hyphen, internal spaces), no empty/dot/parent/absolute segments or leading/trailing spaces. Only md/txt/json/csv. Requested complete UTF-8 nonempty files are capped at 16384 bytes each and 65536 bytes total; JSON must parse. Collection checks do not assess semantic quality.",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "pattern": "^(?!.* (?:/|$))(?:[A-Za-z0-9][A-Za-z0-9._ -]*/)*[A-Za-z0-9][A-Za-z0-9._ -]*\\.(?:[mM][dD]|[tT][xX][tT]|[jJ][sS][oO][nN]|[cC][sS][vV])$"
+        }
+      },
+      "RunDeliverable": {
+        "type": "object",
+        "required": [
+          "path",
+          "mediaType",
+          "bytes",
+          "sha256"
+        ],
+        "description": "Metadata for a captured requested workspace file. Bodies and private storage keys are never returned in ordinary thread/run reads. Downloads use the authenticated dashboard run endpoint, not a public v1 endpoint.",
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 240
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16384
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "Thread": {
+        "type": "object",
+        "required": [
+          "threadId",
+          "repoUrl",
+          "title",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "threadId": {
+            "type": "string"
+          },
+          "repoUrl": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "lane": {
+            "type": "string"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "number"
+          },
+          "pullUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expectedDeliverables": {
+            "$ref": "#/components/schemas/ExpectedDeliverables"
+          },
+          "deliverables": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/RunDeliverable"
+            }
+          }
+        }
+      },
+      "CustomAgentConfig": {
+        "type": "object",
+        "required": [
+          "name",
+          "instructions",
+          "harness"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "emoji": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "instructions": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32000
+          },
+          "harness": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "codingModel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "connectionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "sandboxProvider": {
+            "type": "string",
+            "enum": [
+              "cloudflare",
+              "docker-local",
+              "computesdk",
+              "e2b"
+            ]
+          },
+          "defaultRepoUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "expectedDeliverables": {
+            "$ref": "#/components/schemas/ExpectedDeliverables"
+          },
+          "approvalPolicy": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "auto_approve"
+            ],
+            "description": "Legacy auto_approve configuration does not bypass human run approval."
+          },
+          "toolScopes": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": "Legacy values are readable; create/update reject nonempty scopes until execution enforces them."
+          }
+        }
+      },
+      "CustomAgent": {
+        "type": "object",
+        "required": [
+          "id",
+          "orgId",
+          "slug",
+          "version",
+          "config",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "config": {
+            "$ref": "#/components/schemas/CustomAgentConfig"
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "number"
+          },
+          "archivedAt": {
+            "type": "number"
+          }
+        }
+      },
+      "CreateCustomAgentRequest": {
+        "type": "object",
+        "required": [
+          "slug",
+          "config"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "config": {
+            "$ref": "#/components/schemas/CustomAgentConfig"
+          }
+        }
+      },
+      "UpdateCustomAgentRequest": {
+        "type": "object",
+        "required": [
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/CustomAgentConfig"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
         }
       }
     }
   },
   "paths": {
     "/threads": {
-      "get": { "summary": "List threads", "responses": { "200": { "description": "Thread list" } } },
+      "get": {
+        "summary": "List threads",
+        "responses": {
+          "200": {
+            "description": "Thread list with requested-output metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "threads": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Thread"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "summary": "Create thread (idempotent requestId)",
         "requestBody": {
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateThreadRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateThreadRequest"
+              }
+            }
+          }
         },
-        "responses": { "200": { "description": "Thread or approval receipt" } }
+        "responses": {
+          "200": {
+            "description": "Thread or approval receipt"
+          },
+          "501": {
+            "description": "Tenant runtime unavailable for org API keys"
+          }
+        },
+        "description": "Creates an approval pointer; execution still requires human approval. Org API-key runtime calls return 501 until tenant runtime routing is configured."
       }
     },
     "/threads/{threadId}/message": {
       "post": {
         "summary": "Send message",
         "requestBody": {
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SendMessageRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          }
         },
-        "responses": { "200": { "description": "AdmitReceipt" } }
+        "responses": {
+          "200": {
+            "description": "AdmitReceipt"
+          }
+        }
       }
     },
     "/threads/{threadId}/interrupt": {
-      "post": { "summary": "Interrupt active run (legacy alias)", "responses": { "200": { "description": "Cancelled thread" } } }
+      "post": {
+        "summary": "Interrupt active run (legacy alias)",
+        "responses": {
+          "200": {
+            "description": "Cancelled thread"
+          }
+        }
+      }
     },
     "/threads/{threadId}/stream": {
-      "get": { "summary": "SSE stream for thread events", "responses": { "200": { "description": "text/event-stream" } } }
+      "get": {
+        "summary": "SSE stream for thread events",
+        "responses": {
+          "200": {
+            "description": "text/event-stream"
+          }
+        }
+      }
     },
     "/threads/{threadId}/subagents": {
-      "get": { "summary": "List subagents (read-only; empty until subagent tree ships)", "responses": { "200": { "description": "Subagent page" } } }
+      "get": {
+        "summary": "List persisted subagents for a thread (read-only)",
+        "responses": {
+          "200": {
+            "description": "Subagent page with lineage, recorded status, and nullable usage"
+          },
+          "404": {
+            "description": "Thread not found"
+          }
+        }
+      }
     },
     "/subagents/{subagentId}": {
-      "get": { "summary": "Get subagent", "responses": { "404": { "description": "Not available yet" } } }
+      "get": {
+        "summary": "Get a persisted subagent",
+        "responses": {
+          "200": {
+            "description": "Subagent detail with recorded usage in tokens and USD when available"
+          },
+          "404": {
+            "description": "Subagent not found"
+          }
+        }
+      }
+    },
+    "/subagents/{subagentId}/messages": {
+      "get": {
+        "summary": "Get a subagent's stored task and final summary (not a full harness transcript)",
+        "responses": {
+          "200": {
+            "description": "Stored message projection"
+          },
+          "404": {
+            "description": "Subagent not found"
+          }
+        }
+      }
     },
     "/events/stream": {
-      "get": { "summary": "Org event stream (SSE)", "responses": { "200": { "description": "text/event-stream" } } }
+      "get": {
+        "summary": "Org event stream (SSE)",
+        "responses": {
+          "200": {
+            "description": "text/event-stream"
+          }
+        }
+      }
     },
     "/openapi.json": {
-      "get": { "summary": "This document", "security": [], "responses": { "200": { "description": "OpenAPI JSON" } } }
+      "get": {
+        "summary": "This document",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OpenAPI JSON"
+          }
+        }
+      }
+    },
+    "/threads/{threadId}": {
+      "get": {
+        "summary": "Read thread and captured deliverable metadata",
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thread detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "thread": {
+                      "$ref": "#/components/schemas/Thread"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/org-agents": {
+      "get": {
+        "summary": "List org-scoped bot profiles",
+        "parameters": [
+          {
+            "name": "archived",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bot profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "agents": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CustomAgent"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create an org-scoped bot profile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomAgentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Versioned bot profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "agent": {
+                      "$ref": "#/components/schemas/CustomAgent"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid configuration or unsupported tool scopes"
+          }
+        }
+      }
+    },
+    "/org-agents/{agentId}": {
+      "get": {
+        "summary": "Read a bot profile, including archived history",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versioned bot profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "agent": {
+                      "$ref": "#/components/schemas/CustomAgent"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bot not found"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update a bot profile configuration and version",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomAgentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Versioned bot profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "agent": {
+                      "$ref": "#/components/schemas/CustomAgent"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid configuration or unsupported tool scopes"
+          },
+          "409": {
+            "description": "Version conflict"
+          }
+        }
+      }
+    },
+    "/threads/{threadId}/runs": {
+      "get": {
+        "summary": "Read runs with captured deliverable metadata",
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run projection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "runs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "threadId": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "expectedDeliverables": {
+                            "$ref": "#/components/schemas/ExpectedDeliverables"
+                          },
+                          "deliverables": {
+                            "type": "array",
+                            "maxItems": 8,
+                            "items": {
+                              "$ref": "#/components/schemas/RunDeliverable"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/threads/{threadId}/run-state": {
+      "get": {
+        "summary": "Read run-state with captured deliverable metadata",
+        "parameters": [
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run projection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "run": {
+                      "type": "object",
+                      "properties": {
+                        "runId": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "expectedDeliverables": {
+                          "$ref": "#/components/schemas/ExpectedDeliverables"
+                        },
+                        "deliverables": {
+                          "type": "array",
+                          "maxItems": 8,
+                          "items": {
+                            "$ref": "#/components/schemas/RunDeliverable"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

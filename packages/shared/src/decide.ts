@@ -39,6 +39,10 @@ export interface QueuedRunInput {
   reviewOf?: string;
   reviewRoundId?: string;
   queuedBy?: string;
+  orgId?: string;
+  sandboxProvider?: string;
+  customAgentId?: string;
+  customAgentVersion?: number;
   route?: ApprovedRoute;
   /**
    * T48: this run's harness continuation identity (e.g. `claude:home:<dir>`).
@@ -60,6 +64,8 @@ export interface QueuedRunInput {
   targetMachineId?: string;
   /** The test command — part of the approval-hashed input. */
   testCommand?: string[];
+  /** Exact workspace outputs required by this approval. */
+  expectedDeliverables?: string[];
   /** Run-fork lineage — part of the approval-hashed input. */
   forkedFrom?: ForkLineage;
   /** Phase 2b subagent lineage — part of the approval-hashed input. */
@@ -155,6 +161,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
       ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
       ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
+      ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
       ...(run.forkedFrom !== undefined ? { forkedFrom: run.forkedFrom } : {}),
       ...(run.parentRunId !== undefined ? { parentRunId: run.parentRunId } : {}),
       ...(run.subagentPath !== undefined ? { subagentPath: run.subagentPath } : {}),
@@ -164,6 +171,9 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.envNames !== undefined ? { envNames: run.envNames } : {}),
       ...(run.envDigest !== undefined ? { envDigest: run.envDigest } : {}),
       ...(run.runSetup === true ? { runSetup: true } : {}),
+      ...(run.sandboxProvider !== undefined ? { sandboxProvider: run.sandboxProvider } : {}),
+      ...(run.customAgentId !== undefined ? { customAgentId: run.customAgentId } : {}),
+      ...(run.customAgentVersion !== undefined ? { customAgentVersion: run.customAgentVersion } : {}),
     })
   );
 }
@@ -213,12 +223,17 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.reviewOf !== undefined ? { reviewOf: command.input.reviewOf } : {}),
           ...(command.input.reviewRoundId !== undefined ? { reviewRoundId: command.input.reviewRoundId } : {}),
           ...(command.input.queuedBy !== undefined ? { queuedBy: command.input.queuedBy } : {}),
+          ...(command.input.orgId !== undefined ? { orgId: command.input.orgId } : {}),
+          ...(command.input.sandboxProvider !== undefined ? { sandboxProvider: command.input.sandboxProvider } : {}),
+          ...(command.input.customAgentId !== undefined ? { customAgentId: command.input.customAgentId } : {}),
+          ...(command.input.customAgentVersion !== undefined ? { customAgentVersion: command.input.customAgentVersion } : {}),
           ...(command.input.route !== undefined ? { route: command.input.route } : {}),
           ...(command.input.continuationKey !== undefined ? { continuationKey: command.input.continuationKey } : {}),
           ...(command.input.authAccount !== undefined ? { authAccount: command.input.authAccount } : {}),
           ...(command.input.runtime !== undefined ? { runtime: command.input.runtime } : {}),
           ...(command.input.targetMachineId !== undefined ? { targetMachineId: command.input.targetMachineId } : {}),
           ...(command.input.testCommand !== undefined ? { testCommand: command.input.testCommand } : {}),
+          ...(command.input.expectedDeliverables !== undefined ? { expectedDeliverables: [...command.input.expectedDeliverables] } : {}),
           ...(command.input.forkedFrom !== undefined ? { forkedFrom: command.input.forkedFrom } : {}),
           ...(command.input.parentRunId !== undefined ? { parentRunId: command.input.parentRunId } : {}),
           ...(command.input.subagentPath !== undefined ? { subagentPath: command.input.subagentPath } : {}),
@@ -266,6 +281,10 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.reviewOf === command.input.reviewOf &&
           run.reviewRoundId === command.input.reviewRoundId &&
           run.queuedBy === command.input.queuedBy &&
+          run.orgId === command.input.orgId &&
+          run.sandboxProvider === command.input.sandboxProvider &&
+          run.customAgentId === command.input.customAgentId &&
+          run.customAgentVersion === command.input.customAgentVersion &&
           sameRoute &&
           run.continuationKey === command.input.continuationKey &&
           (command.input.continuesKey === undefined ||
@@ -274,6 +293,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.runtime === command.input.runtime &&
           run.targetMachineId === command.input.targetMachineId &&
           JSON.stringify(run.testCommand ?? []) === JSON.stringify(command.input.testCommand ?? []) &&
+          JSON.stringify(run.expectedDeliverables) === JSON.stringify(command.input.expectedDeliverables) &&
           JSON.stringify(run.forkedFrom ?? null) === JSON.stringify(command.input.forkedFrom ?? null) &&
           run.parentRunId === command.input.parentRunId &&
           run.subagentPath === command.input.subagentPath &&
@@ -443,6 +463,9 @@ function applyPatch(run: DelegatedRun, patch: RunPatch | undefined): void {
   if (patch.error !== undefined) run.error = patch.error;
   if (patch.errorCode !== undefined) run.errorCode = patch.errorCode;
   if (patch.diff !== undefined) run.diff = patch.diff;
+  if (patch.deliverables !== undefined) {
+    run.deliverables = patch.deliverables.map(({ path, mediaType, bytes, sha256 }) => ({ path, mediaType, bytes, sha256 }));
+  }
   if (patch.pullUrl !== undefined) run.pullUrl = patch.pullUrl;
   if (patch.screenshotUrl !== undefined) run.screenshotUrl = patch.screenshotUrl;
   if (patch.browserE2eManifestUrl !== undefined) run.browserE2eManifestUrl = patch.browserE2eManifestUrl;

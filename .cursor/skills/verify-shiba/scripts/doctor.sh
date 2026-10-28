@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
-VERIFY_DIR="$ROOT/.verify"
+VERIFY_DIR=${VERIFY_DIR:-$ROOT/.verify}
 PORT=$(cat "$VERIFY_DIR/port" 2>/dev/null || echo 8788)
 PID=$(cat "$VERIFY_DIR/wrangler.pid" 2>/dev/null || true)
 if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then

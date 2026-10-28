@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { MenuItemConstructorOptions, Rectangle } from "electron";
 import {
   app,
@@ -65,11 +66,12 @@ const SETUP_DIR = app.isPackaged
   ? path.join(process.resourcesPath, "app.asar.unpacked", "dist")
   : __dirname;
 const SETUP_FILE = path.join(SETUP_DIR, "setup.html");
-const SETUP_URL = `file://${SETUP_FILE}`;
+const SETUP_URL = pathToFileURL(SETUP_FILE).href;
 const DIFF_FILE = path.join(SETUP_DIR, "diff.html");
-const DIFF_URL = `file://${DIFF_FILE}`;
+const DIFF_URL = pathToFileURL(DIFF_FILE).href;
 
 let config: DesktopConfig = {};
+let sessionOrigin: string | undefined;
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
 let saveTimer: NodeJS.Timeout | undefined;
@@ -83,6 +85,7 @@ let runRoot = path.join(os.homedir(), ".shiba-local");
 let shutdownStarted = false;
 let diffPatch = "";
 let diffWindow: BrowserWindow | null = null;
+let desktopActions: ReturnType<typeof registerDesktopIpc> | null = null;
 const pendingLinks: string[] = [];
 
 const log = (line: string) => mainLog?.line(line);
@@ -109,6 +112,7 @@ function saveConfig(patch: Partial<DesktopConfig>): void {
 function configuredOrigin(): string {
   return resolveConfiguredOrigin({
     packaged: app.isPackaged,
+    sessionUrl: sessionOrigin,
     envUrl: process.env.SHIBA_DESKTOP_URL,
     forceSetup: !app.isPackaged && process.env.SHIBA_DESKTOP_SETUP === "1",
     savedUrl: config.deploymentUrl,
@@ -400,34 +404,20 @@ function onStatus(status: Parameters<typeof emitStatusChanged>[1]): void {
   if (status.state !== "signed-out" && config.notifications !== false) void poller?.start();
 }
 
-/** Mirrors the desktop:unpair handler for the tray; the renderer path lives in pairing.ts. */
+/** Native actions share pairing's origin checks and single-flight operation. */
 async function disconnectLocal(): Promise<void> {
-  const origin = configuredOrigin();
-  // Fall back to the on-disk config so revoke still runs when the state has
-  // dropped machineId (e.g. "crashed"), unless the config is gone.
-  const machineId = controller?.status().machineId ?? readLocalConfig()?.machineId;
   try {
-    // Stop first: a mid-run daemon settles its claim with the token revoke is about to kill.
-    await controller?.stop();
-    if (machineId && origin) {
-      const res = await sessionFetch(`${origin}/api/computers/revoke`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ machineId }),
+    const result = await desktopActions?.unpair();
+    if (result && !result.ok) {
+      await dialog.showMessageBox({
+        type: "info",
+        message: "Could not disconnect this computer.",
+        detail: result.error,
+        buttons: ["OK"],
       });
-      // A failed revoke leaves the token hash valid until the 7-day prune;
-      // deleting the local config anyway would hide that. Mirror pairing.ts.
-      if (!res.ok) {
-        log(`disconnect: revoke returned ${res.status}; keeping local config`);
-        return;
-      }
     }
-    fs.rmSync(path.join(runRoot, "config.json"), { force: true });
   } catch (error) {
     log(`disconnect failed: ${String(error)}`);
-  } finally {
-    // Also after a failed revoke: config is kept, so the probe restarts the daemon.
-    void controller?.probe();
   }
 }
 
@@ -510,13 +500,14 @@ const supervisorFacade: DesktopSupervisor = {
 };
 
 function registerIpc(): void {
-  registerDesktopIpc({
+  desktopActions = registerDesktopIpc({
     ipcMain,
     isTrustedSender,
     isSetupSender: (frameUrl) => isSetupSender(frameUrl, SETUP_URL),
     parseDeploymentUrl: (input) => parseDeploymentUrl(input, app.isPackaged),
     onSetUrl: (origin) => {
       saveConfig({ deploymentUrl: origin });
+      sessionOrigin = origin;
       recreateWindow();
       buildPoller();
       // probe only after stop settles, or it sees the dying child and never restarts.
