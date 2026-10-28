@@ -108,6 +108,19 @@ function runningRun(over: Partial<DelegatedRun> = {}): DelegatedRun {
   return { ...started, ...over };
 }
 
+describe("captured deliverable event folding", () => {
+  it("persists cloned bounded metadata without private bodies or storage keys", () => {
+    const metadata = { path: "deliverables/report.md", mediaType: "text/markdown", bytes: 7, sha256: "a".repeat(64) };
+    const artifact = { ...metadata, content: "private body", storageKey: "private key" };
+    const completed = applyRunEvents(runningRun(), [{ type: "run.completed", commandId: "finish-artifacts", at: 3_000, patch: { deliverables: [artifact] } }], make)!;
+    expect(completed.deliverables).toEqual([metadata]);
+    artifact.path = "changed.md";
+    expect(completed.deliverables?.[0]?.path).toBe(metadata.path);
+    expect(completed.deliverables?.[0]).not.toHaveProperty("content");
+    expect(completed.deliverables?.[0]).not.toHaveProperty("storageKey");
+  });
+});
+
 describe("decideRunTransition — queue", () => {
   it("queues a fresh run as pending with the init receipt", () => {
     const { run, events } = apply(null, queue());

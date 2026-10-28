@@ -271,6 +271,7 @@ test("pair, stream a harness approval, render the diff, and open a pull request"
   const runRoot = mkdtempSync(path.join(tmpdir(), "shiba-harness-root-"));
   userDataDirs.push(userData, runRoot);
   const app: ElectronApplication = await electron.launch({
+    chromiumSandbox: true,
     args: ["dist/main.js", `--user-data-dir=${userData}`],
     env: {
       ...(process.env as Record<string, string>),

@@ -36,3 +36,9 @@ bash "$SCRIPT_DIR/launch.sh"
 bash "$SCRIPT_DIR/doctor.sh"
 node "$SCRIPT_DIR/drive.mjs" --feature "$FEATURE"
 node "$SCRIPT_DIR/assert-journey.mjs"
+if [ "${VERIFY_AGENT_THREADS:-0}" = 1 ]; then
+  VERIFY_APP_URL="http://127.0.0.1:$PORT" node "$SCRIPT_DIR/drive-agent-threads.mjs"
+fi
+if [ "${VERIFY_AGENT_LIFECYCLE:-0}" = 1 ]; then
+  VERIFY_AGENT_LIFECYCLE_MOCK=1 VERIFY_APP_URL="http://127.0.0.1:$PORT" node "$SCRIPT_DIR/drive-agent-lifecycle.mjs"
+fi

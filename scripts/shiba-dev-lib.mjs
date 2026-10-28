@@ -15,6 +15,16 @@ export const DEFAULT_PORT = 8788;
 export const DEFAULT_PERSIST = ".shiba/local-state";
 export const CONTAINER_IMAGE_TAG = "shiba-ai-coworker-sandbox:local";
 
+/** Preserve the parent environment when a local service overrides individual variables. */
+export function localDevProcessOptions(root, options = {}, parentEnv = process.env) {
+  return {
+    cwd: root,
+    stdio: "inherit",
+    ...options,
+    env: { ...parentEnv, ...options.env },
+  };
+}
+
 /** Secrets safe to mint locally; never overwrite a non-empty existing value. */
 export const AUTO_GENERATE_KEYS = [
   "INTERNAL_SIGNING_KEY",
@@ -190,7 +200,7 @@ export function planDevSteps({
     "--local-upstream",
     "localhost",
   ];
-  if (!containers) wranglerArgs.push("--enable-containers=false");
+  if (!containers) wranglerArgs.push("--local", "--enable-containers=false");
   steps.push({
     id: "wrangler-dev",
     cmd: "npx",

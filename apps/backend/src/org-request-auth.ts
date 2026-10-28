@@ -17,8 +17,11 @@ export async function resolveOrgForApiRequest(
   request: Request,
   env: Env,
 ): Promise<ResolvedOrgAuth | Response> {
-  const dashboard = await isAuthorizedRequest(request, env);
-  if (dashboard) return { orgId: DASHBOARD_ORG_ID, principal: null };
+  // An explicit credential must keep its own org and scopes even when an
+  // ambient dashboard session (or loopback development) is also authorized.
+  if (!request.headers.has("authorization") && await isAuthorizedRequest(request, env)) {
+    return { orgId: DASHBOARD_ORG_ID, principal: null };
+  }
   const principal = await authorizeV1Request(request, env);
   if (!principal) return v1Unauthorized();
   return { orgId: principal.orgId, principal };

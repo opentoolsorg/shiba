@@ -148,7 +148,12 @@ export function extractCompletedDiff(run: unknown): string | null {
   if (typeof direct === "string" && direct.trim() !== "") return direct;
   const summary = record["summary"];
   if (typeof summary === "string" && summary.includes("diff --git")) {
-    return summary.slice(summary.indexOf("diff --git"));
+    const patch = summary.slice(summary.indexOf("diff --git"));
+    // Legacy tool summaries append a protocol envelope after the patch.
+    // Only an exact unprefixed marker line is a boundary: added, removed,
+    // and context lines containing the marker are real patch content.
+    const resultMarker = patch.search(/^SHIBA_AI_COWORKER_CODING_RESULT_JSON\r?$/m);
+    return resultMarker >= 0 ? patch.slice(0, resultMarker) : patch;
   }
   return null;
 }

@@ -111,12 +111,13 @@ export function emitStatusChanged(
   webContents?.send(DESKTOP_STATUS_CHANGED_CHANNEL, status);
 }
 
-export function registerDesktopIpc(deps: DesktopIpcDeps): void {
+export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<PairResult> } {
   const trusted = (event: IpcMainInvokeEvent): boolean =>
     deps.isTrustedSender(event.senderFrame?.url, deps.getConfiguredOrigin());
 
   // A second submit would stop() the daemon and kill the in-progress pairing fork.
   const inFlight = new Map<string, Promise<PairResult>>();
+  const connectionChange = "connection-change";
   function singleFlight(channel: string, run: () => Promise<PairResult>): Promise<PairResult> {
     if (inFlight.has(channel)) return Promise.resolve({ ok: false, error: "Pairing already in progress." });
     const pending = run().finally(() => inFlight.delete(channel));
@@ -165,7 +166,7 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): void {
     ) {
       return { ok: false, error: "Invalid pairing token." };
     }
-    return singleFlight(DESKTOP_PAIR_CHANNEL, async () => {
+    return singleFlight(connectionChange, async () => {
       const status = deps.supervisor.status();
       if (status.state === "paired-elsewhere") {
         const confirmed = await deps.confirmPairElsewhere(status.pairedTo);
@@ -182,21 +183,33 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): void {
     });
   });
 
-  deps.ipcMain.handle(DESKTOP_UNPAIR_CHANNEL, async (event): Promise<PairResult> => {
+  async function unpair(): Promise<PairResult> {
     const origin = deps.getConfiguredOrigin();
-    if (!trusted(event)) return { ok: false, error: "Untrusted sender." };
-    return singleFlight(DESKTOP_UNPAIR_CHANNEL, async () => {
+    return singleFlight(connectionChange, async () => {
+      const local = deps.readLocalConfig();
+      const status = deps.supervisor.status();
+      // The current page cannot revoke a machine from another deployment
+      // using this origin's cookies or accidentally discard that pairing.
+      if ((local?.workerUrl && originOf(local.workerUrl) !== origin) || status.state === "paired-elsewhere") {
+        return { ok: false, error: "Switch to the paired Shiba URL before disconnecting this computer." };
+      }
       // conflict/crashed drop machineId from the live status; fall back to the
       // on-disk config so the server-side revoke still runs (REVIEW3 F5).
-      const machineId = deps.supervisor.status().machineId ?? deps.readLocalConfig()?.machineId;
+      const machineId = status.machineId ?? local?.machineId;
       // Stop first: a mid-run daemon settles its claim with the token revoke is about to kill.
       await deps.supervisor.stop();
       if (machineId) {
-        const res = await deps.sessionFetch(`${origin}/api/computers/revoke`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ machineId }),
-        });
+        let res: Response;
+        try {
+          res = await deps.sessionFetch(`${origin}/api/computers/revoke`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ machineId }),
+          });
+        } catch {
+          void deps.supervisor.probe?.();
+          return { ok: false, error: "Could not revoke this computer. Check the connection and retry." };
+        }
         if (!res.ok) {
           // Config is kept, so the probe brings the stopped daemon back.
           void deps.supervisor.probe?.();
@@ -206,6 +219,11 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): void {
       await rm(join(deps.runRoot, "config.json"), { force: true });
       return { ok: true };
     });
+  }
+
+  deps.ipcMain.handle(DESKTOP_UNPAIR_CHANNEL, async (event): Promise<PairResult> => {
+    if (!trusted(event)) return { ok: false, error: "Untrusted sender." };
+    return unpair();
   });
 
   // Accepted only from the bundled setup.html frame, never from a remote origin.
@@ -215,6 +233,9 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): void {
     }
     const origin = typeof url === "string" ? deps.parseDeploymentUrl(url) : null;
     if (!origin) return { ok: false, error: "URL must be https:// (http://localhost only in dev)." };
+    if (inFlight.has(connectionChange)) return { ok: false, error: "Pairing already in progress." };
     return (await deps.onSetUrl?.(origin)) ?? { ok: true };
   });
+  // Native tray actions use the same serialized, origin-bound operation.
+  return { unpair };
 }

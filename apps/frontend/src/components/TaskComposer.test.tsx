@@ -12,11 +12,11 @@ const routing = {
   onConnectionChange: vi.fn(),
 };
 
-function renderComposer(variant: "hero" | "docked") {
+function renderComposer(variant: "hero" | "docked", options: { customAgentId?: string; customAgentsLoading?: boolean; repoUrl?: string; task?: string } = {}) {
   render(
     <TaskComposer
-      repoUrl=""
-      task=""
+      repoUrl={options.repoUrl ?? ""}
+      task={options.task ?? ""}
       baseBranch="main"
       publishPullRequest={false}
       harness="opencode"
@@ -32,6 +32,8 @@ function renderComposer(variant: "hero" | "docked") {
       onSubmit={vi.fn()}
       onClear={vi.fn()}
       variant={variant}
+      customAgentId={options.customAgentId}
+      customAgentsLoading={options.customAgentsLoading}
     />,
   );
 }
@@ -49,5 +51,17 @@ describe("TaskComposer", () => {
   it("docks without the empty-thread heading once a run is going", () => {
     renderComposer("docked");
     expect(screen.queryByRole("heading", { name: "What should Shiba change?" })).toBeNull();
+  });
+
+  it("shows an unavailable saved bot and prevents a silent fallback to the standard agent", () => {
+    renderComposer("docked", { customAgentId: "deleted-bot", repoUrl: "https://github.com/example/a", task: "Fix login" });
+    expect(screen.getByRole("status").textContent).toContain("Bot unavailable");
+    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("distinguishes a loading bot from a deleted bot", () => {
+    renderComposer("docked", { customAgentId: "pending-bot", customAgentsLoading: true });
+    expect(screen.getByRole("status").textContent).toContain("Loading bot");
+    expect(screen.queryByText(/Bot unavailable/)).toBeNull();
   });
 });

@@ -23,6 +23,8 @@ export type Thread = {
   pullUrl?: string | null;
   summary?: string | null;
   error?: string | null;
+  expectedDeliverables?: components["schemas"]["ExpectedDeliverables"];
+  deliverables?: components["schemas"]["RunDeliverable"][];
 };
 
 export type PublicStreamEvent = {

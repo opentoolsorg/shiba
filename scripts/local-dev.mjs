@@ -11,6 +11,7 @@ import {
   DEFAULT_PORT,
   DEV_VARS_PATH,
   ensureDevVars,
+  localDevProcessOptions,
   parseDevVars,
   planDevSteps,
   WRANGLER_CONFIG,
@@ -23,11 +24,10 @@ const persistAbs = resolve(ROOT, process.env.SHIBA_PERSIST_TO ?? DEFAULT_PERSIST
 const children = [];
 
 function run(cmd, args, label, opts = {}) {
-  const child = spawn(cmd, args, {
-    cwd: ROOT,
-    stdio: "inherit",
-    env: { ...process.env, ...opts.env },
-    ...opts,
+  const child = spawn(cmd, args, localDevProcessOptions(ROOT, opts));
+  child.on("error", (error) => {
+    console.error(`[local-dev] ${label} failed to start: ${error.message}`);
+    shutdown(1);
   });
   child.on("exit", (code, signal) => {
     if (signal) return;
@@ -54,7 +54,7 @@ ensureDevVars({ root: ROOT });
 const devVars = parseDevVars(readFileSync(resolve(ROOT, DEV_VARS_PATH), "utf8"));
 const loopbackSecret = devVars.get("SHIBA_DEV_OAUTH_LOOPBACK_SECRET")?.trim() ?? "";
 
-spawnSync(
+const migration = spawnSync(
   "npx",
   [
     "wrangler",
@@ -68,6 +68,10 @@ spawnSync(
   ],
   { cwd: ROOT, stdio: "inherit", env: { ...process.env, CI: "1" } },
 );
+if (migration.error || migration.status !== 0) {
+  console.error(`[local-dev] local D1 migration failed${migration.error ? `: ${migration.error.message}` : ""}`);
+  process.exit(migration.status ?? 1);
+}
 
 run("node", ["scripts/oauth-loopback.mjs"], "oauth-loopback", {
   env: {

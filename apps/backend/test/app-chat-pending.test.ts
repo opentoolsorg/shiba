@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadThreadMessages } from "../../frontend/src/agent-threads";
 
 // Regression guard for the one-shot 403 on
 // /agents/coding-orchestrator/identity-pending/get-messages.
@@ -30,8 +31,18 @@ describe("app chat initial-message prefetch", () => {
     );
   });
 
-  it("gates the prefetch on the name the request would actually hit", () => {
-    expect(appSource).toMatch(/name !== orchestratorName/);
-    expect(appSource).toContain("get-messages");
+  it("blocks a stale placeholder but loads the active named session history", async () => {
+    const messages = [{ id: "persisted-message", role: "user", parts: [] }];
+    const request = vi.fn().mockResolvedValue(Response.json(messages));
+    vi.stubGlobal("fetch", request);
+    try {
+      const active = { current: "web:owner:named-session" };
+      expect(await loadThreadMessages("identity-pending", "http://worker/pending", active)).toEqual([]);
+      expect(request).not.toHaveBeenCalled();
+      expect(await loadThreadMessages(active.current, "http://worker/named", active)).toEqual(messages);
+      expect(request).toHaveBeenCalledExactlyOnceWith("http://worker/named/get-messages", { credentials: "include" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

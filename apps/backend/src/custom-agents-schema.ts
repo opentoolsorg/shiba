@@ -2,6 +2,7 @@ import { Result, Schema } from "effect";
 import {
   CUSTOM_AGENT_APPROVAL_POLICIES,
   CUSTOM_AGENT_SANDBOX_PROVIDERS,
+  expectedDeliverablesSchema,
   type CustomAgentConfig,
 } from "@shiba/shared";
 
@@ -11,6 +12,9 @@ export const CustomAgentConfigSchema = Schema.Struct({
   name: Bounded(120),
   emoji: Schema.optional(Bounded(16)),
   instructions: Bounded(32_000),
+  expectedDeliverables: Schema.optional(Schema.Array(Bounded(240)).check(
+    Schema.makeFilter((paths) => expectedDeliverablesSchema.safeParse(paths).success || "Invalid expected deliverable paths."),
+  )),
   harness: Bounded(64),
   codingModel: Schema.optional(Bounded(200)),
   connectionId: Schema.optional(Bounded(120)),
@@ -27,7 +31,9 @@ export const CreateCustomAgentSchema = Schema.Struct({
 
 export const UpdateCustomAgentSchema = Schema.Struct({
   config: CustomAgentConfigSchema,
-  expectedVersion: Schema.optional(Schema.Number),
+  expectedVersion: Schema.optional(Schema.Number.check(
+    Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER),
+  )),
 });
 
 export type CreateCustomAgentInput = Schema.Schema.Type<typeof CreateCustomAgentSchema>;

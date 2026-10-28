@@ -5,7 +5,7 @@ import type { VMRun } from "../types";
 import { DiffView } from "./DiffView";
 
 vi.mock("./ReviewFindings", () => ({
-  ReviewFindings: ({ threadId }: { threadId: string }) => createElement("section", { "data-review-thread": threadId }, "Findings"),
+  ReviewFindings: ({ threadId, sessionId }: { threadId: string; sessionId?: string }) => createElement("section", { "data-review-thread": threadId, "data-review-session": sessionId }, "Findings"),
 }));
 
 describe("run-specific review findings", () => {
@@ -15,8 +15,9 @@ describe("run-specific review findings", () => {
       createdAt: 1, updatedAt: 1, diff: "", changedFiles: [],
       sandboxId: "test", baseBranch: "main", publishPullRequest: true,
     })) as VMRun[];
-    const html = renderToStaticMarkup(createElement(DiffView, { runs, selectedRunId: "agent-tool:mine" }));
+    const html = renderToStaticMarkup(createElement(DiffView, { runs, selectedRunId: "agent-tool:mine", sessionId: "named-session" }));
     expect(html).toContain('data-review-thread="agent-tool:mine"');
     expect(html).not.toContain('data-review-thread="other"');
+    expect(html).toContain('data-review-session="named-session"');
   });
 });

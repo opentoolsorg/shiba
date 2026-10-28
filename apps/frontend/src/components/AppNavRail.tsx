@@ -77,7 +77,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "swarm", label: "Swarm", description: "Run Lanes, Modes & Share Links" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
-  { id: "custom-agents", label: "Custom agents", description: "Org agent profiles & defaults" },
+  { id: "custom-agents", label: "Bots", description: "Reusable bot profiles & defaults" },
   { id: "agents", label: "Agents & MCP", description: "MCP Gateway & Agent Tokens" },
   { id: "inbox", label: "Mailbox", description: "Cloudflare Email Routing & Send" },
   { id: "memory", label: "Memory", description: "Vectorize Long-Term Semantic Memory" },
