@@ -54,8 +54,10 @@ export function HarnessSessionPanel({
   }, [enabled, load]);
 
   if (!enabled || hidden || board === null) return null;
-  const run = board.runs?.[0];
-  if (!run) return null;
+  return <>{(board.runs ?? []).map((run) => <LiveHarnessRun key={run.sandboxId} run={run} load={load} />)}</>;
+}
+
+function LiveHarnessRun({ run, load }: { run: HarnessRun; load: () => Promise<void> }): JSX.Element {
   const waiting = run.approvals.filter((approval) => approval.decision === undefined);
 
   const decide = (requestId: string, decision: "allow" | "deny") => {
@@ -69,10 +71,14 @@ export function HarnessSessionPanel({
   return (
     <section
       aria-label="Live agent session"
+      data-sandbox-id={run.sandboxId}
       className="flex flex-col gap-3 border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)]"
     >
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-[var(--fg)]">Live session</h3>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-[var(--fg)]">Live session</h3>
+          <p className="truncate text-[10px] font-mono text-[var(--muted-foreground-2)]" title={run.sandboxId}>{run.sandboxId}</p>
+        </div>
         <button
           type="button"
           className="text-xs font-medium text-[var(--warning-fg)] bg-[var(--warning-subtle)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] px-3 py-1.5"

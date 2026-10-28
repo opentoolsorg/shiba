@@ -15,6 +15,8 @@ Ready means `/api/setup/status` returns JSON (not SPA HTML) **and** `/app/` retu
 
 `--persist-to` is passed to both `d1 migrations apply` and `wrangler dev`. If the pinned wrangler (see root `package.json`, currently 4.140.0) rejects it, the script falls back to `.wrangler/state` and records that in `.verify/persist-mode`.
 
+When a compatible Chromium is already installed, set `VERIFY_BROWSER_EXECUTABLE_PATH` to its executable path. The launcher validates that path and skips the browser download; the driver uses the same executable. Omit it to use Playwright's downloaded Chromium.
+
 Use `--local-upstream localhost` so loopback auth works.
 
 ## Doctor
@@ -34,6 +36,8 @@ Features live in `features/`.
 `node scripts/assert-journey.mjs` after `drive.mjs`. Polls `/api/runs`, `/api/v1/threads/:id/pr/review`, and, in recorded mock mode only, the GitHub stub `GET /__shiba/state`. Live mode uses authenticated, read-only `gh api --hostname github.com --method GET` pull/review/comment read-backs (requires an existing gh login); missing or mismatched proof fails explicitly, without consulting any stub. **Fails the process** on missing evidence. Container-only checks are marked `skipped` when `containers-mode` is disabled (CI path).
 
 ## Journeys
+
+For custom bots and named threads, start `pnpm dev` and run `node .cursor/skills/verify-shiba/scripts/drive-agent-threads.mjs` (optionally set `VERIFY_APP_URL` to another loopback origin). This creates local fixture records through the UI, starts a profile-associated thread, checks rename failure and retry, refresh persistence, default-session isolation, and mobile overflow. It writes `.verify/agent-threads/result.json`, screenshots, and a trace. This journey makes no model, GitHub, or container calls and does not prove message streaming or model execution.
 
 | Feature | Mode | Proves |
 | --- | --- | --- |
@@ -59,11 +63,32 @@ node .cursor/skills/verify-shiba/scripts/drive.mjs --feature sandbox-run-and-dif
 node .cursor/skills/verify-shiba/scripts/assert-journey.mjs
 ```
 
+For the configured Bot lifecycle, set `VERIFY_AGENT_LIFECYCLE=1` with the mock CI runner. `drive-agent-lifecycle.mjs` requires declared mock GitHub, disabled containers, enabled stand-in, `VERIFY_AGENT_LIFECYCLE_MOCK=1`, and an HTTP loopback origin matching the recorded Worker port. Its 11 checks use visible navigation, Create bot, Launch bot, composer Send task and human Approve clicks. They prove failed-submit draft recovery, the same command ID on retry, exact session/configuration and approval ownership, frozen version/instructions/model on the synthetic completed run, visible provenance, and archive/restore preserving history. Successful Bot queueing uses the actual product UI, without an API submission seam. Read-only API assertions and negative authorization probes remain explicit. It writes `.verify/agent-lifecycle/` evidence and cleans only IDs it created. This is not live model or container execution proof.
+
 ## Gates
 
 Repo gate (required before merge): `pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built` and `pnpm check:ci`.
 
+Stop development services started by the task before the full unit gate: the desktop callback suite needs OAuth loopback port 51121. On small hosts, `pnpm test --concurrency=1 -- --maxWorkers=2` runs the same suites with bounded parallelism; avoid concurrent builds/typechecks during this test run. Restart development services afterwards.
+
 verify-shiba gate: `bash .cursor/skills/verify-shiba/scripts/run-ci.sh` after `pnpm build` (CI sets `VERIFY_SKIP_BUILD=1`).
+
+CI also sets `VERIFY_AGENT_THREADS=1` to run the bot/thread journey against the same local Worker before cleanup and upload `.verify/agent-threads/` evidence. This is real local UI/API/storage coverage, separate from the mock execution boundary.
+
+CI sets `VERIFY_AGENT_LIFECYCLE=1` for the configured-profile lifecycle and uploads `.verify/agent-lifecycle/`. To run both journeys locally after a build:
+
+```bash
+VERIFY_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
+VERIFY_GITHUB=mock VERIFY_PORT=8790 VERIFY_SKIP_INSTALL=1 VERIFY_SKIP_BUILD=1 \
+VERIFY_AGENT_THREADS=1 VERIFY_AGENT_LIFECYCLE=1 \
+bash .cursor/skills/verify-shiba/scripts/run-ci.sh
+```
+
+Omit `VERIFY_BROWSER_EXECUTABLE_PATH` when using the Playwright-managed Chromium installation.
+
+Set `VERIFY_DESKTOP=1` on the lifecycle driver to run the same actual dashboard journey inside the built Electron application. The desktop adapter uses a fresh local profile/run directory, enables Chromium sandboxing, and verifies the desktop bridge, renderer Node isolation, and sandbox preferences. Desktop artifacts go to `.verify/desktop-agent-lifecycle/`. Build with `pnpm -C apps/desktop build` first. Linux needs a display and a working Chromium sandbox; this cloud host uses the tested activation in `docs/audits/desktop-web-e2e.md`. Native macOS CI uses its own display and must be reported separately from Linux results.
+
+For actual local-daemon execution, `drive-local-runtime.mjs` uses an isolated local Worker with `SHIBA_LOCAL_RUNTIME=1`, local pairing/auth keys and separate D1 state. It creates a disposable authenticated dashboard account, pairs the real daemon, then uses the Bots/composer/approval/tool-permission UI to execute a native Git fixture and inspect its persisted diff. `VERIFY_DESKTOP=1` runs this same dashboard inside Electron. Only the model CLI is a deterministic Claude-protocol fixture; native Git, permission gating, file edits, diff collection, cancellation and run-owned subprocess cleanup are real. Evidence is separate under `.verify/local-daemon-e2e/ui-web/` and `ui-desktop/`. Never point this disposable-account harness at a production origin or use an operator's real Git/auth configuration. See `docs/audits/local-runtime.md` and `docs/audits/bots-e2e.md` for setup and limits.
 
 ## Evidence
 

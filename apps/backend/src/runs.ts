@@ -60,6 +60,10 @@ export function createRun(args: {
   reviewOf?: string;
   reviewRoundId?: string;
   queuedBy?: string;
+  orgId?: string;
+  sandboxProvider?: string;
+  customAgentId?: string;
+  customAgentVersion?: number;
   route?: ApprovedRoute;
   /** T48: account-scoped continuation identity from the selected harness. */
   continuationKey?: string;
@@ -71,6 +75,8 @@ export function createRun(args: {
   runtime?: RuntimeSelection;
   targetMachineId?: string;
   testCommand?: string[];
+  /** Exact workspace outputs required by this approval. */
+  expectedDeliverables?: string[];
   /** Run-fork lineage — hashed into the approved input like every field. */
   forkedFrom?: ForkLineage;
   parentRunId?: string;
@@ -100,6 +106,10 @@ export function createRun(args: {
       ...(args.reviewOf !== undefined ? { reviewOf: args.reviewOf } : {}),
       ...(args.reviewRoundId !== undefined ? { reviewRoundId: args.reviewRoundId } : {}),
       ...(args.queuedBy !== undefined ? { queuedBy: args.queuedBy } : {}),
+      ...(args.orgId !== undefined ? { orgId: args.orgId } : {}),
+      ...(args.sandboxProvider !== undefined ? { sandboxProvider: args.sandboxProvider } : {}),
+      ...(args.customAgentId !== undefined ? { customAgentId: args.customAgentId } : {}),
+      ...(args.customAgentVersion !== undefined ? { customAgentVersion: args.customAgentVersion } : {}),
       ...(args.route !== undefined ? { route: args.route } : {}),
       ...(args.continuationKey !== undefined ? { continuationKey: args.continuationKey } : {}),
       ...(args.continuesKey !== undefined ? { continuesKey: args.continuesKey } : {}),
@@ -107,6 +117,7 @@ export function createRun(args: {
       ...(args.runtime !== undefined ? { runtime: args.runtime } : {}),
       ...(args.targetMachineId !== undefined ? { targetMachineId: args.targetMachineId } : {}),
       ...(args.testCommand !== undefined ? { testCommand: args.testCommand } : {}),
+      ...(args.expectedDeliverables !== undefined ? { expectedDeliverables: [...args.expectedDeliverables] } : {}),
       ...(args.forkedFrom !== undefined ? { forkedFrom: args.forkedFrom } : {}),
       ...(args.parentRunId !== undefined ? { parentRunId: args.parentRunId } : {}),
       ...(args.subagentPath !== undefined ? { subagentPath: args.subagentPath } : {}),
@@ -161,6 +172,7 @@ function commandForStatus(
           ...(run.route !== undefined ? { route: run.route } : {}),
           ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
           ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
+          ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
         },
         at,
       };

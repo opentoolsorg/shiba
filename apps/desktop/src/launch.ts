@@ -12,17 +12,21 @@ export const DESKTOP_VIEWS: readonly DesktopViewName[] = [
 ];
 
 /**
- * Unpackaged `SHIBA_DESKTOP_URL` wins when it is non-empty.
+ * An interactive selection wins for the rest of this process.
+ * At launch, unpackaged `SHIBA_DESKTOP_URL` wins when it is non-empty.
  * An explicit empty value, or `SHIBA_DESKTOP_SETUP=1`, opens the setup page.
  * Otherwise a saved origin is used, then the hosted product.
  */
 export function resolveConfiguredOrigin(input: {
   packaged: boolean;
+  /** A URL chosen interactively in this process supersedes launch hints. */
+  sessionUrl?: string;
   envUrl: string | undefined;
   forceSetup: boolean;
   savedUrl: string | undefined;
   parse: (value: string, packaged: boolean) => string | null;
 }): string {
+  if (input.sessionUrl !== undefined) return input.parse(input.sessionUrl, input.packaged) ?? "";
   if (input.forceSetup) return "";
   if (!input.packaged && input.envUrl === "") return "";
   if (!input.packaged && input.envUrl) {

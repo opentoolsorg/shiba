@@ -62,6 +62,8 @@ export function StoredApprovalCard({
     ({
       repoUrl: approval.repoUrl,
       task: approval.task,
+      ...(approval.customAgentId ? { customAgentId: approval.customAgentId } : {}),
+      ...(approval.customAgentVersion !== undefined ? { customAgentVersion: approval.customAgentVersion } : {}),
       ...(approval.baseBranch !== undefined ? { baseBranch: approval.baseBranch } : {}),
       ...(approval.publishPullRequest !== undefined
         ? { publishPullRequest: approval.publishPullRequest }
@@ -70,6 +72,7 @@ export function StoredApprovalCard({
         ? { reviewAfterPublish: approval.reviewAfterPublish }
         : {}),
       ...(approval.testCommand?.length ? { testCommand: approval.testCommand } : {}),
+      ...(approval.expectedDeliverables !== undefined ? { expectedDeliverables: approval.expectedDeliverables } : {}),
     } satisfies Record<string, unknown>);
   return (
     <div className="border border-[var(--border-1)] border-l-2 border-l-[var(--attention)] rounded-[var(--radius-button)] bg-[var(--bg)] p-3">
@@ -85,6 +88,15 @@ export function StoredApprovalCard({
         via {storedApprovalAgent(approval)}
       </p>
       <p className="text-[11px] text-[var(--fg)] font-medium break-words mb-1">{approval.task}</p>
+      {approval.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)] mb-1">Bot profile v{approval.customAgentVersion}</p> : null}
+      {approval.expectedDeliverables?.length ? (
+        <div className="text-xs text-[var(--muted-foreground-2)] mb-2">
+          <span className="font-semibold text-[var(--fg)]">Required files in this approval:</span>
+          <ul aria-label="Frozen required deliverables" className="mt-1 flex flex-col gap-1">
+            {approval.expectedDeliverables.map((path) => <li key={path} className="font-mono break-all">{path}</li>)}
+          </ul>
+        </div>
+      ) : null}
       {approval.reviewAfterPublish ? (
         <p className="text-[11px] text-[var(--fg)] break-words mb-1">
           After the PR opens, a read-only review will run and Shiba will post its findings as a PR review.

@@ -21,17 +21,24 @@ export type paths = {
             };
             requestBody?: never;
             responses: {
-                /** @description Thread list */
+                /** @description Thread list with requested-output metadata */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            threads?: components["schemas"]["Thread"][];
+                        };
+                    };
                 };
             };
         };
         put?: never;
-        /** Create thread (idempotent requestId) */
+        /**
+         * Create thread (idempotent requestId)
+         * @description Creates an approval pointer; execution still requires human approval. Org API-key runtime calls return 501 until tenant runtime routing is configured.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -47,6 +54,13 @@ export type paths = {
             responses: {
                 /** @description Thread or approval receipt */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Tenant runtime unavailable for org API keys */
+                501: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -173,7 +187,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** List subagents (read-only; empty until subagent tree ships) */
+        /** List persisted subagents for a thread (read-only) */
         get: {
             parameters: {
                 query?: never;
@@ -183,8 +197,15 @@ export type paths = {
             };
             requestBody?: never;
             responses: {
-                /** @description Subagent page */
+                /** @description Subagent page with lineage, recorded status, and nullable usage */
                 200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Thread not found */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -207,7 +228,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** Get subagent */
+        /** Get a persisted subagent */
         get: {
             parameters: {
                 query?: never;
@@ -217,7 +238,55 @@ export type paths = {
             };
             requestBody?: never;
             responses: {
-                /** @description Not available yet */
+                /** @description Subagent detail with recorded usage in tokens and USD when available */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Subagent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/subagents/{subagentId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a subagent's stored task and final summary (not a full harness transcript) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Stored message projection */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Subagent not found */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -302,6 +371,305 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/threads/{threadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read thread and captured deliverable metadata */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    threadId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Thread detail */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            thread?: components["schemas"]["Thread"];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org-agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List org-scoped bot profiles */
+        get: {
+            parameters: {
+                query?: {
+                    archived?: "true" | "false";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Bot profiles */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            agents?: components["schemas"]["CustomAgent"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create an org-scoped bot profile */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateCustomAgentRequest"];
+                };
+            };
+            responses: {
+                /** @description Versioned bot profile */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            agent?: components["schemas"]["CustomAgent"];
+                        };
+                    };
+                };
+                /** @description Invalid configuration or unsupported tool scopes */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org-agents/{agentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a bot profile, including archived history */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    agentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Versioned bot profile */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            agent?: components["schemas"]["CustomAgent"];
+                        };
+                    };
+                };
+                /** @description Bot not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a bot profile configuration and version */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    agentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateCustomAgentRequest"];
+                };
+            };
+            responses: {
+                /** @description Versioned bot profile */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            agent?: components["schemas"]["CustomAgent"];
+                        };
+                    };
+                };
+                /** @description Invalid configuration or unsupported tool scopes */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Version conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/threads/{threadId}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read runs with captured deliverable metadata */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    threadId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Run projection */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            runs?: {
+                                id?: string;
+                                threadId?: string;
+                                status?: string;
+                                expectedDeliverables?: components["schemas"]["ExpectedDeliverables"];
+                                deliverables?: components["schemas"]["RunDeliverable"][];
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/threads/{threadId}/run-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read run-state with captured deliverable metadata */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    threadId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Run projection */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok?: boolean;
+                            run?: {
+                                runId?: string;
+                                status?: string;
+                                expectedDeliverables?: components["schemas"]["ExpectedDeliverables"];
+                                deliverables?: components["schemas"]["RunDeliverable"][];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -321,12 +689,77 @@ export type components = {
             message?: string;
             task?: string;
             publishPullRequest?: boolean;
+            /** @description Select an available org-scoped bot profile; effective instructions, route, version and expected outputs freeze into the human approval. */
+            customAgentId?: string;
+            expectedDeliverables?: components["schemas"]["ExpectedDeliverables"];
         };
         SendMessageRequest: {
             text: string;
             /** @enum {string} */
             delivery?: "queue" | "steer" | "interrupt";
             clientKey?: string;
+        };
+        /** @description Optional approval-frozen workspace output paths, in delivery order. Paths are unique ignoring case; relative, non-hidden ASCII segments only (letters/digits, dot, underscore, hyphen, internal spaces), no empty/dot/parent/absolute segments or leading/trailing spaces. Only md/txt/json/csv. Requested complete UTF-8 nonempty files are capped at 16384 bytes each and 65536 bytes total; JSON must parse. Collection checks do not assess semantic quality. */
+        ExpectedDeliverables: string[];
+        /** @description Metadata for a captured requested workspace file. Bodies and private storage keys are never returned in ordinary thread/run reads. Downloads use the authenticated dashboard run endpoint, not a public v1 endpoint. */
+        RunDeliverable: {
+            path: string;
+            mediaType: string;
+            bytes: number;
+            sha256: string;
+        };
+        Thread: {
+            threadId: string;
+            repoUrl: string;
+            title: string;
+            status: string;
+            lane?: string;
+            archived?: boolean;
+            costUsd?: number | null;
+            createdAt: number;
+            updatedAt: number;
+            pullUrl?: string | null;
+            summary?: string | null;
+            error?: string | null;
+            expectedDeliverables?: components["schemas"]["ExpectedDeliverables"];
+            deliverables?: components["schemas"]["RunDeliverable"][];
+        };
+        CustomAgentConfig: {
+            name: string;
+            emoji?: string;
+            instructions: string;
+            harness: string;
+            codingModel?: string;
+            connectionId?: string;
+            /** @enum {string} */
+            sandboxProvider?: "cloudflare" | "docker-local" | "computesdk" | "e2b";
+            defaultRepoUrl?: string;
+            expectedDeliverables?: components["schemas"]["ExpectedDeliverables"];
+            /**
+             * @description Legacy auto_approve configuration does not bypass human run approval.
+             * @enum {string}
+             */
+            approvalPolicy?: "standard" | "auto_approve";
+            /** @description Legacy values are readable; create/update reject nonempty scopes until execution enforces them. */
+            toolScopes?: string[];
+        };
+        CustomAgent: {
+            id: string;
+            orgId: string;
+            slug: string;
+            version: number;
+            config: components["schemas"]["CustomAgentConfig"];
+            createdAt: number;
+            updatedAt: number;
+            archivedAt?: number;
+        };
+        CreateCustomAgentRequest: {
+            slug: string;
+            config: components["schemas"]["CustomAgentConfig"];
+        };
+        UpdateCustomAgentRequest: {
+            config: components["schemas"]["CustomAgentConfig"];
+            expectedVersion?: number;
         };
     };
     responses: never;

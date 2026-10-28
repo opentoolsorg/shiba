@@ -5,6 +5,24 @@ import { parseDeploymentUrl } from "../src/navigation.js";
 const parse = parseDeploymentUrl;
 
 describe("resolveConfiguredOrigin", () => {
+  it.each([
+    { envUrl: "", forceSetup: false },
+    { envUrl: "http://127.0.0.1:8788", forceSetup: true },
+    { envUrl: "http://127.0.0.1:8788", forceSetup: false },
+  ])("honors an interactive setup selection over launch hints %j", (hint) => {
+    expect(resolveConfiguredOrigin({
+      packaged: false, ...hint, savedUrl: undefined,
+      sessionUrl: "http://localhost:9012/app/", parse,
+    })).toBe("http://localhost:9012");
+  });
+
+  it("keeps packaged URL restrictions on interactive selections", () => {
+    expect(resolveConfiguredOrigin({
+      packaged: true, envUrl: undefined, forceSetup: false,
+      savedUrl: "https://existing.example", sessionUrl: "http://localhost:9012", parse,
+    })).toBe("");
+  });
+
   it("uses the hosted product when nothing is saved", () => {
     expect(
       resolveConfiguredOrigin({

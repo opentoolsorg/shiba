@@ -9,6 +9,7 @@ import {
   LOCAL_CLAIM_STALE_MS,
   LOCAL_INTAKE_DASHBOARD,
   LOCAL_INTAKE_HEADER,
+  LOCAL_HEARTBEAT_STALE_MS,
   LOCAL_RUNTIME_FLAG,
   buildLocalRunEnvelope,
   compareReleaseVersions,
@@ -118,6 +119,13 @@ describe("buildLocalRunEnvelope", () => {
       buildLocalRunEnvelope({ ...base, input: { ...base.input, task: "" } }),
     ).toThrow();
   });
+
+  it("preserves the approved bot identity, version, and org in the laptop envelope", () => {
+    const envelope = buildLocalRunEnvelope({ ...base, input: {
+      ...base.input, customAgentId: "bot-one", customAgentVersion: 3, orgId: "org-one",
+    } });
+    expect(envelope).toMatchObject({ customAgentId: "bot-one", customAgentVersion: 3, orgId: "org-one" });
+  });
 });
 
 describe("installer-lease helpers", () => {
@@ -154,6 +162,14 @@ function makeDispatch() {
   const ctx = { storage, waitUntil: () => {}, blockConcurrencyWhile: async (fn: () => Promise<unknown>) => fn() };
   const obj = new LocalDispatch(ctx as never, {} as never);
   return { obj, storage };
+}
+
+async function registerComputer(storage: ReturnType<typeof fakeStorage>, machineId: string, overrides: Record<string, unknown> = {}) {
+  await storage.put(`computer:${machineId}`, {
+    machineId, hostname: "test-computer", platform: "linux-x64", daemonVersion: "0.1.0",
+    harnesses: ["opencode", "claude", "codex"], lastHeartbeat: Date.now(), tokenHash: "paired-test-token-hash",
+    ...overrides,
+  });
 }
 
 const ENVELOPE: LocalRunEnvelope = buildLocalRunEnvelope({
@@ -219,7 +235,8 @@ describe("LocalDispatch DO", () => {
   });
 
   it("pins a record to targetMachineId; only the matching vouched machine (or anyone, if unpinned) claims it", async () => {
-    const { obj } = makeDispatch();
+    const { obj, storage } = makeDispatch();
+    await registerComputer(storage, "m-1");
     const claimAs = async (machine?: string) =>
       (await (
         await obj.fetch(
@@ -243,9 +260,71 @@ describe("LocalDispatch DO", () => {
   });
 
   it("refuses a targetMachineId over 128 chars", async () => {
-    const { obj } = makeDispatch();
+    const { obj, storage } = makeDispatch();
+    await registerComputer(storage, "x".repeat(128));
     expect((await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: "x".repeat(129) }))).status).toBe(400);
     expect((await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: "x".repeat(128) }))).status).toBe(200);
+  });
+
+  it.each([null, 7, false, {}, []])("rejects a non-string target without silently dispatching unpinned work: %j", async (targetMachineId) => {
+    const { obj, storage } = makeDispatch();
+    expect((await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId }))).status).toBe(400);
+    expect(await storage.get("run:sb-d1")).toBeUndefined();
+  });
+
+  it.each([
+    ["unknown", 404],
+    ["revoked", 404],
+    ["shared-token-only", 404],
+    ["offline", 409],
+    ["incompatible", 409],
+  ])("rejects a pinned %s computer before writing pending work", async (kind, status) => {
+    const { obj, storage } = makeDispatch();
+    if (kind !== "unknown") {
+      await registerComputer(storage, "target", {
+        ...(kind === "shared-token-only" ? { tokenHash: undefined } : {}),
+        ...(kind === "offline" ? { lastHeartbeat: Date.now() - LOCAL_HEARTBEAT_STALE_MS - 1 } : {}),
+        ...(kind === "incompatible" ? { harnesses: ["codex"] } : {}),
+      });
+    }
+    if (kind === "revoked") {
+      expect((await obj.fetch(post("/revoke-computer", { machineId: "target" }))).status).toBe(200);
+    }
+    const response = await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: "target" }));
+    expect(response.status).toBe(status);
+    expect(await storage.get("run:sb-d1")).toBeUndefined();
+    expect(await (await obj.fetch(new Request("https://local-dispatch/pending"))).json()).toEqual({ pending: [] });
+  });
+
+  it.each([
+    ["claude-code", "claude"],
+    ["codex", "codex"],
+    ["opencode", "opencode"],
+  ])("allows a live busy target advertising %s's daemon executable", async (harness, executable) => {
+    const { obj, storage } = makeDispatch();
+    await registerComputer(storage, "busy-target", { harnesses: [executable], activeRunId: "another-run" });
+    const response = await obj.fetch(post("/dispatch", {
+      envelope: { ...ENVELOPE, harness, argv: [executable, "run"] }, targetMachineId: "busy-target",
+    }));
+    expect(response.status).toBe(200);
+    expect(await storage.get("run:sb-d1")).toMatchObject({ status: "pending", targetMachineId: "busy-target" });
+  });
+
+  it("does not admit a sandbox-only harness just because its executable exists on the target", async () => {
+    const { obj, storage } = makeDispatch();
+    await registerComputer(storage, "target", { harnesses: ["claude"] });
+    expect((await obj.fetch(post("/dispatch", {
+      envelope: { ...ENVELOPE, harness: "claude-subscription" }, targetMachineId: "target",
+    }))).status).toBe(409);
+    expect(await storage.get("run:sb-d1")).toBeUndefined();
+  });
+
+  it("preserves shared-token unpinned dispatch without a paired computer", async () => {
+    const { obj, storage } = makeDispatch();
+    expect((await obj.fetch(post("/dispatch", { envelope: ENVELOPE }))).status).toBe(200);
+    expect([...storage.__map.keys()].some((key) => key.startsWith("computer:"))).toBe(false);
+    const claim = await (await obj.fetch(post("/claim", { operator: "legacy-shared-token" }))).json() as { envelope?: LocalRunEnvelope };
+    expect(claim.envelope?.sandboxId).toBe(ENVELOPE.sandboxId);
   });
 
   it("cancel marks the record and a settled record stays settled", async () => {
@@ -271,7 +350,8 @@ describe("LocalDispatch DO", () => {
   });
 
   it("a targeted record is skipped by other machines; untargeted is open to all; identity-less callers get unpinned only", async () => {
-    const { obj } = makeDispatch();
+    const { obj, storage } = makeDispatch();
+    await registerComputer(storage, "m-a");
     const claimAs = async (machineId?: string) => {
       const req = post("/claim", {});
       if (machineId !== undefined) req.headers.set(LOCAL_MACHINE_HEADER, machineId);
@@ -293,7 +373,8 @@ describe("LocalDispatch DO", () => {
   });
 
   it("skipping a targeted record still hands the next one to the caller in order", async () => {
-    const { obj } = makeDispatch();
+    const { obj, storage } = makeDispatch();
+    await registerComputer(storage, "m-a");
     await obj.fetch(post("/dispatch", { envelope: ENVELOPE, targetMachineId: "m-a" }));
     await obj.fetch(post("/dispatch", { envelope: { ...ENVELOPE, sandboxId: "sb-later", createdAt: ENVELOPE.createdAt + 1 } }));
     const req = post("/claim", {});
@@ -613,6 +694,21 @@ const NOOP_OPS = {} as never;
 const NOOP_EMIT = async () => {};
 
 describe("LocalRuntimeAdapter", () => {
+  it("retains a fast daemon's claim evidence even when the first poll sees a settled record", async () => {
+    const { client, state } = makeClient();
+    const originalStatus = client.status;
+    client.status = async (sandboxId) => {
+      await originalStatus(sandboxId);
+      return { status: "settled", claimedAt: Date.now() - 10, claimedBy: "fixture-laptop", result: RESULT };
+    };
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, { ...TASK_INPUT,
+      customAgentId: "bot-one", customAgentVersion: 3, orgId: "org-one",
+    } as never, NOOP_EMIT);
+    expect(result.status).toBe("completed");
+    expect(result.signals?.some((signal) => signal.kind === "local.claimed")).toBe(true);
+    expect(state.dispatched[0]).toMatchObject({ customAgentId: "bot-one", customAgentVersion: 3, orgId: "org-one" });
+  });
   it("dispatches the envelope, polls to settled, and returns the daemon's result", async () => {
     const { client, state } = makeClient();
     const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });

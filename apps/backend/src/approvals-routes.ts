@@ -101,13 +101,22 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
       return Response.json({ error: "Invalid approval payload." }, { status: 400 });
     }
     const decidedBy = (await resolveUserId(request, env)) ?? "default";
-    if (body.threadKey.startsWith(WEB_SESSION_PREFIX)) {
+    let decisionStubs = stubs;
+    if (decidedBy !== ORCHESTRATOR_NAME && body.threadKey === decidedBy) {
+      // Personal run intake stamps this exact authenticated owner key.
+      // Resolve only its user DO: a matching label on a shared approval
+      // must not acquire the owner's personal authorization.
+      decisionStubs = [userStub];
+    } else if (body.threadKey.startsWith(WEB_SESSION_PREFIX)) {
       if (!isAuthorizedSessionAgent(body.threadKey, decidedBy)) {
         return Response.json({ error: "Forbidden." }, { status: 403 });
       }
       if (!sessionAgentNames.includes(body.threadKey)) {
         return Response.json({ error: "Session not found." }, { status: 404 });
       }
+      const ownedSession = stubs[names.indexOf(body.threadKey)];
+      if (!ownedSession) return Response.json({ error: "Session not found." }, { status: 404 });
+      decisionStubs = [ownedSession];
     } else if (!isApprover(decidedBy, parseApproverAllowlist(env.DASHBOARD_APPROVERS))) {
       return Response.json(
         { error: "Not authorized to resolve shared approvals." },
@@ -115,7 +124,7 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
       );
     }
     let probeFailure: Response | null = null;
-    for (const stub of stubs) {
+    for (const stub of decisionStubs) {
       const response = await stub.fetch(
         new Request("https://internal/api/approvals", {
           method: "POST",

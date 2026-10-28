@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { SUPPORTED_FEATURES, runIdForApproval, pickVerifyApproval, pollCodingRunComplete, pollReviewRoundTerminal } from "./journey-lib.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const verifyDir = join(root, ".verify");
+const verifyDir = process.env.VERIFY_DIR || join(root, ".verify");
 const port = existsSync(join(verifyDir, "port"))
   ? readFileSync(join(verifyDir, "port"), "utf8").trim()
   : process.env.PORT || "8788";
@@ -34,7 +34,12 @@ function dockerIds() {
 const headless = process.env.VERIFY_HEADLESS !== "0";
 const navigationTimeout = Number(process.env.VERIFY_DRIVE_TIMEOUT_MS || 60_000);
 const before = dockerIds();
-const browser = await chromium.launch({ headless });
+const browser = await chromium.launch({
+  headless,
+  ...(process.env.VERIFY_BROWSER_EXECUTABLE_PATH
+    ? { executablePath: process.env.VERIFY_BROWSER_EXECUTABLE_PATH }
+    : {}),
+});
 const context = await browser.newContext({ recordHar: { path: join(outDir, "session.har") } });
 await context.tracing.start({ screenshots: true, snapshots: true });
 const page = await context.newPage();

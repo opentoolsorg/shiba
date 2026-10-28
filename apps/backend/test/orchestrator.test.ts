@@ -3,6 +3,7 @@ import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestra
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { HARNESS_IDS } from "@shiba/shared";
+import { LocalDispatch } from "../src/local-dispatch.js";
 import { createRun, RunStore, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
 import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
 import { createPendingApproval, resolvePendingApproval } from "../src/pending-approvals.js";
@@ -54,6 +55,193 @@ function retained(status: "running" | "completed" = "running") {
 beforeEach(() => { vi.resetAllMocks(); mocks.destroy.mockResolvedValue(undefined); });
 afterEach(() => {
   for (const leak of leakedContainers()) forgetLeaked(leak.sandboxId);
+});
+
+describe("local run cleanup", () => {
+  function mailbox(instance: ReturnType<typeof agent>, run: DelegatedRun, status: "claimed" | "settled" = "claimed") {
+    const records = new Map<string, unknown>([[`run:${run.sandboxId}`, {
+      envelope: { sandboxId: run.sandboxId }, status, claimToken: "old-claim", claimedAt: Date.now(),
+      ...(status === "settled" ? { result: { exitCode: 0 }, settledAt: Date.now() } : {}),
+    }]]);
+    const storage = {
+      get: async (key: string) => records.get(key),
+      put: async (key: string, value: unknown) => void records.set(key, value),
+      delete: async (key: string) => records.delete(key),
+      list: async ({ prefix }: { prefix: string }) => new Map([...records].filter(([key]) => key.startsWith(prefix))),
+    };
+    const dispatch = new LocalDispatch({ storage } as never, {} as never);
+    const fetch = vi.fn((request: Request) => dispatch.fetch(request));
+    Object.assign(instance.env, { LocalDispatch: { idFromName: () => ({}), get: () => ({ fetch }) } });
+    return { records, fetch, dispatch };
+  }
+
+  it("prunes another actor's copied leak using positive mailbox identity without a retained local run", async () => {
+    const instance = agent();
+    const run = { ...retained("completed"), runtime: "local" as const };
+    const local = mailbox(instance, run, "settled");
+    const leak = { sandboxId: run.sandboxId, leakedAt: 1, error: "copied legacy local leak", selection: { taskProviderId: "cloudflare" } };
+    instance.setState({ runs: [], leakedContainers: { [run.sandboxId]: leak } });
+
+    await instance.reclaimRuns();
+
+    expect(local.fetch).toHaveBeenCalledOnce();
+    expect(local.fetch.mock.calls[0]?.[0].method).toBe("GET");
+    expect(instance.state.leakedContainers?.[run.sandboxId]).toBeUndefined();
+    expect(mocks.destroy).not.toHaveBeenCalled();
+    expect(local.records.get(`run:${run.sandboxId}`)).toMatchObject({ status: "settled", result: { exitCode: 0 } });
+  });
+
+  it.each(["not-found", "unavailable", "invalid-status"])("preserves cloud retries when local proof is %s", async (proof) => {
+    const instance = agent();
+    const run = retained();
+    const local = mailbox(instance, run);
+    local.records.clear();
+    if (proof === "unavailable") local.fetch.mockRejectedValueOnce(new Error("mailbox down"));
+    if (proof === "invalid-status") local.fetch.mockResolvedValueOnce(Response.json({ status: "unrecognized" }));
+    instance.setState({ runs: [], leakedContainers: {
+      [run.sandboxId]: { sandboxId: run.sandboxId, leakedAt: 1, error: "cloud", selection: { taskProviderId: "cloudflare" } },
+    } });
+
+    await instance.reclaimRuns();
+
+    expect(local.fetch).toHaveBeenCalledOnce();
+    expect(mocks.destroy).toHaveBeenCalledOnce();
+    expect(instance.state.leakedContainers?.[run.sandboxId]).toBeUndefined();
+  });
+
+  it("serves dashboard reads while cloud cleanup is held and permits only one retry sweep", async () => {
+    const instance = agent();
+    const held: Promise<unknown>[] = [];
+    Object.assign(instance, { ctx: { waitUntil: (promise: Promise<unknown>) => held.push(promise) } });
+    const leak = { sandboxId: "held-cloud", leakedAt: 1, error: "cloud", selection: { taskProviderId: "cloudflare" } };
+    instance.setState({ runs: [], leakedContainers: { [leak.sandboxId]: leak } });
+    let finish!: () => void;
+    mocks.destroy.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
+    const read = instance.onRequest(new Request("https://internal/api/runs"));
+    try {
+      await vi.waitFor(() => expect(mocks.destroy).toHaveBeenCalledOnce());
+      let response: Response | undefined;
+      void read.then((value) => { response = value; });
+      await vi.waitFor(() => expect(response?.status).toBe(200));
+      Object.assign(instance, { lastReclaimSweepAt: undefined });
+      expect((await instance.onRequest(new Request("https://internal/api/runs"))).status).toBe(200);
+      expect(mocks.destroy).toHaveBeenCalledOnce();
+    } finally {
+      finish();
+      await read;
+      await Promise.all(held);
+    }
+    expect(instance.state.leakedContainers?.[leak.sandboxId]).toBeUndefined();
+  });
+
+  it("releases the background sweep after a cloud failure so the next read retries successfully", async () => {
+    const instance = agent();
+    const held: Promise<unknown>[] = [];
+    Object.assign(instance, { ctx: { waitUntil: (promise: Promise<unknown>) => held.push(promise) } });
+    const leak = { sandboxId: "recovering-cloud", leakedAt: 1, error: "cloud", selection: { taskProviderId: "cloudflare" } };
+    instance.setState({ runs: [], leakedContainers: { [leak.sandboxId]: leak } });
+    mocks.destroy.mockRejectedValueOnce(new Error("provider temporarily unavailable"));
+
+    expect((await instance.onRequest(new Request("https://internal/api/runs"))).status).toBe(200);
+    await Promise.all(held);
+    expect(instance.state.leakedContainers?.[leak.sandboxId]).toBeDefined();
+    Object.assign(instance, { lastReclaimSweepAt: undefined });
+    expect((await instance.onRequest(new Request("https://internal/api/runs"))).status).toBe(200);
+    await Promise.all(held);
+
+    expect(mocks.destroy).toHaveBeenCalledTimes(2);
+    expect(instance.state.leakedContainers?.[leak.sandboxId]).toBeUndefined();
+  });
+
+  it("finishes a local run without touching a cloud container or cancelling its settled result", async () => {
+    const instance = agent();
+    Object.assign(instance, { name: "local-operator" });
+    Object.assign(instance.env, { SHIBA_LOCAL_RUNTIME: "1" });
+    const input = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false, runtime: "local" as const };
+    approveDirect(instance, "local-finish", input);
+    const local = mailbox(instance, instance.state.runs[0]!, "settled");
+    mocks.execute.mockResolvedValue(formatAgentResult({
+      status: "completed", summary: "Done", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [],
+    }));
+    const delegate = instance.getTools()["delegate_coding_task"] as { execute: (input: unknown, options?: unknown) => Promise<unknown> };
+
+    await delegate.execute(input, { toolCallId: "local-finish" });
+
+    expect(instance.state.runs[0]?.status).toBe("completed");
+    expect(mocks.destroy).not.toHaveBeenCalled();
+    expect(local.fetch).not.toHaveBeenCalled();
+    expect(leakedContainers()).toHaveLength(0);
+  });
+
+  it("cancels a local mailbox claim without touching cloud and fences a late native result", async () => {
+    const instance = agent();
+    const run = { ...retained(), runtime: "local" as const, updatedAt: Date.now() };
+    instance.setState({ runs: [run] });
+    const local = mailbox(instance, run);
+
+    await instance.cancelRun(run.runId);
+
+    expect(instance.state.runs[0]?.status).toBe("cancelled");
+    expect(local.records.get(`run:${run.sandboxId}`)).toMatchObject({ status: "cancelled", claimToken: undefined });
+    const late = await local.dispatch.fetch(new Request("https://local-dispatch/result", {
+      method: "POST", body: JSON.stringify({ sandboxId: run.sandboxId, claimToken: "old-claim", result: {} }),
+    }));
+    expect(late.status).toBe(409);
+    expect(mocks.destroy).not.toHaveBeenCalled();
+  });
+
+  it("revokes a local claim after restart without blocking start or creating cloud leaks", async () => {
+    const instance = agent();
+    const run = { ...retained(), runtime: "local" as const, checkpoint: "executing" as const };
+    instance.setState({ runs: [run] });
+    const local = mailbox(instance, run);
+    const held: Promise<unknown>[] = [];
+    Object.assign(instance, { ctx: { waitUntil: (promise: Promise<unknown>) => held.push(promise) } });
+
+    await instance.onStart();
+    await Promise.all(held);
+
+    expect(instance.state.runs[0]?.status).toBe("unknown");
+    expect(local.records.get(`run:${run.sandboxId}`)).toMatchObject({ status: "cancelled", claimToken: undefined });
+    expect(mocks.destroy).not.toHaveBeenCalled();
+    expect(leakedContainers()).toHaveLength(0);
+  });
+
+  it.each(["claimed", "settled"] as const)("reclaims a stale local run while preserving a %s mailbox outcome", async (status) => {
+    const instance = agent();
+    const run = { ...retained(), runtime: "local" as const };
+    instance.setState({ runs: [run] });
+    const local = mailbox(instance, run, status);
+
+    await instance.reclaimRuns();
+
+    expect(instance.state.runs[0]?.status).toBe("unknown");
+    expect(local.records.get(`run:${run.sandboxId}`)).toMatchObject({ status: status === "settled" ? "settled" : "cancelled" });
+    if (status === "settled") expect(local.records.get(`run:${run.sandboxId}`)).toMatchObject({ result: { exitCode: 0 } });
+    expect(mocks.destroy).not.toHaveBeenCalled();
+  });
+
+  it("forgets proven local cloud-leak mistakes while retaining unknown leaks and retrying real cloud leaks", async () => {
+    const instance = agent();
+    const run = { ...retained("completed"), runtime: "local" as const };
+    const selection = { taskProviderId: "cloudflare" };
+    mocks.destroy.mockRejectedValueOnce(new Error("old incorrect local cloud cleanup"));
+    await destroyManagedContainer(instance.env, run.sandboxId, undefined, selection);
+    instance.setState({ runs: [run], leakedContainers: {
+      [run.sandboxId]: { sandboxId: run.sandboxId, leakedAt: 1, error: "local", selection },
+      "real-cloud": { sandboxId: "real-cloud", leakedAt: 1, error: "cloud", selection },
+      unknown: { sandboxId: "unknown", leakedAt: 1, error: "unknown" },
+    } });
+    mocks.destroy.mockClear();
+
+    await instance.reclaimRuns();
+
+    expect(mocks.destroy).toHaveBeenCalledOnce();
+    expect(instance.state.leakedContainers?.[run.sandboxId]).toBeUndefined();
+    expect(leakedContainers().some((leak) => leak.sandboxId === run.sandboxId)).toBe(false);
+    expect(instance.state.leakedContainers?.unknown).toBeDefined();
+    expect(instance.state.leakedContainers?.["real-cloud"]).toBeUndefined();
+  });
 });
 
 describe("orchestrator run routes", () => {
@@ -495,6 +683,119 @@ describe("orchestrator run routes", () => {
     await instance.cancelRun("agent-tool:tc1");
     await expect(execution).rejects.toThrow("Run cancelled");
     expect((instance.state.runs as DelegatedRun[])[0]?.status).toBe("cancelled");
+  });
+
+  it("cancels the whole subagent tree through completed intermediates and releases shared sandboxes once", async () => {
+    const instance = agent();
+    const makeRun = (runId: string, extra: Partial<DelegatedRun> = {}): DelegatedRun => ({
+      ...retained(), runId, sandboxId: "shared-tree", updatedAt: Date.now(), ...extra,
+    });
+    const controllers = new Map(["root", "child", "grandchild", "reviewer"].map((id) => [id, new AbortController()]));
+    Object.assign(instance, { runControllersMap: controllers });
+    instance.setState({ runs: [
+      makeRun("root"),
+      makeRun("child", { parentRunId: "root", subagentPath: "1" }),
+      makeRun("completed-child", { parentRunId: "child", status: "completed", subagentPath: "1.1" }),
+      makeRun("grandchild", { parentRunId: "completed-child", subagentPath: "1.1.1" }),
+      makeRun("reviewer", { reviewOf: "grandchild", sandboxId: "review-sandbox" }),
+      makeRun("unrelated", { sandboxId: "unrelated-sandbox" }),
+    ] });
+
+    await instance.cancelRun("root");
+
+    const runs = new Map(instance.state.runs.map((run) => [run.runId, run]));
+    for (const id of ["root", "child", "grandchild", "reviewer"]) {
+      expect(runs.get(id)?.status).toBe("cancelled");
+      expect(controllers.get(id)?.signal.aborted).toBe(true);
+    }
+    expect(runs.get("completed-child")?.status).toBe("completed");
+    expect(runs.get("unrelated")?.status).toBe("running");
+    expect(mocks.destroy).toHaveBeenCalledTimes(2);
+  });
+
+  it("fences and aborts every descendant before waiting for provider cleanup", async () => {
+    const instance = agent();
+    const controllers = new Map(["root", "child", "grandchild"].map((id) => [id, new AbortController()]));
+    Object.assign(instance, { runControllersMap: controllers });
+    instance.setState({ runs: [
+      { ...retained(), runId: "root", sandboxId: "root-sandbox" },
+      { ...retained(), runId: "child", parentRunId: "root", sandboxId: "child-sandbox" },
+      { ...retained(), runId: "grandchild", parentRunId: "child", sandboxId: "grandchild-sandbox" },
+    ] });
+    let finishCleanup!: () => void;
+    const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
+    mocks.destroy.mockReturnValue(cleanup);
+    const cancellation = instance.cancelRun("root");
+    try {
+      for (const run of instance.state.runs) {
+        expect(run.status).toBe("cancelled");
+        expect(controllers.get(run.runId)?.signal.aborted).toBe(true);
+      }
+    } finally {
+      finishCleanup();
+      await cancellation;
+    }
+  });
+
+  it("refuses subagent spawn after session teardown", async () => {
+    const instance = agent();
+    instance.setState({ runs: [retained()], sessionDeletedAt: Date.now() });
+    const response = await instance.onRequest(new Request("https://internal/api/runs/subagents/spawn", {
+      method: "POST", body: JSON.stringify({ parentRunId: "r1", task: "inspect", sandboxMode: "fresh" }),
+    }));
+    expect(response.status).toBe(410);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it.each(["/api/runs/subagents/spawn", "/api/runs/r1/subagents"])("hides another principal's subagent parent at %s", async (path) => {
+    const instance = agent();
+    instance.setState({ runs: [{ ...retained(), queuedBy: "owner", subagentBudgetRemaining: 2,
+      approval: { approvalId: "parent-plan", decidedBy: "human", decidedAt: Date.now(), inputHash: "parent-input" } }] });
+    const response = await instance.onRequest(new Request(`https://internal${path}`, {
+      method: "POST", headers: { "X-Agent-Principal": "intruder" },
+      body: JSON.stringify({ parentRunId: "r1", task: "inspect", sandboxMode: "fresh" }),
+    }));
+    expect(response.status).toBe(404);
+    expect(instance.state.runs).toHaveLength(1);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it.each(["cancelled", "completed", "error", "unknown", "aborted"] as const)("refuses subagent spawn from a %s parent", async (status) => {
+    const instance = agent();
+    instance.setState({ runs: [{ ...retained(), status, subagentBudgetRemaining: 2,
+      approval: { approvalId: "parent-plan", decidedBy: "human", decidedAt: Date.now(), inputHash: "parent-input" } }] });
+    const response = await instance.onRequest(new Request("https://internal/api/runs/r1/subagents", {
+      method: "POST", body: JSON.stringify({ task: "inspect", sandboxMode: "fresh" }),
+    }));
+    expect(response.status).toBe(409);
+    expect(instance.state.runs[0]?.subagentBudgetRemaining).toBe(2);
+    expect(instance.state.runs).toHaveLength(1);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("returns a validation error for a malformed subagent parent id", async () => {
+    const response = await agent().onRequest(new Request("https://internal/api/runs/%E0%A4%A/subagents", {
+      method: "POST", body: JSON.stringify({ task: "inspect", sandboxMode: "fresh" }),
+    }));
+    expect(response.status).toBe(400);
+  });
+
+  it("preserves the owning principal when spending an approved subagent budget", async () => {
+    const instance = agent();
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    instance.setState({ runs: [{ ...retained(), queuedBy: "owner", subagentBudgetRemaining: 2,
+      approval: { approvalId: "parent-plan", decidedBy: "human", decidedAt: Date.now(), inputHash: "parent-input" } }] });
+    const response = await instance.onRequest(new Request("https://internal/api/runs/r1/subagents", {
+      method: "POST", headers: { "X-Agent-Principal": "owner" },
+      body: JSON.stringify({ task: "inspect", sandboxMode: "fresh", queuedBy: "forged" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(instance.state.runs).toHaveLength(2);
+    expect(instance.state.runs[0]?.subagentBudgetRemaining).toBe(1);
+    expect(instance.state.runs[1]).toMatchObject({ queuedBy: "owner", parentRunId: "r1", subagentPath: "1",
+      approval: { approvalId: "parent-plan", decidedBy: "human" } });
+    expect(dispatch).toHaveBeenCalledOnce();
   });
 
   it("reclaims a stale run and aborts its child execution", async () => {

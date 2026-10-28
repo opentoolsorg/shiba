@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ReviewFindings } from "./ReviewFindings";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const sampleRound = {
@@ -31,6 +32,73 @@ const sampleRound = {
 };
 
 describe("ReviewFindings", () => {
+  it("routes both review reads and persisted triage to the named session", async () => {
+    const request = vi.fn(async () => Response.json({ round: sampleRound }));
+    vi.stubGlobal("fetch", request);
+    render(<ReviewFindings threadId="run:1" sessionId="session/a&b" reviewAfterPublish />);
+    await screen.findByText("Null deref");
+    expect(request).toHaveBeenCalledWith("/api/v1/threads/run%3A1/pr/review?session=session%2Fa%26b");
+    fireEvent.change(screen.getByRole("combobox", { name: "Triage for Null deref" }), { target: { value: "resolved" } });
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/v1/threads/run%3A1/pr/review/findings/f1/triage?session=session%2Fa%26b",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ triage: "resolved" }) }),
+    ));
+  });
+
+  it.each([undefined, "default", "named-session"])("keeps review retry and refresh in session %s", async (sessionId) => {
+    const request = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST"
+      ? Response.json({ ok: true })
+      : Response.json({ round: { ...sampleRound, status: "failed", error: "retry me" } }));
+    vi.stubGlobal("fetch", request);
+    render(<ReviewFindings threadId="run-1" sessionId={sessionId} reviewAfterPublish />);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry review" }));
+    const query = sessionId === "named-session" ? "?session=named-session" : "";
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      `/api/v1/threads/run-1/pr/review/retry${query}`,
+      expect.objectContaining({ method: "POST" }),
+    ));
+    await waitFor(() => expect(request.mock.calls.filter(([url, init]) => !init?.method && url === `/api/v1/threads/run-1/pr/review${query}`)).toHaveLength(2));
+  });
+
+  it("discards an old session's review response after navigation", async () => {
+    let finishOld!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishOld = resolve; }))
+      .mockImplementation(async () => Response.json({ round: { ...sampleRound, summary: "Current session review" } })));
+    const { rerender } = render(<ReviewFindings threadId="run-1" sessionId="old" reviewAfterPublish />);
+    rerender(<ReviewFindings threadId="run-1" sessionId="new" reviewAfterPublish />);
+    await screen.findByText("Current session review");
+    await act(async () => { finishOld(Response.json({ round: { ...sampleRound, summary: "Private old session review" } })); });
+    expect(screen.queryByText("Private old session review")).toBeNull();
+    expect(screen.getByText("Current session review")).toBeTruthy();
+  });
+
+  it.each([200, 503])("ignores stale triage %s after switching sessions", async (status) => {
+    let finishPatch!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return new Promise<Response>((resolve) => { finishPatch = resolve; });
+      return Response.json({ round: { ...sampleRound, summary: url.includes("session=new") ? "Current review" : "Old review" } });
+    }));
+    const { rerender } = render(<ReviewFindings threadId="run-1" sessionId="old" reviewAfterPublish />);
+    await screen.findByText("Old review");
+    fireEvent.change(screen.getByRole("combobox", { name: "Triage for Null deref" }), { target: { value: "resolved" } });
+    rerender(<ReviewFindings threadId="run-1" sessionId="new" reviewAfterPublish />);
+    await screen.findByText("Current review");
+    await act(async () => { finishPatch(Response.json({ round: { ...sampleRound, summary: "Old review" } }, { status })); });
+    expect(screen.queryByText("Old review")).toBeNull();
+    expect(screen.getByText("Current review")).toBeTruthy();
+  });
+
+  it("surfaces review retry transport failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") throw new Error("Retry network unavailable");
+      return Response.json({ round: { ...sampleRound, status: "failed" } });
+    }));
+    render(<ReviewFindings threadId="run-1" sessionId="named" reviewAfterPublish />);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry review" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Retry network unavailable"));
+  });
+
   it("renders nothing when review was not requested and round is absent", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ round: null })));
     const { container } = render(<ReviewFindings threadId="run-1" />);

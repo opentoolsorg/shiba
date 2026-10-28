@@ -847,6 +847,49 @@ describe("dashboard approval routes", () => {
     }
   });
 
+  it.each(["approved", "unknown"])("resolves a personal run key only on its owning DO without shared approver access (%s)", async (result) => {
+    orchestratorCalls.calls.length = 0;
+    orchestratorCalls.handlers = {
+      "dev@example.com": async (request) => new URL(request.url).pathname === "/internal/web-sessions"
+        ? Response.json({ sessions: [] }) : Response.json({ result }),
+      // A matching forged label in the shared store must stay unresolved.
+      default: async () => Response.json({ result: "approved" }),
+    };
+    try {
+      const { env } = makeEnvWithTwoMailboxes();
+      env.DASHBOARD_APPROVERS = "";
+      const response = await worker.fetch(new Request("http://localhost/api/approvals", {
+        method: "POST", headers: { "Content-Type": "application/json", "CF-Access-Authenticated-User-Email": "dev@example.com" },
+        body: JSON.stringify({ threadKey: "dev@example.com", approvalId: "personal-run", approved: true }),
+      }), env, ctx);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ result });
+      expect(probes()).toEqual(["dev@example.com /internal/web-sessions", "dev@example.com /api/approvals"]);
+    } finally { orchestratorCalls.handlers = {}; }
+  });
+
+  it.each(["approved", "unknown"])("keeps registered-session approval ownership separate from shared approvers (%s)", async (result) => {
+    const session = createWebSession("dev@example.com");
+    orchestratorCalls.calls.length = 0;
+    orchestratorCalls.handlers = {
+      "dev@example.com": async (request) => new URL(request.url).pathname === "/internal/web-sessions"
+        ? Response.json({ sessions: [session] }) : Response.json({ result: "unknown" }),
+      [session.agentName]: async () => Response.json({ result }),
+      default: async () => Response.json({ result: "approved" }),
+    };
+    try {
+      const { env } = makeEnvWithTwoMailboxes();
+      env.DASHBOARD_APPROVERS = "";
+      const response = await worker.fetch(new Request("http://localhost/api/approvals", {
+        method: "POST", headers: { "Content-Type": "application/json", "CF-Access-Authenticated-User-Email": "dev@example.com" },
+        body: JSON.stringify({ threadKey: session.agentName, approvalId: "session-run", approved: true }),
+      }), env, ctx);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ result });
+      expect(probes()).not.toContain("default /api/approvals");
+    } finally { orchestratorCalls.handlers = {}; }
+  });
+
   it("POST /api/approvals probes the caller's DO then 'default' until one resolves", async () => {
     orchestratorCalls.calls.length = 0;
     orchestratorCalls.handlers = {

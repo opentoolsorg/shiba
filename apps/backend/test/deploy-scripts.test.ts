@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -252,6 +252,45 @@ describe("validate-credentials", () => {
 });
 
 describe("shiba-dev-lib", () => {
+  it("stops the dev launcher with the migration failure status before starting services", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shiba-local-dev-failure-"));
+    try {
+      mkdirSync(join(dir, "scripts"));
+      mkdirSync(join(dir, "apps/backend"), { recursive: true });
+      writeFileSync(join(dir, "apps/backend/.dev.vars.example"), "# fixture\n");
+      for (const script of ["local-dev.mjs", "shiba-dev-lib.mjs"]) {
+        copyFileSync(join(ROOT, "scripts", script), join(dir, "scripts", script));
+      }
+      const hook = `import cp from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+cp.spawnSync = () => ({ status: 47 });
+cp.spawn = () => { console.error("SERVICE_STARTED_AFTER_FAILED_MIGRATION"); process.exit(99); };
+syncBuiltinESMExports();`;
+      const out = spawnSync(process.execPath, [
+        "--import", `data:text/javascript,${encodeURIComponent(hook)}`,
+        join(dir, "scripts/local-dev.mjs"),
+      ], { encoding: "utf8" });
+      expect(out.status).toBe(47);
+      expect(out.stderr).toContain("local D1 migration failed");
+      expect(out.stderr).not.toContain("SERVICE_STARTED_AFTER_FAILED_MIGRATION");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps executable lookup and inherited configuration when a service adds environment variables", () => {
+    const lib = join(ROOT, "scripts", "shiba-dev-lib.mjs");
+    const out = spawnSync(process.execPath, ["--input-type=module", "-e", `
+import { spawnSync } from "node:child_process";
+import { localDevProcessOptions } from ${JSON.stringify(lib)};
+const child = spawnSync("node", ["-e", 'if (process.env.SHIBA_PARENT_SENTINEL !== "inherited" || process.env.SHIBA_WORKER_URL !== "http://127.0.0.1:8788" || !process.env.PATH) process.exit(2);'],
+  localDevProcessOptions(${JSON.stringify(ROOT)}, { stdio: "pipe", env: { SHIBA_WORKER_URL: "http://127.0.0.1:8788" } }, { ...process.env, SHIBA_PARENT_SENTINEL: "inherited" }));
+if (child.error) throw child.error;
+process.exit(child.status ?? 1);
+`], { encoding: "utf8" });
+    expect(out.status, out.stderr).toBe(0);
+  });
+
   it("merge dev vars mints only missing AUTO_GENERATE keys", () => {
     const dir = mkdtempSync(join(tmpdir(), "shiba-dev-"));
     const example = join(dir, ".dev.vars.example");
@@ -327,6 +366,7 @@ console.log(text);`,
 const text = formatDryRun(planDevSteps({ skipInstall: true, skipBuild: true, containers: false }));
 if (text.includes("container-build")) process.exit(2);
 if (!text.includes("--enable-containers=false")) process.exit(3);
+if (!planDevSteps({ containers: false }).steps.find(step => step.id === "wrangler-dev").args.includes("--local")) process.exit(5);
 if (!text.includes("d1-migrate") || !text.includes("wrangler-dev")) process.exit(4);
 console.log("ok");`,
       ],

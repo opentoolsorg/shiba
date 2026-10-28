@@ -96,9 +96,9 @@ function fakeD1(): D1Database {
   } as unknown as D1Database;
 }
 
-async function pair(fleet: ReturnType<typeof makeFleet>) {
+async function pair(fleet: ReturnType<typeof makeFleet>, overrides: Partial<typeof MACHINE> = {}) {
   const minted = (await (await fleet.call("/api/computers/pairing-token", { method: "POST" })).json()) as PairingTokenResponse;
-  const res = await fleet.call("/api/local/pair", { body: { pairingToken: minted.token, ...MACHINE } });
+  const res = await fleet.call("/api/local/pair", { body: { pairingToken: minted.token, ...MACHINE, ...overrides } });
   return { minted, res };
 }
 
@@ -198,7 +198,7 @@ describe("machine identity on claim", () => {
 
   it("a forged X-Shiba-Machine-Id never overrides the token's machine; a shared token gets no identity", async () => {
     const fleet = makeFleet({ LOCAL_ADAPTER_TOKEN: "daemon-secret" });
-    const a = (await (await pair(fleet)).res.json()) as { adapterToken: string; machineId: string };
+    const a = (await (await pair(fleet, { harnesses: ["opencode"] })).res.json()) as { adapterToken: string; machineId: string };
     const b = (await (await pair(fleet)).res.json()) as { adapterToken: string; machineId: string };
     const dispatchPinned = () =>
       fleet.obj.fetch(
