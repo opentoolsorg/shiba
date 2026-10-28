@@ -389,18 +389,19 @@ export function App(): React.JSX.Element {
   const savedRepos = useSavedRepos();
   const savedSkills = useSavedSkills();
   const [baseBranch, setBaseBranch] = useState("main");
-  // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
+  // T71 — deep-link ?prompt= prefills an empty composer on load. The initializer must stay pure:
+  // React can re-run it (a suspended first render), and a URL strip in here would lose the prompt.
   const [task, setTask] = useState(() => {
     const draft = readDraft("default");
-    if (typeof window === "undefined") return draft;
-    const { prompt, nextSearch } = readPromptParam(window.location.search);
-    if (prompt !== null) {
-      const nextUrl = window.location.pathname + nextSearch + window.location.hash;
-      window.history.replaceState(window.history.state, "", nextUrl);
-      if (!draft.trim()) return prompt;
-    }
-    return draft;
+    if (typeof window === "undefined" || draft.trim()) return draft;
+    return readPromptParam(window.location.search).prompt ?? draft;
   });
+  // Declared before the URL-sync effect so it sees the already-stripped query.
+  useEffect(() => {
+    const { prompt, nextSearch } = readPromptParam(window.location.search);
+    if (prompt === null) return;
+    window.history.replaceState(window.history.state, "", window.location.pathname + nextSearch + window.location.hash);
+  }, []);
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [runSetup, setRunSetup] = useState(false);
