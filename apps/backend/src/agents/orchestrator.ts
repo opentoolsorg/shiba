@@ -3251,7 +3251,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     for (const item of cancelled) {
       if (!item || released.has(item.sandboxId)) continue;
       released.add(item.sandboxId);
-      await this.releaseSandboxForRun(item);
+      // One failed release must not strand the remaining sandboxes.
+      await this.guardCleanup(() => this.releaseSandboxForRun(item));
     }
     return this.store.get(runId);
   }

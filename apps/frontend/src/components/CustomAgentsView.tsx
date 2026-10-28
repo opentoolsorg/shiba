@@ -603,11 +603,12 @@ export function useCustomAgentOptions(enabled = true): {
   refresh: () => void;
 } {
   const [agents, setAgents] = useState<CustomAgentWire[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
 
   const refresh = useCallback(() => {
+    if (!enabled) return;
     const request = ++requestSequence.current;
     setLoading(true);
     fetch("/api/custom-agents")
@@ -622,11 +623,13 @@ export function useCustomAgentOptions(enabled = true): {
       })
       .catch(() => { if (request === requestSequence.current) setError("unavailable"); })
       .finally(() => { if (request === requestSequence.current) setLoading(false); });
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) {
       requestSequence.current++;
+      setAgents([]);
+      setError(null);
       setLoading(false);
       return;
     }

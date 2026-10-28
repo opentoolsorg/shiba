@@ -1,6 +1,6 @@
 # Local Worker and laptop daemon acceptance
 
-See the [final recheck](final-recheck.md) for the current **3,166 passed,
+See the [final recheck](final-recheck.md) for the current **3,342 passed,
 3 skipped** repository suite, same-state local cleanup migration and latest
 web/Electron evidence. Earlier counts and run IDs below are historical.
 

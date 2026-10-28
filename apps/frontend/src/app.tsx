@@ -393,18 +393,6 @@ export function App(): React.JSX.Element {
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
-  const { agents: customAgentRecords, refresh: refreshCustomAgents, loading: customAgentsLoading, error: customAgentsError } = useCustomAgentOptions();
-  const customAgentPickerOptions = useMemo(
-    () =>
-      customAgentRecords.map((agent) => ({
-        id: agent.id,
-        name: agent.config.name,
-        slug: agent.slug,
-        emoji: agent.config.emoji,
-        expectedDeliverables: agent.config.expectedDeliverables,
-      })),
-    [customAgentRecords],
-  );
   const [codingModel, setCodingModel] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
@@ -580,6 +568,23 @@ export function App(): React.JSX.Element {
   const identityFailures = useRef(0);
   const retryIdentity = useCallback(() => setIdentityAttempt((n) => n + 1), []);
   const signedIn = orchestratorName !== null && identityIssue === null;
+  const {
+    agents: customAgentRecords,
+    refresh: refreshCustomAgents,
+    loading: customAgentsLoading,
+    error: customAgentsError,
+  } = useCustomAgentOptions(signedIn);
+  const customAgentPickerOptions = useMemo(
+    () =>
+      customAgentRecords.map((agent) => ({
+        id: agent.id,
+        name: agent.config.name,
+        slug: agent.slug,
+        emoji: agent.config.emoji,
+        expectedDeliverables: agent.config.expectedDeliverables,
+      })),
+    [customAgentRecords],
+  );
   const {
     localRunAvailable,
     targetMachineId: selectedLocalMachineId,

@@ -50,7 +50,8 @@ it("cleans only the chosen invocation and preserves an unrelated listener on its
     });
     const [status] = await once(cleanup, "exit");
     expect(status).toBe(0);
-    expect(owned.exitCode).toBe(0);
+    const [ownedCode] = await ownedExit;
+    expect(ownedCode).toBe(0);
     expect((await fetch(`http://127.0.0.1:${foreignPort}`)).status).toBe(200);
     expect(readFileSync(join(defaultDir, "state/keep"), "utf8")).toBe("other invocation");
     expect(() => readFileSync(join(invocation, "wrangler.pid"))).toThrow();

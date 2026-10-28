@@ -55,7 +55,7 @@ The current machine retains ignored artifacts:
 
 - `.verify/evidence/ci-local-20261028T044738Z/`: existing mock core-loop screenshots, trace/HAR, log tail, and API read-backs.
 - `.verify/evidence/ci-local-20261028T050306Z/`: combined mock core-loop and real local bot/thread CI-driver run; both journeys passed and exact-ID fixture cleanup returned HTTP 200.
-- `.verify/evidence/ci-local-20261028T052829Z/`: final combined gate against built dashboard assets; all 30 checks passed. The lifecycle artifacts remain in the dedicated directory below.
+- `.verify/evidence/ci-local-20261028T052829Z/`: final combined gate against built dashboard assets; all 31 checks passed. The lifecycle artifacts remain in the dedicated directory below.
 - `.verify/drive/assertions.json`: all 11 mock assertions with `githubMode=mock`, `containersMode=disabled`, and `standinMode=enabled`.
 - `.verify/agent-threads/result.json`, `trace.zip`, `renamed-thread.png`, `mobile-thread.png`: local bot/thread assertions and browser artifacts.
 - `.verify/agent-lifecycle/result.json`, `trace.zip`, `pending-approval.png`, `completed-profile-run.png`, `restored-agent-history.png`: configured profile lifecycle, frozen approval/run read-backs, and browser artifacts.

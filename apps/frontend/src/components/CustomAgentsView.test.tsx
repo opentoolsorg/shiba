@@ -10,6 +10,37 @@ afterEach(() => {
 import { CustomAgentsView, useCustomAgentOptions } from "./CustomAgentsView";
 
 describe("CustomAgentsView", () => {
+  it("skips fetching when disabled and loads bots when enabled", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        agents: [
+          {
+            id: "ag-1",
+            slug: "reviewer",
+            version: 1,
+            config: { name: "Reviewer", instructions: "Review PRs", harness: "opencode" },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result, rerender } = renderHook(({ enabled }) => useCustomAgentOptions(enabled), {
+      initialProps: { enabled: false },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current.agents).toEqual([]);
+    expect(result.current.loading).toBe(false);
+
+    rerender({ enabled: true });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(result.current.agents).toHaveLength(1);
+    expect(result.current.agents[0]?.id).toBe("ag-1");
+  });
+
   it("does not resurrect a removed bot from a stale directory request", async () => {
     let finishFirst!: (response: Response) => void;
     const request = vi.fn()
