@@ -115,11 +115,13 @@ test("sign in, pair probe, approve, show the diff, and open a pull request", asy
 
     await win.getByLabel("Task description").fill("Add a greeting");
     await win.getByRole("button", { name: "Send task" }).click();
+    // Listen before approving: the diff window can open before the diff tab settles.
+    const diffWindowOpened = app.waitForEvent("window");
     await win.getByRole("button", { name: "Approve" }).click();
     await expect.poll(async () => win.getByTestId("diff").textContent()).toBe(PATCH);
     await expect.poll(() => win.url()).toContain("tab=diff");
 
-    const diffWindow = await app.waitForEvent("window");
+    const diffWindow = await diffWindowOpened;
     await expect.poll(async () => diffWindow.locator("#patch").textContent()).toBe(PATCH);
 
     await app.evaluate(({ shell }) => {
