@@ -6,6 +6,7 @@
  * `queued` or `dispatching` (no sandbox side effects yet). Once the
  * checkpoint is `executing` or `settling`, the outcome is unknown.
  */
+import type { RunDeliverable } from "./deliverables.js";
 import type { ApprovalEvidence } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
 import type { ApprovedRoute } from "./model.js";
@@ -57,6 +58,8 @@ export interface DelegatedRun {
   /** Operator-archived timestamp; archiving leaves status intact. Absent on older records. */
   archivedAt?: number;
   summary?: string;
+  /** Public metadata for captured requested outputs. */
+  deliverables?: RunDeliverable[];
   error?: string;
   /** Classified error code; set on every error/unknown transition. */
   errorCode?: RunErrorCode;
@@ -121,6 +124,8 @@ export interface DelegatedRun {
   targetMachineId?: string;
   /** The test command this approval-gated run executes, as argv. */
   testCommand?: string[];
+  /** Exact workspace outputs required by this approval. */
+  expectedDeliverables?: string[];
   /**
    * Run-fork lineage (PLAN-V2-NEXT): the parent run and the checkpoint ref
    * this run resumes from (`refs/shiba/checkpoints/<sandboxId>/<seq>`).
@@ -164,6 +169,8 @@ export interface DelegatedRun {
   envSealed?: string;
   /** T72: approval-hashed opt-in to the repo's setup script. */
   runSetup?: boolean;
+  /** Profile version whose effective instructions and route this run approved. */
+  customAgentVersion?: number;
   /**
    * Durable phase written before the next await. A Worker/DO restart
    * resumes `queued` and `dispatching` runs that have not touched a
@@ -224,6 +231,8 @@ export function mergeRunUsage(base: RunUsage | undefined, delta: RunUsage | unde
 
 export type RunPatch = {
   summary?: string;
+  /** Public metadata for captured requested outputs. */
+  deliverables?: RunDeliverable[];
   error?: string;
   errorCode?: RunErrorCode;
   diff?: string;

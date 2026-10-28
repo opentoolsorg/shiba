@@ -1,5 +1,6 @@
 import {
   canSpawnSubagentAt,
+  isActiveStatus,
   denIdWireFields,
   directChildPaths,
   nextSubagentPath,
@@ -40,6 +41,9 @@ export function mintSubagentRun(args: {
   if (parent.runId !== args.input.parentRunId) {
     return { ok: false, error: "Parent run mismatch.", status: 400 };
   }
+  if (!isActiveStatus(parent.status)) {
+    return { ok: false, error: "Only active runs can spawn subagents.", status: 409 };
+  }
   const parentPath = parent.subagentPath;
   if (!canSpawnSubagentAt(parentPath)) {
     return { ok: false, error: `Subagent depth cap (${3}) reached.`, status: 400 };
@@ -59,6 +63,7 @@ export function mintSubagentRun(args: {
     subagentPath: path,
     subagentSandbox: args.input.sandboxMode,
     ...denIdWireFields(denId),
+    ...(parent.queuedBy !== undefined ? { queuedBy: parent.queuedBy } : {}),
     ...(parent.route ? { route: parent.route } : {}),
     ...(args.input.role !== undefined ? { role: args.input.role } : {}),
   };

@@ -2,6 +2,14 @@ import { isActiveStatus, type DelegatedRun } from "@shiba/shared";
 import { publicRunMessage, runTimedOut } from "../public-error.js";
 import type { V1Context } from "./context.js";
 
+/** Metadata only: never project durable artifact bodies or storage keys. */
+export function runDeliverableFields(run: DelegatedRun) {
+  return {
+    ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
+    ...(run.deliverables !== undefined ? { deliverables: run.deliverables.map(({ path, mediaType, bytes, sha256 }) => ({ path, mediaType, bytes, sha256 })) } : {}),
+  };
+}
+
 export function runStatus(run: DelegatedRun) {
   switch (run.status) {
     case "pending": return "queued";
@@ -52,7 +60,7 @@ export async function handleRuns(ctx: V1Context): Promise<Response | null> {
   const finishedAt = isActiveStatus(run.status) ? null : new Date(run.updatedAt).toISOString();
   if (action === "run-state") {
     const messages = runMessages(run);
-    return Response.json({ ok: true, run: { runId: id, status, finishedAt,
+    return Response.json({ ok: true, run: { runId: id, status, finishedAt, ...runDeliverableFields(run),
       userMessage: messages[0], assistantMessage: messages[1] ?? null } });
   }
   if (action === "active-run") return Response.json({ ok: true,
@@ -63,7 +71,7 @@ export async function handleRuns(ctx: V1Context): Promise<Response | null> {
       return Response.json({ ok: false, error: "invalid_limit" }, { status: 400 });
     }
     if (ctx.url.searchParams.has("cursor")) return Response.json({ ok: false, error: "invalid_cursor" }, { status: 400 });
-    return Response.json({ ok: true, nextCursor: null, runs: [{ id, threadId: id, status,
+    return Response.json({ ok: true, nextCursor: null, runs: [{ id, threadId: id, status, ...runDeliverableFields(run),
       createdAt: new Date(run.createdAt).toISOString(),
       startedAt: run.signals?.find((signal) => signal.kind === "harness.started")?.at !== undefined
         ? new Date(run.signals.find((signal) => signal.kind === "harness.started")!.at).toISOString() : null,
@@ -141,6 +149,7 @@ export async function handleRuns(ctx: V1Context): Promise<Response | null> {
       ...(run.runtime ? { runtime: run.runtime } : {}),
       ...(run.targetMachineId ? { targetMachineId: run.targetMachineId } : {}),
       ...(run.testCommand ? { testCommand: run.testCommand } : {}),
+      ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
       ...(key ? { commandId: `v1:retry:${id}:${key}` } : {}),
     }),
   );

@@ -92,8 +92,15 @@ jobs:
           VERIFY_ENABLE_CONTAINERS: 0
           VERIFY_USE_RUNS_API: 1
           VERIFY_FEATURE: core-loop-mock
+          VERIFY_AGENT_THREADS: 1
+          VERIFY_AGENT_LIFECYCLE: 1
           PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify/playwright-browsers
         run: bash .cursor/skills/verify-shiba/scripts/run-ci.sh
+      - name: Verify Marketing deliverables with a fresh local Worker and daemon
+        env:
+          CI: true
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify/playwright-browsers
+        run: node .cursor/skills/verify-shiba/scripts/run-employee-ci.mjs
       - name: Upload verify-shiba artifacts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -102,6 +109,12 @@ jobs:
           path: |
             .verify/evidence/**
             .verify/drive/**
+            .verify/agent-threads/**
+            .verify/agent-lifecycle/**
+            .verify/local-daemon-e2e/ui-employee-web/**
+            .verify/employee-ci-*/worker.log
+            .verify/employee-ci-*/migrate.log
+            .verify/employee-ci-*/result.json
             .verify/wrangler.log
             .verify/migrate.log
           if-no-files-found: warn

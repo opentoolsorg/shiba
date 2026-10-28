@@ -97,7 +97,7 @@ describe("AppNavRail", () => {
     const onNavigate = vi.fn<(view: AppNavView) => void>();
     render(<AppNavRail activeView="tasks" onNavigate={onNavigate} sessions={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "More" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Custom agents" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Bots" }));
     expect(onNavigate).toHaveBeenCalledWith("custom-agents");
   });
 });

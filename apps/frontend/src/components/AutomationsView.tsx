@@ -195,7 +195,7 @@ export function AutomationsView(): JSX.Element {
             <div>
               <h3 className="text-sm font-semibold text-[var(--fg)]">Recipe Gallery</h3>
               <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5">
-                Each recipe is an agent on a trigger. Point it at a repo and deploy.
+                Each recipe starts a task on a trigger. Choose a repository and an optional bot.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -208,12 +208,12 @@ export function AutomationsView(): JSX.Element {
                 className="bg-[var(--card)] text-xs font-mono text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-1.5 w-72 transition-colors focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--ring)] placeholder:text-[var(--muted-foreground-3)]"
               />
               <select
-                aria-label="Custom agent for new automations"
+                aria-label="Bot for new automations"
                 value={customAgentId}
                 onChange={(e) => setCustomAgentId(e.target.value)}
                 className="bg-[var(--card)] text-xs border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1.5 max-w-[200px]"
               >
-                <option value="">No custom agent</option>
+                <option value="">No bot</option>
                 {customAgents.map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.config.name}
@@ -305,7 +305,7 @@ export function AutomationsView(): JSX.Element {
                     </div>
                     <p className="text-[11px] text-[var(--muted-foreground-2)] truncate mt-0.5">
                       {a.repoUrl} · runs: {a.runCount ?? 0}
-                      {a.customAgentId ? ` · agent: ${a.customAgentId}` : ""}
+                      {a.customAgentId ? ` · bot: ${a.customAgentId}` : ""}
                       {a.lastSkip ? ` · last skip: ${a.lastSkip.reason}` : ""}
                     </p>
                   </div>

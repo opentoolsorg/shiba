@@ -4,85 +4,15 @@ import {
   deleteCustomAgent,
   getCustomAgentById,
   listCustomAgents,
+  getCustomAgentBySlug,
+  setCustomAgentArchived,
   updateCustomAgent,
 } from "../src/custom-agents-store.js";
 
-function mockD1(): D1Database {
-  const tables = new Map<string, Map<string, Record<string, unknown>>>();
-  const ensure = (name: string) => {
-    if (!tables.has(name)) tables.set(name, new Map());
-    return tables.get(name)!;
-  };
-  const prepare = (sql: string) => ({
-    bind(...args: unknown[]) {
-      return {
-        async run() {
-          if (sql.includes("CREATE TABLE") || sql.includes("CREATE INDEX") || sql.includes("audit_log")) {
-            return { success: true };
-          }
-          if (sql.includes("INSERT INTO org_custom_agents")) {
-            const agents = ensure("org_custom_agents");
-            const id = String(args[0]);
-            agents.set(id, {
-              id,
-              org_id: args[1],
-              slug: args[2],
-                  version: 1,
-                  config_json: args[3],
-                  created_at: args[4],
-                  updated_at: args[5],
-              deleted_at: null,
-            });
-          }
-          if (sql.includes("INSERT INTO org_custom_agent_versions")) {
-            ensure("org_custom_agent_versions").set(`${args[0]}-${args[2]}`, {});
-          }
-          if (sql.includes("UPDATE org_custom_agents SET deleted_at")) {
-            const row = ensure("org_custom_agents").get(String(args[2]));
-            if (row) row.deleted_at = args[0];
-          }
-          if (sql.includes("UPDATE org_custom_agents SET version")) {
-            const row = ensure("org_custom_agents").get(String(args[3]));
-            if (row) {
-              row.version = args[0];
-              row.config_json = args[1];
-              row.updated_at = args[2];
-            }
-          }
-          return { success: true };
-        },
-        async first() {
-          if (sql.includes("FROM org_custom_agents WHERE org_id = ? AND slug")) {
-            return [...ensure("org_custom_agents").values()].find(
-              (r) => r.org_id === args[0] && r.slug === args[1] && r.deleted_at == null,
-            );
-          }
-          if (sql.includes("FROM org_custom_agents WHERE org_id = ? AND id")) {
-            const row = ensure("org_custom_agents").get(String(args[1]));
-            return row && row.org_id === args[0] && row.deleted_at == null ? row : null;
-          }
-          return null;
-        },
-        async all() {
-          if (sql.includes("FROM org_custom_agents WHERE org_id")) {
-            const agents = [...ensure("org_custom_agents").values()].filter(
-              (r) => r.org_id === args[0] && r.deleted_at == null,
-            );
-            return { results: agents };
-          }
-          return { results: [] };
-        },
-      };
-    },
-    async run() {
-      return { success: true };
-    },
-  });
-  return { prepare } as D1Database;
-}
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 describe("custom agents store", () => {
-  const env = { AGENT_AUDIT: mockD1() };
+  const env = { AGENT_AUDIT: customAgentD1().database };
 
   it("creates, updates, lists, and soft-deletes", async () => {
     const created = await createCustomAgent(env, "org-1", "scout", {
@@ -117,5 +47,90 @@ describe("custom agents store", () => {
     expect((await getCustomAgentById(env, "org-a", created.id))?.slug).toBe(
       "scout",
     );
+  });
+});
+
+describe("custom agent lifecycle and atomic versions", () => {
+  const config = { name: "Scout", instructions: "Explore the repo.", harness: "opencode" };
+
+  it("archives and restores without losing definition, version history, or identity", async () => {
+    const { database, sqlite } = customAgentD1();
+    const env = { AGENT_AUDIT: database };
+    const created = await createCustomAgent(env, "org-a", "scout", config);
+    const archived = await setCustomAgentArchived(env, "org-a", created.id, true);
+    expect(archived.archivedAt).toEqual(expect.any(Number));
+    expect(await getCustomAgentById(env, "org-a", created.id)).toBeNull();
+    expect(await getCustomAgentBySlug(env, "org-a", "scout")).toBeNull();
+    expect(await listCustomAgents(env, "org-a")).toEqual([]);
+    expect(await listCustomAgents(env, "org-a", { archived: true })).toEqual([archived]);
+    const again = await setCustomAgentArchived(env, "org-a", created.id, true);
+    expect(again.archivedAt).toBe(archived.archivedAt);
+    const restored = await setCustomAgentArchived(env, "org-a", created.id, false);
+    expect(restored).toMatchObject({ id: created.id, config, version: 1 });
+    expect(restored.archivedAt).toBeUndefined();
+    expect(await listCustomAgents(env, "org-a")).toEqual([restored]);
+    expect(sqlite.prepare("SELECT COUNT(*) count FROM org_custom_agent_versions").get()?.count).toBe(1);
+  });
+
+  it("does not archive, restore, read or edit another org's profile", async () => {
+    const { database } = customAgentD1();
+    const env = { AGENT_AUDIT: database };
+    const created = await createCustomAgent(env, "org-a", "scout", config);
+    for (const archived of [true, false]) {
+      await expect(setCustomAgentArchived(env, "org-b", created.id, archived)).rejects.toThrow("Agent not found");
+    }
+    expect(await getCustomAgentById(env, "org-b", created.id, { includeArchived: true })).toBeNull();
+    expect(await getCustomAgentById(env, "org-a", created.id)).not.toBeNull();
+  });
+
+  it("never restores soft-deleted profiles and keeps archived edits disabled", async () => {
+    const { database } = customAgentD1();
+    const env = { AGENT_AUDIT: database };
+    const created = await createCustomAgent(env, "org-a", "scout", config);
+    await setCustomAgentArchived(env, "org-a", created.id, true);
+    await expect(updateCustomAgent(env, "org-a", created.id, config, 1)).rejects.toThrow("Agent not found");
+    await deleteCustomAgent(env, "org-a", created.id);
+    await expect(setCustomAgentArchived(env, "org-a", created.id, false)).rejects.toThrow("Agent not found");
+    expect(await listCustomAgents(env, "org-a", { archived: true })).toEqual([]);
+  });
+
+  it("applies one of two concurrent edits to the same version and records only its history", async () => {
+    const { database, sqlite } = customAgentD1();
+    const env = { AGENT_AUDIT: database };
+    const created = await createCustomAgent(env, "org-a", "scout", config);
+    const results = await Promise.allSettled([
+      updateCustomAgent(env, "org-a", created.id, { ...config, name: "First edit" }, 1),
+      updateCustomAgent(env, "org-a", created.id, { ...config, name: "Second edit" }, 1),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected") as PromiseRejectedResult;
+    expect(String(rejected.reason)).toContain("Version conflict");
+    const saved = await getCustomAgentById(env, "org-a", created.id);
+    expect(saved?.version).toBe(2);
+    const history = sqlite.prepare("SELECT version,config_json FROM org_custom_agent_versions ORDER BY version").all();
+    expect(history).toHaveLength(2);
+    expect(JSON.parse(String(history[1]?.config_json))).toEqual(saved?.config);
+  });
+
+  it("rolls back the profile write when recording the version fails", async () => {
+    const { database, sqlite } = customAgentD1();
+    const env = { AGENT_AUDIT: database };
+    const created = await createCustomAgent(env, "org-a", "scout", config);
+    sqlite.exec("CREATE TRIGGER fail_history BEFORE INSERT ON org_custom_agent_versions WHEN NEW.version > 1 BEGIN SELECT RAISE(ABORT, 'history unavailable'); END");
+    await expect(updateCustomAgent(env, "org-a", created.id, { ...config, name: "Lost edit" }, 1)).rejects.toThrow("history unavailable");
+    expect(await getCustomAgentById(env, "org-a", created.id)).toMatchObject({ version: 1, config });
+    expect(sqlite.prepare("SELECT COUNT(*) count FROM org_custom_agent_versions").get()?.count).toBe(1);
+  });
+
+  it("adds archive support to a legacy table without changing existing configuration", async () => {
+    const { database, sqlite } = customAgentD1();
+    sqlite.exec(`CREATE TABLE org_custom_agents (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, slug TEXT NOT NULL,
+      version INTEGER NOT NULL, config_json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER)`);
+    sqlite.prepare("INSERT INTO org_custom_agents VALUES (?,?,?,?,?,?,?,NULL)").run("legacy", "org-a", "legacy", 3, JSON.stringify(config), 1, 2);
+    const env = { AGENT_AUDIT: database };
+    const saved = await getCustomAgentById(env, "org-a", "legacy");
+    expect(saved).toMatchObject({ id: "legacy", version: 3, config });
+    expect((await setCustomAgentArchived(env, "org-a", "legacy", true)).archivedAt).toEqual(expect.any(Number));
+    expect((await setCustomAgentArchived(env, "org-a", "legacy", false)).config).toEqual(config);
   });
 });

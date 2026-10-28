@@ -38,6 +38,12 @@ import { randomHex } from "./mailbox-store.js";
 
 const RECORD_PREFIX = "run:";
 const COMPUTER_PREFIX = "computer:";
+/** Locally runnable lane IDs mapped to the executable names the daemon probes. */
+const LOCAL_DAEMON_HARNESSES: Readonly<Record<string, string>> = {
+  "claude-code": "claude",
+  codex: "codex",
+  opencode: "opencode",
+};
 /** `pair:<nonce>` → expiresAt; deleted on first use, so a pairing token mints once. */
 const PAIR_PREFIX = "pair:";
 /** Worker-vouched calling machine on /claim; local-routes strips any inbound copy. */
@@ -162,9 +168,29 @@ export class LocalDispatch extends DurableObject {
           { status: 409 },
         );
       }
+      if (body.targetMachineId !== undefined && typeof body.targetMachineId !== "string") {
+        return Response.json({ error: "Invalid targetMachineId." }, { status: 400 });
+      }
       const target = typeof body.targetMachineId === "string" ? body.targetMachineId.trim() : "";
       if (target.length > 128)
         return Response.json({ error: "Invalid targetMachineId." }, { status: 400 });
+      if (target !== "") {
+        const computer = await this.ctx.storage.get<ComputerRecord>(`${COMPUTER_PREFIX}${target}`);
+        // Shared-token heartbeats can publish a fleet row without pairing.
+        // Such a row has no machine credential with which to claim a pin.
+        if (!computer || typeof computer.tokenHash !== "string" || !computer.tokenHash.trim()) {
+          return Response.json({ error: "Target computer is not paired or was revoked." }, { status: 404 });
+        }
+        if (!Number.isFinite(computer.lastHeartbeat) || Math.abs(now - computer.lastHeartbeat) > LOCAL_HEARTBEAT_STALE_MS) {
+          return Response.json({ error: "Target computer is offline. Reconnect it before dispatching." }, { status: 409 });
+        }
+        const daemonHarness = LOCAL_DAEMON_HARNESSES[parsed.data.harness];
+        if (!daemonHarness || !computer.harnesses.includes(daemonHarness)) {
+          return Response.json({ error: "Target computer does not support this harness." }, { status: 409 });
+        }
+        // A live busy machine can claim this pending run after its current
+        // run settles. Only availability and compatibility gate dispatch.
+      }
       const record: LocalDispatchRecord = {
         envelope: parsed.data,
         status: "pending",

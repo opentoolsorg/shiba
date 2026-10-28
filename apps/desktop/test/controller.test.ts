@@ -43,6 +43,66 @@ function setup(opts: { code?: number | "throw"; local?: LocalConfig | null } = {
 }
 
 describe("probe state machine", () => {
+  it("does not restart from a cookie probe that resolves after stop", async () => {
+    const t = setup();
+    let resolveProbe!: (result: { status: number }) => void;
+    t.deps.probeFetch = () => new Promise((resolve) => { resolveProbe = resolve; });
+    const pending = t.ctl.probe();
+    await t.ctl.stop();
+    resolveProbe({ status: 200 });
+    await pending;
+    expect(t.children).toHaveLength(0);
+    expect(t.timers).toHaveLength(0);
+  });
+
+  it("re-probes the selected deployment when an old probe is still pending", async () => {
+    const t = setup();
+    let origin = ORIGIN;
+    let resolveOld!: (result: { status: number }) => void;
+    const urls: string[] = [];
+    t.deps.getOrigin = () => origin;
+    t.deps.probeFetch = (url) => {
+      urls.push(url);
+      return url.startsWith(ORIGIN)
+        ? new Promise((resolve) => { resolveOld = resolve; })
+        : Promise.resolve({ status: 200 });
+    };
+    const oldProbe = t.ctl.probe();
+    origin = "https://new.example.com";
+    await t.ctl.stop();
+    await t.ctl.probe();
+    resolveOld({ status: 200 });
+    await oldProbe;
+    await vi.waitFor(() => expect(t.ctl.status().state).toBe("paired-elsewhere"));
+    expect(urls).toEqual([`${ORIGIN}/api/computers`, "https://new.example.com/api/computers"]);
+    expect(t.children).toHaveLength(0);
+  });
+
+  it("does not let an old404 probe stop a newly paired daemon", async () => {
+    const t = setup();
+    let resolveProbe!: (result: { status: number }) => void;
+    t.deps.probeFetch = () => new Promise((resolve) => { resolveProbe = resolve; });
+    const pending = t.ctl.probe();
+    await t.ctl.stop();
+    t.ctl.forkForPairing(["--connect", ORIGIN, "--pair", "nonce.signature"]);
+    resolveProbe({ status: 404 });
+    await pending;
+    expect(t.children).toHaveLength(1);
+    expect(t.children[0]?.killed).toBe(false);
+  });
+
+  it("ignores a late probe result after disposal", async () => {
+    const t = setup();
+    let resolveProbe!: (result: { status: number }) => void;
+    t.deps.probeFetch = () => new Promise((resolve) => { resolveProbe = resolve; });
+    const pending = t.ctl.probe();
+    t.ctl.dispose();
+    resolveProbe({ status: 200 });
+    await pending;
+    expect(t.children).toHaveLength(0);
+    expect(t.timers).toHaveLength(0);
+  });
+
   it.each([[401], [302], [0], ["throw" as const]])("%s -> signed-out", async (code) => {
     const t = setup({ code });
     expect((await t.ctl.probe()).state).toBe("signed-out");

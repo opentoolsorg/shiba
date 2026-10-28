@@ -62,7 +62,7 @@ import { handleDiscordInteractions } from "./discord.js";
 import { handleTelegramWebhook } from "./telegram.js";
 import { handleTrigger } from "./trigger.js";
 import { handleSandboxRoutes } from "./sandbox-routes.js";
-import { isPublicRequest } from "./public-routes.js";
+import { isOrgApiPath, isPublicRequest } from "./public-routes.js";
 import { handleWaitlist } from "./waitlist.js";
 import { Waitlist } from "./waitlist-do.js";
 import { ModelConfig } from "./model-config-do.js";
@@ -225,7 +225,7 @@ export default {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
       }
-      if (!isPublicRequest(request) && !(await isAuthorizedRequest(request, env))) {
+      if (!isPublicRequest(request) && !isOrgApiPath(url.pathname) && !(await isAuthorizedRequest(request, env))) {
         // A signed-out browser on the consent screen goes to sign-in and
         // comes back; MCP clients and fetch() keep the JSON 401.
         if (

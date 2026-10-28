@@ -98,6 +98,7 @@ function launch(): Promise<ElectronApplication> {
   const userData = mkdtempSync(path.join(tmpdir(), "shiba-journey-"));
   userDataDirs.push(userData);
   return electron.launch({
+    chromiumSandbox: true,
     args: ["dist/main.js", `--user-data-dir=${userData}`],
     env: { ...(process.env as Record<string, string>), SHIBA_DESKTOP_URL: stubUrl },
   });
@@ -114,12 +115,13 @@ test("sign in, pair probe, approve, show the diff, and open a pull request", asy
 
     await win.getByLabel("Task description").fill("Add a greeting");
     await win.getByRole("button", { name: "Send task" }).click();
-    const diffWindowPromise = app.waitForEvent("window");
+    // Listen before approving: the diff window can open before the diff tab settles.
+    const diffWindowOpened = app.waitForEvent("window");
     await win.getByRole("button", { name: "Approve" }).click();
     await expect.poll(async () => win.getByTestId("diff").textContent()).toBe(PATCH);
     await expect.poll(() => win.url()).toContain("tab=diff");
 
-    const diffWindow = await diffWindowPromise;
+    const diffWindow = await diffWindowOpened;
     await expect.poll(async () => diffWindow.locator("#patch").textContent()).toBe(PATCH);
 
     await app.evaluate(({ shell }) => {

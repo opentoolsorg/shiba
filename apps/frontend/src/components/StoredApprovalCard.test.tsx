@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 afterEach(() => cleanup());
 import { StoredApprovalCard } from "./WorkspacePanel";
@@ -19,6 +19,20 @@ const approval: StoredApproval = {
 };
 
 describe("StoredApprovalCard", () => {
+  it("shows the frozen deliverable requirements before approving that exact record", () => {
+    const frozen: StoredApproval = { ...approval, customAgentVersion: 2, expectedDeliverables: ["marketing/brief.md", "marketing/campaign.md"] };
+    const onDecide = vi.fn();
+    const { container } = render(<StoredApprovalCard approval={frozen} decided={false} onDecide={onDecide} />);
+    const required = screen.getByRole("list", { name: "Frozen required deliverables" });
+    expect(within(required).getByText("marketing/brief.md")).toBeTruthy();
+    expect(within(required).getByText("marketing/campaign.md")).toBeTruthy();
+    expect(screen.getByText("Bot profile v2")).toBeTruthy();
+    expect(JSON.parse(container.querySelector("pre")!.textContent!).expectedDeliverables).toEqual(frozen.expectedDeliverables);
+    expect(onDecide).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onDecide).toHaveBeenCalledExactlyOnceWith(frozen, true);
+  });
+
   it("explains approve vs reject before decision", () => {
     render(<StoredApprovalCard approval={approval} decided={false} onDecide={vi.fn()} />);
     expect(screen.getByText(/Approve to start the run/i)).toBeTruthy();

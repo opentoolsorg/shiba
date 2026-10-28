@@ -5,6 +5,11 @@
 [![Dashboard](https://img.shields.io/badge/Dashboard-app.tryshiba.dev-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://app.tryshiba.dev/app/)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg?style=flat-square)](LICENSE)
 
+## Sponsors
+
+[![AgentDesk](https://img.shields.io/badge/AgentDesk-white-label%20AI%20voice%20agent%20platform-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://github.com/princepal9120/agentdesk)
+[![Awesome Solo Founder OSS](https://img.shields.io/badge/Awesome%20Solo%20Founder%20OSS-Curated%20OSS%20stack%20for%20solo%20founders-teal?style=flat-square)](https://github.com/princepal9120/awesome-solo-founder-oss)
+
 Shiba is an open-source, self-hosted AI software engineer — an account-owned Cloudflare workspace: describe a GitHub task, review the proposed delegation, approve or reject it, and inspect a sandbox-generated diff. The repository is a pnpm monorepo containing a React dashboard, an Astro/Starlight documentation site, and a Cloudflare Worker backend built around Agents and Sandbox containers running OpenCode.
 
 **Status: deployed prototype, not production-ready.** No live end-to-end cloud run is claimed. Two hosts exist: `tryshiba.dev` is the Cloudflare Pages site (landing `/`, docs `/docs/` — static only), and `app.tryshiba.dev` is the deployed Worker (dashboard `/app/` plus the API) behind Cloudflare Access with `workers.dev` disabled. The Worker deploy proves the stack provisions and serves; it does not establish a live coding run. `VERIFICATION.md` records passing local typecheck, lint, tests, and build checks; the backend remains a prototype until a dated run meets the P2 acceptance bar in `PLAN.md` §15: submit → approve → clone/code/collect with a diff that matches reality, rejection starting no container, honest failure exit codes, PRs with deletions shown as deleted, and peak memory measured.

@@ -13,10 +13,13 @@
 import type { RunSignal, RunSignalKind, RunUsage } from "@shiba/shared";
 import {
   buildLocalRunEnvelope,
+  expectedDeliverablesSchema,
+  MAX_DELIVERABLE_BYTES,
   type LocalRunResult,
   mergeRunUsage,
   RUN_SIGNAL_KINDS,
 } from "@shiba/shared";
+import { verifyExpectedDeliverables } from "./run-deliverables.js";
 import { ScopedExecRefusal, scopedExec } from "./exec-allowlist.js";
 import {
   captureCheckpoint,
@@ -176,6 +179,10 @@ export const COMPUTER_PREVIEW_MESSAGE =
   "Set RUNTIME=sandbox (the default) or wait for Computer to graduate from preview. " +
   "Sandbox remains the default isolated repository runtime.";
 
+// A fixed adapter-owned reader transports Git object bytes as ASCII. The
+// scoped allowlist permits only this exact script, never arbitrary node -e.
+export const DELIVERABLE_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1];if(!/^[a-f0-9]{40,64}$/.test(id||""))process.exit(2);const out=spawnSync("git",["cat-file","blob",id],{maxBuffer:16385,timeout:60000});if(out.error||out.status!==0||out.stdout.length>16384)process.exit(1);process.stdout.write(out.stdout.toString("base64"));`;
+
 export class SandboxRuntimeAdapter implements RuntimeAdapter {
   readonly name = "sandbox" as const;
   private readonly harness: AgentHarness;
@@ -196,6 +203,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       exportDiff?: (diff: string) => Promise<string>;
     },
   ): Promise<CodingTaskResult> {
+    input = withDeliverableInstructions(input);
     const workdir = `/workspace/${input.sandboxId}`;
     const configValue = this.harness.configFile(input, input.sandboxId);
     const configFiles =
@@ -227,6 +235,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         : [argv0];
     const allowlist: readonly (readonly string[])[] = [
       ["git"],
+      ...(input.expectedDeliverables?.length ? [["node", "-e", DELIVERABLE_BLOB_READER] as const] : []),
       harnessExecPrefix,
       ...(sessionScript !== null ? [["node", sessionScript] as const] : []),
       ...capabilities.execAllowlist,
@@ -427,6 +436,8 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         () =>
           collectChanges(scoped, workdir, {
             signal: opts?.signal,
+            expectedDeliverables: input.expectedDeliverables,
+            deliverableCheckpoint: settleRef,
             diffSource: () =>
               diffCheckpoints(scoped, workdir, baselineRef, settleRef, opts?.signal),
             exportDiff: opts?.exportDiff,
@@ -533,6 +544,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       // T43 verify gate — load-bearing: an exit-0 run with an empty diff is NOT
       // completed, and a declared test command needs a clean exec.settled
       // receipt. Deterministic evidence only; this feeds T46's proof gate.
+      await verifyExpectedDeliverables(input.expectedDeliverables, completed.files);
       const verification = await this.harness.verify(input, completed);
       if (!verification.ok) {
         return failureResult(
@@ -619,6 +631,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     emit: ProgressEmitter,
     opts?: { signal?: AbortSignal; signals?: RunSignal[]; env?: Record<string, string> },
   ): Promise<CodingTaskResult> {
+    input = withDeliverableInstructions(input);
     const signals = opts?.signals ?? [];
     const milestone = (kind: RunSignalKind, detail?: string) => {
       signals.push(
@@ -656,7 +669,11 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         repoUrl: input.repoUrl,
         baseBranch: input.baseBranch,
         task: input.task,
+        ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+        ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+        ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
         ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
+        ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
       },
       harnessName: this.harness.name,
       workdir,
@@ -721,7 +738,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
       } catch (error) {
         return failureResult(`Local dispatch status failed: ${shortError(error)}`, 0, "", signals);
       }
-      if (status.status === "claimed" && !seenClaimed) {
+      if (!seenClaimed && (status.status === "claimed" || status.claimedAt !== undefined)) {
         seenClaimed = true;
         milestone("local.claimed", status.claimedBy ?? "operator");
         await emit({
@@ -761,6 +778,11 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
             stderrTail,
             signals,
           );
+        }
+        try {
+          await verifyExpectedDeliverables(input.expectedDeliverables, result.files);
+        } catch (error) {
+          return failureResult(`Deliverable verification failed: ${shortError(error)}`, result.exitCode, stderrTail, signals);
         }
         const completed: CodingTaskResult = {
           status: "completed",
@@ -984,6 +1006,53 @@ function streamProgress(
   return stream;
 }
 
+function withDeliverableInstructions(input: CodingTaskInput): CodingTaskInput {
+  const expected = expectedDeliverablesSchema.parse(input.expectedDeliverables ?? []);
+  if (!expected.length) return input;
+  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to the approved repository workspace):\n${expected.map((path) => `- ${path}`).join("\n")}\nWrite complete nonempty UTF-8 text files at these exact paths. JSON files must parse. Each file must be at most 16384 UTF-8 bytes, and all requested files together at most 65536 bytes. A completion claim without these files will fail verification.` };
+}
+
+/** Read regular files from the settled Git snapshot. Symlinks (including
+ * symlink parents), missing files, binary/invalid UTF-8 and truncated exec
+ * output cannot become requested artifacts. No filesystem path is followed. */
+export async function collectExpectedSandboxDeliverables(
+  ops: SandboxOps, workdir: string, checkpoint: string, expected: string[] | undefined, signal?: AbortSignal,
+): Promise<CollectedChanges["files"]> {
+  const paths = expectedDeliverablesSchema.parse(expected ?? []);
+  const files: CollectedChanges["files"] = [];
+  for (const path of paths) {
+    const tree = await ops.exec(shellJoin(["git", "ls-tree", "-z", checkpoint, "--", path]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
+    const match = /^(100644|100755) blob ([a-f0-9]{40,64})\t([^\0]+)\0$/.exec(tree.stdout);
+    if (tree.exitCode !== 0 || !match || match[3] !== path) throw new Error(`Deliverable ${path} must be a regular file in the settled workspace.`);
+    const objectId = match[2]!;
+    const size = await ops.exec(shellJoin(["git", "cat-file", "-s", objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
+    const bytes = Number(size.stdout.trim());
+    if (size.exitCode !== 0 || !/^\d+\s*$/.test(size.stdout) || !Number.isSafeInteger(bytes) || bytes > MAX_DELIVERABLE_BYTES) throw new Error(`Deliverable ${path} exceeds its byte limit or could not be read completely.`);
+    const encodedLength = Math.ceil(bytes / 3) * 4;
+    const blob = await ops.exec(shellJoin(["node", "-e", DELIVERABLE_BLOB_READER, objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: Math.ceil(MAX_DELIVERABLE_BYTES / 3) * 4 + 1 });
+    const encoded = blob.stdout;
+    if (blob.exitCode !== 0 || encoded.length !== encodedLength || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error(`Deliverable ${path} has malformed or truncated byte transport.`);
+    let content: string;
+    try {
+      const raw = atob(encoded);
+      const data = Uint8Array.from(raw, (character) => character.charCodeAt(0));
+      if (data.byteLength !== bytes || btoa(raw) !== encoded) throw new Error("Noncanonical byte transport");
+      const header = new TextEncoder().encode(`blob ${bytes}\0`);
+      const objectBytes = new Uint8Array(header.byteLength + data.byteLength);
+      objectBytes.set(header); objectBytes.set(data, header.byteLength);
+      const digest = new Uint8Array(await crypto.subtle.digest(objectId.length === 40 ? "SHA-1" : "SHA-256", objectBytes));
+      const actualId = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      if (actualId !== objectId) throw new Error("Git object integrity mismatch");
+      content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
+    } catch {
+      throw new Error(`Deliverable ${path} contains invalid UTF-8 or malformed byte transport.`);
+    }
+    files.push({ path, content, encoding: "utf8" });
+  }
+  await verifyExpectedDeliverables(paths, files);
+  return files;
+}
+
 function summarizeRun(
   harnessName: string,
   input: CodingTaskInput,
@@ -1113,6 +1182,8 @@ async function collectChanges(
   workdir: string,
   opts: {
     signal?: AbortSignal;
+    expectedDeliverables?: string[];
+    deliverableCheckpoint?: string;
     /** T44: commit-to-commit diff producer; falls back to the worktree diff. */
     diffSource?: () => Promise<string>;
     /** Durable export for an oversize diff — returns the storage key. */
@@ -1175,10 +1246,10 @@ async function collectChanges(
   }
   const diff = boundTail(rawDiff, MAX_DIFF_CHARS);
 
-  const files: CollectedChanges["files"] = [];
-  let totalChars = 0;
+  const files: CollectedChanges["files"] = await collectExpectedSandboxDeliverables(ops, workdir, opts.deliverableCheckpoint ?? "HEAD", opts.expectedDeliverables, signal);
+  let totalChars = files.reduce((sum, file) => sum + (file.content?.length ?? 0), 0);
   for (const path of changedFiles) {
-    if (deletedFiles.has(path)) continue;
+    if (deletedFiles.has(path) || opts.expectedDeliverables?.includes(path)) continue;
     const fullPath = `${workdir}/${path}`;
     // The ops layer enforces maxBytes and throws instead of truncating, so a
     // captured file is always complete or the whole run reports the error.

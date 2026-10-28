@@ -197,7 +197,7 @@ export function AgentsView(): JSX.Element {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
-              Custom Agents (KV: AGENT_TOKENS)
+              Registered MCP clients
             </h3>
             <span className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
               {principals.length} registered principal{principals.length === 1 ? "" : "s"}

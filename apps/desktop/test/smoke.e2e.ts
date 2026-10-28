@@ -5,7 +5,7 @@
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron } from "playwright-core";
@@ -35,6 +35,7 @@ const launch = (env: Record<string, string>) => {
   const userData = mkdtempSync(path.join(tmpdir(), "shiba-e2e-"));
   userDataDirs.push(userData);
   return electron.launch({
+    chromiumSandbox: true,
     args: ["dist/main.js", `--user-data-dir=${userData}`],
     env: { ...(process.env as Record<string, string>), ...env },
   });
@@ -59,6 +60,29 @@ test("setup page renders when no URL is configured", async () => {
   }
 });
 
+test("interactive setup overrides the initial setup hint and opens the selected deployment", async () => {
+  const app = await launch({ SHIBA_DESKTOP_SETUP: "1", SHIBA_DESKTOP_URL: "" });
+  try {
+    const setup = await app.firstWindow();
+    await setup.waitForURL(/setup\.html/);
+    await setup.locator("input#url").fill(stubUrl);
+    const opened = app.waitForEvent("window");
+    await setup.getByRole("button", { name: "Continue", exact: true }).click();
+    const dashboard = await opened;
+    await dashboard.waitForURL(`${stubUrl}/app/**`);
+    expect(await dashboard.locator("body").textContent()).toContain("stub app");
+    expect(await dashboard.evaluate(() => {
+      const w = window as unknown as { shibaDesktop?: unknown; shibaSetup?: unknown };
+      return { desktop: w.shibaDesktop !== undefined, setup: w.shibaSetup !== undefined };
+    })).toEqual({ desktop: true, setup: false });
+    const artifacts = path.resolve(import.meta.dirname, "../../../.verify/desktop-shell");
+    mkdirSync(artifacts, { recursive: true });
+    await dashboard.screenshot({ path: path.join(artifacts, "interactive-setup.png") });
+  } finally {
+    await app.close();
+  }
+});
+
 test("app loads after URL, bridge exposed, no Node, foreign nav blocked", async () => {
   const app = await launch({ SHIBA_DESKTOP_URL: stubUrl });
   try {
@@ -75,6 +99,17 @@ test("app loads after URL, bridge exposed, no Node, foreign nav blocked", async 
     // D4/D5: bridge exists on the app origin; renderer has no Node.
     expect(bridge.hasBridge).toBe(true);
     expect(bridge.hasRequire).toBe(false);
+    const preferences = await app.evaluate(({ BrowserWindow }) => {
+      // Electron 44 exposes this runtime diagnostic but omits it from its generated types.
+      // Renderer bridge/Node behavior is asserted independently above.
+      const contents = BrowserWindow.getAllWindows()[0]!.webContents as unknown as {
+        getLastWebPreferences(): { sandbox?: boolean; contextIsolation?: boolean; nodeIntegration?: boolean };
+      };
+      const options = contents.getLastWebPreferences();
+      return { sandbox: options.sandbox, contextIsolation: options.contextIsolation, nodeIntegration: options.nodeIntegration };
+    });
+    expect(preferences).toEqual({ sandbox: true, contextIsolation: true, nodeIntegration: false });
+    expect(app.process().spawnargs).not.toContain("--no-sandbox");
 
     // Stub openExternal: records the hand-off (our wait condition) and keeps a real browser closed.
     await app.evaluate(({ shell }) => {

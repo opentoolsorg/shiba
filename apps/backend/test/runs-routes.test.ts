@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 const forwarded = vi.hoisted(() => ({ requests: [] as Request[] }));
 vi.mock("agents/routing", () => ({
   getAgentByName: async (_ns: unknown, _name: string) => ({
-    fetch: async (request: Request) => {
+    fetch: async (request: Request | string) => {
+      if (typeof request === "string") return Response.json({ session: {} });
       forwarded.requests.push(request);
       return Response.json({ runs: [] });
     },
@@ -28,6 +29,50 @@ import { handleRuns } from "../src/runs-routes.js";
 const env = { CodingOrchestrator: {} } as unknown as Env;
 
 describe("handleRuns voucher hygiene", () => {
+  it.each([undefined, "default", "someone-else", "web:victim:00000000-0000-4000-8000-000000000001"])("stamps the authenticated user's run queue over client threadKey %s", async (threadKey) => {
+    forwarded.requests.length = 0;
+    const response = await handleRuns(new Request("https://shiba.test/api/runs", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ task: "inspect", threadKey, repoUrl: "https://github.com/o/r" }),
+    }), env);
+    expect(response?.status).toBe(200);
+    expect(await forwarded.requests[0]?.json()).toMatchObject({ task: "inspect", threadKey: "devin" });
+  });
+
+  it.each([undefined, "foreign-org", "self-hosted", { forged: true }])("pins dashboard profile/provider lookup to authenticated deployment org over %j", async (orgId) => {
+    forwarded.requests.length = 0;
+    await handleRuns(new Request("https://shiba.test/api/runs", { method: "POST",
+      headers: { "content-type": "application/json", "X-Org-Id": "foreign-header-org" },
+      body: JSON.stringify({ task: "inspect", orgId, customAgentId: "selected-profile", sandboxProvider: "computesdk" }),
+    }), env);
+    expect(await forwarded.requests[0]?.json()).toMatchObject({ orgId: "self-hosted", threadKey: "devin", customAgentId: "selected-profile", sandboxProvider: "computesdk" });
+  });
+
+  it("stamps the verified named-session target instead of a forged shared thread key", async () => {
+    forwarded.requests.length = 0;
+    const sessionId = "00000000-0000-4000-8000-000000000001";
+    await handleRuns(new Request(`https://shiba.test/api/runs?session=${sessionId}`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ task: "inspect", threadKey: "default" }),
+    }), env);
+    expect(await forwarded.requests[0]?.json()).toMatchObject({ threadKey: `web:devin:${sessionId}` });
+  });
+
+  it.each([" run ", "", null, 0])("uses the same default run-kind semantics as intake for %s", async (kind) => {
+    forwarded.requests.length = 0;
+    await handleRuns(new Request("https://shiba.test/api/runs", { method: "POST",
+      body: JSON.stringify({ kind, threadKey: "forged" }),
+    }), env);
+    expect(await forwarded.requests[0]?.json()).toMatchObject({ threadKey: "devin" });
+  });
+
+  it("keeps side-effect approval routing distinct from personal coding-run ownership", async () => {
+    forwarded.requests.length = 0;
+    await handleRuns(new Request("https://shiba.test/api/runs", { method: "POST",
+      body: JSON.stringify({ kind: "email_send", threadKey: "mailbox-thread", orgId: "forged-org", payload: {} }),
+    }), env);
+    expect(await forwarded.requests[0]?.json()).toMatchObject({ kind: "email_send", threadKey: "mailbox-thread", orgId: "self-hosted" });
+  });
   it("strips a forged agent-principal header before proxying to the DO", async () => {
     forwarded.requests.length = 0;
     const request = new Request("https://shiba.test/api/runs", {
