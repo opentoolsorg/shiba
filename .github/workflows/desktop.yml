@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   desktop-pr:
-    if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/desktop-v')) }}"
+    if: ${{ ((github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || github.event_name == 'workflow_dispatch') && needs.changes.outputs.desktop == 'true' }}
 
     runs-on: macos-latest
     timeout-minutes: 30
@@ -71,9 +71,13 @@ jobs:
             .verify/employee-ci-*/result.json
             .verify/evidence/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-desktop-pr
+      cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
+    needs: changes
   desktop-release:
-    if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' && (startsWith(github.ref, 'refs/tags/desktop-v')) }}"
+    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/desktop-v') }}
 
     needs: desktop-pr
     runs-on: macos-latest
@@ -100,3 +104,24 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    timeout-minutes: 60
+    concurrency:
+      group: desktop-release-${{ github.ref }}
+      cancel-in-progress: false
+  changes:
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      desktop: ${{ steps.files.outputs.desktop }}
+    steps:
+    - name: Select desktop changes
+      id: files
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: "python3 - <<'PYTHON'\nimport json, os, urllib.request\nfrom pathlib import PurePosixPath\n\ndef relevant(path):\n    if path.startswith(('apps/', 'packages/', 'scripts/', 'patches/', '.cursor/skills/verify-shiba/', '.github/')):\n        return True\n    if path.startswith(('docs/', 'screenshots/')):\n        return False\n    # Unknown files and root configuration select the full desktop checks.\n    return True\n\ndef select():\n    for page in range(1, 31):\n        url = f\"https://api.github.com/repos/{os.environ['GH_REPO']}/pulls/{int(os.environ['PR_NUMBER'])}/files?per_page=100&page={page}\"\n        request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})\n        with urllib.request.urlopen(request, timeout=30) as response:\n            files = json.load(response)\n        for item in files:\n            if relevant(item['filename']) or (item.get('previous_filename') and relevant(item['previous_filename'])):\n                return True\n        if len(files) < 100:\n            return False\n    return True  # GitHub limits the PR files endpoint to 3,000 files.\n\ntry:\n    desktop = select()\nexcept Exception:\n    desktop = True\nwith open(os.environ['GITHUB_OUTPUT'], 'a') as output:\n    output.write(f\"desktop={str(desktop).lower()}\\n\")\nPYTHON"
