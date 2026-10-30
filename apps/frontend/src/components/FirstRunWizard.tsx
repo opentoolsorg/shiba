@@ -12,9 +12,10 @@ export interface FirstRunProgressSnapshot {
   dismissedAt: number | null;
   connectionVerifiedAt: number | null;
   firstSuccessfulRunAt: number | null;
+  acceptedArtifactAt: number | null;
   activatedAt: number | null;
   revision: number;
-  evidence: { connectedProvider: boolean | null; successfulRun: boolean | null };
+  evidence: { connectedProvider: boolean | null; successfulRun: boolean | null; acceptedDeliverable: boolean | null };
 }
 
 const STEPS = [
@@ -329,12 +330,13 @@ export function FirstRunWizard({
         <p className="font-semibold text-[var(--text)]">Activation is verified by Shiba</p>
         <p className="mt-1 text-[var(--muted-foreground-2)]">
           {onStepChange && onDismiss
-            ? "Closing or skipping saves your place; it does not activate your account. Shiba records activation after the server confirms a connected provider and one successful run. This signal does not mean a resulting artifact was reviewed or accepted."
+            ? "Closing or skipping saves your place; it does not activate your account. Shiba records activation after the server confirms a connected provider and an artifact you explicitly approve from a completed run."
             : "This setup guide is not linked to a signed-in account. Its place lasts only while this page stays open; activation status is not saved."}
         </p>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
           <span>Provider: {!progress ? "checking" : progress.evidence.connectedProvider === null ? "not verified" : progress.evidence.connectedProvider ? "confirmed" : "not confirmed"}</span>
           <span>Successful run: {!progress ? "checking" : progress.evidence.successfulRun === null ? "not verified" : progress.evidence.successfulRun ? "confirmed" : "not confirmed"}</span>
+          <span>Accepted deliverable: {!progress ? "checking" : progress.evidence.acceptedDeliverable === null ? "not verified" : progress.evidence.acceptedDeliverable ? "confirmed" : "not confirmed"}</span>
           {progress?.activatedAt ? <strong>Activated</strong> : null}
         </div>
         {progressError ? <p className="mt-2 text-[var(--destructive)]" role="alert">{progressError}</p> : null}

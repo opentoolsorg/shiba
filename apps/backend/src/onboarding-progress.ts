@@ -26,9 +26,10 @@ export interface OnboardingProgress {
   dismissedAt: number | null;
   connectionVerifiedAt: number | null;
   firstSuccessfulRunAt: number | null;
+  acceptedArtifactAt: number | null;
   activatedAt: number | null;
   revision: number;
-  evidence: { connectedProvider: boolean | null; successfulRun: boolean | null };
+  evidence: { connectedProvider: boolean | null; successfulRun: boolean | null; acceptedDeliverable: boolean | null };
 }
 
 interface StoredProgress {
@@ -36,6 +37,7 @@ interface StoredProgress {
   dismissed_at: number | null;
   connection_verified_at: number | null;
   first_successful_run_at: number | null;
+  accepted_artifact_at: number | null;
   activated_at: number | null;
   revision: number;
 }
@@ -48,6 +50,7 @@ export interface OnboardingProgressDeps {
   resolveIdentity?: (request: Request, env: Env) => Promise<OnboardingIdentity | null>;
   readProviders?: (env: Env, ownerEmail: string) => Promise<readonly AcpProviderCard[]>;
   readSuccessfulRun?: (env: Env, ownerEmail: string) => Promise<boolean | null>;
+  readAcceptedDeliverable?: (env: Env, ownerEmail: string) => Promise<boolean | null>;
   getRunAgent?: (env: Env, name: string) => Promise<RunAgentStub>;
   now?: () => number;
 }
@@ -62,16 +65,32 @@ async function ensureSchema(db: D1Database): Promise<void> {
     dismissed_at INTEGER,
     connection_verified_at INTEGER,
     first_successful_run_at INTEGER,
+    accepted_artifact_at INTEGER,
     activated_at INTEGER,
     revision INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   )`).run();
+  // Existing self-hosted installs created this table before artifact acceptance existed.
+  let addedAcceptedArtifactColumn = false;
+  try {
+    await db.prepare(`ALTER TABLE user_onboarding_progress ADD COLUMN accepted_artifact_at INTEGER`).run();
+    addedAcceptedArtifactColumn = true;
+  } catch (error) {
+    if (!/duplicate column name/i.test(error instanceof Error ? error.message : String(error))) throw error;
+  }
+  if (addedAcceptedArtifactColumn) {
+    // Earlier activation was based on any completed run. Keep it from being
+    // mistaken for the stronger accepted-deliverable signal after upgrade.
+    await db.prepare(`UPDATE user_onboarding_progress SET activated_at=NULL,revision=revision+1,
+      updated_at=MAX(updated_at,CAST(strftime('%s','now') AS INTEGER)*1000)
+      WHERE accepted_artifact_at IS NULL AND activated_at IS NOT NULL`).run();
+  }
   initialized.add(db);
 }
 
 async function readStored(db: D1Database, userId: string): Promise<StoredProgress | null> {
-  return db.prepare(`SELECT current_step,dismissed_at,connection_verified_at,first_successful_run_at,activated_at,revision
+  return db.prepare(`SELECT current_step,dismissed_at,connection_verified_at,first_successful_run_at,accepted_artifact_at,activated_at,revision
     FROM user_onboarding_progress WHERE user_id=?`).bind(userId).first<StoredProgress>();
 }
 
@@ -79,12 +98,13 @@ function isStep(value: unknown): value is OnboardingStep {
   return typeof value === "string" && (ONBOARDING_STEPS as readonly string[]).includes(value);
 }
 
-function toProgress(row: StoredProgress, evidence: OnboardingProgress["evidence"] = { connectedProvider: null, successfulRun: null }): OnboardingProgress {
+function toProgress(row: StoredProgress, evidence: OnboardingProgress["evidence"] = { connectedProvider: null, successfulRun: null, acceptedDeliverable: null }): OnboardingProgress {
   return {
     currentStep: isStep(row.current_step) ? row.current_step : "channels",
     dismissedAt: row.dismissed_at,
     connectionVerifiedAt: row.connection_verified_at,
     firstSuccessfulRunAt: row.first_successful_run_at,
+    acceptedArtifactAt: row.accepted_artifact_at,
     activatedAt: row.activated_at,
     revision: row.revision,
     evidence,
@@ -143,14 +163,63 @@ export async function readSuccessfulRunEvidence(
   }
 }
 
+/** Require an owner-reviewed completed artifact before recording onboarding acceptance. */
+export async function readAcceptedDeliverableEvidence(
+  env: Env,
+  ownerEmail: string,
+  getAgent: (env: Env, name: string) => Promise<RunAgentStub> = (target, name) => getAgentByName(target.CodingOrchestrator, name),
+): Promise<boolean | null> {
+  try {
+    const base = await getAgent(env, ownerEmail);
+    const response = await base.fetch("https://internal/internal/web-sessions");
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    if (typeof body !== "object" || body === null || !Array.isArray((body as { sessions?: unknown }).sessions)) return null;
+    const names = new Set<string>([ownerEmail]);
+    for (const candidate of (body as { sessions: unknown[] }).sessions) {
+      if (validateSessionRecordIntegrity(candidate, ownerEmail) !== null) continue;
+      const session = candidate as WebSessionRecord;
+      if (session.id === "default") continue;
+      const name = buildSessionAgentName(ownerEmail, session.id);
+      if (isAuthorizedSessionAgent(name, ownerEmail)) names.add(name);
+    }
+    const results = await Promise.allSettled([...names].map(async (name) => {
+      const stub = name === ownerEmail ? base : await getAgent(env, name);
+      const runsResponse = await stub.fetch("https://internal/api/runs");
+      if (!runsResponse.ok) throw new Error("Run evidence unavailable.");
+      const runsBody: unknown = await runsResponse.json();
+      if (typeof runsBody !== "object" || runsBody === null || !Array.isArray((runsBody as { runs?: unknown }).runs)) throw new Error("Invalid run evidence.");
+      return (runsBody as { runs: unknown[] }).runs.some((run) => {
+        if (typeof run !== "object" || run === null || (run as { status?: unknown }).status !== "completed") return false;
+        const deliverables = (run as { deliverables?: unknown }).deliverables;
+        return Array.isArray(deliverables) && deliverables.some((item) => {
+          if (typeof item !== "object" || item === null) return false;
+          const artifact = item as { artifactId?: unknown; version?: unknown; path?: unknown; sha256?: unknown; review?: { status?: unknown } };
+          return typeof artifact.artifactId === "string" && artifact.artifactId.length > 0 &&
+            Number.isSafeInteger(artifact.version) && Number(artifact.version) > 0 &&
+            typeof artifact.path === "string" && artifact.path.length > 0 &&
+            typeof artifact.sha256 === "string" && /^[a-f0-9]{64}$/i.test(artifact.sha256) &&
+            artifact.review?.status === "approved";
+        });
+      });
+    }));
+    if (results.some((result) => result.status === "fulfilled" && result.value)) return true;
+    return results.every((result) => result.status === "fulfilled") ? false : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readEvidence(env: Env, identity: OnboardingIdentity, deps: OnboardingProgressDeps) {
-  const [providers, successfulRun] = await Promise.all([
+  const [providers, successfulRun, acceptedDeliverable] = await Promise.all([
     (deps.readProviders ?? readProviders)(env, identity.ownerEmail).catch(() => null),
     (deps.readSuccessfulRun ?? ((target, email) => readSuccessfulRunEvidence(target, email, deps.getRunAgent)))(env, identity.ownerEmail).catch(() => null),
+    (deps.readAcceptedDeliverable ?? ((target, email) => readAcceptedDeliverableEvidence(target, email, deps.getRunAgent)))(env, identity.ownerEmail).catch(() => null),
   ]);
   return {
     connectedProvider: providers === null ? null : providers.some((provider) => provider.connection.phase === "connected"),
     successfulRun,
+    acceptedDeliverable,
   };
 }
 
@@ -168,17 +237,20 @@ async function updateAction(db: D1Database, userId: string, expectedRevision: nu
 async function persistEvidence(db: D1Database, userId: string, evidence: OnboardingProgress["evidence"], now: number): Promise<void> {
   const connectedAt = evidence.connectedProvider === true ? now : null;
   const runAt = evidence.successfulRun === true ? now : null;
+  const acceptedAt = evidence.acceptedDeliverable === true ? now : null;
   await db.prepare(`UPDATE user_onboarding_progress SET
     connection_verified_at=COALESCE(connection_verified_at,?),
     first_successful_run_at=COALESCE(first_successful_run_at,?),
+    accepted_artifact_at=COALESCE(accepted_artifact_at,?),
     activated_at=CASE WHEN activated_at IS NOT NULL THEN activated_at
-      WHEN (connection_verified_at IS NOT NULL OR ? IS NOT NULL) AND (first_successful_run_at IS NOT NULL OR ? IS NOT NULL) THEN ? ELSE NULL END,
+      WHEN (connection_verified_at IS NOT NULL OR ? IS NOT NULL) AND (accepted_artifact_at IS NOT NULL OR ? IS NOT NULL) THEN ? ELSE NULL END,
     revision=revision+CASE WHEN (connection_verified_at IS NULL AND ? IS NOT NULL)
       OR (first_successful_run_at IS NULL AND ? IS NOT NULL)
+      OR (accepted_artifact_at IS NULL AND ? IS NOT NULL)
       OR (activated_at IS NULL AND (connection_verified_at IS NOT NULL OR ? IS NOT NULL)
-        AND (first_successful_run_at IS NOT NULL OR ? IS NOT NULL)) THEN 1 ELSE 0 END,
+        AND (accepted_artifact_at IS NOT NULL OR ? IS NOT NULL)) THEN 1 ELSE 0 END,
     updated_at=MAX(updated_at,?) WHERE user_id=?`).bind(
-    connectedAt, runAt, connectedAt, runAt, now, connectedAt, runAt, connectedAt, runAt, now, userId,
+    connectedAt, runAt, acceptedAt, connectedAt, acceptedAt, now, connectedAt, runAt, acceptedAt, connectedAt, acceptedAt, now, userId,
   ).run();
 }
 

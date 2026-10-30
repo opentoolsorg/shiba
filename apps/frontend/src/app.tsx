@@ -696,8 +696,8 @@ export function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [showOnboardingModal, signedIn]);
-  // First-run progress belongs to the authenticated account; closing saves
-  // the step but does not count as activation.
+  // First-run progress belongs to the authenticated account; activation also
+  // requires an explicitly approved artifact, not just setup dismissal/run completion.
   const [showFirstRun, setShowFirstRun] = useState(false);
   const [firstRunProgress, setFirstRunProgress] = useState<FirstRunProgressSnapshot | null>(null);
   const firstRunProgressClient = useRef<OnboardingProgressClient | null>(null);

@@ -7,8 +7,8 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 
 const progress: FirstRunProgressSnapshot = {
   currentStep: "channels", dismissedAt: null, connectionVerifiedAt: null,
-  firstSuccessfulRunAt: null, activatedAt: null, revision: 0,
-  evidence: { connectedProvider: false, successfulRun: false },
+  firstSuccessfulRunAt: null, acceptedArtifactAt: null, activatedAt: null, revision: 0,
+  evidence: { connectedProvider: false, successfulRun: false, acceptedDeliverable: false },
 };
 
 function setupFetch() {
