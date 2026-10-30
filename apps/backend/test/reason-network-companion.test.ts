@@ -10,7 +10,7 @@ import { createReasonNetworkGrant, listReasonNetworkGrants } from "../src/reason
 import { handleReasonNetworkCompanion } from "../src/reason-network/companion-routes.js";
 import { handleLocalAdapter } from "../src/local-routes.js";
 import { createReasonNetworkCompanion } from "../../../scripts/reason-network-companion.mjs";
-import { D1ReasonNetworkOperationStore } from "../src/reason-network/operation-store.js";
+import { D1ReasonNetworkOperationStore, REASON_NETWORK_RECOVERY_WINDOW_MS } from "../src/reason-network/operation-store.js";
 
 const MACHINE="paired-machine-1";
 function fixture(){
@@ -160,5 +160,36 @@ describe("Reason Network paired companion queue v1",()=>{
     finishDiscovery();
     await expect(pending).resolves.toEqual({state:"cancelled"});
     expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("expires recovered queued work that crosses the idempotency window during MCP setup",async()=>{
+    const f=fixture();
+    const grant=await read<{grant:{grantId:string}}>(await f.app("/grants","POST",{conversationId:"conv-late-expiry",sessionId:"session-late-expiry",companionMachineId:MACHINE}));
+    const approval=await read<{approvalId:string}>(await f.app("/approvals","POST",{grantId:grant.grant.grantId,conversationId:"conv-late-expiry",sessionId:"session-late-expiry",destination:"peer-expiry",message:"must not duplicate after expiry",idempotencyKey:"late-expiry-key"}));
+    await f.app(`/approvals/${approval.approvalId}`,"POST",{approved:true});
+    const operation=await read<{operationId:string}>(await f.app("/v1/operations","POST",{approvalId:approval.approvalId}));
+    const claimed=await read<{operation:{operationId:string;claimToken:string;sessionId:string;destination:string;message:string;idempotencyKey:string}}>(await f.daemon("claim"));
+    const row=await f.env.AGENT_AUDIT.prepare("SELECT first_attempt_at FROM reason_network_operations WHERE operation_id=?").bind(operation.operationId).first<{first_attempt_at:number}>();
+    const firstAttemptAt=Number(row?.first_attempt_at);expect(firstAttemptAt).toBeGreaterThan(0);
+    let finishDiscovery!:()=>void;
+    const listTools=new Promise<{tools:Array<{name:string}>}>((resolve)=>{finishDiscovery=()=>resolve({tools:[{name:"send_message"}]});});
+    const callTool=vi.fn(async()=>({isError:false,content:[{type:"text",text:"sent message id must-not-send"}]}));
+    const companion=createReasonNetworkCompanion({
+      connect:async()=>({listTools:async()=>listTools,callTool,close:async()=>{}}),
+      beforeSend:async(current)=>{
+        const status=await read<{state:string;cancelRequested:boolean;sendAllowed:boolean}>(await f.daemon(`operations/${current.operationId}`,"GET"));
+        if(status.state==="unknown")return "expired";
+        return status.state==="claimed"&&!status.cancelRequested&&status.sendAllowed;
+      },
+    });
+    const pending=companion(claimed.operation);
+    try{
+      vi.useFakeTimers({toFake:["Date"]});
+      vi.setSystemTime(firstAttemptAt+REASON_NETWORK_RECOVERY_WINDOW_MS);
+      finishDiscovery();
+      await expect(pending).resolves.toEqual({state:"expired"});
+      expect(callTool).not.toHaveBeenCalled();
+      expect(await read(await f.app(`/v1/operations/${operation.operationId}`))).toMatchObject({state:"unknown",recoveryAvailable:false});
+    }finally{vi.useRealTimers();}
   });
 });

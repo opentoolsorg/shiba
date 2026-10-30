@@ -199,7 +199,8 @@ async function sendReasonNetworkMessage(operation) {
     // after setup, immediately before the outbound send call.
     beforeSend: async (claimedOperation) => {
       const current = await get(`reason-network/v1/operations/${encodeURIComponent(claimedOperation.operationId)}`);
-      return current.state === "claimed" && current.cancelRequested !== true;
+      if (current.state === "unknown") return "expired";
+      return current.state === "claimed" && current.cancelRequested !== true && current.sendAllowed === true;
     },
   })(operation);
 }
@@ -210,11 +211,14 @@ async function processReasonNetworkClaim(claim) {
   const settle = async (state, messageId) => post("reason-network/v1/result", { operationId: operation.operationId, claimToken: operation.claimToken, state, ...(messageId ? { messageId } : {}) });
   try {
     const current = await get(`reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`);
-    if (current.state !== "claimed" || current.cancelRequested) { await settle("cancelled"); return true; }
+    if (current.state === "unknown") return true;
+    if (current.state !== "claimed" || current.cancelRequested || current.sendAllowed !== true) { await settle("cancelled"); return true; }
     // Close the grant-revocation/cancellation window as far as the protocol allows.
     const latest = await get(`reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`);
-    if (latest.state !== "claimed" || latest.cancelRequested) { await settle("cancelled"); return true; }
+    if (latest.state === "unknown") return true;
+    if (latest.state !== "claimed" || latest.cancelRequested || latest.sendAllowed !== true) { await settle("cancelled"); return true; }
     const result = await sendReasonNetworkMessage(operation);
+    if (result.state === "expired") return true;
     await settle(result.state, result.messageId);
   } catch (error) {
     // Once a send might have crossed the process boundary, preserve uncertainty for same-key recovery.
