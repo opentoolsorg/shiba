@@ -22,6 +22,7 @@
     "docs:dev": "pnpm -C apps/web dev",
     "docs:preview": "pnpm -C apps/web preview",
     "docs:verify": "node scripts/check-docs.mjs",
+    "selfhost:smoke": "node scripts/self-hosting-smoke.mjs",
     "sdk:check-types": "pnpm -C packages/sdk check:types",
     "env:load": "varlock load",
     "env:scan": "varlock scan",
