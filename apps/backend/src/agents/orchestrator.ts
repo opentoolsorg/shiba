@@ -151,6 +151,20 @@ import {
 } from "../runs.js";
 import { handleSteeringRequest } from "../steering.js";
 import { localDispatchStub } from "../local-dispatch.js";
+import {
+  appendTaskAttempt,
+  cancelTaskAttempt,
+  canRetryTaskAttempt,
+  createDurableTask,
+  frozenTaskInputFromApproval,
+  mergeTaskLineage,
+  taskHistoryDto,
+  taskVisibleTo,
+  taskVisibleToPrincipal,
+  updateTaskAttempt,
+  type DurableTask,
+  type TaskAttemptStatus,
+} from "../task-attempts.js";
 
 const MAX_APPROVED_TASK_CHARS = 4000;
 import {
@@ -203,6 +217,8 @@ export const SESSION_DELETED_CLOSE_CODE = 4410;
 
 export interface OrchestratorState {
   runs: DelegatedRun[];
+  /** Persistent logical-task lineage; runs/approval IDs retain their old contracts. */
+  tasks?: DurableTask[];
   pendingApprovals?: PendingApproval[];
   /** Leaks recorded before a hibernation still get their destroy retried. */
   leakedContainers?: Record<string, LeakedContainer>;
@@ -580,6 +596,34 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   private get approvals(): PendingApproval[] {
     return this.state?.pendingApprovals ?? [];
+  }
+
+  private taskForApproval(approval: PendingApproval): DurableTask {
+    return createDurableTask({
+      taskId: `task_${approval.approvalId}`,
+      ownerId: this.name ?? "default",
+      ...(approval.queuedBy ? { queuedBy: approval.queuedBy } : {}),
+      title: approval.task,
+      commandId: `approval:${approval.approvalId}`,
+      approvalId: approval.approvalId,
+      frozen: frozenTaskInputFromApproval(approval),
+      now: approval.createdAt,
+    });
+  }
+
+  private task(taskId: string): DurableTask | undefined {
+    return (this.state?.tasks ?? []).find((candidate) => candidate.taskId === taskId);
+  }
+
+  private storeTask(task: DurableTask): void {
+    const current = this.state?.tasks ?? [];
+    const exists = current.some((candidate) => candidate.taskId === task.taskId);
+    this.setState({
+      ...this.state,
+      tasks: exists
+        ? current.map((candidate) => candidate.taskId === task.taskId ? task : candidate)
+        : [...current, task].slice(-300),
+    });
   }
 
   /**
@@ -2051,9 +2095,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     try {
       // Approval mint and its queue receipt commit in one state write.
-      this.setState({
-        ...this.state,
-        pendingApprovals: createPendingApproval(this.approvals, {
+      const pendingApprovals = createPendingApproval(this.approvals, {
           threadKey,
           approvalId,
           repoUrl,
@@ -2088,7 +2130,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(customAgentVersion !== undefined ? { customAgentVersion } : {}),
           ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
           createdAt: Date.now(),
-        }),
+        });
+      const pendingRecord = pendingApprovals.find((item) => item.approvalId === approvalId);
+      if (!pendingRecord) throw new Error("Pending approval was not stored.");
+      const taskRecord = this.taskForApproval(pendingRecord);
+      this.setState({
+        ...this.state,
+        pendingApprovals,
+        tasks: [...(this.state?.tasks ?? []), taskRecord].slice(-300),
         ...(queueCommandId !== undefined
           ? {
               commandReceipts: this.withCommandReceipt({
@@ -2753,9 +2802,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (runSetup && (input.runtime ?? resolveRuntimeName(this.env.RUNTIME)) === "local") {
       throw new Error("Repo setup isn't supported on the local runtime yet.");
     }
-    this.setState({
-      ...this.state,
-      pendingApprovals: createPendingApproval(this.approvals, {
+    const pendingApprovals = createPendingApproval(this.approvals, {
         threadKey: this.name ?? "default",
         approvalId: toolCallId,
         repoUrl,
@@ -2777,8 +2824,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(skillPins !== undefined ? { skillPins } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
         ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
-        createdAt: Date.now(),
-      }),
+      createdAt: Date.now(),
+    });
+    const pendingRecord = pendingApprovals.find((item) => item.approvalId === toolCallId);
+    if (!pendingRecord) throw new Error("Pending approval was not stored.");
+    const taskRecord = this.taskForApproval(pendingRecord);
+    this.setState({
+      ...this.state,
+      pendingApprovals,
+      tasks: [...(this.state?.tasks ?? []), taskRecord].slice(-300),
     });
   }
 
@@ -4736,6 +4790,111 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return Response.json({ ok: true, reviewLoop: this.state.reviewLoops?.[threadId] ?? next });
   }
 
+  /** Materialize fresh status from the canonical approval/run stores. */
+  private refreshTaskHistory(): DurableTask[] {
+    let tasks = mergeTaskLineage(this.state?.tasks ?? [], this.store.list(), this.name ?? "default")
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 300);
+    const approvals = this.approvals;
+    const runs = this.store.list();
+    for (const task of tasks) {
+      for (const attempt of task.attempts) {
+        const run = attempt.runId
+          ? this.store.get(attempt.runId)
+          : runs.find((candidate) => candidate.approval?.approvalId === attempt.approvalId);
+        if (run) {
+          tasks = tasks.map((candidate) => candidate.taskId === task.taskId
+            ? updateTaskAttempt(candidate, attempt.attempt, {
+                runId: run.runId,
+                status: run.status as TaskAttemptStatus,
+                updatedAt: run.updatedAt,
+                ...(run.error ? { error: run.error } : {}),
+              })
+            : candidate);
+          continue;
+        }
+        const approval = attempt.approvalId
+          ? approvals.find((candidate) => candidate.approvalId === attempt.approvalId)
+          : undefined;
+        if (!approval) continue;
+        const status: TaskAttemptStatus = approval.status === "rejected"
+          ? "rejected"
+          : approval.status === "pending"
+            ? isApprovalExpired(approval, Date.now()) ? "expired" : "pending_approval"
+            : "submitting";
+        tasks = tasks.map((candidate) => candidate.taskId === task.taskId
+          ? updateTaskAttempt(candidate, attempt.attempt, {
+              runId: `agent-tool:${approval.approvalId}`,
+              status,
+              updatedAt: approval.decidedAt ?? approval.createdAt,
+            })
+          : candidate);
+      }
+    }
+    if (JSON.stringify(tasks) !== JSON.stringify(this.state?.tasks ?? [])) {
+      this.setState({ ...this.state, tasks });
+    }
+    return tasks;
+  }
+
+  private async retryTask(taskId: string, commandId: string, agentPrincipal: string | null): Promise<Response> {
+    const tasks = this.refreshTaskHistory();
+    const task = tasks.find((candidate) => candidate.taskId === taskId);
+    if (!task || !taskVisibleTo(task, this.name ?? "default") || !taskVisibleToPrincipal(task, agentPrincipal)) {
+      return Response.json({ error: "Task not found." }, { status: 404 });
+    }
+    const replay = task.attempts.find((attempt) => attempt.commandId === commandId);
+    if (replay) return Response.json({ task: taskHistoryDto(task), approvalId: replay.approvalId, deduped: true });
+    const previous = task.attempts.at(-1);
+    if (!previous || !canRetryTaskAttempt(previous)) {
+      return Response.json({ error: "This task attempt is not safely retryable." }, { status: 409 });
+    }
+    const frozen = previous.frozen.body as unknown as PendingApproval;
+    const approvalId = crypto.randomUUID();
+    const now = Date.now();
+    const nextApproval = createPendingApproval(this.approvals, {
+      ...frozen,
+      threadKey: previous.frozen.threadKey,
+      approvalId,
+      createdAt: now,
+    });
+    const record = nextApproval.find((approval) => approval.approvalId === approvalId);
+    if (!record) return Response.json({ error: "Could not create retry approval." }, { status: 500 });
+    const frozenRetry = frozenTaskInputFromApproval(record);
+    const nextTask = appendTaskAttempt(task, { commandId, approvalId, frozen: frozenRetry, now });
+    this.setState({
+      ...this.state,
+      pendingApprovals: nextApproval,
+      tasks: tasks.map((candidate) => candidate.taskId === taskId ? nextTask : candidate),
+    });
+    return Response.json({ task: taskHistoryDto(nextTask), approvalId });
+  }
+
+  private async cancelTask(taskId: string, attemptNo: number, agentPrincipal: string | null): Promise<Response> {
+    const tasks = this.refreshTaskHistory();
+    const task = tasks.find((candidate) => candidate.taskId === taskId);
+    if (!task || !taskVisibleTo(task, this.name ?? "default") || !taskVisibleToPrincipal(task, agentPrincipal)) {
+      return Response.json({ error: "Task not found." }, { status: 404 });
+    }
+    const attempt = task.attempts.find((candidate) => candidate.attempt === attemptNo);
+    if (!attempt) return Response.json({ error: "Task attempt not found." }, { status: 404 });
+    if (attempt.status === "pending_approval") {
+      if (agentPrincipal !== null) return Response.json({ error: "Agent principals cannot decide approvals." }, { status: 403 });
+      const approval = this.approvals.find((candidate) => candidate.approvalId === attempt.approvalId);
+      if (approval?.status === "pending") {
+        await this.resolveApproval({ threadKey: approval.threadKey, approvalId: approval.approvalId, approved: false, decidedBy: "task-cancel" });
+      }
+    } else if (attempt.runId && (attempt.status === "pending" || attempt.status === "running" || attempt.status === "submitting")) {
+      const cancelled = await this.cancelRun(attempt.runId);
+      if (!cancelled) return Response.json({ error: "Task run could not be cancelled." }, { status: 409 });
+    } else {
+      return Response.json({ error: "Task attempt is already terminal." }, { status: 409 });
+    }
+    const next = cancelTaskAttempt(task, attemptNo, Date.now());
+    this.setState({ ...this.state, tasks: tasks.map((candidate) => candidate.taskId === taskId ? next : candidate) });
+    return Response.json({ task: taskHistoryDto(next), cancelled: true });
+  }
+
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     // Edge identity: when INTERNAL_SIGNING_KEY is configured, any request
@@ -4791,6 +4950,39 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // else on a deleted session is gone, whatever the Worker checked first.
     if (this.sessionDeleted) {
       return Response.json({ error: "Session deleted." }, { status: 410 });
+    }
+    if (url.pathname === "/api/tasks") {
+      if (request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      const tasks = this.refreshTaskHistory()
+        .filter((task) => taskVisibleTo(task, this.name ?? "default") && taskVisibleToPrincipal(task, agentPrincipal))
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map(taskHistoryDto);
+      return Response.json({ tasks });
+    }
+    const taskAction = url.pathname.match(/^\/api\/tasks\/([^/]+)\/(retry|cancel)$/);
+    if (taskAction) {
+      if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      let taskId: string;
+      try { taskId = decodeURIComponent(taskAction[1]!); }
+      catch { return Response.json({ error: "Invalid task ID." }, { status: 400 }); }
+      const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return Response.json({ error: "Request body must be a JSON object." }, { status: 400 });
+      }
+      if (taskAction[2] === "retry") {
+        const commandId = typeof body.commandId === "string" && /^[a-zA-Z0-9:_-]{8,200}$/.test(body.commandId)
+          ? body.commandId
+          : "";
+        if (!commandId) return Response.json({ error: "commandId must be an 8-200 character retry idempotency key." }, { status: 400 });
+        try { return await this.retryTask(taskId, commandId, agentPrincipal); }
+        catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not retry task." }, { status: 409 }); }
+      }
+      const attemptNo = body.attempt;
+      if (!Number.isSafeInteger(attemptNo) || Number(attemptNo) < 1) {
+        return Response.json({ error: "attempt must be a positive integer." }, { status: 400 });
+      }
+      try { return await this.cancelTask(taskId, Number(attemptNo), agentPrincipal); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not cancel task." }, { status: 409 }); }
     }
     if (url.pathname === "/api/runs/subagents/spawn" && request.method === "POST") {
       let body: unknown;

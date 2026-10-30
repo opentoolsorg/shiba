@@ -106,11 +106,13 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // /api/spine rides this lane: the orchestrator's P9 event log + outbox
   // live on the same DO, behind the same dashboard auth and session scope.
   const isSpine = url.pathname === "/api/spine";
+  const taskPath = /^\/api\/tasks(?:\/[^/]+\/(?:retry|cancel))?$/.test(url.pathname);
   const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)$/);
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
   if (
     !isSpine &&
     !deliverableMatch &&
+    !taskPath &&
     !/^\/api\/runs(?:\/[^/]+(?:\/(?:fork|screen|archive|steer|subagents))?|\/subagents\/spawn)?$/.test(
       url.pathname,
     )

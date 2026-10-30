@@ -132,6 +132,29 @@ describe("handleRuns voucher hygiene", () => {
     expect(proxied?.headers.get(AGENT_PRINCIPAL_HEADER)).toBeNull();
   });
 
+  it("routes authenticated task history and retry/cancel actions through the scoped orchestrator", async () => {
+    forwarded.requests.length = 0;
+    const sessionId = "00000000-0000-4000-8000-000000000001";
+    const paths = [
+      `/api/tasks?session=${sessionId}`,
+      `/api/tasks/task_abc/retry?session=${sessionId}`,
+      `/api/tasks/task_abc/cancel?session=${sessionId}`,
+    ];
+    for (const path of paths) {
+      const response = await handleRuns(new Request(`https://shiba.test${path}`, {
+        method: path.includes("/retry") || path.includes("/cancel") ? "POST" : "GET",
+        headers: path.includes("/retry") || path.includes("/cancel") ? { "content-type": "application/json" } : undefined,
+        body: path.includes("/retry") ? JSON.stringify({ commandId: "retry-task-0001" })
+          : path.includes("/cancel") ? JSON.stringify({ attempt: 1 }) : undefined,
+      }), env);
+      expect(response?.status).toBe(200);
+    }
+    expect(forwarded.requests.map((request) => new URL(request.url).pathname)).toEqual([
+      "/api/tasks", "/api/tasks/task_abc/retry", "/api/tasks/task_abc/cancel",
+    ]);
+    expect(forwarded.requests.every((request) => new URL(request.url).searchParams.get("session") === sessionId)).toBe(true);
+  });
+
   it("rejects non-GET methods on /api/spine", async () => {
     const response = await handleRuns(
       new Request("https://shiba.test/api/spine", { method: "POST" }),

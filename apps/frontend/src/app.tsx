@@ -44,6 +44,7 @@ import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
 import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
+import { TaskHistory, type TaskHistoryItem } from "./components/TaskHistory";
 import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
 import { RunUsageCard } from "./components/RunUsageSummary";
@@ -461,6 +462,9 @@ export function App(): React.JSX.Element {
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
+  const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
+  const [taskHistoryError, setTaskHistoryError] = useState<string | null>(null);
+  const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
   const draftScope = useRef<string | null>("default");
@@ -858,6 +862,35 @@ export function App(): React.JSX.Element {
       mainView === "diff",
       signedIn,
     );
+  useEffect(() => {
+    if (!signedIn || mainView !== "tasks") return;
+    let cancelled = false;
+    let generation = 0;
+    setTaskHistoryLoading(true);
+    const scopeQuery = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    const load = async () => {
+      const current = ++generation;
+      try {
+        const refreshQuery = scopeQuery ? `${scopeQuery}&refresh=${refreshToken}` : `?refresh=${refreshToken}`;
+        const response = await fetch(`/api/tasks${refreshQuery}`);
+        const body = await response.json().catch(() => ({})) as { tasks?: TaskHistoryItem[]; error?: string };
+        if (!response.ok) throw new Error(body.error ?? `Task history request failed: ${response.status}`);
+        if (!cancelled && current === generation) {
+          setTaskHistoryItems(Array.isArray(body.tasks) ? body.tasks : []);
+          setTaskHistoryError(null);
+        }
+      } catch (error: unknown) {
+        if (!cancelled && current === generation) setTaskHistoryError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (!cancelled && current === generation) setTaskHistoryLoading(false);
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 5_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [refreshToken, selectedSessionId, sessionApiAvailable, signedIn, mainView]);
   const {
     approvals: storedApprovals,
     decided: decidedStoredApprovals,
@@ -1460,6 +1493,44 @@ export function App(): React.JSX.Element {
     },
     [refreshRuns, selectedSessionId, sessionApiAvailable],
   );
+
+  const retryTaskHistory = useCallback(async (taskId: string) => {
+    const query = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/retry${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commandId: crypto.randomUUID() }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `Retry request failed: ${response.status}`);
+      setNotice("Retry queued for approval. Review the new approval card before it runs.");
+      refreshRuns();
+    } catch (error) {
+      setNotice(`Task retry could not be queued: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [refreshRuns, selectedSessionId, sessionApiAvailable]);
+
+  const cancelTaskHistory = useCallback(async (taskId: string, attempt: number) => {
+    const query = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ attempt }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `Cancellation failed: ${response.status}`);
+      setNotice("Task cancellation recorded.");
+      refreshRuns();
+    } catch (error) {
+      setNotice(`Task cancellation could not be completed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [refreshRuns, selectedSessionId, sessionApiAvailable]);
 
   // Keyboard shortcut listener: Cmd/Ctrl+Enter submits, Escape closes modals
   useEffect(() => {
@@ -2539,6 +2610,25 @@ export function App(): React.JSX.Element {
                     ) : null}
                   </div>
                 ) : null}
+
+                <details className="mx-3 mt-3 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)]/70 px-3 py-2 sm:mx-5 xl:mx-8">
+                  <summary className="cursor-pointer select-none text-xs font-medium text-[var(--muted-foreground-1)]">
+                    Task history · {taskHistoryItems.length}
+                  </summary>
+                  <div className="mt-3 max-h-[35vh] overflow-y-auto">
+                    <TaskHistory
+                      tasks={taskHistoryItems}
+                      loading={taskHistoryLoading}
+                      error={taskHistoryError}
+                      onRetry={retryTaskHistory}
+                      onCancel={cancelTaskHistory}
+                      onSelectRun={(runId) => {
+                        setSelectedRunId(runId);
+                        setMainView("analytics");
+                      }}
+                    />
+                  </div>
+                </details>
 
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
