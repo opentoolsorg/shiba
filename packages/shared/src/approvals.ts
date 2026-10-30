@@ -46,6 +46,14 @@ export interface JsonObject {
  */
 export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
 
+/** Stable provenance pointer for reviewed skill text frozen into an approval. */
+export interface SkillExecutionPin {
+  skillId: string;
+  version: number;
+  name: string;
+  sourceUrl?: string;
+}
+
 /** Runtime check that `value` is JSON-serializable — the shape a JSON body parse produces. */
 export function isJsonValue(value: unknown): value is JsonValue {
   if (value === null) return true;
@@ -137,6 +145,8 @@ export interface PendingApproval {
   runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  /** Reviewed skill versions resolved by the authenticated Worker at intake. */
+  skillPins?: SkillExecutionPin[];
   orgId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
@@ -206,6 +216,7 @@ export interface CreateApprovalInput {
   runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  skillPins?: SkillExecutionPin[];
   orgId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
@@ -256,6 +267,7 @@ export function createPendingApproval(
       ...(input.envSealed !== undefined ? { envSealed: input.envSealed } : {}),
       ...(input.runSetup === true ? { runSetup: true } : {}),
       ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+      ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
@@ -417,6 +429,7 @@ export interface RunInputFields {
   runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  skillPins?: SkillExecutionPin[];
   role?: AgentRole;
 }
 
@@ -534,6 +547,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
     ...(input.runSetup === true ? { runSetup: true } : {}),
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+    ...(input.skillPins !== undefined ? { skillPins: input.skillPins as unknown as JsonValue } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });

@@ -18,7 +18,6 @@ import { SkillsView } from "./components/SkillsView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
-import { formatSkillInstructions, taskWithSkillInstructions } from "./skill-prompt";
 import { buildExecutionTargetFields } from "./execution-target-input";
 import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
@@ -390,6 +389,7 @@ export function App(): React.JSX.Element {
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const savedRepos = useSavedRepos();
   const savedSkills = useSavedSkills();
+  const selectableSkills = savedSkills.skills.filter((skill) => skill.status === "active");
   const [baseBranch, setBaseBranch] = useState("main");
   // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
   const [task, setTask] = useState(() => {
@@ -1063,7 +1063,7 @@ export function App(): React.JSX.Element {
         reasoningEffort && (HARNESS_REASONING_EFFORTS[harness] ?? []).includes(reasoningEffort)
           ? reasoningEffort
           : "";
-      const attachedSkills = savedSkills.filter((skill) => selectedSkillIds.includes(skill.id));
+      const attachedSkills = selectableSkills.filter((skill) => selectedSkillIds.includes(skill.id));
       if (runTarget === "local" || customAgentId || executionTargetKind === "artifact-workspace") {
         if (runTarget === "local" && (!selectedLocalMachineId || localComputersLoading || localComputersError)) {
           setNotice(localComputersError ?? (localComputersLoading
@@ -1098,7 +1098,8 @@ export function App(): React.JSX.Element {
             });
         const fields = {
           ...targetFields,
-          task: taskWithSkillInstructions(task, attachedSkills),
+          task: task.trim(),
+          skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
           ...(harness ? { harness } : {}),
           ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
           ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
@@ -1251,9 +1252,6 @@ export function App(): React.JSX.Element {
         ...(publishPullRequest
           ? [`Read-only review after the PR opens: ${reviewAfterPublish ? "yes" : "no"}`]
           : []),
-        ...(attachedSkills.length > 0
-          ? [formatSkillInstructions(attachedSkills)]
-          : []),
         "",
         `Task: ${task.trim()}`,
       ].join("\n");
@@ -1271,7 +1269,8 @@ export function App(): React.JSX.Element {
           metadata: {
             shibaTask: {
               repoUrl: repoUrl.trim(),
-              task: taskWithSkillInstructions(task, attachedSkills),
+              task: task.trim(),
+              skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
               baseBranch: branch,
               harness,
               publishPullRequest,
@@ -1324,7 +1323,7 @@ export function App(): React.JSX.Element {
       orchestratorName,
       identityError,
       refreshRuns,
-      savedSkills,
+      selectableSkills,
       selectedSkillIds,
       runTarget,
       executionTargetKind,
@@ -2562,7 +2561,7 @@ export function App(): React.JSX.Element {
                     harness={harness}
                     busy={busy}
                     repoSuggestions={repoSuggestions}
-                    skills={savedSkills}
+                    skills={selectableSkills}
                     selectedSkillIds={selectedSkillIds}
                     onToggleSkill={(id) =>
                       setSelectedSkillIds((current) =>

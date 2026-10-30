@@ -3,6 +3,8 @@ import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestra
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { HARNESS_IDS } from "@shiba/shared";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { activateSkill, createSkill, disableSkill, reviewSkill } from "../src/skills-store.js";
 import { LocalDispatch } from "../src/local-dispatch.js";
 import { createRun, RunStore, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
 import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
@@ -1338,6 +1340,68 @@ describe("run reliability", () => {
   });
 });
 
+describe("complete skill prompt approval boundary", () => {
+  const queue = (instance: CodingOrchestrator, task: string, count: number) => instance.onRequest(new Request("https://internal/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shiba-Intake": "dashboard" },
+    body: JSON.stringify({
+      repoUrl: "https://github.com/o/r",
+      task,
+      skillPins: Array.from({ length: count }, (_, index) => ({
+        skillId: `skill-${String(index + 1).padStart(24, "a")}`,
+        version: 1,
+        name: `Skill ${index + 1}`,
+      })),
+      orgId: "self-hosted",
+    }),
+  }));
+
+  it.each([
+    ["a long single skill", `Task\n\nSkills:\nSkill: Long (skill-${"a".repeat(24)}@1)\nReviewed instructions:\n${"x".repeat(4100)}`, 1],
+    ["multiple selected skills", `Task\n\n${Array.from({ length: 3 }, (_, index) => `Skill ${index + 1}\n${"x".repeat(1400)}`).join("\n\n")}`, 3],
+    ["an already long task plus skill text", `${"User task. ".repeat(350)}\n\nSkills:\nReviewed instructions:\n${"Skill detail. ".repeat(20)}`, 1],
+  ])("rejects overflow for %s without minting a truncated approval", async (_label, task, count) => {
+    const instance = agent();
+    const response = await queue(instance, task, count);
+    expect(response.status).toBe(400);
+    expect((await response.json() as { error: string }).error).toMatch(/complete task and selected skill instructions/);
+    expect(instance.state.pendingApprovals ?? []).toEqual([]);
+  });
+
+  it("freezes the full effective prompt when it fits the limit", async () => {
+    const instance = agent();
+    const task = `User task\n\nSkill instructions\n${"x".repeat(3950)}`;
+    expect(task.length).toBeLessThanOrEqual(4000);
+    const response = await queue(instance, task, 1);
+    expect(response.status).toBe(200);
+    expect(instance.state.pendingApprovals?.[0]?.task).toBe(task);
+    expect((await response.json() as { task: string }).task).toBe(task);
+  });
+
+  it("blocks a disabled pin before execution while leaving the frozen text and provenance intact", async () => {
+    const instance = agent();
+    Object.assign(instance, { name: "owner@example.test" });
+    const db = customAgentD1();
+    instance.env.AGENT_AUDIT = db.database;
+    const content = { name: "Revocable", instructions: "Keep this exact approved guidance." };
+    const skill = await createSkill(instance.env, "self-hosted", "owner@example.test", content);
+    await reviewSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, content.instructions);
+    await activateSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, content.instructions);
+    const pin = { skillId: skill.id, version: 1, name: content.name };
+    const approvedText = `Fix the issue\n\nSkills:\n${content.instructions}`;
+    approveDirect(instance, "disabled-skill", {
+      repoUrl: "https://github.com/o/r", task: approvedText, orgId: "self-hosted", skillPins: [pin],
+    });
+    await disableSkill(instance.env, "self-hosted", "owner@example.test", skill.id);
+    const delegate = instance.getTools()["delegate_coding_task"] as { execute: (input: unknown, options: unknown) => Promise<unknown> };
+
+    await expect(delegate.execute({ repoUrl: "https://github.com/o/r", task: "changed caller input" }, { toolCallId: "disabled-skill" }))
+      .rejects.toMatchObject({ code: "invalid_request" });
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(instance.state.runs[0]).toMatchObject({ status: "error", task: approvedText, skillPins: [pin] });
+  });
+});
+
 describe("chat approval gate", () => {
   const INPUT = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false };
   type DelegateTool = {
@@ -1346,6 +1410,29 @@ describe("chat approval gate", () => {
   };
   const delegateOf = (instance: CodingOrchestrator) =>
     instance.getTools()["delegate_coding_task"] as unknown as DelegateTool;
+
+  it.each([
+    ["one long skill", "fix", ["x".repeat(4_100)]],
+    ["multiple skills", "fix", Array.from({ length: 3 }, () => "x".repeat(1_400))],
+    ["a long user task plus a skill", "x".repeat(3_900), ["y".repeat(200)]],
+  ])("rejects the full oversized chat prompt for %s before minting an approval", async (_label, task, texts) => {
+    const instance = agent();
+    Object.assign(instance, { name: "owner@example.test" });
+    const db = customAgentD1();
+    instance.env.AGENT_AUDIT = db.database;
+    const pins: Array<{ skillId: string; version: number }> = [];
+    for (const [index, instructions] of texts.entries()) {
+      const content = { name: `Chat skill ${index + 1}`, instructions };
+      const skill = await createSkill(instance.env, "self-hosted", "owner@example.test", content);
+      await reviewSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, instructions);
+      await activateSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, instructions);
+      pins.push({ skillId: skill.id, version: 1 });
+    }
+    Object.assign(instance, { composerPin: () => ({ skillPins: pins }) });
+    await expect(delegateOf(instance).needsApproval({ ...INPUT, task }, { toolCallId: "chat-overflow" }))
+      .rejects.toThrow(/complete task and selected skill instructions exceed the 4000-character limit/);
+    expect(instance.state.pendingApprovals ?? []).toEqual([]);
+  });
 
   it("mints the durable pointer at gate time so chat Approve can mint its run", async () => {
     const instance = agent();

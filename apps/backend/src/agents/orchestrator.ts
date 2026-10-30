@@ -122,6 +122,7 @@ import { postReview } from "../review/publish.js";
 import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
 import { ORCHESTRATOR_NAME } from "../slack-routes.js";
+import { areSkillPinsActive, resolveSkillPins } from "../skills-store.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
   classifyExecutorError,
@@ -146,6 +147,8 @@ import {
 } from "../runs.js";
 import { handleSteeringRequest } from "../steering.js";
 import { localDispatchStub } from "../local-dispatch.js";
+
+const MAX_APPROVED_TASK_CHARS = 4000;
 import {
   acquireSandboxOps,
   destroyManagedContainer,
@@ -340,7 +343,10 @@ export const delegateInputSchema = z.object({
     .describe("Org scope for custom-agent and sandbox selection (v1 principal org; dashboard defaults to self-hosted)."),
 });
 
-type DelegateInput = z.infer<typeof delegateInputSchema> & { executionTarget?: ExecutionTarget };
+type DelegateInput = z.infer<typeof delegateInputSchema> & {
+  executionTarget?: ExecutionTarget;
+  skillPins?: Array<{ skillId: string; version: number }>;
+};
 
 type FrozenRunEnv = { envNames: string[]; envDigest: string; envSealed: string };
 
@@ -359,6 +365,10 @@ const composerPinSchema = z.object({
   reasoningEffort: z.enum(REASONING_EFFORTS).optional().catch(undefined),
   customAgentId: z.string().min(1).max(128).optional().catch(undefined),
   orgId: z.string().min(1).max(128).optional().catch(undefined),
+  skillPins: z.array(z.object({
+    skillId: z.string().min(1).max(100),
+    version: z.number().int().positive(),
+  }).strict()).max(5).optional().catch(undefined),
 });
 
 /**
@@ -1069,6 +1079,27 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(pointer?.role !== undefined ? { role: pointer.role } : chained ? { role: "reviewer" as const } : {}),
       };
       failureRun = reserved;
+      if (reserved.skillPins?.length) {
+        // This is a pre-execution revocation check. Disabling prevents a run
+        // that has not crossed this boundary from starting; it does not
+        // interrupt a sandbox that is already running.
+        const orgId = reserved.orgId ?? pointer?.orgId;
+        if (!orgId || !this.env.AGENT_AUDIT) {
+          return yield* Effect.fail(toTaggedError(
+            "invalid_request",
+            "Skill status could not be verified before dispatch; re-queue the run after checking the Skills view.",
+          ));
+        }
+        const pinsAreActive = yield* tryRunPromise(() =>
+          areSkillPinsActive(this.env, orgId, reserved.skillPins ?? []),
+        );
+        if (!pinsAreActive) {
+          return yield* Effect.fail(toTaggedError(
+            "invalid_request",
+            "A selected skill was disabled or changed before dispatch. Re-queue the run with currently active skills.",
+          ));
+        }
+      }
       // T51 dispatch-side check — the queued record's frozen runtime is what
       // counts; the intake gate can never be bypassed by a chat-surface tool
       // call because a `default`/`slack:*` DO fails isDashboardAgentName.
@@ -1134,6 +1165,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(reserved.sandboxProvider !== undefined ? { sandboxProvider: reserved.sandboxProvider } : {}),
         ...(reserved.customAgentId !== undefined ? { customAgentId: reserved.customAgentId } : {}),
         ...(reserved.customAgentVersion !== undefined ? { customAgentVersion: reserved.customAgentVersion } : {}),
+        ...(reserved.skillPins !== undefined ? { skillPins: reserved.skillPins.map((pin) => ({ ...pin })) } : {}),
         codingModel,
         harness: resolvedHarness as CodingTaskInput["harness"],
         route,
@@ -1614,6 +1646,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     targetMachineId?: unknown;
     testCommand?: unknown;
     expectedDeliverables?: unknown;
+    skillPins?: unknown;
     role?: unknown;
     intake?: unknown;
     threadKey?: unknown;
@@ -1660,6 +1693,38 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (kind !== "run") {
       return Response.json({ error: `Unknown approval kind "${kind}".` }, { status: 400 });
+    }
+    let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> | undefined;
+    if (input.skillPins !== undefined) {
+      if (!Array.isArray(input.skillPins) || input.skillPins.length > 5) {
+        return Response.json({ error: "Invalid skill version pins." }, { status: 400 });
+      }
+      const parsedPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> = [];
+      for (const candidate of input.skillPins) {
+        if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+          return Response.json({ error: "Invalid skill version pins." }, { status: 400 });
+        }
+        const pin = candidate as Record<string, unknown>;
+        if (
+          typeof pin.skillId !== "string" || !/^skill-[a-f0-9]{24}$/.test(pin.skillId) ||
+          !Number.isSafeInteger(pin.version) || Number(pin.version) < 1 ||
+          typeof pin.name !== "string" || !pin.name.trim() || pin.name.length > 100 ||
+          (pin.sourceUrl !== undefined && (typeof pin.sourceUrl !== "string" || !pin.sourceUrl.startsWith("https://")))
+        ) return Response.json({ error: "Invalid skill version pins." }, { status: 400 });
+        parsedPins.push({
+          skillId: pin.skillId,
+          version: Number(pin.version),
+          name: pin.name,
+          ...(typeof pin.sourceUrl === "string" ? { sourceUrl: pin.sourceUrl } : {}),
+        });
+      }
+      if (new Set(parsedPins.map((pin) => pin.skillId)).size !== parsedPins.length) {
+        return Response.json({ error: "Duplicate skill version pins are not allowed." }, { status: 400 });
+      }
+      skillPins = parsedPins;
+      if (skillPins.length > 0 && input.intake !== LOCAL_INTAKE_DASHBOARD) {
+        return Response.json({ error: "Skill versions can only be selected through the authenticated dashboard." }, { status: 403 });
+      }
     }
     // T41: a caller-deterministic commandId makes a retried queue safe —
     // the receipt answers with the minted approvalId, never a second mint.
@@ -1771,6 +1836,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (!task.trim()) {
       return Response.json({ error: "Task description is required." }, { status: 400 });
+    }
+    if (task.length > MAX_APPROVED_TASK_CHARS) {
+      return Response.json(
+        { error: `The complete task and selected skill instructions exceed the ${MAX_APPROVED_TASK_CHARS}-character limit. Shorten the task or deselect skills.` },
+        { status: 400 },
+      );
     }
     // The approver must see a real agent name on the card — validate here
     // so a bad harness fails before the card, never inside a container.
@@ -1970,7 +2041,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           threadKey,
           approvalId,
           repoUrl,
-          task: task.slice(0, 4000),
+          task,
           baseBranch,
           publishPullRequest,
           ...(input.reviewAfterPublish === true ? { reviewAfterPublish: true } : {}),
@@ -1984,6 +2055,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(runtime === "local" && targetMachineId !== undefined ? { targetMachineId } : {}),
           ...(testCommand !== undefined ? { testCommand } : {}),
           ...(expectedDeliverables !== undefined ? { expectedDeliverables } : {}),
+          ...(skillPins !== undefined && skillPins.length > 0 ? { skillPins } : {}),
           ...(executionTarget !== undefined ? { executionTarget } : {}),
           // T52: the approved role rides the frozen input — dispatch
           // threads it back into the run envelope.
@@ -2024,7 +2096,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ok: true,
       approvalId,
       repoUrl,
-      task: task.slice(0, 4000),
+      task,
       route: describeRoute(route),
     });
   }
@@ -2597,6 +2669,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let connectionId = input.connectionId;
     let sandboxProvider: string | undefined;
     const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> | undefined;
+    if (input.skillPins !== undefined && input.skillPins.length > 0) {
+      const skillOwnerId = initiatorUserIdFromOrchestratorName(this.name);
+      const resolvedSkills = this.env.AGENT_AUDIT && skillOwnerId
+        ? await resolveSkillPins(this.env, intakeOrgId, skillOwnerId, input.skillPins)
+        : null;
+      if (!resolvedSkills) throw new Error("A selected skill is unavailable or no longer active. Reload the Skills view and try again.");
+      task = `${task}\n\n${resolvedSkills.instructions}`;
+      skillPins = resolvedSkills.pins;
+    }
     let customAgentId = input.customAgentId?.trim() || "";
     let customAgentVersion: number | undefined;
     let expectedDeliverables = input.expectedDeliverables;
@@ -2621,6 +2703,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       customAgentId = agent.id;
     }
+    if (task.length > MAX_APPROVED_TASK_CHARS) {
+      throw new Error(
+        `The complete task and selected skill instructions exceed the ${MAX_APPROVED_TASK_CHARS}-character limit. Shorten the task or deselect skills.`,
+      );
+    }
     const { route } = await this.resolveRoute({
       ...input,
       repoUrl,
@@ -2641,7 +2728,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         threadKey: this.name ?? "default",
         approvalId: toolCallId,
         repoUrl,
-        task: task.slice(0, 4000),
+        task,
         baseBranch: input.baseBranch,
         publishPullRequest: input.publishPullRequest,
         ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
@@ -2656,6 +2743,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           : {}),
         ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
         ...(expectedDeliverables !== undefined ? { expectedDeliverables } : {}),
+        ...(skillPins !== undefined ? { skillPins } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
         ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
         createdAt: Date.now(),
@@ -2697,6 +2785,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.targetMachineId !== undefined ? { targetMachineId: record.targetMachineId } : {}),
       ...(record.testCommand !== undefined ? { testCommand: record.testCommand } : {}),
       ...(record.expectedDeliverables !== undefined ? { expectedDeliverables: record.expectedDeliverables } : {}),
+      ...(record.skillPins !== undefined ? { skillPins: record.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(record.forkedFrom !== undefined ? { forkedFrom: record.forkedFrom } : {}),
       ...(record.subagentBudget !== undefined ? { subagentBudgetRemaining: record.subagentBudget } : {}),
       ...denIdWireFields(resolveDenId(record)),
@@ -2733,6 +2822,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.sandboxProvider !== undefined ? { sandboxProvider: record.sandboxProvider } : {}),
         ...(record.customAgentId !== undefined ? { customAgentId: record.customAgentId } : {}),
         ...(record.customAgentVersion !== undefined ? { customAgentVersion: record.customAgentVersion } : {}),
+        ...(record.skillPins !== undefined ? { skillPins: record.skillPins } : {}),
         ...(record.subagentBudget !== undefined ? { subagentBudget: record.subagentBudget } : {}),
         ...(record.parentRunId !== undefined ? { parentRunId: record.parentRunId } : {}),
         ...(record.subagentPath !== undefined ? { subagentPath: record.subagentPath } : {}),

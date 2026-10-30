@@ -4,9 +4,9 @@ import type { SavedSkill } from "./saved";
 export function formatSkillInstructions(skills: SavedSkill[]): string {
   if (skills.length === 0) return "";
   return `Skills:\n${skills.map((skill) => [
-    `Skill: ${skill.name}`,
-    ...(skill.repoUrl ? [`Source: ${skill.repoUrl}`] : []),
-    ...(skill.notes?.trim() ? [`Instructions:\n${skill.notes.trim()}`] : []),
+    `Skill: ${skill.name} (${skill.id}@${skill.version})`,
+    ...(skill.sourceUrl ? [`Source: ${skill.sourceUrl}`] : []),
+    ...(skill.instructions.trim() ? [`Reviewed instructions:\n${skill.instructions.trim()}`] : []),
   ].join("\n")).join("\n\n")}`;
 }
 
