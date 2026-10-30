@@ -145,7 +145,11 @@ export async function dispatchEmployeeTool(input: EmployeeToolDispatchInput): Pr
     if (matchingRules.length !== 1) return { allowed: false, reason: "unsupported_action" };
     const resourceArgument = matchingRules[0]!.resourceArgument;
     const resourceValue = resourceArgument ? input.args[resourceArgument] : input.args.resourceId;
-    if (resourceValue !== undefined && typeof resourceValue !== "string") {
+    const resourceValues = Array.isArray(resourceValue) ? resourceValue : resourceValue === undefined ? [] : [resourceValue];
+    if (resourceValues.some((value) => typeof value !== "string" || !value.trim() || value.length > 200) || resourceValues.length > 100) {
+      return { allowed: false, reason: "resource_not_allowed" };
+    }
+    if (resourceValues.length && resourceValues.some((value) => !input.connection.allowedResources.includes(value as string))) {
       return { allowed: false, reason: "resource_not_allowed" };
     }
     const dispatchPrincipal: DispatchPrincipal = {
@@ -160,8 +164,8 @@ export async function dispatchEmployeeTool(input: EmployeeToolDispatchInput): Pr
       request: {
         capability: { kind: "mcp", id },
         action: registered.name,
-        ...(typeof resourceValue === "string" ? { resourceId: resourceValue } : {}),
-        ...(typeof input.args.accountId === "string" ? { accountId: input.args.accountId } : {}),
+        ...(resourceValues.length ? { resourceId: resourceValues[0] as string } : {}),
+        ...(input.connection.accountId ? { accountId: input.connection.accountId } : typeof input.args.accountId === "string" ? { accountId: input.args.accountId } : {}),
         argumentDigest,
       },
       ...(input.approval ? { approval: input.approval } : {}),
