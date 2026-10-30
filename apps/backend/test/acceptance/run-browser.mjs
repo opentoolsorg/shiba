@@ -542,6 +542,37 @@ try {
   // New threads start in chat-only mode. The task workflow is explicit and
   // requires the user to switch to Work before task controls are available.
   await page.getByRole("tab", { name: "Work", exact: true }).click();
+  const projectSource = await apiJson(page, "/api/memory/sources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "Acceptance release notes",
+      content: "Release context: verify the migration checklist before handoff.",
+      kind: "note",
+      referenceUrl: "https://docs.example.test/release-checklist",
+      retentionDays: null,
+    }),
+  });
+  const projectCreated = await apiJson(page, "/api/memory/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "Acceptance release",
+      purpose: "Prepare a safe self-hosted release.",
+      sourceIds: [projectSource.source.id],
+      defaultCustomAgentId: employee.id,
+      defaultHarness: "opencode",
+    }),
+  });
+  const projectId = projectCreated.project.id;
+  // The project registry is loaded at app mount; reload to exercise the real
+  // persisted project list rather than injecting an in-memory UI update.
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
+  await waitFor("new project context appears in Work intake", async () => {
+    const projects = await apiJson(page, "/api/memory/projects");
+    return projects.projects?.some((project) => project.id === projectId);
+  });
   await waitFor("local paired computer visible to dashboard", async () => {
     const computers = await apiJson(page, "/api/computers");
     return computers.computers?.some(
@@ -549,6 +580,8 @@ try {
     );
   });
   const composer = page.getByTestId("task-composer");
+  await composer.getByRole("combobox", { name: "Project context" }).selectOption(projectId);
+  await composer.getByText("Snapshot freezes for approval; source text is untrusted.").waitFor();
   await composer.getByRole("button", { name: "Project: Select repository" }).click();
   await page
     .getByPlaceholder("https://github.com/owner/repo")
@@ -584,6 +617,17 @@ try {
     pendingApproval,
     "The pending approval must freeze the exact task text before execution.",
   );
+  const projectFrozenPayload = JSON.stringify(pendingApproval);
+  assert.ok(projectFrozenPayload.includes("Acceptance release"), "Approval must freeze the selected project name.");
+  assert.ok(projectFrozenPayload.includes("Prepare a safe self-hosted release."), "Approval must freeze project purpose.");
+  assert.ok(projectFrozenPayload.includes("verify the migration checklist before handoff"), "Approval must freeze selected source text.");
+  assert.ok(projectFrozenPayload.includes("https://docs.example.test/release-checklist"), "Approval must retain source provenance.");
+  assert.ok(projectFrozenPayload.includes("UNTRUSTED REFERENCE DATA"), "Frozen source text must be framed as untrusted data.");
+  await apiJson(page, `/api/memory/projects/${encodeURIComponent(projectId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ purpose: "Changed after this approval was created." }),
+  });
   const approvedPayload = JSON.stringify(pendingApproval);
   assert.ok(approvedPayload.includes(employee.id), "Approval must freeze the employee identity.");
   assert.ok(
@@ -615,6 +659,23 @@ try {
     (run) => run.task?.includes(taskText) && run.status === "completed",
   );
   assert.equal(completedRun.customAgentId, employee.id);
+  assert.ok(completedRun.task.includes("Prepare a safe self-hosted release."), "Dispatch must retain the approved project snapshot after the project is edited.");
+  assert.ok(!completedRun.task.includes("Changed after this approval was created."), "Dispatch must not silently replace the approved project snapshot.");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await nav(page, "tasks");
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
+  await page.getByRole("main").getByText(/Prepare a safe self-hosted release\./).waitFor();
+  const persistedProject = await apiJson(page, `/api/memory/projects/${encodeURIComponent(projectId)}`);
+  assert.equal(persistedProject.project.purpose, "Changed after this approval was created.");
+  checkpoints.push({
+    id: "project-context-approval-run-reload",
+    status: "passed",
+    projectId,
+    sourceId: projectSource.source.id,
+    runId: completedRun.runId,
+    frozenPurposeSurvivedEdit: true,
+    reloadedProjectVersion: persistedProject.project.version,
+  });
   await nav(page, "tasks");
   const reviewDecision = page.getByLabel("Review decision for reports/acceptance.md");
   await reviewDecision.waitFor();
