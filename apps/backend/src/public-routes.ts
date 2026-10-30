@@ -24,6 +24,7 @@ export function isPublicRequest(request: Request): boolean {
 /** These route modules verify an org-scoped API key or dashboard session themselves. */
 export function isOrgApiPath(path: string): boolean {
   return path === "/api/api-keys"
+    || path === "/api/employee-tools" || path.startsWith("/api/employee-tools/")
     || path === "/api/custom-agents" || path.startsWith("/api/custom-agents/")
     || path === "/api/org/sandbox" || path === "/api/org/sandbox/test"
     || path === "/api/org/model-keys" || path.startsWith("/api/org/model-keys/");

@@ -136,6 +136,15 @@ export async function dispatchEmployeeTool(input: EmployeeToolDispatchInput): Pr
       input.approval.employeeVersion !== input.authority.employeeVersion
     )) return { allowed: false, reason: "approval_stale" };
     const argumentDigest = await hashToolArgs(input.args);
+    const matchingRules = input.connectionPolicy.actions.filter((rule) =>
+      rule.action === registered.name && rule.capability.kind === "mcp" && rule.capability.id === id,
+    );
+    if (matchingRules.length !== 1) return { allowed: false, reason: "unsupported_action" };
+    const resourceArgument = matchingRules[0]!.resourceArgument;
+    const resourceValue = resourceArgument ? input.args[resourceArgument] : input.args.resourceId;
+    if (resourceValue !== undefined && typeof resourceValue !== "string") {
+      return { allowed: false, reason: "resource_not_allowed" };
+    }
     const dispatchPrincipal: DispatchPrincipal = {
       userId: input.authority.principal.principal,
       workspaceId: input.authority.workspaceId,
@@ -148,9 +157,7 @@ export async function dispatchEmployeeTool(input: EmployeeToolDispatchInput): Pr
       request: {
         capability: { kind: "mcp", id },
         action: registered.name,
-        // A tool is resource-bound only when its handler's explicit schema
-        // calls out resourceId; never infer a resource from arbitrary args.
-        ...(typeof input.args.resourceId === "string" ? { resourceId: input.args.resourceId } : {}),
+        ...(typeof resourceValue === "string" ? { resourceId: resourceValue } : {}),
         ...(typeof input.args.accountId === "string" ? { accountId: input.args.accountId } : {}),
         argumentDigest,
       },
