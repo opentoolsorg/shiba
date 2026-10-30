@@ -4,8 +4,8 @@ import type { FirstRunProgressSnapshot } from "./components/FirstRunWizard";
 
 const initial: FirstRunProgressSnapshot = {
   currentStep: "channels", dismissedAt: null, connectionVerifiedAt: null,
-  firstSuccessfulRunAt: null, activatedAt: null, revision: 0,
-  evidence: { connectedProvider: null, successfulRun: null },
+  firstSuccessfulRunAt: null, acceptedArtifactAt: null, activatedAt: null, revision: 0,
+  evidence: { connectedProvider: null, successfulRun: null, acceptedDeliverable: null },
 };
 
 describe("OnboardingProgressClient", () => {

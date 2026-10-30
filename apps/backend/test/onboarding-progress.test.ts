@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { handleOnboardingProgress, readSuccessfulRunEvidence, type OnboardingIdentity } from "../src/onboarding-progress.js";
+import { handleOnboardingProgress, readAcceptedDeliverableEvidence, readSuccessfulRunEvidence, type OnboardingIdentity } from "../src/onboarding-progress.js";
 import type { Env } from "../src/env.js";
 import { createWebSession } from "../src/web-sessions.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -11,6 +11,7 @@ function context() {
   let now = 100;
   let connected: boolean | null = false;
   let run: boolean | null = false;
+  let acceptedArtifact: boolean | null = false;
   const deps = {
     resolveIdentity: async () => identity,
     readProviders: async () => {
@@ -18,13 +19,14 @@ function context() {
       return [{ connection: { phase: connected ? "connected" : "disconnected" } } as never];
     },
     readSuccessfulRun: async () => run,
+    readAcceptedDeliverable: async () => acceptedArtifact,
     now: () => now,
   };
   return {
     env, sqlite, deps,
     setIdentity(value: OnboardingIdentity | null) { identity = value; },
     setNow(value: number) { now = value; },
-    setEvidence(provider: boolean | null, successful: boolean | null) { connected = provider; run = successful; },
+    setEvidence(provider: boolean | null, successful: boolean | null, accepted: boolean | null = false) { connected = provider; run = successful; acceptedArtifact = accepted; },
   };
 }
 
@@ -52,11 +54,11 @@ describe("server-owned onboarding progress", () => {
 
   it("isolates by immutable Better Auth id and activates only from both server evidence checks", async () => {
     const ctx = context();
-    ctx.setEvidence(true, false);
-    expect(await (await call(ctx)).json()).toMatchObject({ activatedAt: null, evidence: { connectedProvider: true, successfulRun: false } });
+    ctx.setEvidence(true, true, false);
+    expect(await (await call(ctx)).json()).toMatchObject({ activatedAt: null, acceptedArtifactAt: null, evidence: { connectedProvider: true, successfulRun: true, acceptedDeliverable: false } });
     ctx.setNow(250);
-    ctx.setEvidence(false, true);
-    expect(await (await call(ctx)).json()).toMatchObject({ activatedAt: 250, evidence: { connectedProvider: false, successfulRun: true } });
+    ctx.setEvidence(false, true, true);
+    expect(await (await call(ctx)).json()).toMatchObject({ activatedAt: 250, acceptedArtifactAt: 250, evidence: { connectedProvider: false, successfulRun: true, acceptedDeliverable: true } });
     ctx.setIdentity({ userId: "auth-user-b", ownerEmail: "b@example.test" });
     expect(await (await call(ctx)).json()).toMatchObject({ currentStep: "channels", activatedAt: null });
     expect(ctx.sqlite.prepare("SELECT COUNT(*) AS count FROM user_onboarding_progress").get()).toEqual({ count: 2 });
@@ -76,10 +78,10 @@ describe("server-owned onboarding progress", () => {
 
   it("preserves user updates when evidence is unavailable", async () => {
     const ctx = context();
-    ctx.setEvidence(null, null);
+    ctx.setEvidence(null, null, null);
     const response = await call(ctx, "POST", { action: "step", currentStep: "agent", expectedRevision: 0 });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ currentStep: "agent", evidence: { connectedProvider: null, successfulRun: null } });
+    expect(await response.json()).toMatchObject({ currentStep: "agent", evidence: { connectedProvider: null, successfulRun: null, acceptedDeliverable: null } });
   });
 
   it("checks completed runs in authorized named web sessions", async () => {
@@ -98,5 +100,34 @@ describe("server-owned onboarding progress", () => {
     });
     expect(evidence).toBe(true);
     expect(requested).toContain(session.agentName);
+  });
+
+  it("requires a completed run with an approved deliverable, not just any completed run", async () => {
+    const ctx = context();
+    const runRows = [
+      { status: "completed", deliverables: [{ artifactId: "artifact_1", version: 1, path: "draft.md", sha256: "a".repeat(64), review: { status: "pending_review" } }] },
+      { status: "failed", deliverables: [{ artifactId: "artifact_2", version: 1, path: "other.md", sha256: "b".repeat(64), review: { status: "approved" } }] },
+    ];
+    const read = async () => readAcceptedDeliverableEvidence(ctx.env, "a@example.test", async () => ({
+      fetch: async (input) => String(input).endsWith("/internal/web-sessions")
+        ? Response.json({ sessions: [] })
+        : Response.json({ runs: runRows }),
+    }));
+    expect(await read()).toBe(false);
+    runRows[0]!.deliverables[0]!.review.status = "approved";
+    expect(await read()).toBe(true);
+  });
+
+  it("does not carry forward legacy activation that was based only on a successful run", async () => {
+    const ctx = context();
+    ctx.sqlite.exec(`CREATE TABLE user_onboarding_progress (
+      user_id TEXT PRIMARY KEY,current_step TEXT NOT NULL,dismissed_at INTEGER,
+      connection_verified_at INTEGER,first_successful_run_at INTEGER,activated_at INTEGER,
+      revision INTEGER NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL
+    )`);
+    ctx.sqlite.prepare(`INSERT INTO user_onboarding_progress
+      VALUES ('auth-user-a','employee',NULL,10,20,30,4,1,30)`).run();
+    const progress = await (await call(ctx)).json() as { activatedAt: number | null; acceptedArtifactAt: number | null; revision: number };
+    expect(progress).toMatchObject({ activatedAt: null, acceptedArtifactAt: null, revision: 5 });
   });
 });
