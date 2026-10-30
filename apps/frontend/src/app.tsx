@@ -1601,9 +1601,19 @@ export function App(): React.JSX.Element {
   }, [retainedRuns, toolRuns, seenAt]);
 
   const reviewThreadId = useMemo(() => {
+    if (selectedRunId && allRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
+    // Retained runs are already scoped to the selected conversation. Their
+    // update timestamps are authoritative; delegated tool runs from other
+    // conversations receive a local first-seen timestamp and must not steal
+    // the task screen's review panels from the active thread.
+    const selectedSessionRuns = retainedRuns
+      .map((run) => allRuns.find((candidate) => candidate.runId === run.runId))
+      .filter((run): run is VMRun => run !== undefined)
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+    if (selectedSessionRuns[0]) return selectedSessionRuns[0].runId;
     const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
     return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
-  }, [allRuns]);
+  }, [allRuns, retainedRuns, selectedRunId]);
 
   const reviewRun = useMemo(() => {
     if (!reviewThreadId) return undefined;

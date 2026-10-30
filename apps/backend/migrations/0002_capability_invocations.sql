@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS capability_invocations (
   tool TEXT NOT NULL,
   args_hash TEXT NOT NULL,
   idempotency_key TEXT,
-  status TEXT NOT NULL CHECK (status IN ('dispatching','succeeded','pending_approval','denied','failed','unknown_outcome')),
+  status TEXT NOT NULL CHECK (status IN ('dispatching','succeeded','pending_approval','approved','denied','failed','unknown_outcome')),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   approval_id TEXT,

@@ -35,6 +35,7 @@ import {
   ScopeError,
   orgIdForRecord,
   sha256Hex,
+  SCOPES,
   type Scope,
   type TokenRecord,
 } from "./agent-tokens.js";
@@ -187,17 +188,27 @@ function parsePrincipal(raw: string | null): TokenRecord | null {
   if (
     typeof record.principal !== "string" ||
     !Array.isArray(record.scopes) ||
-    !record.scopes.every((s) => typeof s === "string") ||
-    typeof record.created !== "number" ||
+    !record.scopes.every((s) => typeof s === "string" && (SCOPES as readonly string[]).includes(s)) ||
+    typeof record.created !== "number" || !Number.isFinite(record.created) || record.created < 0 ||
     typeof record.revoked !== "boolean"
   ) {
     return null;
   }
+  if ("orgId" in record && (typeof record.orgId !== "string" || !record.orgId.trim())) return null;
+  if ("kind" in record && record.kind !== "agent" && record.kind !== "api_key") return null;
+  if ("expiresAt" in record && (typeof record.expiresAt !== "number" || !Number.isFinite(record.expiresAt))) return null;
+  if ("label" in record && typeof record.label !== "string") return null;
+  if ("keyId" in record && typeof record.keyId !== "string") return null;
   return {
     principal: record.principal,
     scopes: record.scopes as Scope[],
     created: record.created,
     revoked: record.revoked,
+    ...(typeof record.orgId === "string" ? { orgId: record.orgId.trim() } : {}),
+    ...(record.kind === "agent" || record.kind === "api_key" ? { kind: record.kind } : {}),
+    ...(typeof record.label === "string" ? { label: record.label } : {}),
+    ...(typeof record.keyId === "string" ? { keyId: record.keyId } : {}),
+    ...(typeof record.expiresAt === "number" ? { expiresAt: record.expiresAt } : {}),
   };
 }
 
@@ -303,9 +314,10 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
         const status = result.structuredContent && typeof result.structuredContent === "object"
           ? (result.structuredContent as Record<string, unknown>).status
           : undefined;
-        const approvalId = result.structuredContent && typeof result.structuredContent === "object"
-          ? (result.structuredContent as Record<string, unknown>).approvalId
+        const structured = result.structuredContent && typeof result.structuredContent === "object"
+          ? result.structuredContent as Record<string, unknown>
           : undefined;
+        const approvalId = structured?.approvalId ?? structured?.approval_id;
         const isPendingApproval = !result.isError && status === "pending_approval";
         await audit(env, {
           principal: caller,

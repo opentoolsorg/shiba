@@ -33,7 +33,7 @@ describe("FirstRunWizard employee handoff", () => {
     const onClose = vi.fn();
     render(<FirstRunWizard open onClose={onClose} onStartEmployeeSetup={onStartEmployeeSetup} />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
+    await waitFor(() => expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));

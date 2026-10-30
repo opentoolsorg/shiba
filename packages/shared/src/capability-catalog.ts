@@ -33,7 +33,7 @@ export interface McpCapabilityInvocationReceipt {
   principal: string;
   tool: string;
   argsHash: string;
-  status: "succeeded" | "pending_approval" | "denied" | "failed" | "unknown_outcome" | "in_progress";
+  status: "succeeded" | "pending_approval" | "approved" | "denied" | "failed" | "unknown_outcome" | "in_progress";
   approvalId?: string;
   errorCode?: string;
   replayed?: true;
