@@ -1594,6 +1594,7 @@ describe("chat approval gate", () => {
   it("freezes owner project provenance into approval and run context", async () => {
     const instance = agent();
     Object.assign(instance, { name: "owner@example.test", messages: [{ role: "user", metadata: { shibaTask: { projectContextId: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa" } } }] });
+    mocks.execute.mockResolvedValue(formatAgentResult({ status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: "done" }));
     let currentText = "launch checklist and QA owner";
     const partitionNames: string[] = [];
     Object.assign(instance.env, { Memory: {
@@ -1617,12 +1618,19 @@ describe("chat approval gate", () => {
     expect(partitionNames).toHaveLength(1);
     expect(partitionNames[0]).toMatch(/^owner-memory:[a-f0-9]{64}$/);
     currentText = "edited after approval";
+    const resolved = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "owner@example.test", approvalId: "project-chat-1", approved: true, decidedBy: "human" }),
+    }));
+    expect(resolved.status).toBe(200);
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(instance.state.runs.find((run) => run.runId === "agent-tool:project-chat-1")?.status).toBe("completed"));
     const approval = instance.state.pendingApprovals?.find((record) => record.approvalId === "project-chat-1");
-    expect(approval).toBeDefined();
-    const mintRun = instance as unknown as { mintApprovedRun(record: NonNullable<typeof approval>): DelegatedRun };
-    const approvedRun = mintRun.mintApprovedRun(approval!);
-    expect(approvedRun.task).toBe(frozen);
-    expect(approvedRun.task).not.toContain("edited after approval");
+    expect(approval?.status).toBe("approved");
+    const approvedRun = instance.state.runs.find((run) => run.runId === "agent-tool:project-chat-1");
+    expect(approvedRun?.task).toBe(frozen);
+    expect(approvedRun?.task).not.toContain("edited after approval");
   });
 
   it("still refuses an execute that no gate ever minted", async () => {
