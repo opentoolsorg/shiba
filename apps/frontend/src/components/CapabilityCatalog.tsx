@@ -263,7 +263,7 @@ export function CapabilityCatalog({
               ) : null}
               {selectedItem.authNote ? <p className="mt-5 border-l-2 border-[var(--warning)] bg-[var(--warning-subtle)] p-3 text-xs" role="note">{selectedItem.authNote}</p> : null}
 
-              <div className="mt-6 flex flex-wrap gap-2 border-t border-[var(--border-1)] pt-4" aria-label="Integration actions">
+              <div className="mt-6 flex flex-wrap gap-2 border-t border-[var(--border-1)] pt-4" role="group" aria-label="Integration actions">
                 {onConfigure && canConfigure ? <button type="button" onClick={() => onConfigure(selectedItem)} className="min-h-10 border border-[var(--primary)] bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-text)]">Configure</button> : null}
                 {onReconnect && canReconnect ? <button type="button" onClick={() => onReconnect(selectedItem)} className="min-h-10 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold">Reconnect</button> : null}
                 {onCheckHealth && canReconnect ? <button type="button" onClick={() => onCheckHealth(selectedItem)} className="min-h-10 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold">Check health</button> : null}
