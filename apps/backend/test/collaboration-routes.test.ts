@@ -5,6 +5,7 @@ import {
   getCollaborationRoom,
   listCollaborationHandoffs,
 } from "../src/collaboration-store.js";
+import { createCustomAgent } from "../src/custom-agents-store.js";
 import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
@@ -47,6 +48,12 @@ beforeEach(() => {
 describe("authenticated collaboration rooms", () => {
   it("persists human messages and denies a human session impersonating an agent", async () => {
     const f = fixture();
+    const profile = await createCustomAgent(f.env, "self-hosted", "planner", {
+      name: "Release Planner",
+      instructions: "Plan a safe release.",
+      harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
     const created = await json<{ room: { roomId: string } }>(
       await f.send("/rooms", "POST", { title: "Release planning", visibility: "private" }),
     );
@@ -57,9 +64,9 @@ describe("authenticated collaboration rooms", () => {
     ).toBe(201);
     const agentResponse = await json<{
       member: { actorId: string; actorKind: string; displayName: string };
-    }>(await f.send(`/rooms/${roomId}/agents`, "POST", { label: "Planner" }));
+    }>(await f.send(`/rooms/${roomId}/agents`, "POST", { profileId: profile.id, profileVersion: profile.version }));
     expect(agentResponse.member.actorKind).toBe("agent");
-    expect(agentResponse.member.displayName).toBe("Planner");
+    expect(agentResponse.member.displayName).toBe("Release Planner");
     expect(
       (await json<{ rooms: Array<{ roomId: string }> }>(await f.send("/rooms"))).rooms.map(
         (item) => item.roomId,
@@ -259,68 +266,26 @@ describe("authenticated collaboration rooms", () => {
     ).toBe(404);
   });
 
-  it("pins a trusted agent recipient version and denies a human impersonating an agent", async () => {
+  it("binds a real employee identity and pins its saved profile version", async () => {
     const f = fixture();
+    const profile = await createCustomAgent(f.env, "self-hosted", "reviewer", {
+      name: "Reviewer",
+      instructions: "Review work.",
+      harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
     const room = await json<{ room: { roomId: string } }>(
-      await f.send("/rooms", "POST", { title: "Pinned agent continuation" }),
+      await f.send("/rooms", "POST", { title: "Pinned employee" }),
     );
-    const roomId = room.room.roomId;
-    const bob = "human:bob@example.test";
-    expect(
-      (await f.send(`/rooms/${roomId}/members`, "POST", { userId: "bob@example.test" }))?.status,
-    ).toBe(201);
-    const agent = await json<{ member: { actorId: string } }>(
-      await f.send(`/rooms/${roomId}/agents`, "POST", { label: "Reviewer" }),
+    const member = await json<{ member: { actorId: string } }>(
+      await f.send(`/rooms/${room.room.roomId}/agents`, "POST", { profileId: profile.id, profileVersion: profile.version }),
     );
-    expect(
-      (
-        await f.send(`/rooms/${roomId}/handoffs`, "POST", {
-          handoffId: "human-root",
-          taskId: "task-agent-version",
-          recipientActorId: bob,
-          budget: 2,
-        })
-      )?.status,
-    ).toBe(201);
-    authState.userId = "bob@example.test";
-    expect(
-      (
-        await f.send(`/rooms/${roomId}/handoffs`, "POST", {
-          handoffId: "human-to-agent",
-          taskId: "task-agent-version",
-          recipientActorId: agent.member.actorId,
-          actorId: bob,
-          parentHandoffId: "human-root",
-          profileVersion: 999,
-        })
-      )?.status,
-    ).toBe(201);
-    const saved = f.sqlite
-      .prepare(
-        "SELECT depth,root_handoff_id,profile_version FROM collaboration_handoffs WHERE handoff_id='human-to-agent'",
-      )
-      .get();
-    expect(saved).toEqual({ depth: 1, root_handoff_id: "human-root", profile_version: 1 });
-
-    f.sqlite
-      .prepare("UPDATE collaboration_memberships SET profile_version=2 WHERE actor_id=?")
-      .run(agent.member.actorId);
-    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
-      handoffId: "stale-agent-continuation",
-      taskId: "task-agent-version",
-      recipientActorId: agent.member.actorId,
-      actorId: agent.member.actorId,
-      parentHandoffId: "human-to-agent",
+    expect(f.sqlite.prepare("SELECT actor_id,profile_version FROM collaboration_memberships WHERE actor_id=?").get(member.member.actorId))
+      .toEqual({ actor_id: `agent:${profile.id}`, profile_version: 1 });
+    expect((await f.send(`/rooms/${room.room.roomId}/messages`, "POST", {
+      actorId: member.member.actorId,
+      body: "Spoofed employee message",
     }))?.status).toBe(403);
-    authState.userId = "owner@example.test";
-    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
-      handoffId: "fresh-agent-profile",
-      taskId: "task-agent-version-2",
-      recipientActorId: agent.member.actorId,
-      profileVersion: 999,
-      budget: 1,
-    }))?.status).toBe(201);
-    expect(f.sqlite.prepare("SELECT profile_version FROM collaboration_handoffs WHERE handoff_id='fresh-agent-profile'").get()?.profile_version).toBe(2);
   });
 
   it("revokes membership and cancels a handoff subtree", async () => {
@@ -329,36 +294,34 @@ describe("authenticated collaboration rooms", () => {
       await f.send("/rooms", "POST", { title: "Cancel tree" }),
     );
     const roomId = room.room.roomId;
-    const agent = await json<{ member: { actorId: string } }>(
-      await f.send(`/rooms/${roomId}/agents`, "POST", {}),
-    );
     const teammateId = "human:teammate@example.test";
     expect(
       (await f.send(`/rooms/${roomId}/members`, "POST", { userId: "teammate@example.test" }))
         ?.status,
     ).toBe(201);
+    authState.userId = "teammate@example.test";
     expect(
       (
         await f.send(`/rooms/${roomId}/handoffs`, "POST", {
           handoffId: "cancel-root",
           taskId: "task-18",
-          recipientActorId: teammateId,
+          recipientActorId: "human:owner@example.test",
           budget: 1,
         })
       )?.status,
     ).toBe(201);
-    authState.userId = "teammate@example.test";
+    authState.userId = "owner@example.test";
     expect(
       (
         await f.send(`/rooms/${roomId}/handoffs`, "POST", {
           handoffId: "cancel-child",
           taskId: "task-18",
-          recipientActorId: agent.member.actorId,
+          recipientActorId: teammateId,
           parentHandoffId: "cancel-root",
         })
       )?.status,
     ).toBe(201);
-    authState.userId = "owner@example.test";
+    authState.userId = "teammate@example.test";
     expect((await f.send(`/handoffs/cancel-root/cancel`, "POST", {}))?.status).toBe(200);
     const rows = await listCollaborationHandoffs(
       f.env,
@@ -366,6 +329,14 @@ describe("authenticated collaboration rooms", () => {
       roomId,
     );
     expect(rows.every((row) => row.status === "cancelled")).toBe(true);
+    authState.userId = "teammate@example.test";
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+      handoffId: "after-cancel",
+      taskId: "task-18",
+      recipientActorId: "human:owner@example.test",
+      parentHandoffId: "cancel-child",
+    }))?.status).toBe(404);
+    authState.userId = "owner@example.test";
     expect(
       (await f.send(`/rooms/${roomId}/members/${encodeURIComponent(teammateId)}`, "DELETE"))
         ?.status,

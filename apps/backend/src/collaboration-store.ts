@@ -85,6 +85,8 @@ export interface CollaborationHandoffRow {
   status: "active" | "cancelled";
   createdAt: number;
   cancelledAt: number | null;
+  approvalId?: string | null;
+  runId?: string | null;
 }
 
 export class CollaborationStoreError extends Error {
@@ -173,6 +175,8 @@ const SCHEMA = [
     status TEXT NOT NULL CHECK (status IN ('active','cancelled')),
     created_at INTEGER NOT NULL,
     cancelled_at INTEGER,
+    approval_id TEXT,
+    run_id TEXT,
     FOREIGN KEY (tenant_id, workspace_id, room_id, sender_actor_id)
       REFERENCES collaboration_memberships(tenant_id, workspace_id, room_id, actor_id),
     FOREIGN KEY (tenant_id, workspace_id, room_id, recipient_actor_id)
@@ -191,6 +195,16 @@ export async function ensureCollaborationSchema(env: Pick<Env, "AGENT_AUDIT">): 
     throw new CollaborationStoreError("Collaboration storage is unavailable.", 503);
   if (initialized.has(env.AGENT_AUDIT)) return;
   for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
+  for (const column of ["approval_id TEXT", "run_id TEXT"]) {
+    try {
+      await env.AGENT_AUDIT.prepare(
+        `ALTER TABLE collaboration_handoffs ADD COLUMN ${column}`,
+      ).run();
+    } catch (error) {
+      if (!/duplicate column/i.test(error instanceof Error ? error.message : String(error)))
+        throw error;
+    }
+  }
   initialized.add(env.AGENT_AUDIT);
 }
 
@@ -288,6 +302,8 @@ function rowHandoff(row: Record<string, unknown>): CollaborationHandoffRow {
     status: row.status as "active" | "cancelled",
     createdAt: Number(row.created_at),
     cancelledAt: row.cancelled_at === null ? null : Number(row.cancelled_at),
+    ...(typeof row.approval_id === "string" ? { approvalId: row.approval_id } : {}),
+    ...(typeof row.run_id === "string" ? { runId: row.run_id } : {}),
   };
 }
 
@@ -476,6 +492,7 @@ export async function addCollaborationMember(
     displayName: string;
     actorId: string;
     kind: CollaborationActorKind;
+    profileVersion?: number;
     createdAt: number;
   },
 ): Promise<boolean> {
@@ -495,7 +512,7 @@ export async function addCollaborationMember(
       input.kind,
       role,
       JSON.stringify(caps),
-      input.kind === "agent" ? 1 : null,
+      input.kind === "agent" ? (input.profileVersion ?? 1) : null,
       input.createdAt,
       scope.tenantId,
       scope.workspaceId,
@@ -504,6 +521,34 @@ export async function addCollaborationMember(
       scope.tenantId,
       scope.workspaceId,
       roomId,
+    )
+    .run();
+  return Number(result.meta?.changes ?? 0) === 1;
+}
+
+/** Atomically attach the normal approval-gated run pointer to a room handoff. */
+export async function linkCollaborationHandoffRun(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  handoffId: string,
+  approvalId: string,
+  runId: string,
+): Promise<boolean> {
+  await ensureCollaborationSchema(env);
+  const result = await env.AGENT_AUDIT.prepare(
+    `UPDATE collaboration_handoffs SET approval_id=?,run_id=?
+     WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND sender_user_id=?
+       AND status='active' AND (approval_id IS NULL OR approval_id=?) AND (run_id IS NULL OR run_id=?)`,
+  )
+    .bind(
+      approvalId,
+      runId,
+      scope.tenantId,
+      scope.workspaceId,
+      handoffId,
+      scope.userId,
+      approvalId,
+      runId,
     )
     .run();
   return Number(result.meta?.changes ?? 0) === 1;
