@@ -22,6 +22,7 @@ import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
 import { handleCollaboration } from "./collaboration-routes.js";
+import { handleReasonNetwork } from "./reason-network/routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
@@ -281,6 +282,8 @@ export default {
       if (customAgentsResponse) return customAgentsResponse;
       const employeeToolsResponse = await handleEmployeeTools(request, env);
       if (employeeToolsResponse) return employeeToolsResponse;
+      const reasonNetworkResponse = await handleReasonNetwork(request, env);
+      if (reasonNetworkResponse) return reasonNetworkResponse;
       const skillsResponse = await handleSkills(request, env);
       if (skillsResponse) return skillsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
