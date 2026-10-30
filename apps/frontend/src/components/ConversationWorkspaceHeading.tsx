@@ -1,8 +1,10 @@
 import type { JSX } from "react";
-import { Cloud, FileText, FolderGit2, Laptop } from "lucide-react";
+import { Cloud, FileText, FolderGit2, Laptop, MessageCircle } from "lucide-react";
+import type { ConversationMode } from "../conversation-mode";
 
 export interface ConversationWorkspaceHeadingProps {
   title: string;
+  mode?: ConversationMode;
   executionTargetKind: "repository" | "artifact-workspace";
   runTarget: "sandbox" | "local";
   repoUrl: string;
@@ -18,6 +20,7 @@ function repositoryLabel(repoUrl: string): string {
 /** A compact chat title and truthful summary of where the next task will run. */
 export function ConversationWorkspaceHeading({
   title,
+  mode = "work",
   executionTargetKind,
   runTarget,
   repoUrl,
@@ -39,8 +42,20 @@ export function ConversationWorkspaceHeading({
   return (
     <div className="min-w-0 flex flex-col gap-0.5">
       <h1 className="text-base text-[var(--fg)] tracking-tight truncate">{title}</h1>
-      <p
+      {mode === "chat" ? (
+        <div
+          className="flex min-w-0 items-center gap-1.5 text-[10px] font-mono text-[var(--muted-foreground-2)]"
+          role="status"
+          aria-label="Chat mode, task tools disabled"
+        >
+          <span className="shrink-0 uppercase tracking-[0.08em]">Chat</span>
+          <span aria-hidden="true">·</span>
+          <MessageCircle aria-hidden="true" className="size-3 shrink-0" />
+          <span className="truncate">Conversation · no task tools</span>
+        </div>
+      ) : <div
         className="flex min-w-0 items-center gap-1.5 text-[10px] font-mono text-[var(--muted-foreground-2)]"
+        role="status"
         aria-label={`Next task target: ${execution}, ${targetKind}, ${target}`}
       >
         <span className="shrink-0 uppercase tracking-[0.08em]">Next task</span>
@@ -50,7 +65,7 @@ export function ConversationWorkspaceHeading({
         <span aria-hidden="true">·</span>
         <TargetIcon aria-hidden="true" className="size-3 shrink-0" />
         <span className="truncate">{targetKind}: {target}</span>
-      </p>
+      </div>}
     </div>
   );
 }

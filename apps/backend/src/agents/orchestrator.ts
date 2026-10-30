@@ -66,6 +66,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { postToChatThread } from "../chat-lane.js";
 import { createRunCodeTool } from "../codemode.js";
+import { isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
 import { runWorkerEffect, toRunFailure, tryRunPromise } from "../effect/runtime.js";
 import {
   emailApprovalDraftRef,
@@ -834,6 +835,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   override getSystemPrompt(): string {
+    if (isChatOnlyTurn(this.messages)) {
+      return [
+        "You are Shiba, a helpful conversational assistant.",
+        "This user turn is Chat mode: answer directly and do not use tools, delegate work, or claim that an action was performed.",
+        "If the user wants repository or other task execution, explain that they can switch to Work mode.",
+      ].join(" ");
+    }
     return [
       "You are AI Coworker, a planning and delegation agent.",
       "You never edit repositories yourself. When the user describes a coding task,",
@@ -855,6 +863,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   override getTools(): ToolSet {
+    if (isChatOnlyTurn(this.messages)) {
+      // The mode marker only narrows authority. Work turns still use the
+      // unchanged approval-gated delegate and audited run_code tools below.
+      return toolsForConversationMode("chat", super.getTools()) as ToolSet;
+    }
     const child = agentTool(OpenCodeAgent, {
       description:
         "Delegate a coding task to an isolated Cloudflare Sandbox container running OpenCode. " +

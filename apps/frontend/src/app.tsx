@@ -36,6 +36,16 @@ import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } fr
 import { OnboardingProgressClient } from "./onboarding-progress-client";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
 import { ConversationWorkspaceHeading } from "./components/ConversationWorkspaceHeading";
+import { ConversationModeSwitch } from "./components/ConversationModeSwitch";
+import { ChatMessageComposer } from "./components/ChatMessageComposer";
+import {
+  readConversationMode,
+  readRememberedSessionId,
+  resolveRememberedSessionId,
+  writeConversationMode,
+  writeRememberedSessionId,
+  type ConversationMode,
+} from "./conversation-mode";
 import { StepTimeline } from "./components/StepTimeline";
 import { DiffView } from "./components/DiffView";
 import { ApprovalsView } from "./components/ApprovalsView";
@@ -464,6 +474,14 @@ export function App(): React.JSX.Element {
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
+  const [conversationMode, setConversationModeState] = useState<ConversationMode>(() => readConversationMode("default"));
+  useEffect(() => {
+    setConversationModeState(readConversationMode(selectedSessionId));
+  }, [selectedSessionId]);
+  const setConversationMode = useCallback((mode: ConversationMode) => {
+    setConversationModeState(mode);
+    writeConversationMode(selectedSessionId, mode);
+  }, [selectedSessionId]);
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
   const draftScope = useRef<string | null>("default");
@@ -835,7 +853,11 @@ export function App(): React.JSX.Element {
         };
         if (!cancelled) {
           setSessionApiAvailable(true);
-          setWebSessions(Array.isArray(body.sessions) ? body.sessions : []);
+          const nextSessions = Array.isArray(body.sessions) ? body.sessions : [];
+          setWebSessions(nextSessions);
+          const restoredSessionId = resolveRememberedSessionId(readRememberedSessionId(), nextSessions);
+          setSelectedSessionId(restoredSessionId);
+          writeRememberedSessionId(restoredSessionId);
           // The mount-time fetch can run pre-auth (e.g. AuthScreen up); once a
           // later attempt succeeds, drop the failure it toasted.
           setNotice((n) => (n?.startsWith("Sessions request failed") ? null : n));
@@ -1064,6 +1086,41 @@ export function App(): React.JSX.Element {
     async (event?: React.FormEvent) => {
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current) return;
+      if (conversationMode === "chat") {
+        if (!task.trim()) {
+          setNotice("Enter a message first.");
+          return;
+        }
+        if (!orchestratorName || agent.connectionError || !agent.identified) {
+          setNotice(
+            `Message not sent: ${agent.connectionError
+              ? `connection error: ${agent.connectionError.message ?? "unknown"}`
+              : !orchestratorName
+                ? "still resolving your agent identity"
+                : "still connecting to the orchestrator"}.`,
+          );
+          return;
+        }
+        const draft = task;
+        const draftSession = selectedSessionId;
+        setNotice(null);
+        setTask("");
+        submitInFlight.current = true;
+        submitFailed.current = false;
+        setIsSubmitting(true);
+        try {
+          await chat.sendMessage({ text: draft.trim(), metadata: { shibaMode: "chat" } });
+          // The failed user turn remains in the transcript; retrying it must
+          // regenerate that turn rather than append a duplicate user message.
+        } catch (error) {
+          restoreDraft(draftSession, draft);
+          setNotice(`Message could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+        }
+        return;
+      }
       if (customAgentId && (customAgentsLoading || customAgentsError || !customAgentRecords.some((profile) => profile.id === customAgentId))) {
         setNotice(customAgentsLoading
           ? "Wait for the selected bot to load before sending."
@@ -1294,6 +1351,7 @@ export function App(): React.JSX.Element {
         await chat.sendMessage({
           text,
           metadata: {
+            shibaMode: "work",
             shibaTask: {
               repoUrl: repoUrl.trim(),
               task: task.trim(),
@@ -1333,6 +1391,7 @@ export function App(): React.JSX.Element {
       repoUrl,
       baseBranch,
       task,
+      conversationMode,
       publishPullRequest,
       reviewAfterPublish,
       runSetup,
@@ -1399,6 +1458,7 @@ export function App(): React.JSX.Element {
             current.filter((session) => session.id !== selectedSessionId),
           );
           setSelectedSessionId("default");
+          writeRememberedSessionId("default");
           setNotice(
             "That session no longer exists — it was removed from the list. Conversation history cleared; run registry is unchanged.",
           );
@@ -1447,6 +1507,7 @@ export function App(): React.JSX.Element {
               current.filter((session) => session.id !== selectedSessionId),
             );
             setSelectedSessionId("default");
+            writeRememberedSessionId("default");
             setNotice("That session no longer exists — it was removed from the list.");
             refreshRuns();
             return;
@@ -1803,6 +1864,7 @@ export function App(): React.JSX.Element {
               // sessions API unavailable or select the dead session.
               setWebSessions((current) => current.filter((item) => item.id !== id));
               setSelectedSessionId("default");
+              writeRememberedSessionId("default");
               setMobileSessionsOpen(false);
               setSelectedRunId(null);
               setMainView("tasks");
@@ -1821,6 +1883,7 @@ export function App(): React.JSX.Element {
         }
       }
       setSelectedSessionId(id);
+      writeRememberedSessionId(id);
       setCustomAgentId(threadAgentId(session));
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
@@ -1838,6 +1901,7 @@ export function App(): React.JSX.Element {
   const handleNewTask = useCallback(async () => {
     if (!sessionApiAvailable) {
       setSelectedSessionId("default");
+      writeRememberedSessionId("default");
       setCustomAgentId("");
       setMobileSessionsOpen(false);
       setMainView("tasks");
@@ -1859,6 +1923,7 @@ export function App(): React.JSX.Element {
       if (response.status === 404 || response.status === 405) {
         setSessionApiAvailable(false);
         setSelectedSessionId("default");
+        writeRememberedSessionId("default");
         setCustomAgentId("");
         setMobileSessionsOpen(false);
         setMainView("tasks");
@@ -1880,6 +1945,7 @@ export function App(): React.JSX.Element {
         ...current.filter((session) => session.id !== body.session.id),
       ]);
       setSelectedSessionId(body.session.id);
+      writeRememberedSessionId(body.session.id);
       setCustomAgentId("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -1898,6 +1964,7 @@ export function App(): React.JSX.Element {
     setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
     setSessionApiAvailable(true);
     setSelectedSessionId(session.id);
+    writeRememberedSessionId(session.id);
     setSelectedRunId(null);
     setCustomAgentId(profile.id);
     applyThreadProfile(profile);
@@ -2385,6 +2452,7 @@ export function App(): React.JSX.Element {
                     </Tooltip>
                     <ConversationWorkspaceHeading
                       title={liveSession ? liveSession.title : "New coding task"}
+                      mode={conversationMode}
                       executionTargetKind={executionTargetKind}
                       runTarget={runTarget}
                       repoUrl={repoUrl}
@@ -2400,9 +2468,11 @@ export function App(): React.JSX.Element {
                       />
                     ) : null}
                     <span
-                      className={`text-[10px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 shrink-0 ${statusChipClass(liveSession?.status ?? "ready")}`}
+                      className={conversationMode === "chat"
+                        ? "text-[10px] font-mono font-bold uppercase tracking-wider border border-[var(--primary)]/40 text-[var(--primary)] px-2 py-0.5 shrink-0"
+                        : `text-[10px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 shrink-0 ${statusChipClass(liveSession?.status ?? "ready")}`}
                     >
-                      {statusLabel(liveSession?.status ?? "ready")}
+                      {conversationMode === "chat" ? "Chat only" : statusLabel(liveSession?.status ?? "ready")}
                     </span>
                   </div>
 
@@ -2609,6 +2679,49 @@ export function App(): React.JSX.Element {
                       : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
+                  <ConversationModeSwitch
+                    value={conversationMode}
+                    onChange={setConversationMode}
+                    disabled={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
+                  />
+                  {conversationMode === "chat" && chat.messages.length > 0 ? (
+                    <div className="flex justify-end px-3 sm:px-5 xl:px-8 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowClearModal(true)}
+                        disabled={clearing || isSubmitting}
+                        className="text-[10px] font-mono text-[var(--muted-foreground-3)] hover:text-[var(--fg)] disabled:opacity-50"
+                      >
+                        Clear conversation
+                      </button>
+                    </div>
+                  ) : null}
+                  {conversationMode === "chat" ? (
+                    <div className={
+                      chat.messages.length === 0 && !reviewThreadId
+                        ? "flex-1 min-h-0 flex flex-col items-center justify-center gap-5 px-3 sm:px-5 xl:px-8 py-5"
+                        : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                    }>
+                      {chat.messages.length === 0 ? (
+                        <div className="max-w-2xl text-center">
+                          <h2 className="font-sans text-3xl text-[var(--fg)] mb-2">What should we explore?</h2>
+                          <p className="text-sm text-[var(--muted-foreground-2)]">
+                            Ask a question here. Chat mode has no task tools; switch to Work to delegate an approval-gated task.
+                          </p>
+                        </div>
+                      ) : null}
+                      <ChatMessageComposer
+                        value={task}
+                        onChange={setTask}
+                        onSubmit={submitTask}
+                        onStop={() => { void chat.stop(); }}
+                        onRetry={() => { void chat.regenerate(); }}
+                        busy={isSubmitting || clearing}
+                        streaming={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
+                        failed={Boolean(chat.error)}
+                      />
+                    </div>
+                  ) : (
                   <TaskComposer
                     repoUrl={repoUrl}
                     task={task}
@@ -2682,6 +2795,7 @@ export function App(): React.JSX.Element {
                     onSubmit={submitTask}
                     onClear={() => setShowClearModal(true)}
                   />
+                  )}
                 </div>
               </main>
             </div>
