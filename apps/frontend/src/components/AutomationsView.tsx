@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type JSX } from "react";
 import { expectedDeliverablesSchema } from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
 import { useCustomAgentOptions } from "./CustomAgentsView";
+import { useSavedSkills, type SavedSkill } from "../saved";
 
 interface AutomationRecord {
   id: string;
@@ -14,6 +15,20 @@ interface AutomationRecord {
   lastSkip?: { at: number; reason: string };
   triggers: { kind: string; cron?: string; timezone?: string }[];
   customAgentId?: string;
+  customAgentPin?: { version: number };
+  skillPins?: { id: string; version: string; source: string; instructions: string; sha256: string; enabled: boolean }[];
+  occurrences?: { id: string; scheduledAt: number; outcome: string; approvalId?: string; runId?: string }[];
+}
+
+async function pinSkill(skill: SavedSkill) {
+  const instructions = [`Skill: ${skill.name}`, ...(skill.notes?.trim() ? [skill.notes.trim()] : [])].join("\n");
+  const source = skill.repoUrl?.trim() || "Saved skills library";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(instructions));
+  const contentVersion = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 16);
+  const version = contentVersion;
+  const pinDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([skill.id, version, source, instructions])));
+  const sha256 = [...new Uint8Array(pinDigest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return { id: skill.id, version, source, instructions, sha256, enabled: true };
 }
 
 /** Factory-style recipe gallery: each card is one automation ready to deploy. */
@@ -93,7 +108,9 @@ export function AutomationsView(): JSX.Element {
   });
   const [workspaceDeliverables, setWorkspaceDeliverables] = useState("deliverables/brief.md");
   const [customAgentId, setCustomAgentId] = useState("");
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const { agents: customAgents } = useCustomAgentOptions();
+  const savedSkills = useSavedSkills();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -205,6 +222,7 @@ export function AutomationsView(): JSX.Element {
           triggers: [{ kind: "schedule", cron: workspaceCron.trim(), timezone: workspaceTimezone.trim() }],
           enabled: true,
           ...(customAgentId ? { customAgentId } : {}),
+          ...(selectedSkillIds.length ? { skillPins: await Promise.all(savedSkills.filter((skill) => selectedSkillIds.includes(skill.id)).map(pinSkill)) } : {}),
         }),
       });
       const body = await response.json().catch(() => ({})) as { error?: string; automation?: { id?: string } };
@@ -217,6 +235,32 @@ export function AutomationsView(): JSX.Element {
       }
     } catch {
       setNotice("Schedule could not be created: the backend could not be reached.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const reviewAutomationPins = async (automation: AutomationRecord) => {
+    setBusyId(`review-${automation.id}`);
+    setNotice(null);
+    try {
+      const pins = await Promise.all((automation.skillPins ?? []).map(async (oldPin) => {
+        const skill = savedSkills.find((item) => item.id === oldPin.id);
+        return skill ? pinSkill(skill) : { ...oldPin, enabled: false };
+      }));
+      const response = await fetch(`/api/automations/${encodeURIComponent(automation.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(automation.customAgentId ? { customAgentId: automation.customAgentId, reviewCustomAgent: true } : {}),
+          ...(automation.skillPins ? { skillPins: pins, reviewSkillPins: true } : {}),
+        }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) setNotice(body.error ?? `Pin review failed (${response.status}).`);
+      else { setNotice(`Reviewed the current employee and skill snapshots for "${automation.id}".`); refresh(); }
+    } catch {
+      setNotice("Pin review failed: the backend could not be reached.");
     } finally {
       setBusyId(null);
     }
@@ -300,6 +344,17 @@ export function AutomationsView(): JSX.Element {
               <option value="">No bot</option>
               {customAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.config.name}</option>)}
             </select>
+            {savedSkills.length ? (
+              <fieldset className="flex flex-wrap gap-2 text-[10px] text-[var(--muted-foreground-1)]">
+                <legend className="sr-only">Reviewed skill snapshots for scheduled drafts</legend>
+                {savedSkills.map((skill) => (
+                  <label key={skill.id} className="flex items-center gap-1">
+                    <input type="checkbox" checked={selectedSkillIds.includes(skill.id)} onChange={(event) => setSelectedSkillIds((current) => event.target.checked ? [...current, skill.id] : current.filter((id) => id !== skill.id))} />
+                    Pin {skill.name}
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
             <button type="button" disabled={busyId === "create-workspace-schedule"} onClick={() => void createWorkspaceSchedule()} className="text-xs font-semibold border border-[var(--primary)]/40 text-[var(--primary)] bg-[var(--primary-soft)] rounded-[var(--radius-button)] px-3 py-2 disabled:opacity-50">
               {busyId === "create-workspace-schedule" ? "Scheduling…" : "Create scheduled draft"}
             </button>
@@ -427,8 +482,15 @@ export function AutomationsView(): JSX.Element {
                         ? `${a.executionTarget.workspaceName ?? "Workspace"} · ${a.executionTarget.expectedDeliverables?.length ?? 0} required files`
                         : a.repoUrl} · runs: {a.runCount ?? 0}
                       {a.customAgentId ? ` · bot: ${a.customAgentId}` : ""}
+                      {a.customAgentPin ? ` v${a.customAgentPin.version}` : ""}
+                      {a.skillPins?.length ? ` · ${a.skillPins.filter((pin) => pin.enabled).length}/${a.skillPins.length} skills pinned` : ""}
                       {a.lastSkip ? ` · last skip: ${a.lastSkip.reason}` : ""}
                     </p>
+                    {a.occurrences?.slice(-2).map((occurrence) => (
+                      <p key={occurrence.id} className="text-[10px] font-mono text-[var(--muted-foreground-2)] truncate">
+                        {new Date(occurrence.scheduledAt).toLocaleString()} · {occurrence.outcome}{occurrence.approvalId ? ` · approval ${occurrence.approvalId}` : ""}{occurrence.runId ? ` · run ${occurrence.runId}` : ""}
+                      </p>
+                    ))}
                   </div>
                   {a.triggers.some((t) => t.kind === "manual") ? (
                     <button
@@ -450,6 +512,11 @@ export function AutomationsView(): JSX.Element {
                   <button type="button" disabled={busyId === `toggle-${a.id}`} onClick={() => void setAutomationEnabled(a)} className="text-xs border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1 shrink-0 disabled:opacity-50">
                     {busyId === `toggle-${a.id}` ? "Saving…" : a.enabled ? "Pause" : "Resume"}
                   </button>
+                  {a.customAgentId || a.skillPins?.length ? (
+                    <button type="button" disabled={busyId === `review-${a.id}`} onClick={() => void reviewAutomationPins(a)} className="text-xs border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1 shrink-0 disabled:opacity-50">
+                      {busyId === `review-${a.id}` ? "Reviewing…" : "Review current pins"}
+                    </button>
+                  ) : null}
                 </div>
               ))}
             </div>

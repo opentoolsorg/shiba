@@ -2,10 +2,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AutomationsView } from "./AutomationsView";
+import { removeSkill, saveSkill } from "../saved";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  const id = localStorage.getItem("shiba-test-scheduled-skill-id");
+  if (id) removeSkill(id);
+  localStorage.removeItem("shiba-test-scheduled-skill-id");
 });
 
 describe("AutomationsView scheduled workspace drafts", () => {
@@ -65,5 +69,40 @@ describe("AutomationsView scheduled workspace drafts", () => {
     await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[0] === "/api/automations/weekly-brief" && call[1]?.method === "PATCH")).toBe(true));
     expect(fetchMock.mock.calls.find((call) => call[0] === "/api/automations/weekly-brief" && call[1]?.method === "PATCH")?.[1]?.body)
       .toBe(JSON.stringify({ enabled: false }));
+  });
+
+  it("stores a saved skill snapshot and offers an explicit pin review action", async () => {
+    const skill = saveSkill({ name: "Evidence rules", repoUrl: "https://example.test/skill.md", notes: "Cite every claim." });
+    localStorage.setItem("shiba-test-scheduled-skill-id", skill.id);
+    let record: Record<string, unknown> | null = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/custom-agents") return Response.json({ agents: [] });
+      if (path === "/api/automations" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        record = { ...body, id: "skill-schedule", repoUrl: "", enabled: true, runCount: 0, triggers: [{ kind: "schedule" }] };
+        return Response.json({ automation: record }, { status: 201 });
+      }
+      if (path === "/api/automations" && (!init?.method || init.method === "GET")) return Response.json({ automations: record ? [record] : [] });
+      if (path === "/api/automations/skill-schedule" && init?.method === "PATCH") return Response.json({ automation: record });
+      return Response.json({ error: "not found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AutomationsView />);
+    fireEvent.change(screen.getByLabelText("Scheduled workspace prompt"), { target: { value: "Prepare a sourced draft" } });
+    fireEvent.click(screen.getByLabelText(`Pin ${skill.name}`));
+    fireEvent.click(screen.getByRole("button", { name: "Create scheduled draft" }));
+    await waitFor(() => expect(record).not.toBeNull());
+    const createBody = JSON.parse(String(fetchMock.mock.calls.find((call) => call[1]?.method === "POST")?.[1]?.body)) as {
+      skillPins: { id: string; source: string; instructions: string; sha256: string }[];
+    };
+    expect(createBody.skillPins[0]).toMatchObject({ id: skill.id, source: skill.repoUrl, instructions: expect.stringContaining("Cite every claim.") });
+    expect(createBody.skillPins[0]?.sha256).toMatch(/^[a-f0-9]{64}$/);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Review current pins" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === "PATCH")).toBe(true));
+    const reviewBody = JSON.parse(String(fetchMock.mock.calls.find((call) => call[1]?.method === "PATCH")?.[1]?.body)) as Record<string, unknown>;
+    expect(reviewBody.reviewSkillPins).toBe(true);
+    expect(reviewBody.skillPins).toEqual(createBody.skillPins);
   });
 });

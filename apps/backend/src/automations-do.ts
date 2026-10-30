@@ -21,6 +21,7 @@ import {
 import { isGitHubPublishConfigured } from "./github-auth.js";
 import {
   AutomationStore,
+  AUTOMATION_OCCURRENCE_HISTORY_LIMIT,
   automationsEnabled,
   collectDueSchedules,
   createAutomation,
@@ -30,10 +31,15 @@ import {
   type Automation,
   type AutomationMatchEvent,
   type CreateAutomationInput,
+  type ScheduleOccurrence,
+  reviewedSkillPinSha256,
 } from "./automations.js";
 import type { Env } from "./env.js";
 import { InputError } from "./security.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
+import { sha256Hex } from "./agent-tokens.js";
+import { getCustomAgentById } from "./custom-agents-store.js";
+import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 
 export interface AutomationsState {
   items: Automation[];
@@ -111,6 +117,8 @@ async function queueOnOrchestrator(
     codingModel?: string;
     commandId?: string;
     customAgentId?: string;
+    expectedCustomAgentVersion?: number;
+    orgId?: string;
   },
 ): Promise<{ approvalId: string }> {
   const queued = await stub.fetch(
@@ -191,6 +199,59 @@ export class Automations {
     });
   }
 
+  /**
+   * Refresh persisted occurrence links from the orchestrator's retained approvals and runs.
+   * These source listings are bounded (25 decided approvals, 500 recent runs); older
+   * entries retain their last known state instead of claiming indefinite recovery.
+   */
+  private async reconcileScheduleOccurrences(orchestrator: OrchestratorStub, nowMs: number): Promise<void> {
+    const state = await this.ctx.storage.get<AutomationsState>("state") ?? { items: [] };
+    if (!state.items.some((item) => item.occurrences?.some((occurrence) => occurrence.approvalId))) return;
+    try {
+      const [approvalResponse, runResponse] = await Promise.all([
+        orchestrator.fetch(new Request("https://internal/api/approvals", { method: "GET", signal: AbortSignal.timeout(10_000) })),
+        orchestrator.fetch(new Request("https://internal/api/runs?limit=500&view=summary", { method: "GET", signal: AbortSignal.timeout(10_000) })),
+      ]);
+      if (!approvalResponse.ok || !runResponse.ok) return;
+      const approvals = await approvalResponse.json() as { approvals?: { approvalId?: string; status?: string }[]; decided?: { approvalId?: string; status?: string }[] };
+      const runs = await runResponse.json() as { runs?: { runId?: string; status?: string }[] };
+      const pendingIds = new Set((approvals.approvals ?? []).map((item) => item.approvalId).filter((id): id is string => Boolean(id)));
+      const decided = new Map((approvals.decided ?? []).flatMap((item) => item.approvalId ? [[item.approvalId, item.status ?? "unknown"] as const] : []));
+      const runStatuses = new Map((runs.runs ?? []).flatMap((item) => item.runId && item.status ? [[item.runId, item.status] as const] : []));
+      await this.ctx.storage.transaction(async (transaction) => {
+        const latest = await transaction.get<AutomationsState>("state") ?? { items: [] };
+        const items = latest.items.map((automation) => {
+          if (!automation.occurrences?.length) return automation;
+          let changed = false;
+          const occurrences = automation.occurrences.map((occurrence) => {
+            if (!occurrence.approvalId) return occurrence;
+            let outcome: "approval-pending" | "approved" | "rejected" | "running" | "completed" | "error" | "aborted" | "cancelled" | undefined;
+            if (pendingIds.has(occurrence.approvalId)) outcome = "approval-pending";
+            else {
+              const runStatus = occurrence.runId ? runStatuses.get(occurrence.runId) : undefined;
+              const approvalStatus = decided.get(occurrence.approvalId);
+              if (runStatus && ["pending", "running", "completed", "error", "aborted", "cancelled"].includes(runStatus)) {
+                outcome = runStatus === "pending" ? "approved" : runStatus as "running" | "completed" | "error" | "aborted" | "cancelled";
+              } else if (approvalStatus === "rejected") outcome = "rejected";
+              else if (approvalStatus === "approved") outcome = "approved";
+            }
+            if (!outcome || occurrence.outcome === outcome) return occurrence;
+            changed = true;
+            const status: ScheduleOccurrence["status"] = outcome === "approval-pending" ? "queued" : outcome;
+            return { ...occurrence, status, outcome, updatedAt: nowMs };
+          });
+          return changed ? { ...automation, occurrences } : automation;
+        });
+        if (items.some((item, index) => item !== latest.items[index])) {
+          await transaction.put("state", { items } satisfies AutomationsState);
+        }
+      });
+    } catch {
+      // A read-side reconciliation failure must not stall schedule dispatch;
+      // the last known outcome and stable command receipt remain available.
+    }
+  }
+
   private fireDeps(orchestrator: OrchestratorStub, nowMs: number): FireAutomationDeps {
     return {
       ai: this.env.AI,
@@ -200,6 +261,11 @@ export class Automations {
       globalEnabled: automationsEnabled(this.env.AUTOMATIONS_ENABLED),
       canPublishPullRequest: isGitHubPublishConfigured(this.env),
       queueRun: (input) => queueOnOrchestrator(orchestrator, input),
+      resolveCustomAgentPin: async (pin) => {
+        if (!this.env.AGENT_AUDIT) return null;
+        const current = await getCustomAgentById(this.env, pin.orgId, pin.id);
+        return current ? { version: current.version, configSha256: await sha256Hex(JSON.stringify(current.config)) } : null;
+      },
       resolveApproval: (input) => resolveOnOrchestrator(orchestrator, input),
     };
   }
@@ -226,6 +292,7 @@ export class Automations {
   }
 
   async tick(orchestrator: OrchestratorStub, nowMs = Date.now()): Promise<{ fired: number }> {
+    await this.reconcileScheduleOccurrences(orchestrator, nowMs);
     const batchStore = await this.load();
     let fired = 0;
     fired += await this.flushWebhookBatches(orchestrator, batchStore, nowMs);
@@ -737,7 +804,26 @@ export class Automations {
         return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
       }
       try {
-        const created = createAutomation(body as CreateAutomationInput);
+        const input = body as CreateAutomationInput;
+        if (input.customAgentId?.trim()) {
+          if (!this.env.AGENT_AUDIT) return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
+          const agent = await getCustomAgentById(this.env, DASHBOARD_ORG_ID, input.customAgentId.trim());
+          if (!agent) return Response.json({ error: "Bot not found or unavailable." }, { status: 404 });
+          if (agent.config.toolScopes?.length) return Response.json({ error: "Bot toolScopes are not supported." }, { status: 400 });
+          input.customAgentId = agent.id;
+          input.customAgentPin = {
+            id: agent.id,
+            orgId: agent.orgId,
+            version: agent.version,
+            configSha256: await sha256Hex(JSON.stringify(agent.config)),
+          };
+        }
+        for (const pin of input.skillPins ?? []) {
+          if (await reviewedSkillPinSha256(pin) !== pin.sha256) {
+            return Response.json({ error: `Reviewed skill pin ${pin.id} does not match its content hash.` }, { status: 400 });
+          }
+        }
+        const created = createAutomation(input);
         const inserted = await this.ctx.storage.transaction(async (transaction) => {
           const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
           if (state.items.some((item) => item.id === created.automation.id)) return false;
@@ -785,6 +871,9 @@ export class Automations {
         enabled?: unknown;
         prompt?: unknown;
         customAgentId?: unknown;
+        reviewCustomAgent?: unknown;
+        skillPins?: unknown;
+        reviewSkillPins?: unknown;
         executionTarget?: unknown;
         triggers?: unknown;
       };
@@ -796,10 +885,12 @@ export class Automations {
         (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim())) ||
         (patch.customAgentId !== undefined &&
           patch.customAgentId !== null &&
-          typeof patch.customAgentId !== "string")
+          typeof patch.customAgentId !== "string") ||
+        (patch.reviewCustomAgent !== undefined && typeof patch.reviewCustomAgent !== "boolean") ||
+        (patch.reviewSkillPins !== undefined && typeof patch.reviewSkillPins !== "boolean")
       ) {
         return Response.json(
-          { error: "enabled must be a boolean; prompt a non-empty string; customAgentId a string or null." },
+          { error: "Invalid automation update fields." },
           { status: 400 },
         );
       }
@@ -809,11 +900,51 @@ export class Automations {
           : typeof patch.customAgentId === "string" && patch.customAgentId.trim()
             ? patch.customAgentId.trim()
             : automation.customAgentId;
+      if (patch.customAgentId !== undefined && patch.customAgentId !== null && customAgentId !== automation.customAgentId && patch.reviewCustomAgent !== true) {
+        return Response.json({ error: "Changing an employee profile requires reviewCustomAgent: true." }, { status: 400 });
+      }
+      let customAgentPin = patch.customAgentId === null ? undefined : automation.customAgentPin;
+      if (customAgentId && patch.reviewCustomAgent === true) {
+        if (!this.env.AGENT_AUDIT) return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
+        const agent = await getCustomAgentById(this.env, DASHBOARD_ORG_ID, customAgentId);
+        if (!agent) return Response.json({ error: "Bot not found or unavailable." }, { status: 404 });
+        if (agent.config.toolScopes?.length) return Response.json({ error: "Bot toolScopes are not supported." }, { status: 400 });
+        customAgentPin = { id: agent.id, orgId: agent.orgId, version: agent.version, configSha256: await sha256Hex(JSON.stringify(agent.config)) };
+      }
+      let skillPins = automation.skillPins;
+      if (patch.skillPins !== undefined) {
+        if (patch.reviewSkillPins !== true || !Array.isArray(patch.skillPins) || patch.skillPins.length > 16) {
+          return Response.json({ error: "Changing skill pins requires reviewSkillPins: true and a skill pin list." }, { status: 400 });
+        }
+        try {
+          for (const pin of patch.skillPins) {
+            const item = pin as { id?: unknown; version?: unknown; source?: unknown; instructions?: unknown; sha256?: unknown; enabled?: unknown };
+            if (typeof item.id !== "string" || typeof item.version !== "string" || typeof item.source !== "string" || typeof item.instructions !== "string" || typeof item.sha256 !== "string" || await reviewedSkillPinSha256(item as Pick<import("./automations.js").ReviewedSkillPin, "id" | "version" | "source" | "instructions">) !== item.sha256) {
+              return Response.json({ error: "Reviewed skill pin content does not match its hash." }, { status: 400 });
+            }
+          }
+          const validated = createAutomation({
+            id: automation.id,
+            prompt: automation.prompt,
+            repoUrl: automation.repoUrl,
+            ...(automation.executionTarget ? { executionTarget: automation.executionTarget } : {}),
+            triggers: automation.triggers,
+            customAgentId,
+            ...(customAgentPin ? { customAgentPin } : {}),
+            skillPins: patch.skillPins as CreateAutomationInput["skillPins"],
+          });
+          skillPins = validated.automation.skillPins;
+        } catch (error) {
+          return Response.json({ error: error instanceof Error ? error.message : "Invalid reviewed skill pins." }, { status: 400 });
+        }
+      }
       const updated: Automation = {
         ...automation,
         ...(typeof patch.enabled === "boolean" ? { enabled: patch.enabled } : {}),
         ...(typeof patch.prompt === "string" ? { prompt: patch.prompt.trim() } : {}),
         ...(patch.customAgentId !== undefined ? { customAgentId } : {}),
+        ...(patch.customAgentId !== undefined || patch.reviewCustomAgent === true ? { customAgentPin } : {}),
+        ...(patch.skillPins !== undefined ? { skillPins } : {}),
       };
       store.upsert(updated);
       await this.save(store);
@@ -929,6 +1060,16 @@ function mergeAutomationFireState(base: Automation, fired: Automation, latest: A
       && (!latest.lastSkip || latest.lastSkip.at <= firedSkip.at)) {
     updated.lastSkip = firedSkip;
   }
+  const occurrenceMap = new Map((latest.occurrences ?? []).map((item) => [item.id, item]));
+  for (const occurrence of fired.occurrences ?? []) {
+    const previous = base.occurrences?.find((item) => item.id === occurrence.id);
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(occurrence)) {
+      const current = occurrenceMap.get(occurrence.id);
+      if (!current || current.updatedAt <= occurrence.updatedAt) occurrenceMap.set(occurrence.id, occurrence);
+    }
+  }
+  const occurrences = [...occurrenceMap.values()].sort((a, b) => a.scheduledAt - b.scheduledAt).slice(-AUTOMATION_OCCURRENCE_HISTORY_LIMIT);
+  if (occurrences.length > 0) updated.occurrences = occurrences;
   return updated;
 }
 

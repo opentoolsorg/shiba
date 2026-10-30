@@ -505,7 +505,9 @@ describe("createAutomation customAgentId", () => {
       repoUrl: REPO,
       triggers: [{ kind: "manual" }],
       customAgentId: "agent-abc",
+      customAgentPin: { id: "agent-abc", orgId: "self-hosted", version: 3, configSha256: "a".repeat(64) },
     });
     expect(automation.customAgentId).toBe("agent-abc");
+    expect(automation.customAgentPin).toMatchObject({ version: 3, configSha256: "a".repeat(64) });
   });
 });
