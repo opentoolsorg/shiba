@@ -106,6 +106,8 @@ function ArtifactDetails({
   const [note, setNote] = useState(file.review?.note ?? "");
   const [savedReview, setSavedReview] = useState(file.review);
   const [message, setMessage] = useState("");
+  const [revisionCommandId, setRevisionCommandId] = useState<string | null>(null);
+  const [revisionCreated, setRevisionCreated] = useState(false);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!file.artifactId || !completed) return;
@@ -154,6 +156,30 @@ function ArtifactDetails({
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save review.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const createRevisionApproval = async () => {
+    const commandId = revisionCommandId ?? crypto.randomUUID();
+    setRevisionCommandId(commandId);
+    setSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch(artifactRoute(runId, index, "revision", sessionId), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commandId }),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        approvalId?: string;
+      };
+      if (!response.ok) throw new Error(result.error ?? "Could not create revision approval.");
+      setRevisionCreated(true);
+      setMessage(`Revision approval ${result.approvalId ?? "created"}. Review it in Approvals before work starts.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create revision approval.");
     } finally {
       setSaving(false);
     }
@@ -230,6 +256,16 @@ function ArtifactDetails({
           >
             {saving ? "Saving…" : "Save review"}
           </button>
+          {savedReview?.status === "changes_requested" && (
+            <button
+              type="button"
+              className="text-[var(--primary)] underline disabled:opacity-50"
+              disabled={saving || revisionCreated}
+              onClick={() => void createRevisionApproval()}
+            >
+              {revisionCreated ? "Revision approval created" : "Create revision approval"}
+            </button>
+          )}
           {message && (
             <span role="status" className="text-[11px] text-[var(--muted-foreground-2)]">
               {message}

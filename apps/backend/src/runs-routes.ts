@@ -108,7 +108,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   const isSpine = url.pathname === "/api/spine";
   const taskPath = /^\/api\/tasks(?:\/[^/]+\/(?:retry|cancel))?$/.test(url.pathname);
   const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)$/);
-  const artifactActionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)\/(review|history)$/);
+  const artifactActionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)\/(review|history|revision)$/);
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
   if (
     !isSpine &&
@@ -127,7 +127,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   if ((isSpine || deliverableMatch || artifactActionMatch?.[3] === "history") && request.method !== "GET") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   }
-  if (artifactActionMatch?.[3] === "review" && request.method !== "POST") {
+  if ((artifactActionMatch?.[3] === "review" || artifactActionMatch?.[3] === "revision") && request.method !== "POST") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   }
   const isSteer = /^\/api\/runs\/[^/]+\/steer$/.test(url.pathname);

@@ -129,7 +129,7 @@ import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
 import { ORCHESTRATOR_NAME } from "../slack-routes.js";
 import { areSkillPinsActive, resolveSkillPins } from "../skills-store.js";
-import { artifactIdentity, parseArtifactReview, prepareRunArtifacts, updateArtifactReview } from "../artifact-metadata.js";
+import { allocateArtifactVersions, artifactIdentity, parseArtifactReview, prepareRunArtifacts, updateArtifactReview } from "../artifact-metadata.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
   classifyExecutorError,
@@ -156,6 +156,7 @@ import { handleSteeringRequest } from "../steering.js";
 import { localDispatchStub } from "../local-dispatch.js";
 import {
   appendTaskAttempt,
+  artifactLineageForRun,
   cancelTaskAttempt,
   canRetryTaskAttempt,
   createDurableTask,
@@ -1440,9 +1441,30 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                   throw new Error("Required deliverables were not captured and stored by the execution runtime.");
                 }
                 const currentRun = this.store.get(runId);
-                const durableDeliverables = fullInput.expectedDeliverables?.length && currentRun
-                  ? yield* tryRunPromise(() => prepareRunArtifacts(currentRun, parsed.deliverables ?? [], this.store.list(), Date.now()))
+                const taskLineageId = currentRun
+                  ? artifactLineageForRun(this.refreshTaskHistory(), currentRun)
+                  : undefined;
+                const preparedDeliverables = fullInput.expectedDeliverables?.length && currentRun
+                  ? yield* tryRunPromise(() => prepareRunArtifacts(currentRun, parsed.deliverables ?? [], taskLineageId, Date.now()))
                   : parsed.deliverables;
+                // Durable Object execution is serialized until the next await.
+                // Allocate from the live projection and transition immediately
+                // so overlapping completions cannot reserve the same version.
+                const runsAtCommit = this.store.list();
+                const tasksAtCommit = mergeTaskLineage(this.state?.tasks ?? [], runsAtCommit, this.name ?? "default");
+                const runAtCommit = this.store.get(runId);
+                const commitLineageId = runAtCommit
+                  ? artifactLineageForRun(tasksAtCommit, runAtCommit)
+                  : undefined;
+                const durableDeliverables = fullInput.expectedDeliverables?.length && runAtCommit
+                  ? allocateArtifactVersions(
+                      runAtCommit,
+                      preparedDeliverables ?? [],
+                      runsAtCommit,
+                      commitLineageId,
+                      (candidate) => artifactLineageForRun(tasksAtCommit, candidate),
+                    )
+                  : preparedDeliverables;
                 const finished = finish(
                   "completed",
                   {
@@ -4892,6 +4914,106 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return Response.json({ task: taskHistoryDto(nextTask), approvalId });
   }
 
+  /** Create a fresh approval-gated task from a reviewed artifact revision request. */
+  private async createArtifactRevision(
+    runId: string,
+    deliverableIndex: number,
+    commandId: string,
+    agentPrincipal: string | null,
+  ): Promise<Response> {
+    if (agentPrincipal !== null) return Response.json({ error: "Run not found." }, { status: 404 });
+    const sourceRun = this.store.get(runId);
+    const deliverable = sourceRun?.deliverables?.[deliverableIndex];
+    if (!sourceRun || sourceRun.status !== "completed" || !deliverable) {
+      return Response.json({ error: "Completed artifact not found." }, { status: 404 });
+    }
+    const review = deliverable.review;
+    if (review?.status !== "changes_requested" || !review.note) {
+      return Response.json({ error: "Save a revision request with a note before creating its approval." }, { status: 409 });
+    }
+    let tasks = this.refreshTaskHistory();
+    const sourceTask = tasks.find((candidate) => candidate.attempts.some((attempt) =>
+      attempt.runId === runId || (sourceRun.approval?.approvalId && attempt.approvalId === sourceRun.approval.approvalId),
+    ));
+    if (!sourceTask || !taskVisibleTo(sourceTask, this.name ?? "default")) {
+      return Response.json({ error: "Artifact task lineage was not found." }, { status: 409 });
+    }
+    const revisionCommandId = `artifact-revision:${commandId}`;
+    const existingRevision = tasks.find((task) => task.attempts.some((attempt) => attempt.commandId === revisionCommandId));
+    if (existingRevision) {
+      const attempt = existingRevision.attempts.find((candidate) => candidate.commandId === revisionCommandId);
+      return Response.json({ task: taskHistoryDto(existingRevision), approvalId: attempt?.approvalId, deduped: true, started: false });
+    }
+    const sourceAttempt = sourceTask.attempts.find((attempt) =>
+      attempt.runId === runId || (sourceRun.approval?.approvalId && attempt.approvalId === sourceRun.approval.approvalId),
+    );
+    const rawFrozen = sourceAttempt?.frozen.body;
+    const priorApproval = rawFrozen && typeof rawFrozen.repoUrl === "string" && typeof rawFrozen.task === "string"
+      ? rawFrozen as unknown as PendingApproval
+      : {
+          threadKey: sourceAttempt?.frozen.threadKey ?? this.name ?? "default",
+          approvalId: sourceAttempt?.approvalId ?? sourceRun.approval?.approvalId ?? `legacy:${runId}`,
+          repoUrl: sourceRun.repoUrl,
+          task: sourceRun.task,
+          baseBranch: sourceRun.baseBranch,
+          publishPullRequest: sourceRun.publishPullRequest,
+          ...(sourceRun.route ? { route: sourceRun.route } : {}),
+          ...(sourceRun.expectedDeliverables ? { expectedDeliverables: sourceRun.expectedDeliverables } : {}),
+          status: "approved" as const,
+          createdAt: sourceRun.createdAt,
+        };
+    const revisionTaskText = `${priorApproval.task}\n\nRequested artifact revision for ${deliverable.path} (version ${deliverable.version ?? 1}, source run ${runId}):\n${review.note}`;
+    if (revisionTaskText.length > MAX_APPROVED_TASK_CHARS) {
+      return Response.json({ error: "The revision note makes the approved task too long. Shorten it and save the review again." }, { status: 400 });
+    }
+    const artifactLineageId = sourceTask.artifactLineageId ?? sourceTask.taskId;
+    const artifactId = await artifactIdentity(sourceRun, deliverable.path, artifactLineageId);
+
+    // Recheck after the only await so a retried client command remains idempotent.
+    tasks = this.state?.tasks ?? [];
+    const replayTask = tasks.find((task) => task.attempts.some((attempt) => attempt.commandId === revisionCommandId));
+    if (replayTask) {
+      const attempt = replayTask.attempts.find((candidate) => candidate.commandId === revisionCommandId);
+      return Response.json({ task: taskHistoryDto(replayTask), approvalId: attempt?.approvalId, deduped: true, started: false });
+    }
+    const approvalId = crypto.randomUUID();
+    const now = Date.now();
+    const nextApprovals = createPendingApproval(this.approvals, {
+      ...priorApproval,
+      threadKey: priorApproval.threadKey || this.name || "default",
+      approvalId,
+      task: revisionTaskText,
+      createdAt: now,
+    });
+    const approval = nextApprovals.find((candidate) => candidate.approvalId === approvalId);
+    if (!approval) return Response.json({ error: "Could not create revision approval." }, { status: 500 });
+    const revisionOf = {
+      taskId: sourceTask.taskId,
+      runId,
+      artifactId,
+      artifactVersion: deliverable.version ?? 1,
+      path: deliverable.path,
+    };
+    const revisionTask = createDurableTask({
+      taskId: `task_${approvalId}`,
+      artifactLineageId,
+      revisionOf,
+      ownerId: this.name ?? "default",
+      ...(sourceTask.queuedBy ? { queuedBy: sourceTask.queuedBy } : {}),
+      title: `Revise ${deliverable.path}`,
+      commandId: revisionCommandId,
+      approvalId,
+      frozen: frozenTaskInputFromApproval(approval),
+      now,
+    });
+    this.setState({
+      ...this.state,
+      pendingApprovals: nextApprovals,
+      tasks: [...tasks, revisionTask].slice(-300),
+    });
+    return Response.json({ task: taskHistoryDto(revisionTask), approvalId, started: false });
+  }
+
   private async cancelTask(taskId: string, attemptNo: number, agentPrincipal: string | null): Promise<Response> {
     const tasks = this.refreshTaskHistory();
     const task = tasks.find((candidate) => candidate.taskId === taskId);
@@ -5159,12 +5281,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const run = this.store.get(runId);
       const item = run?.deliverables?.[Number(artifactHistoryMatch[2])];
       if (!run || !item || run.status !== "completed") return Response.json({ error: "Deliverable not found." }, { status: 404 });
-      const artifactId = await artifactIdentity(run, item.path);
+      const taskLineageId = artifactLineageForRun(this.refreshTaskHistory(), run);
+      const artifactId = await artifactIdentity(run, item.path, taskLineageId);
       const versions = [];
       for (const candidate of this.store.list()) {
         if (candidate.status !== "completed") continue;
         for (const [index, deliverable] of (candidate.deliverables ?? []).entries()) {
-          const identity = await artifactIdentity(candidate, deliverable.path);
+          const candidateLineageId = artifactLineageForRun(this.state?.tasks ?? [], candidate);
+          const identity = await artifactIdentity(candidate, deliverable.path, candidateLineageId);
           if (identity !== artifactId) continue;
           versions.push({
             runId: candidate.runId,
@@ -5181,6 +5305,26 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       versions.sort((a, b) => a.version - b.version || a.createdAt - b.createdAt);
       return Response.json({ artifactId, versions });
+    }
+    const artifactRevisionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([0-7])\/revision$/);
+    if (artifactRevisionMatch) {
+      if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      let runId: string;
+      try { runId = decodeURIComponent(artifactRevisionMatch[1]!); }
+      catch { return Response.json({ error: "Invalid run ID." }, { status: 400 }); }
+      const body: unknown = await request.json().catch(() => null);
+      const commandId = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>).commandId
+        : undefined;
+      if (typeof commandId !== "string" || !/^[a-zA-Z0-9:_-]{8,200}$/.test(commandId)) {
+        return Response.json({ error: "commandId must be an 8-200 character revision idempotency key." }, { status: 400 });
+      }
+      try {
+        return await this.createArtifactRevision(runId, Number(artifactRevisionMatch[2]), commandId, agentPrincipal);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return Response.json({ error: message }, { status: 409 });
+      }
     }
     const triageMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review\/findings\/([^/]+)\/triage$/);
     if (triageMatch && request.method === "PATCH") {
