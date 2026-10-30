@@ -113,12 +113,12 @@ describe("dashboard rendering", () => {
   it("shows useful empty states when no task has started", async () => {
     const markup = await renderApp();
 
-    expect(markup).toContain('data-testid="task-composer"');
-    expect(markup).toContain("Describe the change in this repository");
-    expect(markup).toContain("What should Shiba change?");
+    expect(markup).toContain('data-testid="chat-composer"');
+    expect(markup).toContain("What should we explore?");
+    expect(markup).toContain("Chat mode has no task tools");
+    expect(markup).toContain('aria-label="Conversation mode"');
     expect(markup).toContain("New thread");
     expect(markup).toContain("Threads");
-    expect(markup).toContain("dot-grid");
 
   });
 
@@ -182,9 +182,10 @@ describe("dashboard rendering", () => {
 
     const appMarkup = await renderApp();
 
-    expect(appMarkup).toContain('data-testid="task-composer"');
+    expect(appMarkup).toContain('data-testid="chat-composer"');
+    expect(appMarkup).toContain("What should we explore?");
     expect(appMarkup).toContain("<textarea");
-    expect(appMarkup).toContain('aria-label="Thread configuration"');
+    expect(appMarkup).toContain("CONVERSATION · NO TASK TOOLS");
   });
 
   it("renders diff output for completed runs in standalone DiffView", () => {
