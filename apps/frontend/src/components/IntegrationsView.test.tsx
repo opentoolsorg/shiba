@@ -24,7 +24,7 @@ describe("IntegrationsView capability catalog", () => {
       id: "codex", label: "Codex", blurb: "Codex provider", adapter: "codex-acp", packageName: "codex-acp",
       license: "Apache-2.0", harness: "codex-acp", protocol: "acp", spawn: ["codex"], defaultModel: "model",
       docsUrl: "https://example.invalid", capabilities: { streamsText: true, toolCalls: true, permissions: true, setModel: true, oauth: true, apiKey: true, acp: true },
-      credentialEnv: [], isDefault: false, connection: { phase: "connected", authMode: "oauth", message: "connected", userCode: null, verificationUri: null, expiresAt: null, testedAt: 10, testOk: true },
+      credentialEnv: [], isDefault: false, connection: { phase: "connected", authMode: "oauth", message: "connected", userCode: null, verificationUri: null, expiresAt: null, testedAt: Date.now(), testOk: true },
     };
     const calls: { url: string; method: string }[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -55,10 +55,11 @@ describe("IntegrationsView capability catalog", () => {
     const onNavigate = vi.fn();
     render(<IntegrationsView onNavigate={onNavigate} />);
     fireEvent.click(screen.getByRole("button", { name: "Browse capability catalog" }));
-    expect(await screen.findByText("Live verified")).toBeTruthy();
+    expect(await screen.findByText("Test passed")).toBeTruthy();
     expect(screen.getByText("ops@example.test")).toBeTruthy();
     expect(screen.getByText("Brief writing")).toBeTruthy();
-    expect(screen.getByText(/Configured credentials are present/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Codex/ }));
+    expect(screen.getByText(/stored sign-in was checked by Shiba/)).toBeTruthy();
     const toolRow = await screen.findByRole("button", { name: /gmail_search/ });
     fireEvent.click(toolRow);
     expect(screen.getAllByText("gmail:read").length).toBeGreaterThan(0);
@@ -74,5 +75,46 @@ describe("IntegrationsView capability catalog", () => {
     expect(onNavigate).toHaveBeenCalledWith("approvals");
     await waitFor(() => expect(calls.some((call) => call.url === "/api/providers")).toBe(true));
     expect(calls.every((call) => call.method === "GET")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Codex/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(onNavigate).toHaveBeenCalledWith("providers");
+  });
+
+  it("uses no-store refreshes and marks retained provider data as stale after a refresh failure", async () => {
+    const provider = {
+      id: "codex", label: "Codex", blurb: "Provider", adapter: "codex-acp", packageName: "codex-acp",
+      license: "Apache-2.0", harness: "codex-acp", protocol: "acp", spawn: ["codex"], defaultModel: "model",
+      docsUrl: "https://example.invalid", capabilities: { streamsText: true, toolCalls: true, permissions: true, setModel: true, oauth: true, apiKey: true, acp: true },
+      credentialEnv: [], isDefault: false, connection: { phase: "connected", authMode: "oauth", message: "connected", userCode: null, verificationUri: null, expiresAt: null, testedAt: 1, testOk: true },
+    };
+    let providerReads = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/providers")) {
+        providerReads += 1;
+        return providerReads === 1
+          ? Response.json({ org: "local", defaultProviderId: "codex", providers: [provider] })
+          : Response.json({ error: "temporarily unavailable" }, { status: 503 });
+      }
+      if (url === "/api/setup/status") return Response.json({
+        slack: { signingSecret: false, botToken: false, approvers: 0, channelRepos: false },
+        github: { token: false, app: false, publish: false, webhookSecret: false },
+        linear: { webhookSecret: false, apiToken: false, defaultRepo: false },
+      });
+      if (url === "/api/mailboxes") return Response.json({ mailboxes: [] });
+      if (url === "/api/capabilities?limit=50") return Response.json({ entries: [] });
+      if (url === "/api/capabilities/invocations?limit=25") return Response.json({ entries: [] });
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+
+    render(<IntegrationsView />);
+    fireEvent.click(screen.getByRole("button", { name: "Browse capability catalog" }));
+    expect(await screen.findByText("Test stale")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh integration status" }));
+    expect(await screen.findByText(/Provider state may be stale/)).toBeTruthy();
+    expect(screen.getAllByText("Test stale").length).toBeGreaterThan(0);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith("/api/providers")).every(([, init]) => init?.cache === "no-store")).toBe(true);
   });
 });
