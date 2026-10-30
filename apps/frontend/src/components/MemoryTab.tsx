@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import type { MemoryFact, MemorySession } from "../types";
 import { formatTimeAgo } from "../ui-helpers";
+import { MemorySourcesView } from "./MemorySourcesView";
 
 const GHOST_BUTTON =
   "text-[11px] bg-transparent hover:bg-[var(--card)] border border-[var(--border-1)] hover:border-[var(--border-2)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] font-medium py-1 px-2.5 touch:min-h-11 rounded-[var(--radius-button)] transition-colors inline-flex items-center justify-center gap-1.5";
@@ -56,7 +57,7 @@ export function filterFactsByAgent(facts: MemoryFact[], agent: string): MemoryFa
   return facts.filter((f) => f.agent === agent);
 }
 
-export type MemoryViewMode = "facts" | "sessions";
+export type MemoryViewMode = "facts" | "sessions" | "sources";
 
 export interface MemoryTabProps {
   /** Optional initial facts (useful for tests and seeded state) */
@@ -280,10 +281,23 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         >
           Recorded Sessions ({sessions.length})
         </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("sources")}
+          className={`flex-1 text-[11px] font-medium py-1 px-3 rounded-[var(--radius-button)] transition-all touch:min-h-11 ${
+            viewMode === "sources"
+              ? "bg-[var(--card)] text-[var(--fg)] shadow-[var(--sh-card)] font-semibold"
+              : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
+          }`}
+        >
+          Workspace Memory
+        </button>
       </nav>
 
+      {viewMode === "sources" ? <MemorySourcesView /> : null}
+
       {/* Recall / Search Form */}
-      <form
+      {viewMode !== "sources" ? <form
         onSubmit={(event) => {
           event.preventDefault();
           void runRecall();
@@ -378,7 +392,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             ) : null}
           </div>
         ) : null}
-      </form>
+      </form> : null}
 
       {/* Notifications & Error Feedback */}
       {notice !== null ? (
@@ -457,7 +471,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                   : "No facts banked yet."}
               </p>
             </div>
-          ) : (
+      ) : (
             <ol className="flex flex-col gap-2.5">
               {visibleFacts.map((fact) => {
                 const isConfirming = confirmForget === fact.id;

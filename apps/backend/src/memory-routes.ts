@@ -4,8 +4,8 @@
  * that binding ships. Extracted from index.ts.
  */
 import type { Env } from "./env.js";
-import { memoryRegistryStub } from "./memory-do.js";
-import { isAuthorizedRequest } from "./request-auth.js";
+import { memoryRegistryStub, ownerMemoryStub } from "./memory-do.js";
+import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 
 const MEMORY_DO_BASE = "https://internal/internal/memory";
@@ -14,7 +14,9 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
   const url = new URL(request.url);
   const { pathname } = url;
   const factId = /^\/api\/memory\/facts\/([^/]+)$/.exec(pathname)?.[1];
-  if (pathname !== "/api/memory/facts" && pathname !== "/api/memory/sessions" && factId === undefined) {
+  const ownerSources = /^\/api\/memory\/sources(?:\/[^/]+)?$/.test(pathname);
+  const ownerRecall = pathname === "/api/memory/recall";
+  if (pathname !== "/api/memory/facts" && pathname !== "/api/memory/sessions" && factId === undefined && !ownerSources && !ownerRecall) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {
@@ -25,6 +27,22 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
       { error: "Memory is not provisioned yet." },
       { status: 503 },
     );
+  }
+  if (ownerSources || ownerRecall) {
+    const userId = await resolveUserId(request, env);
+    // The route has already passed its own auth check. A loopback-only
+    // development session has no account identity, so it receives a
+    // deliberately local partition that cannot collide with real accounts.
+    const owner = userId ?? "local-development-owner";
+    const stub = await ownerMemoryStub(env, owner);
+    // Scope is derived exclusively from the verified dashboard identity;
+    // never relay caller-supplied owner/workspace query params to the DO.
+    const target = `https://internal${pathname.replace("/api/memory", "/internal/memory")}${ownerRecall ? url.search : ""}`;
+    const init: RequestInit = { method: request.method };
+    const contentType = request.headers.get("content-type");
+    if (contentType !== null) init.headers = { "Content-Type": contentType };
+    if (request.method === "POST" || request.method === "PATCH") init.body = await request.text();
+    return stub.fetch(target, init);
   }
   // Cross-agent reads route through the shared registry stub (T8).
   const stub = memoryRegistryStub(env);
