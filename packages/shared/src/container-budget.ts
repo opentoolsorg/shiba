@@ -53,6 +53,47 @@ export function spentTodayUsd(runs: DelegatedRun[], nowMs = Date.now()): number 
   return total;
 }
 
+/** A bounded, honest dashboard snapshot: values come only from harness reports. */
+export function summarizeReportedUsage(runs: DelegatedRun[], nowMs = Date.now()) {
+  const dayStart = Date.UTC(
+    new Date(nowMs).getUTCFullYear(),
+    new Date(nowMs).getUTCMonth(),
+    new Date(nowMs).getUTCDate(),
+  );
+  const today = runs.filter((run) => run.updatedAt >= dayStart);
+  const costRuns = today.filter((run) => run.usage?.costUsd !== undefined);
+  const spentUsd = costRuns.reduce((sum, run) => sum + Math.max(0, run.usage!.costUsd!), 0);
+  return {
+    accounting: "harness_reported" as const,
+    spentUsd,
+    reportedRuns: costRuns.length,
+    unreportedRuns: today.filter((run) => run.usage?.costUsd === undefined).length,
+    dailyLimitUsd: undefined as number | undefined,
+    limitReached: false,
+  };
+}
+
+/** Attach configured dispatch policy; reaching the boundary blocks new starts. */
+export function executionBudgetSnapshot(
+  runs: DelegatedRun[],
+  config: ContainerBudgetConfig,
+  nowMs = Date.now(),
+) {
+  const usage = summarizeReportedUsage(runs, nowMs);
+  const dailyLimitUsd = config.dailyBudgetUsd;
+  const limitReached = dailyLimitUsd !== undefined && usage.spentUsd >= dailyLimitUsd;
+  const activeRuns = countActiveRuns(runs);
+  const maxConcurrentRuns = resolveMaxConcurrentRuns(config);
+  return {
+    ...usage,
+    dailyLimitUsd,
+    limitReached,
+    activeRuns,
+    maxConcurrentRuns,
+    dispatchAvailable: canStartRunWithBudget(runs, config, nowMs),
+  };
+}
+
 export function isWithinDailyBudget(config: ContainerBudgetConfig, nowMs = Date.now()): boolean {
   const budget = config.dailyBudgetUsd;
   if (budget === undefined || !Number.isFinite(budget) || budget <= 0) return true;
