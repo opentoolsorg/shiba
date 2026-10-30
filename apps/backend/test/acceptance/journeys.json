@@ -93,12 +93,14 @@
     },
     {
       "id": "reason-network-approval-setup",
-      "description": "Create an owner-scoped conversation/session grant, review an exact message approval, and prove the setup remains disabled with no dispatch route.",
+      "description": "Bind an exact-message approval to a paired local machine, queue it through the Worker, reject a different machine, then exercise the fake MCP companion and authenticated result path without starting the upstream executable or contacting a peer.",
       "tests": [
         "apps/backend/test/reason-network-approval.test.ts",
         "apps/backend/test/reason-network-adapter.test.ts",
+        "apps/backend/test/reason-network-companion.test.ts",
         "apps/frontend/src/components/ReasonNetworkSetup.test.tsx"
-      ]
+      ],
+      "browserCheckpoint": "reason-worker-queue-fake-companion-result"
     },
     {
       "id": "skill-version-lifecycle",

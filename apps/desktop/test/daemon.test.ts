@@ -162,8 +162,8 @@ describe("shiba-local-daemon Reason capability heartbeat", () => {
     await new Promise<void>((resolve)=>server.listen(0,"127.0.0.1",resolve));
     const {port}=server.address() as AddressInfo;
     const run=async(enabled:boolean)=>{
-      const env={...process.env,SHIBA_LOCAL_RUN_ROOT:root,SHIBA_WORKER_URL:`http://127.0.0.1:${port}`,SHIBA_REASON_NETWORK_COMPANION:enabled?"1":"0",SHIBA_REASON_NETWORK_EXECUTABLE:executable};
-      delete env.LOCAL_ADAPTER_TOKEN;
+      const env: NodeJS.ProcessEnv={...process.env,SHIBA_LOCAL_RUN_ROOT:root,SHIBA_WORKER_URL:`http://127.0.0.1:${port}`,SHIBA_REASON_NETWORK_COMPANION:enabled?"1":"0",SHIBA_REASON_NETWORK_EXECUTABLE:executable};
+      env.LOCAL_ADAPTER_TOKEN = undefined;
       const child=spawn(process.execPath,[DAEMON,"--once"],{env,stdio:["ignore","ignore","pipe"]});
       let stderr="";child.stderr.on("data",(chunk)=>stderr+=chunk.toString());
       const code=await new Promise<number|null>((resolve)=>child.on("exit",resolve));

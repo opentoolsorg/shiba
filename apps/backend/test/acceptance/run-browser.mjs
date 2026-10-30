@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { createReasonNetworkCompanion } from "../../../../scripts/reason-network-companion.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../../..");
@@ -167,6 +168,8 @@ try {
       `BETTER_AUTH_SECRET=${authSecret}`,
       `BETTER_AUTH_URL=${workerOrigin}`,
       "SHIBA_LOCAL_RUNTIME=1",
+      "REASON_NETWORK_ENABLED=1",
+      `PAIRING_SECRET=acceptance-pairing-secret-${"c".repeat(32)}`,
       `LOCAL_ADAPTER_TOKEN=${adapterToken}`,
       "",
     ].join("\n"),
@@ -296,43 +299,6 @@ try {
     version: activeSkill.version,
   });
 
-  await nav(page, "integrations");
-  await page.getByRole("heading", { name: "Integrations" }).waitFor();
-  await page.getByRole("heading", { name: "Reason Network (OSS)" }).waitFor();
-  await page.getByLabel("Reason conversation ID").fill("acceptance-reason-conversation");
-  await page.getByLabel("Reason session ID").fill("acceptance-reason-session");
-  await page.getByRole("button", { name: "Create local grant" }).click();
-  await page
-    .getByText(/acceptance-reason-conversation · acceptance-reason-session · active/)
-    .waitFor();
-  await page.getByLabel("Exact peer destination").fill("peer:acceptance");
-  await page.getByLabel("Exact message for approval").fill("This is an approval record only.");
-  await page.getByRole("button", { name: "Request approval record" }).click();
-  await page.getByText("This is an approval record only.", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Approve record" }).click();
-  await waitFor("Reason Network approval is stored without dispatch", async () => {
-    const [status, approvals] = await Promise.all([
-      apiJson(page, "/api/reason-network/status"),
-      apiJson(page, "/api/reason-network/approvals?status=approved"),
-    ]);
-    return (
-      status.enabled === false &&
-      status.dispatchConfigured === false &&
-      approvals.approvals?.some(
-        (approval) => approval.message === "This is an approval record only.",
-      )
-    );
-  });
-  const reasonStatus = await apiJson(page, "/api/reason-network/status");
-  checkpoints.push({
-    id: "reason-network-approval-setup-disabled",
-    status: "passed",
-    readiness: reasonStatus.state,
-    enabled: reasonStatus.enabled,
-    dispatchConfigured: reasonStatus.dispatchConfigured,
-    activeGrants: reasonStatus.activeGrants,
-  });
-
   // Pair a deterministic test adapter over the same supported /api/local protocol.
   const pairing = await apiJson(page, "/api/computers/pairing-token", {
     method: "POST",
@@ -365,8 +331,105 @@ try {
       platform: "linux-x64",
       daemonVersion: "0.1.0",
       harnesses: ["opencode"],
+      // This isolated fixture implements the daemon heartbeat contract; it
+      // never starts the native upstream executable or contacts a peer.
+      reasonNetworkCompanion: true,
     });
   await heartbeat();
+
+  await nav(page, "integrations");
+  await page.getByRole("heading", { name: "Integrations" }).waitFor();
+  await page.getByRole("heading", { name: "Reason Network (OSS)" }).waitFor();
+  await page.getByLabel("Reason conversation ID").fill("acceptance-reason-conversation");
+  await page.getByLabel("Reason session ID").fill("acceptance-reason-session");
+  await page.getByLabel("Paired companion machine ID").fill(machineId);
+  await page.getByRole("button", { name: "Create local grant" }).click();
+  await page
+    .getByText(new RegExp(`acceptance-reason-conversation · acceptance-reason-session · machine ${machineId} · active`))
+    .waitFor();
+  await page.getByLabel("Exact peer destination").fill("peer:acceptance");
+  await page.getByLabel("Exact message for approval").fill("Deterministic companion acceptance payload.");
+  await page.getByRole("button", { name: "Request approval record" }).click();
+  await page.getByText("Deterministic companion acceptance payload.", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Approve record" }).click();
+  await page.getByRole("button", { name: "Queue exact approved send" }).click();
+  const reasonOperation = await waitFor("approved Reason operation queued", async () => {
+    const operations = await apiJson(page, "/api/reason-network/v1/operations");
+    return operations.operations?.find((item) => item.state === "queued");
+  });
+  const wrongPairing = await apiJson(page, "/api/computers/pairing-token", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  const wrongPaired = await fetch(`${workerOrigin}/api/local/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      pairingToken: wrongPairing.token,
+      hostname: "acceptance-wrong-machine",
+      platform: "linux-x64",
+      daemonVersion: "0.1.0",
+      harnesses: ["opencode"],
+    }),
+  });
+  assert.equal(wrongPaired.status, 200);
+  const wrongPairedBody = await wrongPaired.json();
+  const wrongClaim = await jsonPost(
+    `${workerOrigin}/api/local/reason-network/v1/claim`,
+    wrongPairedBody.adapterToken,
+    {},
+  );
+  assert.equal(wrongClaim.operation, null, "a different paired machine cannot claim this send");
+  const claim = await jsonPost(`${workerOrigin}/api/local/reason-network/v1/claim`, daemonToken, {});
+  assert.equal(claim.operation.operationId, reasonOperation.operationId);
+  const fakeCalls = [];
+  const fakeCompanion = createReasonNetworkCompanion({
+    connect: async () => ({
+      listTools: async () => ({ tools: [{ name: "send_message" }] }),
+      callTool: async (input) => {
+        fakeCalls.push(input);
+        return { isError: false, content: [{ type: "text", text: "sent message id acceptance-message-1" }] };
+      },
+      close: async () => {},
+    }),
+    beforeSend: async (operation) => {
+      const response = await fetch(
+        `${workerOrigin}/api/local/reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`,
+        { headers: { authorization: `Bearer ${daemonToken}` } },
+      );
+      assert.equal(response.status, 200);
+      const current = await response.json();
+      return current.state === "claimed" && current.cancelRequested === false && current.sendAllowed === true;
+    },
+  });
+  const sent = await fakeCompanion(claim.operation);
+  assert.deepEqual(sent, { state: "accepted", messageId: "acceptance-message-1" });
+  assert.equal(fakeCalls[0]._meta.sessionId, "acceptance-reason-session");
+  const settled = await jsonPost(`${workerOrigin}/api/local/reason-network/v1/result`, daemonToken, {
+    operationId: claim.operation.operationId,
+    claimToken: claim.operation.claimToken,
+    state: sent.state,
+    messageId: sent.messageId,
+  });
+  assert.equal(settled.state, "accepted");
+  const reasonStatus = await apiJson(page, "/api/reason-network/status");
+  const finalOperation = await apiJson(page, `/api/reason-network/v1/operations/${encodeURIComponent(reasonOperation.operationId)}`);
+  assert.equal(reasonStatus.dispatchConfigured, true);
+  assert.equal(finalOperation.operationId, reasonOperation.operationId);
+  assert.equal(finalOperation.state, "accepted");
+  assert.equal(finalOperation.remoteMessageId, "acceptance-message-1");
+  checkpoints.push({
+    id: "reason-worker-queue-fake-companion-result",
+    status: "passed",
+    machineId,
+    wrongMachineDenied: true,
+    fakeMcpCalls: fakeCalls.length,
+    operationId: reasonOperation.operationId,
+    remoteMessageId: settled.messageId,
+    liveNetwork: false,
+  });
+
   heartbeatTimer = setInterval(() => {
     void heartbeat().catch((error) => logs.push(`adapter heartbeat: ${error.message}`));
   }, 2_000);
@@ -638,6 +701,13 @@ try {
   await page.getByRole("menuitemradio", { name: /Acceptance Researcher/ }).click();
   await composer.getByRole("button", { name: "Run on: Cloud" }).click();
   await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).click();
+  await page.getByRole("button", { name: "Refresh paired computers" }).click();
+  const localComputer = composer.getByLabel("Local computer");
+  await waitFor("fixture machine appears in the Work target selector", async () =>
+    (await localComputer.locator(`option[value="${machineId}"]`).count()) > 0 &&
+      await localComputer.isEnabled(),
+  );
+  await localComputer.selectOption(machineId);
   await composer.getByText("Local: acceptance-local-adapter", { exact: true }).waitFor();
   await composer.getByRole("button", { name: "Add to message" }).click();
   await page.getByRole("menuitem", { name: "Skills" }).click();
