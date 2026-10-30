@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   beginCapabilityInvocation,
   finishCapabilityInvocation,
+  finishCapabilityInvocationApproval,
   listCapabilityInvocations,
   pruneCapabilityInvocations,
+  resolveCapabilityInvocationApproval,
   type CapabilityInvocationEnv,
 } from "../src/capability-invocations.js";
 
@@ -24,11 +26,21 @@ class InvocationD1 {
           this.rows.set(composite, { invocation_id: id, org_id: org, principal, tool, args_hash: argsHash, idempotency_key: key, status: "dispatching", created_at: created, updated_at: updated, approval_id: null, error_code: null });
           return { success: true, meta: { changes: 1 } };
         }
-        if (sql.includes("UPDATE capability_invocations SET status = ?")) {
+        if (sql.includes("UPDATE capability_invocations SET status = ?") && sql.includes("WHERE invocation_id = ? AND status = 'dispatching'")) {
           const row = [...this.rows.values()].find((candidate) => candidate.invocation_id === params[4]);
           if (!row || row.status !== "dispatching") return { success: true, meta: { changes: 0 } };
           Object.assign(row, { status: params[0], updated_at: params[1], approval_id: params[2], error_code: params[3] });
           return { success: true, meta: { changes: 1 } };
+        }
+        if (sql.includes("WHERE approval_id = ? AND status = 'pending_approval'")) {
+          const rows = [...this.rows.values()].filter((candidate) => candidate.approval_id === params[3] && candidate.status === "pending_approval");
+          for (const row of rows) Object.assign(row, { status: params[0], updated_at: params[1], error_code: params[2] });
+          return { success: true, meta: { changes: rows.length } };
+        }
+        if (sql.includes("WHERE approval_id = ? AND status = 'approved'")) {
+          const rows = [...this.rows.values()].filter((candidate) => candidate.approval_id === params[3] && candidate.status === "approved");
+          for (const row of rows) Object.assign(row, { status: params[0], updated_at: params[1], error_code: params[2] });
+          return { success: true, meta: { changes: rows.length } };
         }
         if (sql.includes("UPDATE capability_invocations SET status = 'unknown_outcome'")) {
           const row = [...this.rows.values()].find((candidate) => candidate.invocation_id === params[1]);
@@ -94,6 +106,32 @@ describe("durable MCP invocation receipts", () => {
     });
     expect(JSON.stringify(store.db.rows)).not.toContain("private email body");
     expect(store.db.calls.some(({ sql }) => /args_json|result_json|payload/i.test(sql))).toBe(false);
+  });
+
+  it("records approval decisions and settles only the invocation linked to that approval", async () => {
+    const store = env();
+    const begin = await beginCapabilityInvocation(store, { ...base, now: 100 });
+    expect(begin.kind).toBe("created");
+    if (begin.kind !== "created") return;
+    await finishCapabilityInvocation(store, { invocationId: begin.receipt.invocationId, status: "pending_approval", approvalId: "approval-a", now: 110 });
+    expect(await resolveCapabilityInvocationApproval(store, { approvalId: "approval-other", status: "approved", now: 120 })).toBe(0);
+    expect(await resolveCapabilityInvocationApproval(store, { approvalId: "approval-a", status: "approved", now: 130 })).toBe(1);
+    expect(await resolveCapabilityInvocationApproval(store, { approvalId: "approval-a", status: "denied", now: 140 })).toBe(0);
+    expect(await finishCapabilityInvocationApproval(store, { approvalId: "approval-a", status: "succeeded", now: 200 })).toBe(1);
+    expect(await finishCapabilityInvocationApproval(store, { approvalId: "approval-a", status: "failed", now: 210 })).toBe(0);
+    const [row] = await listCapabilityInvocations(store, { orgId: "self-hosted", now: 220 });
+    expect(row).toMatchObject({ status: "succeeded", approvalId: "approval-a", updatedAt: 200 });
+  });
+
+  it("turns a rejected approval into a terminal denied receipt", async () => {
+    const store = env();
+    const begin = await beginCapabilityInvocation(store, { ...base, now: 100 });
+    if (begin.kind !== "created") throw new Error("expected a new receipt");
+    await finishCapabilityInvocation(store, { invocationId: begin.receipt.invocationId, status: "pending_approval", approvalId: "approval-reject", now: 110 });
+    expect(await resolveCapabilityInvocationApproval(store, { approvalId: "approval-reject", status: "denied", now: 120 })).toBe(1);
+    expect(await finishCapabilityInvocationApproval(store, { approvalId: "approval-reject", status: "succeeded", now: 130 })).toBe(0);
+    const [row] = await listCapabilityInvocations(store, { now: 130 });
+    expect(row).toMatchObject({ status: "denied", errorCode: "approval_rejected" });
   });
 
   it("atomically suppresses duplicate requests and rejects a changed payload under the same key", async () => {

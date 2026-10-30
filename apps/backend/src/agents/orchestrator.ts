@@ -74,6 +74,10 @@ import {
   releaseRestartedDraftClaim,
   unqueueEmailApprovalDraft,
 } from "../email-approvals.js";
+import {
+  finishCapabilityInvocationApproval,
+  resolveCapabilityInvocationApproval,
+} from "../capability-invocations.js";
 import { carriesVouchedHeaders, verifyInternalRequest } from "../edge-identity.js";
 import type { Env } from "../env.js";
 import { isGitHubPublishConfigured, resolveGitHubCredential } from "../github-auth.js";
@@ -162,7 +166,7 @@ import {
   runScreenAction,
   ScopedExecRefusal,
 } from "../screen-control.js";
-import { makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
+import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
 import { postSlackMessage } from "../slack.js";
@@ -1174,6 +1178,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         // child was running) drops the transition AND every side effect.
         const updated = this.store.transition(runId, status, patch, generation);
         if (updated === null) return null;
+        if (updated.approval?.approvalId) {
+          const invocationStatus = status === "completed"
+            ? "succeeded"
+            : status === "unknown"
+              ? "unknown_outcome"
+              : "failed";
+          this.holdOpen(finishCapabilityInvocationApproval(this.env, {
+            approvalId: updated.approval.approvalId,
+            status: invocationStatus,
+            ...(status === "completed" ? {} : { errorCode: `run_${status}` }),
+          }));
+        }
         this.stampCheckpoint(runId, "terminal");
         logStructured(status === "completed" ? "info" : "error", {
           event: "run.settled",
@@ -2438,6 +2454,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const commandId = `approval:${approvalId}`;
     const prior = this.commandReceipt(commandId);
     if (prior !== undefined && prior.threadKey === threadKey) {
+      if (prior.outcome === "approved" || prior.outcome === "rejected" || prior.outcome === "expired") {
+        await resolveCapabilityInvocationApproval(this.env, {
+          approvalId,
+          status: prior.outcome === "approved" ? "approved" : prior.outcome === "rejected" ? "denied" : "failed",
+          ...(prior.outcome === "expired" ? { errorCode: "approval_expired" } : {}),
+        });
+      }
       return Response.json({ result: prior.outcome });
     }
     if (approved) {
@@ -2551,6 +2574,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         at: now,
       }),
     });
+    if (result.result === "approved" || result.result === "rejected" || result.result === "expired") {
+      await resolveCapabilityInvocationApproval(this.env, {
+        approvalId,
+        status: result.result === "approved" ? "approved" : result.result === "rejected" ? "denied" : "failed",
+        ...(result.result === "expired" ? { errorCode: "approval_expired" } : {}),
+        now,
+      });
+    }
     if (run) {
       this.dispatchApprovedRun(run, record, approvalId);
     }
@@ -3116,6 +3147,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             execution: { status: "executed", executedAt: Date.now() },
           }),
         );
+        await finishCapabilityInvocationApproval(this.env, { approvalId, status: "succeeded" });
       } catch (error) {
         const message = redactSecrets(String(error)).slice(0, 4000);
         console.error(`PR merge approval ${approvalId} failed`, message);
@@ -3126,6 +3158,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             execution: { status: "failed", error: message, executedAt: Date.now() },
           }),
         );
+        await finishCapabilityInvocationApproval(this.env, {
+          approvalId,
+          status: "unknown_outcome",
+          errorCode: "merge_execution_unknown",
+        });
       }
     };
     void dispatch();
@@ -3367,6 +3404,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             execution: { status: "executed", executedAt: Date.now() },
           }),
         );
+        await finishCapabilityInvocationApproval(this.env, { approvalId, status: "succeeded" });
       } catch (error) {
         // The pointer is already spent — the failure is written back
         // onto the persisted record so an approved-but-failed send/
@@ -3391,6 +3429,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               : { status: "failed", error: message, executedAt: Date.now() },
           }),
         );
+        await finishCapabilityInvocationApproval(this.env, {
+          approvalId,
+          status: transmitted ? "succeeded" : error instanceof InputError ? "failed" : "unknown_outcome",
+          ...(transmitted ? { errorCode: "post_transmit_recording_failed" } : error instanceof InputError ? { errorCode: "email_input_error" } : { errorCode: "email_execution_unknown" }),
+        });
       }
     };
     const pending = dispatch();

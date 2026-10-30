@@ -224,7 +224,7 @@ describe("CustomAgentsView", () => {
     fireEvent.click(launch);
     expect(onStartThread).toHaveBeenCalledOnce();
     release();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Launch bot Research bot" })).toBeEnabled());
+    await waitFor(() => expect((screen.getByRole("button", { name: "Launch bot Research bot" }) as HTMLButtonElement).disabled).toBe(false));
   });
 
   it("shows a skeleton, then an error with retry", async () => {

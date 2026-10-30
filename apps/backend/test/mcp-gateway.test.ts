@@ -44,6 +44,7 @@ import worker from "../src/index.js";
 import type { Env } from "../src/env.js";
 import {
   createToken,
+  hashToken,
   type AgentTokensEnv,
   type TokenRecord,
 } from "../src/agent-tokens.js";
@@ -333,6 +334,23 @@ describe("/mcp route auth", () => {
     // The bearer itself still rides along — the transport copies all headers.
     expect(forwarded.headers.get("authorization")).toBe(`Bearer ${token}`);
   });
+
+  it("preserves org and token lifecycle metadata through the authenticated /mcp handler", async () => {
+    const { env } = makeEnv();
+    const { token, record } = await createToken(env as unknown as AgentTokensEnv, "same-name", ["email:read"]);
+    const scoped: TokenRecord = {
+      ...record,
+      orgId: "workspace-b",
+      kind: "agent",
+      expiresAt: Date.now() + 60_000,
+    };
+    await env.AGENT_TOKENS.put(`tok_${await hashToken(token)}`, JSON.stringify(scoped));
+    served.requests.length = 0;
+    const response = await worker.fetch(mcpRequest({ authorization: `Bearer ${token}` }), env, ctx);
+    expect(response.status).toBe(200);
+    expect(served.requests).toHaveLength(1);
+    expect(principalFor(served.requests[0]!)).toEqual(scoped);
+  });
 });
 
 describe("principalFor", () => {
@@ -359,6 +377,20 @@ describe("principalFor", () => {
         }),
       ),
     ).toBeNull();
+  });
+
+  it("preserves verified organization, token kind, label, key id, and expiry", () => {
+    const scoped: TokenRecord = {
+      ...record,
+      orgId: "workspace-b",
+      kind: "api_key",
+      label: "Build worker",
+      keyId: "key_b",
+      expiresAt: 12_000,
+    };
+    expect(principalFor(mcpRequest({ [MCP_PRINCIPAL_HEADER]: JSON.stringify(scoped) }))).toEqual(scoped);
+    expect(principalFor(mcpRequest({ [MCP_PRINCIPAL_HEADER]: JSON.stringify({ ...scoped, expiresAt: Number.NaN }) }))).toBeNull();
+    expect(principalFor(mcpRequest({ [MCP_PRINCIPAL_HEADER]: JSON.stringify({ ...scoped, scopes: ["unknown:scope"] }) }))).toBeNull();
   });
 });
 
@@ -453,6 +485,17 @@ describe("tool registry", () => {
     expect(JSON.stringify(insert.params)).not.toContain("private body");
   });
 
+  it("links snake-case email approval ids into the invocation receipt", async () => {
+    const { env } = makeEnv();
+    const registry = createToolRegistry(env);
+    registry.registerTool("send_email", "email:send", async () => ({
+      content: [{ type: "text", text: "Approval required." }],
+      structuredContent: { status: "pending_approval", approval_id: "email-approval-7" },
+    }));
+    const result = await registry.invoke("send_email", { body: "private" }, { ...principal, scopes: ["email:send"] });
+    expect(result._meta?.["com.shiba/invocation"]).toMatchObject({ status: "pending_approval", approvalId: "email-approval-7" });
+  });
+
   it("persists and replays one exact idempotency key without a second dispatch", async () => {
     const { env } = makeEnv();
     const registry = createToolRegistry(env);
@@ -465,6 +508,22 @@ describe("tool registry", () => {
     expect(replay._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded", replayed: true });
     expect(changed.isError).toBe(true);
     expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("keeps same-named MCP principals and replay keys isolated across organizations", async () => {
+    const { env } = makeEnv();
+    const registry = createToolRegistry(env);
+    const handler = vi.fn(async () => okResult);
+    registry.registerTool("local_fixture_read", "email:read", handler);
+    const orgA = { ...principal, orgId: "org-a" };
+    const orgB = { ...principal, orgId: "org-b" };
+    const a = await registry.invoke("local_fixture_read", { q: "same" }, orgA, { idempotencyKey: "same-key" });
+    const b = await registry.invoke("local_fixture_read", { q: "same" }, orgB, { idempotencyKey: "same-key" });
+    expect(a._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded" });
+    expect(b._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded" });
+    expect((a._meta?.["com.shiba/invocation"] as { invocationId: string }).invocationId)
+      .not.toBe((b._meta?.["com.shiba/invocation"] as { invocationId: string }).invocationId);
+    expect(handler).toHaveBeenCalledTimes(2);
   });
 
   it("does not call the handler when the durable invocation store is unavailable", async () => {

@@ -4,6 +4,7 @@ export type CapabilityInvocationStatus =
   | "dispatching"
   | "succeeded"
   | "pending_approval"
+  | "approved"
   | "denied"
   | "failed"
   | "unknown_outcome";
@@ -48,7 +49,7 @@ export const CAPABILITY_INVOCATION_STATEMENTS = [
     tool TEXT NOT NULL,
     args_hash TEXT NOT NULL,
     idempotency_key TEXT,
-    status TEXT NOT NULL CHECK (status IN ('dispatching','succeeded','pending_approval','denied','failed','unknown_outcome')),
+    status TEXT NOT NULL CHECK (status IN ('dispatching','succeeded','pending_approval','approved','denied','failed','unknown_outcome')),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     approval_id TEXT,
@@ -170,6 +171,42 @@ export async function finishCapabilityInvocation(
     return result.meta?.changes === undefined ? true : result.meta.changes === 1;
   } catch {
     return false;
+  }
+}
+
+/** Record the durable human decision without claiming the approved action finished. */
+export async function resolveCapabilityInvocationApproval(
+  env: CapabilityInvocationEnv,
+  input: { approvalId: string; status: "approved" | "denied" | "failed"; errorCode?: string; now?: number },
+): Promise<number> {
+  if (!input.approvalId) return 0;
+  try {
+    await ensureTable(env);
+    const result = await env.AGENT_AUDIT.prepare(
+      `UPDATE capability_invocations SET status = ?, updated_at = ?, error_code = ?
+       WHERE approval_id = ? AND status = 'pending_approval'`,
+    ).bind(input.status, input.now ?? Date.now(), input.errorCode ?? (input.status === "denied" ? "approval_rejected" : null), input.approvalId).run();
+    return typeof result.meta?.changes === "number" ? result.meta.changes : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Settle an approved tool receipt when its associated run or side effect finishes. */
+export async function finishCapabilityInvocationApproval(
+  env: CapabilityInvocationEnv,
+  input: { approvalId: string; status: "succeeded" | "failed" | "unknown_outcome"; errorCode?: string; now?: number },
+): Promise<number> {
+  if (!input.approvalId) return 0;
+  try {
+    await ensureTable(env);
+    const result = await env.AGENT_AUDIT.prepare(
+      `UPDATE capability_invocations SET status = ?, updated_at = ?, error_code = ?
+       WHERE approval_id = ? AND status = 'approved'`,
+    ).bind(input.status, input.now ?? Date.now(), input.errorCode ?? null, input.approvalId).run();
+    return typeof result.meta?.changes === "number" ? result.meta.changes : 0;
+  } catch {
+    return 0;
   }
 }
 
