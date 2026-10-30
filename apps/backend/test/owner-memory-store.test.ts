@@ -130,6 +130,80 @@ describe("owner memory sources", () => {
   });
 });
 
+describe("owner projects", () => {
+  it("persists project versions and selected source provenance across reloads", () => {
+    const db = new DatabaseSync(":memory:");
+    const firstStore = makeStore(db).store;
+    const source = firstStore.create(
+      {
+        title: "Roadmap",
+        content: "Ship Orion after security review.",
+        kind: "document",
+        referenceUrl: "https://docs.example.test/orion",
+        retentionDays: null,
+      },
+      10,
+    );
+    const project = firstStore.createProject(
+      {
+        name: "Orion",
+        purpose: "Prepare the release",
+        sourceIds: [source.id],
+        defaultCustomAgentId: "employee-1",
+        defaultHarness: "opencode",
+      },
+      20,
+    );
+    const reopened = makeStore(db).store;
+    expect(reopened.listProjects()).toMatchObject([
+      { id: project.id, name: "Orion", version: 1, sourceIds: [source.id] },
+    ]);
+    expect(reopened.snapshotProject(project.id, 30)).toMatchObject({
+      project: { id: project.id, version: 1 },
+      sources: [
+        {
+          id: source.id,
+          title: "Roadmap",
+          referenceUrl: "https://docs.example.test/orion",
+          updatedAt: 10,
+        },
+      ],
+    });
+    const edited = reopened.updateProject(project.id, { purpose: "Review the release" }, 40);
+    expect(edited).toMatchObject({ version: 2, purpose: "Review the release" });
+    expect(firstStore.snapshotProject(project.id, 50)?.project.version).toBe(2);
+  });
+
+  it("refuses cross-owner sources and revokes future snapshots after source disable, expiry, or deletion", () => {
+    const alice = makeStore().store;
+    const bob = makeStore().store;
+    const aliceSource = alice.create(
+      { title: "Alice", content: "private", kind: "note", retentionDays: null },
+      1,
+    );
+    const bobSource = bob.create(
+      { title: "Bob", content: "secret", kind: "note", retentionDays: null },
+      1,
+    );
+    expect(() =>
+      alice.createProject({ name: "Bad link", purpose: "", sourceIds: [bobSource.id] }, 2),
+    ).toThrow(/missing, disabled, or expired/);
+    const project = alice.createProject(
+      { name: "Owner project", purpose: "", sourceIds: [aliceSource.id] },
+      2,
+    );
+    expect(bob.listProjects()).toEqual([]);
+    alice.update(aliceSource.id, { enabled: false }, 3);
+    expect(() => alice.snapshotProject(project.id, 4)).toThrow(/missing, disabled, or expired/);
+    alice.update(aliceSource.id, { enabled: true, retentionDays: 1 }, 4);
+    expect(() => alice.snapshotProject(project.id, 86_400_005)).toThrow(
+      /missing, disabled, or expired/,
+    );
+    alice.delete(aliceSource.id);
+    expect(() => alice.snapshotProject(project.id, 5)).toThrow(/missing, disabled, or expired/);
+  });
+});
+
 describe("owner memory partition names", () => {
   it("uses a stable normalized hash and never places the identity in the DO name", async () => {
     const names: string[] = [];
@@ -198,6 +272,42 @@ describe("Memory Durable Object source routes", () => {
     expect(await list.json()).toMatchObject({
       sources: [{ id: created.source.id, referenceUrl: "https://docs.example.test/orion" }],
     });
+    const projectResponse = await reopened.fetch(
+      new Request("https://internal/internal/memory/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Orion launch",
+          purpose: "Ship after security review",
+          sourceIds: [created.source.id],
+          defaultCustomAgentId: "employee-1",
+          defaultHarness: "opencode",
+        }),
+      }),
+    );
+    expect(projectResponse.status).toBe(201);
+    const { project } = (await projectResponse.json()) as {
+      project: { id: string; version: number };
+    };
+    const projectReload = await reopened.fetch(
+      new Request("https://internal/internal/memory/projects"),
+    );
+    expect(await projectReload.json()).toMatchObject({
+      projects: [{ id: project.id, version: 1 }],
+    });
+    const snapshotResponse = await reopened.fetch(
+      new Request("https://internal/internal/memory/projects/snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: project.id }),
+      }),
+    );
+    expect(await snapshotResponse.json()).toMatchObject({
+      snapshot: {
+        project: { id: project.id, version: 1, defaultCustomAgentId: "employee-1" },
+        sources: [{ id: created.source.id, updatedAt: expect.any(Number) }],
+      },
+    });
     const recall = await reopened.fetch(
       new Request("https://internal/internal/memory/recall?q=Orion+security"),
     );
@@ -212,6 +322,14 @@ describe("Memory Durable Object source routes", () => {
       }),
     );
     expect(disabled.status).toBe(200);
+    const revokedSnapshot = await reopened.fetch(
+      new Request("https://internal/internal/memory/projects/snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: project.id }),
+      }),
+    );
+    expect(revokedSnapshot.status).toBe(400);
     expect(
       await (
         await reopened.fetch(new Request("https://internal/internal/memory/recall?q=Orion"))

@@ -40,6 +40,8 @@ import {
 import { InputError } from "./security.js";
 import {
   OwnerMemoryStore,
+  type OwnerMemoryProjectInput,
+  type OwnerMemoryProjectPatch,
   type OwnerMemorySourceInput,
   type OwnerMemorySourcePatch,
 } from "./owner-memory-store.js";
@@ -1196,6 +1198,38 @@ export class Memory {
     return json({ error: "Method not allowed." }, { status: 405 });
   }
 
+  /** Owner-bound project CRUD plus the approval-time source snapshot. */
+  private async ownerProjects(request: Request, seg: string[]): Promise<Response> {
+    if (this.isRegistry || !this.agent.startsWith("owner-memory:")) {
+      return badRequest("Workspace projects require an owner-scoped Memory instance.");
+    }
+    if (seg.length === 1) {
+      if (request.method === "GET") return json({ projects: this.ownerStore.listProjects() });
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
+      const project = this.ownerStore.createProject(await this.jsonBody(request) as unknown as OwnerMemoryProjectInput);
+      return json({ project }, { status: 201 });
+    }
+    if (seg.length === 2 && seg[1] === "snapshot") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
+      const body = await this.jsonBody(request);
+      if (typeof body.id !== "string" || !/^memproj_[a-f0-9]{24}$/.test(body.id)) return badRequest("id must identify a workspace project.");
+      const snapshot = this.ownerStore.snapshotProject(body.id);
+      return snapshot ? json({ snapshot }) : notFound("Project not found or disabled.");
+    }
+    if (seg.length !== 2) return notFound();
+    const id = pathParam(seg[1]);
+    if (request.method === "GET") {
+      const project = this.ownerStore.getProject(id);
+      return project ? json({ project }) : notFound("Project not found.");
+    }
+    if (request.method === "PATCH") {
+      const project = this.ownerStore.updateProject(id, await this.jsonBody(request) as OwnerMemoryProjectPatch);
+      return project ? json({ project }) : notFound("Project not found.");
+    }
+    if (request.method === "DELETE") return this.ownerStore.deleteProject(id) ? json({ ok: true, id }) : notFound("Project not found.");
+    return json({ error: "Method not allowed." }, { status: 405 });
+  }
+
   /** Practical local keyword retrieval; all results carry explicit untrusted framing. */
   private async ownerRecall(url: URL): Promise<Response> {
     if (this.isRegistry || !this.agent.startsWith("owner-memory:")) {
@@ -1234,6 +1268,9 @@ export class Memory {
       }
       if (seg[0] === "sources") {
         return await this.ownerSources(request, seg);
+      }
+      if (seg[0] === "projects") {
+        return await this.ownerProjects(request, seg);
       }
       if (seg[0] === "recall") {
         if (request.method !== "GET") return json({ error: "Method not allowed." }, { status: 405 });

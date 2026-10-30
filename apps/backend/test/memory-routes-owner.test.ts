@@ -73,6 +73,19 @@ describe("owner-scoped memory API routing", () => {
     });
   });
 
+  it("routes project creation only to the authenticated owner's partition", async () => {
+    const { env, names, forwarded } = fixture();
+    const response = await handleMemory(new Request("https://app.test/api/memory/projects?owner=bob", {
+      method: "POST",
+      headers: { "CF-Access-Authenticated-User-Email": "alice@example.test", "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Alice project", sourceIds: ["alice-source"] }),
+    }), env);
+    expect(response?.status).toBe(200);
+    expect(names[0]).toMatch(/^owner-memory:[a-f0-9]{64}$/);
+    expect(forwarded[0]?.url).toBe("https://internal/internal/memory/projects");
+    expect(JSON.parse(forwarded[0]?.body ?? "")).toEqual({ name: "Alice project", sourceIds: ["alice-source"] });
+  });
+
   it("scopes legacy fact and session compatibility to the authenticated agent identity", async () => {
     const { env, names, forwarded } = fixture();
     const headers = { "CF-Access-Authenticated-User-Email": "alice@example.test" };

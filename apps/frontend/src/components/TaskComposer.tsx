@@ -140,6 +140,10 @@ export interface TaskComposerProps {
   /** Org custom agents from /api/custom-agents */
   customAgents?: { id: string; name: string; slug: string; emoji?: string; expectedDeliverables?: readonly string[] }[];
   customAgentId?: string;
+  projects?: { id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }[];
+  projectContextId?: string;
+  onProjectContextChange?: (id: string) => void;
+  onApplyProjectDefaults?: (project: { defaultCustomAgentId: string | null; defaultHarness: string | null }) => void;
   customAgentsLoading?: boolean;
   onCustomAgentChange?: (id: string) => void;
   /** "docked" = compact bar under the timeline; "hero" = centered empty-state card. */
@@ -316,6 +320,10 @@ export function TaskComposer({
   customAgents = [],
   customAgentId = "",
   customAgentsLoading = false,
+  projects = [],
+  projectContextId = "",
+  onProjectContextChange,
+  onApplyProjectDefaults,
   onCustomAgentChange,
   variant = "docked",
   envVars = [],
@@ -829,6 +837,17 @@ export function TaskComposer({
       </p> : null}
 
       {/* Main Textarea */}
+      {onProjectContextChange ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="text-[var(--muted-foreground-2)]" htmlFor={idFor("project-context")}>Project context</label>
+          <select id={idFor("project-context")} aria-label="Project context" value={projectContextId} onChange={(event) => onProjectContextChange(event.target.value)} className="max-w-64 bg-[var(--secondary)] px-2 py-1 text-[var(--fg)]">
+            <option value="">No project context</option>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          {projectContextId && onApplyProjectDefaults ? <button type="button" className="underline text-[var(--muted-foreground-1)]" onClick={() => { const project = projects.find((item) => item.id === projectContextId); if (project) onApplyProjectDefaults({ defaultCustomAgentId: project.defaultCustomAgentId, defaultHarness: project.defaultHarness }); }}>Apply project defaults</button> : null}
+          {projectContextId ? <span className="text-[var(--muted-foreground-2)]">Snapshot freezes for approval; source text is untrusted.</span> : null}
+        </div>
+      ) : null}
       <input type="checkbox" checked={publishPullRequest} onChange={(e) => onPublishPullRequestChange(e.target.checked)} className="sr-only" aria-label="Create pull request" tabIndex={-1} /><span className="sr-only">Create PR OpenCode {harness}</span>
       <textarea
         ref={textareaRef}
