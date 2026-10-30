@@ -193,7 +193,13 @@ describe("custom agent frozen-input approval boundary", () => {
     await vi.waitFor(() => expect(f.instance.state.runs[0]?.status).toBe("completed"));
     const run = f.instance.state.runs[0]!;
     expect(run.expectedDeliverables).toEqual(["brief.md"]);
-    expect(run.deliverables).toEqual([metadata]);
+    expect(run.deliverables).toHaveLength(1);
+    expect(run.deliverables?.[0]).toMatchObject(metadata);
+    expect(run.deliverables?.[0]).toMatchObject({
+      sourceRunId: run.runId,
+      version: 1,
+      review: { status: "pending_review" },
+    });
     expect(run.customAgentVersion).toBe(1);
     const dispatched = parseAgentToolInput([{ role: "user", text: String(mocks.execute.mock.calls[0]?.[0]) }]);
     expect(dispatched.expectedDeliverables).toEqual(["brief.md"]);
