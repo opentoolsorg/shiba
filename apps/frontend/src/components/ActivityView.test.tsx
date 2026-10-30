@@ -1,0 +1,46 @@
+// @vitest-environment happy-dom
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SpineWire } from "../live-status";
+
+const state: { current: SpineWire } = { current: {
+  events: [{ seq: 1, at: 1, commandId: "c1", kind: "side_effect.failed", payload: { error: "xoxb-superlongtoken123" } }],
+  outbox: [{ id: "fx-1", effectKind: "slack.post", target: "team", status: "failed", attempts: 3, requestedAt: 1, lastError: "xoxb-superlongtoken123" }],
+  executionBudget: {
+    accounting: "harness_reported",
+    spentUsd: 3,
+    reportedRuns: 1,
+    unreportedRuns: 2,
+    dailyLimitUsd: 3,
+    limitReached: true,
+    activeRuns: 5,
+    maxConcurrentRuns: 5,
+    dispatchAvailable: false,
+  },
+} };
+
+vi.mock("../live-status", () => ({
+  useSpine: () => ({ state: { kind: "data", data: state.current }, reload: vi.fn(), inFlight: false }),
+}));
+vi.mock("../polling", () => ({
+  documentVisibilityPause: () => ({ isPaused: () => true, subscribe: () => () => undefined }),
+}));
+
+import { ActivityView } from "./ActivityView";
+
+afterEach(cleanup);
+
+describe("ActivityView execution controls", () => {
+  it("shows an enforced dispatch boundary and distinguishes unknown usage", () => {
+    render(<ActivityView sessionId="default" sessionApiAvailable={false} />);
+    expect(screen.getByText("$3.0000 / $3.00 daily reported cost")).toBeTruthy();
+    expect(screen.getByText("daily cap reached")).toBeTruthy();
+    expect(screen.getByText("1 run reported cost · 2 runs have no cost report")).toBeTruthy();
+    expect(screen.getByText(/does not stop active tasks/)).toBeTruthy();
+    expect(screen.getByText(/outcome remains unknown/)).toBeTruthy();
+    expect(screen.getByText("5 / 5 active tasks")).toBeTruthy();
+    expect(screen.getAllByText("[redacted]")).toHaveLength(2);
+    expect(screen.getByText("×3")).toBeTruthy();
+    expect(screen.queryByText("xoxb-superlongtoken123")).toBeNull();
+  });
+});

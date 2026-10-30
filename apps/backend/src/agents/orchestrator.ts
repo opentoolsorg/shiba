@@ -46,6 +46,7 @@ import {
   type ReviewLoopSettings,
   type ReviewRound,
   canStartRunWithBudget,
+  executionBudgetSnapshot,
   denIdWireFields,
   parseDenAgentName,
   resolveDenId,
@@ -4856,24 +4857,30 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       const events = this.state?.events ?? [];
       const outbox = this.state?.outbox ?? [];
+      const visibleRuns = agentPrincipal === null
+        ? this.store.list()
+        : this.store.list().filter((run) => run.queuedBy === agentPrincipal);
+      // Budget and concurrency are DO/tenant-wide dispatch controls. Keep the
+      // aggregate aligned with the actual gate even when event rows are
+      // filtered to one MCP principal below.
+      const executionBudget = executionBudgetSnapshot(this.store.list(), this.budgetConfig());
       const tail = since === null ? events : events.filter((event) => event.seq > since);
       const earliestSeq = events.length > 0 ? events[0]!.seq : 0;
       const latestSeq = events.length > 0 ? events[events.length - 1]!.seq : 0;
       const totalEvents = events.length;
       if (agentPrincipal === null) {
-        return Response.json({ events: tail, outbox, earliestSeq, latestSeq, totalEvents });
+        return Response.json({ events: tail, outbox, earliestSeq, latestSeq, totalEvents, executionBudget });
       }
       // Agent principals see only events on runs they queued; an event with
       // no runId is orchestrator-internal and stays hidden.
-      const mine = new Set(
-        this.store.list().filter((run) => run.queuedBy === agentPrincipal).map((run) => run.runId),
-      );
+      const mine = new Set(visibleRuns.map((run) => run.runId));
       return Response.json({
         events: tail.filter((e) => e.runId !== undefined && mine.has(e.runId)),
         outbox: outbox.filter((e) => e.runId !== undefined && mine.has(e.runId)),
         earliestSeq,
         latestSeq,
         totalEvents,
+        executionBudget,
       });
     }
     const screenMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/screen$/);
