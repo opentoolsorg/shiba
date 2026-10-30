@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 1,
+  "target": {
+    "pullRequest": 162,
+    "branch": "codex/ai-coworker-catalog-checkpoint",
+    "head": "bdbeb17e6d7e6c009b2fda248a2ca420a7e21c5c",
+    "base": "1f80d1aa184fd07f752351f3b5463440bcde5fa8"
+  },
+  "execution": {
+    "mode": "local-deterministic",
+    "providerAdapter": "phase1-core-loop fake agent-tool executor and mock GitHub fetch",
+    "storageAdapters": [
+      "in-memory D1 fixtures",
+      "in-memory R2 fixture"
+    ],
+    "liveProvidersUsed": false,
+    "realSandboxStarted": false
+  },
+  "journeys": [
+    {
+      "id": "onboarding-resume",
+      "description": "Persist onboarding step, dismiss, reload and resume; account evidence stays server owned.",
+      "tests": [
+        "apps/backend/test/onboarding-progress.test.ts",
+        "apps/backend/test/first-run-reliability.test.ts",
+        "apps/frontend/src/components/FirstRunWizard.test.tsx",
+        "apps/frontend/src/onboarding-progress-client.test.ts"
+      ],
+      "status": "passed",
+      "testResults": [
+        {
+          "path": "apps/backend/test/onboarding-progress.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/first-run-reliability.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/frontend/src/components/FirstRunWizard.test.tsx",
+          "status": "passed"
+        },
+        {
+          "path": "apps/frontend/src/onboarding-progress-client.test.ts",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "employee-create-and-launch",
+      "description": "Create an employee profile, persist and launch its thread, and prove its selected profile version/provider are frozen at the approval boundary.",
+      "tests": [
+        "apps/backend/test/custom-agents-routes.test.ts",
+        "apps/backend/test/custom-agent-approval-gate.test.ts",
+        "apps/backend/test/custom-agents-resolve.test.ts",
+        "apps/frontend/src/components/CustomAgentsView.test.tsx"
+      ],
+      "status": "passed",
+      "testResults": [
+        {
+          "path": "apps/backend/test/custom-agents-routes.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/custom-agent-approval-gate.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/custom-agents-resolve.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/frontend/src/components/CustomAgentsView.test.tsx",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "chat-task-exact-approval-execution",
+      "description": "Queue a task through the real orchestrator request handler, prove the deterministic harness stays idle before approval, then approve the frozen input and verify its completed diff/result.",
+      "tests": [
+        "apps/backend/test/phase1-core-loop.integration.test.ts",
+        "apps/backend/test/chat-lane.test.ts",
+        "apps/backend/test/chat-gate-pin.test.ts"
+      ],
+      "status": "passed",
+      "testResults": [
+        {
+          "path": "apps/backend/test/phase1-core-loop.integration.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/chat-lane.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/chat-gate-pin.test.ts",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "tool-invocation-receipts",
+      "description": "Persist scoped tool-invocation receipts and approval pointers without storing arguments or result bodies; replay and terminal transitions are covered.",
+      "tests": [
+        "apps/backend/test/capability-invocations.test.ts",
+        "apps/backend/test/mcp-run-tools.test.ts",
+        "apps/backend/test/command-receipts.test.ts"
+      ],
+      "status": "passed",
+      "testResults": [
+        {
+          "path": "apps/backend/test/capability-invocations.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/mcp-run-tools.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/command-receipts.test.ts",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "artifact-delivery",
+      "description": "Approve artifact-workspace input, verify requested files, store bytes in the deterministic R2 adapter, and exercise the authenticated download route.",
+      "tests": [
+        "apps/backend/test/phase1-core-loop.integration.test.ts",
+        "apps/backend/test/run-deliverables-routes.test.ts",
+        "apps/backend/test/deliverables-contracts.test.ts"
+      ],
+      "status": "passed",
+      "testResults": [
+        {
+          "path": "apps/backend/test/phase1-core-loop.integration.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/run-deliverables-routes.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/deliverables-contracts.test.ts",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "rooms-and-handoffs",
+      "description": "Create and reload a room, persist messages, enforce membership, create bounded handoffs and cancel a lineage.",
+      "tests": [
+        "apps/backend/test/collaboration-routes.test.ts",
+        "apps/frontend/src/components/CollaborationView.test.tsx"
+      ],
+      "status": "passed",
+      "testResults": [
+        {
+          "path": "apps/backend/test/collaboration-routes.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/frontend/src/components/CollaborationView.test.tsx",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "skill-version-lifecycle",
+      "description": "Create and reload a versioned skill draft, preserve immutable versions, review/activate exact text, and exercise the dashboard editor recovery paths.",
+      "tests": [
+        "apps/backend/test/skills-routes.test.ts",
+        "apps/frontend/src/components/SkillsView.test.tsx"
+      ],
+      "status": "passed",
+      "testResults": [
+        {
+          "path": "apps/backend/test/skills-routes.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/frontend/src/components/SkillsView.test.tsx",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "failure-retry-cancel-reload",
+      "description": "Exercise deterministic harness failure, review retry, run cancellation fencing, command replay, and durable-state restart behavior where implemented.",
+      "tests": [
+        "apps/backend/test/phase1-core-loop.integration.test.ts",
+        "apps/backend/test/orchestrator-fencing.test.ts",
+        "apps/backend/test/command-receipts.test.ts",
+        "apps/backend/test/first-run-reliability.test.ts"
+      ],
+      "status": "passed",
+      "testResults": [
+        {
+          "path": "apps/backend/test/phase1-core-loop.integration.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/orchestrator-fencing.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/command-receipts.test.ts",
+          "status": "passed"
+        },
+        {
+          "path": "apps/backend/test/first-run-reliability.test.ts",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "id": "live-sandbox-and-provider-execution",
+      "status": "blocked",
+      "blocker": "Not executed: this acceptance suite deliberately uses a deterministic local harness adapter; the delegated scope prohibits credential setup and paid/live provider execution, and a synthetic executor is not evidence that a live Sandbox or model provider works."
+    },
+    {
+      "id": "full-browser-worker-session",
+      "status": "blocked",
+      "blocker": "Not claimed: included dashboard tests mount React components with deterministic fetch fixtures; this suite does not run a real browser against a local Worker and Durable Object session."
+    }
+  ],
+  "runId": "2026-10-30T21-04-40.581Z",
+  "executedAt": "2026-10-30T21:04:48.321Z",
+  "sourceRevision": "bdbeb17e6d7e6c009b2fda248a2ca420a7e21c5c",
+  "dirtyHarnessChangesIncluded": true,
+  "result": "passed_with_blockers"
+}
