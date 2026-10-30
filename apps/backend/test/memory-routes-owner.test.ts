@@ -73,10 +73,55 @@ describe("owner-scoped memory API routing", () => {
     });
   });
 
+  it("scopes legacy fact and session compatibility to the authenticated agent identity", async () => {
+    const { env, names, forwarded } = fixture();
+    const headers = { "CF-Access-Authenticated-User-Email": "alice@example.test" };
+    await handleMemory(
+      new Request("https://app.test/api/memory/facts?agent=bob@example.test&q=secret&limit=4", { headers }),
+      env,
+    );
+    await handleMemory(
+      new Request("https://app.test/api/memory/sessions?agent=bob@example.test", { headers }),
+      env,
+    );
+    await handleMemory(
+      new Request("https://app.test/api/memory/facts/fact-from-bob?agent=bob@example.test", {
+        method: "DELETE",
+        headers,
+      }),
+      env,
+    );
+
+    expect(forwarded[0]?.url).toBe(
+      "https://internal/internal/memory/facts/search?agent=alice%40example.test&limit=4&q=secret",
+    );
+    expect(forwarded[1]?.url).toBe(
+      "https://internal/internal/memory/sessions?agent=alice%40example.test",
+    );
+    expect(names[2]).toBe("alice@example.test");
+    expect(forwarded[2]?.url).toBe(
+      "https://internal/internal/memory/facts/fact-from-bob",
+    );
+    expect(forwarded[2]?.method).toBe("DELETE");
+  });
+
   it("fails closed for a non-loopback request without an authenticated owner", async () => {
     const { env, names } = fixture();
     const response = await handleMemory(new Request("https://app.test/api/memory/sources"), env);
     expect(response?.status).toBe(401);
     expect(names).toEqual([]);
+  });
+
+  it("never interprets the reserved global registry as a caller-owned partition", async () => {
+    const { env, names, forwarded } = fixture();
+    const response = await handleMemory(
+      new Request("https://app.test/api/memory/facts", {
+        headers: { "CF-Access-Authenticated-User-Email": " global " },
+      }),
+      env,
+    );
+    expect(response?.status).toBe(404);
+    expect(names).toEqual([]);
+    expect(forwarded).toEqual([]);
   });
 });

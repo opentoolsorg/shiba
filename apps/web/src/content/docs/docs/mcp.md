@@ -45,8 +45,14 @@ Run `claude mcp list` to confirm that `shiba` connects. A 401 means the token is
 | `create_draft`, `update_draft`, `draft_reply`, `move_email` | `email:draft` | Draft and organize. |
 | `send_email`, `send_reply` | `email:send` | Queue an email send for human approval. |
 | `delete_email` | `email:delete` | Queue a delete for human approval. |
-| `memory_recall`, `memory_sessions` | `memory:read` | Read shared memory. |
-| `memory_bank`, `memory_forget` | `memory:write` | Write shared memory. |
+| `memory_recall`, `memory_sessions` | `memory:read` | Read memory banked by this verified token principal. |
+| `memory_bank`, `memory_forget` | `memory:write` | Write or forget facts in this verified token principal's memory partition. |
+
+### Memory ownership and legacy compatibility
+
+MCP memory facts are partitioned by the verified token principal. `memory_recall` searches only that principal's facts, and `memory_sessions` filters to the same exact principal; a caller cannot select another agent. Dashboard compatibility routes similarly expose legacy facts and sessions only when the legacy agent name exactly matches the authenticated user identity. Loopback-only development uses the `default` agent partition. Owner-scoped workspace memory sources use a separate hashed identity partition.
+
+Older facts and sessions in the shared registry have no owner field beyond their legacy agent name. Shiba does not merge those rows across identities, infer ownership from content, or silently move them into a user's workspace. Rows with an exact identity match remain readable through the compatibility routes; unmatched legacy rows stay stored but inaccessible through user-facing memory reads. There is no automatic migration or deletion. A future migration would require an operator-reviewed mapping from a legacy agent partition to exactly one owner before moving its data.
 
 ### Pair a cloud agent with its mailbox
 
