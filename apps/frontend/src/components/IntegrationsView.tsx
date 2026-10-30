@@ -17,6 +17,7 @@ import { GmailConnection } from "./GmailConnection";
 import { LoadErrorState } from "./LoadErrorState";
 import { providerLifecycleStatus, providerTestDescription } from "./provider-lifecycle";
 import { ToneChip } from "./ToneChip";
+import { ReasonNetworkSetup } from "./ReasonNetworkSetup";
 
 function IntegrationRow({
   name,
@@ -315,6 +316,8 @@ export function IntegrationsView({
       ) : <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {failed ? <LoadErrorState message={failed.message} onRetry={reloadAll} /> : null}
+
+          <ReasonNetworkSetup />
 
           <IntegrationGroup
             title="Apps"

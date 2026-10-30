@@ -338,6 +338,36 @@ try {
     handoffId: roomApi.handoffs[0].handoffId,
   });
 
+  await nav(page, "integrations");
+  await page.getByRole("heading", { name: "Integrations" }).waitFor();
+  await page.getByRole("heading", { name: "Reason Network (OSS)" }).waitFor();
+  await page.getByLabel("Reason conversation ID").fill("acceptance-reason-conversation");
+  await page.getByLabel("Reason session ID").fill("acceptance-reason-session");
+  await page.getByRole("button", { name: "Create local grant" }).click();
+  await page.getByText(/acceptance-reason-conversation · acceptance-reason-session · active/).waitFor();
+  await page.getByLabel("Exact peer destination").fill("peer:acceptance");
+  await page.getByLabel("Exact message for approval").fill("This is an approval record only.");
+  await page.getByRole("button", { name: "Request approval record" }).click();
+  await page.getByText("This is an approval record only.", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Approve record" }).click();
+  await waitFor("Reason Network approval is stored without dispatch", async () => {
+    const [status, approvals] = await Promise.all([
+      apiJson(page, "/api/reason-network/status"),
+      apiJson(page, "/api/reason-network/approvals?status=approved"),
+    ]);
+    return status.enabled === false && status.dispatchConfigured === false &&
+      approvals.approvals?.some((approval) => approval.message === "This is an approval record only.");
+  });
+  const reasonStatus = await apiJson(page, "/api/reason-network/status");
+  checkpoints.push({
+    id: "reason-network-approval-setup-disabled",
+    status: "passed",
+    readiness: reasonStatus.state,
+    enabled: reasonStatus.enabled,
+    dispatchConfigured: reasonStatus.dispatchConfigured,
+    activeGrants: reasonStatus.activeGrants,
+  });
+
   // Pair a deterministic test adapter over the same supported /api/local protocol.
   const pairing = await apiJson(page, "/api/computers/pairing-token", {
     method: "POST",
