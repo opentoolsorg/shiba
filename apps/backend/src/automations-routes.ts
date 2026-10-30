@@ -8,7 +8,8 @@ import { isAutomationWebhookPath } from "./request-auth.js";
 
 export async function handleAutomations(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
-  if (url.pathname === "/api/automations" || isAutomationWebhookPath(url.pathname)
+  if (url.pathname === "/api/automations" || /^\/api\/automations\/[^/]+\/?$/.test(url.pathname)
+    || isAutomationWebhookPath(url.pathname)
     || /^\/api\/automations\/[^/]+\/run\/?$/.test(url.pathname)) {
     return automationsStub(env).fetch(request);
   }
