@@ -7,7 +7,9 @@ name: Preview deploy (alchemy, pr-<n> stage)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types:
+    - labeled
+    - closed
 
 permissions:
   contents: read
@@ -15,9 +17,7 @@ permissions:
 
 jobs:
   deploy-preview:
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.action != 'closed'
+    if: "${{ ((github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || (github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'build:validate'))) && (github.event.pull_request.head.repo.full_name == github.repository && github.event.action != 'closed') }}"
     runs-on: ubuntu-latest
     env:
       STAGE: pr-${{ github.event.pull_request.number }}
@@ -53,8 +53,9 @@ jobs:
         # serve on <worker>.<subdomain>.workers.dev instead.
         run: pnpm run deploy:alchemy
       - name: Comment preview URL on the PR
-        if: always() && secrets.WORKERS_SUBDOMAIN != ''
+        if: always() && env.WORKERS_SUBDOMAIN != ''
         env:
+          WORKERS_SUBDOMAIN: ${{ secrets.WORKERS_SUBDOMAIN }}
           GH_TOKEN: ${{ github.token }}
           PREVIEW_HOST: shiba-ai-coworker-pr-${{ github.event.pull_request.number }}.${{ secrets.WORKERS_SUBDOMAIN }}.workers.dev
         run: |
@@ -63,9 +64,7 @@ jobs:
             --body "Preview deploy (stage \`${STAGE}\`): https://${PREVIEW_HOST}/app/"
 
   destroy-preview:
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.action == 'closed'
+    if: "${{ ((github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || (github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'build:validate'))) && (github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'closed') }}"
     runs-on: ubuntu-latest
     env:
       STAGE: pr-${{ github.event.pull_request.number }}
