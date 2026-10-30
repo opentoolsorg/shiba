@@ -298,46 +298,6 @@ try {
     version: activeSkill.version,
   });
 
-  await nav(page, "collaboration");
-  await page.getByRole("heading", { name: "Collaboration rooms" }).waitFor();
-  await page.getByLabel("New room title").fill("Acceptance room");
-  await page.getByRole("button", { name: "Create", exact: true }).click();
-  await page.getByRole("heading", { name: "Acceptance room" }).waitFor();
-  await page.getByRole("button", { name: "Add agent participant" }).click();
-  await page.getByLabel("Message").fill("Persist this test message.");
-  await page.getByRole("button", { name: "Send", exact: true }).click();
-  await page.getByText("Persist this test message.", { exact: true }).waitFor();
-  await page.getByLabel("Task ID").fill("acceptance-task");
-  const recipients = page.getByLabel("Handoff recipient");
-  const agentOption = await recipients
-    .locator("option")
-    .evaluateAll(
-      (options) =>
-        options.find((option) => option.textContent?.includes("Agent · agent"))?.value ?? null,
-    );
-  assert.ok(agentOption, "Adding an agent should expose it as a handoff recipient.");
-  await recipients.selectOption(agentOption);
-  await page.getByRole("button", { name: "Create handoff" }).click();
-  await page.getByText("acceptance-task", { exact: true }).waitFor();
-  const roomsApi = await apiJson(page, "/api/collaboration/rooms");
-  const room = roomsApi.rooms.find((item) => item.title === "Acceptance room");
-  assert.ok(room, "Room must be durable in the Worker store.");
-  const roomApi = await apiJson(
-    page,
-    `/api/collaboration/rooms/${encodeURIComponent(room.roomId)}`,
-  );
-  assert.equal(roomApi.messages[0]?.body, "Persist this test message.");
-  assert.equal(roomApi.handoffs[0]?.taskId, "acceptance-task");
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByRole("heading", { name: "Acceptance room" }).waitFor();
-  await page.getByText("Persist this test message.", { exact: true }).waitFor();
-  checkpoints.push({
-    id: "room-message-handoff-reload",
-    status: "passed",
-    roomId: room.roomId,
-    handoffId: roomApi.handoffs[0].handoffId,
-  });
-
   await nav(page, "integrations");
   await page.getByRole("heading", { name: "Integrations" }).waitFor();
   await page.getByRole("heading", { name: "Reason Network (OSS)" }).waitFor();
@@ -489,6 +449,95 @@ try {
     version: employeeVersion,
   });
 
+  await nav(page, "collaboration");
+  await page.getByRole("heading", { name: "Collaboration rooms" }).waitFor();
+  await page.getByLabel("New room title").fill("Acceptance room");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await page.getByRole("heading", { name: "Acceptance room" }).waitFor();
+  await page.getByLabel("Employee profile").selectOption(employee.id);
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.locator("li").filter({ hasText: "Acceptance Researcher · agent" }).waitFor();
+  const createdRoom = (await apiJson(page, "/api/collaboration/rooms")).rooms.find((item) => item.title === "Acceptance room");
+  assert.ok(createdRoom, "Room must be durable before adding the employee member.");
+  const roomMemberState = await apiJson(page, `/api/collaboration/rooms/${encodeURIComponent(createdRoom.roomId)}`);
+  const employeeActorId = roomMemberState.members.find((member) => member.actorKind === "agent")?.actorId;
+  assert.ok(employeeActorId, "Room employee must be bound to a real configured profile.");
+  await page.getByLabel("Message").fill("Please review the acceptance report.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByText("Please review the acceptance report.", { exact: true }).waitFor();
+  await page.getByLabel("Task ID").fill("acceptance-room-task");
+  await page.getByLabel("Employee task request").fill("Review the acceptance report and summarize any gaps.");
+  await page.getByLabel("Repository URL").fill("https://github.com/fixture/acceptance-repo");
+  await page.locator(`select[aria-label="Employee execution target"] option[value="local:${machineId}"]`).waitFor({ state: "attached" });
+  await page.getByLabel("Employee execution target").selectOption(`local:${machineId}`);
+  const roomRecipientSelect = page.getByLabel("Handoff recipient");
+  await roomRecipientSelect.selectOption(employeeActorId);
+  await page.getByRole("button", { name: "Request / create handoff" }).click();
+  const queuedRoomHandoff = await waitFor("room employee handoff is persisted", async () => {
+    const detail = await apiJson(page, `/api/collaboration/rooms/${encodeURIComponent(createdRoom.roomId)}`);
+    return detail.handoffs?.find((handoff) => handoff.taskId === "acceptance-room-task") ?? null;
+  });
+  assert.ok(queuedRoomHandoff.approvalId, `Room handoff must link its approval: ${JSON.stringify(queuedRoomHandoff)}`);
+  const roomApproval = await waitFor("room employee work enters the existing approval queue", async () => {
+    const approvals = await apiJson(page, "/api/approvals");
+    return approvals.approvals?.find((approval) => approval.approvalId === queuedRoomHandoff.approvalId);
+  });
+  assert.ok(roomApproval, "Room work must remain pending until explicitly approved.");
+  assert.equal(adapterClaims, 0, "The room employee must not run before human approval.");
+  const roomApprovalId = roomApproval.approvalId;
+  const roomRequestRunCount = adapterClaims;
+  await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  await waitFor("approved room employee task reaches deterministic adapter", () => adapterClaims > roomRequestRunCount);
+  const linkedRoomRun = await waitFor("room handoff links a completed run", async () => {
+    const tasks = await apiJson(page, "/api/tasks");
+    const revision = tasks.tasks?.find((task) => task.attempts?.some((attempt) => attempt.approvalId === roomApprovalId));
+    const runId = revision?.attempts?.find((attempt) => attempt.approvalId === roomApprovalId)?.runId;
+    if (!runId) return null;
+    const result = await apiJson(page, `/api/runs/${encodeURIComponent(runId)}`);
+    return result.run?.status === "completed" ? { task: revision, run: result.run } : null;
+  });
+  assert.equal(linkedRoomRun.run.customAgentId, employee.id);
+  const roomsApi = await apiJson(page, "/api/collaboration/rooms");
+  const room = roomsApi.rooms.find((item) => item.title === "Acceptance room");
+  assert.ok(room, "Room must be durable in the Worker store.");
+  await nav(page, "collaboration");
+  await page.getByRole("heading", { name: "Acceptance room" }).waitFor();
+  await page.getByText(/Completed approved task: acceptance-room-task/).waitFor();
+  const roomApi = await apiJson(page, `/api/collaboration/rooms/${encodeURIComponent(room.roomId)}`);
+  assert.equal(roomApi.messages[0]?.body, "Please review the acceptance report.");
+  const employeeReply = roomApi.messages.find((message) => message.senderKind === "agent");
+  assert.ok(employeeReply, "A completed linked employee run must create a persisted employee reply.");
+  assert.equal(employeeReply.sourceRunId, linkedRoomRun.run.runId);
+  assert.equal(employeeReply.sourceHandoffId, roomApi.handoffs[0]?.handoffId);
+  assert.match(employeeReply.body, /Completed approved task: acceptance-room-task/);
+  assert.match(employeeReply.body, /deterministic acceptance output/i);
+  assert.equal(roomApi.handoffs[0]?.approvalId, roomApprovalId);
+  assert.equal(roomApi.handoffs[0]?.runId, linkedRoomRun.run.runId);
+  assert.equal(roomApi.handoffs[0]?.execution?.runStatus, "completed");
+  await page.getByRole("button", { name: "Cancel handoff", exact: true }).click();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Acceptance room" }).waitFor();
+  await page.getByText("Please review the acceptance report.", { exact: true }).waitFor();
+  await page.getByText(employeeReply.body, { exact: true }).waitFor();
+  const roomAfterReload = await apiJson(page, `/api/collaboration/rooms/${encodeURIComponent(room.roomId)}`);
+  assert.equal(roomAfterReload.handoffs[0]?.status, "cancelled");
+  assert.equal(roomAfterReload.handoffs[0]?.execution?.runStatus, "completed");
+  assert.equal(roomAfterReload.messages.filter((message) => message.sourceRunId === linkedRoomRun.run.runId).length, 1,
+    "Polling and reload must not duplicate the employee reply.");
+  checkpoints.push({
+    id: "room-employee-approval-result-cancel-reload",
+    status: "passed",
+    roomId: room.roomId,
+    approvalId: roomApprovalId,
+    taskId: linkedRoomRun.task.taskId,
+    runId: linkedRoomRun.run.runId,
+    employeeReplyMessageId: employeeReply.messageId,
+    employeeReplyRunId: employeeReply.sourceRunId,
+    employeeId: linkedRoomRun.run.customAgentId,
+    cancelledAfterCompletion: true,
+  });
+
   await nav(page, "tasks");
   // New threads start in chat-only mode. The task workflow is explicit and
   // requires the user to switch to Work before task controls are available.
@@ -517,6 +566,7 @@ try {
     .getByLabel("Task description")
     .fill("Prepare the approved acceptance report using the attached reviewed skill.");
   const taskText = "Prepare the approved acceptance report using the attached reviewed skill.";
+  const beforeMainTaskClaim = adapterClaims;
   await composer.getByRole("button", { name: "Send task" }).click();
   await page
     .getByRole("main")
@@ -550,11 +600,11 @@ try {
   );
   assert.equal(
     adapterClaims,
-    0,
+    beforeMainTaskClaim,
     "The local adapter must not receive work before the human approval click.",
   );
   await page.getByRole("button", { name: "Approve", exact: true }).click();
-  await waitFor("deterministic adapter receives approved run", () => adapterClaims > 0);
+  await waitFor("deterministic adapter receives approved run", () => adapterClaims > beforeMainTaskClaim);
   await waitFor("approved employee task completes in the real orchestrator DO", async () => {
     if (adapterError) throw new Error(adapterError);
     const runs = await apiJson(page, "/api/runs");
@@ -581,13 +631,63 @@ try {
   assert.equal(reviewedHistory.versions?.[0]?.review.note, revisionNote);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByText(`Review: changes requested · ${revisionNote}`, { exact: true }).waitFor();
+  const sourceTask = (await apiJson(page, "/api/tasks")).tasks?.find((task) =>
+    task.attempts?.some((attempt) => attempt.runId === completedRun.runId),
+  );
+  assert.ok(sourceTask, "Completed run must be retained in durable task history.");
+  await page.getByRole("button", { name: "Create revision approval" }).click();
+  const revisionTask = await waitFor("artifact revision creates a new linked approval task", async () => {
+    const tasks = await apiJson(page, "/api/tasks");
+    return tasks.tasks?.find((task) => task.revisionOf?.runId === completedRun.runId) ?? null;
+  });
+  assert.notEqual(revisionTask.taskId, sourceTask.taskId, "Revision work must be a new task.");
+  assert.equal(revisionTask.revisionOf?.taskId, sourceTask.taskId);
+  const revisionApprovalId = revisionTask.attempts?.at(-1)?.approvalId;
+  assert.ok(revisionApprovalId, "Revision task must require a fresh approval.");
+  const beforeRevisionClaim = adapterClaims;
+  await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
+  const revisionApproval = await waitFor("revision task appears in Approvals", async () => {
+    const approvals = await apiJson(page, "/api/approvals");
+    return approvals.approvals?.find((approval) => approval.approvalId === revisionApprovalId) ?? null;
+  });
+  assert.ok(JSON.stringify(revisionApproval).includes(revisionNote));
+  assert.equal(adapterClaims, beforeRevisionClaim, "Revision work must remain gated until approved.");
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  await waitFor("approved revision reaches the deterministic local adapter", () => adapterClaims > beforeRevisionClaim);
+  const revisionRun = await waitFor("revision run produces its new artifact", async () => {
+    const tasks = await apiJson(page, "/api/tasks");
+    const current = tasks.tasks?.find((task) => task.taskId === revisionTask.taskId);
+    const runId = current?.attempts?.find((attempt) => attempt.approvalId === revisionApprovalId)?.runId;
+    if (!runId) return null;
+    const result = await apiJson(page, `/api/runs/${encodeURIComponent(runId)}`);
+    return result.run?.status === "completed" ? { task: current, run: result.run } : null;
+  });
+  assert.equal(revisionRun.run.customAgentId, employee.id);
+  const revisedHistory = await apiJson(
+    page,
+    `/api/runs/${encodeURIComponent(revisionRun.run.runId)}/deliverables/0/history`,
+  );
+  assert.deepEqual(revisedHistory.versions.map((version) => version.version), [1, 2]);
+  assert.equal(revisedHistory.versions[0].runId, completedRun.runId);
+  assert.equal(revisedHistory.versions[1].runId, revisionRun.run.runId);
+  assert.equal(revisedHistory.versions[1].artifactId, reviewedHistory.versions[0].artifactId);
+  const previousVersion = await page.evaluate(async ({ runId, index }) => {
+    const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/deliverables/${index}`);
+    return { status: response.status, text: await response.text() };
+  }, { runId: completedRun.runId, index: 0 });
+  assert.equal(previousVersion.status, 200);
+  assert.match(previousVersion.text, /Deterministic acceptance output/);
   checkpoints.push({
     id: "artifact-review-revision-reload",
     status: "passed",
     runId: completedRun.runId,
+    revisionTaskId: revisionTask.taskId,
+    revisionApprovalId,
+    revisionRunId: revisionRun.run.runId,
     reviewStatus: "changes_requested",
     revisionNote,
-    historyVersions: reviewedHistory.versions.length,
+    historyVersions: revisedHistory.versions.length,
+    priorVersionRetained: previousVersion.status === 200,
   });
   assert.ok(
     completedRun.signals?.some(

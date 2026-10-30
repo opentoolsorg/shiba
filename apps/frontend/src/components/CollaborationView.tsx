@@ -71,6 +71,12 @@ interface RoomDetail {
   handoffs: Handoff[];
 }
 
+interface PairedComputer {
+  machineId: string;
+  hostname: string;
+  status: string;
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -118,6 +124,8 @@ export function CollaborationView(): JSX.Element {
   const [recipientActorId, setRecipientActorId] = useState("");
   const [parentHandoffId, setParentHandoffId] = useState("");
   const [profiles, setProfiles] = useState<EmployeeProfile[]>([]);
+  const [computers, setComputers] = useState<PairedComputer[]>([]);
+  const [executionTarget, setExecutionTarget] = useState("sandbox");
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [handoffRequestId, setHandoffRequestId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -195,6 +203,19 @@ export function CollaborationView(): JSX.Element {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ computers?: PairedComputer[] }>("/api/computers")
+      .then((result) => {
+        if (!cancelled) setComputers((result.computers ?? []).filter((item) =>
+          typeof item.machineId === "string" && typeof item.hostname === "string"));
+      })
+      .catch(() => {
+        if (!cancelled) setComputers([]);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const members = useMemo(() => detail?.members ?? [], [detail]);
@@ -310,6 +331,9 @@ export function CollaborationView(): JSX.Element {
           taskId: taskId.trim(),
           recipientActorId,
           task: task.trim(),
+          ...(executionTarget === "sandbox"
+            ? { runtime: "sandbox" }
+            : { runtime: "local", targetMachineId: executionTarget.slice("local:".length) }),
           ...(repoUrl.trim() ? { repoUrl: repoUrl.trim() } : {}),
           ...(parentHandoffId ? { parentHandoffId } : {}),
         }),
@@ -592,6 +616,19 @@ export function CollaborationView(): JSX.Element {
                           placeholder="Repository URL (uses employee default when blank)"
                           className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
                         />
+                        <select
+                          aria-label="Employee execution target"
+                          value={executionTarget}
+                          onChange={(event) => setExecutionTarget(event.target.value)}
+                          className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                        >
+                          <option value="sandbox">Cloud sandbox</option>
+                          {computers.map((computer) => (
+                            <option key={computer.machineId} value={`local:${computer.machineId}`}>
+                              Local · {computer.hostname}{computer.status === "busy" ? " (busy)" : ""}
+                            </option>
+                          ))}
+                        </select>
                         <select
                           aria-label="Parent handoff"
                           value={parentHandoffId}

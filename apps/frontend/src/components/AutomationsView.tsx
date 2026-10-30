@@ -21,11 +21,9 @@ interface AutomationRecord {
 }
 
 async function pinSkill(skill: SavedSkill) {
-  const instructions = [`Skill: ${skill.name}`, ...(skill.notes?.trim() ? [skill.notes.trim()] : [])].join("\n");
-  const source = skill.repoUrl?.trim() || "Saved skills library";
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(instructions));
-  const contentVersion = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 16);
-  const version = contentVersion;
+  const instructions = [`Skill: ${skill.name}`, skill.instructions.trim()].filter(Boolean).join("\n");
+  const source = skill.sourceUrl?.trim() || "Shiba Skills Library";
+  const version = String(skill.version);
   const pinDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([skill.id, version, source, instructions])));
   const sha256 = [...new Uint8Array(pinDigest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return { id: skill.id, version, source, instructions, sha256, enabled: true };
@@ -111,6 +109,7 @@ export function AutomationsView(): JSX.Element {
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const { agents: customAgents } = useCustomAgentOptions();
   const savedSkills = useSavedSkills();
+  const selectableSkills = savedSkills.skills.filter((skill) => skill.status === "active");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -222,7 +221,7 @@ export function AutomationsView(): JSX.Element {
           triggers: [{ kind: "schedule", cron: workspaceCron.trim(), timezone: workspaceTimezone.trim() }],
           enabled: true,
           ...(customAgentId ? { customAgentId } : {}),
-          ...(selectedSkillIds.length ? { skillPins: await Promise.all(savedSkills.filter((skill) => selectedSkillIds.includes(skill.id)).map(pinSkill)) } : {}),
+          ...(selectedSkillIds.length ? { skillPins: await Promise.all(selectableSkills.filter((skill) => selectedSkillIds.includes(skill.id)).map(pinSkill)) } : {}),
         }),
       });
       const body = await response.json().catch(() => ({})) as { error?: string; automation?: { id?: string } };
@@ -245,7 +244,7 @@ export function AutomationsView(): JSX.Element {
     setNotice(null);
     try {
       const pins = await Promise.all((automation.skillPins ?? []).map(async (oldPin) => {
-        const skill = savedSkills.find((item) => item.id === oldPin.id);
+        const skill = savedSkills.skills.find((item) => item.id === oldPin.id && item.status === "active");
         return skill ? pinSkill(skill) : { ...oldPin, enabled: false };
       }));
       const response = await fetch(`/api/automations/${encodeURIComponent(automation.id)}`, {
@@ -344,10 +343,10 @@ export function AutomationsView(): JSX.Element {
               <option value="">No bot</option>
               {customAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.config.name}</option>)}
             </select>
-            {savedSkills.length ? (
+            {selectableSkills.length ? (
               <fieldset className="flex flex-wrap gap-2 text-[10px] text-[var(--muted-foreground-1)]">
                 <legend className="sr-only">Reviewed skill snapshots for scheduled drafts</legend>
-                {savedSkills.map((skill) => (
+                {selectableSkills.map((skill) => (
                   <label key={skill.id} className="flex items-center gap-1">
                     <input type="checkbox" checked={selectedSkillIds.includes(skill.id)} onChange={(event) => setSelectedSkillIds((current) => event.target.checked ? [...current, skill.id] : current.filter((id) => id !== skill.id))} />
                     Pin {skill.name}
