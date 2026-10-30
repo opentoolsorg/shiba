@@ -1,4 +1,3 @@
-import type { Env } from "../env.js";
 import type {
   ReasonNetworkApprovalBinding,
   ReasonNetworkApprovalReceipt,
@@ -15,7 +14,6 @@ export interface ReasonNetworkPendingApproval extends ReasonNetworkApprovalBindi
   approvalId: string; status: "pending" | "approved" | "denied" | "consumed" | "expired";
   createdAt: number; expiresAt: number; decidedBy?: string; decidedAt?: number;
 }
-
 const SQL = [
   `CREATE TABLE IF NOT EXISTS reason_network_grants (
     grant_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
@@ -60,6 +58,12 @@ export async function createReasonNetworkGrant(env: ReasonNetworkApprovalEnv, in
   await env.AGENT_AUDIT.prepare(`INSERT INTO reason_network_grants(grant_id,owner_id,conversation_id,session_id,status,created_at,revoked_at) VALUES(?,?,?,?,'active',?,NULL)`)
     .bind(input.grantId,input.ownerId,input.conversationId,input.sessionId,createdAt).run();
   return { grantId: input.grantId, ownerId: input.ownerId, conversationId: input.conversationId, sessionId: input.sessionId, status: "active", createdAt, revokedAt: null };
+}
+
+export async function listReasonNetworkGrants(env: ReasonNetworkApprovalEnv, ownerId: string): Promise<ReasonNetworkGrant[]> {
+  await ensure(env);
+  const rows=await env.AGENT_AUDIT.prepare(`SELECT grant_id,owner_id,conversation_id,session_id,status,created_at,revoked_at FROM reason_network_grants WHERE owner_id=? ORDER BY created_at DESC LIMIT 50`).bind(ownerId).all<Record<string,unknown>>();
+  return (rows.results??[]).map((row)=>({grantId:String(row.grant_id),ownerId:String(row.owner_id),conversationId:String(row.conversation_id),sessionId:String(row.session_id),status:row.status as "active"|"revoked",createdAt:Number(row.created_at),revokedAt:row.revoked_at===null?null:Number(row.revoked_at)}));
 }
 
 export async function revokeReasonNetworkGrant(env: ReasonNetworkApprovalEnv, ownerId: string, grantId: string, now = Date.now()): Promise<boolean> {
@@ -130,5 +134,3 @@ export class D1ReasonNetworkApprovalService implements ReasonNetworkApprovalServ
     return result ? { ...binding, approvalId:result.approval_id, expiresAt:Number(result.expires_at) } : null;
   }
 }
-
-export type ReasonNetworkStoreEnv = Pick<Env,"AGENT_AUDIT">;

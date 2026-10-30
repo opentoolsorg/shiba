@@ -112,14 +112,16 @@ const dirtyHarnessFiles = spawnSync("git", ["status", "--porcelain"], {
   .filter(Boolean)
   .filter((entry) => entry.slice(3).replaceAll("\\", "/") !== "apps/backend/test/acceptance/evidence.latest.json");
 
+const sourceRevision = spawnSync("git", ["rev-parse", "HEAD"], {
+  cwd: repoRoot,
+  encoding: "utf8",
+}).stdout.trim();
 const evidence = {
   ...plan,
+  target: { ...plan.target, head: sourceRevision },
   runId,
   executedAt: new Date().toISOString(),
-  sourceRevision: spawnSync("git", ["rev-parse", "HEAD"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  }).stdout.trim(),
+  sourceRevision,
   dirtyHarnessChangesIncluded: dirtyHarnessFiles.length > 0,
   result: failed ? "failed" : "passed_with_blockers",
   journeys: journeys.map((journey) =>

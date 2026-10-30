@@ -1,7 +1,7 @@
 import { isAuthorizedRequest, resolveUserId } from "../request-auth.js";
 import type { Env } from "../env.js";
 import { randomHex } from "../mailbox-store.js";
-import { createReasonNetworkGrant, decideReasonNetworkApproval, listReasonNetworkApprovals, reasonNetworkApprovalSetup, requestReasonNetworkApproval, revokeReasonNetworkGrant } from "./approval-store.js";
+import { createReasonNetworkGrant, decideReasonNetworkApproval, listReasonNetworkApprovals, listReasonNetworkGrants, reasonNetworkApprovalSetup, requestReasonNetworkApproval, revokeReasonNetworkGrant } from "./approval-store.js";
 
 const PREFIX="/api/reason-network";
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{"cache-control":"no-store"}});
@@ -27,6 +27,7 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
       const grant=await createReasonNetworkGrant(env,{grantId:`rng-${randomHex(16)}`,ownerId,conversationId:body.conversationId.trim(),sessionId:body.sessionId.trim()});
       return json({grant},201);
     }
+    if(path.length===1&&path[0]==="grants"&&request.method==="GET")return json({grants:await listReasonNetworkGrants(env,ownerId)});
     if(path.length===2&&path[0]==="grants"&&path[1]&&request.method==="DELETE"){
       const changed=await revokeReasonNetworkGrant(env,ownerId,path[1]);return changed?json({revoked:true}):json({error:"Active grant not found."},404);
     }
