@@ -94,8 +94,9 @@
     },
     {
       "id": "full-browser-worker-session",
-      "status": "blocked",
-      "blocker": "Not claimed: included dashboard tests mount React components with deterministic fetch fixtures; this suite does not run a real browser against a local Worker and Durable Object session."
+      "description": "Run Chromium against the local Wrangler Worker serving the built frontend, with real local Durable Objects, D1, built-in auth, and the supported local-runtime claim/result protocol. Cover onboarding resume, active skill reload, a persisted room/message/handoff, employee creation, exact human approval, local adapter receipt, and artifact download.",
+      "script": "apps/backend/test/acceptance/run-browser.mjs",
+      "adapter": "Temporary deterministic local-runtime adapter using the authenticated pairing and claim/result APIs; returns clearly marked fixture text and no provider call."
     }
   ]
 }
