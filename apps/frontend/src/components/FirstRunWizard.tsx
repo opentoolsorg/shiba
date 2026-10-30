@@ -4,6 +4,7 @@ import { useMailboxes, useSetupStatus } from "../live-status";
 import type { AppNavView } from "./AppNavRail";
 import { providerPhaseLabel } from "./provider-phase";
 import { ToneChip } from "./ToneChip";
+import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
 
 export const ONBOARDING_STORAGE_KEY = "shiba-onboarding-v1";
 
@@ -11,6 +12,7 @@ const STEPS = [
   { id: "channels", title: "Your channels", blurb: "Where tasks and approvals reach you" },
   { id: "agent", title: "Your agent", blurb: "ACP adapters that run in the sandbox" },
   { id: "models", title: "Model routing", blurb: "Which agent handles each kind of task" },
+  { id: "employee", title: "Your first employee", blurb: "Choose a role, review it, then launch a task" },
 ] as const;
 
 function WizardShell({
@@ -134,12 +136,14 @@ export function FirstRunWizard({
   open,
   onClose,
   onNavigate,
+  onStartEmployeeSetup,
   onOpenModels,
   onOpenChecklist,
 }: {
   open: boolean;
   onClose: () => void;
   onNavigate?: (view: AppNavView) => void;
+  onStartEmployeeSetup?: (template: EmployeeTemplate) => void;
   onOpenModels?: () => void;
   onOpenChecklist?: () => void;
 }): JSX.Element | null {
@@ -456,6 +460,58 @@ export function FirstRunWizard({
               className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
             >
               Open Settings → Models
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {step === 3 ? (
+        <div className="space-y-3">
+          <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+            Employees are reusable role instructions for Shiba’s existing approval-gated task runner.
+            Choose a starting point; you can review and edit the profile before saving it.
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {EMPLOYEE_TEMPLATES.map((template) => (
+              <article key={template.id} className="border border-[var(--border-1)] bg-[var(--bg)] p-3">
+                <h3 className="text-[13px] font-medium text-[var(--text)]">
+                  {template.config.emoji} {template.label}
+                </h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+                  {template.description}
+                </p>
+                <p className="mt-2 font-mono text-[10px] text-[var(--muted-foreground-2)]">
+                  {template.config.expectedDeliverables?.length
+                    ? `${template.config.expectedDeliverables.length} suggested deliverables`
+                    : "Flexible code deliverables"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    finish();
+                    onStartEmployeeSetup?.(template);
+                  }}
+                  disabled={!onStartEmployeeSetup}
+                  className="mt-3 border border-[var(--primary)] px-2.5 py-1.5 font-mono text-[10px] font-semibold text-[var(--primary)] disabled:opacity-50"
+                >
+                  Set up {template.label.toLowerCase()} →
+                </button>
+              </article>
+            ))}
+          </div>
+          <p className="border-t border-[var(--border-1)] pt-3 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+            After saving, launch the employee to open its task conversation. Shiba shows the exact task for approval before any sandbox starts, then reports run status and returned files.
+          </p>
+          {onNavigate ? (
+            <button
+              type="button"
+              onClick={() => {
+                finish();
+                onNavigate("custom-agents");
+              }}
+              className="font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
+            >
+              Open employee directory →
             </button>
           ) : null}
         </div>

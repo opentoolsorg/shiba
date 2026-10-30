@@ -37,6 +37,7 @@ import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleAcpProviders } from "./acp-provider-routes.js";
+import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
@@ -262,6 +263,8 @@ export default {
       if (metaResponse) return metaResponse;
       const acpProviderResponse = await handleAcpProviders(request, env);
       if (acpProviderResponse) return acpProviderResponse;
+      const capabilityCatalogResponse = await handleCapabilityCatalog(request, env);
+      if (capabilityCatalogResponse) return capabilityCatalogResponse;
       const apiKeysResponse = await handleApiKeys(request, env);
       if (apiKeysResponse) return apiKeysResponse;
       const customAgentsResponse = await handleCustomAgents(request, env);

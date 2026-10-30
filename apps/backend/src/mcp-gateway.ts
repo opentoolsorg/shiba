@@ -38,11 +38,7 @@ import {
   type TokenRecord,
 } from "./agent-tokens.js";
 import { audit } from "./audit.js";
-import { registerEmailTools } from "./mcp-email-tools.js";
-import { registerGmailTools } from "./mcp-gmail-tools.js";
-import { registerMemoryTools } from "./mcp-memory-tools.js";
-import { registerRunTools } from "./mcp-run-tools.js";
-import { registerScreenTools } from "./mcp-screen-tools.js";
+import { registerAllMcpTools } from "./mcp-tool-registration.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 
@@ -90,12 +86,15 @@ export interface ToolMeta {
   annotations?: ToolAnnotations;
 }
 
-interface RegisteredTool {
+export interface RegisteredTool {
   name: string;
   scope: Scope;
   handler: McpToolHandler;
   meta: ToolMeta;
 }
+
+export const MAX_MCP_TOOLS = 100;
+export const MAX_MCP_INPUT_FIELDS = 64;
 
 export interface ToolRegistry {
   registerTool(
@@ -192,6 +191,11 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
   const tools = new Map<string, RegisteredTool>();
   return {
     registerTool(name, scope, handler, meta = {}) {
+      if (tools.has(name)) throw new Error(`Duplicate MCP tool name "${name}".`);
+      if (tools.size >= MAX_MCP_TOOLS) throw new Error("MCP tool registry capacity exceeded.");
+      if (meta.inputSchema && Object.keys(meta.inputSchema).length > MAX_MCP_INPUT_FIELDS) {
+        throw new Error(`MCP tool "${name}" input schema exceeds the field limit.`);
+      }
       tools.set(name, { name, scope, handler, meta });
     },
     tools() {
@@ -237,11 +241,19 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
           (args ?? {}) as Record<string, unknown>,
           { env, principal: principal as TokenRecord },
         );
+        const status = result.structuredContent && typeof result.structuredContent === "object"
+          ? (result.structuredContent as Record<string, unknown>).status
+          : undefined;
+        const approvalId = result.structuredContent && typeof result.structuredContent === "object"
+          ? (result.structuredContent as Record<string, unknown>).approvalId
+          : undefined;
+        const isPendingApproval = !result.isError && status === "pending_approval";
         await audit(env, {
           principal: caller,
           tool: name,
           argsHash,
-          outcome: "ok",
+          outcome: result.isError ? "error" : isPendingApproval ? "pending_approval" : "ok",
+          ...(isPendingApproval && typeof approvalId === "string" ? { detail: `approval_id:${approvalId}` } : {}),
         });
         return result;
       } catch (error) {
@@ -271,6 +283,16 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
   };
 }
 
+/** Scope-filter before metadata/schema is exposed by MCP tools/list. */
+export function visibleToolsForPrincipal(
+  tools: readonly RegisteredTool[],
+  principal: TokenRecord | null,
+): RegisteredTool[] {
+  if (!principal || principal.revoked || !Array.isArray(principal.scopes)) return [];
+  const allowed = new Set(principal.scopes);
+  return tools.filter((tool) => allowed.has(tool.scope)).slice(0, MAX_MCP_TOOLS);
+}
+
 /**
  * Build the per-request MCP server the stateless handler serves: a fresh
  * `McpServer` (SDK v2) with every registry tool published. The factory runs
@@ -282,12 +304,9 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
 function buildMcpServer(env: Env, mcpCtx: McpRequestContext): McpServer {
   const server = new McpServer({ name: "shiba", version: "0.1.0" });
   const registry = createToolRegistry(env);
-  registerEmailTools(registry, env);
-  registerGmailTools(registry);
-  registerMemoryTools(registry, env);
-  registerRunTools(registry, env);
-  registerScreenTools(registry, env);
-  for (const tool of registry.tools()) {
+  registerAllMcpTools(registry, env);
+  const principal = principalFor(mcpCtx.requestInfo);
+  for (const tool of visibleToolsForPrincipal(registry.tools(), principal)) {
     server.registerTool(
       tool.name,
       {

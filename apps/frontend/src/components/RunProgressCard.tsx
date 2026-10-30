@@ -1,11 +1,11 @@
 import type { JSX } from "react";
 import { LoaderCircle } from "lucide-react";
-import type { RetainedRun } from "../types";
+import type { RunProgressRecord } from "../types";
 import { statusChipClass, statusLabel } from "../ui-helpers";
 import { RunDeliverables } from "./RunDeliverables";
 
 /** Latest retained run for the active task thread — honest status, not a spinner that never ends. */
-export function RunProgressCard({ run, sessionId }: { run: RetainedRun | undefined; sessionId?: string }): JSX.Element | null {
+export function RunProgressCard({ run, sessionId }: { run: RunProgressRecord | undefined; sessionId?: string }): JSX.Element | null {
   if (!run) return null;
   const inFlight = run.status === "pending" || run.status === "running";
   const failed = run.status === "error" || run.status === "aborted" || run.status === "cancelled" || run.status === "unknown";

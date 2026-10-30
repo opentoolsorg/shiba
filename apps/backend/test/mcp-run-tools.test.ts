@@ -133,7 +133,7 @@ describe("registerRunTools", () => {
 
     const listed = await registry.invoke("list_approvals", {}, agent);
     expect((data(listed).approvals as Array<{ approvalId: string }>).map((a) => a.approvalId)).toEqual([approvalId]);
-    expect(outcomes()).toEqual(["queue_run:ok", "list_approvals:ok"]);
+    expect(outcomes()).toEqual(["queue_run:pending_approval", "list_approvals:ok"]);
   });
 
   it("refuses a token without sandbox:exec before reaching the orchestrator", async () => {

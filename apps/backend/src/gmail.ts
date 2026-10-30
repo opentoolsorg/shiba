@@ -1,5 +1,8 @@
 /** Gmail's isolated read-only credential store. No generic auth accounts or mailbox DOs. */
 import { requireScope, sha256Hex, verifyToken, type TokenRecord } from "./agent-tokens.js";
+import { decideConnectionDispatch, type CapabilityAction, type ConnectionDispatchContext } from "./connection-policy.js";
+import { orgIdForRecord } from "./agent-tokens.js";
+import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { audit } from "./audit.js";
 import type { Env } from "./env.js";
 import { wrapUntrusted } from "./mailbox-store.js";
@@ -29,6 +32,7 @@ export interface GmailConnection {
 interface StoredConnection extends GmailConnection {
   owner: string;
   refreshCipher: string;
+  generation: number;
 }
 export interface GmailGrant {
   principal: string;
@@ -367,21 +371,77 @@ export async function disconnectGmail(env: Env, owner: string) {
   return { disconnected: true as const, revoke };
 }
 
-async function accessForPrincipal(env: Env, principal: TokenRecord) {
+const GMAIL_READ_CAPABILITY = { kind: "connector" as const, id: "gmail" };
+const GMAIL_READ_POLICY = {
+  version: "gmail-read-v1",
+  allowlist: [GMAIL_READ_CAPABILITY],
+  actions: [
+    { capability: GMAIL_READ_CAPABILITY, action: "search", risk: "read" as const, requiredProviderScopes: [GMAIL_SCOPE] },
+    { capability: GMAIL_READ_CAPABILITY, action: "read", risk: "read" as const, requiredProviderScopes: [GMAIL_SCOPE] },
+  ],
+};
+
+function canonicalGmailArgs(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalGmailArgs);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.keys(value as Record<string, unknown>).sort().map((key) => [key, canonicalGmailArgs((value as Record<string, unknown>)[key])]));
+  }
+  return value;
+}
+
+async function gmailArgumentDigest(args: unknown): Promise<string> {
+  return sha256Hex(JSON.stringify(canonicalGmailArgs(args)));
+}
+
+async function accessForPrincipal(
+  env: Env,
+  principal: TokenRecord,
+  operation: "search" | "read",
+  normalizedArgs: Record<string, unknown>,
+) {
   requireScope(principal, "gmail:read");
   if (principal.revoked) throw new GmailError("Gmail access denied.", 403);
+  if (orgIdForRecord(principal) !== DASHBOARD_ORG_ID) throw new GmailError("Gmail access denied.", 403);
   validateGmailPrincipal(principal.principal);
   const config = gmailConfig(env);
   await ensureGmailSchema(env);
   const connection = await env.AGENT_AUDIT.prepare(
-    `SELECT c.id, c.owner, c.refresh_cipher AS refreshCipher FROM gmail_connections c
+    `SELECT c.id, c.owner, c.email, c.refresh_cipher AS refreshCipher, g.token_created AS generation FROM gmail_connections c
      JOIN gmail_grants g ON g.connection_id = c.id AND g.owner = c.owner
      WHERE g.principal = ? AND g.token_created = ? AND c.active = 1`,
   ).bind(principal.principal, principal.created).first<StoredConnection>();
   if (!connection) throw new GmailError("Explicit Gmail connection grant required.", 403);
   const refreshToken = await decryptGmailToken(connection.refreshCipher, config.tokenKey, connection.owner, connection.id);
   const result = await exchange(env, { grant_type: "refresh_token", refresh_token: refreshToken }, false);
-  return { token: result.access_token as string, connectionId: connection.id };
+  const now = Date.now();
+  const context: ConnectionDispatchContext = {
+    now,
+    principal: { userId: principal.principal, workspaceId: DASHBOARD_ORG_ID },
+    grant: {
+      connectionId: connection.id,
+      owner: { type: "shared_workspace", workspaceId: DASHBOARD_ORG_ID },
+      lifecycle: "active",
+      verification: "live_verified",
+      verifiedAt: now,
+      verificationExpiresAt: now + 60_000,
+      capability: GMAIL_READ_CAPABILITY,
+      providerScopes: [GMAIL_SCOPE],
+      allowedResources: [],
+      accountId: connection.email,
+      policyVersion: GMAIL_READ_POLICY.version,
+      generation: connection.generation,
+    },
+    policy: GMAIL_READ_POLICY,
+    request: {
+      capability: GMAIL_READ_CAPABILITY,
+      action: operation,
+      accountId: connection.email,
+      argumentDigest: await gmailArgumentDigest(normalizedArgs),
+    } satisfies CapabilityAction,
+  };
+  const decision = decideConnectionDispatch(context);
+  if (!decision.allowed || decision.risk !== "read") throw new GmailError("Gmail access denied.", 403);
+  return { token: result.access_token as string, connectionId: connection.id, generation: connection.generation };
 }
 
 async function requireActiveGrant(env: Env, principal: TokenRecord, connectionId: string): Promise<void> {
@@ -396,7 +456,7 @@ export async function searchGmail(env: Env, principal: TokenRecord, query: strin
   if (typeof query !== "string" || query.length > 256 || !Number.isInteger(limit) || limit < 1 || limit > 25) {
     throw new GmailError("Gmail search requires at most 256 characters and 1–25 results.");
   }
-  const access = await accessForPrincipal(env, principal);
+  const access = await accessForPrincipal(env, principal, "search", { query, limit });
   await requireActiveGrant(env, principal, access.connectionId);
   const result = await gmailGet(access.token, "messages", undefined, query, limit);
   await requireActiveGrant(env, principal, access.connectionId);
@@ -447,10 +507,11 @@ function messageContent(message: Record<string, unknown>) {
 export async function readGmail(env: Env, principal: TokenRecord, messageIds: string[]) {
   if (!Array.isArray(messageIds) || messageIds.length < 1 || messageIds.length > 25 ||
       messageIds.some((id) => typeof id !== "string" || !MESSAGE_ID.test(id))) throw new GmailError("Provide 1–25 valid Gmail message IDs.");
-  const access = await accessForPrincipal(env, principal);
+  const normalizedIds = [...new Set(messageIds)];
+  const access = await accessForPrincipal(env, principal, "read", { messageIds: normalizedIds });
   const messages = [];
   // Sequential, bounded requests; no unbounded fan-out, attachments, or mailbox selector.
-  for (const id of [...new Set(messageIds)]) {
+  for (const id of normalizedIds) {
     await requireActiveGrant(env, principal, access.connectionId);
     const message = await gmailGet(access.token, "messages", id);
     if (message.id !== id) throw new GmailError("Invalid Gmail message response.", 502);

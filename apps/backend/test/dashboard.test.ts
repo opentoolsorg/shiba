@@ -1,5 +1,7 @@
 import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { PassThrough } from "node:stream";
+import { renderToStaticMarkup, renderToPipeableStream } from "react-dom/server";
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -50,6 +52,7 @@ import { Tooltip } from "../../frontend/src/components/Tooltip";
 
 afterEach(() => {
   delete (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent;
+  vi.unstubAllGlobals();
   mocks.chat.messages = [];
   mocks.chat.error = null;
   mocks.chat.isStreaming = false;
@@ -58,9 +61,30 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderApp() {
+function renderApp(): Promise<string> {
   (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent = "ada@example.com";
-  return renderToStaticMarkup(React.createElement(App));
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({})));
+  const router = createRouter({
+    routeTree: createRootRoute({ component: App }),
+    history: createMemoryHistory({ initialEntries: ["/app"] }),
+  });
+  return router.load().then(() => new Promise((resolve, reject) => {
+    const html = new PassThrough();
+    let markup = "";
+    html.setEncoding("utf8");
+    html.on("data", (chunk: string) => { markup += chunk; });
+    html.on("error", reject);
+    html.on("end", () => resolve(markup.replace(/<!--.*?-->/gs, "")));
+    let pipe: (() => void) | undefined;
+    const stream = renderToPipeableStream(
+      React.createElement(RouterProvider, { router }),
+      {
+        onAllReady() { pipe?.(); },
+        onShellError: reject,
+      },
+    );
+    pipe = () => stream.pipe(html);
+  }));
 }
 
 describe("dashboard rendering", () => {
@@ -86,8 +110,8 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("No runs yet.");
   });
 
-  it("shows useful empty states when no task has started", () => {
-    const markup = renderApp();
+  it("shows useful empty states when no task has started", async () => {
+    const markup = await renderApp();
 
     expect(markup).toContain('data-testid="task-composer"');
     expect(markup).toContain("Describe the change in this repository");
@@ -98,7 +122,7 @@ describe("dashboard rendering", () => {
 
   });
 
-  it("renders a pending approval with its tool input and actions", () => {
+  it("renders a pending approval with its tool input and actions", async () => {
     mocks.chat.messages = [
       {
         id: "message-1",
@@ -115,7 +139,7 @@ describe("dashboard rendering", () => {
       },
     ];
 
-    const markup = renderApp();
+    const markup = await renderApp();
 
     expect(markup).toContain("waiting for your approval");
     expect(markup).toContain("Action Required");
@@ -125,7 +149,7 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Reject");
   });
 
-  it("renders chat errors and live run output without hiding the run state", () => {
+  it("renders chat errors and live run output without hiding the run state", async () => {
     mocks.chat.error = new Error("stream failed");
     mocks.runsById = {
       "run-1": {
@@ -139,14 +163,14 @@ describe("dashboard rendering", () => {
       },
     };
 
-    const markup = renderApp();
+    const markup = await renderApp();
 
     expect(markup).toContain("Chat error: stream failed");
     expect(markup).toContain("run-1");
 
   });
 
-  it("renders task submission form", () => {
+  it("renders task submission form", async () => {
     const formMarkup = renderToStaticMarkup(React.createElement(TaskForm));
 
     expect(formMarkup).toContain('data-testid="task-submission-form"');
@@ -156,7 +180,7 @@ describe("dashboard rendering", () => {
     expect(formMarkup).toContain('type="checkbox"');
     expect(formMarkup).toContain('value="main"');
 
-    const appMarkup = renderApp();
+    const appMarkup = await renderApp();
 
     expect(appMarkup).toContain('data-testid="task-composer"');
     expect(appMarkup).toContain("<textarea");
@@ -171,7 +195,7 @@ describe("dashboard rendering", () => {
       task: "Implement feature",
       baseBranch: "main",
       publishPullRequest: false,
-      status: "completed",
+      status: "completed" as const,
       createdAt: Date.now() - 10000,
       updatedAt: Date.now(),
       agentType: "coding-agent",
@@ -197,8 +221,8 @@ describe("dashboard rendering", () => {
     expect(diffMarkup).toContain("<code");
   });
 
-  it("renders the top navigation bar without the retired Architecture view", () => {
-    const markup = renderApp();
+  it("renders the top navigation bar without the retired Architecture view", async () => {
+    const markup = await renderApp();
     expect(markup).toContain("New thread");
     expect(markup).toContain("Threads");
     expect(markup).toContain("Pull requests");
@@ -289,8 +313,8 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Operator &amp; Self-Hosting Setup");
     expect(markup).toContain('role="checkbox"');
   });
-  it("renders sidebar toggle button and keyboard shortcuts for sidebar", () => {
-    const markup = renderApp();
+  it("renders sidebar toggle button and keyboard shortcuts for sidebar", async () => {
+    const markup = await renderApp();
     expect(markup).toContain('aria-label="Collapse sidebar"');
     expect(markup).toContain('aria-expanded="true"');
     expect(markup).toContain('aria-label="Open sessions"');

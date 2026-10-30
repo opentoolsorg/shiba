@@ -67,7 +67,7 @@ describe("FirstRunWizard component tests", () => {
       React.createElement(FirstRunWizard, { open: true, onClose: () => {}, onOpenChecklist: () => {} })
     );
 
-    expect(html).toContain("Welcome — 1 of 3");
+    expect(html).toContain("Welcome — 1 of 4");
     expect(html).toContain("Your channels");
     expect(html).toContain("GitHub");
     expect(html).toContain("Open the deployment checklist");

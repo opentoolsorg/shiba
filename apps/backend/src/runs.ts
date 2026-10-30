@@ -24,6 +24,7 @@ import type {
   RunPatch,
   RunStatus,
   RuntimeSelection,
+  ExecutionTarget,
 } from "@shiba/shared";
 import {
   applyRunEvents,
@@ -53,6 +54,7 @@ export function createRun(args: {
   runId: string;
   sandboxId: string;
   repoUrl: string;
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
@@ -103,6 +105,7 @@ export function createRun(args: {
     input: {
       sandboxId: args.sandboxId,
       repoUrl: args.repoUrl,
+      ...(args.executionTarget !== undefined ? { executionTarget: args.executionTarget } : {}),
       task: args.task,
       baseBranch: args.baseBranch,
       publishPullRequest: args.publishPullRequest,

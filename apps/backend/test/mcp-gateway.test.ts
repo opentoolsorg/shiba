@@ -53,6 +53,7 @@ import {
   hashToolArgs,
   MCP_PRINCIPAL_HEADER,
   principalFor,
+  visibleToolsForPrincipal,
 } from "../src/mcp-gateway.js";
 
 /** In-memory KV, same fake as the token-store suite. */
@@ -372,6 +373,21 @@ describe("tool registry", () => {
   };
   const okResult = { content: [{ type: "text" as const, text: "done" }] };
 
+  it("filters tool discovery by verified principal scopes before exposing schemas", () => {
+    const registry = createToolRegistry({} as Env);
+    registry.registerTool("read_mail", "email:read", async () => okResult, { inputSchema: { query: ({} as never) } });
+    registry.registerTool("send_mail", "email:send", async () => okResult, { inputSchema: { body: ({} as never) } });
+    expect(visibleToolsForPrincipal(registry.tools(), principal).map((tool) => tool.name)).toEqual(["read_mail"]);
+    expect(visibleToolsForPrincipal(registry.tools(), { ...principal, revoked: true })).toEqual([]);
+    expect(visibleToolsForPrincipal(registry.tools(), null)).toEqual([]);
+  });
+
+  it("rejects duplicate tool names instead of silently replacing a registered handler", () => {
+    const registry = createToolRegistry({} as Env);
+    registry.registerTool("same", "email:read", async () => okResult);
+    expect(() => registry.registerTool("same", "email:send", async () => okResult)).toThrow(/Duplicate MCP tool name/);
+  });
+
   it("runs a scoped call and audits ok with the hashed args", async () => {
     const { env, d1 } = makeEnv();
     const registry = createToolRegistry(env);
@@ -394,6 +410,21 @@ describe("tool registry", () => {
     expect(String(argsHash)).toMatch(/^[0-9a-f]{64}$/);
     expect(String(argsHash)).not.toContain("s3cr3t");
     expect(outcome).toBe("ok");
+  });
+
+  it("records approval-queued MCP calls as pending instead of successful execution", async () => {
+    const { env, d1 } = makeEnv();
+    const registry = createToolRegistry(env);
+    registry.registerTool("queue_email", "email:send", async () => ({
+      content: [{ type: "text", text: "Approval required." }],
+      structuredContent: { status: "pending_approval", approvalId: "approval-123" },
+    }));
+    const result = await registry.invoke("queue_email", { body: "private body" }, { ...principal, scopes: ["email:send"] });
+    expect(result.structuredContent).toMatchObject({ status: "pending_approval" });
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    expect(insert.params[5]).toBe("pending_approval");
+    expect(insert.params[6]).toBe("approval_id:approval-123");
+    expect(JSON.stringify(insert.params)).not.toContain("private body");
   });
 
   it("denies a missing scope without calling the handler, and audits denied", async () => {

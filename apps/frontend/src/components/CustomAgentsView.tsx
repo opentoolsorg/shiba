@@ -41,6 +41,8 @@ export function CustomAgentsView({
   onOpenThread,
   connections = [],
   modelSuggestions = [],
+  initialTemplateId = null,
+  onInitialTemplateApplied,
 }: {
   onStartThread?: (agent: CustomAgentWire) => Promise<void>;
   threads?: WebThread[];
@@ -49,6 +51,8 @@ export function CustomAgentsView({
   onOpenThread?: (id: string) => void;
   connections?: ConnectionOption[];
   modelSuggestions?: string[];
+  initialTemplateId?: EmployeeTemplate["id"] | null;
+  onInitialTemplateApplied?: () => void;
 }): JSX.Element {
   const [agents, setAgents] = useState<CustomAgentWire[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -65,6 +69,7 @@ export function CustomAgentsView({
   const directoryRequest = useRef(0);
   const startingThread = useRef(false);
   const [pendingTemplate, setPendingTemplate] = useState<EmployeeTemplate | null>(null);
+  const appliedInitialTemplate = useRef<EmployeeTemplate["id"] | null>(null);
   const templateTrigger = useRef<HTMLButtonElement | null>(null);
   const keepDraftButton = useRef<HTMLButtonElement | null>(null);
   const templateTitleId = useId();
@@ -80,7 +85,7 @@ export function CustomAgentsView({
     templateTrigger.current?.focus();
   };
 
-  const applyTemplate = (template: EmployeeTemplate) => {
+  const applyTemplate = useCallback((template: EmployeeTemplate) => {
     if (editingId || busy) return;
     setForm((current) => ({
       ...current,
@@ -93,7 +98,7 @@ export function CustomAgentsView({
     setPendingTemplate(null);
     setConflict(false);
     setNotice({ tone: "ok", text: `${template.label} role loaded as an editable draft. Review it before creating a bot.` });
-  };
+  }, [editingId, busy]);
 
   const chooseTemplate = (template: EmployeeTemplate, trigger: HTMLButtonElement) => {
     if (editingId || busy) return;
@@ -135,6 +140,15 @@ export function CustomAgentsView({
   }, [showArchived]);
 
   useEffect(refresh, [refresh]);
+
+  useEffect(() => {
+    if (!initialTemplateId || appliedInitialTemplate.current === initialTemplateId || editingId || busy) return;
+    const template = EMPLOYEE_TEMPLATES.find((item) => item.id === initialTemplateId);
+    if (!template) return;
+    appliedInitialTemplate.current = initialTemplateId;
+    applyTemplate(template);
+    onInitialTemplateApplied?.();
+  }, [initialTemplateId, editingId, busy, applyTemplate, onInitialTemplateApplied]);
 
   const resetForm = () => {
     setPendingTemplate(null);

@@ -3,6 +3,7 @@
  * and the pure list transforms the orchestrator applies to DO state.
  */
 import type { RuntimeSelection } from "./local-runtime.js";
+import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import type { AgentRole } from "./roles.js";
 import type { ForkLineage } from "./runs.js";
@@ -75,6 +76,8 @@ export interface PendingApproval {
   threadKey: string;
   approvalId: string;
   repoUrl: string;
+  /** Explicit target for new runs; absent on legacy repository approvals. */
+  executionTarget?: ExecutionTarget;
   task: string;
   /** Exact delegation input frozen at queue time; executed verbatim on approve. */
   baseBranch?: string;
@@ -175,6 +178,7 @@ export interface CreateApprovalInput {
   threadKey: string;
   approvalId: string;
   repoUrl: string;
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch?: string;
   publishPullRequest?: boolean;
@@ -226,6 +230,7 @@ export function createPendingApproval(
       threadKey: input.threadKey,
       approvalId: input.approvalId,
       repoUrl: input.repoUrl,
+      ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget } : {}),
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
@@ -375,6 +380,8 @@ export interface ApprovalEvidence {
 /** The fields the human approves — the input-hash surface. */
 export interface RunInputFields {
   repoUrl: string;
+  /** Included in the approval hash; absent on legacy repository runs. */
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
@@ -501,6 +508,7 @@ export function runInputHash(input: RunInputFields): string {
   const tc = input.testCommand;
   return stableHash({
     repoUrl: input.repoUrl,
+    ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget as unknown as JsonValue } : {}),
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,

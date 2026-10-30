@@ -20,6 +20,7 @@
 import type { ApprovalEvidence, PendingApproval, RunInputFields } from "./approvals.js";
 import { runInputHash } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
+import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import { MAX_RECEIPTS } from "./receipts.js";
 import type { Receipt, ReceiptKind } from "./receipts.js";
@@ -32,6 +33,7 @@ import { isActiveStatus, isTerminalStatus, normalizeRun } from "./runs.js";
 export interface QueuedRunInput {
   sandboxId: string;
   repoUrl: string;
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
@@ -151,6 +153,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
     evidence.inputHash ===
     runInputHash({
       repoUrl: run.repoUrl,
+      ...(run.executionTarget !== undefined ? { executionTarget: run.executionTarget } : {}),
       task: run.task,
       baseBranch: run.baseBranch,
       publishPullRequest: run.publishPullRequest,
@@ -216,6 +219,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           runId: command.runId,
           sandboxId: command.input.sandboxId,
           repoUrl: command.input.repoUrl,
+          ...(command.input.executionTarget !== undefined ? { executionTarget: command.input.executionTarget } : {}),
           task: command.input.task,
           baseBranch: command.input.baseBranch,
           publishPullRequest: command.input.publishPullRequest,
@@ -274,6 +278,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
         const sameInput =
           run.sandboxId === command.input.sandboxId &&
           run.repoUrl === command.input.repoUrl &&
+          JSON.stringify(run.executionTarget) === JSON.stringify(command.input.executionTarget) &&
           run.task === command.input.task &&
           run.baseBranch === command.input.baseBranch &&
           run.publishPullRequest === command.input.publishPullRequest &&

@@ -616,7 +616,9 @@ describe("Gmail explicit grants, bounded tools, disconnect", () => {
     expect(source).not.toMatch(/messages\/(?:send|batchModify|batchDelete|import|insert)|\/(?:trash|untrash|modify|drafts)(?:["'`/?]|$)/);
     expect(source).not.toMatch(/method:\s*["'](?:PUT|PATCH|DELETE)["']/);
     expect(readFileSync(new URL("../src/codemode.ts", import.meta.url), "utf8")).not.toContain("registerGmailTools");
-    expect(readFileSync(new URL("../src/mcp-gateway.ts", import.meta.url), "utf8")).toContain("registerGmailTools(registry)");
+    const toolRegistration = readFileSync(new URL("../src/mcp-tool-registration.ts", import.meta.url), "utf8");
+    expect(toolRegistration).toContain("registerGmailTools(registry)");
+    expect(readFileSync(new URL("../src/mcp-gateway.ts", import.meta.url), "utf8")).toContain("registerAllMcpTools(registry, env)");
     const entry = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
     expect(entry.indexOf("!(await isAuthorizedRequest(request, env))")).toBeLessThan(entry.indexOf("await handleGmail(request, env)"));
   });

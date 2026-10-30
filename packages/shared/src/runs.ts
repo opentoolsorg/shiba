@@ -15,6 +15,7 @@ import type { RunErrorCode } from "./run-errors.js";
 import type { RunSignal } from "./run-signals.js";
 import type { SteeringNote } from "./steering.js";
 import type { SubagentSandboxMode } from "./subagent.js";
+import type { ExecutionTarget } from "./execution-target.js";
 
 /**
  * Worker-vouched agent identity for run/approval reads: only the MCP
@@ -37,6 +38,8 @@ export interface DelegatedRun {
   runId: string;
   sandboxId: string;
   repoUrl: string;
+  /** Explicit work destination; absent on legacy repository run records. */
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;

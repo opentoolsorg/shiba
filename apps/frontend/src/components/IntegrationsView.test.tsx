@@ -1,0 +1,71 @@
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { IntegrationsView } from "./IntegrationsView";
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("IntegrationsView capability catalog", () => {
+  it("uses API-backed connection facts and saved skills without running provider actions", async () => {
+    const setup = {
+      slack: { signingSecret: true, botToken: true, approvers: 2, channelRepos: true },
+      github: { token: true, app: false, publish: true, webhookSecret: true },
+      linear: { webhookSecret: false, apiToken: false, defaultRepo: false },
+      slackVerification: { signingSecret: true },
+      gateway: { id: "gw", token: true, reachable: "yes" }, access: { required: false },
+      betterAuth: { configured: true }, models: { orchestrator: "test", coding: "test", harness: "test", roles: [] },
+      automations: { enabled: false, typeSafe: true }, mailbox: { addressOverride: false, sendEnabled: false },
+      doctor: { ok: true, checkedAt: 1, findings: [], roles: [] },
+    };
+    const provider = {
+      id: "codex", label: "Codex", blurb: "Codex provider", adapter: "codex-acp", packageName: "codex-acp",
+      license: "Apache-2.0", harness: "codex-acp", protocol: "acp", spawn: ["codex"], defaultModel: "model",
+      docsUrl: "https://example.invalid", capabilities: { streamsText: true, toolCalls: true, permissions: true, setModel: true, oauth: true, apiKey: true, acp: true },
+      credentialEnv: [], isDefault: false, connection: { phase: "connected", authMode: "oauth", message: "connected", userCode: null, verificationUri: null, expiresAt: null, testedAt: 10, testOk: true },
+    };
+    const calls: { url: string; method: string }[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      if (url === "/api/setup/status") return Response.json(setup);
+      if (url === "/api/mailboxes") return Response.json({ mailboxes: [{ address: "ops@example.test" }] });
+      if (url === "/api/providers") return Response.json({ org: "local", defaultProviderId: "codex", providers: [provider] });
+      if (url === "/api/capabilities?limit=50") return Response.json({ entries: [{
+        id: "mcp:shiba:gmail_search", name: "gmail_search", source: "mcp:shiba", version: "1",
+        requiredScope: "gmail:read", allowed: false, status: "available", verification: "not_checked",
+        writeEffect: "read_only", approval: "not_inferred_from_mcp_metadata",
+        description: "Search explicitly granted Gmail read-only connection.", annotations: { readOnlyHint: true },
+      }], totalRegistered: 1, returned: 1, truncated: false, liveChecksPerformed: false });
+      return Response.json({ connections: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => key === "shiba-skills-v1" ? JSON.stringify([{ id: "brief", name: "Brief writing", notes: "Keep it concise." }]) : null,
+      setItem: vi.fn(),
+    });
+
+    const onNavigate = vi.fn();
+    render(<IntegrationsView onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Browse capability catalog" }));
+    expect(await screen.findByText("Live verified")).toBeTruthy();
+    expect(screen.getByText("ops@example.test")).toBeTruthy();
+    expect(screen.getByText("Brief writing")).toBeTruthy();
+    expect(screen.getByText(/Configured credentials are present/)).toBeTruthy();
+    const toolRow = await screen.findByRole("button", { name: /gmail_search/ });
+    fireEvent.click(toolRow);
+    expect(screen.getAllByText("gmail:read").length).toBeGreaterThan(0);
+    expect(screen.getByText(/This is a catalog entry, not an assigned permission/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Configure" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Agents & MCP" }));
+    expect(onNavigate).toHaveBeenCalledWith("agents");
+    fireEvent.click(screen.getByRole("button", { name: "Approvals & call history" }));
+    expect(onNavigate).toHaveBeenCalledWith("approvals");
+    await waitFor(() => expect(calls.some((call) => call.url === "/api/providers")).toBe(true));
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+  });
+});

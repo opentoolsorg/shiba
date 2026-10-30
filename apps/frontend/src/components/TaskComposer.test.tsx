@@ -49,6 +49,34 @@ describe("TaskComposer", () => {
     expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("allows an artifact-workspace draft without a GitHub repository and keeps connected-app unavailable", () => {
+    renderComposer("docked", {
+      executionTargetKind: "artifact-workspace",
+      onExecutionTargetKindChange: vi.fn(),
+      artifactWorkspaceName: "Quarterly planning",
+      artifactDeliverables: "deliverables/brief.md",
+      task: "Draft a grounded product brief",
+      repoUrl: "",
+    });
+    expect(screen.getByRole("button", { name: "Work in: Artifact workspace" })).toBeTruthy();
+    expect((screen.getByLabelText("Artifact workspace name") as HTMLInputElement).value).toBe("Quarterly planning");
+    expect((screen.getByLabelText("Artifact deliverables") as HTMLTextAreaElement).value).toBe("deliverables/brief.md");
+    expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Work in: Artifact workspace" }));
+    expect(screen.getByText("Unavailable — no permissioned write adapter")).toBeTruthy();
+  });
+
+  it("blocks unsafe artifact output paths before a task can be sent", () => {
+    renderComposer("docked", {
+      executionTargetKind: "artifact-workspace",
+      artifactDeliverables: "../secrets.md",
+      task: "Draft a brief",
+      repoUrl: "",
+    });
+    expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("docks without the empty-thread heading once a run is going", () => {
     renderComposer("docked");
     expect(screen.queryByRole("heading", { name: "What should Shiba change?" })).toBeNull();
