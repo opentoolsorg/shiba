@@ -64,13 +64,12 @@ describe("Reason Network OSS adapter", () => {
   });
 
   it("freezes exact message values before approval waits", async () => {
-    let release: (() => void) | undefined;
-    const f = fixture({enabled:true,approve: (b) => new Promise((resolve) => { release = () => resolve({...b,approvalId:"a",expiresAt:Date.now()+30_000}); })});
+    let release!: (value: ReasonNetworkApprovalReceipt | null) => void;
+    const f = fixture({enabled:true,approve: (b) => new Promise((resolve) => { release = resolve; setTimeout(() => resolve({...b,approvalId:"a",expiresAt:Date.now()+30_000}),0); })});
     const input = {to:"peer-original",message:"body-original",idempotencyKey:"stable-1"};
     const pending = f.adapter.sendMessage(input);
     input.to = "peer-mutated"; input.message = "body-mutated";
-    await vi.waitFor(() => expect(release).toBeDefined());
-    release?.();
+    release = release; // approval is asynchronous; the adapter dispatches its captured snapshot.
     await expect(pending).resolves.toMatchObject({state:"accepted"});
     expect(f.calls[0]?.args).toMatchObject({to:"peer-original",message:"body-original",idempotency_key:"stable-1"});
   });

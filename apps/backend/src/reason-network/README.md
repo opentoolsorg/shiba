@@ -17,11 +17,9 @@ Upstream v0.12.17 routes MCP calls by supported request metadata (`_meta.session
 - Inbox reading is intentionally unavailable through this MCP adapter. In v0.12.17, `check_inbox` marks results delivered before returning them, so it cannot preserve Shiba's manual acknowledgement semantics. Do not expose it as an ordinary inbox read unless upstream adds a supported peek/ack protocol.
 - No broadcast, files, desktop notifications, `ask_user`, background polling, automatic replies, or autonomous peer task execution are exposed. Peer text remains untrusted input and conveys no tool authority.
 
-## Persistent approval setup and current limits
+## Integration blocker
 
-The authenticated `/api/reason-network` routes persist owner-scoped conversation/session grants and exact-message approvals in `AGENT_AUDIT`. `GET /api/reason-network/status` reports `setup_required`, `enabled: false`, and `dispatchConfigured: false`; it never claims network membership or a live connection. A dashboard owner can create a narrowly scoped grant with `POST /grants`, submit an exact payload for approval with `POST /approvals`, review pending payloads with `GET /approvals`, and decide one with `POST /approvals/:id`. Grants can be revoked with `DELETE /grants/:id`. Decisions are owner-authenticated and an approved row is consumed once by `D1ReasonNetworkApprovalService`, bound to the same owner, grant, conversation, session, destination, message, reply reference, idempotency key, and digest.
-
-This setup/approval API is not wired to an application send route or an installed MCP client. The adapter remains disabled by default and no production dispatch path is enabled. Do not treat a stored grant or approval as proof of a native process, upstream membership, or successful send. `D1ReasonNetworkOperationStore` uses the existing `AGENT_AUDIT` D1 binding and stores message digests rather than message bodies.
+PR162 contains pure connection-policy decision primitives and a generic capability invocation ledger, but no persistent employee-policy approval service. The adapter therefore accepts an explicit `ReasonNetworkApprovalService` integration contract and fails closed if it is absent. The PR owner must implement that interface using the trusted persistent policy/approval store before enabling outbound sends. `D1ReasonNetworkOperationStore` uses the existing `AGENT_AUDIT` D1 binding.
 
 ## Upstream sources
 
