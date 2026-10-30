@@ -69,12 +69,13 @@ export async function connectReasonNetworkStdio({ executablePath, timeoutMs = 12
 }
 
 /** Protocol core is injectable so tests can run a deterministic in-process companion. */
-export function createReasonNetworkCompanion({ connect }) {
+export function createReasonNetworkCompanion({ connect, beforeSend = async () => true }) {
   return async function send(operation) {
     const client = await connect();
     try {
       const tools = await client.listTools();
       if (!tools.tools.some((tool) => tool.name === "send_message")) throw new Error("Reason Network MCP server has no send_message tool.");
+      if (!(await beforeSend(operation))) return { state: "cancelled" };
       const response = await client.callTool({
         name: "send_message",
         arguments: { to: operation.destination, message: operation.message, idempotency_key: operation.idempotencyKey, ...(operation.replyTo ? { reply_to: operation.replyTo } : {}) },

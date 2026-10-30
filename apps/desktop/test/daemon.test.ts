@@ -4,7 +4,7 @@
  * claim forever and stays alive for the lock assertions.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir, uptime } from "node:os";
@@ -141,4 +141,39 @@ describe("shiba-local-daemon result post", () => {
       server.close();
     }
   }, 30_000);
+});
+
+describe("shiba-local-daemon Reason capability heartbeat", () => {
+  it("advertises a validated fake executable and withdraws the capability when opt-in is disabled", async () => {
+    const root=mkdtempSync(join(tmpdir(),"shiba-reason-heartbeat-"));
+    const executable=join(root,"reason-network-fake");
+    writeFileSync(executable,"#!/bin/sh\nexit 0\n");chmodSync(executable,0o755);
+    writeFileSync(join(root,"config.json"),JSON.stringify({workerUrl:"http://unused",adapterToken:"paired-test-token",machineId:"paired-machine-test"}));
+    const heartbeats:Array<Record<string,unknown>>=[];
+    const server=createServer((req,res)=>{
+      let body="";req.setEncoding("utf8");req.on("data",(chunk:string)=>body+=chunk);
+      req.on("end",()=>{
+        if(req.url==="/api/local/heartbeat")heartbeats.push(JSON.parse(body) as Record<string,unknown>);
+        if(req.url==="/api/local/reason-network/v1/claim")res.end(JSON.stringify({operation:null}));
+        else if(req.url==="/api/local/claim")res.end(JSON.stringify({envelope:null}));
+        else res.end("{}");
+      });
+    });
+    await new Promise<void>((resolve)=>server.listen(0,"127.0.0.1",resolve));
+    const {port}=server.address() as AddressInfo;
+    const run=async(enabled:boolean)=>{
+      const env={...process.env,SHIBA_LOCAL_RUN_ROOT:root,SHIBA_WORKER_URL:`http://127.0.0.1:${port}`,SHIBA_REASON_NETWORK_COMPANION:enabled?"1":"0",SHIBA_REASON_NETWORK_EXECUTABLE:executable};
+      delete env.LOCAL_ADAPTER_TOKEN;
+      const child=spawn(process.execPath,[DAEMON,"--once"],{env,stdio:["ignore","ignore","pipe"]});
+      let stderr="";child.stderr.on("data",(chunk)=>stderr+=chunk.toString());
+      const code=await new Promise<number|null>((resolve)=>child.on("exit",resolve));
+      expect(code,stderr).toBe(0);
+    };
+    try{
+      await run(true);
+      await run(false);
+      expect(heartbeats.map((heartbeat)=>heartbeat.reasonNetworkCompanion)).toEqual([true,false]);
+      expect(heartbeats.every((heartbeat)=>heartbeat.machineId==="paired-machine-test")).toBe(true);
+    }finally{server.close();}
+  },30_000);
 });

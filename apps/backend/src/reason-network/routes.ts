@@ -2,7 +2,7 @@ import { isAuthorizedRequest, resolveUserId } from "../request-auth.js";
 import type { Env } from "../env.js";
 import { randomHex } from "../mailbox-store.js";
 import { consumeReasonNetworkApprovalById, createReasonNetworkGrant, decideReasonNetworkApproval, getReasonNetworkApprovalForDispatch, listReasonNetworkApprovals, listReasonNetworkGrants, reasonNetworkApprovalSetup, requestReasonNetworkApproval, revokeReasonNetworkGrant, D1ReasonNetworkApprovalService } from "./approval-store.js";
-import { D1ReasonNetworkOperationStore } from "./operation-store.js";
+import { D1ReasonNetworkOperationStore, REASON_NETWORK_RECOVERY_WINDOW_MS } from "./operation-store.js";
 import { localDispatchStub } from "../local-dispatch.js";
 
 const PREFIX="/api/reason-network";
@@ -90,12 +90,12 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
     if(path.length===1&&path[0]==="operations"&&request.method==="GET"){
       if(apiVersion!=="v1")return json({error:"Reason Network operation API requires /v1/."},404);
       const rows=await new D1ReasonNetworkOperationStore(env).listByOwner(ownerId);
-      return json({operations:rows.map((operation)=>({operationId:operation.operationId,approvalId:operation.approvalId,state:operation.state,updatedAt:operation.updatedAt,remoteMessageId:operation.remoteMessageId,cancelRequested:operation.cancelRequested===true}))});
+      return json({operations:rows.map((operation)=>({operationId:operation.operationId,approvalId:operation.approvalId,state:operation.state,updatedAt:operation.updatedAt,remoteMessageId:operation.remoteMessageId,cancelRequested:operation.cancelRequested===true,recoveryAvailable:operation.state==="unknown"&&operation.firstAttemptAt!==null&&operation.firstAttemptAt!==undefined&&operation.firstAttemptAt>Date.now()-REASON_NETWORK_RECOVERY_WINDOW_MS}))});
     }
     if(path.length===2&&path[0]==="operations"&&path[1]&&request.method==="GET"){
       if(apiVersion!=="v1")return json({error:"Reason Network operation API requires /v1/."},404);
       const operation=await new D1ReasonNetworkOperationStore(env).getByOperationId(ownerId,path[1]);
-      return operation?json({operationId:operation.operationId,state:operation.state,updatedAt:operation.updatedAt,remoteMessageId:operation.remoteMessageId,cancelRequested:operation.cancelRequested===true}):json({error:"Operation not found."},404);
+      return operation?json({operationId:operation.operationId,state:operation.state,updatedAt:operation.updatedAt,remoteMessageId:operation.remoteMessageId,cancelRequested:operation.cancelRequested===true,recoveryAvailable:operation.state==="unknown"&&operation.firstAttemptAt!==null&&operation.firstAttemptAt!==undefined&&operation.firstAttemptAt>Date.now()-REASON_NETWORK_RECOVERY_WINDOW_MS}):json({error:"Operation not found."},404);
     }
     if(path.length===2&&path[0]==="operations"&&path[1]&&request.method==="DELETE"){
       if(apiVersion!=="v1")return json({error:"Reason Network operation API requires /v1/."},404);
@@ -107,6 +107,7 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
       if(env.REASON_NETWORK_ENABLED!=="1"||env.SHIBA_LOCAL_RUNTIME!=="1"||!env.LocalDispatch||!env.PAIRING_SECRET)return json({error:"Reason Network paired dispatch is disabled or not configured."},409);
       const store=new D1ReasonNetworkOperationStore(env);const op=await store.getByOperationId(ownerId,path[1]!);
       if(!op)return json({error:"Operation not found."},404);
+      if(op.firstAttemptAt===null||op.firstAttemptAt===undefined||op.firstAttemptAt<=Date.now()-REASON_NETWORK_RECOVERY_WINDOW_MS)return json({error:"The upstream idempotency retention window has expired; leave this outcome unknown and request a new reviewed send before retrying."},409);
       if(!op.approvalId||!await getReasonNetworkApprovalForDispatch(env,ownerId,op.approvalId))return json({error:"Approved payload expired or grant was revoked; recovery is unavailable."},409);
       const current=await new D1ReasonNetworkApprovalService(env).isCurrent({...op.scope,runtime:"local-daemon"});
       if(!current)return json({error:"Grant was revoked; operation cannot be recovered."},409);
