@@ -9,7 +9,22 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 const state = vi.hoisted(() => ({
   userId: "owner@example.test",
   approvalStatus: "",
-  run: null as null | { status: string; summary?: string; error?: string; pullUrl?: string },
+  run: null as null | {
+    runId?: string;
+    status: string;
+    summary?: string;
+    error?: string;
+    pullUrl?: string;
+    customAgentId?: string;
+    customAgentVersion?: number;
+    approval?: { approvalId: string };
+    deliverables?: Array<{
+      path: string;
+      artifactId?: string;
+      version?: number;
+      sha256?: string;
+    }>;
+  },
   queued: null as null | {
     task: string;
     repoUrl: string;
@@ -244,9 +259,19 @@ describe("approval-gated employee handoffs", () => {
     );
     expect(state.run).toEqual({ status: "pending" });
     state.run = {
+      runId: handoff.handoff.runId,
       status: "completed",
       summary: "No release blockers found.",
       pullUrl: "https://github.com/example/repo/pull/7",
+      customAgentId: employeeV1.id,
+      customAgentVersion: employeeV1.version,
+      approval: { approvalId: handoff.handoff.approvalId },
+      deliverables: [{
+        path: "reports/release-review.md",
+        artifactId: "artifact-release-review",
+        version: 1,
+        sha256: "a".repeat(64),
+      }],
     };
     const result = await json<{
       handoffs: Array<{
@@ -264,6 +289,31 @@ describe("approval-gated employee handoffs", () => {
       summary: "No release blockers found.",
       pullUrl: "https://github.com/example/repo/pull/7",
     });
+    const replyView = await json<{
+      messages: Array<{
+        senderActorId: string;
+        senderKind: string;
+        sourceRunId?: string;
+        sourceHandoffId?: string;
+        sourceArtifactRefs?: Array<{ index: number; path: string; artifactId?: string }>;
+        body: string;
+      }>;
+    }>(await f.send(`/rooms/${roomId}`));
+    expect(replyView.messages).toHaveLength(1);
+    expect(replyView.messages[0]).toMatchObject({
+      senderActorId: `agent:${employeeV1.id}`,
+      senderKind: "agent",
+      sourceRunId: handoff.handoff.runId,
+      sourceHandoffId: handoff.handoff.handoffId,
+      sourceArtifactRefs: [{
+        index: 0,
+        path: "reports/release-review.md",
+        artifactId: "artifact-release-review",
+      }],
+    });
+    expect(replyView.messages[0]?.body).toContain("No release blockers found.");
+    // A repeated read replays the same completion observation without duplication.
+    expect((await json<{ messages: unknown[] }>(await f.send(`/rooms/${roomId}`))).messages).toHaveLength(1);
 
     expect(
       (await f.send(`/handoffs/${handoff.handoff.handoffId}/cancel`, "POST", {}))?.status,
@@ -280,6 +330,8 @@ describe("approval-gated employee handoffs", () => {
       approvalId: "approval-employee-1",
       execution: { runStatus: "completed", summary: "No release blockers found." },
     });
+    expect((await json<{ messages: Array<{ sourceRunId?: string }> }>(await f.send(`/rooms/${roomId}`)))
+      .messages.filter((message) => message.sourceRunId === handoff.handoff.runId)).toHaveLength(1);
     expect(
       f.sqlite
         .prepare(
@@ -287,5 +339,97 @@ describe("approval-gated employee handoffs", () => {
         )
         .get(),
     ).toEqual({ approval_id: "approval-employee-1", run_id: "agent-tool:approval-employee-1" });
+  });
+
+  it("does not append a completed employee reply after that employee is removed", async () => {
+    const f = fixture();
+    const employee = await createCustomAgent(f.env, "self-hosted", "reviewer", {
+      name: "Release Reviewer",
+      instructions: "Review the requested task.",
+      harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const room = await json<{ room: { roomId: string } }>(
+      await f.send("/rooms", "POST", { title: "Revoked employee" }),
+    );
+    const roomId = room.room.roomId;
+    const member = await json<{ member: { actorId: string } }>(
+      await f.send(`/rooms/${roomId}/agents`, "POST", {
+        profileId: employee.id,
+        profileVersion: employee.version,
+      }),
+    );
+    const created = await json<{ handoff: { handoffId: string; runId: string } }>(
+      await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+        handoffId: "revoked-employee-handoff",
+        taskId: "revoked-task",
+        recipientActorId: member.member.actorId,
+        task: "Review the change.",
+      }),
+    );
+    state.approvalStatus = "approved";
+    state.run = {
+      runId: created.handoff.runId,
+      status: "completed",
+      summary: "Completed after removal.",
+      customAgentId: employee.id,
+      customAgentVersion: employee.version,
+      approval: { approvalId: "approval-employee-1" },
+    };
+    expect(
+      (
+        await f.send(
+          `/rooms/${roomId}/members/${encodeURIComponent(member.member.actorId)}`,
+          "DELETE",
+        )
+      )?.status,
+    ).toBe(200);
+    const detail = await json<{ messages: unknown[] }>(await f.send(`/rooms/${roomId}`));
+    expect(detail.messages).toEqual([]);
+  });
+
+  it("surfaces failed and unknown outcomes without writing employee completion replies", async () => {
+    for (const status of ["error", "unknown"] as const) {
+      const f = fixture();
+      const employee = await createCustomAgent(f.env, "self-hosted", `employee-${status}`, {
+        name: `Employee ${status}`,
+        instructions: "Perform the approved task.",
+        harness: "opencode",
+        defaultRepoUrl: "https://github.com/example/repo",
+      });
+      const room = await json<{ room: { roomId: string } }>(
+        await f.send("/rooms", "POST", { title: `Run ${status}` }),
+      );
+      const member = await json<{ member: { actorId: string } }>(
+        await f.send(`/rooms/${room.room.roomId}/agents`, "POST", {
+          profileId: employee.id,
+          profileVersion: employee.version,
+        }),
+      );
+      const handoff = await json<{ handoff: { runId: string } }>(
+        await f.send(`/rooms/${room.room.roomId}/handoffs`, "POST", {
+          handoffId: `outcome-${status}-handoff`,
+          taskId: `outcome-${status}`,
+          recipientActorId: member.member.actorId,
+          task: "Perform the approved task.",
+        }),
+      );
+      state.approvalStatus = "approved";
+      state.run = {
+        runId: handoff.handoff.runId,
+        status,
+        ...(status === "error" ? { error: "Local stand-in failed." } : {}),
+        customAgentId: employee.id,
+        customAgentVersion: employee.version,
+        approval: { approvalId: "approval-employee-1" },
+      };
+      const detail = await json<{
+        handoffs: Array<{ execution?: { runStatus?: string; error?: string } }>;
+        messages: unknown[];
+      }>(await f.send(`/rooms/${room.room.roomId}`));
+      expect(detail.handoffs[0]?.execution).toMatchObject({ runStatus: status });
+      expect(detail.handoffs[0]?.execution?.error).toBeTruthy();
+      expect(detail.messages).toEqual([]);
+    }
   });
 });

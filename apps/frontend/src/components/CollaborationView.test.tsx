@@ -78,6 +78,53 @@ describe("CollaborationView room access polling", () => {
     expect(messages).toHaveLength(1);
   });
 
+  it("renders a persisted employee reply with its completed run and artifact references", async () => {
+    const employeeReplyRoom = {
+      ...roomDetail,
+      members: [
+        ...roomDetail.members,
+        {
+          actorId: "agent:profile-release-reviewer",
+          userId: "owner@example.test",
+          role: "agent",
+          actorKind: "agent",
+          displayName: "Release Reviewer",
+        },
+      ],
+      messages: [
+        {
+          messageId: "agent_reply_handoff-1",
+          senderUserId: "owner@example.test",
+          senderActorId: "agent:profile-release-reviewer",
+          senderKind: "agent",
+          body: "Completed approved task: release-42\nNo blockers found.",
+          createdAt: 100,
+          sourceRunId: "agent-tool:approval-1",
+          sourceArtifactRefs: [{ index: 0, path: "reports/review.md", artifactId: "artifact-1" }],
+        },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.endsWith("/api/custom-agents")) return jsonResponse({ agents: [] });
+        if (path.endsWith("/api/collaboration/rooms"))
+          return jsonResponse({ rooms: [{ roomId: "room-1", title: "Shared room", visibility: "private" }] });
+        if (path.endsWith("/api/collaboration/rooms/room-1"))
+          return jsonResponse(employeeReplyRoom);
+        throw new Error(`Unexpected request ${path}`);
+      }),
+    );
+
+    render(<CollaborationView />);
+    expect((await screen.findAllByText("Release Reviewer")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/No blockers found/)).toBeTruthy();
+    expect(screen.getByText("Completed run: agent-tool:approval-1")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "reports/review.md" }).getAttribute("href"))
+      .toBe("/api/runs/agent-tool%3Aapproval-1/deliverables/0");
+  });
+
   it("removes stale room content when another session revokes this member before the next poll", async () => {
     let revokedBySecondSession = false;
     let poll: (() => void) | undefined;

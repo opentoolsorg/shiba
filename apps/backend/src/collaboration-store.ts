@@ -62,7 +62,18 @@ export interface CollaborationMessageRow {
   senderKind: CollaborationActorKind;
   body: string;
   profileVersion: number | null;
+  sourceRunId?: string | null;
+  sourceHandoffId?: string | null;
+  sourceArtifactRefs?: CollaborationSourceArtifactRef[];
   createdAt: number;
+}
+
+export interface CollaborationSourceArtifactRef {
+  index: number;
+  path: string;
+  artifactId?: string;
+  version?: number;
+  sha256?: string;
 }
 
 export interface CollaborationHandoffRow {
@@ -137,6 +148,9 @@ const SCHEMA = [
     sender_kind TEXT NOT NULL CHECK (sender_kind IN ('human','agent')),
     body TEXT NOT NULL,
     profile_version INTEGER,
+    source_run_id TEXT,
+    source_handoff_id TEXT,
+    source_artifact_refs_json TEXT,
     created_at INTEGER NOT NULL,
     FOREIGN KEY (tenant_id, workspace_id, room_id, sender_actor_id)
       REFERENCES collaboration_memberships(tenant_id, workspace_id, room_id, actor_id),
@@ -205,6 +219,23 @@ export async function ensureCollaborationSchema(env: Pick<Env, "AGENT_AUDIT">): 
         throw error;
     }
   }
+  for (const column of [
+    "source_run_id TEXT",
+    "source_handoff_id TEXT",
+    "source_artifact_refs_json TEXT",
+  ]) {
+    try {
+      await env.AGENT_AUDIT.prepare(
+        `ALTER TABLE collaboration_messages ADD COLUMN ${column}`,
+      ).run();
+    } catch (error) {
+      if (!/duplicate column/i.test(error instanceof Error ? error.message : String(error)))
+        throw error;
+    }
+  }
+  await env.AGENT_AUDIT.prepare(
+    "CREATE UNIQUE INDEX IF NOT EXISTS collaboration_messages_source_run ON collaboration_messages(tenant_id,workspace_id,source_run_id) WHERE source_run_id IS NOT NULL",
+  ).run();
   initialized.add(env.AGENT_AUDIT);
 }
 
@@ -250,6 +281,22 @@ function rowMembership(row: Record<string, unknown>): CollaborationMembershipRow
 }
 
 function rowMessage(row: Record<string, unknown>): CollaborationMessageRow {
+  let sourceArtifactRefs: CollaborationSourceArtifactRef[] | undefined;
+  if (typeof row.source_artifact_refs_json === "string") {
+    try {
+      const parsed: unknown = JSON.parse(row.source_artifact_refs_json);
+      if (Array.isArray(parsed)) {
+        sourceArtifactRefs = parsed.filter(
+          (item): item is CollaborationSourceArtifactRef =>
+            typeof item === "object" && item !== null &&
+            Number.isSafeInteger((item as CollaborationSourceArtifactRef).index) &&
+            typeof (item as CollaborationSourceArtifactRef).path === "string",
+        );
+      }
+    } catch {
+      /* Stored source references are optional; malformed metadata is hidden. */
+    }
+  }
   return {
     messageId: String(row.message_id),
     tenantId: String(row.tenant_id),
@@ -260,6 +307,9 @@ function rowMessage(row: Record<string, unknown>): CollaborationMessageRow {
     senderKind: row.sender_kind as CollaborationActorKind,
     body: String(row.body),
     profileVersion: row.profile_version === null ? null : Number(row.profile_version),
+    ...(typeof row.source_run_id === "string" ? { sourceRunId: row.source_run_id } : {}),
+    ...(typeof row.source_handoff_id === "string" ? { sourceHandoffId: row.source_handoff_id } : {}),
+    ...(sourceArtifactRefs ? { sourceArtifactRefs } : {}),
     createdAt: Number(row.created_at),
   };
 }
@@ -609,6 +659,76 @@ export async function createCollaborationMessage(
     )
     .first<Record<string, unknown>>();
   return row ? rowMessage(row) : null;
+}
+
+/** Persist a deterministic employee reply only for its active, linked, pinned run. */
+export async function createCollaborationAgentReply(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  input: {
+    messageId: string;
+    roomId: string;
+    handoffId: string;
+    runId: string;
+    agentUserId: string;
+    agentActorId: string;
+    profileVersion: number;
+    body: string;
+    sourceArtifactRefs: CollaborationSourceArtifactRef[];
+    createdAt: number;
+  },
+): Promise<CollaborationMessageRow | null> {
+  await ensureCollaborationSchema(env);
+  const row = await env.AGENT_AUDIT.prepare(
+    `INSERT INTO collaboration_messages (message_id,tenant_id,workspace_id,room_id,sender_user_id,sender_actor_id,sender_kind,body,profile_version,source_run_id,source_handoff_id,source_artifact_refs_json,created_at)
+     SELECT ?,?,?,?,?,?,'agent',?,?,?,?,?,?
+     WHERE EXISTS (
+       SELECT 1 FROM collaboration_handoffs h
+       JOIN collaboration_handoffs root ON root.tenant_id=h.tenant_id AND root.workspace_id=h.workspace_id AND root.handoff_id=h.root_handoff_id
+       JOIN collaboration_memberships agent ON agent.tenant_id=h.tenant_id AND agent.workspace_id=h.workspace_id AND agent.room_id=h.room_id AND agent.user_id=h.recipient_user_id AND agent.actor_id=h.recipient_actor_id AND agent.actor_kind='agent' AND agent.profile_version=h.profile_version AND agent.status='active'
+       JOIN collaboration_memberships reader ON reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active'
+       WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND h.handoff_id=? AND h.run_id=? AND h.recipient_actor_id=? AND h.profile_version=? AND h.status='active' AND root.status='active'
+     ) ON CONFLICT DO NOTHING RETURNING *`,
+  )
+    .bind(
+      input.messageId,
+      scope.tenantId,
+      scope.workspaceId,
+      input.roomId,
+      input.agentUserId,
+      input.agentActorId,
+      input.body,
+      input.profileVersion,
+      input.runId,
+      input.handoffId,
+      JSON.stringify(input.sourceArtifactRefs),
+      input.createdAt,
+      scope.userId,
+      scope.tenantId,
+      scope.workspaceId,
+      input.roomId,
+      input.handoffId,
+      input.runId,
+      input.agentActorId,
+      input.profileVersion,
+    )
+    .first<Record<string, unknown>>();
+  if (row) return rowMessage(row);
+  const existing = await env.AGENT_AUDIT.prepare(
+    `SELECT * FROM collaboration_messages WHERE tenant_id=? AND workspace_id=? AND room_id=? AND source_run_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active')`,
+  )
+    .bind(
+      scope.tenantId,
+      scope.workspaceId,
+      input.roomId,
+      input.runId,
+      scope.tenantId,
+      scope.workspaceId,
+      input.roomId,
+      scope.userId,
+    )
+    .first<Record<string, unknown>>();
+  return existing ? rowMessage(existing) : null;
 }
 
 export async function getCollaborationHandoff(
