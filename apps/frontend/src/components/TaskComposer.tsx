@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 17970)
-Total output lines: 1587
-
 
 import {
   type JSX,
@@ -595,7 +592,484 @@ export function TaskComposer({
                 </button>
                 <div className={`${menuRowClass} cursor-not-allowed opacity-60`} aria-disabled="true">
                   <Lock aria-hidden="true" className={menuIconClass} />
-                  <span className="flex-1 min-w-0"><span className="block font-medium">Connected app</spa…5970 tokens truncated…-[var(--danger,red)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors cursor-pointer shrink-0"
+                  <span className="flex-1 min-w-0"><span className="block font-medium">Connected app</span><span className="block text-[10px] text-[var(--muted-foreground-2)]">Unavailable — no permissioned write adapter</span></span>
+                </div>
+              </div>
+            </Popover>
+          </div>
+        ) : null}
+        {/* Project Selector (Home / Repo Picker) */}
+        {executionTargetKind === "repository" ? <div className="relative">
+          <Tooltip content="Target GitHub repository (Project)" side="top">
+            <button
+              type="button"
+              id={idFor("repo-button")}
+              aria-haspopup="menu"
+              aria-expanded={open === "repo"}
+              aria-label={`Project: ${repoSlug || "Select repository"}`}
+              onClick={() => toggle("repo")}
+              className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans text-[var(--fg)]`}
+            >
+              <Home aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
+              <span className={pillLabelClass}>{repoSlug || "Repository"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
+              {chevron}
+            </button>
+          </Tooltip>
+          <Popover
+            kind="repo"
+            open={open === "repo"}
+            onClose={close}
+            labelledBy={idFor("repo-button")}
+            className="left-0 w-72"
+          >
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-1)]">
+              <Search aria-hidden="true" className="size-3.5 text-[var(--icon-muted)]" />
+              <input
+                type="text"
+                value={repoFilter}
+                onChange={(event) => setRepoFilter(event.target.value)}
+                placeholder="Search repositories…"
+                aria-label="Search repositories"
+                className="flex-1 bg-transparent text-xs text-[var(--fg)] placeholder-[var(--muted-foreground-3)] focus:outline-none"
+              />
+            </div>
+            <div className="max-h-56 overflow-y-auto py-1">
+              {filteredRepos.length === 0 ? (
+                <p className="px-3 py-2.5 text-[11px] text-[var(--muted-foreground-2)]">
+                  {repoSuggestions.length === 0
+                    ? "No repositories yet — run one or paste a URL below."
+                    : "No matches."}
+                </p>
+              ) : (
+                filteredRepos.map((repo) => {
+                  const slug = repoSlugOf(repo);
+                  const active = repo === repoUrl;
+                  return (
+                    <button
+                      key={repo}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={active}
+                      className={`${menuRowClass} font-mono`}
+                      onClick={() => pickRepo(repo)}
+                    >
+                      <FolderGit2 aria-hidden="true" className={menuIconClass} />
+                      <span className="flex-1 truncate">{slug}</span>
+                      {active ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <div className="border-t border-[var(--border-1)] px-3 py-2.5 flex flex-col gap-2">
+              <label htmlFor={idFor("repo-url-input")} className={sectionLabelClass}>
+                Use a URL
+              </label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  id={idFor("repo-url-input")}
+                  type="url"
+                  value={repoUrlDraft}
+                  onChange={(event) => setRepoUrlDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && repoUrlDraft.trim()) {
+                      event.preventDefault();
+                      pickRepo(repoUrlDraft.trim());
+                    }
+                  }}
+                  placeholder="https://github.com/owner/repo"
+                  className={`${inputClass} flex-1 font-mono`}
+                />
+                <button
+                  type="button"
+                  disabled={!repoUrlDraft.trim()}
+                  onClick={() => pickRepo(repoUrlDraft.trim())}
+                  className="text-xs font-medium px-2 py-1.5 border border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Use
+                </button>
+              </div>
+            </div>
+          </Popover>
+        </div> : (
+          <div className="flex items-center gap-2 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs text-[var(--fg)]">
+            <span className="text-[var(--muted-foreground-2)]">Workspace</span>
+            <input aria-label="Artifact workspace name" maxLength={100} value={artifactWorkspaceName} onChange={(event) => onArtifactWorkspaceNameChange?.(event.target.value)} className="w-28 bg-transparent font-medium focus:outline-none" />
+          </div>
+        )}
+
+        {/* Run Target Selector (Cloud / This computer) */}
+        {onRunTargetChange ? (
+          <div className="relative">
+            <Tooltip content="Execution target (Cloud vs Local)" side="top">
+              <button
+                type="button"
+                id={idFor("access-button")}
+                aria-haspopup="menu"
+                aria-expanded={open === "access"}
+                aria-label={`Run on: ${runTarget === "local" ? "Local" : "Cloud"}`}
+                onClick={() => toggle("access")}
+                className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans text-[var(--fg)]`}
+              >
+                {runTarget === "local" ? (
+                  <Laptop aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
+                ) : (
+                  <Cloud aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
+                )}
+                <span className={pillLabelClass}>
+                  {runTarget === "local" ? "Local" : "Cloud"}
+                </span>
+                {chevron}
+              </button>
+            </Tooltip>
+            <Popover
+              kind="access"
+              open={open === "access"}
+              onClose={close}
+              labelledBy={idFor("access-button")}
+              className="left-0 w-64"
+            >
+              <div className="py-1">
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={runTarget === "sandbox"}
+                  className={menuRowClass}
+                  onClick={() => {
+                    onRunTargetChange("sandbox");
+                    setOpen(null);
+                  }}
+                >
+                  <Cloud aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-medium">Cloud (Sandbox)</span>
+                    <span className="block text-[10px] text-[var(--muted-foreground-2)]">
+                      Isolated ephemeral Cloudflare Workers container
+                    </span>
+                  </span>
+                  {runTarget === "sandbox" ? (
+                    <Check aria-hidden="true" className={menuCheckClass} />
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={runTarget === "local"}
+                  disabled={executionTargetKind === "artifact-workspace" || !localRunAvailable || localComputersLoading}
+                  className={menuRowClass}
+                  onClick={() => {
+                    onRunTargetChange("local");
+                    if (localComputers.length <= 1) setOpen(null);
+                  }}
+                >
+                  <Laptop aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-medium">Local (Paired computer)</span>
+                    <span className="block text-[10px] text-[var(--muted-foreground-2)]">
+                      {executionTargetKind === "artifact-workspace" ? "Artifact files require the cloud sandbox"
+                        : localComputersLoading ? "Checking paired computers…" : localRunAvailable
+                        ? "Run on a paired computer"
+                        : "Pair a computer in Remote Access first"}
+                    </span>
+                  </span>
+                  {runTarget === "local" ? (
+                    <Check aria-hidden="true" className={menuCheckClass} />
+                  ) : null}
+                </button>
+                {localComputers.length > 0 && onTargetMachineChange ? (
+                  <label className="mx-3 mt-2 mb-1 flex flex-col gap-1 text-xs text-[var(--muted-foreground-1)]">
+                    Computer
+                    <select aria-label="Local computer" value={targetMachineId ?? ""}
+                      disabled={localComputersLoading}
+                      onChange={(event) => {
+                        onTargetMachineChange(event.target.value);
+                        onRunTargetChange("local");
+                      }}
+                      className={inputClass}>
+                      <option value="" disabled>Choose a paired computer</option>
+                      {localComputers.map((computer) => <option key={computer.machineId} value={computer.machineId}>
+                        {computer.hostname}{computer.status === "busy" ? " (busy — task will wait)" : ""}
+                      </option>)}
+                    </select>
+                  </label>
+                ) : null}
+                {localComputersError ? <p role="status" className="px-3 py-1 text-xs text-[var(--warning-fg)]">{localComputersError}</p> : null}
+                {onRefreshLocalComputers ? <button type="button" disabled={localComputersLoading}
+                  onClick={onRefreshLocalComputers} className={`${menuRowClass} text-[var(--primary)]`}>
+                  Refresh paired computers
+                </button> : null}
+              </div>
+            </Popover>
+          </div>
+        ) : null}
+      </div>
+
+      {executionTargetKind === "artifact-workspace" ? (
+        <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)]/60 p-2.5 flex flex-col gap-1.5">
+          <label htmlFor={idFor("artifact-deliverables")} className={sectionLabelClass}>Required output files (one path per line)</label>
+          <textarea
+            id={idFor("artifact-deliverables")}
+            aria-label="Artifact deliverables"
+            value={artifactDeliverables}
+            onChange={(event) => onArtifactDeliverablesChange?.(event.target.value)}
+            rows={2}
+            className={`${inputClass} resize-y font-mono`}
+            placeholder="deliverables/brief.md"
+          />
+          <p className="text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">
+            Drafts are saved as workspace artifacts after approval. Connected-app writes are unavailable until a permissioned adapter exists.
+          </p>
+        </div>
+      ) : null}
+
+      {runTarget === "local" ? <p role="status" className={`text-[10px] font-mono ${localTargetBlocked ? "text-[var(--warning-fg)]" : "text-[var(--muted-foreground-2)]"}`}>
+        {localComputersLoading ? "Checking paired computers before sending…" : localComputersError
+          ?? (targetMachineId ? `Local: ${localComputers.find((computer) => computer.machineId === targetMachineId)?.hostname ?? "Selected computer"}`
+            : localRunAvailable ? "Choose a paired computer before sending." : "No compatible paired computer is online. Refresh or choose Cloud explicitly.")}
+      </p> : null}
+
+      {/* Main Textarea */}
+      <input type="checkbox" checked={publishPullRequest} onChange={(e) => onPublishPullRequestChange(e.target.checked)} className="sr-only" aria-label="Create pull request" tabIndex={-1} /><span className="sr-only">Create PR OpenCode {harness}</span>
+      <textarea
+        ref={textareaRef}
+        value={task}
+        onChange={(event) => onTaskChange(event.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={executionTargetKind === "artifact-workspace" ? "Describe the document or files to draft" : selectedCustomAgent?.expectedDeliverables?.length ? "Describe the outcome and facts this bot should use" : "Describe the change in this repository"}
+        rows={1}
+        className={`w-full resize-none bg-transparent text-base lg:text-sm text-[var(--fg)] placeholder-[var(--muted-foreground-2)] focus:outline-none overflow-y-auto leading-relaxed ${
+          hero ? "min-h-[96px] max-h-64" : "min-h-[72px] max-h-48"
+        }`}
+        aria-label="Task description"
+      />
+
+      {/* Selected skills removable chips */}
+      {selectedCustomAgent ? (
+        <div className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
+          Bot: {selectedCustomAgent.emoji ? `${selectedCustomAgent.emoji} ` : ""}
+          {selectedCustomAgent.name}
+        </div>
+      ) : customAgentId ? (
+        <p role="status" className="text-[10px] text-[var(--warning-fg)] font-mono">
+          {customAgentsLoading ? "Loading bot…" : "Bot unavailable. Choose an available bot before sending."}
+        </p>
+      ) : null}
+
+      {selectedCustomAgent?.expectedDeliverables?.length ? (
+        <div className="text-[11px] text-[var(--muted-foreground-2)] flex flex-col gap-1">
+          <span>Required files in the approved repository:</span>
+          <ul aria-label="Required deliverables" className="flex flex-wrap gap-x-3 gap-y-1">
+            {selectedCustomAgent.expectedDeliverables.map((path) => <li key={path} className="font-mono break-all">{path}</li>)}
+          </ul>
+        </div>
+      ) : null}
+
+      {selectedSkills.length > 0 || namedEnvCount > 0 ? (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {selectedSkills.length > 0 ? (
+            <fieldset className="flex items-center gap-1.5 flex-wrap" aria-label="Attached skills">
+              {selectedSkills.map((skill) => (
+                <span
+                  key={skill.id}
+                  className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-[var(--radius-button)] border border-[var(--primary-soft)] bg-[var(--primary-soft)] text-[var(--primary)]"
+                >
+                  <Sparkles aria-hidden="true" className="size-2.5" />
+                  {skill.name}
+                  <button
+                    type="button"
+                    aria-label={`Remove skill ${skill.name}`}
+                    onClick={() => onToggleSkill?.(skill.id)}
+                    className="hover:text-[var(--fg)] cursor-pointer"
+                  >
+                    <X aria-hidden="true" className="size-2.5" />
+                  </button>
+                </span>
+              ))}
+            </fieldset>
+          ) : null}
+          {namedEnvCount > 0 ? (
+            <button
+              type="button"
+              aria-label={`${namedEnvCount} ${
+                namedEnvCount === 1 ? "environment variable" : "environment variables"
+              } attached`}
+              onClick={() => setOpen("env")}
+              className="inline-flex items-center gap-1 text-[10px] font-mono font-medium px-2 py-0.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] hover:bg-[var(--secondary)] text-[var(--fg)] cursor-pointer transition-colors"
+            >
+              <Lock aria-hidden="true" className="size-2.5 text-[var(--icon-muted)]" />
+              <span>ENV ×{namedEnvCount}</span>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Bottom control row: + add menu, sliders thread-config, model chip, spacer, teal CTA */}
+      <div className="flex items-center gap-1.5 flex-wrap pt-1">
+        {/* + button (add context / tools) */}
+        <div className="relative">
+          <Tooltip content="Add to message: attach/repos/skills" side="top">
+            <button
+              type="button"
+              id={idFor("menu-button")}
+              aria-haspopup="menu"
+              aria-expanded={open === "menu"}
+              aria-label="Add to message"
+              onClick={() => toggle("menu")}
+              className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-[var(--border-1)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
+            >
+              <Plus aria-hidden="true" className="size-4" />
+            </button>
+          </Tooltip>
+          <Popover
+            kind="menu"
+            open={open === "menu"}
+            onClose={close}
+            labelledBy={idFor("menu-button")}
+            className="left-0 w-64"
+          >
+            {menuView === "root" ? (
+              <div className="py-1">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={menuRowClass}
+                  onClick={() => toggle("repo")}
+                >
+                  <FolderGit2 aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1">Repositories</span>
+                  <span className="font-mono text-[10px] text-[var(--muted-foreground-2)] truncate max-w-[110px]">
+                    {repoSlug || "none"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={menuRowClass}
+                  onClick={() => setMenuView("skills")}
+                >
+                  <Sparkles aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1">Skills</span>
+                  {selectedSkillIds.length > 0 ? (
+                    <span className="font-mono text-[10px] text-[var(--primary)] font-semibold">
+                      {selectedSkillIds.length}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={menuRowClass}
+                  onClick={() => setOpen("env")}
+                >
+                  <Lock aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1">Environment variables</span>
+                  {namedEnvCount > 0 ? (
+                    <span className="font-mono text-[10px] text-[var(--primary)] font-semibold">
+                      {namedEnvCount}
+                    </span>
+                  ) : null}
+                </button>
+                <div className="my-1 border-t border-[var(--border-1)]" aria-hidden="true" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={menuRowClass}
+                  onClick={() => {
+                    setOpen(null);
+                    onClear();
+                  }}
+                  disabled={clearing || busy}
+                >
+                  <Eraser aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1">
+                    {clearing ? "Clearing…" : "Clear conversation"}
+                  </span>
+                </button>
+              </div>
+            ) : (
+              <div className="py-1.5">
+                <button type="button" className={menuRowClass} onClick={() => setMenuView("root")}>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-3.5 text-[var(--icon-muted)] rotate-90"
+                  />
+                  <span className="flex-1 font-medium">Skills</span>
+                </button>
+                <div className="my-1 border-t border-[var(--border-1)]" aria-hidden="true" />
+                {skills.length === 0 ? (
+                  <p className="px-3.5 py-3 text-[11px] text-[var(--muted-foreground-2)]">
+                    No saved skills — add them in the Skills view.
+                  </p>
+                ) : (
+                  skills.map((skill) => {
+                    const active = selectedSkillIds.includes(skill.id);
+                    return (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked={active}
+                        className={menuRowClass}
+                        onClick={() => onToggleSkill?.(skill.id)}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`size-3.5 border flex items-center justify-center shrink-0 rounded-[var(--radius-inner)] ${
+                            active ? "bg-[var(--primary)] border-[var(--primary)]" : "border-[var(--border-2)]"
+                          }`}
+                        >
+                          {active ? <Check className="size-2.5 text-[var(--primary-text)]" /> : null}
+                        </span>
+                        <span className="flex-1 truncate">{skill.name}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </Popover>
+          <Popover
+            kind="env"
+            open={open === "env"}
+            onClose={close}
+            labelledBy={idFor("env-popover-title")}
+            className="left-0 w-80 sm:w-96"
+          >
+            <div className="p-3 flex flex-col gap-2.5 max-h-80 overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <span id={idFor("env-popover-title")} className={sectionLabelClass}>
+                  Environment Variables
+                </span>
+                <span className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
+                  Cloud only
+                </span>
+              </div>
+              {envVars.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {envVars.map((row, idx) => (
+                    // Positional key: a name-derived key remounts the row and drops focus on every keystroke.
+                    // biome-ignore lint/suspicious/noArrayIndexKey: rows are controlled and positional
+                    <div key={idx} className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={row.name}
+                        onChange={(e) => handleUpdateEnvVar(idx, "name", e.target.value)}
+                        placeholder="NAME"
+                        className={`${inputClass} font-mono w-28 sm:w-32`}
+                      />
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={row.value}
+                        onChange={(e) => handleUpdateEnvVar(idx, "value", e.target.value)}
+                        placeholder="value"
+                        className={`${inputClass} flex-1`}
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Remove ${row.name || "variable"}`}
+                        onClick={() => handleRemoveEnvVar(idx)}
+                        className="p-1.5 text-[var(--muted-foreground-2)] hover:text-[var(--danger,red)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors cursor-pointer shrink-0"
                       >
                         <Trash2 aria-hidden="true" className="size-3.5" />
                       </button>

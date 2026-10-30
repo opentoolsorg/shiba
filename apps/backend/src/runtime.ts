@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 13192)
-Total output lines: 1300
-
 /**
  * Runtime adapter seam. The default adapter wraps the Sandbox SDK.
  * An experimental adapter for @cloudflare/computer exists only as a
@@ -580,7 +577,126 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     } catch (error) {
       return failureResult(
         `Change collection failed: ${shortError(error)}`,
-…1192 tokens truncated… [...cmd]),
+        run.exitCode,
+        stderrTail,
+        signals,
+        output.usage,
+      );
+    }
+  }
+}
+
+export class ComputerPreviewAdapter implements RuntimeAdapter {
+  readonly name = "computer" as const;
+  async runCodingTask(): Promise<CodingTaskResult> {
+    throw new Error(COMPUTER_PREVIEW_MESSAGE);
+  }
+}
+
+/**
+ * T51: the LocalDispatch mailbox as the adapter sees it. The production
+ * client wraps the DO stub; tests inject an in-memory one.
+ */
+export interface LocalDispatchClient {
+  dispatch(
+    envelope: import("@shiba/shared").LocalRunEnvelope,
+    targetMachineId?: string,
+  ): Promise<void>;
+  status(sandboxId: string): Promise<{
+    status: "pending" | "claimed" | "settled" | "cancelled";
+    claimedAt?: number;
+    claimedBy?: string;
+    result?: LocalRunResult;
+    sessionEvents?: { seq: number; at: number; type: string; text: string }[];
+    liveDiff?: string;
+  }>;
+  cancel(sandboxId: string): Promise<void>;
+}
+
+export const LOCAL_DISPATCH_MESSAGE =
+  'runtime "local" requires SHIBA_LOCAL_RUNTIME=1 on the deployment and ' +
+  "an operator daemon polling /api/local — see configuration.md.";
+
+/** The adapter's own poll cadence and the total mailbox budget. */
+export const LOCAL_POLL_INTERVAL_MS = 2_500;
+export const LOCAL_MAILBOX_TIMEOUT_MS = OPENCODE_TIMEOUT_MS + 2 * GIT_TIMEOUT_MS;
+
+/**
+ * T51 local runtime: the Worker never touches the operator's machine — it
+ * publishes a fully-computed run envelope (argv, config files, env minus
+ * dummy keys) to LocalDispatch and waits. The operator's daemon executes
+ * it and posts back the same result shape a sandbox run produces, which
+ * then passes the same T43 verify gate before it can claim completed.
+ */
+export class LocalRuntimeAdapter implements RuntimeAdapter {
+  readonly name = "local" as const;
+  private readonly harness: AgentHarness;
+  private readonly client: LocalDispatchClient;
+  private readonly pollIntervalMs: number;
+
+  constructor(
+    harness: AgentHarness,
+    deps: { client: LocalDispatchClient; pollIntervalMs?: number },
+  ) {
+    this.harness = harness;
+    this.client = deps.client;
+    this.pollIntervalMs = deps.pollIntervalMs ?? LOCAL_POLL_INTERVAL_MS;
+  }
+
+  async runCodingTask(
+    _ops: SandboxOps,
+    input: CodingTaskInput,
+    emit: ProgressEmitter,
+    opts?: { signal?: AbortSignal; signals?: RunSignal[]; env?: Record<string, string> },
+  ): Promise<CodingTaskResult> {
+    input = withDeliverableInstructions(input);
+    const signals = opts?.signals ?? [];
+    const milestone = (kind: RunSignalKind, detail?: string) => {
+      signals.push(
+        detail !== undefined ? { kind, at: Date.now(), detail } : { kind, at: Date.now() },
+      );
+    };
+    // ponytail: intake refuses env for local runs; this guards a forged envelope. Lift when the daemon can take sealed env.
+    if (opts?.env !== undefined) {
+      return failureResult("Per-run environment variables are not supported on the local runtime.", 0, "", signals);
+    }
+    if (input.runSetup === true) {
+      return failureResult("Repo setup is not supported on the local runtime.", 0, "", signals);
+    }
+    if (!this.harness.capabilities(input.codingModel).supportedRuntimes.includes("local")) {
+      return failureResult(
+        `Harness ${this.harness.name} does not run on the local runtime.`,
+        0,
+        "",
+        signals,
+      );
+    }
+    const workdir = `/workspace/${input.sandboxId}`;
+    const configValue = this.harness.configFile(input, input.sandboxId);
+    const configFiles =
+      configValue === null ? [] : Array.isArray(configValue) ? configValue : [configValue];
+    const env = this.harness.env(input, configFiles[0]?.path ?? null);
+    const dummyKeys = Object.entries(env)
+      .filter(([, value]) => value === DUMMY_PROVIDER_KEY)
+      .map(([key]) => key);
+    const sessionKindLocal = sessionProvider(this.harness.name);
+    const deadlineAt = Date.now() + LOCAL_MAILBOX_TIMEOUT_MS;
+    const envelope = buildLocalRunEnvelope({
+      input: {
+        sandboxId: input.sandboxId,
+        repoUrl: input.repoUrl,
+        baseBranch: input.baseBranch,
+        task: input.task,
+        ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+        ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+        ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+        ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
+        ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
+      },
+      harnessName: this.harness.name,
+      workdir,
+      configFiles,
+      setupCommands: (this.harness.setupCommands?.(input, workdir) ?? []).map((cmd) => [...cmd]),
       argv: this.harness.buildArgv(input, workdir),
       env,
       dummyKey: DUMMY_PROVIDER_KEY,
