@@ -53,6 +53,16 @@
       ]
     },
     {
+      "id": "employee-gmail-selected-resources",
+      "description": "Discover owner-selected Gmail message metadata, read only the selected message through an ordinary employee run, then deny unselected and revoked messages before another provider read. All Google HTTP is mocked; no live inbox is accessed.",
+      "tests": [
+        "apps/backend/test/employee-tool-gmail-resource.test.ts",
+        "apps/backend/test/employee-tool-routes.test.ts",
+        "apps/backend/test/gmail.test.ts",
+        "apps/frontend/src/components/EmployeeToolPolicyView.test.tsx"
+      ]
+    },
+    {
       "id": "artifact-delivery",
       "description": "Approve artifact-workspace input, verify requested files, store bytes in the deterministic R2 adapter, and exercise the authenticated download route.",
       "tests": [
