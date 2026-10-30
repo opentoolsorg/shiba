@@ -32,6 +32,38 @@ interface Message {
     version?: number;
     sha256?: string;
   }>;
+  sourceSlackEventId?: string;
+  sourceSlackTeamId?: string;
+  sourceSlackChannelId?: string;
+  sourceSlackThreadTs?: string;
+  sourceSlackUserId?: string;
+}
+
+interface SlackSource {
+  teamId: string;
+  channelId: string;
+  threadTs: string;
+  lastSeenAt: number;
+  lastUserId: string;
+  mappedRoomId?: string;
+}
+
+interface SlackLink {
+  linkId: string;
+  roomId: string;
+  teamId: string;
+  channelId: string;
+  threadTs: string;
+  status: "active" | "revoked";
+  outboundConfigured?: boolean;
+}
+
+interface SlackDeliveryIntent {
+  intentId: string;
+  messageId: string;
+  channelId: string;
+  threadTs: string;
+  status: "pending" | "blocked";
 }
 
 interface Handoff {
@@ -69,6 +101,9 @@ interface RoomDetail {
   members: Member[];
   messages: Message[];
   handoffs: Handoff[];
+  slackLinks?: SlackLink[];
+  slackSources?: SlackSource[];
+  slackDeliveryIntents?: SlackDeliveryIntent[];
 }
 
 interface PairedComputer {
@@ -127,6 +162,7 @@ export function CollaborationView(): JSX.Element {
   const [computers, setComputers] = useState<PairedComputer[]>([]);
   const [executionTarget, setExecutionTarget] = useState("sandbox");
   const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [selectedSlackSource, setSelectedSlackSource] = useState("");
   const [handoffRequestId, setHandoffRequestId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -304,6 +340,27 @@ export function CollaborationView(): JSX.Element {
     });
   };
 
+  const linkSlackSource = () => {
+    if (!activeRoomId || !selectedSlackSource) return;
+    const [teamId, channelId, threadTs] = selectedSlackSource.split("|");
+    if (!teamId || !channelId || !threadTs) return;
+    void mutate(async () => {
+      await api(`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/slack-links`,
+        request("POST", { teamId, channelId, threadTs }));
+      setSelectedSlackSource("");
+    });
+  };
+
+  const queueSlackDeliveryIntent = (messageId: string, linkId: string) => {
+    if (!activeRoomId) return;
+    void mutate(async () => {
+      await api(
+        `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/messages/${encodeURIComponent(messageId)}/slack-delivery`,
+        request("POST", { linkId }),
+      );
+    });
+  };
+
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !message.trim()) return;
@@ -454,7 +511,9 @@ export function CollaborationView(): JSX.Element {
                         >
                           <div className="mb-1 flex items-center gap-2 text-[10px] text-[var(--muted-foreground-2)]">
                             <span className="font-semibold text-[var(--fg)]">
-                              {item.senderKind === "agent"
+                              {item.sourceSlackUserId
+                                ? `Slack user ${item.sourceSlackUserId}`
+                                : item.senderKind === "agent"
                                 ? (members.find((member) => member.actorId === item.senderActorId)
                                     ?.displayName ?? "Employee")
                                 : item.senderUserId}
@@ -476,6 +535,28 @@ export function CollaborationView(): JSX.Element {
                               ))}
                             </div>
                           )}
+                          {item.sourceSlackEventId && (
+                            <p className="mt-2 border-t border-[var(--border-1)] pt-2 text-[10px]">
+                              Slack source · workspace {item.sourceSlackTeamId} · channel {item.sourceSlackChannelId} · thread {item.sourceSlackThreadTs} · event {item.sourceSlackEventId}
+                            </p>
+                          )}
+                          {item.senderKind === "human" &&
+                            item.senderUserId === detail.currentUserId &&
+                            !item.sourceSlackEventId &&
+                            !item.sourceRunId &&
+                            (detail.slackLinks ?? []).filter((link) => link.status === "active").map((link) => (
+                              <button
+                                key={`${item.messageId}-${link.linkId}`}
+                                type="button"
+                                disabled={busy || !link.outboundConfigured}
+                                onClick={() => queueSlackDeliveryIntent(item.messageId, link.linkId)}
+                                className="mt-2 mr-2 text-[10px] underline disabled:opacity-50"
+                              >
+                                {link.outboundConfigured
+                                  ? `Create Slack delivery intent for #${link.channelId} (not sent)`
+                                  : `Slack delivery disabled for #${link.channelId}`}
+                              </button>
+                            ))}
                         </article>
                       ))}
                       {detail.messages.length === 0 && (
@@ -585,6 +666,86 @@ export function CollaborationView(): JSX.Element {
                             Add
                           </button>
                         </div>
+                      )}
+                    </section>
+
+                    <section className="border-t border-[var(--border-1)] pt-3">
+                      <h3 className="mb-2 text-xs font-semibold">Slack thread continuity</h3>
+                      <p className="mb-2 text-[10px] text-[var(--muted-foreground-2)]">
+                        Only signed Slack thread events appear here. Mapping authorizes that exact thread to write into this room; Slack identities stay separate from Shiba accounts.
+                      </p>
+                      {canManageMembers && (
+                        <div className="flex gap-2">
+                          <select
+                            aria-label="Verified Slack thread"
+                            value={selectedSlackSource}
+                            onChange={(event) => setSelectedSlackSource(event.target.value)}
+                            className="min-w-0 flex-1 rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                          >
+                            <option value="">Select observed thread</option>
+                            {(detail.slackSources ?? [])
+                              .filter((source) => !source.mappedRoomId)
+                              .map((source) => (
+                                <option
+                                  key={`${source.teamId}|${source.channelId}|${source.threadTs}`}
+                                  value={`${source.teamId}|${source.channelId}|${source.threadTs}`}
+                                >
+                                  {source.teamId} / {source.channelId} / {source.threadTs}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={busy || !selectedSlackSource}
+                            onClick={linkSlackSource}
+                            className="rounded border border-[var(--border-1)] px-2 py-2 text-xs disabled:opacity-50"
+                          >
+                            Link
+                          </button>
+                        </div>
+                      )}
+                      <ul className="mt-2 flex flex-col gap-1 text-[10px]">
+                        {(detail.slackLinks ?? []).map((link) => (
+                          <li key={link.linkId} className="rounded bg-[var(--panel)] p-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="break-all">
+                                {link.status}: {link.teamId}/{link.channelId}/{link.threadTs}
+                              </span>
+                              {canManageMembers && link.status === "active" && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void mutate(() => api(
+                                    `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/slack-links/${encodeURIComponent(link.linkId)}`,
+                                    { method: "DELETE" },
+                                  ))}
+                                  className="shrink-0 text-[var(--destructive)]"
+                                >
+                                  Revoke
+                                </button>
+                              )}
+                            </div>
+                            {link.status === "active" && (
+                              <p className="mt-1 text-[var(--muted-foreground-2)]">
+                                {link.outboundConfigured
+                                  ? "Room messages can create delivery intents; no Slack message is sent."
+                                  : "Outbound delivery is disabled; configure the existing Slack approvals channel to create an intent."}
+                              </p>
+                            )}
+                          </li>
+                        ))}
+                        {(detail.slackLinks ?? []).length === 0 && (
+                          <li className="text-[var(--muted-foreground-2)]">No Slack threads linked.</li>
+                        )}
+                      </ul>
+                      {(detail.slackDeliveryIntents ?? []).length > 0 && (
+                        <ul aria-label="Slack delivery intents" className="mt-2 flex flex-col gap-1 text-[10px]">
+                          {detail.slackDeliveryIntents?.map((intent) => (
+                            <li key={intent.intentId}>
+                              Delivery intent {intent.status} · #{intent.channelId} · not sent
+                            </li>
+                          ))}
+                        </ul>
                       )}
                     </section>
 
