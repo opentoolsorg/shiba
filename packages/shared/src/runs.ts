@@ -7,7 +7,7 @@
  * checkpoint is `executing` or `settling`, the outcome is unknown.
  */
 import type { RunDeliverable } from "./deliverables.js";
-import type { ApprovalEvidence } from "./approvals.js";
+import type { ApprovalEvidence, SkillExecutionPin } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
 import type { ApprovedRoute } from "./model.js";
 import type { Receipt } from "./receipts.js";
@@ -174,6 +174,8 @@ export interface DelegatedRun {
   runSetup?: boolean;
   /** Profile version whose effective instructions and route this run approved. */
   customAgentVersion?: number;
+  /** Reviewed skill versions used to build this run's frozen task prompt. */
+  skillPins?: SkillExecutionPin[];
   /**
    * Durable phase written before the next await. A Worker/DO restart
    * resumes `queued` and `dispatching` runs that have not touched a

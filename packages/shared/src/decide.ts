@@ -19,6 +19,7 @@
  */
 import type { ApprovalEvidence, PendingApproval, RunInputFields } from "./approvals.js";
 import { runInputHash } from "./approvals.js";
+import type { SkillExecutionPin } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
 import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
@@ -45,6 +46,7 @@ export interface QueuedRunInput {
   sandboxProvider?: string;
   customAgentId?: string;
   customAgentVersion?: number;
+  skillPins?: SkillExecutionPin[];
   route?: ApprovedRoute;
   /**
    * T48: this run's harness continuation identity (e.g. `claude:home:<dir>`).
@@ -177,6 +179,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.sandboxProvider !== undefined ? { sandboxProvider: run.sandboxProvider } : {}),
       ...(run.customAgentId !== undefined ? { customAgentId: run.customAgentId } : {}),
       ...(run.customAgentVersion !== undefined ? { customAgentVersion: run.customAgentVersion } : {}),
+      ...(run.skillPins !== undefined ? { skillPins: run.skillPins } : {}),
     })
   );
 }
@@ -231,6 +234,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.sandboxProvider !== undefined ? { sandboxProvider: command.input.sandboxProvider } : {}),
           ...(command.input.customAgentId !== undefined ? { customAgentId: command.input.customAgentId } : {}),
           ...(command.input.customAgentVersion !== undefined ? { customAgentVersion: command.input.customAgentVersion } : {}),
+          ...(command.input.skillPins !== undefined ? { skillPins: command.input.skillPins.map((pin) => ({ ...pin })) } : {}),
           ...(command.input.route !== undefined ? { route: command.input.route } : {}),
           ...(command.input.continuationKey !== undefined ? { continuationKey: command.input.continuationKey } : {}),
           ...(command.input.authAccount !== undefined ? { authAccount: command.input.authAccount } : {}),
@@ -290,6 +294,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.sandboxProvider === command.input.sandboxProvider &&
           run.customAgentId === command.input.customAgentId &&
           run.customAgentVersion === command.input.customAgentVersion &&
+          JSON.stringify(run.skillPins ?? []) === JSON.stringify(command.input.skillPins ?? []) &&
           sameRoute &&
           run.continuationKey === command.input.continuationKey &&
           (command.input.continuesKey === undefined ||

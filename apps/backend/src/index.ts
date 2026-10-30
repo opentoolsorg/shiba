@@ -43,6 +43,7 @@ import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
 import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
+import { handleSkills } from "./skills-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
@@ -276,6 +277,8 @@ export default {
       if (apiKeysResponse) return apiKeysResponse;
       const customAgentsResponse = await handleCustomAgents(request, env);
       if (customAgentsResponse) return customAgentsResponse;
+      const skillsResponse = await handleSkills(request, env);
+      if (skillsResponse) return skillsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
       if (orgSandboxResponse) return orgSandboxResponse;
       const orgModelKeysResponse = await handleOrgModelKeys(request, env);
