@@ -17,7 +17,11 @@ The Slack integration is powered by the Orchestrator Worker and Durable Objects:
 4. **Approval card**: Slash-command responses and mentions can present approval/rejection controls. Mentions require `SLACK_BOT_TOKEN`; an empty token means no mention card and no run. An approval queues execution; successful coding or PR creation is not guaranteed.
 5. **Repo resolution**: GitHub URL in the mention/thread, else `SLACK_CHANNEL_REPOS`, else an in-thread ask — never a guessed repo.
 
-Task rooms can mirror a specific thread after the Worker has observed a signed Slack event for it. A room owner maps the exact workspace/channel/thread from the Collaboration view; only later signed messages in that thread are copied into the room. Slack user IDs remain Slack identities and are not linked to Shiba accounts. Revoking the mapping stops new room writes. The room UI can create an outbound delivery intent only when `SLACK_BOT_TOKEN` is configured and the mapped channel exactly matches `SLACK_APPROVALS_CHANNEL`; this intent is recorded as **not sent** and does not post a Slack message.
+Task rooms can mirror a specific thread after the Worker has observed a signed Slack event for it. A room owner maps the exact workspace/channel/thread from the Collaboration view; only later signed messages in that thread are copied into the room. Slack user IDs remain Slack identities and are not linked to Shiba accounts. Revoking the mapping stops new room writes.
+
+Outbound room delivery is disabled by default. An operator must set `SLACK_ROOM_OUTBOX_ENABLED=true`, configure `SLACK_BOT_TOKEN` and the exact target `SLACK_APPROVALS_CHANNEL`, and configure `DASHBOARD_APPROVERS`. A dashboard approver must approve each delivery intent. Before sending, the Worker calls Slack `auth.test` with the configured token and requires its workspace ID to match the signed, mapped thread; it then rechecks the active link and exact message content before using `chat.postMessage`. A successful Slack receipt is persisted. A network failure after the request begins is recorded as **unknown** and is never automatically retried.
+
+Adding `message.channels` / `message.groups` subscriptions or the required history scopes changes the Slack app installation. A Slack workspace admin must review and approve the app manifest and reinstall or update the app. No channel mapping, app installation, scope grant, or real Slack send is performed by the code tests.
 
 ## Setup Instructions
 
@@ -27,7 +31,7 @@ Task rooms can mirror a specific thread after the Worker has observed a signed S
    Fastest: at [api.slack.com/apps](https://api.slack.com/apps) choose **Create New App → From a manifest** and paste `slack-app-manifest.yaml` from the repository root — it declares the scopes, mention and thread-message events, `/shiba-ai-coworker` command, and interactivity below. Edit the two `your-worker.workers.dev` URLs to your Worker hostname. Manual alternative:
 
 2. **Configure Bot Token Scopes**
-   Under **OAuth & Permissions**, add the following Bot Token Scopes:
+   Under **OAuth & Permissions**, add the following Bot Token Scopes (a workspace admin must approve the updated app installation):
    - `chat:write` (post messages and replies)
    - `app_mentions:read` (listen for @AI Coworker mentions)
    - `channels:history` (read thread context)
