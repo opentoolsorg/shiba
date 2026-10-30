@@ -1638,6 +1638,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     payload?: unknown;
     queuedBy?: unknown;
     commandId?: unknown;
+    expectedCustomAgentVersion?: unknown;
+    orgId?: unknown;
   }): Promise<Response> {
     const kind = typeof input.kind === "string" && input.kind.trim() ? input.kind.trim() : "run";
     let executionTarget: ExecutionTarget | undefined;
@@ -1690,6 +1692,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
     }
     const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    if (input.expectedCustomAgentVersion !== undefined &&
+      (!Number.isSafeInteger(input.expectedCustomAgentVersion) || Number(input.expectedCustomAgentVersion) < 1)) {
+      return Response.json({ error: "Invalid expected custom-agent version." }, { status: 400 });
+    }
     let repoUrl = typeof input.repoUrl === "string" ? input.repoUrl : "";
     let baseBranch = typeof input.baseBranch === "string" && input.baseBranch.trim() ? input.baseBranch.trim() : "main";
     if (executionTarget?.kind === "repository") {
@@ -1735,6 +1741,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         : typeof (input as { orgAgentId?: unknown }).orgAgentId === "string"
           ? (input as { orgAgentId: string }).orgAgentId.trim()
           : "";
+    if (input.expectedCustomAgentVersion !== undefined && !customAgentRef) {
+      return Response.json({ error: "expectedCustomAgentVersion requires customAgentId." }, { status: 400 });
+    }
     if (customAgentRef) {
       if (!this.env.AGENT_AUDIT) {
         return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
@@ -1745,6 +1754,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const agent = await resolveCustomAgentForRun(this.env, intakeOrgId, customAgentRef);
       if (!agent) {
         return Response.json({ error: "Bot not found." }, { status: 404 });
+      }
+      if (input.expectedCustomAgentVersion !== undefined && agent.version !== input.expectedCustomAgentVersion) {
+        return Response.json({ error: "Custom-agent profile changed; review the scheduled task before dispatch." }, { status: 409 });
       }
       if (agent.config.toolScopes?.length) {
         return Response.json({ error: "Bot toolScopes are not supported. Remove the configured scopes before starting this bot." }, { status: 400 });
@@ -1765,6 +1777,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       if (overrides.instructions) {
         task = `${overrides.instructions}\n\n---\n\n${task}`;
+      }
+      if (input.expectedCustomAgentVersion !== undefined && task.length > 4000) {
+        return Response.json({ error: "Pinned employee instructions and scheduled task exceed the 4,000-character approval limit. Review and shorten the schedule inputs." }, { status: 400 });
       }
       if (executionTarget?.kind === "artifact-workspace" && expectedDeliverables !== undefined) {
         executionTarget = { ...executionTarget, expectedDeliverables: [...expectedDeliverables] };

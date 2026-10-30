@@ -8,7 +8,7 @@ import {
   summarizeAutomationEvent,
   type FireAutomationDeps,
 } from "../src/automation-runner.js";
-import { createAutomation, type Automation, type RunWhenAi } from "../src/automations.js";
+import { createAutomation, reviewedSkillPinSha256, type Automation, type RunWhenAi } from "../src/automations.js";
 
 const REPO = "https://github.com/owner/repo";
 const MODEL = "@cf/zai-org/glm-4.7-flash";
@@ -133,8 +133,9 @@ describe("automation fire path", () => {
   });
 
   it("passes customAgentId through to the queued run", async () => {
-    const d = deps();
-    const automation = scheduleAutomation({ customAgentId: "agent-xyz" });
+    const pin = { id: "agent-xyz", orgId: "self-hosted", version: 3, configSha256: "a".repeat(64) };
+    const d = deps({ resolveCustomAgentPin: vi.fn(async () => ({ version: 3, configSha256: "a".repeat(64) })) });
+    const automation = scheduleAutomation({ customAgentId: "agent-xyz", customAgentPin: pin });
     const result = await fireAutomation(
       automation,
       { kind: "schedule", nowMs: d.nowMs! },
@@ -232,6 +233,53 @@ describe("automation fire path", () => {
     const result = await fireAutomation(automation, { kind: "schedule", nowMs: d.nowMs! }, d);
     expect(result.fired).toBe(true);
     expect(d.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("pins the reviewed profile and skill snapshots into the queued task", async () => {
+    const instructions = "Use only cited sources.";
+    const skillPin = { id: "research-sources", version: "2", source: "repo:docs/research.md", instructions, enabled: true };
+    const sha256 = await reviewedSkillPinSha256(skillPin);
+    const automation = scheduleAutomation({
+      customAgentId: "agent-1",
+      customAgentPin: { id: "agent-1", orgId: "self-hosted", version: 4, configSha256: "b".repeat(64) },
+      skillPins: [{ id: "research-sources", version: "2", source: "repo:docs/research.md", instructions, sha256, enabled: true }],
+    });
+    const d = deps({
+      resolveCustomAgentPin: vi.fn(async () => ({ version: 4, configSha256: "b".repeat(64) })),
+    });
+    const result = await fireAutomation(automation, { kind: "schedule", nowMs: d.nowMs! }, d);
+    expect(result.fired).toBe(true);
+    expect(d.queueRun.mock.calls[0]![0]).toMatchObject({
+      customAgentId: "agent-1",
+      expectedCustomAgentVersion: 4,
+      orgId: "self-hosted",
+      task: expect.stringContaining(instructions),
+    });
+  });
+
+  it("rejects profile version drift and disabled or changed skill pins before queueing", async () => {
+    const instructions = "Use only cited sources.";
+    const skillIdentity = { id: "research-sources", version: "2", source: "repo:docs/research.md", instructions };
+    const sha256 = await reviewedSkillPinSha256(skillIdentity);
+    const profile = { id: "agent-1", orgId: "self-hosted", version: 4, configSha256: "b".repeat(64) };
+    const skill = { id: "research-sources", version: "2", source: "repo:docs/research.md", instructions, sha256, enabled: true };
+    const changedProfile = await fireAutomation(scheduleAutomation({ customAgentId: "agent-1", customAgentPin: profile }),
+      { kind: "schedule", nowMs: deps().nowMs! }, deps({ resolveCustomAgentPin: vi.fn(async () => ({ version: 5, configSha256: "c".repeat(64) })) }));
+    expect(changedProfile.fired).toBe(false);
+    expect(changedProfile.reason).toContain("profile changed");
+
+    const unpinned = await fireAutomation(scheduleAutomation({ customAgentId: "agent-legacy" }),
+      { kind: "schedule", nowMs: deps().nowMs! }, deps());
+    expect(unpinned.fired).toBe(false);
+    expect(unpinned.reason).toContain("not pinned");
+
+    for (const skillPin of [{ ...skill, enabled: false }, { ...skill, instructions: "changed without review" }]) {
+      const d = deps();
+      const result = await fireAutomation(scheduleAutomation({ skillPins: [skillPin] }), { kind: "schedule", nowMs: d.nowMs! }, d);
+      expect(result.fired).toBe(false);
+      expect(result.automation.occurrences?.[0]).toMatchObject({ status: "rejected", outcome: "not-queued" });
+      expect(d.queueRun).not.toHaveBeenCalled();
+    }
   });
 
   it("honors the global kill switch", async () => {
