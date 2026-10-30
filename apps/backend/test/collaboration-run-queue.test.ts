@@ -49,6 +49,8 @@ describe("collaboration queue profile pin", () => {
       customAgentId: "cag-profile",
       profileVersion: 3,
       commandId: "room-handoff-123",
+      runtime: "local",
+      targetMachineId: "paired-machine-1",
     });
     expect(response?.status).toBe(200);
     expect(seen.name).toBe("owner@example.test");
@@ -60,6 +62,8 @@ describe("collaboration queue profile pin", () => {
       commandId: "room-handoff-123",
       threadKey: "owner@example.test",
       orgId: "self-hosted",
+      runtime: "local",
+      targetMachineId: "paired-machine-1",
     });
     expect(response && (await response.json())).toEqual({ ok: true, approvalId: "approval-local" });
   });

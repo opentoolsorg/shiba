@@ -841,6 +841,10 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "Pinned employee profile is no longer available." }, 409);
         }
+        if (body.runtime !== undefined && body.runtime !== "sandbox" && body.runtime !== "local") {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody("Employee execution target must be cloud sandbox or a paired computer.");
+        }
         const repoUrl =
           typeof body.repoUrl === "string" && body.repoUrl.trim()
             ? body.repoUrl.trim()
@@ -851,12 +855,20 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
             "Choose a repository or configure a default repository on the employee profile.",
           );
         }
+        const runtime = body.runtime === "local" ? "local" : "sandbox";
+        const targetMachineId = typeof body.targetMachineId === "string" ? body.targetMachineId.trim() : "";
+        if (runtime === "local" && !targetMachineId) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody("Choose a paired computer for local employee work.");
+        }
         const queued = await queueCollaborationRun(request, env, {
           task,
           repoUrl,
           customAgentId,
           profileVersion: profile.version,
           commandId: saved.handoffId,
+          runtime,
+          ...(runtime === "local" ? { targetMachineId } : {}),
         });
         if (!queued?.ok) {
           const detail = (await queued?.json().catch(() => ({}))) as { error?: string } | undefined;

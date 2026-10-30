@@ -361,7 +361,18 @@ export class Automations {
         ...automation,
         // Evaluate today's permissions against the repository and PR intent
         // that was actually queued, rather than a subsequently edited task.
-        ...(frozenIntent ? { repoUrl: frozenIntent.repoUrl, prompt: frozenIntent.prompt } : {}),
+        ...(frozenIntent ? {
+          repoUrl: frozenIntent.repoUrl,
+          prompt: frozenIntent.prompt,
+          // A previously attempted queue has a durable input intent. Do not
+          // let later employee edits turn that same command into a different
+          // (or unpinned) profile dispatch; queueRun below reuses the frozen
+          // command receipt and exact input fields.
+          customAgentId: frozenIntent.customAgentId,
+          customAgentPin: undefined,
+          skillPins: undefined,
+          executionTarget: frozenIntent.executionTarget,
+        } : {}),
         ...(ownCharge ? { runsToday: Math.max(0, (automation.runsToday ?? 0) - 1) } : {}),
       };
       const result = await fireMatchingAutomations(

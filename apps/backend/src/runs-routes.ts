@@ -107,14 +107,14 @@ export async function handleRuns(request: Request, env: Env): Promise<Response |
 export async function queueCollaborationRun(
   request: Request,
   env: Env,
-  input: { task: string; repoUrl: string; customAgentId: string; profileVersion: number; commandId: string },
+  input: { task: string; repoUrl: string; customAgentId: string; profileVersion: number; commandId: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
 ): Promise<Response | null> {
   const headers = new Headers(request.headers);
   headers.delete("content-length");
   const forwarded = new Request(new URL("/api/runs", request.url), {
     method: "POST",
     headers,
-    body: JSON.stringify({ task: input.task, repoUrl: input.repoUrl, customAgentId: input.customAgentId, commandId: input.commandId }),
+    body: JSON.stringify({ task: input.task, repoUrl: input.repoUrl, customAgentId: input.customAgentId, commandId: input.commandId, ...(input.runtime ? { runtime: input.runtime } : {}), ...(input.targetMachineId ? { targetMachineId: input.targetMachineId } : {}) }),
   });
   collaborationProfilePins.set(forwarded, input.profileVersion);
   return handleRuns(forwarded, env);
