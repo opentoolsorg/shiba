@@ -20,11 +20,15 @@ import { handleRepositories } from "../src/v1/repositories.js";
 
 function makeDo() {
   const storage = new Map<string, unknown>();
-  const state = { storage: {
+  const storageApi = {
     get: async (key: string) => storage.get(key),
     put: async (key: string, value: unknown) => void storage.set(key, value),
     list: async () => new Map(storage),
     delete: async (keys: string[]) => { for (const key of keys) storage.delete(key); },
+  };
+  const state = { storage: {
+    ...storageApi,
+    transaction: async (callback: (transaction: typeof storageApi) => Promise<unknown>) => callback(storageApi),
   } } as unknown as DurableObjectState;
   return new Automations(state, { CodingOrchestrator: {}, AUTOMATIONS_ENABLED: "true", AI: {}, ORCHESTRATOR_MODEL: "@cf/test/model",
     GITHUB_TOKEN: "t" } as unknown as Env);
