@@ -707,6 +707,27 @@ export type components = {
             mediaType: string;
             bytes: number;
             sha256: string;
+            /** @description Opaque stable identity for grouping retained versions within the owning run store. */
+            artifactId?: string;
+            version?: number;
+            sourceRunId?: string;
+            provenance?: {
+                skills?: {
+                    skillId: string;
+                    version: number;
+                    name: string;
+                }[];
+                customAgent?: {
+                    id: string;
+                    version: number;
+                };
+            };
+            review?: {
+                /** @enum {string} */
+                status: "pending_review" | "approved" | "changes_requested";
+                updatedAt?: number;
+                note?: string;
+            };
         };
         Thread: {
             threadId: string;
