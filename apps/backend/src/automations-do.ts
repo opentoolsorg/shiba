@@ -172,6 +172,25 @@ export class Automations {
     await this.ctx.storage.put("state", { items: store.list() } satisfies AutomationsState);
   }
 
+  /**
+   * Merge the in-flight fire's accounting into the latest persisted state.
+   * Queue calls yield to PATCH/DELETE requests, so replacing the old snapshot
+   * after an await could undo a pause or resurrect a deleted automation.
+   */
+  private async mergeFireState(before: Automation[], after: Automation[]): Promise<void> {
+    const beforeById = new Map(before.map((item) => [item.id, item]));
+    const afterById = new Map(after.map((item) => [item.id, item]));
+    await this.ctx.storage.transaction(async (transaction) => {
+      const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+      const items = state.items.map((latest) => {
+        const base = beforeById.get(latest.id);
+        const fired = afterById.get(latest.id);
+        return base && fired ? mergeAutomationFireState(base, fired, latest) : latest;
+      });
+      await transaction.put("state", { items } satisfies AutomationsState);
+    });
+  }
+
   private fireDeps(orchestrator: OrchestratorStub, nowMs: number): FireAutomationDeps {
     return {
       ai: this.env.AI,
@@ -199,12 +218,7 @@ export class Automations {
       event,
       this.fireDeps(orchestrator, nowMs),
     );
-    // Merge updated entries back into the full store — the input list is
-    // filtered when onlyId is set, so it is not the complete store.
-    const updated = new Map(automations.map((a) => [a.id, a]));
-    const next = new AutomationStore();
-    for (const item of all) next.upsert(updated.get(item.id) ?? item);
-    await this.save(next);
+    await this.mergeFireState(target, automations);
     return {
       fired: results.filter((r) => r.fired).length,
       skipped: results.filter((r) => !r.fired).length,
@@ -228,9 +242,7 @@ export class Automations {
       event,
       this.fireDeps(orchestrator, nowMs),
     );
-    const next = new AutomationStore();
-    for (const item of automations) next.upsert(item);
-    await this.save(next);
+    await this.mergeFireState(store.list(), automations);
     return { fired: fired + results.filter((r) => r.fired).length };
   }
 
@@ -726,9 +738,15 @@ export class Automations {
       }
       try {
         const created = createAutomation(body as CreateAutomationInput);
-        const store = await this.load();
-        store.upsert(created.automation);
-        await this.save(store);
+        const inserted = await this.ctx.storage.transaction(async (transaction) => {
+          const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+          if (state.items.some((item) => item.id === created.automation.id)) return false;
+          await transaction.put("state", { items: [...state.items, created.automation] } satisfies AutomationsState);
+          return true;
+        });
+        if (!inserted) {
+          return Response.json({ error: "Automation id already exists." }, { status: 409 });
+        }
         return Response.json(
           { automation: publicAutomation(created.automation), webhookSecret: created.webhookSecret },
           { status: 201 },
@@ -873,6 +891,45 @@ export class Automations {
     }
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+}
+
+function mergeAutomationFireState(base: Automation, fired: Automation, latest: Automation): Automation {
+  const updated: Automation = { ...latest };
+  const runCountDelta = Math.max(0, fired.runCount - base.runCount);
+  if (runCountDelta > 0) updated.runCount = latest.runCount + runCountDelta;
+
+  const firedDay = fired.runDayStartedAt;
+  const baseDay = base.runDayStartedAt;
+  const firedTodayDelta = firedDay === baseDay
+    ? Math.max(0, (fired.runsToday ?? 0) - (base.runsToday ?? 0))
+    : fired.runsToday ?? 0;
+  if (firedTodayDelta > 0 && firedDay !== undefined) {
+    if (latest.runDayStartedAt === firedDay) {
+      updated.runsToday = (latest.runsToday ?? 0) + firedTodayDelta;
+    } else if (latest.runDayStartedAt === undefined || latest.runDayStartedAt < firedDay) {
+      updated.runDayStartedAt = firedDay;
+      updated.runsToday = fired.runsToday ?? firedTodayDelta;
+    }
+  }
+
+  if (fired.lastTriggeredAt !== base.lastTriggeredAt && fired.lastTriggeredAt !== undefined) {
+    updated.lastTriggeredAt = Math.max(latest.lastTriggeredAt ?? Number.NEGATIVE_INFINITY, fired.lastTriggeredAt);
+  }
+  const scheduleFiredAt = { ...(latest.scheduleFiredAt ?? {}) };
+  for (const [key, value] of Object.entries(fired.scheduleFiredAt ?? {})) {
+    if (value !== base.scheduleFiredAt?.[key]) {
+      scheduleFiredAt[key] = Math.max(scheduleFiredAt[key] ?? Number.NEGATIVE_INFINITY, value);
+    }
+  }
+  if (Object.keys(scheduleFiredAt).length > 0) updated.scheduleFiredAt = scheduleFiredAt;
+
+  const firedSkip = fired.lastSkip;
+  const baseSkip = base.lastSkip;
+  if (firedSkip && (firedSkip.at !== baseSkip?.at || firedSkip.reason !== baseSkip.reason)
+      && (!latest.lastSkip || latest.lastSkip.at <= firedSkip.at)) {
+    updated.lastSkip = firedSkip;
+  }
+  return updated;
 }
 
 function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret"> & { hasWebhookSecret: boolean } {

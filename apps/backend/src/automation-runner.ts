@@ -306,6 +306,9 @@ async function commitAutomationFire(
 
   const threadKey = automationThreadKey(automation.id);
   try {
+    // The scheduler selects one UTC-minute occurrence from its five-minute
+    // coalescing window. Reuse that occurrence for retries in the same window;
+    // the orchestrator retains only its bounded command-receipt history.
     const commandId = recheck.trigger.kind === "schedule" && recheck.scheduleOccurrenceMs !== undefined
       ? automationCommandId(automation.id, { kind: "schedule", nowMs: recheck.scheduleOccurrenceMs })
       : automationCommandId(automation.id, event);

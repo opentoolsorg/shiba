@@ -61,6 +61,70 @@ function addDueBatch(storage: FakeStorage, id: string) {
 }
 
 describe("automation tick webhook and schedule state", () => {
+  it("preserves a pause that arrives while the scheduled queue request is pending", async () => {
+    const scheduled = createAutomation({
+      id: "pause-during-queue",
+      prompt: "Prepare a draft",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+      triggers: [{ kind: "schedule", cron: "0 3 * * *", timezone: "America/Los_Angeles" }],
+    }).automation;
+    const { automation, storage, orchestrator, fetch } = makeDo([scheduled]);
+    let enteredQueue!: () => void;
+    let releaseQueue!: () => void;
+    const queueEntered = new Promise<void>((resolve) => { enteredQueue = resolve; });
+    const queueGate = new Promise<void>((resolve) => { releaseQueue = resolve; });
+    fetch.mockImplementation(async () => {
+      enteredQueue();
+      await queueGate;
+      return Response.json({ approvalId: "pending-approval" });
+    });
+
+    const tick = automation.tick(orchestrator, NOW);
+    await queueEntered;
+    const paused = await automation.fetch(new Request("https://internal/api/automations/pause-during-queue", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
+    }));
+    expect(paused.status).toBe(200);
+    releaseQueue();
+    expect(await tick).toEqual({ fired: 1 });
+
+    const latest = (await storage.get<AutomationsState>("state"))?.items[0];
+    expect(latest).toMatchObject({ enabled: false, runCount: 1, runsToday: 1 });
+    expect(await automation.tick(orchestrator, NOW + 60_000)).toEqual({ fired: 0 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resurrect an automation deleted while its queue request is pending", async () => {
+    const scheduled = createAutomation({
+      id: "delete-during-queue",
+      prompt: "Prepare a draft",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+      triggers: [{ kind: "schedule", cron: "0 3 * * *", timezone: "America/Los_Angeles" }],
+    }).automation;
+    const { automation, storage, orchestrator, fetch } = makeDo([scheduled]);
+    let enteredQueue!: () => void;
+    let releaseQueue!: () => void;
+    const queueEntered = new Promise<void>((resolve) => { enteredQueue = resolve; });
+    const queueGate = new Promise<void>((resolve) => { releaseQueue = resolve; });
+    fetch.mockImplementation(async () => {
+      enteredQueue();
+      await queueGate;
+      return Response.json({ approvalId: "pending-approval" });
+    });
+
+    const tick = automation.tick(orchestrator, NOW);
+    await queueEntered;
+    const deleted = await automation.fetch(new Request("https://internal/api/automations/delete-during-queue", {
+      method: "DELETE",
+    }));
+    expect(deleted.status).toBe(200);
+    releaseQueue();
+    expect(await tick).toEqual({ fired: 1 });
+    expect((await storage.get<AutomationsState>("state"))?.items).toEqual([]);
+  });
+
   it("persists a timezone-aware repo-free target and dispatches the exact frozen target once", async () => {
     const { automation, storage, orchestrator, fetch } = makeDo([]);
     const target = {
@@ -80,6 +144,23 @@ describe("automation tick webhook and schedule state", () => {
     }));
     expect(created.status).toBe(201);
     expect((await created.json() as { automation: Automation }).automation.executionTarget).toEqual(target);
+    const duplicate = await automation.fetch(new Request("https://internal/api/automations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "weekly-sales",
+        prompt: "Replace the approved schedule",
+        executionTarget: { kind: "artifact-workspace", workspaceName: "Changed", expectedDeliverables: ["different.md"] },
+        triggers: [{ kind: "schedule", cron: "0 4 * * *", timezone: "UTC" }],
+      }),
+    }));
+    expect(duplicate.status).toBe(409);
+    expect((await storage.get<AutomationsState>("state"))?.items[0]).toMatchObject({
+      prompt: "Prepare a grounded weekly account brief",
+      executionTarget: target,
+      triggers: [{ kind: "schedule", cron: "0 3 * * *", timezone: "America/Los_Angeles" }],
+      runCount: 0,
+    });
     expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
     expect(fetch).toHaveBeenCalledTimes(1);
     const queued = await fetch.mock.calls[0]![0].clone().json() as Record<string, unknown>;
