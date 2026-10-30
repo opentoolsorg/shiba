@@ -30,8 +30,19 @@ export interface TaskAttempt {
   frozen: FrozenTaskInput;
 }
 
+export interface ArtifactRevisionSource {
+  taskId: string;
+  runId: string;
+  artifactId: string;
+  artifactVersion: number;
+  path: string;
+}
+
 export interface DurableTask {
   taskId: string;
+  /** Root task identity retained across explicit artifact revision tasks. */
+  artifactLineageId?: string;
+  revisionOf?: ArtifactRevisionSource;
   ownerId: string;
   queuedBy?: string;
   title: string;
@@ -60,6 +71,8 @@ export function canRetryTaskAttempt(attempt: TaskAttempt): boolean {
 
 export function createDurableTask(input: {
   taskId: string;
+  artifactLineageId?: string;
+  revisionOf?: ArtifactRevisionSource;
   ownerId: string;
   queuedBy?: string;
   title: string;
@@ -82,6 +95,8 @@ export function createDurableTask(input: {
   };
   return {
     taskId: input.taskId,
+    artifactLineageId: input.artifactLineageId ?? input.taskId,
+    ...(input.revisionOf ? { revisionOf: structuredClone(input.revisionOf) } : {}),
     ownerId: input.ownerId,
     ...(input.queuedBy ? { queuedBy: input.queuedBy } : {}),
     title: input.title.slice(0, 240),
@@ -230,6 +245,7 @@ export function taskHistoryDto(task: DurableTask): Omit<DurableTask, "attempts" 
   return {
     taskId: task.taskId,
     title: task.title,
+    ...(task.revisionOf ? { revisionOf: structuredClone(task.revisionOf) } : {}),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     attempts: task.attempts.map(({ frozen, commandId, ...attempt }) => ({
@@ -250,4 +266,13 @@ export function mergeTaskLineage(
     .filter((run) => !seenRunIds.has(run.runId) && !(run.approval?.approvalId && seenApprovalIds.has(run.approval.approvalId)))
     .map((run) => legacyTaskForRun(run, ownerId));
   return [...durable, ...legacy].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Resolve the stable task family for a run without requiring polling first. */
+export function artifactLineageForRun(tasks: readonly DurableTask[], run: DelegatedRun): string | undefined {
+  const approvalId = run.approval?.approvalId;
+  const task = tasks.find((candidate) => candidate.attempts.some((attempt) =>
+    attempt.runId === run.runId || (approvalId !== undefined && attempt.approvalId === approvalId),
+  ));
+  return task ? (task.artifactLineageId ?? task.taskId) : undefined;
 }

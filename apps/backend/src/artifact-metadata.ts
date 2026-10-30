@@ -15,35 +15,33 @@ function digestHex(bytes: ArrayBuffer): string {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** Stable opaque grouping key; it contains no repository URL or source link. */
-export async function artifactIdentity(run: DelegatedRun, path: string): Promise<string> {
-  const scope = [run.orgId ?? "", run.queuedBy ?? "", run.repoUrl, path].join("\0");
+/** Stable opaque grouping key; unrelated tasks never share an artifact family. */
+export async function artifactIdentity(
+  run: DelegatedRun,
+  path: string,
+  taskLineageId?: string,
+): Promise<string> {
+  // Legacy runs without a durable task record migrate as one-run histories.
+  // This intentionally avoids grouping unrelated legacy repository-free tasks.
+  const lineage = taskLineageId ? `task:${taskLineageId}` : `legacy-run:${run.runId}`;
+  const scope = [run.orgId ?? "", run.queuedBy ?? "", lineage, run.repoUrl, path].join("\0");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(scope));
   return `artifact_${digestHex(digest).slice(0, 32)}`;
 }
 
-/** Attach immutable run/skill provenance and a version number before the completion event is stored. */
+/** Prepare stable identity and provenance; version allocation is a separate synchronous DO commit step. */
 export async function prepareRunArtifacts(
   run: DelegatedRun,
   artifacts: readonly RunDeliverable[],
-  allRuns: readonly DelegatedRun[],
+  taskLineageId: string | undefined,
   now: number,
 ): Promise<RunDeliverable[]> {
   const output: RunDeliverable[] = [];
   for (const item of artifacts) {
-    const artifactId = await artifactIdentity(run, item.path);
-    let version = 1;
-    for (const priorRun of allRuns) {
-      if (priorRun.runId === run.runId || priorRun.createdAt > run.createdAt) continue;
-      for (const prior of priorRun.deliverables ?? []) {
-        const priorIdentity = await artifactIdentity(priorRun, prior.path);
-        if (priorIdentity === artifactId) version = Math.max(version, (prior.version ?? 0) + 1);
-      }
-    }
+    const artifactId = await artifactIdentity(run, item.path, taskLineageId);
     output.push({
       ...item,
       artifactId,
-      version,
       sourceRunId: run.runId,
       provenance: {
         ...(run.skillPins?.length
@@ -63,6 +61,38 @@ export async function prepareRunArtifacts(
     });
   }
   return output;
+}
+
+/**
+ * Allocate versions synchronously against the current DO run projection.
+ * Call immediately before the completion transition, with no await between
+ * this read and the transition commit. A later-created run that finishes
+ * first receives the next version; wall-clock creation order is irrelevant.
+ */
+export function allocateArtifactVersions(
+  run: DelegatedRun,
+  prepared: readonly RunDeliverable[],
+  allRuns: readonly DelegatedRun[],
+  taskLineageId: string | undefined,
+  lineageForRun: (candidate: DelegatedRun) => string | undefined,
+): RunDeliverable[] {
+  return prepared.map((item) => {
+    let maxVersion = 0;
+    for (const priorRun of allRuns) {
+      if (
+        priorRun.runId === run.runId ||
+        !taskLineageId ||
+        lineageForRun(priorRun) !== taskLineageId ||
+        (priorRun.orgId ?? "") !== (run.orgId ?? "") ||
+        (priorRun.queuedBy ?? "") !== (run.queuedBy ?? "") ||
+        priorRun.repoUrl !== run.repoUrl
+      ) continue;
+      for (const prior of priorRun.deliverables ?? []) {
+        if (prior.path === item.path) maxVersion = Math.max(maxVersion, prior.version ?? 1);
+      }
+    }
+    return { ...item, version: maxVersion + 1 };
+  });
 }
 
 export function parseArtifactReview(value: unknown): ArtifactReviewInput | null {

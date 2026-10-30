@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   appendTaskAttempt,
+  artifactLineageForRun,
   canRetryTaskAttempt,
   cancelTaskAttempt,
   createDurableTask,
   legacyTaskForRun,
   mergeTaskLineage,
   taskVisibleTo,
+  taskHistoryDto,
   updateTaskAttempt,
 } from "../src/task-attempts.js";
 
@@ -61,5 +63,20 @@ describe("durable task attempts", () => {
     expect(mergeTaskLineage([reloaded], [{ ...(run as object), runId: "run-1" } as never])).toHaveLength(1);
     expect(taskVisibleTo(reloaded, "user-1")).toBe(true);
     expect(taskVisibleTo(reloaded, "user-2")).toBe(false);
+  });
+
+  it("retains root artifact lineage and exposes the revision source after serialization", () => {
+    const revisionOf = { taskId: "task-1", runId: "run-1", artifactId: "artifact_abc", artifactVersion: 2, path: "report.md" };
+    const revision = createDurableTask({
+      taskId: "task-revision", artifactLineageId: "task-1", revisionOf,
+      ownerId: "user-1", title: "Revise report", commandId: "artifact-revision:cmd-1234",
+      approvalId: "approval-new", frozen: { ...frozen, body: { ...frozen.body, task: "Revise report" } }, now: 10,
+    });
+    const serialized = JSON.parse(JSON.stringify(revision));
+    expect(serialized.artifactLineageId).toBe("task-1");
+    expect(taskHistoryDto(serialized).revisionOf).toEqual(revisionOf);
+    expect(artifactLineageForRun([serialized], { runId: "run-new", approval: { approvalId: "approval-new" } } as never)).toBe("task-1");
+    // Pre-delta task rows have no explicit root field; taskId is the migration default.
+    expect(artifactLineageForRun([{ ...serialized, taskId: "task-old", artifactLineageId: undefined }], { runId: "run-new", approval: { approvalId: "approval-new" } } as never)).toBe("task-old");
   });
 });
