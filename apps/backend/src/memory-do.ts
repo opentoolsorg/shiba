@@ -38,6 +38,11 @@ import {
   type SqlRow,
 } from "./memory-store.js";
 import { InputError } from "./security.js";
+import {
+  OwnerMemoryStore,
+  type OwnerMemorySourceInput,
+  type OwnerMemorySourcePatch,
+} from "./owner-memory-store.js";
 
 /** Reserved DO name for the shared registry + sessions instance. */
 export const MEMORY_REGISTRY_NAME = "global";
@@ -209,6 +214,15 @@ export function memoryRegistryStub(env: Env): DurableObjectStub {
   return memoryStub(env, MEMORY_REGISTRY_NAME);
 }
 
+/** Dedicated DO partition for one authenticated dashboard owner. */
+export async function ownerMemoryStub(env: Env, owner: string): Promise<DurableObjectStub> {
+  const canonical = owner.trim().toLocaleLowerCase();
+  if (canonical === "") throw new InputError("Memory owner identity is required.");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return env.Memory.get(env.Memory.idFromName(`owner-memory:${hash}`));
+}
+
 function json(body: unknown, init?: ResponseInit): Response {
   return Response.json(body, init);
 }
@@ -341,6 +355,7 @@ function factJson(fact: FactRecord, agent: string): Record<string, unknown> {
 
 export class Memory {
   private readonly store: MemoryStore;
+  private readonly ownerStore: OwnerMemoryStore;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -349,8 +364,12 @@ export class Memory {
     const exec: SqlExec = (sql, ...params) =>
       ctx.storage.sql.exec(sql, ...params).toArray() as unknown as SqlRow[];
     this.store = new MemoryStore(exec);
+    this.ownerStore = new OwnerMemoryStore(exec);
     ctx.blockConcurrencyWhile(async () => {
       this.store.init();
+      // Append-only CREATE IF NOT EXISTS migration preserves legacy facts and
+      // sessions while provisioning the separate owner-scoped library.
+      this.ownerStore.init();
       await this.ensureSweepScheduled();
     });
   }
@@ -1148,6 +1167,49 @@ export class Memory {
     return notFound();
   }
 
+  /** Owner-partitioned source CRUD. The partition, never the request body, is the owner. */
+  private async ownerSources(request: Request, seg: string[]): Promise<Response> {
+    if (this.isRegistry || !this.agent.startsWith("owner-memory:")) {
+      return badRequest("Workspace memory requires an owner-scoped Memory instance.");
+    }
+    if (seg.length === 1) {
+      if (request.method === "GET") return json({ sources: this.ownerStore.list() });
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
+      const body = await this.jsonBody(request);
+      const source = this.ownerStore.create(body as unknown as OwnerMemorySourceInput);
+      return json({ source }, { status: 201 });
+    }
+    if (seg.length !== 2) return notFound();
+    const id = pathParam(seg[1]);
+    if (request.method === "GET") {
+      const source = this.ownerStore.get(id);
+      return source ? json({ source }) : notFound("Memory source not found.");
+    }
+    if (request.method === "PATCH") {
+      const body = await this.jsonBody(request);
+      const source = this.ownerStore.update(id, body as OwnerMemorySourcePatch);
+      return source ? json({ source }) : notFound("Memory source not found.");
+    }
+    if (request.method === "DELETE") {
+      return this.ownerStore.delete(id) ? json({ ok: true, id }) : notFound("Memory source not found.");
+    }
+    return json({ error: "Method not allowed." }, { status: 405 });
+  }
+
+  /** Practical local keyword retrieval; all results carry explicit untrusted framing. */
+  private async ownerRecall(url: URL): Promise<Response> {
+    if (this.isRegistry || !this.agent.startsWith("owner-memory:")) {
+      return badRequest("Workspace memory requires an owner-scoped Memory instance.");
+    }
+    const query = url.searchParams.get("q")?.trim() ?? "";
+    if (query === "" || query.length > MAX_QUERY_CHARS) {
+      throw new InputError(query === "" ? "q must be a non-empty string." : `q must be ${MAX_QUERY_CHARS} characters or fewer.`);
+    }
+    const limit = limitParam(url.searchParams.get("limit"));
+    if (limit !== undefined && limit > 20) throw new InputError("limit must be no greater than 20.");
+    return json({ hits: this.ownerStore.search(query, limit) });
+  }
+
   async fetch(request: Request): Promise<Response> {
     // A stub that slept through its scheduled alarm re-arms on the next
     // request — the constructor only covers fresh instances.
@@ -1169,6 +1231,13 @@ export class Memory {
       }
       if (seg[0] === "registry") {
         return await this.registry(request, seg);
+      }
+      if (seg[0] === "sources") {
+        return await this.ownerSources(request, seg);
+      }
+      if (seg[0] === "recall") {
+        if (request.method !== "GET") return json({ error: "Method not allowed." }, { status: 405 });
+        return await this.ownerRecall(url);
       }
       return notFound();
     } catch (error) {

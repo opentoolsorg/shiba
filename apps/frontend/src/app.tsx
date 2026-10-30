@@ -2723,7 +2723,7 @@ export function App(): React.JSX.Element {
                     <span>Agent Memory</span>
                   </h2>
                   <p className="text-xs text-[var(--muted-foreground-2)]">
-                    Vectorize long-term semantic memory, extracted facts, and session context.
+                    Private workspace sources with local keyword recall, plus legacy agent facts and sessions.
                   </p>
                 </div>
               </div>
