@@ -15,8 +15,9 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
   const { pathname } = url;
   const factId = /^\/api\/memory\/facts\/([^/]+)$/.exec(pathname)?.[1];
   const ownerSources = /^\/api\/memory\/sources(?:\/[^/]+)?$/.test(pathname);
+  const ownerProjects = /^\/api\/memory\/projects(?:\/[^/]+)?$/.test(pathname);
   const ownerRecall = pathname === "/api/memory/recall";
-  if (pathname !== "/api/memory/facts" && pathname !== "/api/memory/sessions" && factId === undefined && !ownerSources && !ownerRecall) {
+  if (pathname !== "/api/memory/facts" && pathname !== "/api/memory/sessions" && factId === undefined && !ownerSources && !ownerProjects && !ownerRecall) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {
@@ -28,7 +29,7 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
       { status: 503 },
     );
   }
-  if (ownerSources || ownerRecall) {
+  if (ownerSources || ownerProjects || ownerRecall) {
     const userId = await resolveUserId(request, env);
     // The route has already passed its own auth check. A loopback-only
     // development session has no account identity, so it receives a

@@ -1481,6 +1481,16 @@ describe("complete skill prompt approval boundary", () => {
     expect((await response.json() as { task: string }).task).toBe(task);
   });
 
+  it("rejects project context from non-dashboard intake", async () => {
+    const instance = agent();
+    const response = await instance.onRequest(new Request("https://internal/api/runs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Fix it", projectContextId: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa" }),
+    }));
+    expect(response.status).toBe(403);
+    expect(instance.state.pendingApprovals ?? []).toEqual([]);
+  });
+
   it("blocks a disabled pin before execution while leaving the frozen text and provenance intact", async () => {
     const instance = agent();
     Object.assign(instance, { name: "owner@example.test" });
@@ -1579,6 +1589,40 @@ describe("chat approval gate", () => {
     const run = instance.state.runs.find((r) => r.runId === "agent-tool:chat-1");
     expect(run?.approval?.approvalId).toBe("chat-1");
     expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it("freezes owner project provenance into approval and run context", async () => {
+    const instance = agent();
+    Object.assign(instance, { name: "owner@example.test", messages: [{ role: "user", metadata: { shibaTask: { projectContextId: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa" } } }] });
+    let currentText = "launch checklist and QA owner";
+    const partitionNames: string[] = [];
+    Object.assign(instance.env, { Memory: {
+      idFromName(name: string) { partitionNames.push(name); return name; },
+      get() { return { fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { id: string };
+        if (body.id !== "memproj_aaaaaaaaaaaaaaaaaaaaaaaa") return Response.json({ error: "missing" }, { status: 404 });
+        return Response.json({ snapshot: {
+          project: { id: body.id, name: "Launch", purpose: "Ship safely", version: 3, defaultCustomAgentId: null, defaultHarness: null },
+          sources: [{ id: "memsrc_1", title: "Checklist", kind: "document", referenceUrl: "https://docs.example.test/launch", updatedAt: 7, content: currentText }],
+        } });
+      } }; },
+    } });
+    const delegate = delegateOf(instance);
+    await expect(delegate.needsApproval(INPUT, { toolCallId: "project-chat-1" })).resolves.toBe(true);
+    const frozen = instance.state.pendingApprovals?.find((record) => record.approvalId === "project-chat-1")?.task ?? "";
+    expect(frozen).toContain("SELECTED PROJECT CONTEXT (UNTRUSTED REFERENCE DATA");
+    expect(frozen).toContain('"version":3');
+    expect(frozen).toContain("launch checklist and QA owner");
+    expect(frozen).toContain("https://docs.example.test/launch");
+    expect(partitionNames).toHaveLength(1);
+    expect(partitionNames[0]).toMatch(/^owner-memory:[a-f0-9]{64}$/);
+    currentText = "edited after approval";
+    const approval = instance.state.pendingApprovals?.find((record) => record.approvalId === "project-chat-1");
+    expect(approval).toBeDefined();
+    const mintRun = instance as unknown as { mintApprovedRun(record: NonNullable<typeof approval>): DelegatedRun };
+    const approvedRun = mintRun.mintApprovedRun(approval!);
+    expect(approvedRun.task).toBe(frozen);
+    expect(approvedRun.task).not.toContain("edited after approval");
   });
 
   it("still refuses an execute that no gate ever minted", async () => {

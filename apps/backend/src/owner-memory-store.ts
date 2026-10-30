@@ -47,10 +47,43 @@ export interface OwnerMemoryHit extends OwnerMemorySource {
   context: string;
 }
 
+export interface OwnerMemoryProject {
+  id: string;
+  name: string;
+  purpose: string;
+  sourceIds: string[];
+  defaultCustomAgentId: string | null;
+  defaultHarness: string | null;
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+  disabledAt: number | null;
+}
+
+export interface OwnerMemoryProjectInput {
+  name: string;
+  purpose: string;
+  sourceIds: string[];
+  defaultCustomAgentId?: string | null;
+  defaultHarness?: string | null;
+}
+
+export type OwnerMemoryProjectPatch = Partial<OwnerMemoryProjectInput> & { enabled?: boolean };
+
+export interface OwnerMemoryProjectSnapshot {
+  project: OwnerMemoryProject;
+  sources: Array<
+    Pick<OwnerMemorySource, "id" | "title" | "kind" | "referenceUrl" | "updatedAt" | "content"> & {
+      contentTruncated: boolean;
+    }
+  >;
+}
+
 const DEFAULT_RETENTION_DAYS = 365;
 const MAX_RETENTION_DAYS = 3_650;
 const MAX_SOURCE_CHARS = 40_000;
 const MAX_TITLE_CHARS = 200;
+const MAX_PROJECT_SOURCES = 8;
 const SOURCE_KINDS = new Set<OwnerMemorySourceKind>([
   "note",
   "document",
@@ -74,6 +107,19 @@ const STATEMENTS = [
    )`,
   `CREATE INDEX IF NOT EXISTS owner_memory_updated ON owner_memory_sources(updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS owner_memory_expiry ON owner_memory_sources(expires_at)`,
+  `CREATE TABLE IF NOT EXISTS owner_memory_projects (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL,
+     purpose TEXT NOT NULL,
+     source_ids TEXT NOT NULL,
+     default_custom_agent_id TEXT,
+     default_harness TEXT,
+     version INTEGER NOT NULL,
+     created_at INTEGER NOT NULL,
+     updated_at INTEGER NOT NULL,
+     disabled_at INTEGER
+   )`,
+  `CREATE INDEX IF NOT EXISTS owner_memory_projects_updated ON owner_memory_projects(updated_at DESC)`,
 ] as const;
 
 function requireText(value: unknown, field: string, max: number): string {
@@ -134,6 +180,69 @@ function fromRow(row: SqlRow): OwnerMemorySource {
 
 function newId(): string {
   return `memsrc_${Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function newProjectId(): string {
+  return `memproj_${Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function projectFromRow(row: SqlRow): OwnerMemoryProject {
+  let sourceIds: unknown;
+  try {
+    sourceIds = JSON.parse(String(row.source_ids));
+  } catch {
+    sourceIds = [];
+  }
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    purpose: String(row.purpose),
+    sourceIds: Array.isArray(sourceIds)
+      ? sourceIds.filter((id): id is string => typeof id === "string")
+      : [],
+    defaultCustomAgentId:
+      row.default_custom_agent_id === null ? null : String(row.default_custom_agent_id),
+    defaultHarness: row.default_harness === null ? null : String(row.default_harness),
+    version: Number(row.version),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    disabledAt: row.disabled_at === null ? null : Number(row.disabled_at),
+  };
+}
+
+function projectInput(value: OwnerMemoryProjectInput): OwnerMemoryProjectInput {
+  const sourceIds = Array.isArray(value.sourceIds)
+    ? value.sourceIds.map((id) => (typeof id === "string" ? id.trim() : ""))
+    : [];
+  if (
+    !Array.isArray(value.sourceIds) ||
+    sourceIds.length > MAX_PROJECT_SOURCES ||
+    sourceIds.some((id) => id === "") ||
+    new Set(sourceIds).size !== sourceIds.length
+  ) {
+    throw new InputError(
+      `sourceIds must contain at most ${MAX_PROJECT_SOURCES} unique source ids.`,
+    );
+  }
+  const agent =
+    value.defaultCustomAgentId == null || value.defaultCustomAgentId === ""
+      ? null
+      : requireText(value.defaultCustomAgentId, "defaultCustomAgentId", 128);
+  const harness =
+    value.defaultHarness == null || value.defaultHarness === ""
+      ? null
+      : requireText(value.defaultHarness, "defaultHarness", 64);
+  const purpose = value.purpose ?? "";
+  if (typeof purpose !== "string" || purpose.length > 1000) {
+    throw new InputError("purpose must be 1000 characters or fewer.");
+  }
+  return {
+    name: requireText(value.name, "name", 120),
+    purpose: purpose.trim(),
+    sourceIds,
+    defaultCustomAgentId: agent,
+    defaultHarness: harness,
+  };
 }
 
 const STOP_WORDS = new Set([
@@ -310,6 +419,121 @@ export class OwnerMemoryStore {
       nowMs,
     ).map(fromRow);
     return rankOwnerMemorySources(sources, query, nowMs, limit);
+  }
+
+  private validateProjectSources(sourceIds: string[], nowMs: number): void {
+    for (const id of sourceIds) {
+      const source = this.get(id);
+      if (
+        !source ||
+        source.disabledAt !== null ||
+        (source.expiresAt !== null && source.expiresAt <= nowMs)
+      ) {
+        throw new InputError(
+          `Project source ${id} is missing, disabled, or expired. Remove it or restore it before saving.`,
+        );
+      }
+    }
+  }
+
+  createProject(value: OwnerMemoryProjectInput, nowMs = Date.now()): OwnerMemoryProject {
+    const input = projectInput(value);
+    this.validateProjectSources(input.sourceIds, nowMs);
+    const id = newProjectId();
+    this.exec(
+      `INSERT INTO owner_memory_projects (id,name,purpose,source_ids,default_custom_agent_id,default_harness,version,created_at,updated_at,disabled_at) VALUES (?,?,?,?,?,?,1,?,?,NULL)`,
+      id,
+      input.name,
+      input.purpose,
+      JSON.stringify(input.sourceIds),
+      input.defaultCustomAgentId ?? null,
+      input.defaultHarness ?? null,
+      nowMs,
+      nowMs,
+    );
+    const project = this.getProject(id);
+    if (!project) throw new Error("Project insert did not produce a row.");
+    return project;
+  }
+
+  getProject(id: string): OwnerMemoryProject | null {
+    const row = this.exec(`SELECT * FROM owner_memory_projects WHERE id=?`, id)[0];
+    return row ? projectFromRow(row) : null;
+  }
+
+  listProjects(): OwnerMemoryProject[] {
+    return this.exec(`SELECT * FROM owner_memory_projects ORDER BY updated_at DESC LIMIT 200`).map(
+      projectFromRow,
+    );
+  }
+
+  updateProject(
+    id: string,
+    patch: OwnerMemoryProjectPatch,
+    nowMs = Date.now(),
+  ): OwnerMemoryProject | null {
+    const current = this.getProject(id);
+    if (!current) return null;
+    if (patch.enabled !== undefined && typeof patch.enabled !== "boolean")
+      throw new InputError("enabled must be a boolean.");
+    const next = projectInput({
+      name: patch.name ?? current.name,
+      purpose: patch.purpose ?? current.purpose,
+      sourceIds: patch.sourceIds ?? current.sourceIds,
+      defaultCustomAgentId:
+        patch.defaultCustomAgentId === undefined
+          ? current.defaultCustomAgentId
+          : patch.defaultCustomAgentId,
+      defaultHarness:
+        patch.defaultHarness === undefined ? current.defaultHarness : patch.defaultHarness,
+    });
+    if (patch.enabled !== false) this.validateProjectSources(next.sourceIds, nowMs);
+    const disabledAt =
+      patch.enabled === undefined
+        ? current.disabledAt
+        : patch.enabled
+          ? null
+          : (current.disabledAt ?? nowMs);
+    this.exec(
+      `UPDATE owner_memory_projects SET name=?,purpose=?,source_ids=?,default_custom_agent_id=?,default_harness=?,version=version+1,updated_at=?,disabled_at=? WHERE id=?`,
+      next.name,
+      next.purpose,
+      JSON.stringify(next.sourceIds),
+      next.defaultCustomAgentId ?? null,
+      next.defaultHarness ?? null,
+      nowMs,
+      disabledAt,
+      id,
+    );
+    return this.getProject(id);
+  }
+
+  deleteProject(id: string): boolean {
+    return this.exec(`DELETE FROM owner_memory_projects WHERE id=? RETURNING id`, id).length > 0;
+  }
+
+  /** Current bounded source snapshot. Call at approval mint; the returned values are immutable once copied into the approved task. */
+  snapshotProject(id: string, nowMs = Date.now()): OwnerMemoryProjectSnapshot | null {
+    const project = this.getProject(id);
+    if (!project || project.disabledAt !== null) return null;
+    this.validateProjectSources(project.sourceIds, nowMs);
+    const sources = project.sourceIds.map((sourceId) => {
+      const source = this.get(sourceId);
+      if (!source)
+        throw new InputError(
+          `Project source ${sourceId} is missing; edit this project before approving a task.`,
+        );
+      return {
+        id: source.id,
+        title: source.title,
+        kind: source.kind,
+        referenceUrl: source.referenceUrl,
+        updatedAt: source.updatedAt,
+        content: source.content.slice(0, 360),
+        contentTruncated: source.content.length > 360,
+      };
+    });
+    return { project, sources };
   }
 }
 

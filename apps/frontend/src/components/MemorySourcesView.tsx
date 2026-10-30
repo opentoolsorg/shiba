@@ -19,6 +19,18 @@ interface MemoryHit extends MemorySource {
   trust: "untrusted";
   context: string;
 }
+interface MemoryProject {
+  id: string;
+  name: string;
+  purpose: string;
+  sourceIds: string[];
+  defaultCustomAgentId: string | null;
+  defaultHarness: string | null;
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+  disabledAt: number | null;
+}
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init });
@@ -52,11 +64,20 @@ export function MemorySourcesView(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [projects, setProjects] = useState<MemoryProject[]>([]);
+  const [projectEditing, setProjectEditing] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState("");
+  const [projectPurpose, setProjectPurpose] = useState("");
+  const [projectSourceIds, setProjectSourceIds] = useState<string[]>([]);
+  const [projectAgent, setProjectAgent] = useState("");
+  const [projectHarness, setProjectHarness] = useState("");
 
   const load = useCallback(async () => {
     try {
       const body = await apiJson<{ sources?: MemorySource[] }>("/api/memory/sources");
       setSources(Array.isArray(body.sources) ? body.sources : []);
+      const projectBody = await apiJson<{ projects?: MemoryProject[] }>("/api/memory/projects");
+      setProjects(Array.isArray(projectBody.projects) ? projectBody.projects : []);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Memory sources could not be loaded.");
@@ -166,6 +187,72 @@ export function MemorySourcesView(): JSX.Element {
       setSearchActive(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Memory recall failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetProject = () => {
+    setProjectEditing(null);
+    setProjectName("");
+    setProjectPurpose("");
+    setProjectSourceIds([]);
+    setProjectAgent("");
+    setProjectHarness("");
+  };
+  const saveProject = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const payload = {
+        name: projectName,
+        purpose: projectPurpose,
+        sourceIds: projectSourceIds,
+        defaultCustomAgentId: projectAgent || null,
+        defaultHarness: projectHarness || null,
+      };
+      await apiJson(
+        projectEditing
+          ? `/api/memory/projects/${encodeURIComponent(projectEditing)}`
+          : "/api/memory/projects",
+        {
+          method: projectEditing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      resetProject();
+      await load();
+      window.dispatchEvent(new Event("shiba:projects-updated"));
+      setNotice(projectEditing ? "Project updated." : "Project saved.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Project could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const editProject = (project: MemoryProject) => {
+    setProjectEditing(project.id);
+    setProjectName(project.name);
+    setProjectPurpose(project.purpose);
+    setProjectSourceIds(project.sourceIds);
+    setProjectAgent(project.defaultCustomAgentId ?? "");
+    setProjectHarness(project.defaultHarness ?? "");
+  };
+  const deleteProject = async (project: MemoryProject) => {
+    if (!window.confirm(`Delete project “${project.name}”? Approved task snapshots are unchanged.`))
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/memory/projects/${encodeURIComponent(project.id)}`, { method: "DELETE" });
+      await load();
+      window.dispatchEvent(new Event("shiba:projects-updated"));
+      setNotice("Project deleted. Existing approved snapshots remain unchanged.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Project could not be deleted.");
     } finally {
       setBusy(false);
     }
@@ -378,6 +465,137 @@ export function MemorySourcesView(): JSX.Element {
           ) : null}
         </div>
       </div>
+
+      <section
+        aria-label="Workspace projects"
+        className="flex flex-col gap-3 border border-[var(--line)] bg-[var(--card)] p-3 shadow-[2px_2px_0_var(--paper-shadow)]"
+      >
+        <div>
+          <h3 className="font-serif text-xl">Project context</h3>
+          <p className="text-xs text-[var(--ink-2)]">
+            Projects select existing sources and employee defaults. Nothing is fetched from
+            reference URLs. Edits affect future approvals; approved tasks keep their frozen
+            snapshots.
+          </p>
+        </div>
+        <form onSubmit={(event) => void saveProject(event)} className="grid gap-2 md:grid-cols-2">
+          <label className="text-xs font-mono">
+            PROJECT NAME
+            <input
+              required
+              maxLength={120}
+              aria-label="Project name"
+              className={`${FIELD} mt-1`}
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+            />
+          </label>
+          <label className="text-xs font-mono">
+            PURPOSE
+            <textarea
+              maxLength={1000}
+              aria-label="Project purpose"
+              className={`${FIELD} mt-1`}
+              value={projectPurpose}
+              onChange={(event) => setProjectPurpose(event.target.value)}
+            />
+          </label>
+          <fieldset className="flex flex-col gap-1 text-xs md:col-span-2">
+            <legend className="font-mono">APPROVED SOURCES (MAX 8)</legend>
+            {sources.length ? (
+              sources.map((source) => {
+                const active =
+                  source.disabledAt === null &&
+                  (source.expiresAt === null || source.expiresAt > Date.now());
+                return (
+                  <label key={source.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      disabled={!active && !projectSourceIds.includes(source.id)}
+                      checked={projectSourceIds.includes(source.id)}
+                      onChange={(event) =>
+                        setProjectSourceIds((ids) =>
+                          event.target.checked
+                            ? [...ids, source.id].slice(0, 8)
+                            : ids.filter((id) => id !== source.id),
+                        )
+                      }
+                    />
+                    {source.title}
+                    {active ? "" : " · unavailable"}
+                  </label>
+                );
+              })
+            ) : (
+              <span className="text-[var(--ink-2)]">Add a memory source first.</span>
+            )}
+          </fieldset>
+          <label className="text-xs font-mono">
+            DEFAULT EMPLOYEE ID
+            <input
+              maxLength={128}
+              aria-label="Default employee ID"
+              className={`${FIELD} mt-1`}
+              value={projectAgent}
+              onChange={(event) => setProjectAgent(event.target.value)}
+              placeholder="Optional; apply explicitly in composer"
+            />
+          </label>
+          <label className="text-xs font-mono">
+            DEFAULT HARNESS
+            <input
+              maxLength={64}
+              aria-label="Default harness"
+              className={`${FIELD} mt-1`}
+              value={projectHarness}
+              onChange={(event) => setProjectHarness(event.target.value)}
+              placeholder="Optional; apply explicitly in composer"
+            />
+          </label>
+          <div className="flex gap-2 md:col-span-2">
+            <button disabled={busy} className={PRIMARY} type="submit">
+              {projectEditing ? "Save project" : "Create project"}
+            </button>
+            {projectEditing ? (
+              <button type="button" className={BUTTON} onClick={resetProject}>
+                Cancel
+              </button>
+            ) : null}
+          </div>
+        </form>
+        {projects.length ? (
+          <div className="flex flex-col gap-2">
+            {projects.map((project) => (
+              <article
+                key={project.id}
+                className="flex flex-wrap items-center justify-between gap-2 border border-[var(--line)] p-2 text-sm"
+              >
+                <div>
+                  <strong>{project.name}</strong>
+                  <p className="text-xs text-[var(--ink-2)]">
+                    v{project.version} · {project.sourceIds.length} sources ·{" "}
+                    {project.disabledAt === null ? "active" : "disabled"}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button className={BUTTON} type="button" onClick={() => editProject(project)}>
+                    Edit
+                  </button>
+                  <button
+                    className={BUTTON}
+                    type="button"
+                    onClick={() => void deleteProject(project)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-[var(--ink-2)]">No projects saved.</p>
+        )}
+      </section>
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
