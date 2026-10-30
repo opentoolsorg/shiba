@@ -13,6 +13,8 @@ The browser acceptance uses a deterministic executor and does not start a real s
 
 The operator's approval must name the intended provider/account, test repository or workspace, task, and permitted effects. This is separate from permission to deploy a preview or use another account.
 
+The employee Gmail read path is restricted to messages selected from recent, owner-authenticated metadata discovery and rechecks grants at dispatch. This does **not** narrow the separate direct Gmail MCP token grant, which remains an explicit full-account read grant. Keep those two authority paths distinct when configuring an agent; do not infer selected-message limits from the employee-policy UI for a direct Gmail MCP token.
+
 ## Before Reason Network dispatch
 
 Reason Network setup is **not dispatch-ready**: `/api/reason-network/status` intentionally reports `setup_required`, `enabled: false`, and `dispatchConfigured: false`. Persistent grants and exact-payload approval records exist, but there is no application send route or installed MCP client wired to consume them. User approval alone cannot enable a path that is not implemented.
