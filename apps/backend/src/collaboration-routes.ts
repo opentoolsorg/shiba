@@ -20,6 +20,7 @@ import {
   type CollaborationHandoffRow,
   type CollaborationScope,
   CollaborationStoreError,
+  approveCollaborationSlackDeliveryIntent,
   cancelCollaborationHandoff,
   createCollaborationSlackDeliveryIntent,
   createCollaborationSlackLink,
@@ -45,6 +46,8 @@ import {
   revokeCollaborationSlackLink,
 } from "./collaboration-store.js";
 import { getCustomAgentVersion } from "./custom-agents-store.js";
+import { deliverApprovedSlackRoomIntent, type SlackRoomOutboxDeps } from "./slack-room-outbox.js";
+import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import type { Env } from "./env.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
@@ -64,6 +67,7 @@ export interface CollaborationRouteDeps {
     channelId: string;
     threadTs: string;
   }) => Promise<void>;
+  slackOutbox?: SlackRoomOutboxDeps;
 }
 
 function json(value: unknown, status = 200): Response {
@@ -452,11 +456,15 @@ export async function handleCollaboration(
           ...link,
           outboundConfigured: Boolean(
             env.SLACK_BOT_TOKEN?.trim() &&
+            env.SLACK_ROOM_OUTBOX_ENABLED?.trim() === "true" &&
             env.SLACK_APPROVALS_CHANNEL?.trim() === link.channelId,
           ),
         })),
         slackSources,
         slackDeliveryIntents,
+        canApproveSlackOutbox: isApprover(scope.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS)),
+        slackOutboxEnabled: env.SLACK_ROOM_OUTBOX_ENABLED?.trim() === "true" &&
+          Boolean(env.SLACK_BOT_TOKEN?.trim() && env.SLACK_APPROVALS_CHANNEL?.trim()),
       });
     }
 
@@ -533,6 +541,13 @@ export async function handleCollaboration(
           deliveryEnabled: false,
         }, 409);
       }
+      const sourceMessage = (await listCollaborationMessages(env, scope, roomId))
+        .find((message) => message.messageId === (path[3] ?? ""));
+      if (!sourceMessage || sourceMessage.senderUserId !== scope.userId || sourceMessage.senderKind !== "human" ||
+        sourceMessage.sourceSlackEventId || sourceMessage.sourceRunId)
+        return json({ error: "Only your own web-authored message can create a Slack delivery intent." }, 409);
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sourceMessage.body));
+      const contentHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
       const intent = await createCollaborationSlackDeliveryIntent(env, scope, {
         intentId: `slackintent_${randomHex(12)}`,
         roomId,
@@ -540,6 +555,7 @@ export async function handleCollaboration(
         messageId: path[3] ?? "",
         channelId: link.channelId,
         threadTs: link.threadTs,
+        contentHash,
         createdAt: Date.now(),
       });
       if (!intent)
@@ -550,6 +566,40 @@ export async function handleCollaboration(
         console.error("Slack room delivery intent adapter failed", error instanceof Error ? error.message : String(error));
       }
       return json({ intent, sent: false }, 202);
+    }
+
+    if (
+      path[0] === "rooms" && path.length === 5 && path[2] === "slack-delivery" &&
+      path[4] === "approve" && request.method === "POST"
+    ) {
+      const roomId = path[1] ?? "";
+      const intentId = path[3] ?? "";
+      const access = await authorizeRoomAction(
+        env, scope, roomId, humanActorId(scope.userId), "room.read",
+      );
+      if ("response" in access && access.response) return access.response;
+      if (!isApprover(scope.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS)))
+        return json({ error: "A configured dashboard approver is required." }, 403);
+      if (
+        env.SLACK_ROOM_OUTBOX_ENABLED?.trim() !== "true" ||
+        !env.SLACK_BOT_TOKEN?.trim() ||
+        !env.SLACK_APPROVALS_CHANNEL?.trim()
+      ) return json({ error: "Slack room outbox is disabled or not fully configured." }, 409);
+      const targetIntent = (await listCollaborationSlackDeliveryIntents(env, scope, roomId))
+        .find((item) => item.intentId === intentId);
+      if (!targetIntent) return json({ error: "Slack delivery intent not found." }, 404);
+      if (targetIntent.channelId !== env.SLACK_APPROVALS_CHANNEL.trim())
+        return json({ error: "The intent channel does not match the configured Slack approvals channel." }, 409);
+      const intent = await approveCollaborationSlackDeliveryIntent(
+        env, scope, roomId, intentId, Date.now(),
+      );
+      if (!intent) return json({ error: "Slack delivery intent not found." }, 404);
+      const delivery = await deliverApprovedSlackRoomIntent(
+        env, scope, roomId, intentId, deps.slackOutbox,
+      );
+      const finalIntent = (await listCollaborationSlackDeliveryIntents(env, scope, roomId))
+        .find((item) => item.intentId === intentId) ?? intent;
+      return json({ intent: finalIntent, delivery }, delivery.status === "sent" ? 200 : 202);
     }
 
     if (

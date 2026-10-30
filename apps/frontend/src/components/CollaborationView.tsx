@@ -63,7 +63,12 @@ interface SlackDeliveryIntent {
   messageId: string;
   channelId: string;
   threadTs: string;
+  content: string;
   status: "pending" | "blocked";
+  deliveryStatus: "awaiting_approval" | "approved" | "sending" | "sent" | "blocked" | "failed" | "unknown";
+  approvedByUserId?: string | null;
+  receiptTs?: string | null;
+  outcomeDetail?: string | null;
 }
 
 interface Handoff {
@@ -104,6 +109,8 @@ interface RoomDetail {
   slackLinks?: SlackLink[];
   slackSources?: SlackSource[];
   slackDeliveryIntents?: SlackDeliveryIntent[];
+  canApproveSlackOutbox?: boolean;
+  slackOutboxEnabled?: boolean;
 }
 
 interface PairedComputer {
@@ -359,6 +366,14 @@ export function CollaborationView(): JSX.Element {
         request("POST", { linkId }),
       );
     });
+  };
+
+  const approveSlackDeliveryIntent = (intentId: string) => {
+    if (!activeRoomId) return;
+    void mutate(() => api(
+      `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/slack-delivery/${encodeURIComponent(intentId)}/approve`,
+      request("POST", {}),
+    ));
   };
 
   const sendMessage = (event: FormEvent) => {
@@ -742,7 +757,24 @@ export function CollaborationView(): JSX.Element {
                         <ul aria-label="Slack delivery intents" className="mt-2 flex flex-col gap-1 text-[10px]">
                           {detail.slackDeliveryIntents?.map((intent) => (
                             <li key={intent.intentId}>
-                              Delivery intent {intent.status} · #{intent.channelId} · not sent
+                              <p className="whitespace-pre-wrap break-words">Approved content: {intent.content}</p>
+                              <span>
+                                Delivery {intent.deliveryStatus} · #{intent.channelId}
+                                {intent.receiptTs ? ` · Slack receipt ${intent.receiptTs}` : ""}
+                                {intent.deliveryStatus === "unknown" ? " · outcome unknown; not retried" : ""}
+                              </span>
+                              {detail.canApproveSlackOutbox && detail.slackOutboxEnabled &&
+                                intent.status === "pending" && intent.deliveryStatus === "awaiting_approval" && (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => approveSlackDeliveryIntent(intent.intentId)}
+                                    className="ml-2 underline disabled:opacity-50"
+                                  >
+                                    Approve and send
+                                  </button>
+                                )}
+                              {intent.outcomeDetail && <p>{intent.outcomeDetail}</p>}
                             </li>
                           ))}
                         </ul>
