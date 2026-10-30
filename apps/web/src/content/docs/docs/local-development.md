@@ -3,13 +3,21 @@ title: Local development
 description: Run the dashboard, Worker, docs, and tests without overstating local or cloud evidence.
 ---
 
-Use Node.js 22.13.0+ and pnpm 10+. From a terminal, clone the repository and install dependencies once:
+Use Node.js 22.13.0+ and the repository-pinned pnpm version (Corepack reads it from `package.json`). From a terminal, clone the repository and install dependencies once:
 
 ```sh
-git clone https://github.com/princepal9120/shiba.git
+git clone https://github.com/opentoolsorg/shiba.git
 cd shiba
-pnpm install
+corepack pnpm install --frozen-lockfile
 ```
+
+Prove a clean local boot without credentials, Docker, model calls, or Cloudflare deployment:
+
+```sh
+corepack pnpm selfhost:smoke
+```
+
+The smoke builds the dashboard/docs, applies every D1 migration into a fresh temporary Wrangler state directory, starts a local Worker with Containers disabled, checks `/api/setup/wizard` and `/app/`, then removes the temporary data. It does not change `.shiba/local-state`, call a model provider, or prove Cloudflare-hosted features. A successful result means the local app shell and API boot; it does not mean an AI employee can execute a task.
 
 ## Worker and sandbox quickstart
 
@@ -77,6 +85,56 @@ npx wrangler dev --local --config apps/backend/wrangler.jsonc --port 8788 \
 ```
 
 Vectorize and some bindings warn in pure local mode; `/api/setup/status` and `/app/` still respond for UI wiring checks.
+
+## What works locally
+
+`pnpm shiba dev` uses Wrangler's local runtime. D1 migrations and local Durable Object state persist under `.shiba/local-state`; `.dev.vars` holds local-only generated secrets and any credentials you add. This supports dashboard/API development and deterministic tests with fake providers. Use Docker for local sandbox containers; without Docker, the local dev command deliberately disables containers.
+
+| Capability | Local status | Additional requirement |
+| --- | --- | --- |
+| Dashboard, Worker routes, local D1 migrations and Durable Object state | Local development supported | Node, pnpm, dependencies |
+| Coding task execution in a local container | Optional | Docker-compatible engine and sandbox image build; a model connection and repository access are also required for real work |
+| AI inference | Not offline | Configure a supported provider or AI Gateway; model use may incur provider charges |
+| Cloudflare Containers, Workers AI, Vectorize, managed Access, email delivery and public webhooks | Cloud-hosted services | Cloudflare account, enabled products, deployed bindings and any required provider credentials |
+| Memory search | Not a local-only guarantee | The configured Vectorize binding and embedding/model path are required; local D1/DO persistence alone does not provide semantic search |
+
+The repository does not bundle model weights or a local inference engine. Do not describe a local install as offline AI. Optional integrations (GitHub, Slack, Telegram, Discord, Gmail, email) stay unavailable until separately configured; unset credentials leave those paths disabled or fail closed.
+
+## Local data backup and restore
+
+Stop the local Worker before copying or restoring its persistence directory. A live copy can miss SQLite writes. Keep backups outside the repository, encrypt them, and restrict access: they contain conversations, task data, approvals, and other account content. `.dev.vars` can contain credentials and generated signing keys, so protect it separately and never put it in a shared backup without encryption.
+
+On macOS/Linux, make a timestamped copy of the whole Wrangler persistence directory:
+
+```sh
+backup_dir="$HOME/shiba-backups/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$backup_dir"
+cp -a .shiba/local-state "$backup_dir/local-state"
+# Optional local operator configuration; this file may contain secrets.
+cp -a apps/backend/.dev.vars "$backup_dir/dev.vars" 2>/dev/null || true
+cp -a .shiba/setup.json "$backup_dir/setup.json" 2>/dev/null || true
+```
+
+To restore, stop Shiba first, preserve the current state as a rollback copy, then copy the saved directory back:
+
+```sh
+mkdir -p .shiba
+backup_dir="$HOME/shiba-backups/<timestamp>"  # choose the backup made above
+if [ -d .shiba/local-state ]; then
+  mv .shiba/local-state ".shiba/local-state.before-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+fi
+cp -a "$backup_dir/local-state" .shiba/local-state
+if [ -f "$backup_dir/dev.vars" ]; then
+  install -m 600 "$backup_dir/dev.vars" apps/backend/.dev.vars
+fi
+if [ -f "$backup_dir/setup.json" ]; then
+  cp -a "$backup_dir/setup.json" .shiba/setup.json
+fi
+```
+
+Restore `.dev.vars` only when intentionally restoring the same local installation: its signing/encryption keys must remain paired with the corresponding stored data. Start Shiba and check the dashboard plus `/api/setup/wizard`. `pnpm selfhost:smoke` is a clean-boot check, not a recovery test; it uses and deletes an isolated temporary state directory.
+
+This file-copy procedure covers Wrangler's **local** persistence only. It does not back up a deployed installation's D1, Durable Objects, KV, R2, Vectorize, or Cloudflare account configuration. This repository does not provide a coordinated remote backup/restore command; plan and verify recovery for each enabled Cloudflare product and external provider before storing important data there.
 
 Optional scripted harness: `.cursor/skills/verify-shiba/scripts/launch.sh` (uses `--persist-to .verify/state` and the same migrations command).
 
