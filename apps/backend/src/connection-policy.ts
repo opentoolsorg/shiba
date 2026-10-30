@@ -63,6 +63,10 @@ export interface CapabilityActionRule {
   requiredProviderScopes?: readonly string[];
   /** True when this action must identify one resource from the grant allowlist. */
   resourceRequired?: boolean;
+  /** Exact argument key carrying the resource for policy-bound tool calls. */
+  resourceArgument?: string;
+  /** Local Shiba capabilities may use a persistent configured grant without a provider probe. */
+  requiresLiveVerification?: boolean;
 }
 
 export interface CapabilityPolicy {
@@ -151,6 +155,11 @@ export function decideConnectionDispatch(
     return deny("invalid_time");
   }
   if (!SHA256_HEX.test(request.argumentDigest)) return deny("approval_mismatch");
+  const matchingRules = policy.actions.filter(
+    (candidate) => candidate.action === request.action && sameCapability(candidate.capability, request.capability),
+  );
+  if (matchingRules.length !== 1) return deny("unsupported_action");
+  const rule = matchingRules[0]!;
 
   if (principal.workspaceId !== grant.owner.workspaceId) return deny("workspace_mismatch");
   if (grant.owner.type === "user" && grant.owner.userId !== principal.userId) {
@@ -162,20 +171,26 @@ export function decideConnectionDispatch(
   if (grant.expiresAt !== undefined && (!Number.isFinite(grant.expiresAt) || now >= grant.expiresAt)) {
     return deny("connection_expired");
   }
-  if (grant.verification !== "live_verified") return deny("live_verification_required");
-  const verifiedAt = grant.verifiedAt;
-  const verificationExpiresAt = grant.verificationExpiresAt;
-  if (
-    verifiedAt === undefined ||
-    verificationExpiresAt === undefined ||
-    !Number.isFinite(verifiedAt) ||
-    !Number.isFinite(verificationExpiresAt) ||
-    verifiedAt > now ||
-    verifiedAt >= verificationExpiresAt ||
-    now >= verificationExpiresAt ||
-    (context.maxVerificationAgeMs !== undefined && now - verifiedAt > context.maxVerificationAgeMs)
-  ) {
-    return deny("verification_stale");
+  if (rule.requiresLiveVerification !== false && grant.verification !== "live_verified") {
+    return deny("live_verification_required");
+  }
+  if (grant.verification === "live_verified") {
+    const verifiedAt = grant.verifiedAt;
+    const verificationExpiresAt = grant.verificationExpiresAt;
+    if (
+      verifiedAt === undefined ||
+      verificationExpiresAt === undefined ||
+      !Number.isFinite(verifiedAt) ||
+      !Number.isFinite(verificationExpiresAt) ||
+      verifiedAt > now ||
+      verifiedAt >= verificationExpiresAt ||
+      now >= verificationExpiresAt ||
+      (context.maxVerificationAgeMs !== undefined && now - verifiedAt > context.maxVerificationAgeMs)
+    ) {
+      return deny("verification_stale");
+    }
+  } else if (grant.verification !== "configured") {
+    return deny("live_verification_required");
   }
   if (grant.policyVersion !== policy.version) return deny("policy_stale");
   if (!Number.isSafeInteger(grant.generation) || grant.generation < 1) {
@@ -186,11 +201,6 @@ export function decideConnectionDispatch(
     return deny("capability_not_allowed");
   }
 
-  const matchingRules = policy.actions.filter(
-    (rule) => rule.action === request.action && sameCapability(rule.capability, request.capability),
-  );
-  if (matchingRules.length !== 1) return deny("unsupported_action");
-  const rule = matchingRules[0]!;
   if (rule.requiredProviderScopes?.some((scope) => !grant.providerScopes.includes(scope))) {
     return deny("provider_scope_missing");
   }
