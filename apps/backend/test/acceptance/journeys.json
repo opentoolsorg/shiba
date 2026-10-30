@@ -63,6 +63,18 @@
       ]
     },
     {
+      "id": "project-context-approval-dispatch",
+      "description": "Persist an owner-scoped project and selected source, attach the project to Work intake, freeze a provenance-framed snapshot at approval, edit the project, then prove dispatch and reload retain the approved text. Cross-owner sources and disabled, expired, or deleted sources are denied.",
+      "tests": [
+        "apps/backend/test/owner-memory-store.test.ts",
+        "apps/backend/test/memory-routes-owner.test.ts",
+        "apps/backend/test/orchestrator.test.ts",
+        "apps/frontend/src/components/MemorySourcesView.test.tsx",
+        "apps/frontend/src/components/TaskComposer.test.tsx"
+      ],
+      "browserCheckpoint": "project-context-approval-run-reload"
+    },
+    {
       "id": "artifact-delivery",
       "description": "Approve artifact-workspace input, verify requested files, store bytes in the deterministic R2 adapter, and exercise the authenticated download route.",
       "tests": [
