@@ -137,4 +137,28 @@ describe("Reason Network paired companion queue v1",()=>{
     expect((await f.daemon("result","POST",{operationId:operation.operationId,claimToken:claimed.operation.claimToken,state:"cancelled"})).status).toBe(200);
     expect(await read(await f.app(`/v1/operations/${operation.operationId}`))).toMatchObject({state:"cancelled"});
   });
+
+  it("rechecks cancellation after MCP discovery and immediately before the send call",async()=>{
+    const f=fixture();
+    const grant=await read<{grant:{grantId:string}}>(await f.app("/grants","POST",{conversationId:"conv-late-cancel",sessionId:"session-late-cancel",companionMachineId:MACHINE}));
+    const approval=await read<{approvalId:string}>(await f.app("/approvals","POST",{grantId:grant.grant.grantId,conversationId:"conv-late-cancel",sessionId:"session-late-cancel",destination:"peer-late",message:"must not send after cancel",idempotencyKey:"late-cancel-key"}));
+    await f.app(`/approvals/${approval.approvalId}`,"POST",{approved:true});
+    const operation=await read<{operationId:string}>(await f.app("/v1/operations","POST",{approvalId:approval.approvalId}));
+    const claim=await read<{operation:{operationId:string;claimToken:string;sessionId:string;destination:string;message:string;idempotencyKey:string}}>(await f.daemon("claim"));
+    let finishDiscovery!:()=>void;
+    const listTools=new Promise<{tools:Array<{name:string}>}>((resolve)=>{finishDiscovery=()=>resolve({tools:[{name:"send_message"}]});});
+    const callTool=vi.fn(async()=>({isError:false,content:[{type:"text",text:"sent message id should-not-exist"}]}));
+    const companion=createReasonNetworkCompanion({
+      connect:async()=>({listTools:async()=>listTools,callTool,close:async()=>{}}),
+      beforeSend:async(current)=>{
+        const status=await read<{state:string;cancelRequested:boolean}>(await f.daemon(`operations/${current.operationId}`,"GET"));
+        return status.state==="claimed"&&!status.cancelRequested;
+      },
+    });
+    const pending=companion(claim.operation);
+    expect(await read(await f.app(`/v1/operations/${operation.operationId}`,"DELETE"))).toMatchObject({state:"cancel_requested"});
+    finishDiscovery();
+    await expect(pending).resolves.toEqual({state:"cancelled"});
+    expect(callTool).not.toHaveBeenCalled();
+  });
 });

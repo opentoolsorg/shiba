@@ -2,6 +2,18 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { ReasonNetworkAdapter, reasonNetworkReadiness, type ReasonNetworkApprovalBinding, type ReasonNetworkApprovalReceipt, type ReasonNetworkMcpClient, type ReasonNetworkTrustedScope } from "../src/reason-network/adapter.js";
 import { D1ReasonNetworkOperationStore, type ReasonOperation, type ReasonNetworkOperationStore, type ReasonOperationScope, type ReserveResult, type ReasonOperationState } from "../src/reason-network/operation-store.js";
+import { connectReasonNetworkStdio } from "../src/reason-network/stdio-client.js";
+import { createReasonNetworkGrant, listReasonNetworkGrants } from "../src/reason-network/approval-store.js";
+import { REASON_NETWORK_RECOVERY_WINDOW_MS } from "../src/reason-network/operation-store.js";
+
+function sqliteD1(sqlite:DatabaseSync):D1Database{
+  return {prepare(sql:string){let params:unknown[]=[];return {
+    bind(...values:unknown[]){params=values;return this;},
+    async run(){const result=sqlite.prepare(sql).run(...params as (string|number|null)[]);return {success:true,meta:{changes:Number(result.changes)}};},
+    async first<T>(){return sqlite.prepare(sql).get(...params as (string|number|null)[]) as T|undefined??null;},
+    async all<T>(){return {results:sqlite.prepare(sql).all(...params as (string|number|null)[]) as T[]};},
+  };}} as unknown as D1Database;
+}
 
 const scope: ReasonNetworkTrustedScope = { ownerId: "owner-1", grantId: "grant-1", conversationId: "conv-1", sessionId: "session-1", runtime: "local-daemon" };
 class MemoryStore implements ReasonNetworkOperationStore {
@@ -15,7 +27,7 @@ class MemoryStore implements ReasonNetworkOperationStore {
   async get(s: ReasonOperationScope, key: string) { const v = this.rows.get(this.id(s,key)); return v ? structuredClone(v) : null; }
   async transition(s: ReasonOperationScope, key: string, expected: readonly ReasonOperationState[], state: ReasonOperationState, remoteMessageId?: string, now = Date.now()) {
     const id = this.id(s,key); const row = this.rows.get(id); if (!row || !expected.includes(row.state)) return false;
-    this.rows.set(id,{...row,state,...(remoteMessageId ? {remoteMessageId} : {}),updatedAt:now}); return true;
+    this.rows.set(id,{...row,state,...(state==="unknown"?{firstAttemptAt:row.firstAttemptAt??now}:{}),...(remoteMessageId ? {remoteMessageId} : {}),updatedAt:now}); return true;
   }
   async getByOperationId(ownerId:string,operationId:string){return [...this.rows.values()].find((row)=>row.scope.ownerId===ownerId&&row.operationId===operationId)??null;}
   async listByOwner(ownerId:string){return [...this.rows.values()].filter((row)=>row.scope.ownerId===ownerId);}
@@ -37,21 +49,65 @@ function fixture(options: { enabled?: boolean; connected?: boolean; toolNames?: 
 }
 
 describe("Reason Network OSS adapter", () => {
+  it("does not start a native process without explicit local opt-in", async () => {
+    await expect(connectReasonNetworkStdio({executablePath:"/usr/local/bin/reason-network"})).rejects.toThrow("disabled");
+  });
+
   it("persists operation state across store instances and replays the same idempotency key", async () => {
     const sqlite = new DatabaseSync(":memory:");
-    const d1 = { prepare(sql: string) {
-      let params: unknown[] = [];
-      return {
-        bind(...values: unknown[]) { params = values; return this; },
-        async run() { const result = sqlite.prepare(sql).run(...params as (string | number | null)[]); return { success:true, meta:{changes:Number(result.changes)} }; },
-        async first<T>() { return sqlite.prepare(sql).get(...params as (string | number | null)[]) as T | undefined ?? null; },
-      };
-    } } as unknown as D1Database;
+    const d1=sqliteD1(sqlite);
     const op: ReasonOperation = {scope:{ownerId:"o",grantId:"g",conversationId:"c",sessionId:"s"},idempotencyKey:"stable",payloadDigest:"d".repeat(64),destination:"peer",state:"unknown",updatedAt:1};
     expect(await new D1ReasonNetworkOperationStore({AGENT_AUDIT:d1}).reserve(op)).toEqual({kind:"created"});
     const afterRestart = new D1ReasonNetworkOperationStore({AGENT_AUDIT:d1});
     expect(await afterRestart.reserve(op)).toMatchObject({kind:"replay",operation:{state:"pending_approval",idempotencyKey:"stable"}});
     sqlite.close();
+  });
+
+  it("migrates the previous D1 schema without losing operation states or grant rows",async()=>{
+    const sqlite=new DatabaseSync(":memory:");
+    sqlite.exec(`CREATE TABLE reason_network_grants(grant_id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,revoked_at INTEGER);
+      INSERT INTO reason_network_grants VALUES('grant-old','owner-old','conv-old','session-old','active',123,NULL);
+      CREATE TABLE reason_network_operations(owner_id TEXT NOT NULL,grant_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,payload_digest TEXT NOT NULL,destination TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending_approval','approved','accepted','unknown','rejected','cancelled')),remote_message_id TEXT,updated_at INTEGER NOT NULL,PRIMARY KEY(owner_id,grant_id,conversation_id,session_id,idempotency_key));
+      INSERT INTO reason_network_operations VALUES('owner-old','grant-old','conv-old','session-old','key-unknown','digest-unknown','peer-old','unknown',NULL,456);
+      INSERT INTO reason_network_operations VALUES('owner-old','grant-old','conv-old','session-old','key-accepted','digest-accepted','peer-old','accepted','remote-old',789);`);
+    const db=sqliteD1(sqlite);const store=new D1ReasonNetworkOperationStore({AGENT_AUDIT:db});
+    const unknown=await store.get({ownerId:"owner-old",grantId:"grant-old",conversationId:"conv-old",sessionId:"session-old"},"key-unknown");
+    expect(unknown).toMatchObject({state:"unknown",firstAttemptAt:0});
+    expect(unknown?.operationId).toMatch(/^rno-legacy-/);
+    expect(await listReasonNetworkGrants({AGENT_AUDIT:db},"owner-old")).toMatchObject([{grantId:"grant-old",companionMachineId:null,status:"active"}]);
+    await db.prepare("UPDATE reason_network_grants SET companion_machine_id='machine-old' WHERE grant_id='grant-old'").run();
+    expect(await store.recover("owner-old",unknown!.operationId!,Date.now())).toBe(false);
+    expect(await store.get({ownerId:"owner-old",grantId:"grant-old",conversationId:"conv-old",sessionId:"session-old"},"key-accepted")).toMatchObject({state:"accepted",remoteMessageId:"remote-old"});
+    sqlite.close();
+  });
+
+  it("keeps unknown outcomes recoverable only inside upstream's conservative idempotency window",async()=>{
+    const sqlite=new DatabaseSync(":memory:");const now=10_000_000;const db=sqliteD1(sqlite);
+    await createReasonNetworkGrant({AGENT_AUDIT:db},{grantId:"grant-window",ownerId:"owner-window",conversationId:"conv-window",sessionId:"session-window",companionMachineId:"machine-window",now});
+    const scope={ownerId:"owner-window",grantId:"grant-window",conversationId:"conv-window",sessionId:"session-window"};
+    const store=new D1ReasonNetworkOperationStore({AGENT_AUDIT:db},()=>now);
+    await store.reserve({operationId:"rno-window",approvalId:"approval-window",companionMachineId:"machine-window",scope,idempotencyKey:"stable-window",payloadDigest:"f".repeat(64),destination:"peer",state:"pending_approval",updatedAt:now});
+    await store.transition(scope,"stable-window",["pending_approval"],"queued",undefined,now);
+    const claimed=await store.claimNext("machine-window","claim-window",now);
+    expect(claimed?.firstAttemptAt).toBe(now);
+    await store.settleClaim("machine-window","rno-window","claim-window","unknown",undefined,now);
+    expect(await store.recover("owner-window","rno-window",now+REASON_NETWORK_RECOVERY_WINDOW_MS-1)).toBe(true);
+    const retry=await store.claimNext("machine-window","claim-window-2",now+REASON_NETWORK_RECOVERY_WINDOW_MS-1);
+    expect(retry?.firstAttemptAt).toBe(now);
+    await store.settleClaim("machine-window","rno-window","claim-window-2","unknown",undefined,now+REASON_NETWORK_RECOVERY_WINDOW_MS-1);
+    expect(await store.recover("owner-window","rno-window",now+REASON_NETWORK_RECOVERY_WINDOW_MS)).toBe(false);
+    expect((await store.get(scope,"stable-window"))?.state).toBe("unknown");
+    sqlite.close();
+  });
+
+  it("exposes scoped status and cancellation only before the external send fence", async () => {
+    const f = fixture({enabled:true});
+    const operation: ReasonOperation = {scope,idempotencyKey:"cancel-me",payloadDigest:"a".repeat(64),destination:"peer-1",state:"pending_approval",updatedAt:1};
+    await f.store.reserve(operation);
+    expect(await f.adapter.operationStatus("cancel-me")).toMatchObject({state:"pending_approval"});
+    expect(await f.adapter.cancelOperation("cancel-me")).toBe(true);
+    expect(await f.adapter.operationStatus("cancel-me")).toMatchObject({state:"cancelled"});
+    expect(f.calls).toHaveLength(0);
   });
 
   it("is disabled by default and never invokes approval while unavailable", async () => {
@@ -71,13 +127,10 @@ describe("Reason Network OSS adapter", () => {
   });
 
   it("freezes exact message values before approval waits", async () => {
-    let release: (() => void) | undefined;
-    const f = fixture({enabled:true,approve: (b) => new Promise((resolve) => { release = () => resolve({...b,approvalId:"a",expiresAt:Date.now()+30_000}); })});
+    const f = fixture({enabled:true,approve: (b) => new Promise((resolve) => { setTimeout(() => resolve({...b,approvalId:"a",expiresAt:Date.now()+30_000}),0); })});
     const input = {to:"peer-original",message:"body-original",idempotencyKey:"stable-1"};
     const pending = f.adapter.sendMessage(input);
     input.to = "peer-mutated"; input.message = "body-mutated";
-    await vi.waitFor(() => expect(release).toBeDefined());
-    release?.();
     await expect(pending).resolves.toMatchObject({state:"accepted"});
     expect(f.calls[0]?.args).toMatchObject({to:"peer-original",message:"body-original",idempotency_key:"stable-1"});
   });

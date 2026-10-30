@@ -13,4 +13,7 @@ export interface ReasonNetworkMcpClient {
   close(): Promise<void>;
 }
 export declare function connectReasonNetworkStdio(options: { executablePath: string; timeoutMs?: number }): Promise<ReasonNetworkMcpClient>;
-export declare function createReasonNetworkCompanion(input: { connect(): Promise<ReasonNetworkMcpClient> }): (operation: ReasonNetworkCompanionOperation) => Promise<{ state: "accepted" | "unknown"; messageId?: string }>;
+export declare function createReasonNetworkCompanion(input: {
+  connect(): Promise<ReasonNetworkMcpClient>;
+  beforeSend?(operation: ReasonNetworkCompanionOperation): Promise<boolean>;
+}): (operation: ReasonNetworkCompanionOperation) => Promise<{ state: "accepted" | "unknown" | "cancelled"; messageId?: string }>;
