@@ -104,10 +104,13 @@ if (browserJourney?.script) {
   if (browserStatus !== "passed") failed = true;
 }
 
-const dirtyWorktree = spawnSync("git", ["status", "--porcelain"], {
+const dirtyHarnessFiles = spawnSync("git", ["status", "--porcelain"], {
   cwd: repoRoot,
   encoding: "utf8",
-}).stdout.trim().length > 0;
+}).stdout
+  .split(/\r?\n/)
+  .filter(Boolean)
+  .filter((entry) => entry.slice(3).replaceAll("\\", "/") !== "apps/backend/test/acceptance/evidence.latest.json");
 
 const evidence = {
   ...plan,
@@ -117,7 +120,7 @@ const evidence = {
     cwd: repoRoot,
     encoding: "utf8",
   }).stdout.trim(),
-  dirtyHarnessChangesIncluded: dirtyWorktree,
+  dirtyHarnessChangesIncluded: dirtyHarnessFiles.length > 0,
   result: failed ? "failed" : "passed_with_blockers",
   journeys: journeys.map((journey) =>
     journey.id === "full-browser-worker-session"
