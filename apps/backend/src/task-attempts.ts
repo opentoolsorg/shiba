@@ -3,10 +3,10 @@
  * owns a fresh approval and run ID. Legacy retained runs become one-attempt
  * tasks on read and remain fully compatible with the /api/runs contract.
  */
-import type { DelegatedRun } from "@shiba/shared";
+import { runInputHash, type DelegatedRun, type PendingApproval, type RunInputFields } from "@shiba/shared";
 
 export type TaskAttemptStatus =
-  | "submitting" | "pending_approval" | "running" | "completed"
+  | "submitting" | "pending_approval" | "pending" | "running" | "completed"
   | "error" | "aborted" | "cancelled" | "unknown" | "rejected" | "expired";
 
 export interface FrozenTaskInput {
@@ -33,6 +33,7 @@ export interface TaskAttempt {
 export interface DurableTask {
   taskId: string;
   ownerId: string;
+  queuedBy?: string;
   title: string;
   createdAt: number;
   updatedAt: number;
@@ -53,12 +54,14 @@ const TERMINAL = new Set<TaskAttemptStatus>([
 export function canRetryTaskAttempt(attempt: TaskAttempt): boolean {
   // `unknown` means the executor may have performed side effects. Replaying
   // it risks duplicate external writes, so it must be inspected manually.
-  return TERMINAL.has(attempt.status) && attempt.status !== "completed" && attempt.status !== "unknown";
+  return !attempt.commandId.startsWith("legacy:") && typeof attempt.frozen.body.repoUrl === "string" &&
+    TERMINAL.has(attempt.status) && attempt.status !== "completed" && attempt.status !== "unknown";
 }
 
 export function createDurableTask(input: {
   taskId: string;
   ownerId: string;
+  queuedBy?: string;
   title: string;
   commandId: string;
   approvalId?: string;
@@ -80,6 +83,7 @@ export function createDurableTask(input: {
   return {
     taskId: input.taskId,
     ownerId: input.ownerId,
+    ...(input.queuedBy ? { queuedBy: input.queuedBy } : {}),
     title: input.title.slice(0, 240),
     createdAt: input.now,
     updatedAt: input.now,
@@ -149,11 +153,12 @@ export function cancelTaskAttempt(task: DurableTask, attemptNo: number, now: num
 }
 
 /** A read-only compatibility projection for pre-lineage runs. */
-export function legacyTaskForRun(run: DelegatedRun): DurableTask {
+export function legacyTaskForRun(run: DelegatedRun, ownerId = "legacy"): DurableTask {
   const inputHash = run.approval?.inputHash ?? `legacy:${run.runId}`;
   return {
     taskId: `legacy:${run.runId}`,
-    ownerId: run.queuedBy ?? "legacy",
+    ownerId,
+    ...(run.queuedBy ? { queuedBy: run.queuedBy } : {}),
     title: run.task.slice(0, 240),
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
@@ -176,11 +181,73 @@ export function taskVisibleTo(task: DurableTask, ownerId: string): boolean {
   return task.ownerId === ownerId;
 }
 
+export function taskVisibleToPrincipal(task: DurableTask, principal: string | null): boolean {
+  return principal === null || task.queuedBy === principal;
+}
+
+/** Freeze the same post-default input hash that the run approval gate checks. */
+export function frozenTaskInputFromApproval(approval: PendingApproval): FrozenTaskInput {
+  const input: RunInputFields = {
+    repoUrl: approval.repoUrl,
+    ...(approval.executionTarget !== undefined ? { executionTarget: approval.executionTarget } : {}),
+    task: approval.task,
+    baseBranch: approval.baseBranch ?? "main",
+    publishPullRequest: approval.publishPullRequest ?? false,
+    ...(approval.reviewAfterPublish !== undefined ? { reviewAfterPublish: approval.reviewAfterPublish } : {}),
+    ...(approval.route !== undefined ? { route: approval.route } : {}),
+    ...(approval.authAccount !== undefined ? { authAccount: approval.authAccount } : {}),
+    ...(approval.runtime !== undefined ? { runtime: approval.runtime } : {}),
+    ...(approval.targetMachineId !== undefined ? { targetMachineId: approval.targetMachineId } : {}),
+    ...(approval.testCommand !== undefined ? { testCommand: approval.testCommand } : {}),
+    ...(approval.expectedDeliverables !== undefined ? { expectedDeliverables: approval.expectedDeliverables } : {}),
+    ...(approval.forkedFrom !== undefined ? { forkedFrom: approval.forkedFrom } : {}),
+    ...(approval.parentRunId !== undefined ? { parentRunId: approval.parentRunId } : {}),
+    ...(approval.subagentPath !== undefined ? { subagentPath: approval.subagentPath } : {}),
+    ...(approval.subagentSandbox !== undefined ? { subagentSandbox: approval.subagentSandbox } : {}),
+    ...(approval.captainId !== undefined ? { captainId: approval.captainId } : {}),
+    ...(approval.denId !== undefined ? { denId: approval.denId } : {}),
+    ...(approval.sandboxProvider !== undefined ? { sandboxProvider: approval.sandboxProvider } : {}),
+    ...(approval.customAgentId !== undefined ? { customAgentId: approval.customAgentId } : {}),
+    ...(approval.envNames !== undefined ? { envNames: approval.envNames } : {}),
+    ...(approval.envDigest !== undefined ? { envDigest: approval.envDigest } : {}),
+    ...(approval.runSetup === true ? { runSetup: true } : {}),
+    ...(approval.customAgentVersion !== undefined ? { customAgentVersion: approval.customAgentVersion } : {}),
+    ...(approval.skillPins !== undefined ? { skillPins: approval.skillPins } : {}),
+    ...(approval.role !== undefined ? { role: approval.role } : {}),
+    ...(approval.subagentBudget !== undefined ? { subagentBudget: approval.subagentBudget } : {}),
+  };
+  return {
+    body: structuredClone(approval) as unknown as Record<string, unknown>,
+    inputHash: runInputHash(input),
+    threadKey: approval.threadKey,
+  };
+}
+
+/** Public DTO deliberately strips the sealed run environment and frozen body. */
+export function taskHistoryDto(task: DurableTask): Omit<DurableTask, "attempts" | "ownerId" | "queuedBy"> & {
+  attempts: (Omit<TaskAttempt, "frozen" | "commandId"> & { retryable: boolean })[];
+} {
+  return {
+    taskId: task.taskId,
+    title: task.title,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    attempts: task.attempts.map(({ frozen, commandId, ...attempt }) => ({
+      ...attempt,
+      retryable: canRetryTaskAttempt({ ...attempt, frozen, commandId }),
+    })),
+  };
+}
+
 export function mergeTaskLineage(
   durable: DurableTask[],
   runs: DelegatedRun[],
+  ownerId = "legacy",
 ): DurableTask[] {
   const seenRunIds = new Set(durable.flatMap((task) => task.attempts.map((attempt) => attempt.runId).filter((id): id is string => Boolean(id))));
-  const legacy = runs.filter((run) => !seenRunIds.has(run.runId)).map(legacyTaskForRun);
+  const seenApprovalIds = new Set(durable.flatMap((task) => task.attempts.map((attempt) => attempt.approvalId).filter((id): id is string => Boolean(id))));
+  const legacy = runs
+    .filter((run) => !seenRunIds.has(run.runId) && !(run.approval?.approvalId && seenApprovalIds.has(run.approval.approvalId)))
+    .map((run) => legacyTaskForRun(run, ownerId));
   return [...durable, ...legacy].sort((a, b) => b.updatedAt - a.updatedAt);
 }

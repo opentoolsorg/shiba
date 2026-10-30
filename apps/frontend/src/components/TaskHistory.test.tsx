@@ -24,6 +24,7 @@ describe("TaskHistory", () => {
     const onRetry = vi.fn();
     const onCancel = vi.fn();
     expect(isTaskHistoryRetryable({ attempt: 1, status: "unknown", updatedAt: 1 })).toBe(false);
+    expect(isTaskHistoryRetryable({ attempt: 1, status: "error", updatedAt: 1, retryable: false })).toBe(false);
     render(<TaskHistory tasks={[{
       taskId: "task-b", title: "Uncertain task", updatedAt: 1,
       attempts: [{ attempt: 1, runId: "run-b", status: "unknown", updatedAt: 1 }],
