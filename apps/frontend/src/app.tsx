@@ -35,6 +35,7 @@ import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal"
 import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
 import { OnboardingProgressClient } from "./onboarding-progress-client";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
+import { ConversationWorkspaceHeading } from "./components/ConversationWorkspaceHeading";
 import { StepTimeline } from "./components/StepTimeline";
 import { DiffView } from "./components/DiffView";
 import { ApprovalsView } from "./components/ApprovalsView";
@@ -2374,9 +2375,14 @@ export function App(): React.JSX.Element {
                         className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
                       />
                     </Tooltip>
-                    <h1 className="text-base text-[var(--fg)] tracking-tight truncate">
-                      {liveSession ? liveSession.title : "New coding task"}
-                    </h1>
+                    <ConversationWorkspaceHeading
+                      title={liveSession ? liveSession.title : "New coding task"}
+                      executionTargetKind={executionTargetKind}
+                      runTarget={runTarget}
+                      repoUrl={repoUrl}
+                      artifactWorkspaceName={artifactWorkspaceName}
+                      machineName={localComputers.find((computer) => computer.machineId === selectedLocalMachineId)?.hostname}
+                    />
                     {sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? (
                       <ThreadTitleEditor
                         key={selectedSessionId}
