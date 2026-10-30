@@ -170,6 +170,8 @@ export interface Env {
    * local-runtime request refuses 403 before any approval exists.
    */
   SHIBA_LOCAL_RUNTIME?: string;
+  /** Reason Network local companion dispatch is explicitly disabled unless set to "1". */
+  REASON_NETWORK_ENABLED?: string;
   /** verify-shiba: "1" runs deterministic publish/review without containers. */
   SHIBA_VERIFY_STANDIN?: string;
   /**

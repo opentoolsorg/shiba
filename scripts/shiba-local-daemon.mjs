@@ -12,6 +12,10 @@
  *   LOCAL_ADAPTER_TOKEN=<the deployment's daemon bearer> \
  *   node scripts/shiba-local-daemon.mjs [--once] [--poll <ms>]
  *
+ * Optional paired Reason Network lane (off by default):
+ *   SHIBA_REASON_NETWORK_COMPANION=1 \
+ *   SHIBA_REASON_NETWORK_EXECUTABLE=/absolute/path/reason-network
+ *
  * Or pair once with a dashboard-minted token (saves ~/.shiba-local/config.json):
  *   node scripts/shiba-local-daemon.mjs --connect <workerUrl> --pair <token>
  *
@@ -39,6 +43,7 @@ import path from "node:path";
 import process from "node:process";
 import { copyOperatorAuth } from "./link-operator-auth.mjs";
 import { captureExpectedDeliverables } from "./local-deliverables.mjs";
+import { connectReasonNetworkStdio, createReasonNetworkCompanion } from "./reason-network-companion.mjs";
 
 const LOCAL_RUN_ROOT_TOKEN = "${SHIBA_LOCAL_RUN_ROOT}";
 const MAX_STDERR_TAIL_CHARS = 8_000;
@@ -74,7 +79,7 @@ function parseArgs(argv) {
       args.pollMs = Math.max(500, Number(argv[++i]) || DEFAULT_POLL_MS);
     } else if (argv[i] === "--help" || argv[i] === "-h") {
       console.log(
-        "Usage: shiba-local-daemon [--once] [--poll <ms>] [--connect <workerUrl> --pair <token>]\n  Env: SHIBA_WORKER_URL, LOCAL_ADAPTER_TOKEN, SHIBA_LOCAL_RUN_ROOT",
+        "Usage: shiba-local-daemon [--once] [--poll <ms>] [--connect <workerUrl> --pair <token>]\n  Env: SHIBA_WORKER_URL, LOCAL_ADAPTER_TOKEN, SHIBA_LOCAL_RUN_ROOT\n  Optional Reason: SHIBA_REASON_NETWORK_COMPANION=1, SHIBA_REASON_NETWORK_EXECUTABLE=/absolute/path/reason-network",
       );
       process.exit(0);
     } else {
@@ -93,6 +98,7 @@ const hostname = os.hostname();
 const platform = `${process.platform}-${process.arch}`;
 let workerUrl = "";
 let AUTH = {};
+let reasonNetworkExecutableReady = false;
 let machineId = "";
 let harnesses = [];
 let activeRunId;
@@ -148,6 +154,41 @@ async function post(sub, body) {
       status: res.status,
     });
   return text === "" ? {} : JSON.parse(text);
+}
+
+async function get(sub) {
+  const res = await fetch(`${workerUrl}/api/local/${sub}`, { headers: AUTH, signal: AbortSignal.timeout(10_000) });
+  const text = await res.text();
+  if (!res.ok) throw Object.assign(new Error(`${sub}: HTTP ${res.status} ${text.slice(0, 300)}`), { status: res.status });
+  return text === "" ? {} : JSON.parse(text);
+}
+
+/** Only an explicitly enabled daemon may spawn the already-installed Reason MCP executable. */
+async function sendReasonNetworkMessage(operation) {
+  const executablePath = process.env.SHIBA_REASON_NETWORK_EXECUTABLE ?? "";
+  if (!executablePath.startsWith("/")) throw new Error("SHIBA_REASON_NETWORK_EXECUTABLE must be an absolute path to the user-installed reason-network binary.");
+  return createReasonNetworkCompanion({ connect: () => connectReasonNetworkStdio({ executablePath }) })(operation);
+}
+
+async function processReasonNetworkClaim(claim) {
+  const operation = claim.operation;
+  if (!operation) return false;
+  const settle = async (state, messageId) => post("reason-network/v1/result", { operationId: operation.operationId, claimToken: operation.claimToken, state, ...(messageId ? { messageId } : {}) });
+  try {
+    const current = await get(`reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`);
+    if (current.state !== "claimed" || current.cancelRequested) { await settle("cancelled"); return true; }
+    // Close the grant-revocation/cancellation window as far as the protocol allows.
+    const latest = await get(`reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`);
+    if (latest.state !== "claimed" || latest.cancelRequested) { await settle("cancelled"); return true; }
+    const result = await sendReasonNetworkMessage(operation);
+    await settle(result.state, result.messageId);
+  } catch (error) {
+    // Once a send might have crossed the process boundary, preserve uncertainty for same-key recovery.
+    if (error.status === 401) revoked();
+    await settle("unknown").catch(() => {});
+    console.error(`shiba-local: Reason Network operation ${operation.operationId} outcome is unknown: ${error.message}`);
+  }
+  return true;
 }
 
 // ── Signal receipts — same shape the sandbox adapter emits ──────────────
@@ -803,6 +844,7 @@ async function pair(url, pairingToken) {
       platform,
       daemonVersion: DAEMON_VERSION,
       harnesses,
+      reasonNetworkCompanion: reasonNetworkExecutableReady,
     });
   } catch (error) {
     fail(
@@ -872,6 +914,21 @@ async function main() {
   const config = await readConfig();
   workerUrl = (process.env.SHIBA_WORKER_URL ?? config.workerUrl ?? "").replace(/\/+$/, "");
   const adapterToken = process.env.LOCAL_ADAPTER_TOKEN ?? config.adapterToken ?? "";
+  const reasonNetworkEnabled = process.env.SHIBA_REASON_NETWORK_COMPANION === "1";
+  if (reasonNetworkEnabled && (process.env.LOCAL_ADAPTER_TOKEN || !config.machineId))
+    fail("Reason Network companion requires a paired per-machine daemon credential; deployment-wide LOCAL_ADAPTER_TOKEN mode cannot claim scoped Reason operations.");
+  if (reasonNetworkEnabled && !(process.env.SHIBA_REASON_NETWORK_EXECUTABLE ?? "").startsWith("/"))
+    fail("Set SHIBA_REASON_NETWORK_EXECUTABLE to the absolute path of an already-installed reason-network binary; Shiba will not install it.");
+  if (reasonNetworkEnabled) {
+    try {
+      const executable = await fs.stat(process.env.SHIBA_REASON_NETWORK_EXECUTABLE);
+      if (!executable.isFile() || (process.platform !== "win32" && (executable.mode & 0o111) === 0)) fail("SHIBA_REASON_NETWORK_EXECUTABLE must point to an executable regular file.");
+      reasonNetworkExecutableReady = true;
+    } catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "EACCES") fail("SHIBA_REASON_NETWORK_EXECUTABLE must point to an existing executable; Shiba will not install it.");
+      throw error;
+    }
+  }
   if (workerUrl === "")
     fail(
       "SHIBA_WORKER_URL is required (e.g. https://shiba.example.com), or pair with --connect/--pair.",
@@ -892,6 +949,20 @@ async function main() {
   for (;;) {
     // gracefulStop owns settlement once stopping; never claim a run it will abandon.
     if (stopping) return new Promise(() => {});
+    if (reasonNetworkEnabled) {
+      try {
+        const reasonClaim = await post("reason-network/v1/claim", {});
+        if (reasonClaim.operation) {
+          await processReasonNetworkClaim(reasonClaim);
+          if (args.once) process.exit(0);
+          continue;
+        }
+      } catch (error) {
+        if (error.status === 401) revoked();
+        console.error(`shiba-local: Reason Network companion poll failed: ${error.message}`);
+        if (args.once) process.exit(1);
+      }
+    }
     let claim;
     try {
       claim = await post("claim", { operator });

@@ -20,7 +20,7 @@ beforeEach(()=>{auth.authorized=true;auth.userId="owner@example.test";});
 describe("Reason Network authenticated approval setup",()=>{
   it("reports setup required and denies unauthenticated approval setup",async()=>{
     const f=fixture();
-    expect(await read(await f.send("/status"))).toMatchObject({state:"setup_required",enabled:false,dispatchConfigured:false,activeGrants:0});
+    expect(await read(await f.send("/status"))).toMatchObject({state:"disabled",enabled:false,dispatchConfigured:false,activeGrants:0});
     auth.authorized=false;
     expect((await f.send("/grants","POST",{conversationId:"c1",sessionId:"s1"}))?.status).toBe(401);
   });
