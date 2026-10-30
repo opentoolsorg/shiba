@@ -36,6 +36,23 @@ interface Handoff {
   remainingBudget: number;
   status: "active" | "cancelled";
   createdAt: number;
+  approvalId?: string;
+  runId?: string;
+  execution?: {
+    approvalStatus?: string;
+    runStatus?: string;
+    summary?: string;
+    error?: string;
+    pullUrl?: string;
+    unavailable?: boolean;
+  };
+}
+
+interface EmployeeProfile {
+  id: string;
+  version: number;
+  slug: string;
+  config: { name: string; emoji?: string; defaultRepoUrl?: string };
 }
 
 interface RoomDetail {
@@ -53,8 +70,26 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(payload.error ?? `Request failed (${response.status})`);
+  if (!response.ok)
+    throw new CollaborationApiError(
+      response.status,
+      payload.error ?? `Request failed (${response.status})`,
+    );
   return payload;
+}
+
+class CollaborationApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CollaborationApiError";
+  }
+}
+
+function isMembershipLost(error: unknown): boolean {
+  return error instanceof CollaborationApiError && [401, 403, 404].includes(error.status);
 }
 
 function request(method: string, body?: unknown): RequestInit {
@@ -70,10 +105,16 @@ export function CollaborationView(): JSX.Element {
   const [inviteUserId, setInviteUserId] = useState("");
   const [message, setMessage] = useState("");
   const [taskId, setTaskId] = useState("");
+  const [task, setTask] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
   const [recipientActorId, setRecipientActorId] = useState("");
   const [parentHandoffId, setParentHandoffId] = useState("");
+  const [profiles, setProfiles] = useState<EmployeeProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [handoffRequestId, setHandoffRequestId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [retryableError, setRetryableError] = useState(false);
 
   const refresh = useCallback(
     async (roomId = activeRoomId) => {
@@ -109,8 +150,19 @@ export function CollaborationView(): JSX.Element {
           if (!cancelled) setDetail(loaded);
         } else if (!cancelled) setDetail(null);
         if (!cancelled) setError("");
+        if (!cancelled) setRetryableError(false);
       } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled && isMembershipLost(cause)) {
+          setDetail(null);
+          setActiveRoomId("");
+          setError(
+            "Access to this room ended. Its contents are no longer available in this session.",
+          );
+          setRetryableError(false);
+        } else if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+          setRetryableError(true);
+        }
       }
     };
     void load();
@@ -123,10 +175,25 @@ export function CollaborationView(): JSX.Element {
     };
   }, [activeRoomId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ agents: EmployeeProfile[] }>("/api/custom-agents")
+      .then((result) => {
+        if (!cancelled) setProfiles(result.agents);
+      })
+      .catch(() => {
+        // Profile listing is ancillary: room reading remains available.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const members = useMemo(() => detail?.members ?? [], [detail]);
-  const effectiveActorId = members.find(
-    (member) => member.userId === detail?.currentUserId && member.actorKind === "human",
-  )?.actorId || "";
+  const effectiveActorId =
+    members.find(
+      (member) => member.userId === detail?.currentUserId && member.actorKind === "human",
+    )?.actorId || "";
   const recipients = members.filter((member) => member.actorId !== effectiveActorId);
   const parentHandoffs = (detail?.handoffs ?? []).filter(
     (handoff) =>
@@ -145,7 +212,17 @@ export function CollaborationView(): JSX.Element {
       await operation();
       await refresh(activeRoomId);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (isMembershipLost(cause)) {
+        setDetail(null);
+        setActiveRoomId("");
+        setError(
+          "Access to this room ended. Its contents are no longer available in this session.",
+        );
+        setRetryableError(false);
+      } else {
+        setError(cause instanceof Error ? cause.message : String(cause));
+        setRetryableError(true);
+      }
     } finally {
       setBusy(false);
     }
@@ -157,6 +234,7 @@ export function CollaborationView(): JSX.Element {
     void (async () => {
       setBusy(true);
       setError("");
+      setRetryableError(false);
       try {
         const result = await api<{ room: Room }>(
           "/api/collaboration/rooms",
@@ -166,6 +244,7 @@ export function CollaborationView(): JSX.Element {
         await refresh(result.room.roomId);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
+        setRetryableError(!(cause instanceof CollaborationApiError));
       } finally {
         setBusy(false);
       }
@@ -185,11 +264,13 @@ export function CollaborationView(): JSX.Element {
   };
 
   const addAgent = () => {
-    if (!activeRoomId) return;
+    if (!activeRoomId || !selectedProfileId) return;
+    const profile = profiles.find((item) => item.id === selectedProfileId);
+    if (!profile) return;
     void mutate(async () => {
       await api(
         `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/agents`,
-        request("POST", { label: "Shiba agent" }),
+        request("POST", { profileId: profile.id, profileVersion: profile.version }),
       );
     });
   };
@@ -211,18 +292,25 @@ export function CollaborationView(): JSX.Element {
   const createHandoff = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !taskId.trim() || !recipientActorId) return;
+    const handoffId = handoffRequestId || `ho_${crypto.randomUUID()}`;
+    if (!handoffRequestId) setHandoffRequestId(handoffId);
     void mutate(async () => {
       await api(
         `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs`,
         request("POST", {
-          handoffId: `ho_${crypto.randomUUID()}`,
+          handoffId,
           taskId: taskId.trim(),
           recipientActorId,
+          task: task.trim(),
+          ...(repoUrl.trim() ? { repoUrl: repoUrl.trim() } : {}),
           ...(parentHandoffId ? { parentHandoffId } : {}),
         }),
       );
       setTaskId("");
+      setTask("");
+      setRepoUrl("");
       setParentHandoffId("");
+      setHandoffRequestId("");
     });
   };
 
@@ -232,8 +320,8 @@ export function CollaborationView(): JSX.Element {
         <header>
           <h1 className="text-lg font-semibold">Collaboration rooms</h1>
           <p className="text-xs text-[var(--muted-foreground-2)] mt-1">
-            Private task conversations with room members and agent participants. Handoffs are
-            recorded with bounded lineage and budget.
+            Private task conversations with room members and configured employees. Employee work
+            enters the existing human approval queue before any run starts.
           </p>
         </header>
 
@@ -243,6 +331,15 @@ export function CollaborationView(): JSX.Element {
             className="rounded border border-[var(--destructive)]/40 bg-[var(--destructive)]/10 p-3 text-sm"
           >
             {error}
+            {retryableError && (
+              <button
+                type="button"
+                className="ml-3 underline"
+                onClick={() => void refresh(activeRoomId)}
+              >
+                Retry
+              </button>
+            )}
           </p>
         )}
 
@@ -415,14 +512,30 @@ export function CollaborationView(): JSX.Element {
                         </form>
                       )}
                       {canManageMembers && (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={addAgent}
-                          className="mt-2 w-full rounded border border-[var(--border-1)] px-2 py-2 text-xs disabled:opacity-50"
-                        >
-                          Add agent participant
-                        </button>
+                        <div className="mt-2 flex gap-2">
+                          <select
+                            aria-label="Employee profile"
+                            value={selectedProfileId}
+                            onChange={(event) => setSelectedProfileId(event.target.value)}
+                            className="min-w-0 flex-1 rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                          >
+                            <option value="">Select employee</option>
+                            {profiles.map((profile) => (
+                              <option key={profile.id} value={profile.id}>
+                                {profile.config.emoji ? `${profile.config.emoji} ` : ""}
+                                {profile.config.name} · v{profile.version}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={busy || !selectedProfileId}
+                            onClick={addAgent}
+                            className="rounded border border-[var(--border-1)] px-2 py-2 text-xs disabled:opacity-50"
+                          >
+                            Add
+                          </button>
+                        </div>
                       )}
                     </section>
 
@@ -432,15 +545,32 @@ export function CollaborationView(): JSX.Element {
                         <input
                           aria-label="Task ID"
                           value={taskId}
-                          onChange={(event) => setTaskId(event.target.value)}
+                          onChange={(event) => { setTaskId(event.target.value); setHandoffRequestId(""); }}
                           maxLength={120}
-                          placeholder="Task ID"
+                          placeholder="Task ID / grouping key"
+                          className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                        />
+                        <textarea
+                          aria-label="Employee task request"
+                          value={task}
+                          onChange={(event) => { setTask(event.target.value); setHandoffRequestId(""); }}
+                          maxLength={4000}
+                          rows={3}
+                          placeholder="Describe the work to request"
+                          className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                        />
+                        <input
+                          aria-label="Repository URL"
+                          value={repoUrl}
+                          onChange={(event) => { setRepoUrl(event.target.value); setHandoffRequestId(""); }}
+                          maxLength={500}
+                          placeholder="Repository URL (uses employee default when blank)"
                           className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
                         />
                         <select
                           aria-label="Parent handoff"
                           value={parentHandoffId}
-                          onChange={(event) => setParentHandoffId(event.target.value)}
+                          onChange={(event) => { setParentHandoffId(event.target.value); setHandoffRequestId(""); }}
                           className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
                         >
                           <option value="">New task handoff</option>
@@ -453,23 +583,23 @@ export function CollaborationView(): JSX.Element {
                         <select
                           aria-label="Handoff recipient"
                           value={recipientActorId}
-                          onChange={(event) => setRecipientActorId(event.target.value)}
+                          onChange={(event) => { setRecipientActorId(event.target.value); setHandoffRequestId(""); }}
                           className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
                         >
                           <option value="">Select recipient</option>
                           {recipients.map((member) => (
                             <option key={member.actorId} value={member.actorId}>
-                              {member.actorKind === "agent" ? "Agent" : member.userId} ·{" "}
+                              {member.actorKind === "agent" ? member.displayName : member.userId} ·{" "}
                               {member.role}
                             </option>
                           ))}
                         </select>
                         <button
                           type="submit"
-                          disabled={busy || !taskId.trim() || !recipientActorId}
+                          disabled={busy || !taskId.trim() || !recipientActorId || !task.trim()}
                           className="rounded border border-[var(--border-1)] px-2 py-2 text-xs disabled:opacity-50"
                         >
-                          Create handoff
+                          Request / create handoff
                         </button>
                       </form>
                       <ul className="mt-3 flex flex-col gap-2">
@@ -485,6 +615,35 @@ export function CollaborationView(): JSX.Element {
                             <p className="mt-1 text-[var(--muted-foreground-2)]">
                               Depth {handoff.depth} · {handoff.remainingBudget} handoffs left
                             </p>
+                            {handoff.approvalId && (
+                              <div className="mt-1 border-t border-[var(--border-1)] pt-1">
+                                <p>Approval: {handoff.execution?.approvalStatus ?? "pending"}</p>
+                                {handoff.execution?.runStatus && (
+                                  <p>Run: {handoff.execution.runStatus}</p>
+                                )}
+                                {handoff.execution?.error && (
+                                  <p className="text-[var(--destructive)]">
+                                    {handoff.execution.error}
+                                  </p>
+                                )}
+                                {handoff.execution?.summary && (
+                                  <p className="whitespace-pre-wrap">{handoff.execution.summary}</p>
+                                )}
+                                {handoff.execution?.pullUrl && (
+                                  <a
+                                    href={handoff.execution.pullUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline"
+                                  >
+                                    View pull request
+                                  </a>
+                                )}
+                                {handoff.execution?.unavailable && (
+                                  <p>Run status is temporarily unavailable.</p>
+                                )}
+                              </div>
+                            )}
                             {handoff.status === "active" && (
                               <button
                                 type="button"

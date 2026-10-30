@@ -56,6 +56,8 @@ export async function resolveRunStoreTarget(
 
 type RunSummary = { runId: string; createdAt?: number };
 
+const collaborationProfilePins = new WeakMap<Request, number>();
+
 /**
  * Automations, the review lane, Sentry and Slash runs live on the shared
  * "default" DO. Unscoped run reads by a DASHBOARD_APPROVERS member (the set
@@ -99,6 +101,23 @@ export async function handleRuns(request: Request, env: Env): Promise<Response |
   const out = new Response(res.body, res);
   out.headers.set("cache-control", "no-store");
   return out;
+}
+
+/** Queue a room employee request through the normal approval-gated dashboard run route. */
+export async function queueCollaborationRun(
+  request: Request,
+  env: Env,
+  input: { task: string; repoUrl: string; customAgentId: string; profileVersion: number; commandId: string },
+): Promise<Response | null> {
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+  const forwarded = new Request(new URL("/api/runs", request.url), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ task: input.task, repoUrl: input.repoUrl, customAgentId: input.customAgentId, commandId: input.commandId }),
+  });
+  collaborationProfilePins.set(forwarded, input.profileVersion);
+  return handleRuns(forwarded, env);
 }
 
 async function handleRunsInner(request: Request, env: Env): Promise<Response | null> {
@@ -209,7 +228,17 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     }
     // Dashboard run ownership comes from the verified user/session target,
     // never a client-provided key naming another or the shared DO's queue.
-    rewritten = new Request(rewritten, { body: JSON.stringify({ ...intakeBody, orgId: DASHBOARD_ORG_ID, ...(intakeKind === "run" ? { threadKey: targetAgentName } : {}) }) });
+    const safeIntakeBody = { ...intakeBody };
+    delete safeIntakeBody.customAgentVersion;
+    const trustedProfileVersion = collaborationProfilePins.get(request);
+    rewritten = new Request(rewritten, {
+      body: JSON.stringify({
+        ...safeIntakeBody,
+        orgId: DASHBOARD_ORG_ID,
+        ...(intakeKind === "run" ? { threadKey: targetAgentName } : {}),
+        ...(trustedProfileVersion !== undefined ? { customAgentVersion: trustedProfileVersion } : {}),
+      }),
+    });
     rewritten.headers.set("content-type", "application/json");
     rewritten.headers.delete("content-length");
   }

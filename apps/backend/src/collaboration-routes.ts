@@ -10,6 +10,9 @@ import {
   validateCollaborationMessage,
   validateHandoffCancellation,
 } from "@shiba/shared";
+import { getAgentByName } from "agents/routing";
+import { handleApprovals } from "./approvals-routes.js";
+import { randomHex } from "./mailbox-store.js";
 import {
   addCollaborationMember,
   COLLAB_TENANT_ID,
@@ -27,15 +30,18 @@ import {
   getCollaborationMembership,
   getCollaborationRoom,
   humanActorId,
+  linkCollaborationHandoffRun,
   listCollaborationHandoffs,
   listCollaborationMemberships,
   listCollaborationMessages,
   listCollaborationRooms,
   removeCollaborationMember,
 } from "./collaboration-store.js";
+import { getCustomAgentVersion } from "./custom-agents-store.js";
 import type { Env } from "./env.js";
-import { randomHex } from "./mailbox-store.js";
+import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import { handleRuns, queueCollaborationRun } from "./runs-routes.js";
 
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
@@ -201,6 +207,21 @@ function invalidBody(message: string): Response {
   return json({ error: message }, 400);
 }
 
+function forwardedRequest(
+  request: Request,
+  pathname: string,
+  method: string,
+  body?: unknown,
+): Request {
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+  return new Request(new URL(pathname, request.url), {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+}
+
 /** Internal Shiba task rooms. Identity and workspace scope are derived server-side. */
 export async function handleCollaboration(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
@@ -267,7 +288,61 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
         listCollaborationMessages(env, scope, roomId),
         listCollaborationHandoffs(env, scope, roomId),
       ]);
-      return json({ room: access.room, currentUserId: scope.userId, members, messages, handoffs });
+      const handoffsWithExecution = await Promise.all(
+        handoffs.map(async (handoff) => {
+          if (!handoff.approvalId || !handoff.runId || !env.CodingOrchestrator) return handoff;
+          try {
+            const owner = await getAgentByName(env.CodingOrchestrator, handoff.senderUserId);
+            const [approvalResponse, runResponse] = await Promise.all([
+              owner.fetch("https://internal/api/approvals"),
+              owner.fetch(`https://internal/api/runs/${encodeURIComponent(handoff.runId)}`),
+            ]);
+            const approvalBody = approvalResponse.ok
+              ? ((await approvalResponse.json().catch(() => ({}))) as {
+                  approvals?: Array<{ approvalId: string; status: string }>;
+                  decided?: Array<{ approvalId: string; status: string }>;
+                })
+              : {};
+            const approval = [
+              ...(approvalBody.approvals ?? []),
+              ...(approvalBody.decided ?? []),
+            ].find((item) => item.approvalId === handoff.approvalId);
+            const runBody = runResponse.ok
+              ? ((await runResponse.json().catch(() => ({}))) as {
+                  run?: { status?: string; summary?: string; error?: string; pullUrl?: string };
+                })
+              : {};
+            return {
+              ...handoff,
+              execution: {
+                approvalId: handoff.approvalId,
+                runId: handoff.runId,
+                ...(approval ? { approvalStatus: approval.status } : {}),
+                ...(runBody.run?.status ? { runStatus: runBody.run.status } : {}),
+                ...(runBody.run?.summary ? { summary: runBody.run.summary } : {}),
+                ...(runBody.run?.error ? { error: runBody.run.error } : {}),
+                ...(runBody.run?.pullUrl ? { pullUrl: runBody.run.pullUrl } : {}),
+              },
+            };
+          } catch {
+            return {
+              ...handoff,
+              execution: {
+                approvalId: handoff.approvalId,
+                runId: handoff.runId,
+                unavailable: true,
+              },
+            };
+          }
+        }),
+      );
+      return json({
+        room: access.room,
+        currentUserId: scope.userId,
+        members,
+        messages,
+        handoffs: handoffsWithExecution,
+      });
     }
 
     if (
@@ -324,16 +399,36 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
       if (access.membership.role !== "owner")
         return json({ error: "Only room owners can add an agent participant." }, 403);
       const body = await bodyObject(request);
-      const actorId = `agent:${randomHex(12)}`;
+      if (typeof body.profileId !== "string" || !body.profileId.trim())
+        return invalidBody("Select an existing employee profile.");
+      const profileVersion = Number.isSafeInteger(body.profileVersion)
+        ? Number(body.profileVersion)
+        : 0;
+      const profile = await getCustomAgentVersion(
+        env,
+        DASHBOARD_ORG_ID,
+        body.profileId.trim(),
+        profileVersion,
+      );
+      if (!profile)
+        return json({ error: "Employee profile or pinned version is unavailable." }, 404);
+      if (profile.config.toolScopes?.length)
+        return json(
+          { error: "Employee profiles with unsupported tool scopes cannot join rooms." },
+          409,
+        );
+      const actorId = `agent:${profile.id}`;
       const displayName =
-        typeof body.label === "string" && body.label.trim()
-          ? body.label.trim().slice(0, 80)
-          : "Agent";
+        `${profile.config.emoji ? `${profile.config.emoji} ` : ""}${profile.config.name}`.slice(
+          0,
+          80,
+        );
       const inserted = await addCollaborationMember(env, scope, roomId, {
         userId: scope.userId,
         displayName,
         actorId,
         kind: "agent",
+        profileVersion: profile.version,
         createdAt: Date.now(),
       });
       if (!inserted) return json({ error: "Agent participant could not be added." }, 409);
@@ -563,7 +658,10 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
           return json({ error: "Active parent handoff not found for this participant." }, 404);
         }
         if (parent.recipientActorId.startsWith("agent:")) {
-          return json({ error: "Agent handoff execution is not available in this deployment." }, 501);
+          return json(
+            { error: "Agent handoff execution is not available in this deployment." },
+            501,
+          );
         }
         const parentEnvelope = envelopeForHandoff(parent);
         const lineage = childHandoffLineage(parentEnvelope);
@@ -626,14 +724,94 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
         }
         saved = await createChildCollaborationHandoff(env, scope, input);
       }
-      if (!saved)
-        return json(
-          {
-            error:
-              "Handoff could not be created; the membership or remaining handoff budget may have changed.",
-          },
-          409,
-        );
+      if (!saved) {
+        const prior = await getCollaborationHandoff(env, scope, body.handoffId);
+        const sameRequest = prior &&
+          prior.status === "active" &&
+          prior.roomId === roomId &&
+          prior.taskId === body.taskId.trim() &&
+          prior.senderUserId === scope.userId &&
+          prior.senderActorId === senderActor.actorId &&
+          prior.recipientUserId === recipient.userId &&
+          prior.recipientActorId === recipient.actorId &&
+          prior.parentHandoffId === parentId;
+        if (!sameRequest) return json({ error: "Handoff could not be created; the membership or remaining handoff budget may have changed." }, 409);
+        saved = prior;
+      }
+      if (recipient.actorKind === "agent" && !saved.approvalId) {
+        const task = typeof body.task === "string" ? body.task.trim() : "";
+        if (!task || task.length > 4_000) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody(
+            "An employee request must contain 1–4000 characters of task instructions.",
+          );
+        }
+        const customAgentId = recipient.actorId.slice("agent:".length);
+        const profile =
+          recipient.profileVersion === null
+            ? null
+          : await getCustomAgentVersion(
+                env,
+                DASHBOARD_ORG_ID,
+                customAgentId,
+                recipient.profileVersion,
+              );
+        if (!profile || profile.config.toolScopes?.length) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return json({ error: "Pinned employee profile is no longer available." }, 409);
+        }
+        const repoUrl =
+          typeof body.repoUrl === "string" && body.repoUrl.trim()
+            ? body.repoUrl.trim()
+            : (profile.config.defaultRepoUrl ?? "");
+        if (!repoUrl) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody(
+            "Choose a repository or configure a default repository on the employee profile.",
+          );
+        }
+        const queued = await queueCollaborationRun(request, env, {
+          task,
+          repoUrl,
+          customAgentId,
+          profileVersion: profile.version,
+          commandId: saved.handoffId,
+        });
+        if (!queued?.ok) {
+          const detail = (await queued?.json().catch(() => ({}))) as { error?: string } | undefined;
+          return json(
+            { error: detail?.error ?? "Could not queue the employee approval.", handoffId: saved.handoffId, retryable: true },
+            queued?.status ?? 503,
+          );
+        }
+        const approval = (await queued.json().catch(() => ({}))) as { approvalId?: unknown };
+        if (typeof approval.approvalId !== "string" || !approval.approvalId) {
+          return json({ error: "The approval queue returned no approval identity.", handoffId: saved.handoffId, retryable: true }, 502);
+        }
+        const runId = `agent-tool:${approval.approvalId}`;
+        if (
+          !(await linkCollaborationHandoffRun(
+            env,
+            scope,
+            saved.handoffId,
+            approval.approvalId,
+            runId,
+          ))
+        )
+          return json(
+            {
+              error:
+                "Approval was queued but could not be linked to the room.",
+              handoffId: saved.handoffId,
+              retryable: true,
+            },
+            503,
+          );
+        saved.approvalId = approval.approvalId;
+        saved.runId = runId;
+      } else if (recipient.actorKind === "agent" && saved.approvalId) {
+        saved.runId = saved.runId ?? `agent-tool:${saved.approvalId}`;
+      }
       return json({ handoff: saved }, 201);
     }
 
@@ -665,10 +843,44 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
       };
       const valid = validateHandoffCancellation(cancellation, envelopeForHandoff(target));
       if (!valid.valid) return invalidBody("Stored handoff lineage is invalid.");
+      if ((target.approvalId || target.runId) && scope.userId !== target.senderUserId)
+        return json({ error: "Only the request owner can cancel its linked employee run." }, 403);
       const changed = await cancelCollaborationHandoff(env, scope, handoffId, Date.now());
-      return changed
-        ? json({ cancelled: true })
-        : json({ error: "Handoff could not be cancelled." }, 409);
+      if (!changed && target.status !== "cancelled")
+        return json({ error: "Handoff could not be cancelled." }, 409);
+      if (target.approvalId) {
+        const resolved = await handleApprovals(
+          forwardedRequest(request, "/api/approvals", "POST", {
+            threadKey: target.senderUserId,
+            approvalId: target.approvalId,
+            approved: false,
+          }),
+          env,
+        );
+        if (!resolved?.ok) return json({ cancelled: true, executorCancellationPending: true }, 202);
+      }
+      if (target.runId) {
+        const existing = await handleRuns(
+          forwardedRequest(request, `/api/runs/${encodeURIComponent(target.runId)}`, "GET"),
+          env,
+        );
+        if (existing?.ok) {
+          const runBody = (await existing.json().catch(() => ({}))) as {
+            run?: { status?: string };
+          };
+          if (runBody.run?.status === "pending" || runBody.run?.status === "running") {
+            const cancelled = await handleRuns(
+              forwardedRequest(request, `/api/runs/${encodeURIComponent(target.runId)}`, "DELETE"),
+              env,
+            );
+            if (!cancelled?.ok)
+              return json({ cancelled: true, executorCancellationPending: true }, 202);
+          }
+        } else if (existing && existing.status !== 404) {
+          return json({ cancelled: true, executorCancellationPending: true }, 202);
+        }
+      }
+      return json({ cancelled: true });
     }
 
     return json({ error: "Collaboration route or method not found." }, 404);

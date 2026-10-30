@@ -1759,6 +1759,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     payload?: unknown;
     queuedBy?: unknown;
     commandId?: unknown;
+    customAgentVersion?: unknown;
   }): Promise<Response> {
     const kind = typeof input.kind === "string" && input.kind.trim() ? input.kind.trim() : "run";
     let executionTarget: ExecutionTarget | undefined;
@@ -1892,10 +1893,22 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (!this.env.AGENT_AUDIT) {
         return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
       }
+      const requestedAgentVersion = (input as { customAgentVersion?: unknown }).customAgentVersion;
+      if (
+        requestedAgentVersion !== undefined &&
+        (!Number.isSafeInteger(requestedAgentVersion) || Number(requestedAgentVersion) < 1)
+      ) {
+        return Response.json({ error: "Invalid pinned employee profile version." }, { status: 400 });
+      }
       const { resolveCustomAgentForRun, overridesFromCustomAgent } = await import(
         "../custom-agents-resolve.js"
       );
-      const agent = await resolveCustomAgentForRun(this.env, intakeOrgId, customAgentRef);
+      const agent = await resolveCustomAgentForRun(
+        this.env,
+        intakeOrgId,
+        customAgentRef,
+        requestedAgentVersion === undefined ? undefined : Number(requestedAgentVersion),
+      );
       if (!agent) {
         return Response.json({ error: "Bot not found." }, { status: 404 });
       }
