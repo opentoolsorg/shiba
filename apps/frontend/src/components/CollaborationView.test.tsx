@@ -125,6 +125,56 @@ describe("CollaborationView room access polling", () => {
       .toBe("/api/runs/agent-tool%3Aapproval-1/deliverables/0");
   });
 
+  it("lets a room owner map only an observed Slack thread and shows link status", async () => {
+    let mapped = false;
+    const slackSource = {
+      teamId: "T123",
+      channelId: "C123",
+      threadTs: "1710000000.000100",
+      lastSeenAt: 100,
+      lastUserId: "U123",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path.endsWith("/api/custom-agents")) return jsonResponse({ agents: [] });
+        if (path.endsWith("/api/collaboration/rooms"))
+          return jsonResponse({ rooms: [{ roomId: "room-1", title: "Shared room", visibility: "private" }] });
+        if (path.endsWith("/api/collaboration/rooms/room-1/slack-links") && init?.method === "POST") {
+          expect(JSON.parse(String(init.body))).toEqual({
+            teamId: slackSource.teamId,
+            channelId: slackSource.channelId,
+            threadTs: slackSource.threadTs,
+          });
+          mapped = true;
+          return jsonResponse({ link: { linkId: "link-1" } }, 201);
+        }
+        if (path.endsWith("/api/collaboration/rooms/room-1")) {
+          return jsonResponse({
+            ...roomDetail,
+            currentUserId: "member@example.test",
+            members: [{ ...roomDetail.members[0], role: "owner" }],
+            slackSources: mapped ? [] : [slackSource],
+            slackLinks: mapped
+              ? [{ linkId: "link-1", roomId: "room-1", ...slackSource, status: "active", outboundConfigured: false }]
+              : [],
+            slackDeliveryIntents: [],
+          });
+        }
+        throw new Error(`Unexpected request ${path}`);
+      }),
+    );
+
+    render(<CollaborationView />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Verified Slack thread" }), {
+      target: { value: "T123|C123|1710000000.000100" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    expect(await screen.findByText(/active: T123\/C123\/1710000000.000100/)).toBeTruthy();
+    expect(screen.getByText(/Outbound delivery is disabled/)).toBeTruthy();
+  });
+
   it("removes stale room content when another session revokes this member before the next poll", async () => {
     let revokedBySecondSession = false;
     let poll: (() => void) | undefined;

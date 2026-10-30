@@ -21,6 +21,8 @@ import {
   type CollaborationScope,
   CollaborationStoreError,
   cancelCollaborationHandoff,
+  createCollaborationSlackDeliveryIntent,
+  createCollaborationSlackLink,
   createChildCollaborationHandoff,
   createCollaborationMessage,
   createCollaborationRoom,
@@ -36,7 +38,11 @@ import {
   listCollaborationMemberships,
   listCollaborationMessages,
   listCollaborationRooms,
+  listCollaborationSlackDeliveryIntents,
+  listCollaborationSlackLinks,
+  listCollaborationSlackSources,
   removeCollaborationMember,
+  revokeCollaborationSlackLink,
 } from "./collaboration-store.js";
 import { getCustomAgentVersion } from "./custom-agents-store.js";
 import type { Env } from "./env.js";
@@ -47,6 +53,18 @@ import { handleRuns, queueCollaborationRun } from "./runs-routes.js";
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
 const MAX_MESSAGE_LENGTH = 5_000;
+
+export interface CollaborationRouteDeps {
+  /** Testable intent sink; production records intents and never calls Slack. */
+  onSlackDeliveryIntent?: (intent: {
+    intentId: string;
+    roomId: string;
+    linkId: string;
+    messageId: string;
+    channelId: string;
+    threadTs: string;
+  }) => Promise<void>;
+}
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -224,7 +242,11 @@ function forwardedRequest(
 }
 
 /** Internal Shiba task rooms. Identity and workspace scope are derived server-side. */
-export async function handleCollaboration(request: Request, env: Env): Promise<Response | null> {
+export async function handleCollaboration(
+  request: Request,
+  env: Env,
+  deps: CollaborationRouteDeps = {},
+): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) return null;
   if (!(await isAuthorizedRequest(request, env)))
@@ -284,10 +306,15 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
         "room.read",
       );
       if ("response" in access && access.response) return access.response;
-      const [members, handoffs] = await Promise.all([
+      const [members, handoffs, slackLinks, slackDeliveryIntents] = await Promise.all([
         listCollaborationMemberships(env, scope, roomId),
         listCollaborationHandoffs(env, scope, roomId),
+        listCollaborationSlackLinks(env, scope, roomId),
+        listCollaborationSlackDeliveryIntents(env, scope, roomId),
       ]);
+      const slackSources = access.membership.role === "owner"
+        ? await listCollaborationSlackSources(env, scope, roomId)
+        : [];
       const handoffsWithExecution = await Promise.all(
         handoffs.map(async (handoff) => {
           if (!handoff.approvalId || !handoff.runId || !env.CodingOrchestrator) return handoff;
@@ -421,7 +448,108 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
         members,
         messages,
         handoffs: handoffsWithExecution,
+        slackLinks: slackLinks.map((link) => ({
+          ...link,
+          outboundConfigured: Boolean(
+            env.SLACK_BOT_TOKEN?.trim() &&
+            env.SLACK_APPROVALS_CHANNEL?.trim() === link.channelId,
+          ),
+        })),
+        slackSources,
+        slackDeliveryIntents,
       });
+    }
+
+    if (
+      path[0] === "rooms" && path.length === 3 && path[2] === "slack-links" &&
+      request.method === "POST"
+    ) {
+      const roomId = path[1] ?? "";
+      const access = await authorizeRoomAction(
+        env, scope, roomId, humanActorId(scope.userId), "membership.manage",
+      );
+      if ("response" in access && access.response) return access.response;
+      if (access.membership.role !== "owner")
+        return json({ error: "Only room owners can map Slack threads." }, 403);
+      const body = await bodyObject(request);
+      const teamId = typeof body.teamId === "string" ? body.teamId : "";
+      const channelId = typeof body.channelId === "string" ? body.channelId : "";
+      const threadTs = typeof body.threadTs === "string" ? body.threadTs : "";
+      if (
+        !/^[A-Za-z0-9_-]{1,128}$/.test(teamId) ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(channelId) ||
+        !/^\d+\.\d+$/.test(threadTs)
+      )
+        return invalidBody("Choose a verified Slack workspace, channel, and thread.");
+      const saved = await createCollaborationSlackLink(env, scope, {
+        linkId: `slacklink_${randomHex(12)}`,
+        roomId,
+        teamId,
+        channelId,
+        threadTs,
+        createdAt: Date.now(),
+      });
+      if (!saved) return json({ error: "This Slack thread was not observed or is already linked elsewhere." }, 409);
+      return json({ link: saved }, 201);
+    }
+
+    if (
+      path[0] === "rooms" && path.length === 4 && path[2] === "slack-links" &&
+      request.method === "DELETE"
+    ) {
+      const roomId = path[1] ?? "";
+      const access = await authorizeRoomAction(
+        env, scope, roomId, humanActorId(scope.userId), "membership.manage",
+      );
+      if ("response" in access && access.response) return access.response;
+      if (access.membership.role !== "owner")
+        return json({ error: "Only room owners can revoke Slack thread links." }, 403);
+      const changed = await revokeCollaborationSlackLink(
+        env, scope, roomId, path[3] ?? "", Date.now(),
+      );
+      return changed ? json({ revoked: true }) : json({ error: "Slack thread link not found or already revoked." }, 404);
+    }
+
+    if (
+      path[0] === "rooms" && path.length === 5 && path[2] === "messages" &&
+      path[4] === "slack-delivery" && request.method === "POST"
+    ) {
+      const roomId = path[1] ?? "";
+      const access = await authorizeRoomAction(
+        env, scope, roomId, humanActorId(scope.userId), "message.send",
+      );
+      if ("response" in access && access.response) return access.response;
+      const body = await bodyObject(request);
+      if (typeof body.linkId !== "string") return invalidBody("Slack room link is required.");
+      const link = (await listCollaborationSlackLinks(env, scope, roomId))
+        .find((item) => item.linkId === body.linkId && item.status === "active");
+      if (!link) return json({ error: "Active Slack room link not found." }, 404);
+      if (
+        !env.SLACK_BOT_TOKEN?.trim() ||
+        env.SLACK_APPROVALS_CHANNEL?.trim() !== link.channelId
+      ) {
+        return json({
+          error: "Outbound delivery intent requires the configured Slack approvals channel and bot token.",
+          deliveryEnabled: false,
+        }, 409);
+      }
+      const intent = await createCollaborationSlackDeliveryIntent(env, scope, {
+        intentId: `slackintent_${randomHex(12)}`,
+        roomId,
+        linkId: link.linkId,
+        messageId: path[3] ?? "",
+        channelId: link.channelId,
+        threadTs: link.threadTs,
+        createdAt: Date.now(),
+      });
+      if (!intent)
+        return json({ error: "Only your own web-authored message can create a Slack delivery intent." }, 409);
+      try {
+        await deps.onSlackDeliveryIntent?.(intent);
+      } catch (error) {
+        console.error("Slack room delivery intent adapter failed", error instanceof Error ? error.message : String(error));
+      }
+      return json({ intent, sent: false }, 202);
     }
 
     if (
@@ -564,8 +692,11 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
         body.body.length > MAX_MESSAGE_LENGTH
       )
         return invalidBody(`Message must be 1–${MAX_MESSAGE_LENGTH} characters.`);
-      if (typeof body.messageId === "string" && body.messageId.startsWith("agent_reply_"))
-        return invalidBody("Message id uses a reserved employee reply namespace.");
+      if (
+        typeof body.messageId === "string" &&
+        (body.messageId.startsWith("agent_reply_") || body.messageId.startsWith("slack_evt_"))
+      )
+        return invalidBody("Message id uses a reserved system namespace.");
       const sender = actorFor(scope, access.membership.actorKind, access.membership.actorId);
       const message = {
         kind: "message" as const,
