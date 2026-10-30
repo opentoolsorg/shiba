@@ -711,17 +711,17 @@ describe("dashboard memory routes", () => {
       { method: "DELETE", match: /^\/internal\/memory\/facts\/fact-1$/, body: { ok: true } },
     ]);
     const directory = makeStub([{ match: "/internal/mailbox/mailboxes", body: { mailboxes: [] } }]);
-    const env = makeEnv({ [DIRECTORY]: directory }, { memory: { global: memoryStub } });
+    const env = makeEnv({ [DIRECTORY]: directory }, { memory: { global: memoryStub, default: memoryStub } });
     return { env, memoryStub };
   }
 
-  it("GET /api/memory/facts proxies the global registry stub", async () => {
+  it("GET /api/memory/facts limits legacy facts to the local default agent", async () => {
     const { env, memoryStub } = memoryEnv();
     const response = await worker.fetch(new Request("http://localhost/api/memory/facts"), env, ctx);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { facts: Array<{ id: string }> };
     expect(body.facts).toHaveLength(1);
-    expect(memoryStub.calls[0]!.url).toContain("/internal/memory/facts");
+    expect(memoryStub.calls[0]!.url).toBe("https://internal/internal/memory/facts?agent=default");
   });
 
   it("GET /api/memory/facts?q= routes to recall search with the query", async () => {
@@ -734,7 +734,7 @@ describe("dashboard memory routes", () => {
     const body = (await response.json()) as { facts: Array<{ score?: number }> };
     expect(body.facts[0]!.score).toBe(0.87);
     expect(memoryStub.calls[0]!.url).toBe(
-      "https://internal/internal/memory/facts/search?q=package+manager",
+      "https://internal/internal/memory/facts/search?agent=default&q=package+manager",
     );
   });
 
@@ -743,6 +743,9 @@ describe("dashboard memory routes", () => {
     const sessions = await worker.fetch(new Request("http://localhost/api/memory/sessions"), env, ctx);
     const body = (await sessions.json()) as { sessions: Array<{ id: string }> };
     expect(body.sessions[0]!.id).toBe("ses-1");
+    expect(memoryStub.calls.find((call) => call.url.includes("/sessions"))?.url).toBe(
+      "https://internal/internal/memory/sessions?agent=default",
+    );
     const del = await worker.fetch(
       new Request("http://localhost/api/memory/facts/fact-1", { method: "DELETE" }),
       env,
