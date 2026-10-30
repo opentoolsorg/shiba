@@ -1,4 +1,5 @@
 import { type ReasonOperation, type ReasonNetworkOperationStore, type ReasonOperationScope } from "./operation-store.js";
+import { REASON_NETWORK_RECOVERY_WINDOW_MS } from "./operation-store.js";
 
 export const REASON_NETWORK_PIN = "0.12.17" as const;
 export const REASON_NETWORK_MCP_COMMAND = "reason-network mcp" as const;
@@ -100,6 +101,8 @@ export class ReasonNetworkAdapter {
       const existing = reserved.operation;
       if (existing.state === "rejected") return { state: "rejected", replayed: true };
       if (existing.state === "accepted") return { state: "accepted", ...(existing.remoteMessageId ? { messageId: existing.remoteMessageId } : {}), replayed: true };
+      if (existing.state === "unknown" && (existing.firstAttemptAt === null || existing.firstAttemptAt === undefined || existing.firstAttemptAt <= this.now() - REASON_NETWORK_RECOVERY_WINDOW_MS))
+        return { state: "unknown", replayed: true };
       if (existing.remoteMessageId) {
         await this.call("message_status", { ids: [existing.remoteMessageId] }, scope.sessionId);
         return { state: "unknown", messageId: existing.remoteMessageId, replayed: true };
