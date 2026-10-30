@@ -535,6 +535,30 @@ try {
     (run) => run.task?.includes(taskText) && run.status === "completed",
   );
   assert.equal(completedRun.customAgentId, employee.id);
+  await nav(page, "tasks");
+  const reviewDecision = page.getByLabel("Review decision for reports/acceptance.md");
+  await reviewDecision.waitFor();
+  await reviewDecision.selectOption("changes_requested");
+  const revisionNote = "Include a brief self-hosting limitation note.";
+  await page.getByLabel("Revision note for reports/acceptance.md").fill(revisionNote);
+  await page.getByRole("button", { name: "Save review" }).click();
+  await page.getByRole("status").filter({ hasText: "Revision requested." }).waitFor();
+  const reviewedHistory = await apiJson(
+    page,
+    `/api/runs/${encodeURIComponent(completedRun.runId)}/deliverables/0/history`,
+  );
+  assert.equal(reviewedHistory.versions?.[0]?.review.status, "changes_requested");
+  assert.equal(reviewedHistory.versions?.[0]?.review.note, revisionNote);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByText(`Review: changes requested · ${revisionNote}`, { exact: true }).waitFor();
+  checkpoints.push({
+    id: "artifact-review-revision-reload",
+    status: "passed",
+    runId: completedRun.runId,
+    reviewStatus: "changes_requested",
+    revisionNote,
+    historyVersions: reviewedHistory.versions.length,
+  });
   assert.ok(
     completedRun.signals?.some(
       (signal) =>
