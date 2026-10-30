@@ -19,7 +19,7 @@ vi.mock("agents/routing", () => ({
       return state.sessions.get(actor)?.includes(id) ? Response.json({ session: { id } }) : Response.json({ error: "Session not found." }, { status: 404 });
     }
     if (typeof request !== "string") state.requests.push(request);
-    const action = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([0-7])\/(review|history)$/);
+    const action = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([0-7])\/(review|history|revision)$/);
     if (action) {
       const target = state.runs.get(actor+"|"+decodeURIComponent(action[1]!)) as {
         runId: string; deliverables: Array<Record<string, unknown>>;
@@ -28,6 +28,7 @@ vi.mock("agents/routing", () => ({
       if (action[3] === "history") return Response.json({ artifactId: target.deliverables?.[Number(action[2])]?.artifactId, versions: [{ runId: target.runId, index: Number(action[2]), version: 1 }] });
       if (typeof request === "string" || request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
       const body = await request.json() as { status: string; note?: string };
+      if (action[3] === "revision") return Response.json({ ok: true, approvalId: "fresh-approval", started: false });
       target.deliverables[Number(action[2])]!.review = { ...body, updatedAt: 500 };
       return Response.json({ ok: true, deliverable: target.deliverables[Number(action[2])] });
     }
@@ -122,6 +123,19 @@ describe("authenticated requested-deliverable downloads", () => {
     expect((await handleRuns(request("/api/runs/same-run/deliverables/0/history", "owner-b"), env))?.status).toBe(404);
     expect(state.requests.filter((item) => item.url.includes("/history"))).toHaveLength(2);
     expect(state.runs.has("owner-b|same-run")).toBe(false);
+  });
+
+  it("forwards explicit artifact revision requests through the authenticated session store", async () => {
+    await seed(buildSessionAgentName("owner-a", SESSION));
+    state.sessions.set("owner-a", [SESSION]);
+    const response = await handleRuns(new Request(`https://dashboard.test/api/runs/same-run/deliverables/0/revision?session=${SESSION}`, {
+      method: "POST", headers: { Authorization: "Bearer fixture", "X-Fixture-User": "owner-a", "content-type": "application/json" },
+      body: JSON.stringify({ commandId: "artifact-revision:abc-12345" }),
+    }), env);
+    expect(response?.status).toBe(200);
+    expect(await response!.json()).toMatchObject({ approvalId: "fresh-approval", started: false });
+    expect(state.requests.at(-1)?.url).toContain("/deliverables/0/revision");
+    expect(state.requests.at(-1)?.url).toContain(`session=${SESSION}`);
   });
 
   it("keeps same run/sandbox identifiers isolated across owners by manifest and content-addressed storage", async () => {

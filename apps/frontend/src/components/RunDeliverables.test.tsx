@@ -127,6 +127,8 @@ describe("run deliverables", () => {
               },
             ],
           });
+        if (String(url).includes("/revision?session=session+one"))
+          return Response.json({ ok: true, approvalId: "approval-new" });
         return Response.json({ ok: true });
       }),
     );
@@ -161,5 +163,12 @@ describe("run deliverables", () => {
       status: "changes_requested",
       note: "Add source citations",
     });
+    expect(screen.getByRole("button", { name: "Create revision approval" })).toBeTruthy();
+    expect(calls).toHaveLength(2); // Saving a review never creates/approves work automatically.
+    fireEvent.click(screen.getByRole("button", { name: "Create revision approval" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Review it in Approvals before work starts."));
+    expect(calls[2]?.url).toBe("/api/runs/latest-run/deliverables/0/revision?session=session+one");
+    expect(JSON.parse(String(calls[2]?.init?.body)).commandId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(screen.getByRole("button", { name: "Revision approval created" }).hasAttribute("disabled")).toBe(true);
   });
 });

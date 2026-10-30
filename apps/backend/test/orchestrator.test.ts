@@ -9,7 +9,8 @@ import { LocalDispatch } from "../src/local-dispatch.js";
 import { createRun, RunStore, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
 import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
 import { createPendingApproval, resolvePendingApproval } from "../src/pending-approvals.js";
-import { prepareRunArtifacts } from "../src/artifact-metadata.js";
+import { artifactIdentity, prepareRunArtifacts } from "../src/artifact-metadata.js";
+import { createDurableTask, updateTaskAttempt } from "../src/task-attempts.js";
 import { approveDirect } from "./seeding.js";
 import {
   destroyManagedContainer,
@@ -255,9 +256,22 @@ describe("durable artifact review state", () => {
       version: 1, sourceRunId: "r1",
       review: { status: "pending_review" as const, updatedAt: 100 },
     }] };
-    first.deliverables = await prepareRunArtifacts(first, first.deliverables ?? [], [], 100);
+    first.deliverables = await prepareRunArtifacts(first, first.deliverables ?? [], "task-root", 100);
     const latest: DelegatedRun = { ...first, runId: "r2", createdAt: 200, deliverables: [{ ...first.deliverables![0]!, version: 2, sourceRunId: "r2" }] };
-    instance.setState({ ...instance.state, runs: [first, latest] });
+    const attempts = [first, latest].map((run, index) => ({
+      attempt: index + 1,
+      commandId: `task-root:${index + 1}`,
+      approvalId: `approval-${index + 1}`,
+      runId: run.runId,
+      status: "completed" as const,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      frozen: { body: { repoUrl: run.repoUrl, task: run.task }, inputHash: `hash-${index + 1}`, threadKey: "default" },
+    }));
+    instance.setState({ ...instance.state, runs: [first, latest], tasks: [{
+      taskId: "task-root", artifactLineageId: "task-root", ownerId: "default", title: "brief",
+      createdAt: 100, updatedAt: 200, attempts,
+    }] });
     const update = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/review", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ status: "changes_requested", note: "Add citations" }),
@@ -282,6 +296,56 @@ describe("durable artifact review state", () => {
     }));
     expect((await request({ status: "changes_requested" })).status).toBe(400);
     expect((await request({ status: "approved" })).status).toBe(404);
+  });
+
+  it("creates an explicit fresh revision approval with artifact lineage and never dispatches it", async () => {
+    const instance = agent();
+    const source: DelegatedRun = {
+      ...retained("completed"),
+      runId: "artifact-source-run",
+      repoUrl: "",
+      task: "Create a report",
+      expectedDeliverables: ["reports/brief.md"],
+      deliverables: [{
+        path: "reports/brief.md", mediaType: "text/markdown", bytes: 4, sha256: "a".repeat(64),
+        version: 3, sourceRunId: "artifact-source-run",
+        review: { status: "changes_requested" as const, updatedAt: 20, note: "Add citations" },
+      }],
+    };
+    const approvalBody = {
+      threadKey: "default", approvalId: "original-approval", repoUrl: "", task: "Create a report",
+      baseBranch: "main", publishPullRequest: false, expectedDeliverables: ["reports/brief.md"],
+      status: "approved" as const, createdAt: 10,
+    };
+    const sourceTask = updateTaskAttempt(createDurableTask({
+      taskId: "task-source", ownerId: "default", title: "Create a report", commandId: "source-command",
+      approvalId: "original-approval", frozen: { body: approvalBody, inputHash: "source-hash", threadKey: "default" }, now: 10,
+    }), 1, { runId: source.runId, status: "completed", updatedAt: 20 });
+    sourceTask.artifactLineageId = sourceTask.taskId;
+    const sourceArtifact = source.deliverables?.[0];
+    if (!sourceArtifact) throw new Error("Expected source artifact.");
+    sourceArtifact.artifactId = await artifactIdentity(source, sourceArtifact.path, "task-source");
+    instance.setState({ ...instance.state, runs: [source], tasks: [sourceTask] });
+
+    const request = () => instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ commandId: "artifact-revision:source-1234" }),
+    }));
+    const created = await request();
+    expect(created.status).toBe(200);
+    const payload = await created.json() as { approvalId: string; started: boolean; task: { taskId: string; revisionOf: Record<string, unknown> } };
+    expect(payload.started).toBe(false);
+    expect(payload.approvalId).not.toBe("original-approval");
+    expect(payload.task.revisionOf).toMatchObject({
+      taskId: "task-source", runId: source.runId, artifactId: source.deliverables?.[0]?.artifactId,
+      artifactVersion: 3, path: "reports/brief.md",
+    });
+    expect(instance.state.pendingApprovals?.at(-1)).toMatchObject({
+      approvalId: payload.approvalId, task: expect.stringContaining("Add citations"), status: "pending",
+    });
+    expect(instance.state.tasks?.at(-1)).toMatchObject({ artifactLineageId: "task-source", revisionOf: payload.task.revisionOf });
+    const replay = await request().then((response) => response.json()) as { approvalId: string; deduped?: boolean };
+    expect(replay).toMatchObject({ approvalId: payload.approvalId, deduped: true });
+    expect(mocks.execute).not.toHaveBeenCalled();
   });
 });
 
