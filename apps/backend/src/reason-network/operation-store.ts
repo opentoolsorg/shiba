@@ -1,0 +1,89 @@
+/** Durable ledger for Reason Network sends. Never store message bodies here. */
+export type ReasonOperationState = "pending_approval" | "approved" | "accepted" | "unknown" | "rejected";
+
+export interface ReasonOperationScope {
+  ownerId: string;
+  grantId: string;
+  conversationId: string;
+  sessionId: string;
+}
+
+export interface ReasonOperation {
+  scope: ReasonOperationScope;
+  idempotencyKey: string;
+  payloadDigest: string;
+  destination: string;
+  state: ReasonOperationState;
+  remoteMessageId?: string;
+  updatedAt: number;
+}
+
+export type ReserveResult = { kind: "created" } | { kind: "replay"; operation: ReasonOperation } | { kind: "conflict" };
+
+export interface ReasonNetworkOperationStore {
+  reserve(operation: ReasonOperation): Promise<ReserveResult>;
+  get(scope: ReasonOperationScope, key: string): Promise<ReasonOperation | null>;
+  transition(scope: ReasonOperationScope, key: string, expected: readonly ReasonOperationState[], next: ReasonOperationState, remoteMessageId?: string, now?: number): Promise<boolean>;
+}
+
+export interface ReasonNetworkOperationEnv { AGENT_AUDIT: D1Database }
+
+export const REASON_NETWORK_OPERATION_SQL = [
+  `CREATE TABLE IF NOT EXISTS reason_network_operations (
+    owner_id TEXT NOT NULL, grant_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL, destination TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending_approval','approved','accepted','unknown','rejected')), remote_message_id TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(owner_id, grant_id, conversation_id, session_id, idempotency_key)
+  )`,
+] as const;
+
+interface DbRow {
+  owner_id: string; grant_id: string; conversation_id: string; session_id: string;
+  idempotency_key: string; payload_digest: string; destination: string; state: ReasonOperationState;
+  remote_message_id: string | null; updated_at: number;
+}
+
+const initialized = new WeakSet<D1Database>();
+async function ensure(env: ReasonNetworkOperationEnv): Promise<void> {
+  if (initialized.has(env.AGENT_AUDIT)) return;
+  for (const sql of REASON_NETWORK_OPERATION_SQL) await env.AGENT_AUDIT.prepare(sql).run();
+  initialized.add(env.AGENT_AUDIT);
+}
+function fromRow(row: DbRow): ReasonOperation {
+  return {
+    scope: { ownerId: row.owner_id, grantId: row.grant_id, conversationId: row.conversation_id, sessionId: row.session_id },
+    idempotencyKey: row.idempotency_key, payloadDigest: row.payload_digest, destination: row.destination,
+    state: row.state, ...(row.remote_message_id ? { remoteMessageId: row.remote_message_id } : {}), updatedAt: row.updated_at,
+  };
+}
+const SELECT = `SELECT owner_id,grant_id,conversation_id,session_id,idempotency_key,payload_digest,destination,state,remote_message_id,updated_at FROM reason_network_operations`;
+
+/** D1-backed store; the injected database is the durability boundary. */
+export class D1ReasonNetworkOperationStore implements ReasonNetworkOperationStore {
+  constructor(private readonly env: ReasonNetworkOperationEnv, private readonly now: () => number = Date.now) {}
+  async reserve(op: ReasonOperation): Promise<ReserveResult> {
+    await ensure(this.env);
+    const s = op.scope;
+    const inserted = await this.env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO reason_network_operations
+      (owner_id,grant_id,conversation_id,session_id,idempotency_key,payload_digest,destination,state,remote_message_id,updated_at)
+      VALUES (?,?,?,?,?,?,?,'pending_approval',NULL,?)`).bind(s.ownerId,s.grantId,s.conversationId,s.sessionId,op.idempotencyKey,op.payloadDigest,op.destination,op.updatedAt || this.now()).run();
+    if (inserted.meta?.changes === 1) return { kind: "created" };
+    const old = await this.get(s, op.idempotencyKey);
+    return old && old.payloadDigest === op.payloadDigest && old.destination === op.destination
+      ? { kind: "replay", operation: old } : { kind: "conflict" };
+  }
+  async get(scope: ReasonOperationScope, key: string): Promise<ReasonOperation | null> {
+    await ensure(this.env); const row = await this.env.AGENT_AUDIT.prepare(`${SELECT} WHERE owner_id=? AND grant_id=? AND conversation_id=? AND session_id=? AND idempotency_key=?`)
+      .bind(scope.ownerId,scope.grantId,scope.conversationId,scope.sessionId,key).first<DbRow>();
+    return row ? fromRow(row) : null;
+  }
+  async transition(scope: ReasonOperationScope, key: string, expected: readonly ReasonOperationState[], next: ReasonOperationState, remoteMessageId?: string, now = this.now()): Promise<boolean> {
+    if (!expected.length) return false;
+    await ensure(this.env); const placeholders = expected.map(() => "?").join(",");
+    const result = await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET state=?, remote_message_id=COALESCE(?,remote_message_id), updated_at=?
+      WHERE owner_id=? AND grant_id=? AND conversation_id=? AND session_id=? AND idempotency_key=? AND state IN (${placeholders})`)
+      .bind(next,remoteMessageId ?? null,now,scope.ownerId,scope.grantId,scope.conversationId,scope.sessionId,key,...expected).run();
+    return result.meta?.changes === 1;
+  }
+}
