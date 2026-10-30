@@ -9,9 +9,10 @@ import { useMemo, useState, type JSX } from "react";
 import type { AcpProviderCard, McpCapabilityInvocationReceipt } from "@shiba/shared";
 import type { SetupStatus } from "../live-status";
 import type { SavedSkill } from "../saved";
+import type { ProviderLifecycleStatus } from "./provider-lifecycle";
 
 export type CapabilityKind = "connector" | "mcp" | "skill";
-export type CapabilityStatus = "available" | "configured" | "liveVerified" | "unsupported" | "planned";
+export type CapabilityStatus = ProviderLifecycleStatus;
 export type CapabilitySource = SetupStatus | AcpProviderCard | SavedSkill | string;
 
 /** Presentation metadata plus optional evidence from Shiba's existing wire types. */
@@ -53,8 +54,18 @@ export interface CapabilityCatalogProps {
 
 const STATUS_LABEL: Record<CapabilityStatus, string> = {
   available: "Available",
+  partiallyConfigured: "Partially configured",
   configured: "Configured",
-  liveVerified: "Live verified",
+  connected: "Connected",
+  authenticated: "Authenticated",
+  tested: "Test passed",
+  stale: "Test stale",
+  testFailed: "Test failed",
+  waiting: "Sign-in pending",
+  disconnected: "Disconnected",
+  failed: "Connection failed",
+  revoked: "Revoked",
+  error: "Status unavailable",
   unsupported: "Unsupported",
   planned: "Planned",
 };
@@ -62,8 +73,18 @@ const STATUS_LABEL: Record<CapabilityStatus, string> = {
 function StatusLabel({ status }: { status: CapabilityStatus }): JSX.Element {
   const style: Record<CapabilityStatus, string> = {
     available: "border-[var(--border-1)] bg-[var(--section)] text-[var(--muted-foreground-2)]",
+    partiallyConfigured: "border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
     configured: "border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
-    liveVerified: "border-[var(--success)]/35 bg-[var(--success)]/10 text-[var(--success)]",
+    connected: "border-[var(--success)]/35 bg-[var(--success)]/10 text-[var(--success)]",
+    authenticated: "border-[var(--success)]/35 bg-[var(--success)]/10 text-[var(--success)]",
+    tested: "border-[var(--success)]/35 bg-[var(--success)]/10 text-[var(--success)]",
+    stale: "border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
+    testFailed: "border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
+    waiting: "border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
+    disconnected: "border-[var(--border-1)] bg-[var(--section)] text-[var(--muted-foreground-2)]",
+    failed: "border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
+    revoked: "border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
+    error: "border-[var(--warning)]/40 bg-[var(--warning-subtle)] text-[var(--warning-fg)]",
     unsupported: "border-[var(--border-1)] bg-[var(--section)] text-[var(--muted-foreground-2)]",
     planned: "border-[var(--info)]/30 bg-[var(--primary-soft)] text-[var(--primary)]",
   };
@@ -112,8 +133,9 @@ export function CapabilityCatalog({
 
   const effectiveSelectedId = selectedId ?? internalSelectedId ?? visibleItems[0]?.id ?? null;
   const selectedItem = items.find((item) => item.id === effectiveSelectedId) ?? null;
-  const canConfigure = !selectedItem?.catalogOnly && selectedItem?.kind !== "skill" && selectedItem?.status !== "unsupported" && selectedItem?.status !== "planned";
-  const canReconnect = !selectedItem?.catalogOnly && selectedItem?.kind !== "skill" && (selectedItem?.status === "configured" || selectedItem?.status === "liveVerified");
+  const canConfigure = !selectedItem?.catalogOnly && selectedItem?.kind !== "skill" && ["available", "partiallyConfigured", "configured", "connected", "authenticated", "tested", "stale", "testFailed", "disconnected", "failed", "revoked", "error"].includes(selectedItem?.status ?? "");
+  const canReconnect = !selectedItem?.catalogOnly && selectedItem?.kind !== "skill" && ["configured", "connected", "authenticated", "tested", "stale", "testFailed", "waiting"].includes(selectedItem?.status ?? "");
+  const canCheckHealth = !selectedItem?.catalogOnly && selectedItem?.kind !== "skill" && ["configured", "connected", "authenticated", "tested", "stale", "testFailed"].includes(selectedItem?.status ?? "");
   const chooseItem = (item: CapabilityCatalogItem) => {
     setInternalSelectedId(item.id);
     onSelect?.(item);
@@ -155,8 +177,18 @@ export function CapabilityCatalog({
               <select aria-label="Filter by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="min-h-9 w-full border border-[var(--border-1)] bg-[var(--card)] px-2 text-xs text-[var(--fg)]">
                 <option value="all">All statuses</option>
                 <option value="available">Available</option>
+                <option value="partiallyConfigured">Partially configured</option>
                 <option value="configured">Configured</option>
-                <option value="liveVerified">Live verified</option>
+                <option value="connected">Connected</option>
+                <option value="authenticated">Authenticated</option>
+                <option value="tested">Test passed</option>
+                <option value="stale">Test stale</option>
+                <option value="testFailed">Test failed</option>
+                <option value="waiting">Sign-in pending</option>
+                <option value="disconnected">Disconnected</option>
+                <option value="failed">Connection failed</option>
+                <option value="revoked">Revoked</option>
+                <option value="error">Status unavailable</option>
                 <option value="unsupported">Unsupported</option>
                 <option value="planned">Planned</option>
               </select>
@@ -263,12 +295,13 @@ export function CapabilityCatalog({
               ) : null}
               {selectedItem.authNote ? <p className="mt-5 border-l-2 border-[var(--warning)] bg-[var(--warning-subtle)] p-3 text-xs" role="note">{selectedItem.authNote}</p> : null}
 
-              <div className="mt-6 flex flex-wrap gap-2 border-t border-[var(--border-1)] pt-4" role="group" aria-label="Integration actions">
+              <fieldset className="mt-6 flex flex-wrap gap-2 border-t border-[var(--border-1)] pt-4">
+                <legend className="sr-only">Integration actions</legend>
                 {onConfigure && canConfigure ? <button type="button" onClick={() => onConfigure(selectedItem)} className="min-h-10 border border-[var(--primary)] bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-text)]">Configure</button> : null}
                 {onReconnect && canReconnect ? <button type="button" onClick={() => onReconnect(selectedItem)} className="min-h-10 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold">Reconnect</button> : null}
-                {onCheckHealth && canReconnect ? <button type="button" onClick={() => onCheckHealth(selectedItem)} className="min-h-10 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold">Check health</button> : null}
-                {(!onConfigure || !canConfigure) && (!onReconnect || !canReconnect) && (!onCheckHealth || !canReconnect) ? <p className="text-xs text-[var(--muted-foreground-2)]">Actions are not available for this capability.</p> : null}
-              </div>
+                {onCheckHealth && canCheckHealth ? <button type="button" onClick={() => onCheckHealth(selectedItem)} className="min-h-10 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold">Check health</button> : null}
+                {(!onConfigure || !canConfigure) && (!onReconnect || !canReconnect) && (!onCheckHealth || !canCheckHealth) ? <p className="text-xs text-[var(--muted-foreground-2)]">Actions are not available for this capability.</p> : null}
+              </fieldset>
             </div>
           ) : <p className="p-4 text-sm text-[var(--muted-foreground-2)]">Choose a capability to inspect its details.</p>}
         </aside>
