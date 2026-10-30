@@ -24,6 +24,26 @@ export interface RunDeliverable {
   mediaType: string;
   bytes: number;
   sha256: string;
+  /** Stable logical output identity within the owning run store. */
+  artifactId?: string;
+  /** Monotonic version for this artifact identity; legacy rows omit it. */
+  version?: number;
+  /** Run that produced these immutable bytes. */
+  sourceRunId?: string;
+  provenance?: ArtifactProvenance;
+  review?: ArtifactReview;
+}
+
+export interface ArtifactProvenance {
+  skills?: Array<{ skillId: string; version: number; name: string }>;
+  customAgent?: { id: string; version: number };
+}
+
+export type ArtifactReviewStatus = "pending_review" | "approved" | "changes_requested";
+export interface ArtifactReview {
+  status: ArtifactReviewStatus;
+  updatedAt?: number;
+  note?: string;
 }
 
 /** Private durable body; strip from ordinary run HTTP projections. */
