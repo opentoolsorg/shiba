@@ -30,3 +30,36 @@ describe("GET /api/capabilities", () => {
     expect((await handleCapabilityCatalog(new Request("https://shiba.test/api/capabilities?limit=0", { headers }), env))?.status).toBe(400);
   });
 });
+
+describe("GET /api/capabilities/invocations", () => {
+  it("requires dashboard auth and returns only the self-hosted sanitized receipts", async () => {
+    const authOnly = { REQUIRE_ACCESS: true } as unknown as Env;
+    expect((await handleCapabilityCatalog(new Request("https://shiba.test/api/capabilities/invocations"), authOnly))?.status).toBe(401);
+    const calls: string[] = [];
+    const db = {
+      prepare(sql: string) {
+        calls.push(sql);
+        return {
+          run: async () => ({ success: true, results: [], meta: { changes: 1 } }),
+          bind: (...params: unknown[]) => ({
+            run: async () => ({ success: true, results: [], meta: { changes: 1 } }),
+            all: async () => ({ results: [{
+              invocation_id: "inv-1", created_at: 100, updated_at: 200,
+              principal: "local-agent", tool: "send_email", args_hash: "a".repeat(64),
+              status: "pending_approval", approval_id: "approval-1", error_code: null,
+            }], success: true, meta: { changes: 0 } }),
+          }),
+        };
+      },
+    };
+    const env = { REQUIRE_ACCESS: true, AGENT_AUDIT: db } as unknown as Env;
+    const response = await handleCapabilityCatalog(new Request("https://shiba.test/api/capabilities/invocations?limit=10", {
+      headers: { "CF-Access-Authenticated-User-Email": "owner@example.test" },
+    }), env);
+    expect(response?.status).toBe(200);
+    const body = await response!.json() as { entries: Array<Record<string, unknown>> };
+    expect(body.entries[0]).toMatchObject({ invocationId: "inv-1", status: "pending_approval", approvalId: "approval-1" });
+    expect(JSON.stringify(body)).not.toContain("to@example.test");
+    expect(calls.some((sql) => sql.includes("WHERE org_id = ?"))).toBe(true);
+  });
+});

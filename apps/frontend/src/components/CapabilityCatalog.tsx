@@ -6,7 +6,7 @@
  * explicit callbacks owned by the integrating view.
  */
 import { useMemo, useState, type JSX } from "react";
-import type { AcpProviderCard } from "@shiba/shared";
+import type { AcpProviderCard, McpCapabilityInvocationReceipt } from "@shiba/shared";
 import type { SetupStatus } from "../live-status";
 import type { SavedSkill } from "../saved";
 
@@ -47,6 +47,8 @@ export interface CapabilityCatalogProps {
   onCheckHealth?: (item: CapabilityCatalogItem) => void;
   onConnectMcp?: () => void;
   onViewToolHistory?: () => void;
+  invocations?: readonly McpCapabilityInvocationReceipt[];
+  invocationHistoryError?: string | null;
 }
 
 const STATUS_LABEL: Record<CapabilityStatus, string> = {
@@ -87,6 +89,8 @@ export function CapabilityCatalog({
   onCheckHealth,
   onConnectMcp,
   onViewToolHistory,
+  invocations = [],
+  invocationHistoryError,
 }: CapabilityCatalogProps): JSX.Element {
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<"all" | CapabilityKind>("all");
@@ -227,12 +231,35 @@ export function CapabilityCatalog({
               {selectedItem.catalogOnly ? (
                 <div className="mt-5 border-l-2 border-[var(--info)] bg-[var(--primary-soft)] p-3 text-xs" role="note">
                   <p>This is a catalog entry, not an assigned permission. MCP calls require an agent token with the listed scope. Catalog discovery did not verify a provider or execute a tool.</p>
-                  <p className="mt-2">MCP endpoint: <code className="font-mono">/mcp</code></p>
+                  <p className="mt-2">MCP endpoint: <code className="font-mono">/mcp</code>. Retries can send a stable <code className="font-mono">_meta[&quot;com.shiba/idempotencyKey&quot;]</code> value.</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {onConnectMcp ? <button type="button" onClick={onConnectMcp} className="min-h-9 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold">Open Agents &amp; MCP</button> : null}
                     {onViewToolHistory ? <button type="button" onClick={onViewToolHistory} className="min-h-9 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-semibold">Approvals &amp; call history</button> : null}
                   </div>
                 </div>
+              ) : null}
+              {selectedItem.catalogOnly ? (
+                <section className="mt-5 border-t border-[var(--border-1)] pt-4" aria-label="Recent tool calls">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Recent tool calls</h3>
+                    {onViewToolHistory ? <button type="button" onClick={onViewToolHistory} className="text-[10px] underline">Open full history</button> : null}
+                  </div>
+                  {invocationHistoryError ? <p className="mt-2 text-xs text-[var(--warning-fg)]" role="status">{invocationHistoryError}</p> : null}
+                  {invocations.filter((entry) => entry.tool === selectedItem.name).length ? (
+                    <ul className="mt-2 divide-y divide-[var(--border-1)] border border-[var(--border-1)]">
+                      {invocations.filter((entry) => entry.tool === selectedItem.name).slice(0, 5).map((entry) => (
+                        <li key={entry.invocationId} className="grid gap-1 px-2.5 py-2 text-[10px] sm:grid-cols-[1fr_auto]">
+                          <span className="font-mono">{entry.invocationId}</span>
+                          <span className="font-semibold">{entry.status.replaceAll("_", " ")}</span>
+                          {entry.approvalId ? <span className="text-[var(--muted-foreground-2)]">Approval {entry.approvalId}</span> : null}
+                          {entry.errorCode ? <span className="text-[var(--warning-fg)]">{entry.errorCode}</span> : null}
+                          <time className="text-[var(--muted-foreground-2)]" dateTime={new Date(entry.updatedAt).toISOString()}>{new Date(entry.updatedAt).toLocaleString()}</time>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="mt-2 text-xs text-[var(--muted-foreground-2)]">No recorded calls for this tool.</p>}
+                  <p className="mt-2 text-[10px] text-[var(--muted-foreground-2)]">History stores status and an argument hash only; tool arguments and results are not retained.</p>
+                </section>
               ) : null}
               {selectedItem.authNote ? <p className="mt-5 border-l-2 border-[var(--warning)] bg-[var(--warning-subtle)] p-3 text-xs" role="note">{selectedItem.authNote}</p> : null}
 

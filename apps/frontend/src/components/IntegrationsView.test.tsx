@@ -40,6 +40,10 @@ describe("IntegrationsView capability catalog", () => {
         writeEffect: "read_only", approval: "not_inferred_from_mcp_metadata",
         description: "Search explicitly granted Gmail read-only connection.", annotations: { readOnlyHint: true },
       }], totalRegistered: 1, returned: 1, truncated: false, liveChecksPerformed: false });
+      if (url === "/api/capabilities/invocations?limit=25") return Response.json({ entries: [{
+        invocationId: "inv-1", createdAt: 10, updatedAt: 20, principal: "local-agent",
+        tool: "gmail_search", argsHash: "a".repeat(64), status: "unknown_outcome", errorCode: "handler_threw",
+      }] });
       return Response.json({ connections: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -59,6 +63,9 @@ describe("IntegrationsView capability catalog", () => {
     fireEvent.click(toolRow);
     expect(screen.getAllByText("gmail:read").length).toBeGreaterThan(0);
     expect(screen.getByText(/This is a catalog entry, not an assigned permission/)).toBeTruthy();
+    expect(screen.getByText("unknown outcome")).toBeTruthy();
+    expect(screen.getByText("inv-1")).toBeTruthy();
+    expect(screen.queryByText(/private email body/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Configure" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open Agents & MCP" }));

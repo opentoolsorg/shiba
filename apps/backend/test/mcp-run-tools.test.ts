@@ -49,14 +49,14 @@ import { createRun } from "../src/runs.js";
 
 class FakeD1 {
   readonly rows: unknown[][] = [];
-  prepare(_sql: string) {
+  prepare(sql: string) {
     const rows = this.rows;
     return {
-      run: async () => ({ success: true }),
+      run: async () => ({ success: true, meta: { changes: 1 } }),
       bind: (...params: unknown[]) => ({
         run: async () => {
-          rows.push(params);
-          return { success: true };
+          if (sql.startsWith("INSERT INTO audit_log")) rows.push(params);
+          return { success: true, meta: { changes: 1 } };
         },
       }),
     };

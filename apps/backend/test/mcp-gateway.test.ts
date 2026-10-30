@@ -78,18 +78,43 @@ interface D1Call {
 /** In-memory D1 recording (sql, params) pairs like the real binding. */
 class FakeD1 {
   readonly calls: D1Call[] = [];
+  readonly invocations = new Map<string, Record<string, unknown>>();
+  fail = false;
   prepare(sql: string) {
     const calls = this.calls;
+    const invocations = this.invocations;
+    const execute = async (params: unknown[]) => {
+      if (this.fail) throw new Error("D1 unavailable");
+      calls.push({ sql, params });
+      if (sql.includes("INSERT OR IGNORE INTO capability_invocations")) {
+        const [id, orgId, principal, tool, argsHash, key, createdAt, updatedAt] = params;
+        const composite = key == null ? String(id) : `${orgId}\u0000${principal}\u0000${key}`;
+        if (invocations.has(composite)) return { success: true, results: [], meta: { changes: 0 } };
+        invocations.set(composite, { invocation_id: id, org_id: orgId, principal, tool, args_hash: argsHash, idempotency_key: key, status: "dispatching", created_at: createdAt, updated_at: updatedAt, approval_id: null, error_code: null });
+        return { success: true, results: [], meta: { changes: 1 } };
+      }
+      if (sql.includes("UPDATE capability_invocations SET")) {
+        const row = [...invocations.values()].find((item) => item.invocation_id === params[4]);
+        if (!row || row.status !== "dispatching") return { success: true, results: [], meta: { changes: 0 } };
+        Object.assign(row, { status: params[0], updated_at: params[1], approval_id: params[2], error_code: params[3] });
+        return { success: true, results: [], meta: { changes: 1 } };
+      }
+      return { success: true, results: [], meta: { changes: 1 } };
+    };
     return {
       run: async () => {
-        calls.push({ sql, params: [] });
-        return { success: true, results: [], meta: {} };
+        return execute([]);
       },
       bind: (...params: unknown[]) => ({
-        run: async () => {
+        run: async () => execute(params),
+        first: async <T,>() => {
+          if (this.fail) throw new Error("D1 unavailable");
           calls.push({ sql, params });
-          return { success: true, results: [], meta: {} };
+          const [orgId, principal, key] = params;
+          const row = [...invocations.values()].find((item) => item.org_id === orgId && item.principal === principal && item.idempotency_key === key);
+          return (row ?? null) as T | null;
         },
+        all: async <T,>() => ({ results: [] as T[], success: true, meta: { changes: 0 } }),
       }),
     };
   }
@@ -395,12 +420,13 @@ describe("tool registry", () => {
     registry.registerTool("search_emails", "email:read", handler);
     const args = { query: "s3cr3t-token-value", mailbox: "agent@shiba.dev" };
     const result = await registry.invoke("search_emails", args, principal);
-    expect(result).toBe(okResult);
+    expect(result.content).toEqual(okResult.content);
+    expect(result._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded", invocationId: expect.any(String) });
     expect(handler).toHaveBeenCalledWith(
       args,
       expect.objectContaining({ env, principal }),
     );
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"));
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"));
     expect(insert).toBeDefined();
     const [, , principal_, tool, argsHash, outcome] = insert!.params;
     expect(principal_).toBe("scout");
@@ -421,10 +447,36 @@ describe("tool registry", () => {
     }));
     const result = await registry.invoke("queue_email", { body: "private body" }, { ...principal, scopes: ["email:send"] });
     expect(result.structuredContent).toMatchObject({ status: "pending_approval" });
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
     expect(insert.params[5]).toBe("pending_approval");
     expect(insert.params[6]).toBe("approval_id:approval-123");
     expect(JSON.stringify(insert.params)).not.toContain("private body");
+  });
+
+  it("persists and replays one exact idempotency key without a second dispatch", async () => {
+    const { env } = makeEnv();
+    const registry = createToolRegistry(env);
+    const handler = vi.fn(async () => okResult);
+    registry.registerTool("local_fixture_read", "email:read", handler);
+    const first = await registry.invoke("local_fixture_read", { q: "synthetic" }, principal, { idempotencyKey: "fixture-request-1" });
+    const replay = await registry.invoke("local_fixture_read", { q: "synthetic" }, principal, { idempotencyKey: "fixture-request-1" });
+    const changed = await registry.invoke("local_fixture_read", { q: "changed" }, principal, { idempotencyKey: "fixture-request-1" });
+    expect(first._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded", invocationId: expect.any(String) });
+    expect(replay._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded", replayed: true });
+    expect(changed.isError).toBe(true);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("does not call the handler when the durable invocation store is unavailable", async () => {
+    const { env, d1 } = makeEnv();
+    d1.fail = true;
+    const registry = createToolRegistry(env);
+    const handler = vi.fn(async () => okResult);
+    registry.registerTool("local_fixture_read", "email:read", handler);
+    const result = await registry.invoke("local_fixture_read", { q: "synthetic" }, principal);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toMatchObject({ text: "Tool invocation could not be durably recorded; no tool was dispatched." });
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("denies a missing scope without calling the handler, and audits denied", async () => {
@@ -439,7 +491,7 @@ describe("tool registry", () => {
       text: 'Forbidden: missing scope "email:send".',
     });
     expect(handler).not.toHaveBeenCalled();
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
     expect(insert.params[5]).toBe("denied");
     expect(insert.params[2]).toBe("scout");
     expect(insert.params[6]).toBe("missing scope: email:send");
@@ -461,7 +513,8 @@ describe("tool registry", () => {
     });
     const result = await registry.invoke("boom", {}, principal);
     expect(result.isError).toBe(true);
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    expect(result._meta?.["com.shiba/invocation"]).toMatchObject({ status: "unknown_outcome" });
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
     expect(insert.params[5]).toBe("error");
     expect(String(insert.params[6])).toContain("store unreachable");
   });
@@ -472,7 +525,7 @@ describe("tool registry", () => {
     const result = await registry.invoke("nope", {}, principal);
     expect(result.isError).toBe(true);
     // Every tool call leaves an audit row, even one no handler served.
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
     expect(insert.params[2]).toBe("scout");
     expect(insert.params[3]).toBe("nope");
     expect(insert.params[5]).toBe("error");
@@ -491,7 +544,7 @@ describe("tool registry", () => {
       const result = await registry.invoke("search_emails", args, principal);
       expect(result.isError).toBe(true);
       expect(handler).not.toHaveBeenCalled();
-      const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+      const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
       expect(insert.params[2]).toBe("scout");
       expect(insert.params[3]).toBe("search_emails");
       expect(insert.params[4]).toBe("<unhashable>");

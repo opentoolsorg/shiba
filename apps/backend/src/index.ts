@@ -38,6 +38,7 @@ import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleAcpProviders } from "./acp-provider-routes.js";
 import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
+import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
@@ -170,11 +171,12 @@ export default {
     // a D1 hiccup warns and retries on the next tick, never blocks it.
     if (env.AGENT_AUDIT !== undefined) {
       ctx.waitUntil(
-        pruneAuditLog(env, Date.now() - AUDIT_RETENTION_MS)
-          .then((deleted) => {
-            if (deleted > 0) {
-              console.log(`audit prune deleted ${deleted} row(s) older than 90 days`);
-            }
+        Promise.all([
+          pruneAuditLog(env, Date.now() - AUDIT_RETENTION_MS),
+          pruneCapabilityInvocations(env, Date.now() - AUDIT_RETENTION_MS),
+        ]).then(([auditDeleted, invocationDeleted]) => {
+            if (auditDeleted > 0) console.log(`audit prune deleted ${auditDeleted} row(s) older than 90 days`);
+            if (invocationDeleted > 0) console.log(`capability invocation prune deleted ${invocationDeleted} row(s) older than 90 days`);
           })
           .catch((error: unknown) => {
             console.warn(

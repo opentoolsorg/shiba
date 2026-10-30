@@ -254,7 +254,7 @@ describe("registerMemoryTools — scope denial", () => {
     expect((result.content[0] as { text: string }).text).toContain(
       'missing scope "memory:write"',
     );
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
     expect(insert.params[5]).toBe("denied");
   });
 });

@@ -24,3 +24,17 @@ export interface McpCapabilityDirectory {
   truncated: boolean;
   liveChecksPerformed: false;
 }
+
+/** Sanitized, durable receipt for one MCP dispatch. Tool arguments/results are never included. */
+export interface McpCapabilityInvocationReceipt {
+  invocationId: string;
+  createdAt: number;
+  updatedAt: number;
+  principal: string;
+  tool: string;
+  argsHash: string;
+  status: "succeeded" | "pending_approval" | "denied" | "failed" | "unknown_outcome" | "in_progress";
+  approvalId?: string;
+  errorCode?: string;
+  replayed?: true;
+}

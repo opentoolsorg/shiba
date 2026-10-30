@@ -8,7 +8,7 @@
  * supported yet — no fake toggles.
  */
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from "react";
-import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry } from "@shiba/shared";
+import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt } from "@shiba/shared";
 import { type SetupStatus, useMailboxes, useSetupStatus } from "../live-status";
 import { useSavedSkills } from "../saved";
 import type { AppNavView } from "./AppNavRail";
@@ -133,6 +133,8 @@ export function IntegrationsView({
   const [providersError, setProvidersError] = useState<string | null>(null);
   const [toolDirectory, setToolDirectory] = useState<McpCapabilityDirectoryEntry[]>([]);
   const [toolDirectoryError, setToolDirectoryError] = useState<string | null>(null);
+  const [invocations, setInvocations] = useState<McpCapabilityInvocationReceipt[]>([]);
+  const [invocationHistoryError, setInvocationHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!showCatalog) return;
@@ -162,6 +164,16 @@ export function IntegrationsView({
       })
       .catch((error: unknown) => {
         if (!cancelled) setToolDirectoryError(error instanceof Error ? error.message : String(error));
+      });
+    void fetch("/api/capabilities/invocations?limit=25", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Tool call history unavailable (${response.status}).`);
+        const value = (await response.json()) as { entries?: McpCapabilityInvocationReceipt[] };
+        if (!value || !Array.isArray(value.entries)) throw new Error("Tool call history returned an invalid response.");
+        if (!cancelled) { setInvocations(value.entries); setInvocationHistoryError(null); }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setInvocationHistoryError(error instanceof Error ? error.message : String(error));
       });
     return () => { cancelled = true; };
   }, [showCatalog]);
@@ -284,7 +296,7 @@ export function IntegrationsView({
         <div className="min-h-0 flex-1">
           {providersError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{providersError} Provider entries are unavailable; other catalog items use their own API evidence.</p> : null}
           {toolDirectoryError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{toolDirectoryError} MCP schemas are withheld from the dashboard directory.</p> : null}
-          <CapabilityCatalog items={catalogItems} onConfigure={(item) => onNavigate?.(item.kind === "skill" ? "skills" : item.kind === "mcp" ? "providers" : "settings")} onReconnect={(item) => onNavigate?.(item.kind === "mcp" ? "providers" : "settings")} onConnectMcp={() => onNavigate?.("agents")} onViewToolHistory={() => onNavigate?.("approvals")} />
+          <CapabilityCatalog items={catalogItems} invocations={invocations} invocationHistoryError={invocationHistoryError} onConfigure={(item) => onNavigate?.(item.kind === "skill" ? "skills" : item.kind === "mcp" ? "providers" : "settings")} onReconnect={(item) => onNavigate?.(item.kind === "mcp" ? "providers" : "settings")} onConnectMcp={() => onNavigate?.("agents")} onViewToolHistory={() => onNavigate?.("approvals")} />
         </div>
       ) : <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
