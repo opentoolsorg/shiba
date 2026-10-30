@@ -177,7 +177,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
           <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-semibold text-[var(--fg)]">{approval.action} · {approval.actorId}</div><span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Expires {new Date(approval.expiresAt).toLocaleString()}</span></div>
           <div className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Employee {approval.employeeId} · resource {approval.resourceId ?? "—"}</div>
           <pre className="max-h-48 overflow-auto border border-[var(--border-1)] bg-[var(--panel)] p-3 text-[10px] text-[var(--fg)]">{JSON.stringify(approval.payload, null, 2)}</pre>
-          <div className="flex gap-2"><button className={BUTTON} disabled={busy} onClick={() => void decide(approval, true)}>Approve exact payload</button><button className={BUTTON} disabled={busy} onClick={() => void decide(approval, false)}>Deny</button></div>
+          <div className="flex gap-2"><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, true)}>Approve exact payload</button><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, false)}>Deny</button></div>
         </article>)}
       </section>
       <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: only run status, queue run and send email are exposed here. Unsupported actions fail closed. These grants apply to employee MCP tool calls only; they do not broaden coding-run agent scopes or add tools to a run.</p>

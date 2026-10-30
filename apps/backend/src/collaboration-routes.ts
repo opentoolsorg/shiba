@@ -9,7 +9,7 @@ import {
   validateCollaborationHandoff,
   validateCollaborationMessage,
   validateHandoffCancellation,
-} from "../../../packages/shared/src/collaboration-contract.js";
+} from "@shiba/shared";
 import {
   addCollaborationMember,
   COLLAB_TENANT_ID,

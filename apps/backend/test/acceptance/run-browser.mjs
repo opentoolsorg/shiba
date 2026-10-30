@@ -11,6 +11,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../../..");
 const backendDir = path.join(root, "apps/backend");
 const frontendDir = path.join(root, "apps/frontend");
+const workerPort = process.env.SHIBA_ACCEPTANCE_PORT ?? "8788";
+const workerOrigin = `http://localhost:${workerPort}`;
+const workerLoopbackOrigin = `http://127.0.0.1:${workerPort}`;
 const tempRoot = await mkdtemp(path.join(tmpdir(), "shiba-browser-acceptance-"));
 const stateDir = path.join(tempRoot, "wrangler-state");
 const screenshotDir = path.join(tmpdir(), "shiba-e2e-acceptance", "screenshots");
@@ -115,7 +118,7 @@ async function stopAll() {
 }
 
 async function nav(page, view) {
-  await page.goto(`http://localhost:8788/${view === "tasks" ? "" : `${view}/`}`, {
+  await page.goto(`${workerOrigin}/${view === "tasks" ? "" : `${view}/`}`, {
     waitUntil: "domcontentloaded",
   });
 }
@@ -162,7 +165,7 @@ try {
     varsPath,
     [
       `BETTER_AUTH_SECRET=${authSecret}`,
-      "BETTER_AUTH_URL=http://localhost:8788",
+      `BETTER_AUTH_URL=${workerOrigin}`,
       "SHIBA_LOCAL_RUNTIME=1",
       `LOCAL_ADAPTER_TOKEN=${adapterToken}`,
       "",
@@ -207,7 +210,7 @@ try {
       "dev",
       "--local",
       "--port",
-      "8788",
+      workerPort,
       "--config",
       "apps/backend/wrangler.jsonc",
       "--enable-containers=false",
@@ -219,16 +222,16 @@ try {
     root,
     ciEnv,
   );
-  await waitFor("local Worker on port 8788", async () => {
-    const response = await fetch("http://127.0.0.1:8788/api/auth/bootstrap").catch(() => null);
+  await waitFor(`local Worker on port ${workerPort}`, async () => {
+    const response = await fetch(`${workerLoopbackOrigin}/api/auth/bootstrap`).catch(() => null);
     return response?.ok;
   });
 
   await waitFor("dashboard shell served by the local Worker", async () => {
-    const response = await fetch("http://localhost:8788/app/", { redirect: "manual" }).catch(
+    const response = await fetch(`${workerOrigin}/app/`, { redirect: "manual" }).catch(
       () => null,
     );
-    return response?.status === 200 && new URL(response.url).origin === "http://localhost:8788";
+    return response?.status === 200 && new URL(response.url).origin === workerOrigin;
   });
 
   const desktopRequire = createRequire(path.join(root, "apps/desktop/package.json"));
@@ -242,7 +245,7 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
   page.on("pageerror", (error) => logs.push(`browser pageerror: ${error.message}`));
-  await page.goto("http://localhost:8788/app/", { waitUntil: "domcontentloaded" });
+  await page.goto(`${workerOrigin}/app/`, { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "First sign-in? Create the account" }).click();
   await page.getByLabel("Name").fill("Shiba Acceptance Owner");
   await page.getByLabel("Email").fill("acceptance-owner@example.test");
@@ -341,7 +344,7 @@ try {
     headers: { "content-type": "application/json" },
     body: "{}",
   });
-  const paired = await fetch("http://localhost:8788/api/local/pair", {
+  const paired = await fetch(`${workerOrigin}/api/local/pair`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -360,7 +363,6 @@ try {
   );
   const daemonToken = pairedBody.adapterToken;
   const machineId = pairedBody.machineId;
-  const workerOrigin = "http://localhost:8788";
   const heartbeat = () =>
     jsonPost(`${workerOrigin}/api/local/heartbeat`, daemonToken, {
       machineId,
@@ -458,6 +460,9 @@ try {
   });
 
   await nav(page, "tasks");
+  // New threads start in chat-only mode. The task workflow is explicit and
+  // requires the user to switch to Work before task controls are available.
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
   await waitFor("local paired computer visible to dashboard", async () => {
     const computers = await apiJson(page, "/api/computers");
     return computers.computers?.some(
@@ -487,7 +492,7 @@ try {
     .getByRole("main")
     .getByText(/Queued — approve the run card to execute on this computer/)
     .waitFor();
-  await page.goto("http://localhost:8788/approvals/", { waitUntil: "domcontentloaded" });
+  await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
   const pendingApproval = await waitFor(
     "the exact task appears in the pending approval payload",
     async () => {
@@ -557,7 +562,7 @@ try {
     deliverableBytes: deliverable.text.length,
   });
 
-  await page.goto("http://localhost:8788/approvals/", { waitUntil: "domcontentloaded" });
+  await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
   await page.screenshot({ path: screenshotPath, fullPage: true });
   evidence.screenshots.push(screenshotPath);
   evidence.status = "passed";

@@ -4,7 +4,7 @@ import {
   type CollaborationCapability,
   type CollaborationRole,
   type CollaborationVisibility,
-} from "../../../packages/shared/src/collaboration-contract.js";
+} from "@shiba/shared";
 import type { Env } from "./env.js";
 
 export const COLLAB_TENANT_ID = "self-hosted";
