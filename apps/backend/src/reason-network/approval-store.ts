@@ -8,6 +8,7 @@ import type {
 export interface ReasonNetworkApprovalEnv { AGENT_AUDIT: D1Database }
 export interface ReasonNetworkGrant {
   grantId: string; ownerId: string; conversationId: string; sessionId: string;
+  companionMachineId: string | null;
   status: "active" | "revoked"; createdAt: number; revokedAt: number | null;
 }
 export interface ReasonNetworkPendingApproval extends ReasonNetworkApprovalBinding {
@@ -17,6 +18,7 @@ export interface ReasonNetworkPendingApproval extends ReasonNetworkApprovalBindi
 const SQL = [
   `CREATE TABLE IF NOT EXISTS reason_network_grants (
     grant_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
+    companion_machine_id TEXT,
     status TEXT NOT NULL CHECK(status IN ('active','revoked')), created_at INTEGER NOT NULL, revoked_at INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS reason_network_grants_owner ON reason_network_grants(owner_id,status,conversation_id,session_id)`,
@@ -51,19 +53,47 @@ function bindingFromRow(row: Record<string, unknown>): ReasonNetworkApprovalBind
   };
 }
 
-export async function createReasonNetworkGrant(env: ReasonNetworkApprovalEnv, input: { grantId: string; ownerId: string; conversationId: string; sessionId: string; now?: number }): Promise<ReasonNetworkGrant> {
+export async function createReasonNetworkGrant(env: ReasonNetworkApprovalEnv, input: { grantId: string; ownerId: string; conversationId: string; sessionId: string; companionMachineId?: string; now?: number }): Promise<ReasonNetworkGrant> {
   await ensure(env);
   if (!input.grantId || !input.ownerId || !input.conversationId || !input.sessionId) throw new Error("A specific owner, conversation, and session are required.");
   const createdAt = input.now ?? Date.now();
-  await env.AGENT_AUDIT.prepare(`INSERT INTO reason_network_grants(grant_id,owner_id,conversation_id,session_id,status,created_at,revoked_at) VALUES(?,?,?,?,'active',?,NULL)`)
-    .bind(input.grantId,input.ownerId,input.conversationId,input.sessionId,createdAt).run();
-  return { grantId: input.grantId, ownerId: input.ownerId, conversationId: input.conversationId, sessionId: input.sessionId, status: "active", createdAt, revokedAt: null };
+  await env.AGENT_AUDIT.prepare(`INSERT INTO reason_network_grants(grant_id,owner_id,conversation_id,session_id,companion_machine_id,status,created_at,revoked_at) VALUES(?,?,?,?,?,'active',?,NULL)`)
+    .bind(input.grantId,input.ownerId,input.conversationId,input.sessionId,input.companionMachineId??null,createdAt).run();
+  return { grantId: input.grantId, ownerId: input.ownerId, conversationId: input.conversationId, sessionId: input.sessionId, companionMachineId: input.companionMachineId??null, status: "active", createdAt, revokedAt: null };
 }
 
 export async function listReasonNetworkGrants(env: ReasonNetworkApprovalEnv, ownerId: string): Promise<ReasonNetworkGrant[]> {
   await ensure(env);
-  const rows=await env.AGENT_AUDIT.prepare(`SELECT grant_id,owner_id,conversation_id,session_id,status,created_at,revoked_at FROM reason_network_grants WHERE owner_id=? ORDER BY created_at DESC LIMIT 50`).bind(ownerId).all<Record<string,unknown>>();
-  return (rows.results??[]).map((row)=>({grantId:String(row.grant_id),ownerId:String(row.owner_id),conversationId:String(row.conversation_id),sessionId:String(row.session_id),status:row.status as "active"|"revoked",createdAt:Number(row.created_at),revokedAt:row.revoked_at===null?null:Number(row.revoked_at)}));
+  const rows=await env.AGENT_AUDIT.prepare(`SELECT grant_id,owner_id,conversation_id,session_id,companion_machine_id,status,created_at,revoked_at FROM reason_network_grants WHERE owner_id=? ORDER BY created_at DESC LIMIT 50`).bind(ownerId).all<Record<string,unknown>>();
+  return (rows.results??[]).map((row)=>({grantId:String(row.grant_id),ownerId:String(row.owner_id),conversationId:String(row.conversation_id),sessionId:String(row.session_id),companionMachineId:typeof row.companion_machine_id==="string"?row.companion_machine_id:null,status:row.status as "active"|"revoked",createdAt:Number(row.created_at),revokedAt:row.revoked_at===null?null:Number(row.revoked_at)}));
+}
+
+/** Return the owner-approved payload and its machine binding without consuming it. */
+export async function getReasonNetworkApprovalForDispatch(env: ReasonNetworkApprovalEnv, ownerId: string, approvalId: string): Promise<(ReasonNetworkApprovalBinding & {approvalId:string; expiresAt:number; companionMachineId:string}) | null> {
+  await ensure(env);
+  const row=await env.AGENT_AUDIT.prepare(`SELECT a.*,g.companion_machine_id FROM reason_network_approvals a JOIN reason_network_grants g ON g.grant_id=a.grant_id
+    WHERE a.owner_id=? AND a.approval_id=? AND a.status IN ('approved','consumed') AND (a.status='consumed' OR a.expires_at>?) AND g.status='active'
+      AND g.owner_id=a.owner_id AND g.conversation_id=a.conversation_id AND g.session_id=a.session_id AND g.companion_machine_id IS NOT NULL`).bind(ownerId,approvalId,Date.now()).first<Record<string,unknown>>();
+  if(!row)return null;
+  return {...bindingFromRow(row),approvalId:String(row.approval_id),expiresAt:Number(row.expires_at),companionMachineId:String(row.companion_machine_id)};
+}
+
+/** Private daemon payload fetch: only for a claimed op's owner, machine and consumed approval. */
+export async function getConsumedReasonNetworkPayload(env: ReasonNetworkApprovalEnv, ownerId:string, approvalId:string, machineId:string):Promise<(ReasonNetworkApprovalBinding & {approvalId:string})|null>{
+  await ensure(env);
+  const row=await env.AGENT_AUDIT.prepare(`SELECT a.* FROM reason_network_approvals a JOIN reason_network_grants g ON g.grant_id=a.grant_id
+    WHERE a.owner_id=? AND a.approval_id=? AND a.status='consumed' AND g.status='active' AND g.owner_id=a.owner_id
+      AND g.conversation_id=a.conversation_id AND g.session_id=a.session_id AND g.companion_machine_id=?`).bind(ownerId,approvalId,machineId).first<Record<string,unknown>>();
+  return row?{...bindingFromRow(row),approvalId:String(row.approval_id)}:null;
+}
+
+/** Consume an approved operation by ID exactly once; the caller must persist the queue fence first. */
+export async function consumeReasonNetworkApprovalById(env: ReasonNetworkApprovalEnv, ownerId: string, approvalId: string, now=Date.now()): Promise<boolean> {
+  await ensure(env);
+  const result=await env.AGENT_AUDIT.prepare(`UPDATE reason_network_approvals SET status='consumed',decided_at=? WHERE owner_id=? AND approval_id=? AND status='approved' AND expires_at>?
+    AND EXISTS(SELECT 1 FROM reason_network_grants g WHERE g.grant_id=reason_network_approvals.grant_id AND g.owner_id=reason_network_approvals.owner_id AND g.conversation_id=reason_network_approvals.conversation_id AND g.session_id=reason_network_approvals.session_id AND g.status='active' AND g.companion_machine_id IS NOT NULL)`)
+    .bind(now,ownerId,approvalId,now).run();
+  return result.meta?.changes===1;
 }
 
 export async function revokeReasonNetworkGrant(env: ReasonNetworkApprovalEnv, ownerId: string, grantId: string, now = Date.now()): Promise<boolean> {
