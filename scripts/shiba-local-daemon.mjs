@@ -98,6 +98,8 @@ const hostname = os.hostname();
 const platform = `${process.platform}-${process.arch}`;
 let workerUrl = "";
 let AUTH = {};
+let reasonNetworkEnabled = false;
+let reasonNetworkExecutablePath = "";
 let reasonNetworkExecutableReady = false;
 let machineId = "";
 let harnesses = [];
@@ -163,11 +165,43 @@ async function get(sub) {
   return text === "" ? {} : JSON.parse(text);
 }
 
+/** Validate the local opt-in before pairing or heartbeat, and refresh it to withdraw stale capability. */
+async function refreshReasonNetworkCapability({ strict = false } = {}) {
+  reasonNetworkEnabled = process.env.SHIBA_REASON_NETWORK_COMPANION === "1";
+  reasonNetworkExecutablePath = process.env.SHIBA_REASON_NETWORK_EXECUTABLE ?? "";
+  reasonNetworkExecutableReady = false;
+  if (!reasonNetworkEnabled) return false;
+  if (process.env.LOCAL_ADAPTER_TOKEN)
+    return strict ? fail("Reason Network companion requires a paired per-machine daemon credential; deployment-wide LOCAL_ADAPTER_TOKEN mode cannot claim scoped Reason operations.") : false;
+  if (!reasonNetworkExecutablePath.startsWith("/"))
+    return strict ? fail("Set SHIBA_REASON_NETWORK_EXECUTABLE to the absolute path of an already-installed reason-network binary; Shiba will not install it.") : false;
+  try {
+    const executable = await fs.stat(reasonNetworkExecutablePath);
+    if (!executable.isFile() || (process.platform !== "win32" && (executable.mode & 0o111) === 0))
+      return strict ? fail("SHIBA_REASON_NETWORK_EXECUTABLE must point to an executable regular file.") : false;
+    reasonNetworkExecutableReady = true;
+  } catch (error) {
+    if (strict) {
+      if (error?.code === "ENOENT" || error?.code === "EACCES") fail("SHIBA_REASON_NETWORK_EXECUTABLE must point to an existing executable; Shiba will not install it.");
+      throw error;
+    }
+  }
+  return reasonNetworkExecutableReady;
+}
+
 /** Only an explicitly enabled daemon may spawn the already-installed Reason MCP executable. */
 async function sendReasonNetworkMessage(operation) {
   const executablePath = process.env.SHIBA_REASON_NETWORK_EXECUTABLE ?? "";
   if (!executablePath.startsWith("/")) throw new Error("SHIBA_REASON_NETWORK_EXECUTABLE must be an absolute path to the user-installed reason-network binary.");
-  return createReasonNetworkCompanion({ connect: () => connectReasonNetworkStdio({ executablePath }) })(operation);
+  return createReasonNetworkCompanion({
+    connect: () => connectReasonNetworkStdio({ executablePath }),
+    // MCP initialization and tools/list can take time. Revalidate the claim only
+    // after setup, immediately before the outbound send call.
+    beforeSend: async (claimedOperation) => {
+      const current = await get(`reason-network/v1/operations/${encodeURIComponent(claimedOperation.operationId)}`);
+      return current.state === "claimed" && current.cancelRequested !== true;
+    },
+  })(operation);
 }
 
 async function processReasonNetworkClaim(claim) {
@@ -844,7 +878,6 @@ async function pair(url, pairingToken) {
       platform,
       daemonVersion: DAEMON_VERSION,
       harnesses,
-      reasonNetworkCompanion: reasonNetworkExecutableReady,
     });
   } catch (error) {
     fail(
@@ -864,6 +897,7 @@ function revoked() {
 }
 
 async function heartbeat() {
+  await refreshReasonNetworkCapability();
   try {
     await post("heartbeat", {
       machineId,
@@ -871,6 +905,7 @@ async function heartbeat() {
       platform,
       daemonVersion: DAEMON_VERSION,
       harnesses,
+      reasonNetworkCompanion: reasonNetworkExecutableReady,
       ...(activeRunId ? { activeRunId } : {}),
     });
     report({ state: "heartbeat", ok: true });
@@ -909,26 +944,14 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   await acquireLock();
   harnesses = probeHarnesses();
+  await refreshReasonNetworkCapability({ strict: process.env.SHIBA_REASON_NETWORK_COMPANION === "1" });
   if (args.connect) await pair(args.connect, args.pair);
   // Env vars win so the pre-pairing deployment-bearer setup keeps working unchanged.
   const config = await readConfig();
   workerUrl = (process.env.SHIBA_WORKER_URL ?? config.workerUrl ?? "").replace(/\/+$/, "");
   const adapterToken = process.env.LOCAL_ADAPTER_TOKEN ?? config.adapterToken ?? "";
-  const reasonNetworkEnabled = process.env.SHIBA_REASON_NETWORK_COMPANION === "1";
-  if (reasonNetworkEnabled && (process.env.LOCAL_ADAPTER_TOKEN || !config.machineId))
-    fail("Reason Network companion requires a paired per-machine daemon credential; deployment-wide LOCAL_ADAPTER_TOKEN mode cannot claim scoped Reason operations.");
-  if (reasonNetworkEnabled && !(process.env.SHIBA_REASON_NETWORK_EXECUTABLE ?? "").startsWith("/"))
-    fail("Set SHIBA_REASON_NETWORK_EXECUTABLE to the absolute path of an already-installed reason-network binary; Shiba will not install it.");
-  if (reasonNetworkEnabled) {
-    try {
-      const executable = await fs.stat(process.env.SHIBA_REASON_NETWORK_EXECUTABLE);
-      if (!executable.isFile() || (process.platform !== "win32" && (executable.mode & 0o111) === 0)) fail("SHIBA_REASON_NETWORK_EXECUTABLE must point to an executable regular file.");
-      reasonNetworkExecutableReady = true;
-    } catch (error) {
-      if (error?.code === "ENOENT" || error?.code === "EACCES") fail("SHIBA_REASON_NETWORK_EXECUTABLE must point to an existing executable; Shiba will not install it.");
-      throw error;
-    }
-  }
+  if (reasonNetworkEnabled && !config.machineId)
+    fail("Reason Network companion requires the paired per-machine daemon credential saved by Remote Access.");
   if (workerUrl === "")
     fail(
       "SHIBA_WORKER_URL is required (e.g. https://shiba.example.com), or pair with --connect/--pair.",
@@ -949,7 +972,8 @@ async function main() {
   for (;;) {
     // gracefulStop owns settlement once stopping; never claim a run it will abandon.
     if (stopping) return new Promise(() => {});
-    if (reasonNetworkEnabled) {
+    if (reasonNetworkEnabled) await refreshReasonNetworkCapability();
+    if (reasonNetworkEnabled && reasonNetworkExecutableReady) {
       try {
         const reasonClaim = await post("reason-network/v1/claim", {});
         if (reasonClaim.operation) {
