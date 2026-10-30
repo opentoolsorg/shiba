@@ -54,6 +54,7 @@ export interface EmployeeToolSelection {
 export interface EmployeeActionApproval extends ActionApproval {
   employeeId: string;
   employeeVersion: number;
+  executionContextId?: string;
 }
 
 export interface EmployeeToolDispatchInput {
@@ -67,6 +68,7 @@ export interface EmployeeToolDispatchInput {
   approval?: EmployeeActionApproval;
   now?: number;
   idempotencyKey?: string;
+  executionContextId?: string;
 }
 
 export type EmployeeToolDispatchResult =
@@ -133,7 +135,8 @@ export async function dispatchEmployeeTool(input: EmployeeToolDispatchInput): Pr
     }
     if (input.approval && (
       input.approval.employeeId !== input.authority.employeeId ||
-      input.approval.employeeVersion !== input.authority.employeeVersion
+      input.approval.employeeVersion !== input.authority.employeeVersion ||
+      input.approval.executionContextId !== input.executionContextId
     )) return { allowed: false, reason: "approval_stale" };
     const argumentDigest = await hashToolArgs(input.args);
     const matchingRules = input.connectionPolicy.actions.filter((rule) =>

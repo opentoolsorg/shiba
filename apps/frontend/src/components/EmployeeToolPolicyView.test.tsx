@@ -18,15 +18,16 @@ describe("EmployeeToolPolicyView", () => {
       requests.push({ url, method, body });
       if (url === "/api/custom-agents") return json({ agents: [{ id: "employee-1", slug: "researcher", version: policyVersion, config: { name: "Researcher" } }] });
       if (url === "/api/agents") return json({ principals: [{ principal: "researcher", scopes: ["sandbox:exec"], created: 1, live: true }] });
+      if (url === "/api/whoami") return json({ agent: "owner@example.test", auth: "better-auth" });
       if (url === "/api/employee-tools/approvals" && method === "GET") return json({ approvals });
       if (url === "/api/employee-tools/approvals/approval-1" && method === "POST") { approvals = []; return json({ ok: true, status: body?.approved ? "approved" : "denied" }); }
       if (url.endsWith("/policy") && method === "GET") return json({ employeeVersion: policyVersion, toolScopes: grants.map((grant) => grant.capabilityId), grants });
       if (url.endsWith("/policy") && method === "PUT") {
-        expect(body).toMatchObject({ actorId: "researcher", role: "member", expectedVersion: policyVersion });
+        expect(body).toMatchObject({ actorId: "owner@example.test", role: "member", expectedVersion: policyVersion });
         const resourceMap = body?.resourcesByCapability as Record<string, string[]>;
         grants = Object.entries(resourceMap).flatMap(([capabilityId, values]) => values.flatMap((resourceId) => [
           { subjectType: "workspace", subjectId: "workspace", capabilityId, resourceId, lifecycle: "active" },
-          { subjectType: "actor", subjectId: "researcher", capabilityId, resourceId, lifecycle: "active" },
+          { subjectType: "actor", subjectId: "owner@example.test", capabilityId, resourceId, lifecycle: "active" },
           { subjectType: "role", subjectId: "member", capabilityId, resourceId, lifecycle: "active" },
         ]));
         policyVersion += 1;
@@ -37,6 +38,7 @@ describe("EmployeeToolPolicyView", () => {
 
     render(<EmployeeToolPolicyView />);
     expect(await screen.findByText(/Review dependency updates/)).toBeTruthy();
+    expect((screen.getByLabelText("Actor identity") as HTMLSelectElement).value).toBe("owner@example.test");
     fireEvent.click(screen.getByLabelText(/Queue a coding run/));
     fireEvent.change(screen.getByLabelText(/Allowed repository url values/), { target: { value: "https://github.com/acme/app" } });
     fireEvent.click(screen.getByRole("button", { name: "Save grants" }));
@@ -47,6 +49,6 @@ describe("EmployeeToolPolicyView", () => {
     await waitFor(() => expect(screen.queryByText(/Review dependency updates/)).toBeNull());
     expect(requests.find((request) => request.url.endsWith("/approval-1"))?.body).toEqual({ employeeId: "employee-1", approved: true });
     expect(screen.getByText(/can retry the same call/)).toBeTruthy();
-    expect(screen.getByText(/do not broaden coding-run agent scopes/)).toBeTruthy();
+    expect(screen.getByText(/do not constrain shell\/CLI tools/)).toBeTruthy();
   });
 });

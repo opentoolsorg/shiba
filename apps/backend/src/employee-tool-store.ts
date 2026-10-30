@@ -30,6 +30,8 @@ export interface EmployeeApprovalRecord {
   employeeId: string;
   employeeVersion: number;
   actorId: string;
+  /** Worker-side run/session; external MCP approvals omit this value. */
+  executionContextId?: string;
   connectionId: string;
   connectionGeneration: number;
   capability: CapabilityRef;
@@ -83,6 +85,7 @@ const SCHEMA = [
     employee_id TEXT NOT NULL,
     employee_version INTEGER NOT NULL,
     actor_id TEXT NOT NULL,
+    execution_context_id TEXT,
     connection_id TEXT NOT NULL,
     connection_generation INTEGER NOT NULL,
     capability_kind TEXT NOT NULL,
@@ -99,13 +102,17 @@ const SCHEMA = [
     decided_by TEXT,
     decided_at INTEGER
   )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS employee_tool_approval_active_payload
-    ON employee_tool_approvals(org_id, employee_id, employee_version, actor_id, capability_id, action,
-      argument_digest, IFNULL(resource_id, ''), connection_generation)
-    WHERE status IN ('pending','approved')`,
   `CREATE INDEX IF NOT EXISTS employee_tool_approvals_pending
     ON employee_tool_approvals(org_id, status, created_at DESC)`,
 ] as const;
+
+function hasControlCharacters(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    if (code !== undefined && (code <= 0x1f || code === 0x7f)) return true;
+  }
+  return false;
+}
 
 const initialized = new WeakSet<D1Database>();
 
@@ -113,6 +120,17 @@ async function ensureTables(env: AuditEnv): Promise<void> {
   if (initialized.has(env.AGENT_AUDIT)) return;
   await initAudit(env);
   for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
+  const approvalColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(employee_tool_approvals)").all<{ name: string }>();
+  if (!(approvalColumns.results ?? []).some((column) => column.name === "execution_context_id")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN execution_context_id TEXT").run();
+  }
+  // Migrate the prior uniqueness key so identical payloads in separate run
+  // contexts receive separate approval records.
+  await env.AGENT_AUDIT.prepare("DROP INDEX IF EXISTS employee_tool_approval_active_payload").run();
+  await env.AGENT_AUDIT.prepare(`CREATE UNIQUE INDEX employee_tool_approval_active_payload
+    ON employee_tool_approvals(org_id, employee_id, employee_version, actor_id, IFNULL(execution_context_id, ''), capability_id, action,
+      argument_digest, IFNULL(resource_id, ''), connection_generation)
+    WHERE status IN ('pending','approved')`).run();
   initialized.add(env.AGENT_AUDIT);
 }
 
@@ -185,6 +203,21 @@ export async function resolveEmployeeToolPolicy(
     roleCapabilityIds: [...new Set(grants.filter((grant) => grant.subjectType === "role").map((grant) => grant.capabilityId))],
     employeeGrants: grants,
   };
+}
+
+/** Resolve the one current membership frozen by a policy write, if unique. */
+export async function resolveCurrentEmployeeToolMembership(
+  env: AuditEnv,
+  input: { orgId: string; employeeId: string; employeeVersion: number },
+): Promise<{ actorId: string; role: EmployeeRole } | null> {
+  await ensureTables(env);
+  const rows = await env.AGENT_AUDIT.prepare(`SELECT actor_id, role FROM employee_tool_memberships
+    WHERE org_id = ? AND employee_id = ? AND employee_version = ? LIMIT 2`)
+    .bind(input.orgId, input.employeeId, input.employeeVersion).all<{ actor_id: string; role: string }>();
+  if (rows.results?.length !== 1) return null;
+  const row = rows.results[0]!;
+  if (typeof row.actor_id !== "string" || !row.actor_id || !isEmployeeRole(row.role)) return null;
+  return { actorId: row.actor_id, role: row.role };
 }
 
 export async function listEmployeeToolGrantRecords(
@@ -267,9 +300,14 @@ function approvalFromRow(row: Record<string, unknown>): EmployeeApprovalRecord |
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
   const status = row.status;
   if (status !== "pending" && status !== "approved" && status !== "denied" && status !== "expired") return null;
+  const executionContextId = row.execution_context_id;
+  if (executionContextId !== null && executionContextId !== undefined &&
+      (typeof executionContextId !== "string" || !executionContextId || executionContextId.length > 200 || hasControlCharacters(executionContextId))) return null;
   return {
     approvalId: String(row.approval_id), orgId: String(row.org_id), employeeId: String(row.employee_id),
-    employeeVersion: Number(row.employee_version), actorId: String(row.actor_id), connectionId: String(row.connection_id),
+    employeeVersion: Number(row.employee_version), actorId: String(row.actor_id),
+    ...(typeof executionContextId === "string" ? { executionContextId } : {}),
+    connectionId: String(row.connection_id),
     connectionGeneration: Number(row.connection_generation), capability: { kind: capabilityKind, id: String(row.capability_id) },
     action: String(row.action), ...(typeof row.resource_id === "string" ? { resourceId: row.resource_id } : {}),
     ...(typeof row.account_id === "string" ? { accountId: row.account_id } : {}), argumentDigest: String(row.argument_digest),
@@ -290,17 +328,17 @@ export async function requestEmployeeActionApproval(
   const now = input.now ?? Date.now();
   const approvalId = `eap-${randomHex(16)}`;
   await env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO employee_tool_approvals
-    (approval_id, org_id, employee_id, employee_version, actor_id, connection_id, connection_generation,
+    (approval_id, org_id, employee_id, employee_version, actor_id, execution_context_id, connection_id, connection_generation,
      capability_kind, capability_id, action, resource_id, account_id, argument_digest, payload_json,
      policy_version, status, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
-    .bind(approvalId, input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.connectionId,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+    .bind(approvalId, input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? null, input.connectionId,
       input.connectionGeneration, input.capability.kind, input.capability.id, input.action, input.resourceId ?? null,
       input.accountId ?? null, input.argumentDigest, JSON.stringify(input.payload), input.policyVersion, now, input.expiresAt).run();
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT}
-    WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND capability_id = ? AND action = ?
+    WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND execution_context_id IS ? AND capability_id = ? AND action = ?
       AND argument_digest = ? AND resource_id IS ? AND connection_generation = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
-    .bind(input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.capability.id,
+    .bind(input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? null, input.capability.id,
       input.action, input.argumentDigest, input.resourceId ?? null, input.connectionGeneration).first<Record<string, unknown>>();
   const result = row && approvalFromRow(row);
   if (!result) throw new Error("Could not persist employee action approval.");
@@ -329,15 +367,15 @@ export async function findEmployeeActionApproval(
   input: {
     orgId: string; employeeId: string; employeeVersion: number; actorId: string;
     capabilityId: string; action: string; argumentDigest: string; resourceId: string;
-    connectionGeneration: number; now?: number;
+    connectionGeneration: number; executionContextId?: string; now?: number;
   },
 ): Promise<EmployeeApprovalRecord | null> {
   await ensureTables(env);
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT}
-    WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND capability_id = ?
+    WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND IFNULL(execution_context_id, '') = ? AND capability_id = ?
       AND action = ? AND argument_digest = ? AND resource_id = ? AND connection_generation = ?
     ORDER BY created_at DESC LIMIT 1`)
-    .bind(input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.capabilityId,
+    .bind(input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? "", input.capabilityId,
       input.action, input.argumentDigest, input.resourceId, input.connectionGeneration).first<Record<string, unknown>>();
   if (!row) return null;
   const approval = approvalFromRow(row);
@@ -385,5 +423,6 @@ export function asEmployeeActionApproval(record: EmployeeApprovalRecord): Employ
     ...(record.resourceId ? { resourceId: record.resourceId } : {}), ...(record.accountId ? { accountId: record.accountId } : {}),
     argumentDigest: record.argumentDigest, policyVersion: record.policyVersion, expiresAt: record.expiresAt,
     employeeId: record.employeeId, employeeVersion: record.employeeVersion,
+    ...(record.executionContextId ? { executionContextId: record.executionContextId } : {}),
   };
 }

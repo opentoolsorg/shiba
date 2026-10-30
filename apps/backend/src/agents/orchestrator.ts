@@ -4,7 +4,7 @@
  * requires explicit human approval and runs inside an isolated Sandbox
  * container driven by OpenCodeAgent.
  */
-import { Think } from "@cloudflare/think";
+import { Think, type TurnContext } from "@cloudflare/think";
 import {
   AGENT_ROLES,
   approvalEventInput,
@@ -68,6 +68,7 @@ import { z } from "zod";
 import { postToChatThread } from "../chat-lane.js";
 import { createRunCodeTool } from "../codemode.js";
 import { isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
+import { createEmployeeRunTools, employeeRunToolPolicyMode, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
 import { runWorkerEffect, toRunFailure, tryRunPromise } from "../effect/runtime.js";
 import {
   emailApprovalDraftRef,
@@ -947,13 +948,66 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         );
       },
     });
-    const tools: ToolSet = { ...super.getTools(), delegate_coding_task: delegate };
+    const tools: ToolSet = {
+      ...super.getTools(),
+      delegate_coding_task: delegate,
+      ...createEmployeeRunTools(
+        this.env,
+        () => this.employeeToolProfileId(),
+        () => this.name ?? null,
+        () => this.employeeToolOrgId(),
+        () => initiatorUserIdFromOrchestratorName(this.name) ?? null,
+      ),
+    };
     const ownerMemoryId = isDashboardAgentName(this.name)
       ? initiatorUserIdFromOrchestratorName(this.name)
       : undefined;
     const runCode = createRunCodeTool(this.env, ownerMemoryId);
     if (runCode) tools.run_code = runCode;
     return tools;
+  }
+
+  /**
+   * Tool identity comes from the server-validated selected bot on the latest
+   * composer pin. A web session's profile selection is copied into that pin;
+   * the tool dispatcher still resolves the profile and grants from D1.
+   */
+  private employeeToolProfileId(): string | null {
+    const id = this.composerPin().customAgentId;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+  }
+
+  /** The authenticated workspace scope pinned by the dashboard composer. */
+  private employeeToolOrgId(): string {
+    const orgId = this.composerPin().orgId;
+    return typeof orgId === "string" && orgId.trim() ? orgId.trim() : "self-hosted";
+  }
+
+  /**
+   * The sandbox harness remains a shell/CLI environment and is not governed by
+   * app-tool scopes. This worker-side policy replaces broad Code Mode only on
+   * turns pinned to a custom employee profile.
+   */
+  override async beforeTurn(ctx: TurnContext) {
+    const employeeId = this.employeeToolProfileId();
+    if (!employeeId) {
+      return { activeTools: Object.keys(ctx.tools).filter((name) => name !== "employee_tool_catalog" && name !== "employee_tool_call") };
+    }
+    const orgId = this.employeeToolOrgId();
+    const mode = await employeeRunToolPolicyMode(this.env, employeeId, orgId);
+    if (mode === "legacy") {
+      return { activeTools: Object.keys(ctx.tools).filter((name) => name !== "employee_tool_catalog" && name !== "employee_tool_call") };
+    }
+    const actorId = initiatorUserIdFromOrchestratorName(this.name);
+    const context = actorId ? await resolveEmployeeRunToolContext(this.env, employeeId, orgId, actorId) : null;
+    const allowed = Boolean(context?.allowed.length);
+    return {
+      activeTools: Object.keys(ctx.tools).filter((name) =>
+        name !== "run_code" &&
+        (name !== "employee_tool_call" || allowed),
+      ),
+      instructions: `${ctx.system}\n\nThis is a selected employee context. Use employee_tool_catalog to discover the currently granted Shiba app actions and exact resources. Only employee_tool_call can invoke those Worker-side actions. The coding harness shell and CLI tools are separate and are not restricted by this app-tool policy.`,
+    };
   }
 
   /** T72: only the human's composer tick can opt a chat run into repo setup — never the model's tool call. */
@@ -1129,6 +1183,22 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const chained = Boolean(reserved?.reviewOf && reserved.approval);
       if (!reserved || (pointer?.status !== "approved" && !chained)) {
         return "Run is not approved to execute.";
+      }
+      if (reserved.customAgentId && reserved.employeeToolPolicyVersion !== undefined) {
+        yield* tryRunPromise(async () => {
+          const { resolveCustomAgentForRun } = await import("../custom-agents-resolve.js");
+          const orgId = reserved.orgId ?? "self-hosted";
+          const current = await resolveCustomAgentForRun(this.env, orgId, reserved.customAgentId!);
+          if (!current || current.version !== reserved.employeeToolPolicyVersion) {
+            throw new Error("Employee tool policy changed after approval. Requeue the run for a new approval.");
+          }
+          if (current.config.toolScopes?.length) {
+            const policy = await resolveEmployeeRunToolContext(this.env, current.id, orgId);
+            if (!policy || policy.employeeVersion !== reserved.employeeToolPolicyVersion || policy.allowed.length !== current.config.toolScopes.length) {
+              throw new Error("Employee tool policy changed or is unavailable. Requeue the run after reviewing grants.");
+            }
+          }
+        });
       }
       // Ignore caller input: execute may be invoked with different arguments
       // after approval. Every dispatch field comes from the approved snapshot.
@@ -1870,6 +1940,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     let task = typeof input.task === "string" ? input.task : "";
     let customAgentVersion: number | undefined;
+    let employeeToolPolicyVersion: number | undefined;
     let harnessOverride =
       typeof input.harness === "string" && input.harness.trim() ? input.harness.trim() : undefined;
     let codingModelOverride =
@@ -1925,7 +1996,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ error: "Custom-agent profile changed; review the scheduled task before dispatch." }, { status: 409 });
       }
       if (agent.config.toolScopes?.length) {
-        return Response.json({ error: "Bot toolScopes are not supported. Remove the configured scopes before starting this bot." }, { status: 400 });
+        const policy = await resolveEmployeeRunToolContext(this.env, agent.id, intakeOrgId);
+        if (!policy || policy.allowed.length !== agent.config.toolScopes.length) {
+          return Response.json({ error: "Bot tool policy is unavailable or contains unsupported actions. Review the employee tool grants before starting this bot." }, { status: 409 });
+        }
+        employeeToolPolicyVersion = agent.version;
       }
       const overrides = overridesFromCustomAgent(agent);
       customAgentVersion = overrides.customAgentVersion;
@@ -2200,6 +2275,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(runEnv ?? {}),
           ...(runSetup ? { runSetup: true } : {}),
           ...(customAgentVersion !== undefined ? { customAgentVersion } : {}),
+          ...(employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion } : {}),
           ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
           createdAt: Date.now(),
         });
@@ -2668,8 +2744,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         // effective instructions, model, provider, or version already frozen.
         const available = await resolveCustomAgentForRun(this.env, queued.orgId ?? "self-hosted", queued.customAgentId);
         if (!available) return Response.json({ error: "Bot is archived or deleted. This approval cannot start a new run." }, { status: 409 });
+        if (queued.employeeToolPolicyVersion !== undefined && available.version !== queued.employeeToolPolicyVersion) {
+          return Response.json({ error: "Bot profile or tool policy changed after this approval was queued. Requeue it to approve the current employee context." }, { status: 409 });
+        }
         if (available.config.toolScopes?.length) {
-          return Response.json({ error: "Bot toolScopes are not supported. Remove the configured scopes before approving this bot." }, { status: 409 });
+          const policy = await resolveEmployeeRunToolContext(this.env, available.id, queued.orgId ?? "self-hosted");
+          if (!policy || policy.allowed.length !== available.config.toolScopes.length) {
+            return Response.json({ error: "Bot tool policy is no longer valid. Review employee grants and requeue this run." }, { status: 409 });
+          }
         }
       }
     }
@@ -2833,6 +2915,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     let customAgentId = input.customAgentId?.trim() || "";
     let customAgentVersion: number | undefined;
+    let employeeToolPolicyVersion: number | undefined;
     let expectedDeliverables = input.expectedDeliverables;
     if (customAgentId) {
       if (!this.env.AGENT_AUDIT) throw new Error("Bot storage is not configured.");
@@ -2841,7 +2924,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       );
       const agent = await resolveCustomAgentForRun(this.env, intakeOrgId, customAgentId);
       if (!agent) throw new Error("Bot not found. Choose an available bot before submitting this task.");
-      if (agent.config.toolScopes?.length) throw new Error("Bot toolScopes are not supported. Remove the configured scopes before starting this bot.");
+      if (agent.config.toolScopes?.length) {
+        const policy = await resolveEmployeeRunToolContext(this.env, agent.id, intakeOrgId);
+        if (!policy || policy.allowed.length !== agent.config.toolScopes.length) {
+          throw new Error("Bot tool policy is unavailable or contains unsupported actions. Review the employee tool grants before starting this bot.");
+        }
+        employeeToolPolicyVersion = agent.version;
+      }
       const overrides = overridesFromCustomAgent(agent);
       customAgentVersion = overrides.customAgentVersion;
       expectedDeliverables = expectedDeliverablesSchema.parse([...new Set([...(overrides.expectedDeliverables ?? []), ...(expectedDeliverables ?? [])])]);
@@ -2888,6 +2977,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(runEnv ?? {}),
         ...(runSetup ? { runSetup: true } : {}),
         ...(customAgentVersion !== undefined ? { customAgentVersion } : {}),
+        ...(employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion } : {}),
         ...(typeof input.authAccount === "string" && input.authAccount.trim()
           ? { authAccount: input.authAccount.trim().slice(0, 32) }
           : {}),
@@ -2957,6 +3047,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         : {}),
       ...(record.runSetup === true ? { runSetup: true } : {}),
       ...(record.customAgentVersion !== undefined ? { customAgentVersion: record.customAgentVersion } : {}),
+      ...(record.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: record.employeeToolPolicyVersion } : {}),
       ...(continuationKey !== undefined ? { continuationKey } : {}),
       decisionTap: (command, decision) => this.spineTap(command, decision),
       // T40: the run carries its approval evidence from birth — who decided,
@@ -2979,6 +3070,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.sandboxProvider !== undefined ? { sandboxProvider: record.sandboxProvider } : {}),
         ...(record.customAgentId !== undefined ? { customAgentId: record.customAgentId } : {}),
         ...(record.customAgentVersion !== undefined ? { customAgentVersion: record.customAgentVersion } : {}),
+        ...(record.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: record.employeeToolPolicyVersion } : {}),
         ...(record.skillPins !== undefined ? { skillPins: record.skillPins } : {}),
         ...(record.subagentBudget !== undefined ? { subagentBudget: record.subagentBudget } : {}),
         ...(record.parentRunId !== undefined ? { parentRunId: record.parentRunId } : {}),

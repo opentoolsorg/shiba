@@ -32,7 +32,7 @@ const APPROVAL_TTL_MS = 15 * 60_000;
 const ROLES: readonly EmployeeRole[] = ["owner", "admin", "operator", "member", "viewer"];
 
 /** Only actions with a reviewed input shape and known side-effect contract are dispatchable. */
-const ACTIONS = {
+export const EMPLOYEE_TOOL_ACTIONS = {
   run_status: { risk: "read", requiredScope: "runs:read", resourceArgument: "runId", resourceRequired: true, requiresLiveVerification: false },
   queue_run: { risk: "external_write", requiredScope: "sandbox:exec", resourceArgument: "repoUrl", resourceRequired: true, requiresLiveVerification: false },
   send_email: { risk: "external_write", requiredScope: "email:send", resourceArgument: "mailbox", resourceRequired: true, requiresLiveVerification: false },
@@ -57,12 +57,20 @@ function bearer(request: Request): string | null {
 }
 
 function supportedToolId(value: unknown): value is string {
-  return typeof value === "string" && Object.hasOwn(ACTIONS, value.slice("mcp:shiba:".length)) && value.startsWith("mcp:shiba:");
+  return typeof value === "string" && Object.hasOwn(EMPLOYEE_TOOL_ACTIONS, value.slice("mcp:shiba:".length)) && value.startsWith("mcp:shiba:");
 }
 
-function connectionPolicy(toolName: keyof typeof ACTIONS) {
+function hasControlCharacters(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    if (code !== undefined && (code <= 0x1f || code === 0x7f)) return true;
+  }
+  return false;
+}
+
+function connectionPolicy(toolName: keyof typeof EMPLOYEE_TOOL_ACTIONS) {
   const id = capabilityId(toolName);
-  const action = ACTIONS[toolName];
+  const action = EMPLOYEE_TOOL_ACTIONS[toolName];
   return {
     version: "employee-policy-current",
     allowlist: [{ kind: "mcp" as const, id }],
@@ -100,9 +108,9 @@ async function configurePolicy(request: Request, env: Env, employeeId: string): 
   const catalog = createToolRegistry(env);
   registerAllMcpTools(catalog, env);
   for (const [id] of entries) {
-    const toolName = id.slice("mcp:shiba:".length) as keyof typeof ACTIONS;
+    const toolName = id.slice("mcp:shiba:".length) as keyof typeof EMPLOYEE_TOOL_ACTIONS;
     const registered = catalog.tools().find((tool) => tool.name === toolName);
-    if (!registered || registered.scope !== ACTIONS[toolName].requiredScope) return jsonError("unsupported_employee_tool_action", 400);
+    if (!registered || registered.scope !== EMPLOYEE_TOOL_ACTIONS[toolName].requiredScope) return jsonError("unsupported_employee_tool_action", 400);
   }
   const toolScopes = entries.map(([id]) => id).sort();
   const updated = await updateCustomAgent(env, auth.orgId, employeeId, { ...profile.config, toolScopes }, profile.version);
@@ -148,23 +156,43 @@ async function callEmployeeTool(request: Request, env: Env, employeeId: string):
   if (!body || typeof body.tool !== "string" || typeof body.args !== "object" || body.args === null || Array.isArray(body.args)) {
     return jsonError("invalid_employee_tool_call", 400);
   }
-  const args = body.args as Record<string, unknown>;
-  if (!Object.hasOwn(ACTIONS, body.tool)) return jsonError("unsupported_employee_tool_action", 400);
-  const toolName = body.tool as keyof typeof ACTIONS;
-  const employee = await getCustomAgentById(env, principal.orgId, employeeId);
+  return dispatchEmployeeToolForPrincipal(env, employeeId, principal, body.tool, body.args as Record<string, unknown>);
+}
+
+/** Worker-only dispatch for an already vouched external or employee-run identity. */
+export async function dispatchEmployeeToolForPrincipal(
+  env: Env,
+  employeeId: string,
+  principal: TokenRecord,
+  toolNameRaw: string,
+  args: Record<string, unknown>,
+  executionContextId?: string,
+): Promise<Response> {
+  if (principal.kind !== "agent" || principal.revoked || !principal.orgId || !principal.principal) {
+    return jsonError("active_employee_agent_required", 401);
+  }
+  if (executionContextId !== undefined && (!executionContextId.trim() || executionContextId.length > 200 || hasControlCharacters(executionContextId))) {
+    return jsonError("invalid_employee_execution_context", 400);
+  }
+  if (!Object.hasOwn(EMPLOYEE_TOOL_ACTIONS, toolNameRaw)) return jsonError("unsupported_employee_tool_action", 400);
+  const toolName = toolNameRaw as keyof typeof EMPLOYEE_TOOL_ACTIONS;
+  const action = EMPLOYEE_TOOL_ACTIONS[toolName];
+  const orgId = principal.orgId;
+  const actorId = principal.principal;
+  const employee = await getCustomAgentById(env, orgId, employeeId);
   if (!employee) return jsonError("not_found", 404);
   const policyState = await resolveEmployeeToolPolicy(env, {
-    orgId: principal.orgId, employeeId, employeeVersion: employee.version, actorId: principal.principal,
+    orgId, employeeId, employeeVersion: employee.version, actorId,
   });
   if (!policyState) return jsonError("employee_membership_or_grants_missing", 403);
   const registry = createToolRegistry(env);
   registerAllMcpTools(registry, env);
   const registeredTools = registry.tools();
   const targetTool = registeredTools.find((tool) => tool.name === toolName);
-  if (!targetTool || targetTool.scope !== ACTIONS[toolName].requiredScope) return jsonError("unsupported_employee_tool_action", 400);
+  if (!targetTool || targetTool.scope !== action.requiredScope) return jsonError("unsupported_employee_tool_action", 400);
   const authority = {
     principal,
-    workspaceId: principal.orgId,
+    workspaceId: orgId,
     employeeId,
     employeeVersion: employee.version,
     employeeRole: policyState.role,
@@ -176,29 +204,30 @@ async function callEmployeeTool(request: Request, env: Env, employeeId: string):
   };
   const selection = selectEmployeeCapabilities(authority);
   const id = capabilityId(toolName);
-  const resourceKey = ACTIONS[toolName].resourceArgument;
+  const resourceKey = action.resourceArgument;
   const resourceId = args[resourceKey];
   if (typeof resourceId !== "string" || !resourceId.trim() || resourceId.length > 200) return jsonError("invalid_resource_id", 400);
   const connection = await resolveEmployeeConnectionGrant(env, {
-    orgId: principal.orgId, employeeId, employeeVersion: employee.version, actorId: principal.principal,
+    orgId, employeeId, employeeVersion: employee.version, actorId,
     capabilityId: id, resourceId,
   });
   if (!connection) return jsonError("employee_connection_or_resource_grant_missing", 403);
   const policy = connectionPolicy(toolName);
 
   let approval;
-  if (ACTIONS[toolName].risk === "external_write") {
+  if (action.risk === "external_write") {
     const argumentDigest = await hashToolArgs(args);
     const saved = await findEmployeeActionApproval(env, {
-      orgId: principal.orgId, employeeId, employeeVersion: employee.version, actorId: principal.principal,
+      orgId, employeeId, employeeVersion: employee.version, actorId,
       capabilityId: id, action: toolName, argumentDigest, resourceId,
-      connectionGeneration: connection.generation,
+      connectionGeneration: connection.generation, ...(executionContextId ? { executionContextId } : {}),
     });
     if (!saved || saved.status === "denied" || saved.status === "expired") {
       const pending = await requestEmployeeActionApproval(env, {
         orgId: principal.orgId, employeeId, employeeVersion: employee.version, actorId: principal.principal,
         connectionId: connection.connectionId, connectionGeneration: connection.generation,
         capability: { kind: "mcp", id }, action: toolName, resourceId,
+        ...(executionContextId ? { executionContextId } : {}),
         ...(connection.accountId ? { accountId: connection.accountId } : {}), argumentDigest,
         payload: args, policyVersion: policy.version, expiresAt: Date.now() + APPROVAL_TTL_MS,
       });
@@ -211,6 +240,7 @@ async function callEmployeeTool(request: Request, env: Env, employeeId: string):
   const result = await dispatchEmployeeTool({
     registry, authority, selection, toolName, args, connection,
     connectionPolicy: policy, ...(approval ? { approval } : {}),
+    ...(executionContextId ? { executionContextId } : {}),
     ...(approval ? { idempotencyKey: `employee-action:${approval.approvalId}` } : {}),
   });
   if (!result.allowed) return jsonError(result.reason, result.reason === "approval_required" ? 202 : 403);

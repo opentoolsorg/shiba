@@ -7,7 +7,8 @@ type Role = "owner" | "admin" | "operator" | "member" | "viewer";
 interface Employee { id: string; slug: string; version: number; config: { name: string } }
 interface Grant { subjectType: string; subjectId: string; capabilityId: string; resourceId: string; lifecycle: string }
 interface Policy { employeeVersion: number; toolScopes: string[]; grants: Grant[] }
-interface Approval { approvalId: string; employeeId: string; employeeVersion: number; actorId: string; action: string; resourceId?: string; payload: Record<string, unknown>; status: string; createdAt: number; expiresAt: number }
+interface Approval { approvalId: string; employeeId: string; employeeVersion: number; actorId: string; executionContextId?: string; action: string; resourceId?: string; payload: Record<string, unknown>; status: string; createdAt: number; expiresAt: number }
+interface EmployeeActor extends AgentPrincipal { source?: "web-session" }
 
 const CAPABILITIES: { id: Capability; label: string; scope: string; description: string; resource: string }[] = [
   { id: "run_status", label: "Read run status", scope: "runs:read", description: "Read status for an explicitly granted run ID.", resource: "Run ID" },
@@ -26,7 +27,7 @@ async function readJson<T>(response: Response): Promise<T> {
 
 export function EmployeeToolPolicyView(): JSX.Element {
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [principals, setPrincipals] = useState<AgentPrincipal[]>([]);
+  const [principals, setPrincipals] = useState<EmployeeActor[]>([]);
   const [employeeId, setEmployeeId] = useState("");
   const [actorId, setActorId] = useState("");
   const [role, setRole] = useState<Role>("member");
@@ -68,19 +69,25 @@ export function EmployeeToolPolicyView(): JSX.Element {
     (async () => {
       setLoading(true); setError(null);
       try {
-        const [employeeResponse, principalResponse] = await Promise.all([
+        const [employeeResponse, principalResponse, identityResponse] = await Promise.all([
           fetch("/api/custom-agents", { credentials: "same-origin" }),
           fetch("/api/agents", { credentials: "same-origin" }),
+          fetch("/api/whoami", { credentials: "same-origin" }),
         ]);
-        const [employeeBody, principalBody] = await Promise.all([
+        const [employeeBody, principalBody, identityBody] = await Promise.all([
           readJson<{ agents?: Employee[] }>(employeeResponse), readJson<{ principals?: AgentPrincipal[] }>(principalResponse),
+          readJson<{ agent?: string }>(identityResponse),
         ]);
         if (cancelled) return;
         const listed = Array.isArray(employeeBody.agents) ? employeeBody.agents : [];
-        const registered = Array.isArray(principalBody.principals) ? principalBody.principals : [];
+        const registered: EmployeeActor[] = Array.isArray(principalBody.principals) ? principalBody.principals : [];
+        const currentIdentity = identityBody.agent?.trim();
+        if (currentIdentity && !registered.some((item) => item.principal === currentIdentity)) {
+          registered.unshift({ principal: currentIdentity, scopes: [], created: Date.now(), live: true, source: "web-session" });
+        }
         setEmployees(listed); setPrincipals(registered);
         const firstEmployee = listed[0]?.id ?? "";
-        const firstActor = registered.find((item) => item.live)?.principal ?? registered[0]?.principal ?? "";
+        const firstActor = currentIdentity ?? registered.find((item) => item.live)?.principal ?? registered[0]?.principal ?? "";
         setEmployeeId(firstEmployee); setActorId(firstActor);
         await Promise.all([firstEmployee ? refreshPolicy(firstEmployee, firstActor) : Promise.resolve(), refreshApprovals()]);
       } catch (cause) {
@@ -104,8 +111,8 @@ export function EmployeeToolPolicyView(): JSX.Element {
 
   const save = async () => {
     if (!employeeId || !actorId || !policy || busy) return;
-    if (selected.length && !principals.some((principal) => principal.principal === actorId && principal.live)) {
-      setError("Choose an active MCP principal before granting tools. Inactive principals can still be selected to revoke existing grants.");
+    if (selected.length && !principals.some((principal) => principal.principal === actorId && (principal.live || principal.source === "web-session"))) {
+      setError("Choose the current web identity or an active MCP principal before granting tools. Inactive principals can still be selected to revoke existing grants.");
       return;
     }
     const resourcesByCapability: Record<string, string[]> = {};
@@ -155,8 +162,8 @@ export function EmployeeToolPolicyView(): JSX.Element {
           <label className="space-y-1 text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]">Employee
             <select className={FIELD} value={employeeId} onChange={(event) => void chooseEmployee(event.target.value)}>{activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.config.name || employee.slug}</option>)}</select>
           </label>
-          <label className="space-y-1 text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]">MCP actor
-            <select className={FIELD} value={actorId} onChange={(event) => void chooseActor(event.target.value)}>{principals.map((principal) => <option key={principal.principal} value={principal.principal}>{principal.principal}{principal.live ? " · active" : " · inactive"}</option>)}</select>
+          <label className="space-y-1 text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]">Actor identity
+            <select className={FIELD} value={actorId} onChange={(event) => void chooseActor(event.target.value)}>{principals.map((principal) => <option key={principal.principal} value={principal.principal}>{principal.principal}{principal.source === "web-session" ? " · current web identity" : principal.live ? " · active MCP" : " · inactive"}</option>)}</select>
           </label>
           <label className="space-y-1 text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]">Role
             <select className={FIELD} value={role} onChange={(event) => setRole(event.target.value as Role)}>{ROLES.map((value) => <option key={value}>{value}</option>)}</select>
@@ -175,12 +182,12 @@ export function EmployeeToolPolicyView(): JSX.Element {
         <div><h3 className="text-sm font-semibold text-[var(--fg)]">Pending exact-payload approvals</h3><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">A request appears after an employee MCP agent invokes an approved write action. Approval authorizes only the recorded payload, resource and connection generation.</p></div>
         {!approvals.length ? <div className="border border-dashed border-[var(--border-1)] p-5 text-center text-xs text-[var(--muted-foreground-2)]">No pending employee tool approvals.</div> : approvals.map((approval) => <article key={approval.approvalId} className="border border-[var(--border-1)] bg-[var(--card)] p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-semibold text-[var(--fg)]">{approval.action} · {approval.actorId}</div><span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Expires {new Date(approval.expiresAt).toLocaleString()}</span></div>
-          <div className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Employee {approval.employeeId} · resource {approval.resourceId ?? "—"}</div>
+          <div className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Employee {approval.employeeId} v{approval.employeeVersion} · resource {approval.resourceId ?? "—"}{approval.executionContextId ? ` · context ${approval.executionContextId}` : ""}</div>
           <pre className="max-h-48 overflow-auto border border-[var(--border-1)] bg-[var(--panel)] p-3 text-[10px] text-[var(--fg)]">{JSON.stringify(approval.payload, null, 2)}</pre>
           <div className="flex gap-2"><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, true)}>Approve exact payload</button><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, false)}>Deny</button></div>
         </article>)}
       </section>
-      <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: only run status, queue run and send email are exposed here. Unsupported actions fail closed. These grants apply to employee MCP tool calls only; they do not broaden coding-run agent scopes or add tools to a run.</p>
+      <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: only run status, queue run and send email are exposed to the employee&apos;s Worker-side app tools. Unsupported actions fail closed. These grants do not constrain shell/CLI tools in a coding harness; they add no token or MCP credential to the sandbox. External MCP clients still authenticate with their own bearer token.</p>
     </div>
   </div>;
 }
