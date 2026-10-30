@@ -138,7 +138,9 @@ export async function replaceEmployeeToolGrants(
   env: AuditEnv,
   input: {
     orgId: string; employeeId: string; employeeVersion: number; actorId: string; role: EmployeeRole;
-    capabilityIds: readonly string[]; resourcesByCapability: Readonly<Record<string, readonly string[]>>; now?: number;
+    capabilityIds: readonly string[]; resourcesByCapability: Readonly<Record<string, readonly string[]>>;
+    resourceConnectionsByCapability?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+    resourceAccountsByCapability?: Readonly<Record<string, Readonly<Record<string, string>>>>; now?: number;
   },
 ): Promise<void> {
   await ensureTables(env);
@@ -162,13 +164,16 @@ export async function replaceEmployeeToolGrants(
     if (!Array.isArray(resources) || resources.length < 1 || resources.length > 100) throw new Error("At least one bounded resource grant is required for every capability.");
     for (const resourceId of [...new Set(resources)]) {
       if (typeof resourceId !== "string" || !resourceId.trim() || resourceId.length > 200) throw new Error("Invalid employee resource grant.");
+      const connectionId = input.resourceConnectionsByCapability?.[capabilityId]?.[resourceId] ?? `shiba:${input.employeeId}:${capabilityId}`;
+      const accountId = input.resourceAccountsByCapability?.[capabilityId]?.[resourceId] ?? null;
+      if (!connectionId || connectionId.length > 200 || (accountId !== null && (!accountId || accountId.length > 254))) throw new Error("Invalid employee connection grant.");
       for (const [subjectType, subjectId] of [["workspace", input.orgId], ["actor", input.actorId], ["role", input.role]] as const) {
         statements.push(env.AGENT_AUDIT.prepare(`INSERT INTO employee_tool_grants
           (org_id, employee_id, employee_version, subject_type, subject_id, capability_id, connection_id, resource_id,
            lifecycle, provider_scopes_json, account_id, policy_version, generation, created_by, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', '[]', NULL, ?, 1, ?, ?)`)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', '[]', ?, ?, 1, ?, ?)`)
           .bind(input.orgId, input.employeeId, input.employeeVersion, subjectType, subjectId, capabilityId,
-            `shiba:${input.employeeId}:${capabilityId}`, resourceId, "employee-policy-current", input.actorId, now));
+            connectionId, resourceId, accountId, "employee-policy-current", input.actorId, now));
       }
     }
   }
@@ -245,6 +250,8 @@ export async function resolveEmployeeConnectionGrant(
     if (!policy.employeeGrants.some((grant) => grant.subjectType === subjectType &&
       grant.capabilityId === input.capabilityId && grant.resourceId === input.resourceId && grant.lifecycle === "active")) return null;
   }
+  const consistent = policy.employeeGrants.filter((grant) => grant.capabilityId === input.capabilityId && grant.resourceId === input.resourceId && grant.lifecycle === "active");
+  if (consistent.length !== 3 || new Set(consistent.map((grant) => `${grant.connectionId}\u0000${grant.accountId ?? ""}\u0000${grant.policyVersion}\u0000${grant.generation}`)).size !== 1) return null;
   const row = await env.AGENT_AUDIT.prepare(`SELECT * FROM employee_tool_grants
     WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND subject_type = 'actor' AND subject_id = ?
       AND capability_id = ? AND resource_id = ? AND lifecycle = 'active' LIMIT 1`)
@@ -260,6 +267,7 @@ export async function resolveEmployeeConnectionGrant(
     verification: "configured",
     capability: { kind: "mcp", id: grant.capabilityId },
     providerScopes: [], allowedResources: [grant.resourceId],
+    ...(grant.accountId ? { accountId: grant.accountId } : {}),
     policyVersion: grant.policyVersion, generation: grant.generation,
   };
 }

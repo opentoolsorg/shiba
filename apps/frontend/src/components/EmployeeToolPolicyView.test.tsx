@@ -7,6 +7,33 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("EmployeeToolPolicyView", () => {
+  it("selects Gmail resources from owner-discovered metadata and submits only checked message IDs", async () => {
+    let version = 1;
+    const writes: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = init?.method ?? "GET";
+      if (url === "/api/custom-agents") return json({ agents: [{ id: "employee-1", slug: "researcher", version, config: { name: "Researcher" } }] });
+      if (url === "/api/agents") return json({ principals: [{ principal: "owner@example.test", scopes: [], created: 1, live: true }] });
+      if (url === "/api/whoami") return json({ agent: "owner@example.test", auth: "better-auth" });
+      if (url === "/api/employee-tools/approvals") return json({ approvals: [] });
+      if (url.startsWith("/api/connections/gmail/resources?")) return json({ results: [{ messageId: "msg_selected", threadId: "thread_context", from: "sender@example.test", subject: "Quarterly plan", date: "Wed, 1 Oct 2026 12:00:00 +0000" }] });
+      if (url.endsWith("/policy") && method === "GET") return json({ employeeVersion: version, toolScopes: [], grants: [] });
+      if (url.endsWith("/policy") && method === "PUT") { writes.push(JSON.parse(String(init?.body)) as Record<string, unknown>); version++; return json({ ok: true, employeeVersion: version }); }
+      return json({ error: `Unexpected ${method} ${url}` }, 500);
+    }));
+
+    render(<EmployeeToolPolicyView />);
+    fireEvent.click(await screen.findByLabelText(/Read selected Gmail messages/));
+    fireEvent.change(screen.getByLabelText("Search connected Gmail"), { target: { value: "from:sender@example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search Gmail" }));
+    fireEvent.click(await screen.findByLabelText(/Quarterly plan/));
+    expect(screen.getByText(/Selected:/).textContent).toContain("msg_selected");
+    fireEvent.click(screen.getByRole("button", { name: "Save grants" }));
+    await screen.findByText(/Policy saved/);
+    expect(writes[0]?.resourcesByCapability).toEqual({ "mcp:shiba:gmail_read": ["msg_selected"] });
+    expect(screen.getByText(/selection flow currently supports Gmail only/)).toBeTruthy();
+  });
+
   it("loads real API state, configures exact resources, and decides a pending exact-payload approval", async () => {
     let policyVersion = 1;
     let grants: Array<{ subjectType: string; subjectId: string; capabilityId: string; resourceId: string; lifecycle: string }> = [];
