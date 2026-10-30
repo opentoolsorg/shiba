@@ -128,6 +128,7 @@ import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
 import { ORCHESTRATOR_NAME } from "../slack-routes.js";
 import { areSkillPinsActive, resolveSkillPins } from "../skills-store.js";
+import { artifactIdentity, parseArtifactReview, prepareRunArtifacts, updateArtifactReview } from "../artifact-metadata.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
   classifyExecutorError,
@@ -1381,6 +1382,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                 if (required.length && (parsed.deliverables?.length !== required.length || required.some((path, index) => parsed.deliverables?.[index]?.path !== path))) {
                   throw new Error("Required deliverables were not captured and stored by the execution runtime.");
                 }
+                const currentRun = this.store.get(runId);
+                const durableDeliverables = fullInput.expectedDeliverables?.length && currentRun
+                  ? yield* tryRunPromise(() => prepareRunArtifacts(currentRun, parsed.deliverables ?? [], this.store.list(), Date.now()))
+                  : parsed.deliverables;
                 const finished = finish(
                   "completed",
                   {
@@ -1397,7 +1402,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                     // Harness-reported token/cost usage; absent when the
                     // stream emitted none — never estimated.
                     usage: parsed.usage,
-                    ...(fullInput.expectedDeliverables?.length ? { deliverables: parsed.deliverables } : {}),
+                    ...(fullInput.expectedDeliverables?.length ? { deliverables: durableDeliverables } : {}),
                   },
                   slackRunCompleted({
                     repoUrl: fullInput.repoUrl,
@@ -4921,6 +4926,56 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const run = await this.archiveRun(id);
       return run ? Response.json({ run: this.serializeRun(run) })
         : Response.json({ error: "Run not found." }, { status: 404 });
+    }
+    const artifactReviewMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([0-7])\/review$/);
+    if (artifactReviewMatch) {
+      if (request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      let runId: string;
+      try { runId = decodeURIComponent(artifactReviewMatch[1]!); }
+      catch { return Response.json({ error: "Invalid run ID." }, { status: 400 }); }
+      if (agentPrincipal !== null) return Response.json({ error: "Run not found." }, { status: 404 });
+      const body: unknown = await request.json().catch(() => null);
+      const review = parseArtifactReview(body);
+      if (!review) return Response.json({ error: "Choose approve, request changes with a note, or reset review." }, { status: 400 });
+      const run = this.store.get(runId);
+      if (!run) return Response.json({ error: "Run not found." }, { status: 404 });
+      const updated = updateArtifactReview(run, Number(artifactReviewMatch[2]), review, Date.now());
+      if (!updated) return Response.json({ error: "Completed deliverable not found." }, { status: 404 });
+      this.store.replace(runId, updated);
+      return Response.json({ ok: true, deliverable: updated.deliverables![Number(artifactReviewMatch[2])] });
+    }
+    const artifactHistoryMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([0-7])\/history$/);
+    if (artifactHistoryMatch) {
+      if (request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      let runId: string;
+      try { runId = decodeURIComponent(artifactHistoryMatch[1]!); }
+      catch { return Response.json({ error: "Invalid run ID." }, { status: 400 }); }
+      if (agentPrincipal !== null) return Response.json({ error: "Run not found." }, { status: 404 });
+      const run = this.store.get(runId);
+      const item = run?.deliverables?.[Number(artifactHistoryMatch[2])];
+      if (!run || !item || run.status !== "completed") return Response.json({ error: "Deliverable not found." }, { status: 404 });
+      const artifactId = await artifactIdentity(run, item.path);
+      const versions = [];
+      for (const candidate of this.store.list()) {
+        if (candidate.status !== "completed") continue;
+        for (const [index, deliverable] of (candidate.deliverables ?? []).entries()) {
+          const identity = await artifactIdentity(candidate, deliverable.path);
+          if (identity !== artifactId) continue;
+          versions.push({
+            runId: candidate.runId,
+            index,
+            path: deliverable.path,
+            version: deliverable.version ?? 1,
+            sha256: deliverable.sha256,
+            bytes: deliverable.bytes,
+            createdAt: candidate.createdAt,
+            review: deliverable.review ?? { status: "pending_review" as const },
+            ...(deliverable.provenance ? { provenance: deliverable.provenance } : {}),
+          });
+        }
+      }
+      versions.sort((a, b) => a.version - b.version || a.createdAt - b.createdAt);
+      return Response.json({ artifactId, versions });
     }
     const triageMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/review\/findings\/([^/]+)\/triage$/);
     if (triageMatch && request.method === "PATCH") {

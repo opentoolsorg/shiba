@@ -9,6 +9,7 @@ import { LocalDispatch } from "../src/local-dispatch.js";
 import { createRun, RunStore, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
 import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
 import { createPendingApproval, resolvePendingApproval } from "../src/pending-approvals.js";
+import { prepareRunArtifacts } from "../src/artifact-metadata.js";
 import { approveDirect } from "./seeding.js";
 import {
   destroyManagedContainer,
@@ -243,6 +244,44 @@ describe("local run cleanup", () => {
     expect(leakedContainers().some((leak) => leak.sandboxId === run.sandboxId)).toBe(false);
     expect(instance.state.leakedContainers?.unknown).toBeDefined();
     expect(instance.state.leakedContainers?.["real-cloud"]).toBeUndefined();
+  });
+});
+
+describe("durable artifact review state", () => {
+  it("stores reviewer decisions in the owning run record and returns version history without bodies", async () => {
+    const instance = agent();
+    const first: DelegatedRun = { ...retained("completed"), runId: "r1", createdAt: 100, deliverables: [{
+      path: "reports/brief.md", mediaType: "text/markdown", bytes: 4, sha256: "a".repeat(64),
+      version: 1, sourceRunId: "r1",
+      review: { status: "pending_review" as const, updatedAt: 100 },
+    }] };
+    first.deliverables = await prepareRunArtifacts(first, first.deliverables ?? [], [], 100);
+    const latest: DelegatedRun = { ...first, runId: "r2", createdAt: 200, deliverables: [{ ...first.deliverables![0]!, version: 2, sourceRunId: "r2" }] };
+    instance.setState({ ...instance.state, runs: [first, latest] });
+    const update = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "changes_requested", note: "Add citations" }),
+    }));
+    expect(update.status).toBe(200);
+    expect(instance.state.runs?.find((item) => item.runId === "r2")?.deliverables?.[0]?.review)
+      .toEqual({ status: "changes_requested", updatedAt: expect.any(Number), note: "Add citations" });
+    const history = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/history"));
+    const payload = await history.json() as { artifactId: string; versions: Array<Record<string, unknown>> };
+    expect(payload.artifactId).toBe(first.deliverables?.[0]?.artifactId);
+    expect(payload.versions.map((version) => version.version)).toEqual([1, 2]);
+    expect(payload.versions[1]?.review).toMatchObject({ status: "changes_requested", note: "Add citations" });
+    expect(JSON.stringify(payload)).not.toContain("content");
+  });
+
+  it("rejects a revision request without a note and refuses review updates to active runs", async () => {
+    const instance = agent();
+    const active = { ...retained("running"), deliverables: [{ path: "reports/brief.md", mediaType: "text/markdown", bytes: 4, sha256: "a".repeat(64) }] };
+    instance.setState({ ...instance.state, runs: [active] });
+    const request = (body: unknown) => instance.onRequest(new Request("https://internal/api/runs/r1/deliverables/0/review", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+    expect((await request({ status: "changes_requested" })).status).toBe(400);
+    expect((await request({ status: "approved" })).status).toBe(404);
   });
 });
 

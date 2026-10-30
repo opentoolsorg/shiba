@@ -142,6 +142,52 @@
           "sha256": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
+          },
+          "artifactId": {
+            "type": "string",
+            "pattern": "^artifact_[a-f0-9]{32}$",
+            "description": "Opaque stable identity for grouping retained versions within the owning run store."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sourceRunId": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["skillId", "version", "name"],
+                  "properties": {
+                    "skillId": { "type": "string" },
+                    "version": { "type": "integer", "minimum": 1 },
+                    "name": { "type": "string" }
+                  }
+                }
+              },
+              "customAgent": {
+                "type": "object",
+                "required": ["id", "version"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "version": { "type": "integer", "minimum": 1 }
+                }
+              }
+            }
+          },
+          "review": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": { "type": "string", "enum": ["pending_review", "approved", "changes_requested"] },
+              "updatedAt": { "type": "integer" },
+              "note": { "type": "string", "maxLength": 500 }
+            }
           }
         }
       },

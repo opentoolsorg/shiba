@@ -474,7 +474,14 @@ function applyPatch(run: DelegatedRun, patch: RunPatch | undefined): void {
   if (patch.errorCode !== undefined) run.errorCode = patch.errorCode;
   if (patch.diff !== undefined) run.diff = patch.diff;
   if (patch.deliverables !== undefined) {
-    run.deliverables = patch.deliverables.map(({ path, mediaType, bytes, sha256 }) => ({ path, mediaType, bytes, sha256 }));
+    run.deliverables = patch.deliverables.map((item) => ({
+      path: item.path, mediaType: item.mediaType, bytes: item.bytes, sha256: item.sha256,
+      ...(item.artifactId ? { artifactId: item.artifactId } : {}),
+      ...(item.version ? { version: item.version } : {}),
+      ...(item.sourceRunId ? { sourceRunId: item.sourceRunId } : {}),
+      ...(item.provenance ? { provenance: structuredClone(item.provenance) } : {}),
+      ...(item.review ? { review: structuredClone(item.review) } : {}),
+    }));
   }
   if (patch.pullUrl !== undefined) run.pullUrl = patch.pullUrl;
   if (patch.screenshotUrl !== undefined) run.screenshotUrl = patch.screenshotUrl;

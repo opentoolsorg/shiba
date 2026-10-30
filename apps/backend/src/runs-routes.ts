@@ -107,10 +107,12 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // live on the same DO, behind the same dashboard auth and session scope.
   const isSpine = url.pathname === "/api/spine";
   const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)$/);
+  const artifactActionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)\/(review|history)$/);
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
   if (
     !isSpine &&
     !deliverableMatch &&
+    !artifactActionMatch &&
     !/^\/api\/runs(?:\/[^/]+(?:\/(?:fork|screen|archive|steer|subagents))?|\/subagents\/spawn)?$/.test(
       url.pathname,
     )
@@ -120,7 +122,10 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
   }
-  if ((isSpine || deliverableMatch) && request.method !== "GET") {
+  if ((isSpine || deliverableMatch || artifactActionMatch?.[3] === "history") && request.method !== "GET") {
+    return Response.json({ error: "Method not allowed." }, { status: 405 });
+  }
+  if (artifactActionMatch?.[3] === "review" && request.method !== "POST") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
   }
   const isSteer = /^\/api\/runs\/[^/]+\/steer$/.test(url.pathname);
@@ -221,6 +226,23 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // Edge identity: sign the stamped intake voucher so the DO can verify the
   // Worker minted it (no-op until INTERNAL_SIGNING_KEY is configured).
   await signInternalRequest(rewritten, env);
+  if (artifactActionMatch) {
+    let runId: string;
+    let rawIndex: string;
+    const encodedRunId = artifactActionMatch[1];
+    const encodedIndex = artifactActionMatch[2];
+    if (!encodedRunId || !encodedIndex) return Response.json({ error: "Invalid deliverable identity." }, { status: 400 });
+    try {
+      runId = decodeURIComponent(encodedRunId);
+      rawIndex = decodeURIComponent(encodedIndex);
+    } catch {
+      return Response.json({ error: "Invalid deliverable identity." }, { status: 400 });
+    }
+    if (!/^(0|[1-7])$/.test(rawIndex)) return Response.json({ error: "Invalid deliverable index." }, { status: 400 });
+    const forwarded = new Request(new URL(url.pathname + url.search, request.url), rewritten);
+    await signInternalRequest(forwarded, env);
+    return stub.fetch(forwarded);
+  }
   if (deliverableMatch) {
     let runId: string;
     let index: number;
