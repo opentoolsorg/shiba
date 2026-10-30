@@ -382,6 +382,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "ROLE_MODEL__REVIEWER",
       "ROLE_MODEL__DESIGNER",
       "SLACK_APPROVALS_CHANNEL",
+      "SLACK_ROOM_OUTBOX_ENABLED",
       // Agent mailbox identity (default dev@tryshiba.dev).
       "AGENT_MAILBOX",
       "MEMORY_ENABLED",

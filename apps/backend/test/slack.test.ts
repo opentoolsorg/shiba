@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleSlackCommand } from "../src/slack-routes.js";
-import { verifySlackRequest } from "../src/slack.js";
+import { postSlackMessageWithReceipt, verifySlackBotInstallation, verifySlackRequest } from "../src/slack.js";
 
 const SECRET = "test-signing-secret-abc123";
 
@@ -60,6 +60,58 @@ describe("verifySlackRequest", () => {
     const signature = await sign(SECRET, timestamp, body);
     await expect(verifySlackRequest(body, new Headers(), SECRET)).resolves.toBe(false);
     await expect(verifySlackRequest(body, headers(timestamp, signature), "")).resolves.toBe(false);
+  });
+});
+
+describe("verified Slack installation lookup", () => {
+  it("uses the configured bot token against auth.test and returns Slack's workspace identity", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://slack.com/api/auth.test");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer xoxb-mock-only");
+      return new Response(JSON.stringify({ ok: true, team_id: "T123", user_id: "W123", bot_id: "B123" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await expect(verifySlackBotInstallation("xoxb-mock-only")).resolves.toEqual({
+        teamId: "T123", userId: "W123", botId: "B123",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects a user-token identity without Slack's bot_id", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      ok: true, team_id: "T123", user_id: "U123",
+    }), { status: 200 })));
+    try {
+      await expect(verifySlackBotInstallation("xoxp-mock-only")).rejects.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("posts through the existing Slack transport with a stable dedupe key and returns the receipt", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://slack.com/api/chat.postMessage");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer xoxb-mock-only");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        channel: "C123", thread_ts: "1710000000.000100", client_msg_id: "00000000-0000-4000-8000-000000000001",
+        text: "Approved room message",
+      });
+      return new Response(JSON.stringify({ ok: true, channel: "C123", ts: "1710000009.000900" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await expect(postSlackMessageWithReceipt("xoxb-mock-only", {
+        channel: "C123", threadTs: "1710000000.000100", text: "Approved room message",
+        clientMsgId: "00000000-0000-4000-8000-000000000001",
+      })).resolves.toEqual({ channel: "C123", ts: "1710000009.000900" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

@@ -175,6 +175,45 @@ describe("CollaborationView room access polling", () => {
     expect(screen.getByText(/Outbound delivery is disabled/)).toBeTruthy();
   });
 
+  it("shows the dashboard approval action and refreshes the persisted Slack receipt", async () => {
+    let approved = false;
+    const detail = () => ({
+      ...roomDetail,
+      currentUserId: "owner@example.test",
+      members: [{ ...roomDetail.members[0], userId: "owner@example.test", actorId: "human:owner@example.test", role: "owner" }],
+      slackLinks: [{ linkId: "link-1", roomId: "room-1", teamId: "T123", channelId: "C123", threadTs: "1710000000.000100", status: "active", outboundConfigured: true }],
+      slackDeliveryIntents: [{
+        intentId: "intent-1", messageId: "m1", channelId: "C123", threadTs: "1710000000.000100",
+        content: "Confidential room note",
+        status: "pending", deliveryStatus: approved ? "sent" : "awaiting_approval",
+        receiptTs: approved ? "1710000009.000900" : null,
+      }],
+      canApproveSlackOutbox: true,
+      slackOutboxEnabled: true,
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/api/custom-agents")) return jsonResponse({ agents: [] });
+      if (path.endsWith("/api/collaboration/rooms"))
+        return jsonResponse({ rooms: [{ roomId: "room-1", title: "Shared room", visibility: "private" }] });
+      if (path.endsWith("/slack-delivery/intent-1/approve") && init?.method === "POST") {
+        approved = true;
+        return jsonResponse({ delivery: { status: "sent", channel: "C123", ts: "1710000009.000900" } });
+      }
+      if (path.endsWith("/api/collaboration/rooms/room-1")) return jsonResponse(detail());
+      throw new Error(`Unexpected request ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CollaborationView />);
+    expect(await screen.findByText("Approved content: Confidential room note")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Approve and send" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith("/slack-delivery/intent-1/approve") && init?.method === "POST",
+    )).toBe(true));
+    await waitFor(() => expect(screen.getByText(/Slack receipt 1710000009\.000900/)).toBeTruthy());
+  });
+
   it("removes stale room content when another session revokes this member before the next poll", async () => {
     let revokedBySecondSession = false;
     let poll: (() => void) | undefined;
