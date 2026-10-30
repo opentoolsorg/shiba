@@ -11,7 +11,7 @@ const fixtures: CapabilityCatalogItem[] = [
     id: "github",
     name: "GitHub",
     kind: "connector",
-    status: "configured",
+    status: "tested",
     category: "Code hosting",
     summary: "Read repository issues and publish pull requests.",
     description: "Connect repository data and pull request actions.",
@@ -32,7 +32,7 @@ const fixtures: CapabilityCatalogItem[] = [
     id: "filesystem",
     name: "Filesystem MCP",
     kind: "mcp",
-    status: "liveVerified",
+    status: "tested",
     category: "Developer tools",
     summary: "Expose workspace files to a tool client.",
     capabilities: ["List files", "Read files"],
@@ -54,7 +54,7 @@ describe("CapabilityCatalog", () => {
     render(<CapabilityCatalog items={fixtures} />);
 
     expect(screen.getAllByText("Configured").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Live verified").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Test passed").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Unsupported").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Planned").length).toBeGreaterThan(0);
     expect(screen.getByText(/Skills describe procedures; tools and connectors expose capabilities\./)).toBeTruthy();
