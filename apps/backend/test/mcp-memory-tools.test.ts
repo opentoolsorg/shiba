@@ -259,8 +259,8 @@ describe("registerMemoryTools — scope denial", () => {
   });
 });
 
-describe("registerMemoryTools — bank → recall → forget", () => {
-  it("banks under the caller's principal and recalls the join shape across agents", async () => {
+describe("registerMemoryTools — bank → scoped recall → forget", () => {
+  it("banks and recalls only the caller's principal partition", async () => {
     const { env, vectors } = makeEnv();
     const registry = makeRegistry(env);
 
@@ -287,19 +287,21 @@ describe("registerMemoryTools — bank → recall → forget", () => {
       await registry.invoke("memory_recall", { query: "deploy" }, caller),
     );
     expect(recalled.query).toBe("deploy");
-    expect(recalled.facts).toHaveLength(2);
+    expect(recalled.facts).toHaveLength(1);
     // Join shape: exactly id/fact/source/agent/score, ranked desc.
     for (const hit of recalled.facts) {
       expect(Object.keys(hit).sort()).toEqual(["agent", "fact", "id", "score", "source"]);
     }
-    expect(recalled.facts.map((f: { agent: string }) => f.agent).sort()).toEqual([
-      "intern",
-      "scout",
-    ]);
+    expect(recalled.facts.map((f: { agent: string }) => f.agent)).toEqual(["intern"]);
     const scores = recalled.facts.map((f: { score: number }) => f.score);
     expect(scores).toEqual([...scores].sort((a, b) => b - a));
     const mine = recalled.facts.find((f: { id: string }) => f.id === factId);
     expect(mine).toMatchObject({ fact: "deploys happen on Fridays", source: "run", agent: "intern" });
+    const scoutRecall = resultData(
+      await registry.invoke("memory_recall", { query: "deploy" }, otherCaller),
+    );
+    expect(scoutRecall.facts).toHaveLength(1);
+    expect(scoutRecall.facts[0]).toMatchObject({ agent: "scout", fact: "a much longer fact about deploy windows" });
 
     const forgotten = resultData(
       await registry.invoke("memory_forget", { fact_id: factId }, caller),
@@ -336,39 +338,50 @@ describe("registerMemoryTools — bank → recall → forget", () => {
     expect(vectors.has(factId)).toBe(false);
   });
 
-  it("refuses to bank on a stub whose name is the reserved registry", async () => {
-    const { env } = makeEnv();
+  it("refuses every legacy tool on the reserved registry principal", async () => {
+    const { env, vectors } = makeEnv();
     const registry = makeRegistry(env);
-    // "global" is the reserved registry instance — banking there would
-    // be a self-recursive write; the DO's guard surfaces as a tool error.
-    const globalCaller: TokenRecord = { ...caller, principal: "global" };
-    const result = await registry.invoke(
+    const owned = resultData(await registry.invoke(
       "memory_bank",
-      { fact: "x", source: "run" },
-      globalCaller,
-    );
-    expect(result.isError).toBe(true);
-    expect((result.content[0] as { text: string }).text).toContain("per-agent");
+      { fact: "private deployment key", source: "run" },
+      caller,
+    ));
+    const ownedId = owned.fact.id as string;
+    // `global` is the registry instance, whose recall/forget routes fan out
+    // across agents. It must never be reachable as an MCP caller partition.
+    const globalCaller: TokenRecord = { ...caller, principal: " global " };
+    for (const [tool, args] of [
+      ["memory_recall", { query: "private" }],
+      ["memory_sessions", {}],
+      ["memory_bank", { fact: "x", source: "run" }],
+      ["memory_forget", { fact_id: ownedId }],
+    ] as const) {
+      expect((await registry.invoke(tool, args, globalCaller)).isError).toBe(true);
+    }
+    expect(vectors.has(ownedId)).toBe(true);
+    expect(resultData(await registry.invoke("memory_recall", { query: "private" }, caller)).facts)
+      .toEqual([expect.objectContaining({ id: ownedId, agent: "intern" })]);
   });
 });
 
 describe("registerMemoryTools — sessions", () => {
-  it("lists distilled sessions and scopes them by agent", async () => {
+  it("lists only the verified caller's sessions and rejects another agent", async () => {
     const { env } = makeEnv();
     const registry = makeRegistry(env);
     await addSession(env, "intern", "shipped the inbox tab", 2_000);
     await addSession(env, "scout", "scouted competitors", 1_000);
 
-    const all = resultData(await registry.invoke("memory_sessions", {}, caller));
-    expect(all.agent).toBeNull();
-    expect(all.sessions).toHaveLength(2);
-    expect(all.sessions[0]).toMatchObject({ agent: "intern", summary: "shipped the inbox tab" });
+    const own = resultData(await registry.invoke("memory_sessions", {}, caller));
+    expect(own.agent).toBe("intern");
+    expect(own.sessions).toEqual([
+      expect.objectContaining({ agent: "intern", summary: "shipped the inbox tab" }),
+    ]);
 
-    const scoped = resultData(
-      await registry.invoke("memory_sessions", { agent: "scout" }, caller),
-    );
-    expect(scoped.agent).toBe("scout");
-    expect(scoped.sessions).toEqual([
+    const foreign = await registry.invoke("memory_sessions", { agent: "scout" }, caller);
+    expect(foreign.isError).toBe(true);
+
+    const scoutOwn = resultData(await registry.invoke("memory_sessions", {}, otherCaller));
+    expect(scoutOwn.sessions).toEqual([
       expect.objectContaining({ agent: "scout", summary: "scouted competitors" }),
     ]);
 
