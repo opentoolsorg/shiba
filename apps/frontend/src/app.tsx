@@ -17,6 +17,7 @@ import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
+import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { buildExecutionTargetFields } from "./execution-target-input";
@@ -2786,6 +2787,8 @@ export function App(): React.JSX.Element {
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
+          ) : mainView === "employee-tools" ? (
+            <EmployeeToolPolicyView />
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
