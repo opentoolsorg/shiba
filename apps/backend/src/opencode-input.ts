@@ -25,6 +25,12 @@ const codingTaskInputSchema = z.object({
   sandboxProvider: z.string().min(1).max(64).optional(),
   customAgentId: z.string().min(1).max(128).optional(),
   customAgentVersion: z.number().int().positive().optional(),
+  skillPins: z.array(z.object({
+    skillId: z.string().regex(/^skill-[a-f0-9]{24}$/),
+    version: z.number().int().positive(),
+    name: z.string().min(1).max(100),
+    sourceUrl: z.string().url().startsWith("https://").optional(),
+  }).strict()).max(5).optional(),
   codingModel: z.string().min(1),
   /** Which coding agent runs the task. Validated at approval time, never in the container. */
   harness: z.enum(HARNESS_IDS).optional(),

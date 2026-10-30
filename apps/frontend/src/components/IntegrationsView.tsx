@@ -247,12 +247,20 @@ export function IntegrationsView({
         });
       }
     }
-    for (const skill of savedSkills) {
+    for (const skill of savedSkills.skills) {
       items.push({
-        id: `skill:${skill.id}`, name: skill.name, kind: "skill", status: "configured",
-        category: "Saved procedure", summary: skill.notes || "Saved in this browser for use as task guidance.",
-        description: skill.repoUrl ? `Procedure saved from ${skill.repoUrl}.` : "User-saved instruction procedure. This is guidance, not an executable connector.",
+        id: `skill:${skill.id}`, name: skill.name, kind: "skill", status: skill.status === "active" ? "configured" : "available",
+        category: "Saved procedure", summary: skill.instructions || `Version ${skill.version} is a draft without instruction text.`,
+        description: `${skill.status} skill version ${skill.version}. ${skill.sourceUrl ? `Source provenance: ${skill.sourceUrl}. ` : ""}Reviewed text is guidance, not an executable connector.`,
         capabilities: ["Provide task instructions"], source: skill,
+      });
+    }
+    for (const legacy of savedSkills.legacySkills) {
+      items.push({
+        id: `legacy-skill:${legacy.id}`, name: legacy.name, kind: "skill", status: "available",
+        category: "Legacy local skill", summary: legacy.notes || "Browser-local notes are waiting to be imported.",
+        description: "This legacy entry is not active. Import it from Skills to create an unreviewed server draft.",
+        capabilities: [], source: legacy.name,
       });
     }
     for (const tool of toolDirectory) {

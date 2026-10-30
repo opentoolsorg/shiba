@@ -14,6 +14,7 @@ import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { sealRunEnv } from "./run-env-seal.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
+import { resolveSkillPins } from "./skills-store.js";
 import {
   buildSessionAgentName,
   DEFAULT_SESSION_ID,
@@ -167,6 +168,38 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   const stub = await getAgentByName(env.CodingOrchestrator, targetAgentName);
   let rewritten = new Request(new URL(url.pathname + url.search, request.url), request);
   if (request.method === "POST" && url.pathname === "/api/runs" && intakeBody) {
+    if (Object.prototype.hasOwnProperty.call(intakeBody, "skillPins")) {
+      const rawPins = intakeBody.skillPins;
+      if (!Array.isArray(rawPins) || rawPins.length > 5 || rawPins.some((pin) =>
+        typeof pin !== "object" || pin === null || Array.isArray(pin) ||
+        typeof (pin as Record<string, unknown>).skillId !== "string" ||
+        !Number.isSafeInteger((pin as Record<string, unknown>).version) ||
+        Number((pin as Record<string, unknown>).version) < 1
+      )) {
+        return Response.json({ error: "Selected skills are invalid." }, { status: 400 });
+      }
+      const requested = rawPins.map((pin) => ({
+        skillId: (pin as Record<string, unknown>).skillId as string,
+        version: Number((pin as Record<string, unknown>).version),
+      }));
+      const resolvedSkills = await resolveSkillPins(env, DASHBOARD_ORG_ID, resolved.userId, requested);
+      if (!resolvedSkills) {
+        return Response.json({ error: "A selected skill is unavailable or no longer active. Reload the Skills view and try again." }, { status: 409 });
+      }
+      const task = typeof intakeBody.task === "string" ? intakeBody.task.trim() : "";
+      const effectiveTask = resolvedSkills.instructions ? `${task}\n\n${resolvedSkills.instructions}` : task;
+      if (effectiveTask.length > 4000) {
+        return Response.json(
+          { error: "The complete task and selected skill instructions exceed the 4000-character limit. Shorten the task or deselect skills." },
+          { status: 400 },
+        );
+      }
+      intakeBody = {
+        ...intakeBody,
+        task: effectiveTask,
+        skillPins: resolvedSkills.pins,
+      };
+    }
     // Dashboard run ownership comes from the verified user/session target,
     // never a client-provided key naming another or the shared DO's queue.
     rewritten = new Request(rewritten, { body: JSON.stringify({ ...intakeBody, orgId: DASHBOARD_ORG_ID, ...(intakeKind === "run" ? { threadKey: targetAgentName } : {}) }) });

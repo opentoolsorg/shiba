@@ -23,6 +23,7 @@ import type {
   Receipt,
   RunPatch,
   RunStatus,
+  SkillExecutionPin,
   RuntimeSelection,
   ExecutionTarget,
 } from "@shiba/shared";
@@ -66,6 +67,7 @@ export function createRun(args: {
   sandboxProvider?: string;
   customAgentId?: string;
   customAgentVersion?: number;
+  skillPins?: SkillExecutionPin[];
   route?: ApprovedRoute;
   /** T48: account-scoped continuation identity from the selected harness. */
   continuationKey?: string;
@@ -117,6 +119,7 @@ export function createRun(args: {
       ...(args.sandboxProvider !== undefined ? { sandboxProvider: args.sandboxProvider } : {}),
       ...(args.customAgentId !== undefined ? { customAgentId: args.customAgentId } : {}),
       ...(args.customAgentVersion !== undefined ? { customAgentVersion: args.customAgentVersion } : {}),
+      ...(args.skillPins !== undefined ? { skillPins: args.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(args.route !== undefined ? { route: args.route } : {}),
       ...(args.continuationKey !== undefined ? { continuationKey: args.continuationKey } : {}),
       ...(args.continuesKey !== undefined ? { continuesKey: args.continuesKey } : {}),

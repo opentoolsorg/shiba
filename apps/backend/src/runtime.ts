@@ -689,6 +689,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         task: input.task,
         ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
         ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+        ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
         ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
         ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
         ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
