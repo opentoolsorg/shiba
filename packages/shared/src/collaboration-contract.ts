@@ -85,6 +85,10 @@ export interface HandoffValidationOptions {
   senderCapabilities: readonly CollaborationCapability[];
   seenHandoffIds?: ReadonlySet<string>;
   parent?: CollaborationHandoffEnvelope;
+  /** Server-resolved profile version of the active recipient membership. */
+  recipientProfileVersion?: number | null;
+  /** Server-resolved profile version of the active sender membership for continuation. */
+  senderProfileVersion?: number | null;
 }
 const subset = (a: readonly CollaborationCapability[], b: readonly CollaborationCapability[]) => a.every((item) => b.includes(item));
 const sameArray = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -98,7 +102,12 @@ export function validateCollaborationHandoff(value: unknown, options: HandoffVal
   if (value.sender.tenantId !== options.expected.tenantId || value.sender.workspaceId !== options.expected.workspaceId || value.recipient.tenantId !== options.expected.tenantId || value.recipient.workspaceId !== options.expected.workspaceId) return bad("invalid-scope");
   if (!Number.isFinite(value.createdAt) || (value.createdAt as number) < 0) return bad("invalid-time");
   if (value.profileVersion !== undefined && (!integer(value.profileVersion) || (value.profileVersion as number) < 1)) return bad("invalid-profile-version");
-  if (value.recipient.kind === "agent" && (!integer(value.profileVersion) || (value.profileVersion as number) < 1)) return bad("invalid-profile-version");
+  if (value.recipient.kind === "agent") {
+    if (!integer(value.profileVersion) || (value.profileVersion as number) < 1) return bad("invalid-profile-version");
+    if (options.recipientProfileVersion !== undefined && value.profileVersion !== options.recipientProfileVersion) return bad("profile-version-mismatch");
+  } else if (value.profileVersion !== undefined) {
+    return bad("invalid-profile-version");
+  }
   const l = value.lineage;
   if (!record(l) || !nonEmpty(l.rootHandoffId) || !(l.parentHandoffId === null || nonEmpty(l.parentHandoffId)) || !integer(l.depth) || (l.depth as number) < 0 || !Array.isArray(l.ancestorHandoffIds) || !l.ancestorHandoffIds.every(nonEmpty) || new Set(l.ancestorHandoffIds).size !== l.ancestorHandoffIds.length || l.ancestorHandoffIds.includes(value.handoffId) || l.ancestorHandoffIds.length !== l.depth) return bad("invalid-lineage");
   if ((l.depth as number) > MAX_HANDOFF_DEPTH) return bad("depth-exceeded");
@@ -114,9 +123,9 @@ export function validateCollaborationHandoff(value: unknown, options: HandoffVal
   if (!integer(p.remainingBudget) || p.remainingBudget < 0 || p.remainingBudget > MAX_HANDOFF_BUDGET) return bad("budget-exceeded");
   if (p.tenantId !== value.tenantId || p.workspaceId !== value.workspaceId || p.roomId !== value.roomId || p.taskId !== value.taskId ||
       !sameActor(value.sender, p.recipient) || l.parentHandoffId !== p.handoffId || l.rootHandoffId !== p.lineage.rootHandoffId || l.depth !== p.lineage.depth + 1 || !sameArray(l.ancestorHandoffIds, [...p.lineage.ancestorHandoffIds, p.handoffId])) return bad("parent-mismatch");
+  if (p.recipient.kind === "agent" && p.profileVersion !== options.senderProfileVersion) return bad("profile-version-mismatch");
   if ((value.remainingBudget as number) >= p.remainingBudget) return bad("invalid-budget-propagation");
   if (!subset(value.grantedCapabilities, p.grantedCapabilities)) return bad("authority-widened");
-  if (p.profileVersion !== value.profileVersion) return bad("profile-version-mismatch");
   return { valid: true };
 }
 

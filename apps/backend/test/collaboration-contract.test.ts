@@ -53,7 +53,7 @@ describe("collaboration authorization contracts", () => {
       ...root, handoffId: "child", sender: agent, recipient: { ...agent, actorId: "agent-2", userId: "user-2" },
       lineage: childHandoffLineage(root)!, remainingBudget: 2, grantedCapabilities: ["room.read", "message.send"],
     };
-    const options = { expected: room, parent: root, senderCapabilities: root.grantedCapabilities };
+    const options = { expected: room, parent: root, senderCapabilities: root.grantedCapabilities, senderProfileVersion: 7 };
     expect(validateCollaborationHandoff(child, options)).toEqual({ valid: true });
     expect(validateCollaborationHandoff({ ...child, sender: human }, options)).toEqual({ valid: false, reason: "parent-mismatch" });
     expect(validateCollaborationHandoff({ ...child, remainingBudget: root.remainingBudget }, options)).toEqual({ valid: false, reason: "invalid-budget-propagation" });

@@ -20,6 +20,8 @@ import { ContainerProxy } from "./sandbox/npm-shim.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
+import { handleOnboardingProgress } from "./onboarding-progress.js";
+import { handleCollaboration } from "./collaboration-routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
@@ -122,6 +124,7 @@ export const DASHBOARD_VIEWS = new Set([
   "diff",
   "approvals",
   "swarm",
+  "collaboration",
   "agents",
   "inbox",
   "memory",
@@ -263,6 +266,8 @@ export default {
       }
       const metaResponse = await handleMeta(request, env);
       if (metaResponse) return metaResponse;
+      const onboardingResponse = await handleOnboardingProgress(request, env);
+      if (onboardingResponse) return onboardingResponse;
       const acpProviderResponse = await handleAcpProviders(request, env);
       if (acpProviderResponse) return acpProviderResponse;
       const capabilityCatalogResponse = await handleCapabilityCatalog(request, env);
@@ -303,6 +308,8 @@ export default {
       if (approvalsResponse) {
         return approvalsResponse;
       }
+      const collaborationResponse = await handleCollaboration(request, env);
+      if (collaborationResponse) return collaborationResponse;
       const computersResponse = await handleComputers(request, env);
       if (computersResponse) {
         return computersResponse;
