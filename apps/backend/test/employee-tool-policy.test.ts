@@ -57,6 +57,24 @@ function exactApproval(argumentDigest: string): EmployeeActionApproval {
 }
 
 describe("employee tool policy and dispatch", () => {
+  it("requires every selected resource in a bounded read action to be granted", async () => {
+    const capability = capabilityId("gmail_read");
+    const tool: RegisteredTool = { name: "gmail_read", scope: "gmail:read", handler: vi.fn(), meta: { inputSchema: {} } };
+    const authority = baseAuthority();
+    authority.workspaceCapabilityIds = [capability]; authority.actorCapabilityIds = [capability];
+    authority.roleCapabilityIds = [capability]; authority.employeeCapabilityIds = [capability]; authority.registeredTools = [tool];
+    const selection = selectEmployeeCapabilities(authority);
+    const invoke = vi.fn(async () => ({ content: [{ type: "text" as const, text: "local" }] }));
+    const connection = grant({ capability: { kind: "mcp", id: capability }, allowedResources: ["msg-1", "msg-2"], providerScopes: [] });
+    const connectionPolicy: CapabilityPolicy = { version: "v1", allowlist: [{ kind: "mcp", id: capability }], actions: [
+      { capability: { kind: "mcp", id: capability }, action: "gmail_read", risk: "read", resourceRequired: true, resourceArgument: "messageIds" },
+    ] };
+    const common = { registry: { invoke } as never, authority, selection, toolName: "gmail_read", connection, connectionPolicy, now: 1_000 };
+    expect((await dispatchEmployeeTool({ ...common, args: { messageIds: ["msg-1", "msg-2"] } })).allowed).toBe(true);
+    expect(await dispatchEmployeeTool({ ...common, args: { messageIds: ["msg-1", "msg-unselected"] } })).toEqual({ allowed: false, reason: "resource_not_allowed" });
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+
   it("intersects registered tools, workspace, actor, role, employee selection and authenticated token scopes", () => {
     const authority = baseAuthority();
     authority.actorCapabilityIds = [capabilityId("gmail_search")];

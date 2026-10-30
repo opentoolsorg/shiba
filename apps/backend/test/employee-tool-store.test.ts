@@ -10,6 +10,21 @@ function env(): Env {
 }
 
 describe("persistent employee tool grants and exact approvals", () => {
+  it("persists selected provider resources with their authenticated connection and account", async () => {
+    const bindings = env();
+    await replaceEmployeeToolGrants(bindings, {
+      orgId: "org-a", employeeId: "employee-gmail", employeeVersion: 2, actorId: "agent-a", role: "member",
+      capabilityIds: ["mcp:shiba:gmail_read"], resourcesByCapability: { "mcp:shiba:gmail_read": ["msg_1"] },
+      resourceConnectionsByCapability: { "mcp:shiba:gmail_read": { msg_1: "gmail-connection-1" } },
+      resourceAccountsByCapability: { "mcp:shiba:gmail_read": { msg_1: "owner-account" } }, now: 100,
+    });
+    const grant = await resolveEmployeeConnectionGrant(bindings, {
+      orgId: "org-a", employeeId: "employee-gmail", employeeVersion: 2, actorId: "agent-a",
+      capabilityId: "mcp:shiba:gmail_read", resourceId: "msg_1",
+    });
+    expect(grant).toMatchObject({ connectionId: "gmail-connection-1", accountId: "owner-account", allowedResources: ["msg_1"] });
+  });
+
   it("resolves workspace, actor and role intersections and current resource grants", async () => {
     const bindings = env();
     await replaceEmployeeToolGrants(bindings, {

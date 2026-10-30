@@ -2,15 +2,17 @@ import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import { PageHeader, SkeletonLines, StatusNotice } from "./surface";
 import type { AgentPrincipal } from "../types";
 
-type Capability = "run_status" | "queue_run" | "send_email";
+type Capability = "gmail_read" | "run_status" | "queue_run" | "send_email";
 type Role = "owner" | "admin" | "operator" | "member" | "viewer";
 interface Employee { id: string; slug: string; version: number; config: { name: string } }
 interface Grant { subjectType: string; subjectId: string; capabilityId: string; resourceId: string; lifecycle: string }
 interface Policy { employeeVersion: number; toolScopes: string[]; grants: Grant[] }
 interface Approval { approvalId: string; employeeId: string; employeeVersion: number; actorId: string; executionContextId?: string; action: string; resourceId?: string; payload: Record<string, unknown>; status: string; createdAt: number; expiresAt: number }
+interface GmailCandidate { messageId: string; threadId: string; from: string; subject: string; date: string }
 interface EmployeeActor extends AgentPrincipal { source?: "web-session" }
 
 const CAPABILITIES: { id: Capability; label: string; scope: string; description: string; resource: string }[] = [
+  { id: "gmail_read", label: "Read selected Gmail messages", scope: "gmail:read", description: "Read only message IDs selected here from your connected Gmail account. This does not grant mailbox search to the employee.", resource: "Selected Gmail message" },
   { id: "run_status", label: "Read run status", scope: "runs:read", description: "Read status for an explicitly granted run ID.", resource: "Run ID" },
   { id: "queue_run", label: "Queue a coding run", scope: "sandbox:exec", description: "Create a Shiba coding run for an explicitly granted repository URL. Requires exact-payload approval.", resource: "Repository URL" },
   { id: "send_email", label: "Send email", scope: "email:send", description: "Send using an explicitly granted mailbox. Requires exact-payload approval.", resource: "Mailbox ID" },
@@ -33,7 +35,10 @@ export function EmployeeToolPolicyView(): JSX.Element {
   const [role, setRole] = useState<Role>("member");
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [selected, setSelected] = useState<Capability[]>([]);
-  const [resources, setResources] = useState<Record<Capability, string>>({ run_status: "", queue_run: "", send_email: "" });
+  const [resources, setResources] = useState<Record<Capability, string>>({ gmail_read: "", run_status: "", queue_run: "", send_email: "" });
+  const [gmailQuery, setGmailQuery] = useState("");
+  const [gmailCandidates, setGmailCandidates] = useState<GmailCandidate[]>([]);
+  const [gmailSearching, setGmailSearching] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -61,7 +66,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
     const configured = Object.fromEntries(CAPABILITIES.map((cap) => [cap.id, active
       .filter((grant) => grant.capabilityId === `mcp:shiba:${cap.id}` && (grant.subjectType === "workspace" || grant.subjectType === "role" || grant.subjectType === "actor" && grant.subjectId === effectiveActor))
       .map((grant) => grant.resourceId)])) as Record<Capability, string[]>;
-    setResources({ run_status: configured.run_status.join("\n"), queue_run: configured.queue_run.join("\n"), send_email: configured.send_email.join("\n") });
+    setResources({ gmail_read: configured.gmail_read.join("\n"), run_status: configured.run_status.join("\n"), queue_run: configured.queue_run.join("\n"), send_email: configured.send_email.join("\n") });
   }, []);
 
   useEffect(() => {
@@ -133,6 +138,22 @@ export function EmployeeToolPolicyView(): JSX.Element {
     finally { setBusy(false); }
   };
 
+  const searchGmail = async () => {
+    if (!gmailQuery.trim() || gmailSearching) return;
+    setGmailSearching(true); setError(null);
+    try {
+      const body = await readJson<{ results?: GmailCandidate[] }>(await fetch(`/api/connections/gmail/resources?q=${encodeURIComponent(gmailQuery)}&limit=25`, { credentials: "same-origin", cache: "no-store" }));
+      setGmailCandidates(Array.isArray(body.results) ? body.results : []);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setGmailSearching(false); }
+  };
+  const selectedGmailIds = resources.gmail_read.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const toggleGmailId = (id: string, checked: boolean) => setResources((current) => {
+    const values = current.gmail_read.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+    const next = checked ? [...new Set([...values, id])] : values.filter((value) => value !== id);
+    return { ...current, gmail_read: next.join("\n") };
+  });
+
   const decide = async (approval: Approval, approved: boolean) => {
     setBusy(true); setError(null); setNotice(null);
     try {
@@ -173,7 +194,12 @@ export function EmployeeToolPolicyView(): JSX.Element {
           <label className="flex items-start gap-2 text-xs text-[var(--fg)]"><input type="checkbox" checked={selected.includes(capability.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, capability.id] : current.filter((value) => value !== capability.id))} />
             <span><span className="font-semibold">{capability.label}</span><span className="ml-2 font-mono text-[10px] text-[var(--muted-foreground-2)]">{capability.scope}</span><span className="mt-1 block text-[var(--muted-foreground-2)]">{capability.description}</span></span>
           </label>
-          {selected.includes(capability.id) ? <label className="mt-3 block text-[10px] font-mono text-[var(--muted-foreground-2)]">Allowed {capability.resource.toLowerCase()} values, one per line<textarea className={`${FIELD} mt-1 min-h-16 normal-case`} value={resources[capability.id]} onChange={(event) => setResources((current) => ({ ...current, [capability.id]: event.target.value }))} placeholder={capability.id === "run_status" ? "run_..." : capability.id === "queue_run" ? "https://github.com/org/repo" : "mailbox-id"} /></label> : null}
+          {selected.includes(capability.id) ? capability.id === "gmail_read" ? <div className="mt-3 space-y-3 text-[10px] text-[var(--muted-foreground-2)]">
+            <p>Search reads message metadata from the connected account. Check exact messages to grant; selected IDs are stored in this policy. Thread IDs are shown for context and do not grant whole-thread access.</p>
+            <div className="flex gap-2"><input aria-label="Search connected Gmail" className={`${FIELD} normal-case`} value={gmailQuery} onChange={(event) => setGmailQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchGmail(); } }} placeholder="from:… subject:…" /><button type="button" className={BUTTON} disabled={gmailSearching || !gmailQuery.trim()} onClick={() => void searchGmail()}>{gmailSearching ? "Searching…" : "Search Gmail"}</button></div>
+            {gmailCandidates.length ? <div className="max-h-56 space-y-2 overflow-auto border border-[var(--border-1)] p-2">{gmailCandidates.map((candidate) => <label key={candidate.messageId} className="flex gap-2"><input type="checkbox" checked={selectedGmailIds.includes(candidate.messageId)} onChange={(event) => toggleGmailId(candidate.messageId, event.target.checked)} /><span><span className="font-semibold text-[var(--fg)]">{candidate.subject || "(no subject)"}</span><span className="block">{candidate.from} · {candidate.date}</span><span className="block font-mono">Message {candidate.messageId} · thread {candidate.threadId}</span></span></label>)}</div> : null}
+            <p>Selected: {selectedGmailIds.length ? selectedGmailIds.map((id) => <span key={id} className="mr-1 inline-flex items-center gap-1 border border-[var(--border-1)] px-2 py-1 font-mono">{id}<button type="button" aria-label={`Remove Gmail message ${id}`} onClick={() => toggleGmailId(id, false)}>×</button></span>) : "none"}</p>
+          </div> : <label className="mt-3 block text-[10px] font-mono text-[var(--muted-foreground-2)]">Allowed {capability.resource.toLowerCase()} values, one per line<textarea className={`${FIELD} mt-1 min-h-16 normal-case`} value={resources[capability.id]} onChange={(event) => setResources((current) => ({ ...current, [capability.id]: event.target.value }))} placeholder={capability.id === "run_status" ? "run_..." : capability.id === "queue_run" ? "https://github.com/org/repo" : "mailbox-id"} /></label> : null}
         </div>)}</div>
         <div className="flex flex-wrap items-center gap-2"><button type="button" className={BUTTON} disabled={busy || !employeeId || !policy || !actorId} onClick={() => void save()}>{busy ? "Saving…" : selected.length ? "Save grants" : "Revoke all grants"}</button><span className="text-[10px] text-[var(--muted-foreground-2)]">{policy ? `Employee version ${policy.employeeVersion}` : "Policy unavailable"}</span></div>
       </section>
@@ -187,7 +213,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
           <div className="flex gap-2"><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, true)}>Approve exact payload</button><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, false)}>Deny</button></div>
         </article>)}
       </section>
-      <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: only run status, queue run and send email are exposed to the employee&apos;s Worker-side app tools. Unsupported actions fail closed. These grants do not constrain shell/CLI tools in a coding harness; they add no token or MCP credential to the sandbox. External MCP clients still authenticate with their own bearer token.</p>
+      <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: supported employee Worker-side app tools are Gmail selected-message reads, run status, queue run and send email. Gmail grants are exact message IDs on the authenticated connected account; this selection flow currently supports Gmail only. Unsupported actions fail closed. These grants do not constrain shell/CLI tools in a coding harness; they add no token or MCP credential to the sandbox. External MCP clients still authenticate with their own bearer token.</p>
     </div>
   </div>;
 }

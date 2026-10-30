@@ -46,6 +46,12 @@ const SCHEMA = [
     verifier TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE INDEX IF NOT EXISTS gmail_states_expiry ON gmail_oauth_states(expires_at)`,
+  `CREATE TABLE IF NOT EXISTS gmail_resource_candidates (
+    owner TEXT NOT NULL, connection_id TEXT NOT NULL, message_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+    sender TEXT NOT NULL DEFAULT '', subject TEXT NOT NULL DEFAULT '', date TEXT NOT NULL DEFAULT '',
+    expires_at INTEGER NOT NULL, PRIMARY KEY(owner, connection_id, message_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS gmail_resource_candidates_expiry ON gmail_resource_candidates(expires_at)`,
   `CREATE TABLE IF NOT EXISTS gmail_connections (
     id TEXT PRIMARY KEY, owner TEXT NOT NULL UNIQUE, email TEXT NOT NULL,
     refresh_cipher TEXT NOT NULL, created_at INTEGER NOT NULL,
@@ -195,6 +201,155 @@ async function gmailGet(accessToken: string, resource: "profile" | "messages", i
     url.searchParams.set("fields", "messages(id,threadId)");
   }
   return googleJson(url.href, { method: "GET", headers: { authorization: `Bearer ${accessToken}` } }, 512 * 1024);
+}
+
+async function gmailMessageMetadata(accessToken: string, id: string) {
+  if (!MESSAGE_ID.test(id)) throw new GmailError("Invalid Gmail message ID.");
+  const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}`);
+  url.searchParams.set("format", "metadata");
+  url.searchParams.append("metadataHeaders", "From");
+  url.searchParams.append("metadataHeaders", "Subject");
+  url.searchParams.append("metadataHeaders", "Date");
+  url.searchParams.set("fields", "id,threadId,payload(headers)");
+  return googleJson(url.href, { method: "GET", headers: { authorization: `Bearer ${accessToken}` } }, 64 * 1024);
+}
+
+export interface GmailResourceCandidate {
+  messageId: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  date: string;
+}
+
+async function activeOwnerConnection(env: Env, owner: string): Promise<StoredConnection> {
+  await ensureGmailSchema(env);
+  const connection = await env.AGENT_AUDIT.prepare(
+    "SELECT id, owner, email, refresh_cipher AS refreshCipher, created_at AS createdAt FROM gmail_connections WHERE owner = ? AND active = 1",
+  ).bind(owner).first<StoredConnection>();
+  if (!connection) throw new GmailError("Connect Gmail before selecting read resources.", 409);
+  return connection;
+}
+
+async function ownerAccessToken(env: Env, connection: StoredConnection): Promise<string> {
+  const config = gmailConfig(env);
+  const refreshToken = await decryptGmailToken(connection.refreshCipher, config.tokenKey, connection.owner, connection.id);
+  const result = await exchange(env, { grant_type: "refresh_token", refresh_token: refreshToken }, false);
+  if (typeof result.access_token !== "string") throw new GmailError("Gmail provider request failed.", 502);
+  return result.access_token;
+}
+
+/** Owner-only, metadata-only discovery. Returned IDs originate from this user's connected Gmail account. */
+export async function searchGmailResourceCandidates(
+  env: Env,
+  owner: string,
+  query: string,
+  limit = 25,
+  now = Date.now(),
+): Promise<GmailResourceCandidate[]> {
+  if (typeof query !== "string" || query.trim().length < 1 || query.length > 256 || !Number.isInteger(limit) || limit < 1 || limit > 25) {
+    throw new GmailError("Gmail resource search requires a query of at most 256 characters and 1–25 results.");
+  }
+  const connection = await activeOwnerConnection(env, owner);
+  const token = await ownerAccessToken(env, connection);
+  const result = await gmailGet(token, "messages", undefined, query, limit);
+  const listed = Array.isArray(result.messages) ? result.messages.slice(0, limit) : [];
+  const candidates: GmailResourceCandidate[] = [];
+  for (const item of listed) {
+    const listedMessage = item as Record<string, unknown>;
+    if (typeof listedMessage.id !== "string" || !MESSAGE_ID.test(listedMessage.id) ||
+        typeof listedMessage.threadId !== "string" || !MESSAGE_ID.test(listedMessage.threadId)) {
+      throw new GmailError("Invalid Gmail message response.", 502);
+    }
+    const metadata = await gmailMessageMetadata(token, listedMessage.id);
+    if (metadata.id !== listedMessage.id || metadata.threadId !== listedMessage.threadId) {
+      throw new GmailError("Gmail resource changed during discovery. Search again.", 409);
+    }
+    const payload = metadata.payload as Record<string, unknown> | undefined;
+    const headers = Array.isArray(payload?.headers) ? payload.headers : [];
+    const readHeader = (name: string) => {
+      const header = headers.find((candidate) => candidate && typeof candidate.name === "string" && candidate.name.toLowerCase() === name.toLowerCase());
+      return typeof header?.value === "string" ? capText(header.value, 512) : "";
+    };
+    candidates.push({ messageId: listedMessage.id, threadId: listedMessage.threadId,
+      from: readHeader("from"), subject: readHeader("subject"), date: readHeader("date") });
+  }
+  if (!(await isGmailConnectionActive(env, owner, connection.id))) throw new GmailError("Gmail connection changed during discovery.", 409);
+  await env.AGENT_AUDIT.prepare("DELETE FROM gmail_resource_candidates WHERE owner = ? AND expires_at <= ?").bind(owner, now).run();
+  const expiresAt = now + 10 * 60_000;
+  for (const candidate of candidates) {
+    await env.AGENT_AUDIT.prepare(`INSERT INTO gmail_resource_candidates
+      (owner, connection_id, message_id, thread_id, sender, subject, date, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(owner, connection_id, message_id) DO UPDATE SET thread_id=excluded.thread_id,
+        sender=excluded.sender, subject=excluded.subject, date=excluded.date, expires_at=excluded.expires_at`)
+      .bind(owner, connection.id, candidate.messageId, candidate.threadId, candidate.from, candidate.subject, candidate.date, expiresAt).run();
+  }
+  return candidates;
+}
+
+/** Resolve selected IDs against fresh server-discovered resources for the current Gmail connection. */
+export async function resolveGmailResourceCandidates(
+  env: Env,
+  owner: string,
+  messageIds: readonly string[],
+  now = Date.now(),
+): Promise<Map<string, string>> {
+  if (!Array.isArray(messageIds) || messageIds.length < 1 || messageIds.length > 100 ||
+      messageIds.some((id) => typeof id !== "string" || !MESSAGE_ID.test(id))) {
+    throw new GmailError("Select 1–100 messages from the connected Gmail resource list.", 400);
+  }
+  const connection = await activeOwnerConnection(env, owner);
+  const selected = new Map<string, string>();
+  for (const id of [...new Set(messageIds)]) {
+    const row = await env.AGENT_AUDIT.prepare(`SELECT message_id FROM gmail_resource_candidates
+      WHERE owner = ? AND connection_id = ? AND message_id = ? AND expires_at > ?`)
+      .bind(owner, connection.id, id, now).first<{ message_id: string }>();
+    if (!row) throw new GmailError("Gmail resource selection expired or is not in the connected account's discovery results.", 403);
+    selected.set(id, connection.id);
+  }
+  return selected;
+}
+
+export async function isGmailConnectionActive(env: Env, owner: string, connectionId: string): Promise<boolean> {
+  if (!env.AGENT_AUDIT || !owner || !connectionId) return false;
+  const row = await env.AGENT_AUDIT.prepare("SELECT 1 FROM gmail_connections WHERE owner = ? AND id = ? AND active = 1")
+    .bind(owner, connectionId).first();
+  return row !== null;
+}
+
+/** Read only explicitly selected messages for an employee policy grant. */
+export async function readGmailForEmployee(
+  env: Env,
+  owner: string,
+  connectionId: string,
+  actorId: string,
+  messageIds: readonly string[],
+  isGrantActive: (messageId: string) => Promise<boolean>,
+): Promise<{ messages: Array<{ id: string; content: ReturnType<typeof wrapUntrusted> }> }> {
+  if (!owner || !connectionId || !actorId || !Array.isArray(messageIds) || messageIds.length < 1 || messageIds.length > 25 ||
+      messageIds.some((id) => typeof id !== "string" || !MESSAGE_ID.test(id)) || new Set(messageIds).size !== messageIds.length) {
+    throw new GmailError("Provide 1–25 distinct selected Gmail message IDs.");
+  }
+  await ensureGmailSchema(env);
+  const connection = await env.AGENT_AUDIT.prepare(`SELECT id, owner, email, refresh_cipher AS refreshCipher, created_at AS createdAt
+    FROM gmail_connections WHERE owner = ? AND id = ? AND active = 1`).bind(owner, connectionId).first<StoredConnection>();
+  if (!connection) throw new GmailError("Gmail connection is disconnected or revoked.", 403);
+  const token = await ownerAccessToken(env, connection);
+  const messages: Array<{ id: string; content: ReturnType<typeof wrapUntrusted> }> = [];
+  for (const id of messageIds) {
+    if (!(await isGrantActive(id)) || !(await isGmailConnectionActive(env, owner, connectionId))) {
+      throw new GmailError("Selected Gmail resource grant was revoked.", 403);
+    }
+    const message = await gmailGet(token, "messages", id);
+    if (message.id !== id) throw new GmailError("Invalid Gmail message response.", 502);
+    if (!(await isGrantActive(id)) || !(await isGmailConnectionActive(env, owner, connectionId))) {
+      throw new GmailError("Selected Gmail resource grant was revoked.", 403);
+    }
+    messages.push({ id, content: messageContent(message) });
+  }
+  await audit(env, { principal: actorId, tool: "gmail_read", argsHash: await gmailArgumentDigest({ messageIds }), outcome: "succeeded" });
+  return { messages };
 }
 
 export async function beginGmailConnect(env: Env, owner: string, now = Date.now()) {
