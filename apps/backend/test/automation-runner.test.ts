@@ -91,6 +91,47 @@ describe("automation fire path", () => {
     expect(result.automation.runCount).toBe(1);
   });
 
+  it("queues a repo-free artifact workspace as an approval-only task with a stable occurrence id", async () => {
+    const target = {
+      kind: "artifact-workspace" as const,
+      workspaceName: "Sales",
+      expectedDeliverables: ["sales/account-brief.md"],
+    };
+    const automation = {
+      ...createAutomation({
+      id: "workspace-nightly",
+      prompt: "Prepare the brief",
+      executionTarget: target,
+      triggers: [{ kind: "schedule", cron: "0 2 * * *", timezone: "America/Los_Angeles" }],
+      }).automation,
+      unattended: true,
+      unattendedRepos: ["owner/repo"],
+    };
+    const occurrence = Date.UTC(2026, 0, 1, 10);
+    const d = deps({ nowMs: occurrence + 60_000, canPublishPullRequest: true });
+    const event = { kind: "schedule" as const, nowMs: occurrence + 60_000 };
+    const result = await fireAutomation(automation, event, d);
+    expect(result.fired).toBe(true);
+    expect(d.queueRun.mock.calls[0]![0]).toMatchObject({
+      repoUrl: "",
+      executionTarget: target,
+      task: "Prepare the brief",
+      publishPullRequest: false,
+    });
+    expect(d.resolveApproval).not.toHaveBeenCalled();
+    expect(d.queueRun.mock.calls[0]![0].commandId).toBeTruthy();
+  });
+
+  it("uses the same command id when a schedule occurrence is retried within the due window", async () => {
+    const automation = scheduleAutomation();
+    const occurrence = Date.UTC(2026, 0, 1, 2);
+    const firstDeps = deps({ nowMs: occurrence + 60_000 });
+    const secondDeps = deps({ nowMs: occurrence + 4 * 60_000 });
+    await fireAutomation(automation, { kind: "schedule", nowMs: occurrence + 60_000 }, firstDeps);
+    await fireAutomation(automation, { kind: "schedule", nowMs: occurrence + 4 * 60_000 }, secondDeps);
+    expect(firstDeps.queueRun.mock.calls[0]![0].commandId).toBe(secondDeps.queueRun.mock.calls[0]![0].commandId);
+  });
+
   it("passes customAgentId through to the queued run", async () => {
     const d = deps();
     const automation = scheduleAutomation({ customAgentId: "agent-xyz" });

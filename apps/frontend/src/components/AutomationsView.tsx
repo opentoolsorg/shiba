@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type JSX } from "react";
+import { expectedDeliverablesSchema } from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
 import { useCustomAgentOptions } from "./CustomAgentsView";
 
@@ -6,11 +7,12 @@ interface AutomationRecord {
   id: string;
   prompt: string;
   repoUrl: string;
+  executionTarget?: { kind: string; workspaceName?: string; expectedDeliverables?: string[] };
   enabled: boolean;
   runCount?: number;
   lastTriggeredAt?: number;
   lastSkip?: { at: number; reason: string };
-  triggers: { kind: string }[];
+  triggers: { kind: string; cron?: string; timezone?: string }[];
   customAgentId?: string;
 }
 
@@ -83,6 +85,13 @@ export function AutomationsView(): JSX.Element {
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
   const [automations, setAutomations] = useState<AutomationRecord[] | null>(null);
   const [repoUrl, setRepoUrl] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("My workspace");
+  const [workspacePrompt, setWorkspacePrompt] = useState("");
+  const [workspaceCron, setWorkspaceCron] = useState("0 9 * * 1-5");
+  const [workspaceTimezone, setWorkspaceTimezone] = useState(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; }
+  });
+  const [workspaceDeliverables, setWorkspaceDeliverables] = useState("deliverables/brief.md");
   const [customAgentId, setCustomAgentId] = useState("");
   const { agents: customAgents } = useCustomAgentOptions();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -167,6 +176,74 @@ export function AutomationsView(): JSX.Element {
     }
   };
 
+  const createWorkspaceSchedule = async () => {
+    const prompt = workspacePrompt.trim();
+    const expectedDeliverables = expectedDeliverablesSchema.min(1).safeParse(
+      workspaceDeliverables.split(/\r?\n/).map((path) => path.trim()).filter(Boolean),
+    );
+    if (!prompt) {
+      setNotice("Describe what the scheduled task should prepare.");
+      return;
+    }
+    if (!expectedDeliverables.success) {
+      setNotice("Use 1–8 safe relative .md, .txt, .json, or .csv output paths.");
+      return;
+    }
+    setBusyId("create-workspace-schedule");
+    setNotice(null);
+    try {
+      const response = await fetch("/api/automations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          executionTarget: {
+            kind: "artifact-workspace",
+            workspaceName: workspaceName.trim() || "My workspace",
+            expectedDeliverables: expectedDeliverables.data,
+          },
+          triggers: [{ kind: "schedule", cron: workspaceCron.trim(), timezone: workspaceTimezone.trim() }],
+          enabled: true,
+          ...(customAgentId ? { customAgentId } : {}),
+        }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string; automation?: { id?: string } };
+      if (!response.ok) {
+        setNotice(body.error ?? `Schedule could not be created (${response.status}).`);
+      } else {
+        setNotice(`Scheduled workspace draft created${body.automation?.id ? ` (${body.automation.id})` : ""}. Each run waits for approval.`);
+        setWorkspacePrompt("");
+        refresh();
+      }
+    } catch {
+      setNotice("Schedule could not be created: the backend could not be reached.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const setAutomationEnabled = async (automation: AutomationRecord) => {
+    setBusyId(`toggle-${automation.id}`);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/automations/${encodeURIComponent(automation.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !automation.enabled }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) setNotice(body.error ?? `Automation update failed (${response.status}).`);
+      else {
+        setNotice(automation.enabled ? `Paused "${automation.id}".` : `Resumed "${automation.id}".`);
+        refresh();
+      }
+    } catch {
+      setNotice("Automation update failed: the backend could not be reached.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-y-auto bg-[var(--bg)] text-[var(--fg)] p-4 lg:p-8">
       <div className="max-w-5xl mx-auto w-full flex flex-col gap-6">
@@ -188,6 +265,46 @@ export function AutomationsView(): JSX.Element {
             {notice}
           </div>
         ) : null}
+
+        <section aria-labelledby="workspace-schedule-heading" className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--panel)] shadow-[var(--sh-card)] p-5 flex flex-col gap-3">
+          <div>
+            <h3 id="workspace-schedule-heading" className="text-sm font-semibold text-[var(--fg)]">Scheduled workspace drafts</h3>
+            <p className="text-xs text-[var(--muted-foreground-2)] mt-1">
+              Create requested files on a schedule without a GitHub repository. Each run consumes the automation's daily run budget and waits for human approval. Connected-app actions are unavailable.
+            </p>
+          </div>
+          <label className="flex flex-col gap-1 text-[11px] text-[var(--muted-foreground-1)]">
+            Workspace name
+            <input aria-label="Workspace name" maxLength={100} value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} className="bg-[var(--card)] text-xs text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-2" />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-[var(--muted-foreground-1)]">
+            Task prompt
+            <textarea aria-label="Scheduled workspace prompt" rows={3} value={workspacePrompt} onChange={(event) => setWorkspacePrompt(event.target.value)} placeholder="Prepare a weekly status brief from the approved workspace context…" className="bg-[var(--card)] text-xs text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-2" />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-[var(--muted-foreground-1)]">
+            Required output files (one safe relative path per line)
+            <textarea aria-label="Scheduled workspace deliverables" rows={2} value={workspaceDeliverables} onChange={(event) => setWorkspaceDeliverables(event.target.value)} className="bg-[var(--card)] text-xs font-mono text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-2" />
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-[11px] text-[var(--muted-foreground-1)]">
+              Five-field cron (minimum 5-minute interval)
+              <input aria-label="Workspace schedule cron" value={workspaceCron} onChange={(event) => setWorkspaceCron(event.target.value)} className="bg-[var(--card)] text-xs font-mono text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-2" />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-[var(--muted-foreground-1)]">
+              IANA timezone
+              <input aria-label="Workspace schedule timezone" value={workspaceTimezone} onChange={(event) => setWorkspaceTimezone(event.target.value)} placeholder="America/Los_Angeles" className="bg-[var(--card)] text-xs font-mono text-[var(--fg)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-3 py-2" />
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <select aria-label="Bot for scheduled workspace drafts" value={customAgentId} onChange={(event) => setCustomAgentId(event.target.value)} className="bg-[var(--card)] text-xs border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1.5 max-w-[260px]">
+              <option value="">No bot</option>
+              {customAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.config.name}</option>)}
+            </select>
+            <button type="button" disabled={busyId === "create-workspace-schedule"} onClick={() => void createWorkspaceSchedule()} className="text-xs font-semibold border border-[var(--primary)]/40 text-[var(--primary)] bg-[var(--primary-soft)] rounded-[var(--radius-button)] px-3 py-2 disabled:opacity-50">
+              {busyId === "create-workspace-schedule" ? "Scheduling…" : "Create scheduled draft"}
+            </button>
+          </div>
+        </section>
 
         {/* Recipe Gallery — deploy a standing agent in one click */}
         <div className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--panel)] shadow-[var(--sh-card)] p-5 flex flex-col gap-4">
@@ -300,11 +417,15 @@ export function AutomationsView(): JSX.Element {
                         {a.enabled ? "enabled" : "disabled"}
                       </span>
                       <span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">
-                        {a.triggers.map((t) => t.kind).join(" + ")}
+                        {a.triggers.map((t) => t.kind === "schedule"
+                          ? `schedule ${t.cron ?? ""}${t.timezone ? ` · ${t.timezone}` : " · UTC"}`
+                          : t.kind).join(" + ")}
                       </span>
                     </div>
                     <p className="text-[11px] text-[var(--muted-foreground-2)] truncate mt-0.5">
-                      {a.repoUrl} · runs: {a.runCount ?? 0}
+                      {a.executionTarget?.kind === "artifact-workspace"
+                        ? `${a.executionTarget.workspaceName ?? "Workspace"} · ${a.executionTarget.expectedDeliverables?.length ?? 0} required files`
+                        : a.repoUrl} · runs: {a.runCount ?? 0}
                       {a.customAgentId ? ` · bot: ${a.customAgentId}` : ""}
                       {a.lastSkip ? ` · last skip: ${a.lastSkip.reason}` : ""}
                     </p>
@@ -326,6 +447,9 @@ export function AutomationsView(): JSX.Element {
                       )}
                     </button>
                   ) : null}
+                  <button type="button" disabled={busyId === `toggle-${a.id}`} onClick={() => void setAutomationEnabled(a)} className="text-xs border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1 shrink-0 disabled:opacity-50">
+                    {busyId === `toggle-${a.id}` ? "Saving…" : a.enabled ? "Pause" : "Resume"}
+                  </button>
                 </div>
               ))}
             </div>
