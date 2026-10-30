@@ -242,13 +242,13 @@ describe("custom agent frozen-input approval boundary", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it("rejects legacy nonempty tool scopes on HTTP and chat instead of running unrestricted", async () => {
+  it("rejects nonempty scopes without an authoritative employee policy on HTTP and chat", async () => {
     mocks.resolveCustom.mockResolvedValue({ ...PROFILE, config: { ...PROFILE.config, toolScopes: ["files:read"] } });
     const f = fixture();
     const response = await f.queue();
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining("toolScopes are not supported") });
-    await expect(f.gate()).rejects.toThrow("toolScopes are not supported");
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("tool policy is unavailable") });
+    await expect(f.gate()).rejects.toThrow("tool policy is unavailable");
     expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
     expect(mocks.execute).not.toHaveBeenCalled();
   });

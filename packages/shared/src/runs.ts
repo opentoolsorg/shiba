@@ -174,6 +174,8 @@ export interface DelegatedRun {
   runSetup?: boolean;
   /** Profile version whose effective instructions and route this run approved. */
   customAgentVersion?: number;
+  /** Profile version whose employee app-tool grants this approval permits. */
+  employeeToolPolicyVersion?: number;
   /** Reviewed skill versions used to build this run's frozen task prompt. */
   skillPins?: SkillExecutionPin[];
   /**

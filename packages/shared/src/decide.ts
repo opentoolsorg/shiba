@@ -46,6 +46,7 @@ export interface QueuedRunInput {
   sandboxProvider?: string;
   customAgentId?: string;
   customAgentVersion?: number;
+  employeeToolPolicyVersion?: number;
   skillPins?: SkillExecutionPin[];
   route?: ApprovedRoute;
   /**
@@ -179,6 +180,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.sandboxProvider !== undefined ? { sandboxProvider: run.sandboxProvider } : {}),
       ...(run.customAgentId !== undefined ? { customAgentId: run.customAgentId } : {}),
       ...(run.customAgentVersion !== undefined ? { customAgentVersion: run.customAgentVersion } : {}),
+      ...(run.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: run.employeeToolPolicyVersion } : {}),
       ...(run.skillPins !== undefined ? { skillPins: run.skillPins } : {}),
     })
   );
@@ -234,6 +236,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.sandboxProvider !== undefined ? { sandboxProvider: command.input.sandboxProvider } : {}),
           ...(command.input.customAgentId !== undefined ? { customAgentId: command.input.customAgentId } : {}),
           ...(command.input.customAgentVersion !== undefined ? { customAgentVersion: command.input.customAgentVersion } : {}),
+          ...(command.input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: command.input.employeeToolPolicyVersion } : {}),
           ...(command.input.skillPins !== undefined ? { skillPins: command.input.skillPins.map((pin) => ({ ...pin })) } : {}),
           ...(command.input.route !== undefined ? { route: command.input.route } : {}),
           ...(command.input.continuationKey !== undefined ? { continuationKey: command.input.continuationKey } : {}),
@@ -294,6 +297,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.sandboxProvider === command.input.sandboxProvider &&
           run.customAgentId === command.input.customAgentId &&
           run.customAgentVersion === command.input.customAgentVersion &&
+          run.employeeToolPolicyVersion === command.input.employeeToolPolicyVersion &&
           JSON.stringify(run.skillPins ?? []) === JSON.stringify(command.input.skillPins ?? []) &&
           sameRoute &&
           run.continuationKey === command.input.continuationKey &&

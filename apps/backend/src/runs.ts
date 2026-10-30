@@ -67,6 +67,7 @@ export function createRun(args: {
   sandboxProvider?: string;
   customAgentId?: string;
   customAgentVersion?: number;
+  employeeToolPolicyVersion?: number;
   skillPins?: SkillExecutionPin[];
   route?: ApprovedRoute;
   /** T48: account-scoped continuation identity from the selected harness. */
@@ -119,6 +120,7 @@ export function createRun(args: {
       ...(args.sandboxProvider !== undefined ? { sandboxProvider: args.sandboxProvider } : {}),
       ...(args.customAgentId !== undefined ? { customAgentId: args.customAgentId } : {}),
       ...(args.customAgentVersion !== undefined ? { customAgentVersion: args.customAgentVersion } : {}),
+      ...(args.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: args.employeeToolPolicyVersion } : {}),
       ...(args.skillPins !== undefined ? { skillPins: args.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(args.route !== undefined ? { route: args.route } : {}),
       ...(args.continuationKey !== undefined ? { continuationKey: args.continuationKey } : {}),

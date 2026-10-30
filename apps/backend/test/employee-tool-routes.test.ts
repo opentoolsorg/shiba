@@ -40,6 +40,7 @@ vi.mock("agents/routing", () => ({
 import type { Env } from "../src/env.js";
 import { createCustomAgent, getCustomAgentById } from "../src/custom-agents-store.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
+import { createEmployeeRunTools } from "../src/employee-run-tools.js";
 import { isOrgApiPath } from "../src/public-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
@@ -171,6 +172,85 @@ describe("employee tool local workflow", () => {
     expect(missing?.status).toBe(403);
     const unsupported = await handleEmployeeTools(callRequest(employee.id, "delete_email", { emailId: "e1" }), bindings);
     expect(unsupported?.status).toBe(400);
+    expect(orchestrator.requests).toHaveLength(0);
+  });
+
+  it("applies current employee grants to normal run tools and blocks unselected or revoked resources", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "normal-run-reader", {
+      name: "Normal run reader", instructions: "Read one approved run", harness: "opencode",
+    });
+    expect((await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:run_status": ["run-1"] }), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+
+    const tools = createEmployeeRunTools(bindings, () => employee.id, () => "web:owner:session-reader", () => "self-hosted", () => "agent-a");
+    const catalog = tools.employee_tool_catalog as unknown as { execute: (args: Record<string, never>) => Promise<Record<string, unknown>> };
+    const call = tools.employee_tool_call as unknown as { execute: (args: { tool: string; args: Record<string, unknown> }) => Promise<Record<string, unknown>> };
+    const discovered = await catalog.execute({});
+    expect(discovered).toMatchObject({ employee: { id: employee.id, version: 2, role: "operator" }, actions: [{ tool: "run_status", resources: ["run-1"] }] });
+    expect(await call.execute({ tool: "run_status", args: { runId: "run-1" } })).toMatchObject({
+      ok: true, result: { structuredContent: { id: "run-1", status: "running" } },
+    });
+    const wrongActor = createEmployeeRunTools(bindings, () => employee.id, () => "web:other:session", () => "self-hosted", () => "agent-b");
+    const wrongActorCatalog = wrongActor.employee_tool_catalog as unknown as { execute: (args: Record<string, never>) => Promise<Record<string, unknown>> };
+    const wrongActorCall = wrongActor.employee_tool_call as unknown as { execute: (args: { tool: string; args: Record<string, unknown> }) => Promise<Record<string, unknown>> };
+    expect(await wrongActorCatalog.execute({})).toMatchObject({ actions: [] });
+    await expect(wrongActorCall.execute({ tool: "run_status", args: { runId: "run-1" } })).rejects.toThrow("unavailable under the current policy");
+    await expect(call.execute({ tool: "queue_run", args: { repoUrl: "https://github.com/acme/demo", task: "not selected" } })).rejects.toThrow("unavailable under the current policy");
+    await expect(call.execute({ tool: "run_status", args: { runId: "run-2" } })).rejects.toThrow("employee_connection_or_resource_grant_missing");
+    expect(orchestrator.requests).toHaveLength(1);
+
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(policyRequest(employee.id, {}, 2), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+    expect(await catalog.execute({})).toMatchObject({ actions: [] });
+    await expect(call.execute({ tool: "run_status", args: { runId: "run-1" } })).rejects.toThrow("unavailable under the current policy");
+    expect(orchestrator.requests).toHaveLength(1);
+  });
+
+  it("binds normal employee-run approvals to the session and profile version", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "normal-run-builder", {
+      name: "Normal run builder", instructions: "Queue one approved repository", harness: "opencode",
+    });
+    const repoUrl = "https://github.com/acme/demo";
+    expect((await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:queue_run": [repoUrl] }), bindings))?.status).toBe(200);
+    const args = { repoUrl, task: "Inspect the repository" };
+    const sessionA = createEmployeeRunTools(bindings, () => employee.id, () => "web:owner:session-a", () => "self-hosted", () => "agent-a").employee_tool_call as unknown as {
+      execute: (input: { tool: string; args: Record<string, unknown> }) => Promise<Record<string, unknown>>;
+    };
+    const sessionB = createEmployeeRunTools(bindings, () => employee.id, () => "web:owner:session-b", () => "self-hosted", () => "agent-a").employee_tool_call as unknown as {
+      execute: (input: { tool: string; args: Record<string, unknown> }) => Promise<Record<string, unknown>>;
+    };
+    authState.dashboard = false;
+    const pendingA = await sessionA.execute({ tool: "queue_run", args });
+    expect(pendingA).toMatchObject({ status: "pending_approval", employeeVersion: 2 });
+    const approvalA = String(pendingA.approvalId);
+    authState.dashboard = true;
+    const listed = await handleEmployeeTools(new Request("https://x/api/employee-tools/approvals", {
+      headers: { "CF-Access-Authenticated-User-Email": "owner@example.test" },
+    }), bindings);
+    expect(await listed?.json()).toMatchObject({ approvals: [expect.objectContaining({ approvalId: approvalA, executionContextId: "web:owner:session-a" })] });
+    const decision = await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${approvalA}`, {
+      method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ employeeId: employee.id, approved: true }),
+    }), bindings);
+    expect(await decision?.json()).toMatchObject({ status: "approved" });
+
+    authState.dashboard = false;
+    const fromOtherSession = await sessionB.execute({ tool: "queue_run", args });
+    expect(fromOtherSession).toMatchObject({ status: "pending_approval", employeeVersion: 2 });
+    expect(fromOtherSession.approvalId).not.toBe(approvalA);
+    expect(orchestrator.requests).toHaveLength(0);
+
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:queue_run": [repoUrl] }, 2), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+    const afterProfileChange = await sessionA.execute({ tool: "queue_run", args });
+    expect(afterProfileChange).toMatchObject({ status: "pending_approval", employeeVersion: 3 });
+    expect(afterProfileChange.approvalId).not.toBe(approvalA);
     expect(orchestrator.requests).toHaveLength(0);
   });
 });
