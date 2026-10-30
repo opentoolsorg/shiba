@@ -10,6 +10,7 @@ import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
 import { SwarmDeskView } from "./components/SwarmDeskView";
+import { CollaborationView } from "./components/CollaborationView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
@@ -32,7 +33,8 @@ import {
 } from "./live-status";
 import { DashboardView } from "./components/DashboardView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
-import { FirstRunWizard, ONBOARDING_STORAGE_KEY } from "./components/FirstRunWizard";
+import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
+import { OnboardingProgressClient } from "./onboarding-progress-client";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
 import { StepTimeline } from "./components/StepTimeline";
 import { DiffView } from "./components/DiffView";
@@ -668,18 +670,39 @@ export function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [showOnboardingModal, signedIn]);
-  // First-run wizard: opens once per browser after the first authenticated
-  // session on the better-auth lane (Access identities are operators, not
-  // the signup path the wizard serves).
+  // First-run progress belongs to the authenticated account; closing saves
+  // the step but does not count as activation.
   const [showFirstRun, setShowFirstRun] = useState(false);
+  const [firstRunProgress, setFirstRunProgress] = useState<FirstRunProgressSnapshot | null>(null);
+  const firstRunProgressClient = useRef<OnboardingProgressClient | null>(null);
+  if (!firstRunProgressClient.current) {
+    firstRunProgressClient.current = new OnboardingProgressClient((input, init) => fetch(input, init), setFirstRunProgress);
+  }
+  const refreshFirstRunProgress = useCallback(async (): Promise<void> => {
+    await firstRunProgressClient.current?.read();
+  }, []);
+  const updateFirstRunProgress = useCallback((body: { action: "step" | "dismiss" | "resume"; currentStep?: FirstRunStepId }): Promise<void> => {
+    return firstRunProgressClient.current?.update(body) ?? Promise.reject(new Error("Onboarding progress client is unavailable."));
+  }, []);
+  const resumeFirstRunProgress = useCallback(() => updateFirstRunProgress({ action: "resume" }), [updateFirstRunProgress]);
+  const saveFirstRunStep = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "step", currentStep }), [updateFirstRunProgress]);
+  const dismissFirstRunProgress = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "dismiss", currentStep }), [updateFirstRunProgress]);
   useEffect(() => {
-    if (authMode !== "better-auth" || orchestratorName === null) return;
-    try {
-      if (localStorage.getItem(ONBOARDING_STORAGE_KEY) === "done") return;
-    } catch {
-      // private mode — show it anyway
+    if (authMode !== "better-auth" || orchestratorName === null) {
+      firstRunProgressClient.current?.reset();
+      setShowFirstRun(false);
+      return;
     }
-    setShowFirstRun(true);
+    let cancelled = false;
+    void firstRunProgressClient.current!.read().then((progress) => {
+      if (!cancelled && progress) setShowFirstRun(progress.activatedAt === null && progress.dismissedAt === null);
+    }).catch(() => {
+      if (!cancelled) {
+        setFirstRunProgress(null);
+        setShowFirstRun(true);
+      }
+    });
+    return () => { cancelled = true; };
   }, [authMode, orchestratorName]);
 
   // Better-auth lane sign-out: clears the session cookie, then re-runs
@@ -687,6 +710,7 @@ export function App(): React.JSX.Element {
   const handleSignOut = useCallback(async () => {
     setSettingsModalOpen(false);
     await authClient.signOut().catch(() => {});
+    firstRunProgressClient.current?.reset();
     setOrchestratorName(null);
     setAuthMode(null);
     setIdentityIssue("signin");
@@ -2745,6 +2769,8 @@ export function App(): React.JSX.Element {
                 return body.url;
               }}
             />
+          ) : mainView === "collaboration" ? (
+            <CollaborationView />
           ) : mainView === "providers" ? (
             <ProvidersView />
           ) : mainView === "skills" ? (
@@ -2841,6 +2867,11 @@ export function App(): React.JSX.Element {
           <FirstRunWizard
             open={showFirstRun}
             onClose={() => setShowFirstRun(false)}
+            progress={authMode === "better-auth" ? firstRunProgress : null}
+            onRefresh={authMode === "better-auth" ? refreshFirstRunProgress : undefined}
+            onResume={authMode === "better-auth" ? resumeFirstRunProgress : undefined}
+            onStepChange={authMode === "better-auth" ? saveFirstRunStep : undefined}
+            onDismiss={authMode === "better-auth" ? dismissFirstRunProgress : undefined}
             onNavigate={openView}
             onStartEmployeeSetup={(template) => {
               setInitialEmployeeTemplateId(template.id);

@@ -71,7 +71,7 @@ describe("FirstRunWizard component tests", () => {
     expect(html).toContain("Your channels");
     expect(html).toContain("GitHub");
     expect(html).toContain("Open the deployment checklist");
-    expect(html).toContain("Skip setup");
+    expect(html).toContain("Skip for now");
     expect(html).toContain("Next");
   });
 });

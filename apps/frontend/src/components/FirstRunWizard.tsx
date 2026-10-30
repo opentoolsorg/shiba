@@ -6,7 +6,16 @@ import { providerPhaseLabel } from "./provider-phase";
 import { ToneChip } from "./ToneChip";
 import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
 
-export const ONBOARDING_STORAGE_KEY = "shiba-onboarding-v1";
+export type FirstRunStepId = "channels" | "agent" | "models" | "employee";
+export interface FirstRunProgressSnapshot {
+  currentStep: FirstRunStepId;
+  dismissedAt: number | null;
+  connectionVerifiedAt: number | null;
+  firstSuccessfulRunAt: number | null;
+  activatedAt: number | null;
+  revision: number;
+  evidence: { connectedProvider: boolean | null; successfulRun: boolean | null };
+}
 
 const STEPS = [
   { id: "channels", title: "Your channels", blurb: "Where tasks and approvals reach you" },
@@ -18,11 +27,13 @@ const STEPS = [
 function WizardShell({
   step,
   onClose,
+  busy,
   children,
   footer,
 }: {
   step: number;
-  onClose: () => void;
+  onClose: () => void | Promise<void>;
+  busy?: boolean;
   children: React.ReactNode;
   footer: React.ReactNode;
 }): JSX.Element {
@@ -46,7 +57,8 @@ function WizardShell({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => { void onClose(); }}
+              disabled={busy}
               aria-label="Close setup"
               className="size-8 shrink-0 rounded-[var(--radius-button)] text-[var(--muted-foreground-2)] hover:bg-[var(--border-1)] hover:text-[var(--text)]"
             >
@@ -73,26 +85,32 @@ function Footer({
   step,
   setStep,
   onFinish,
+  activated,
+  saving,
 }: {
   step: number;
   setStep: (n: number) => void;
-  onFinish: () => void;
+  onFinish: () => void | Promise<void>;
+  activated: boolean;
+  saving: boolean;
 }): JSX.Element {
   const last = step === STEPS.length - 1;
   return (
     <div className="flex items-center justify-between gap-3">
       <button
         type="button"
-        onClick={onFinish}
+        onClick={() => { void onFinish(); }}
+        disabled={saving}
         className="font-mono text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
       >
-        Skip setup
+        Skip for now
       </button>
       <div className="flex items-center gap-2">
         {step > 0 ? (
           <button
             type="button"
             onClick={() => setStep(step - 1)}
+            disabled={saving}
             className="rounded-[var(--radius-overlay)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-1.5 font-mono text-[11px] font-medium text-[var(--muted-foreground-2)] hover:border-[var(--border-2)] hover:text-[var(--text)]"
           >
             Back
@@ -100,10 +118,11 @@ function Footer({
         ) : null}
         <button
           type="button"
-          onClick={() => (last ? onFinish() : setStep(step + 1))}
+          onClick={() => (last ? void onFinish() : setStep(step + 1))}
+          disabled={saving}
           className="rounded-[var(--radius-button)] bg-[var(--primary)] px-4 py-1.5 font-mono text-[11px] font-semibold text-[var(--primary-text)] shadow-[2px_2px_0_var(--sh-card)] transition-colors hover:bg-[var(--primary)] active:translate-y-px"
         >
-          {last ? "Finish" : "Next"}
+          {last ? (activated ? "Finish" : "Close for now") : "Next"}
         </button>
       </div>
     </div>
@@ -139,6 +158,11 @@ export function FirstRunWizard({
   onStartEmployeeSetup,
   onOpenModels,
   onOpenChecklist,
+  progress,
+  onStepChange,
+  onDismiss,
+  onResume,
+  onRefresh,
 }: {
   open: boolean;
   onClose: () => void;
@@ -146,8 +170,16 @@ export function FirstRunWizard({
   onStartEmployeeSetup?: (template: EmployeeTemplate) => void;
   onOpenModels?: () => void;
   onOpenChecklist?: () => void;
+  progress?: FirstRunProgressSnapshot | null;
+  onStepChange?: (step: FirstRunStepId) => Promise<void>;
+  onDismiss?: (step: FirstRunStepId) => Promise<void>;
+  onResume?: () => Promise<void>;
+  onRefresh?: () => Promise<void>;
 }): JSX.Element | null {
   const [step, setStep] = useState(0);
+  const [savingProgress, setSavingProgress] = useState(false);
+  const [progressError, setProgressError] = useState<string | null>(null);
+  const progressRequestGeneration = useRef(0);
   const [providers, setProviders] = useState<AcpProviderCard[] | null>(null);
   const [providersError, setProvidersError] = useState(false);
   const [routingRetried, setRoutingRetried] = useState(false);
@@ -178,6 +210,35 @@ export function FirstRunWizard({
   }, [open, step]);
 
   useEffect(() => {
+    if (!open || !progress) return;
+    const savedIndex = STEPS.findIndex((item) => item.id === progress.currentStep);
+    if (savedIndex >= 0) setStep(savedIndex);
+  }, [open, progress?.currentStep]);
+
+  useEffect(() => {
+    if (!open) return;
+    const generation = ++progressRequestGeneration.current;
+    setProgressError(null);
+    void (async () => {
+      try {
+        await onResume?.();
+        if (generation !== progressRequestGeneration.current) return;
+        await onRefresh?.();
+        if (generation !== progressRequestGeneration.current) return;
+      } catch {
+        if (generation === progressRequestGeneration.current) {
+          setProgressError("Could not resume saved setup progress. Try again when the connection is restored.");
+        }
+      }
+    })();
+    const timer = window.setInterval(() => { void onRefresh?.().catch(() => {}); }, 15_000);
+    return () => {
+      window.clearInterval(timer);
+      if (progressRequestGeneration.current === generation) progressRequestGeneration.current += 1;
+    };
+  }, [open, onRefresh, onResume]);
+
+  useEffect(() => {
     if (!open) return;
     let cancelled = false;
     void fetch("/api/providers")
@@ -201,29 +262,48 @@ export function FirstRunWizard({
 
   if (!open) return null;
 
-  const finish = () => {
-    try {
-      localStorage.setItem(ONBOARDING_STORAGE_KEY, "done");
-    } catch {
-      // private mode — just close
+  const currentStep = STEPS[step]?.id ?? "channels";
+  const dismiss = async (afterDismiss?: () => void) => {
+    if (savingProgress) return;
+    progressRequestGeneration.current += 1;
+    setSavingProgress(true);
+    try { await onDismiss?.(currentStep); }
+    catch { /* The saved step remains available when account storage returns. */ }
+    finally {
+      setSavingProgress(false);
+      onClose();
+      afterDismiss?.();
     }
-    onClose();
+  };
+  const changeStep = (nextStep: number) => {
+    const next = STEPS[nextStep];
+    if (!next) return;
+    setSavingProgress(true);
+    setProgressError(null);
+    void (async () => {
+      try {
+        await onStepChange?.(next.id);
+        setStep(nextStep);
+      } catch {
+        setProgressError("Setup progress could not be saved. Your last saved step is still available.");
+      } finally { setSavingProgress(false); }
+    })();
   };
 
   return (
     <WizardShell
       step={step}
-      onClose={finish}
+      onClose={dismiss}
+      busy={savingProgress}
       footer={
         <>
-          <Footer step={step} setStep={setStep} onFinish={finish} />
+          <Footer step={step} setStep={changeStep} onFinish={dismiss} activated={progress?.activatedAt !== null && progress?.activatedAt !== undefined} saving={savingProgress} />
           {onOpenChecklist ? (
             <p className="mt-3 border-t border-[var(--border-1)]/60 pt-3">
               <button
                 type="button"
                 onClick={() => {
-                  onClose();
-                  onOpenChecklist();
+                  void dismiss(onOpenChecklist);
                 }}
                 className="font-mono text-[10px] text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
               >
@@ -245,6 +325,20 @@ export function FirstRunWizard({
                 ? "Model routing still could not be loaded."
                 : ""}
       </p>
+      <section aria-label="Activation status" className="mb-4 border border-[var(--border-1)] bg-[var(--section)] p-3 text-[11px]">
+        <p className="font-semibold text-[var(--text)]">Activation is verified by Shiba</p>
+        <p className="mt-1 text-[var(--muted-foreground-2)]">
+          {onStepChange && onDismiss
+            ? "Closing or skipping saves your place; it does not activate your account. Activation requires a connected provider and one successful run, confirmed on the server."
+            : "This setup guide is not linked to a signed-in account. Its place lasts only while this page stays open; activation status is not saved."}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          <span>Provider: {!progress ? "checking" : progress.evidence.connectedProvider === null ? "not verified" : progress.evidence.connectedProvider ? "confirmed" : "not confirmed"}</span>
+          <span>Successful run: {!progress ? "checking" : progress.evidence.successfulRun === null ? "not verified" : progress.evidence.successfulRun ? "confirmed" : "not confirmed"}</span>
+          {progress?.activatedAt ? <strong>Activated</strong> : null}
+        </div>
+        {progressError ? <p className="mt-2 text-[var(--destructive)]" role="alert">{progressError}</p> : null}
+      </section>
       {step > 0 ? (
         <div role="status" className="mb-3 space-y-1.5">
           <ToneChip
@@ -335,8 +429,7 @@ export function FirstRunWizard({
             <button
               type="button"
               onClick={() => {
-                finish();
-                onNavigate("integrations");
+                void dismiss(() => onNavigate("integrations"));
               }}
               className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
             >
@@ -386,8 +479,7 @@ export function FirstRunWizard({
           <button
             type="button"
             onClick={() => {
-              finish();
-              onNavigate("providers");
+              void dismiss(() => onNavigate("providers"));
             }}
             className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
           >
@@ -454,8 +546,7 @@ export function FirstRunWizard({
             <button
               type="button"
               onClick={() => {
-                finish();
-                onOpenModels();
+                void dismiss(onOpenModels);
               }}
               className="mt-2 font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
             >
@@ -488,8 +579,7 @@ export function FirstRunWizard({
                 <button
                   type="button"
                   onClick={() => {
-                    finish();
-                    onStartEmployeeSetup?.(template);
+                    void dismiss(() => onStartEmployeeSetup?.(template));
                   }}
                   disabled={!onStartEmployeeSetup}
                   className="mt-3 border border-[var(--primary)] px-2.5 py-1.5 font-mono text-[10px] font-semibold text-[var(--primary)] disabled:opacity-50"
@@ -506,8 +596,7 @@ export function FirstRunWizard({
             <button
               type="button"
               onClick={() => {
-                finish();
-                onNavigate("custom-agents");
+                void dismiss(() => onNavigate("custom-agents"));
               }}
               className="font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
             >

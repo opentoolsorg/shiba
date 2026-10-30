@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
+  MessagesSquare,
   HelpCircle,
   SlidersHorizontal,
   SunMoon,
@@ -50,6 +51,7 @@ export type AppNavView =
   | "diff"
   | "approvals"
   | "swarm"
+  | "collaboration"
   | "agents"
   | "inbox"
   | "memory"
@@ -75,6 +77,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "diff", label: "Pull requests", description: "Code Changes & Git Diffs" },
   { id: "approvals", label: "Approvals", description: "Review & Decision Queue" },
   { id: "swarm", label: "Swarm", description: "Run Lanes, Modes & Share Links" },
+  { id: "collaboration", label: "Collaboration", description: "Private rooms for people and agents" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
   { id: "custom-agents", label: "Bots", description: "Reusable bot profiles & defaults" },
@@ -143,6 +146,7 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   settings: Settings,
   remote: Monitor,
   swarm: SquareCheckBig,
+  collaboration: MessagesSquare,
 };
 
 export function navStatusDotClass(status: string, live?: boolean): string {
@@ -249,6 +253,7 @@ export function AppNavRail({
     "analytics",
     "approvals",
     "swarm",
+    "collaboration",
     "agents",
     "inbox",
     "memory",
