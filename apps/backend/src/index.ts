@@ -132,6 +132,7 @@ export const DASHBOARD_VIEWS = new Set([
   "memory",
   "automations",
   "providers",
+  "employee-tools",
   "integrations",
   "skills",
   "custom-agents",
