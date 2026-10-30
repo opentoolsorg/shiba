@@ -889,7 +889,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       },
     });
     const tools: ToolSet = { ...super.getTools(), delegate_coding_task: delegate };
-    const runCode = createRunCodeTool(this.env);
+    const ownerMemoryId = isDashboardAgentName(this.name)
+      ? initiatorUserIdFromOrchestratorName(this.name)
+      : undefined;
+    const runCode = createRunCodeTool(this.env, ownerMemoryId);
     if (runCode) tools.run_code = runCode;
     return tools;
   }
