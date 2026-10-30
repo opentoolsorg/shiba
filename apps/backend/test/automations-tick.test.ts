@@ -4,7 +4,7 @@ vi.mock("agents/routing", () => ({ getAgentByName: vi.fn() }));
 vi.mock("../src/slack-routes.js", () => ({ ORCHESTRATOR_NAME: "default" }));
 
 import { Automations, type AutomationsState, type OrchestratorStub } from "../src/automations-do.js";
-import { createAutomation, type Automation } from "../src/automations.js";
+import { createAutomation, reviewedSkillPinSha256, type Automation } from "../src/automations.js";
 import type { Env } from "../src/env.js";
 
 class FakeStorage {
@@ -47,7 +47,16 @@ function makeDo(items: Automation[]) {
     ORCHESTRATOR_MODEL: "@cf/test/model",
   } as unknown as Env;
   const automation = new Automations({ storage } as unknown as DurableObjectState, env);
-  const fetch = vi.fn(async (_request: Request) => Response.json({ approvalId: "pending-approval" }));
+  const fetch = vi.fn(async (request: Request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/api/approvals") {
+      return Response.json({ approvals: [], decided: [{ approvalId: "pending-approval", status: "approved" }] });
+    }
+    if (request.method === "GET" && url.pathname === "/api/runs") {
+      return Response.json({ runs: [{ runId: "agent-tool:pending-approval", status: "completed" }] });
+    }
+    return Response.json({ approvalId: "pending-approval" });
+  });
   const orchestrator: OrchestratorStub = { fetch };
   return { automation, storage, orchestrator, fetch };
 }
@@ -73,7 +82,10 @@ describe("automation tick webhook and schedule state", () => {
     let releaseQueue!: () => void;
     const queueEntered = new Promise<void>((resolve) => { enteredQueue = resolve; });
     const queueGate = new Promise<void>((resolve) => { releaseQueue = resolve; });
-    fetch.mockImplementation(async () => {
+    fetch.mockImplementation(async (request) => {
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/api/approvals") return Response.json({ approvals: [], decided: [{ approvalId: "pending-approval", status: "approved" }] });
+      if (request.method === "GET" && url.pathname === "/api/runs") return Response.json({ runs: [{ runId: "agent-tool:pending-approval", status: "completed" }] });
       enteredQueue();
       await queueGate;
       return Response.json({ approvalId: "pending-approval" });
@@ -93,7 +105,8 @@ describe("automation tick webhook and schedule state", () => {
     const latest = (await storage.get<AutomationsState>("state"))?.items[0];
     expect(latest).toMatchObject({ enabled: false, runCount: 1, runsToday: 1 });
     expect(await automation.tick(orchestrator, NOW + 60_000)).toEqual({ fired: 0 });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(1);
+    expect((await storage.get<AutomationsState>("state"))?.items[0]?.occurrences?.[0]).toMatchObject({ outcome: "completed", status: "completed" });
   });
 
   it("does not resurrect an automation deleted while its queue request is pending", async () => {
@@ -162,15 +175,24 @@ describe("automation tick webhook and schedule state", () => {
       runCount: 0,
     });
     expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(1);
     const queued = await fetch.mock.calls[0]![0].clone().json() as Record<string, unknown>;
     expect(queued).toMatchObject({ repoUrl: "", executionTarget: target, publishPullRequest: false });
     expect(queued.commandId).toBe("automation:weekly-sales:sched:2026-10-28T10:00");
 
     // A retried cron tick in the same occurrence window must not queue a second approval.
     expect(await automation.tick(orchestrator, NOW + 4 * 60_000)).toEqual({ fired: 0 });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect((await storage.get<AutomationsState>("state"))?.items[0]?.runCount).toBe(1);
+    expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(1);
+    const stored = (await storage.get<AutomationsState>("state"))?.items[0];
+    expect(stored?.runCount).toBe(1);
+    expect(stored?.occurrences).toHaveLength(1);
+    expect(stored?.occurrences?.[0]).toMatchObject({
+      status: "completed",
+      outcome: "completed",
+      approvalId: "pending-approval",
+      runId: "agent-tool:pending-approval",
+      commandId: "automation:weekly-sales:sched:2026-10-28T10:00",
+    });
   });
 
   it("pause suppresses scheduled dispatch and resume allows the next occurrence", async () => {
@@ -199,9 +221,63 @@ describe("automation tick webhook and schedule state", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect((await patch(true)).status).toBe(200);
     expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(1);
     expect(await automation.tick(orchestrator, NOW + 60_000)).toEqual({ fired: 0 });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(1);
+  });
+
+  it("requires an explicit skill review to re-enable a scheduled skill snapshot", async () => {
+    const instructions = "Use supplied sources only.";
+    const skillIdentity = { id: "skill-1", version: "1", source: "saved-library", instructions };
+    const sha256 = await reviewedSkillPinSha256(skillIdentity);
+    const scheduled = createAutomation({
+      id: "review-skill",
+      prompt: "Prepare a cited draft",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+      triggers: [{ kind: "schedule", cron: "0 3 * * *", timezone: "America/Los_Angeles" }],
+      skillPins: [{ id: "skill-1", version: "1", source: "saved-library", instructions, sha256, enabled: false }],
+    }).automation;
+    const { automation, storage, orchestrator, fetch } = makeDo([scheduled]);
+    const replacementBase = { ...scheduled.skillPins![0]!, version: "reviewed-2", enabled: true };
+    const replacement = { ...replacementBase, sha256: await reviewedSkillPinSha256(replacementBase) };
+    const patch = (body: unknown) => automation.fetch(new Request("https://internal/api/automations/review-skill", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }));
+    expect((await patch({ skillPins: [replacement] })).status).toBe(400);
+    expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 0 });
+    expect(fetch).not.toHaveBeenCalled();
+
+    expect((await patch({ skillPins: [replacement], reviewSkillPins: true })).status).toBe(200);
+    expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
+    const stored = (await storage.get<AutomationsState>("state"))?.items[0];
+    expect(stored?.skillPins?.[0]).toMatchObject({ version: "reviewed-2", enabled: true });
+    expect(stored?.occurrences?.[0]).toMatchObject({ outcome: "approval-pending", approvalId: "pending-approval" });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("recovers an unknown queue result with the same occurrence command and persists its approval link", async () => {
+    const scheduled = createAutomation({
+      id: "recover-unknown",
+      prompt: "Prepare a draft",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+      triggers: [{ kind: "schedule", cron: "0 3 * * *", timezone: "America/Los_Angeles" }],
+    }).automation;
+    const { automation, storage, orchestrator, fetch } = makeDo([scheduled]);
+    fetch.mockRejectedValueOnce(new Error("connection dropped after write"));
+    expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 0 });
+    const uncertain = (await storage.get<AutomationsState>("state"))?.items[0]?.occurrences?.[0];
+    expect(uncertain).toMatchObject({ status: "queue-unknown", outcome: "queue-outcome-unknown" });
+
+    expect(await automation.tick(orchestrator, NOW + 4 * 60_000)).toEqual({ fired: 1 });
+    const recovered = (await storage.get<AutomationsState>("state"))?.items[0]?.occurrences;
+    expect(recovered).toHaveLength(1);
+    expect(recovered?.[0]).toMatchObject({
+      status: "queued", outcome: "approval-pending", approvalId: "pending-approval", runId: "agent-tool:pending-approval",
+    });
+    const queuedCalls = fetch.mock.calls.filter(([request]) => request.method === "POST");
+    expect(queuedCalls).toHaveLength(2);
+    const commands = await Promise.all(queuedCalls.map(async ([request]) => (await request.clone().json() as { commandId: string }).commandId));
+    expect(commands[0]).toBe(commands[1]);
   });
 
   it("charges a flushed webhook against the daily budget before evaluating schedules", async () => {
@@ -258,6 +334,6 @@ describe("automation tick webhook and schedule state", () => {
 
     // The persisted cursors must also survive the next cron invocation.
     expect(await automation.tick(orchestrator, NOW + 60_000)).toEqual({ fired: 0 });
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.filter(([request]) => request.method === "POST")).toHaveLength(2);
   });
 });

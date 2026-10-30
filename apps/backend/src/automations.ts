@@ -138,7 +138,42 @@ export interface Automation {
   mission?: boolean;
   /** Org custom agent id — resolved at queue time like dashboard intake. */
   customAgentId?: string;
+  /** Profile snapshot reviewed when the recurring task was configured. */
+  customAgentPin?: { id: string; orgId: string; version: number; configSha256: string };
+  /** Immutable reviewed skill text snapshots. Never fetched or updated at dispatch. */
+  skillPins?: ReviewedSkillPin[];
+  /** Bounded occurrence history for reload/recovery. */
+  occurrences?: ScheduleOccurrence[];
 }
+
+export interface ReviewedSkillPin {
+  id: string;
+  version: string;
+  source: string;
+  instructions: string;
+  sha256: string;
+  enabled: boolean;
+}
+
+/** Hash the entire reviewed identity and snapshot so source/version edits cannot keep a stale digest. */
+export async function reviewedSkillPinSha256(pin: Pick<ReviewedSkillPin, "id" | "version" | "source" | "instructions">): Promise<string> {
+  const canonical = JSON.stringify([pin.id, pin.version, pin.source, pin.instructions]);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export interface ScheduleOccurrence {
+  id: string;
+  scheduledAt: number;
+  commandId: string;
+  status: "queued" | "queue-unknown" | "rejected" | "approved" | "running" | "completed" | "error" | "aborted" | "cancelled" | "unknown";
+  outcome: "approval-pending" | "queue-outcome-unknown" | "not-queued" | "approved" | "rejected" | "running" | "completed" | "error" | "aborted" | "cancelled" | "unknown";
+  approvalId?: string;
+  runId?: string;
+  updatedAt: number;
+}
+
+export const AUTOMATION_OCCURRENCE_HISTORY_LIMIT = 64;
 
 export interface GitHubAutomationEvent {
   /** Webhook name: `pull_request`, `push`, `issues`, `issue_comment`, … */
@@ -597,6 +632,8 @@ export interface CreateAutomationInput {
   /** Standing-goal automation — see {@link Automation.mission}. */
   mission?: boolean;
   customAgentId?: string;
+  customAgentPin?: Automation["customAgentPin"];
+  skillPins?: ReviewedSkillPin[];
 }
 
 export interface CreatedAutomation {
@@ -656,6 +693,28 @@ export function createAutomation(input: CreateAutomationInput): CreatedAutomatio
   if (!Array.isArray(input.triggers) || input.triggers.length === 0) {
     throw new InputError("Automation needs at least one trigger.");
   }
+  if (input.customAgentId && !input.customAgentPin) {
+    throw new InputError("Custom-agent schedules require a reviewed profile version pin.");
+  }
+  if (input.customAgentPin && (
+    !input.customAgentId || input.customAgentPin.id !== input.customAgentId.trim() ||
+    !input.customAgentPin.orgId || !Number.isSafeInteger(input.customAgentPin.version) || input.customAgentPin.version < 1 ||
+    !/^[a-f0-9]{64}$/.test(input.customAgentPin.configSha256)
+  )) {
+    throw new InputError("Invalid custom-agent profile pin.");
+  }
+  if (input.skillPins !== undefined && (!Array.isArray(input.skillPins) || input.skillPins.length > 16 || input.skillPins.some((pin) =>
+    !pin || typeof pin.id !== "string" || !pin.id.trim() || pin.id.length > 128 ||
+    typeof pin.version !== "string" || !pin.version.trim() || pin.version.length > 128 ||
+    typeof pin.source !== "string" || pin.source.length > 2048 ||
+    typeof pin.instructions !== "string" || !pin.instructions.trim() || pin.instructions.length > 32_000 ||
+    typeof pin.enabled !== "boolean" || !/^[a-f0-9]{64}$/.test(pin.sha256)
+  ))) {
+    throw new InputError("Invalid reviewed skill pins.");
+  }
+  if ((input.skillPins ?? []).reduce((sum, pin) => sum + pin.instructions.length, prompt.length) > 3_500) {
+    throw new InputError("Prompt and reviewed skill snapshots must fit within the approval task limit.");
+  }
   const triggers = input.triggers.map((trigger) => ({
     ...trigger,
     ...(trigger.kind === "schedule" && trigger.timezone ? { timezone: trigger.timezone.trim() } : {}),
@@ -693,6 +752,8 @@ export function createAutomation(input: CreateAutomationInput): CreatedAutomatio
       ...(input.runAs !== undefined ? { runAs: input.runAs } : {}),
       ...(input.mission === true ? { mission: true } : {}),
       ...(input.customAgentId?.trim() ? { customAgentId: input.customAgentId.trim() } : {}),
+      ...(input.customAgentPin ? { customAgentPin: { ...input.customAgentPin } } : {}),
+      ...(input.skillPins ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(webhookSecret !== null ? { webhookSecret } : {}),
       runCount: 0,
     },

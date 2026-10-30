@@ -12,10 +12,13 @@ import {
   matchAutomationEvent,
   recordSkip,
   recordTrigger,
+  reviewedSkillPinSha256,
   type Automation,
   type AutomationMatchEvent,
   type GitHubAutomationEvent,
   type MatchedTrigger,
+  type ScheduleOccurrence,
+  AUTOMATION_OCCURRENCE_HISTORY_LIMIT,
   type RunWhenAi,
   type SlackAutomationEvent,
   type TypeSafeNoulFetch,
@@ -34,6 +37,8 @@ export interface QueueAutomationRunInput {
   /** T41: deterministic per-(automation, event) id — a retried queue dedupes on it. */
   commandId?: string;
   customAgentId?: string;
+  expectedCustomAgentVersion?: number;
+  orgId?: string;
 }
 
 export interface FireAutomationDeps {
@@ -46,6 +51,7 @@ export interface FireAutomationDeps {
   /** False when GITHUB_TOKEN is unset: runs still queue, without a pull request. */
   canPublishPullRequest?: boolean;
   queueRun: (input: QueueAutomationRunInput) => Promise<{ approvalId: string }>;
+  resolveCustomAgentPin?: (pin: NonNullable<Automation["customAgentPin"]>) => Promise<{ version: number; configSha256: string } | null>;
   resolveApproval?: (input: {
     threadKey: string;
     approvalId: string;
@@ -59,6 +65,13 @@ export interface FireAutomationResult {
   automation: Automation;
   reason: string;
   approvalId?: string;
+}
+
+function withOccurrence(automation: Automation, occurrence: ScheduleOccurrence): Automation {
+  const history = [...(automation.occurrences ?? []).filter((item) => item.id !== occurrence.id), occurrence]
+    .sort((a, b) => a.scheduledAt - b.scheduledAt)
+    .slice(-AUTOMATION_OCCURRENCE_HISTORY_LIMIT);
+  return { ...automation, occurrences: history };
 }
 
 export function summarizeAutomationEvent(event: AutomationMatchEvent): string {
@@ -305,14 +318,53 @@ async function commitAutomationFire(
     : `${auth.reason} GITHUB_TOKEN is not configured, so the run will not open a pull request.`;
 
   const threadKey = automationThreadKey(automation.id);
+  const scheduleAt = recheck.trigger.kind === "schedule" ? recheck.scheduleOccurrenceMs ?? nowMs : undefined;
+  const commandId = (recheck.trigger.kind === "schedule" && scheduleAt !== undefined
+    ? automationCommandId(automation.id, { kind: "schedule", nowMs: scheduleAt })
+    : automationCommandId(automation.id, event)) ?? `automation:${automation.id}:${scheduleAt ?? nowMs}`;
+  const occurrenceId = scheduleAt === undefined ? undefined : `${automation.id}:${commandId}`;
+  const occurrence = (status: ScheduleOccurrence["status"], outcome: ScheduleOccurrence["outcome"], updatedAt: number, approvalId?: string): ScheduleOccurrence | undefined =>
+    occurrenceId && scheduleAt !== undefined ? {
+      id: occurrenceId,
+      scheduledAt: scheduleAt,
+      commandId,
+      status,
+      outcome,
+      ...(approvalId ? { approvalId, runId: `agent-tool:${approvalId}` } : {}),
+      updatedAt,
+    } : undefined;
   try {
-    // The scheduler selects one UTC-minute occurrence from its five-minute
-    // coalescing window. Reuse that occurrence for retries in the same window;
-    // the orchestrator retains only its bounded command-receipt history.
-    const commandId = recheck.trigger.kind === "schedule" && recheck.scheduleOccurrenceMs !== undefined
-      ? automationCommandId(automation.id, { kind: "schedule", nowMs: recheck.scheduleOccurrenceMs })
-      : automationCommandId(automation.id, event);
+    if (automation.customAgentId && !automation.customAgentPin) {
+      const detail = "Custom-agent profile is not pinned; review the schedule before dispatch.";
+      const skipped = recordSkip(automation, detail, nowMs);
+      const failed = occurrence("rejected", "not-queued", nowMs);
+      return { fired: false, automation: failed ? withOccurrence(skipped, failed) : skipped, reason: detail };
+    }
+    if (automation.customAgentPin) {
+      const current = await deps.resolveCustomAgentPin?.(automation.customAgentPin);
+      if (!current || current.version !== automation.customAgentPin.version || current.configSha256 !== automation.customAgentPin.configSha256) {
+        const detail = "Custom-agent profile changed or is unavailable; review the schedule before dispatch.";
+        const skipped = recordSkip(automation, detail, nowMs);
+        const failed = occurrence("rejected", "not-queued", nowMs);
+        return { fired: false, automation: failed ? withOccurrence(skipped, failed) : skipped, reason: detail };
+      }
+    }
+    for (const pin of automation.skillPins ?? []) {
+      if (!pin.enabled || await reviewedSkillPinSha256(pin) !== pin.sha256) {
+        const detail = !pin.enabled
+          ? `Pinned skill ${pin.id} is disabled; review the schedule before dispatch.`
+          : `Pinned skill ${pin.id} content changed; review the schedule before dispatch.`;
+        const skipped = recordSkip(automation, detail, nowMs);
+        const failed = occurrence("rejected", "not-queued", nowMs);
+        return { fired: false, automation: failed ? withOccurrence(skipped, failed) : skipped, reason: detail };
+      }
+    }
     let task = automation.prompt;
+    if (automation.skillPins?.length) {
+      task += `\n\nReviewed skill snapshots (pinned for this schedule):\n${automation.skillPins.map((pin) =>
+        `\n---\nSkill: ${pin.id} @ ${pin.version}\nSource: ${pin.source}\n${pin.instructions}`,
+      ).join("\n")}`;
+    }
     if (event.kind === "webhook" && event.batchedBodies && event.batchedBodies.length > 0) {
       task += `\n\n---\nWebhook payloads (${event.batchedBodies.length}):\n${event.batchedBodies.join("\n---\n")}`;
     }
@@ -324,6 +376,10 @@ async function commitAutomationFire(
       threadKey,
       ...(commandId !== undefined ? { commandId } : {}),
       ...(automation.customAgentId ? { customAgentId: automation.customAgentId } : {}),
+      ...(automation.customAgentPin ? {
+        expectedCustomAgentVersion: automation.customAgentPin.version,
+        orgId: automation.customAgentPin.orgId,
+      } : {}),
     });
     const scheduleKey = recheck.trigger.kind === "schedule" ? `t${recheck.triggerIndex}` : undefined;
     const next = recordTrigger(automation, nowMs, scheduleKey);
@@ -340,19 +396,25 @@ async function commitAutomationFire(
         threadKey,
         approvalId: queued.approvalId,
         approved: true,
-        decidedBy: "automation:" + automation.id,
+        decidedBy: `automation:${automation.id}`,
       });
     }
+    const queuedOccurrence = occurrence("queued", "approval-pending", nowMs, queued.approvalId);
     return {
       fired: true,
-      automation: next,
+      automation: queuedOccurrence ? withOccurrence(next, queuedOccurrence) : next,
       reason,
       approvalId: queued.approvalId,
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    const skipped = recordSkip(automation, "Queue failed: " + detail, nowMs);
-    return { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? detail };
+    const skipped = recordSkip(automation, `Queue failed: ${detail}`, nowMs);
+    const retryable = typeof error === "object" && error !== null &&
+      typeof (error as { retryable?: unknown }).retryable === "boolean"
+      ? (error as { retryable: boolean }).retryable
+      : true;
+    const failed = occurrence(retryable ? "queue-unknown" : "rejected", retryable ? "queue-outcome-unknown" : "not-queued", nowMs);
+    return { fired: false, automation: failed ? withOccurrence(skipped, failed) : skipped, reason: skipped.lastSkip?.reason ?? detail };
   }
 }
 
