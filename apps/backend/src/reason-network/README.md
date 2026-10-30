@@ -17,9 +17,13 @@ Upstream v0.12.17 routes MCP calls by supported request metadata (`_meta.session
 - Inbox reading is intentionally unavailable through this MCP adapter. In v0.12.17, `check_inbox` marks results delivered before returning them, so it cannot preserve Shiba's manual acknowledgement semantics. Do not expose it as an ordinary inbox read unless upstream adds a supported peek/ack protocol.
 - No broadcast, files, desktop notifications, `ask_user`, background polling, automatic replies, or autonomous peer task execution are exposed. Peer text remains untrusted input and conveys no tool authority.
 
-## Integration blocker
+## Application wiring and remaining runtime boundary
 
-PR162 contains pure connection-policy decision primitives and a generic capability invocation ledger, but no persistent employee-policy approval service. The adapter therefore accepts an explicit `ReasonNetworkApprovalService` integration contract and fails closed if it is absent. The PR owner must implement that interface using the trusted persistent policy/approval store before enabling outbound sends. `D1ReasonNetworkOperationStore` uses the existing `AGENT_AUDIT` D1 binding.
+PR162 now contains an authenticated owner-scoped grant/approval store. `createReasonNetworkAdapter()` wires its `D1ReasonNetworkApprovalService` and the D1 operation ledger to a supplied MCP client; `operationStatus()` and `cancelOperation()` provide scoped recovery/control methods. Cancellation succeeds only before the external send fence. Outbound calls still require a client that is already connected to the locally configured native companion; no Worker route starts that process or accepts a model/client URL.
+
+The Shiba Worker cannot spawn the native Reason Network executable. The existing `shiba-local-daemon` protocol currently claims coding-run envelopes only; it has no Reason Network operation claim/result messages, no opt-in executable configuration, and no binding from an owner grant to a paired machine. Therefore the dashboard's `/api/reason-network/status` correctly remains `setup_required`, `enabled:false`, `dispatchConfigured:false`. The application adapter is ready for the trusted connected-client seam, but application HTTP requests are not yet delivered to the daemon. Closing that last gap requires an explicit opt-in Reason-specific queue protocol on the paired local daemon, a machine-bound grant/configuration, and a user-installed `reason-network` executable. This task does not pair a device or enable that protocol.
+
+`D1ReasonNetworkOperationStore` stores only the payload digest and routing identifiers; the approved payload remains in the owner-scoped approval table. No message body is copied into the operation ledger.
 
 ## Upstream sources
 

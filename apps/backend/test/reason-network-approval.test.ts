@@ -7,6 +7,7 @@ vi.mock("../src/request-auth.js",()=>({isAuthorizedRequest:vi.fn(async()=>auth.a
 
 import { handleReasonNetwork } from "../src/reason-network/routes.js";
 import { D1ReasonNetworkApprovalService } from "../src/reason-network/approval-store.js";
+import { createReasonNetworkAdapter } from "../src/reason-network/adapter.js";
 
 function fixture(){
   const {database}=customAgentD1(); const env={AGENT_AUDIT:database} as unknown as Env;
@@ -56,5 +57,21 @@ describe("Reason Network authenticated approval setup",()=>{
     auth.userId="other@example.test";
     const service=new D1ReasonNetworkApprovalService(f.env);
     expect(await service.isCurrent({ownerId:"other@example.test",grantId:created.grant.grantId,conversationId:"c1",sessionId:"s1",runtime:"local-daemon"})).toBe(false);
+  });
+
+  it("wires the authenticated one-use approval store and durable operation ledger to a trusted in-process companion",async()=>{
+    const f=fixture();
+    const created=await read<{grant:{grantId:string}}>(await f.send("/grants","POST",{conversationId:"conv-dispatch",sessionId:"session-dispatch"}));
+    const grantId=created.grant.grantId;
+    const request={grantId,conversationId:"conv-dispatch",sessionId:"session-dispatch",destination:"peer-dispatch",message:"approved body",idempotencyKey:"dispatch-001"};
+    const approval=await read<{approvalId:string}>(await f.send("/approvals","POST",request));
+    expect((await f.send(`/approvals/${approval.approvalId}`,"POST",{approved:true}))?.status).toBe(200);
+    const calls:unknown[]=[];
+    const adapter=createReasonNetworkAdapter({enabled:true,scope:{ownerId:"owner@example.test",grantId,conversationId:"conv-dispatch",sessionId:"session-dispatch",runtime:"local-daemon"}},
+      {connected:true,toolNames:["list_team","send_message","message_status"],callTool:async(name,args,meta)=>{calls.push({name,args,meta});return [{type:"text",text:"sent message id dispatch-message"}];}},f.env);
+    await expect(adapter.sendMessage({to:request.destination,message:request.message,idempotencyKey:request.idempotencyKey})).resolves.toMatchObject({state:"accepted",messageId:"dispatch-message"});
+    await expect(adapter.operationStatus(request.idempotencyKey)).resolves.toMatchObject({state:"accepted",remoteMessageId:"dispatch-message"});
+    expect(calls).toHaveLength(1);
+    expect(await new D1ReasonNetworkApprovalService(f.env).consume({ownerId:"owner@example.test",grantId,conversationId:request.conversationId,sessionId:request.sessionId,destination:request.destination,message:request.message,idempotencyKey:request.idempotencyKey,payloadDigest:(await adapter.operationStatus(request.idempotencyKey))!.payloadDigest})).toBeNull();
   });
 });

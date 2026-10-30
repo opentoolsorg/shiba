@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { ReasonNetworkAdapter, reasonNetworkReadiness, type ReasonNetworkApprovalBinding, type ReasonNetworkApprovalReceipt, type ReasonNetworkMcpClient, type ReasonNetworkTrustedScope } from "../src/reason-network/adapter.js";
 import { D1ReasonNetworkOperationStore, type ReasonOperation, type ReasonNetworkOperationStore, type ReasonOperationScope, type ReserveResult, type ReasonOperationState } from "../src/reason-network/operation-store.js";
+import { connectReasonNetworkStdio } from "../src/reason-network/stdio-client.js";
 
 const scope: ReasonNetworkTrustedScope = { ownerId: "owner-1", grantId: "grant-1", conversationId: "conv-1", sessionId: "session-1", runtime: "local-daemon" };
 class MemoryStore implements ReasonNetworkOperationStore {
@@ -30,6 +31,10 @@ function fixture(options: { enabled?: boolean; connected?: boolean; toolNames?: 
 }
 
 describe("Reason Network OSS adapter", () => {
+  it("does not start a native process without explicit local opt-in", async () => {
+    await expect(connectReasonNetworkStdio({executablePath:"/usr/local/bin/reason-network"})).rejects.toThrow("disabled");
+  });
+
   it("persists operation state across store instances and replays the same idempotency key", async () => {
     const sqlite = new DatabaseSync(":memory:");
     const d1 = { prepare(sql: string) {
@@ -45,6 +50,16 @@ describe("Reason Network OSS adapter", () => {
     const afterRestart = new D1ReasonNetworkOperationStore({AGENT_AUDIT:d1});
     expect(await afterRestart.reserve(op)).toMatchObject({kind:"replay",operation:{state:"pending_approval",idempotencyKey:"stable"}});
     sqlite.close();
+  });
+
+  it("exposes scoped status and cancellation only before the external send fence", async () => {
+    const f = fixture({enabled:true});
+    const operation: ReasonOperation = {scope,idempotencyKey:"cancel-me",payloadDigest:"a".repeat(64),destination:"peer-1",state:"pending_approval",updatedAt:1};
+    await f.store.reserve(operation);
+    expect(await f.adapter.operationStatus("cancel-me")).toMatchObject({state:"pending_approval"});
+    expect(await f.adapter.cancelOperation("cancel-me")).toBe(true);
+    expect(await f.adapter.operationStatus("cancel-me")).toMatchObject({state:"cancelled"});
+    expect(f.calls).toHaveLength(0);
   });
 
   it("is disabled by default and never invokes approval while unavailable", async () => {

@@ -1,5 +1,5 @@
 /** Durable ledger for Reason Network sends. Never store message bodies here. */
-export type ReasonOperationState = "pending_approval" | "approved" | "accepted" | "unknown" | "rejected";
+export type ReasonOperationState = "pending_approval" | "approved" | "accepted" | "unknown" | "rejected" | "cancelled";
 
 export interface ReasonOperationScope {
   ownerId: string;
@@ -32,7 +32,7 @@ export const REASON_NETWORK_OPERATION_SQL = [
   `CREATE TABLE IF NOT EXISTS reason_network_operations (
     owner_id TEXT NOT NULL, grant_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
     idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL, destination TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('pending_approval','approved','accepted','unknown','rejected')), remote_message_id TEXT,
+    state TEXT NOT NULL CHECK (state IN ('pending_approval','approved','accepted','unknown','rejected','cancelled')), remote_message_id TEXT,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY(owner_id, grant_id, conversation_id, session_id, idempotency_key)
   )`,

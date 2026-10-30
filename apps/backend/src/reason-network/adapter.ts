@@ -1,4 +1,6 @@
 import { type ReasonOperation, type ReasonNetworkOperationStore, type ReasonOperationScope } from "./operation-store.js";
+import { D1ReasonNetworkOperationStore } from "./operation-store.js";
+import { D1ReasonNetworkApprovalService, type ReasonNetworkApprovalEnv } from "./approval-store.js";
 
 export const REASON_NETWORK_PIN = "0.12.17" as const;
 export const REASON_NETWORK_MCP_COMMAND = "reason-network mcp" as const;
@@ -32,6 +34,7 @@ export interface ReasonNetworkApprovalService {
 }
 
 export interface ReasonNetworkAdapterConfig { readonly enabled?: boolean; readonly scope: ReasonNetworkTrustedScope }
+export interface ReasonNetworkOperationEnv extends ReasonNetworkApprovalEnv {}
 export interface ReasonNetworkReadiness {
   provider: "reason-network-oss"; enabled: boolean;
   state: "disabled" | "unsupported_runtime" | "mcp_disconnected" | "mcp_tools_missing" | "connected_unverified";
@@ -73,6 +76,18 @@ export class ReasonNetworkAdapter {
     private readonly now: () => number = Date.now) {}
 
   readiness(): ReasonNetworkReadiness { return reasonNetworkReadiness(this.config, this.client); }
+
+  /** Application status lookup scoped by the same trusted owner/grant/session tuple. */
+  async operationStatus(idempotencyKey: string): Promise<ReasonOperation | null> {
+    if (!this.operations) return null;
+    return this.operations.get(this.config.scope, idempotencyKey);
+  }
+
+  /** Cancel only work which has not crossed the external dispatch fence. */
+  async cancelOperation(idempotencyKey: string): Promise<boolean> {
+    if (!this.operations) return false;
+    return this.operations.transition(this.config.scope, idempotencyKey, ["pending_approval", "approved"], "cancelled", undefined, this.now());
+  }
 
   async listTeam(filter?: string): Promise<unknown> {
     this.assertAvailable();
@@ -150,4 +165,15 @@ export class ReasonNetworkAdapter {
   private async call(name: ReasonNetworkTool, args: Record<string, unknown>, sessionId = this.config.scope.sessionId): Promise<unknown> {
     this.assertAvailable(); return this.client!.callTool(name, args, { sessionId });
   }
+}
+
+/** Wire the authenticated PR162 D1 approval store and operation ledger to a trusted companion client. */
+export function createReasonNetworkAdapter(
+  config: ReasonNetworkAdapterConfig,
+  client: ReasonNetworkMcpClient | undefined,
+  env: ReasonNetworkOperationEnv,
+  now: () => number = Date.now,
+): ReasonNetworkAdapter {
+  if (!env.AGENT_AUDIT) throw new Error("Reason Network persistent storage is unavailable.");
+  return new ReasonNetworkAdapter(config, client, new D1ReasonNetworkApprovalService(env), new D1ReasonNetworkOperationStore(env, now), now);
 }
