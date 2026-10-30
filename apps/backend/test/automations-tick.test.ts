@@ -47,7 +47,7 @@ function makeDo(items: Automation[]) {
     ORCHESTRATOR_MODEL: "@cf/test/model",
   } as unknown as Env;
   const automation = new Automations({ storage } as unknown as DurableObjectState, env);
-  const fetch = vi.fn(async () => Response.json({ approvalId: "pending-approval" }));
+  const fetch = vi.fn(async (_request: Request) => Response.json({ approvalId: "pending-approval" }));
   const orchestrator: OrchestratorStub = { fetch };
   return { automation, storage, orchestrator, fetch };
 }
@@ -61,6 +61,68 @@ function addDueBatch(storage: FakeStorage, id: string) {
 }
 
 describe("automation tick webhook and schedule state", () => {
+  it("persists a timezone-aware repo-free target and dispatches the exact frozen target once", async () => {
+    const { automation, storage, orchestrator, fetch } = makeDo([]);
+    const target = {
+      kind: "artifact-workspace",
+      workspaceName: "Weekly sales",
+      expectedDeliverables: ["sales/account-brief.md", "sales/outreach-draft.md"],
+    };
+    const created = await automation.fetch(new Request("https://internal/api/automations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "weekly-sales",
+        prompt: "Prepare a grounded weekly account brief",
+        executionTarget: target,
+        triggers: [{ kind: "schedule", cron: "0 3 * * *", timezone: "America/Los_Angeles" }],
+      }),
+    }));
+    expect(created.status).toBe(201);
+    expect((await created.json() as { automation: Automation }).automation.executionTarget).toEqual(target);
+    expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const queued = await fetch.mock.calls[0]![0].clone().json() as Record<string, unknown>;
+    expect(queued).toMatchObject({ repoUrl: "", executionTarget: target, publishPullRequest: false });
+    expect(queued.commandId).toBe("automation:weekly-sales:sched:2026-10-28T10:00");
+
+    // A retried cron tick in the same occurrence window must not queue a second approval.
+    expect(await automation.tick(orchestrator, NOW + 4 * 60_000)).toEqual({ fired: 0 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect((await storage.get<AutomationsState>("state"))?.items[0]?.runCount).toBe(1);
+  });
+
+  it("pause suppresses scheduled dispatch and resume allows the next occurrence", async () => {
+    const scheduled = createAutomation({
+      id: "pause-resume",
+      prompt: "Prepare a draft",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+      triggers: [{ kind: "schedule", cron: "0 3 * * *", timezone: "America/Los_Angeles" }],
+    }).automation;
+    const { automation, storage, orchestrator, fetch } = makeDo([scheduled]);
+    const patch = (enabled: boolean) => automation.fetch(new Request("https://internal/api/automations/pause-resume", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    }));
+    const mutateTarget = await automation.fetch(new Request("https://internal/api/automations/pause-resume", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["other.md"] } }),
+    }));
+    expect(mutateTarget.status).toBe(400);
+    expect((await storage.get<AutomationsState>("state"))?.items[0]?.executionTarget)
+      .toEqual(scheduled.executionTarget);
+    expect((await patch(false)).status).toBe(200);
+    expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 0 });
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await patch(true)).status).toBe(200);
+    expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(await automation.tick(orchestrator, NOW + 60_000)).toEqual({ fired: 0 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("charges a flushed webhook against the daily budget before evaluating schedules", async () => {
     const item: Automation = {
       ...createAutomation({

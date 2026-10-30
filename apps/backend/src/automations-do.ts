@@ -103,6 +103,7 @@ async function queueOnOrchestrator(
   stub: OrchestratorStub,
   input: {
     repoUrl: string;
+    executionTarget?: QueueAutomationRunInput["executionTarget"];
     task: string;
     publishPullRequest: boolean;
     threadKey: string;
@@ -766,7 +767,12 @@ export class Automations {
         enabled?: unknown;
         prompt?: unknown;
         customAgentId?: unknown;
+        executionTarget?: unknown;
+        triggers?: unknown;
       };
+      if (patch.executionTarget !== undefined || patch.triggers !== undefined) {
+        return Response.json({ error: "Execution target, deliverables, and triggers are immutable after creation." }, { status: 400 });
+      }
       if (
         (patch.enabled !== undefined && typeof patch.enabled !== "boolean") ||
         (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim())) ||

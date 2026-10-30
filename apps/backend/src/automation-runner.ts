@@ -27,6 +27,7 @@ export const AUTOMATIONS_DO_NAME = "default";
 
 export interface QueueAutomationRunInput {
   repoUrl: string;
+  executionTarget?: Automation["executionTarget"];
   task: string;
   publishPullRequest: boolean;
   threadKey: string;
@@ -288,26 +289,33 @@ async function commitAutomationFire(
 
   // No GITHUB_TOKEN: degrade to a no-PR run (the orchestrator 400s a PR
   // request). Unattended needs PR-only, so this also forces approval.
-  const publishPullRequest = deps.canPublishPullRequest !== false;
-  const request = { publishPullRequest };
+  const isArtifactWorkspace = automation.executionTarget?.kind === "artifact-workspace";
+  const publishPullRequest = !isArtifactWorkspace && deps.canPublishPullRequest !== false;
+  const request = {
+    publishPullRequest,
+    ...(automation.executionTarget !== undefined ? { executionTarget: automation.executionTarget } : {}),
+  };
   const auth = authorizeAutomationRun(automation, request, nowMs, deps.globalEnabled);
   if (!auth.allowed) {
     const skipped = recordSkip(automation, auth.reason, nowMs);
     return { fired: false, automation: skipped, reason: auth.reason };
   }
-  const reason = publishPullRequest
+  const reason = isArtifactWorkspace || publishPullRequest
     ? auth.reason
     : `${auth.reason} GITHUB_TOKEN is not configured, so the run will not open a pull request.`;
 
   const threadKey = automationThreadKey(automation.id);
   try {
-    const commandId = automationCommandId(automation.id, event);
+    const commandId = recheck.trigger.kind === "schedule" && recheck.scheduleOccurrenceMs !== undefined
+      ? automationCommandId(automation.id, { kind: "schedule", nowMs: recheck.scheduleOccurrenceMs })
+      : automationCommandId(automation.id, event);
     let task = automation.prompt;
     if (event.kind === "webhook" && event.batchedBodies && event.batchedBodies.length > 0) {
       task += `\n\n---\nWebhook payloads (${event.batchedBodies.length}):\n${event.batchedBodies.join("\n---\n")}`;
     }
     const queued = await deps.queueRun({
       repoUrl: automation.repoUrl,
+      ...(automation.executionTarget !== undefined ? { executionTarget: automation.executionTarget } : {}),
       task,
       publishPullRequest,
       threadKey,
