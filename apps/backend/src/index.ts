@@ -64,6 +64,7 @@ import { getUserId, isAccessConfigured, isAuthenticated, isAuthorizedRequest, re
 import { handleSlackInteract } from "./slack-approval.js";
 import { handleSlackEvents } from "./slack-events.js";
 import { handleSlackEvent } from "./slack-mention.js";
+import { handleSlackRoomEvent } from "./slack-room-bridge.js";
 import { ORCHESTRATOR_NAME, handleSlackCommand } from "./slack-routes.js";
 import { handleDiscordInteractions } from "./discord.js";
 import { handleTelegramWebhook } from "./telegram.js";
@@ -397,6 +398,7 @@ export default {
         {
           dedupe: (eventId) => seenDelivery(env, `slack-event:${eventId}`),
           onEvent: async (body, eventEnv) => {
+            await handleSlackRoomEvent(body, eventEnv);
             await handleSlackEvent(body, eventEnv);
             try {
               const response = await automationsStub(eventEnv).fetch(
