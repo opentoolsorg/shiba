@@ -420,6 +420,8 @@ export function App(): React.JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
+  const cancellingRunRef = useRef<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
@@ -1426,6 +1428,9 @@ export function App(): React.JSX.Element {
 
   const cancelRun = useCallback(
     async (runId: string) => {
+      if (cancellingRunRef.current !== null) return;
+      cancellingRunRef.current = runId;
+      setCancellingRunId(runId);
       try {
         let url = sessionApiAvailable
           ? `/api/runs/${encodeURIComponent(runId)}?session=${encodeURIComponent(selectedSessionId)}`
@@ -1457,6 +1462,9 @@ export function App(): React.JSX.Element {
         setNotice(
           `Cancellation could not be requested: ${error instanceof Error ? error.message : String(error)}`,
         );
+      } finally {
+        cancellingRunRef.current = null;
+        setCancellingRunId(null);
       }
     },
     [refreshRuns, selectedSessionId, sessionApiAvailable],
@@ -2567,7 +2575,16 @@ export function App(): React.JSX.Element {
                   ) : null}
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
-                      <RunProgressCard run={reviewRun} sessionId={selectedSessionId} />
+                      <RunProgressCard
+                        run={reviewRun}
+                        sessionId={selectedSessionId}
+                        onCancel={
+                          reviewRun && retainedRuns.some((run) => run.runId === reviewRun.runId)
+                            ? cancelRun
+                            : undefined
+                        }
+                        cancelling={cancellingRunId === reviewRun?.runId}
+                      />
                       <RunUsageCard runs={retainedRuns} />
                       <PullRequestCard
                         threadId={reviewThreadId}
