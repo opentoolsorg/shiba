@@ -232,11 +232,51 @@ describe("signed Slack continuity through persistent collaboration rooms", () =>
       { onSlackDeliveryIntent: deliveryAdapter },
     );
     expect(intent?.status).toBe(202);
-    expect(await intent?.json()).toMatchObject({ sent: false, intent: { status: "pending", channelId: "C123" } });
+    const firstIntent = await json<{ intent: { intentId: string } }>(intent);
+    expect(firstIntent).toMatchObject({ sent: false, intent: { status: "pending", channelId: "C123" } });
     expect(deliveryAdapter).toHaveBeenCalledTimes(1);
     expect(
       f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_slack_delivery_intents").get()?.count,
     ).toBe(1);
+
+    // Complete the signed inbound -> explicit owner mapping -> web-authored
+    // intent -> dashboard approval -> mocked receipt path without contacting
+    // Slack or enabling delivery outside this isolated fixture.
+    f.env.SLACK_ROOM_OUTBOX_ENABLED = "true";
+    f.env.DASHBOARD_APPROVERS = "owner@example.test";
+    const approvedMessage = await json<{ message: { messageId: string } }>(
+      await f.send(`/rooms/${roomId}/messages`, "POST", { body: "Approved continuity reply." }),
+    );
+    const approvedIntent = await json<{ intent: { intentId: string } }>(
+      await f.send(
+        `/rooms/${roomId}/messages/${approvedMessage.message.messageId}/slack-delivery`,
+        "POST",
+        { linkId: link.link.linkId },
+      ),
+    );
+    const verifyInstallation = vi.fn(async () => ({ teamId: "T123", userId: "W123", botId: "B123" }));
+    const postMessage = vi.fn(async (_token: string, input: {
+      channel: string; threadTs: string; text: string; clientMsgId: string;
+    }) => {
+      expect(input).toMatchObject({
+        channel: "C123",
+        threadTs: "1710000000.000100",
+        text: "Approved continuity reply.",
+      });
+      return { channel: "C123", ts: "1710000008.000800" };
+    });
+    const approval = await f.send(
+      `/rooms/${roomId}/slack-delivery/${approvedIntent.intent.intentId}/approve`,
+      "POST",
+      {},
+      { slackOutbox: { verifyInstallation, postMessage } },
+    );
+    expect(approval?.status).toBe(200);
+    expect(await approval?.json()).toMatchObject({ delivery: { status: "sent", ts: "1710000008.000800" } });
+    expect(verifyInstallation).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(f.sqlite.prepare("SELECT delivery_status,approved_by_user_id,receipt_ts FROM collaboration_slack_delivery_intents WHERE intent_id=?").get(approvedIntent.intent.intentId))
+      .toEqual({ delivery_status: "sent", approved_by_user_id: "owner@example.test", receipt_ts: "1710000008.000800" });
 
     expect((await f.send(
       `/rooms/${roomId}/slack-links/${link.link.linkId}`,
@@ -253,8 +293,8 @@ describe("signed Slack continuity through persistent collaboration rooms", () =>
     );
     expect(messagesAfterRevoke.messages.filter((message) => message.sourceSlackEventId)).toHaveLength(1);
     expect(
-      f.sqlite.prepare("SELECT status FROM collaboration_slack_delivery_intents").get(),
-    ).toEqual({ status: "blocked" });
+      f.sqlite.prepare("SELECT status,delivery_status FROM collaboration_slack_delivery_intents WHERE intent_id=?").get(firstIntent.intent.intentId),
+    ).toEqual({ status: "blocked", delivery_status: "blocked" });
   });
 
   it("does not accept tampered signed payloads or owner links to unseen thread IDs", async () => {

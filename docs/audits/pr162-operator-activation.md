@@ -1,6 +1,6 @@
 # PR #162 operator activation checklist
 
-**Status checked 2026-10-30 at `42628dbda2156330717621cf9788377a8dee6719`.** Local deterministic tests, the browser Worker session, typecheck, lint, and self-hosting smoke pass. This checklist records the remaining external activation gates; it is not permission to execute them. No production deployment, live provider call, live sandbox run, Reason Network join, or external message was performed.
+**Status checked 2026-10-30 at the local Slack continuity integration.** Local deterministic tests and the browser Worker session use fake adapters; they do not prove a live provider, sandbox, Reason network, or Slack installation. This checklist records the remaining external activation gates; it is not permission to execute them. No production deployment, live provider call, live sandbox run, Reason Network join, Slack installation, or external message was performed.
 
 ## Before a live provider and sandbox run
 
@@ -17,9 +17,17 @@ The employee Gmail read path is restricted to messages selected from recent, own
 
 ## Before Reason Network dispatch
 
-Reason Network setup is **not dispatch-ready**: `/api/reason-network/status` intentionally reports `setup_required`, `enabled: false`, and `dispatchConfigured: false`. Persistent grants and exact-payload approval records exist, but there is no application send route or installed MCP client wired to consume them. User approval alone cannot enable a path that is not implemented.
+The application-facing route and paired-daemon protocol are implemented and tested with a fake local MCP companion. The default remains disabled; local protocol evidence does not prove an upstream daemon, network, peer identity, or live delivery.
 
-Before any send can be tested, the product needs a reviewed application-facing dispatcher and deterministic local MCP protocol test. After that code exists, a live activation still requires explicit owner opt-in and the exact already-installed executable path, owner/session, network, recipient/destination, approved message text, and whether the upstream wake behavior is acceptable. The operator must approve each exact outbound payload; no inbox polling or autonomous peer replies are supported. Do not install an executable, join a network, or contact a peer as part of this checklist.
+A live activation requires explicit owner opt-in, the exact already-installed executable path, owner/session, network, recipient/destination, approved message text, and acknowledgement that the upstream inbox-read operation acknowledges before returning. Approve each exact outbound payload. No inbox polling or autonomous peer replies are supported. Do not install an executable, join a network, or contact a peer as part of this checklist.
+
+## Before Slack room continuity activation
+
+The code now supports signature-verified Slack thread observation, explicit owner mapping to a Shiba room, deduplicated inbound replies, revocation, and a persisted outbound intent. The outbound worker is disabled by default. A deterministic route journey uses an injected mock installation and post receipt; it does not install the Slack app, grant scopes, read a live workspace, or send a real message.
+
+Before connecting a real workspace, an operator must explicitly authorize configuring the Slack app manifest/subscriptions and installing or updating the app with the required event scopes. Configure `SLACK_SIGNING_SECRET`, then verify the intended workspace, channel, and thread through signed events before an owner maps that exact thread. For outbound delivery, separately configure `SLACK_ROOM_OUTBOX_ENABLED=true`, `SLACK_APPROVALS_CHANNEL`, the workspace's bot token, and `DASHBOARD_APPROVERS`. The outbox checks `auth.test` workspace identity, requires approval for the exact web-authored message, rechecks the link immediately before posting, and records the receipt. Ambiguous delivery is left `unknown` and is not automatically retried.
+
+Sending to real Slack additionally requires explicit approval of the exact destination and message. Do not enable the outbox or modify a real Slack installation as part of local acceptance.
 
 ## Before enabling build:validate on PR #162
 
@@ -33,8 +41,8 @@ Updating the existing PR #162 description is a separate GitHub write. The previo
 
 ## Web and Slack room continuity
 
-Persistent Shiba web rooms and Slack approval/thread flows are separate surfaces. No web-room-to-Slack shared transcript or membership bridge is implemented by this PR increment. Do not describe the existing Slack integration as room continuity. Closing this gap requires a scoped implementation and a test workspace/channel with authorized membership; sending messages to real people additionally requires approval of the exact destination and payload. No Slack/Teams message should be sent to make local acceptance pass.
+Signed, explicitly mapped Slack threads can now contribute inbound messages to a Shiba room, and approved outbound web messages can use a disabled-by-default one-shot outbox. This is not shared Slack membership, does not mirror unlinked thread text, and does not imply that a real Slack installation or workspace was activated. Keep those boundaries clear. No Slack/Teams message should be sent to make local acceptance pass.
 
 ## Readiness statement
 
-Until the above gates are completed, describe the result as locally verified with deterministic adapters. Keep live provider/sandbox execution, Reason dispatch, shared web/Slack rooms, and hosted CI/preview deployment marked unverified or blocked. Production readiness, remote recovery, cloud execution, and provider-backed output have not been established by the local checks.
+Until the above gates are completed, describe the result as locally verified with deterministic adapters. Keep live provider/sandbox execution, live Reason-network dispatch, real Slack installation/outbound delivery, and hosted CI/preview deployment marked unverified or blocked. Production readiness, remote recovery, cloud execution, and provider-backed output have not been established by the local checks.

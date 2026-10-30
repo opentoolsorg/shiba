@@ -92,6 +92,15 @@
       ]
     },
     {
+      "id": "slack-web-room-continuity",
+      "description": "Verify a signed Slack thread event, explicitly map it to an owner room, preserve source provenance and deduplicate replies, then create a web-authored delivery intent and send it only after configured dashboard approval through a mocked Slack installation/post receipt. No Slack installation, subscription, token, or real message is used.",
+      "tests": [
+        "apps/backend/test/slack-room-bridge.test.ts",
+        "apps/backend/test/slack.test.ts",
+        "apps/frontend/src/components/CollaborationView.test.tsx"
+      ]
+    },
+    {
       "id": "reason-network-approval-setup",
       "description": "Bind an exact-message approval to a paired local machine, queue it through the Worker, reject a different machine, then exercise the fake MCP companion and authenticated result path without starting the upstream executable or contacting a peer.",
       "tests": [
