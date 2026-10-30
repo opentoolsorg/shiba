@@ -423,6 +423,8 @@ export function App(): React.JSX.Element {
   const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
+  const [projectContextId, setProjectContextId] = useState("");
+  const [projectContexts, setProjectContexts] = useState<Array<{ id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }>>([]);
   const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
@@ -444,6 +446,17 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     document.title = "Shiba Dashboard · Self-Hosted AI Software Engineer";
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const load = () => void fetch("/api/memory/projects", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => response.ok ? await response.json() as { projects?: typeof projectContexts } : { projects: [] })
+      .then((body) => { if (active) setProjectContexts(Array.isArray(body.projects) ? body.projects : []); })
+      .catch(() => { if (active) setProjectContexts([]); });
+    load();
+    window.addEventListener("shiba:projects-updated", load);
+    return () => { active = false; window.removeEventListener("shiba:projects-updated", load); };
   }, []);
 
   // Surface transient notices through the toast channel (aria-live inside sonner).
@@ -1225,6 +1238,7 @@ export function App(): React.JSX.Element {
           publishPullRequest,
           ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
           ...(customAgentId ? { customAgentId } : {}),
+          ...(projectContextId ? { projectContextId } : {}),
         };
         const body = {
           ...fields,
@@ -1400,6 +1414,7 @@ export function App(): React.JSX.Element {
               ...(sealedEnv ? { environment: { sealed: sealedEnv.sealed, digest: sealedEnv.digest } } : {}),
               ...(runSetup ? { runSetup: true } : {}),
               ...(customAgentId ? { customAgentId } : {}),
+              ...(projectContextId ? { projectContextId } : {}),
             },
           },
         });
@@ -1431,6 +1446,7 @@ export function App(): React.JSX.Element {
       runSetup,
       harness,
       customAgentId,
+      projectContextId,
       customAgentRecords,
       customAgentsLoading,
       customAgentsError,
@@ -2868,6 +2884,13 @@ export function App(): React.JSX.Element {
                     onHarnessChange={setHarness}
                     customAgents={customAgentPickerOptions}
                     customAgentId={customAgentId}
+                    projects={projectContexts}
+                    projectContextId={projectContextId}
+                    onProjectContextChange={setProjectContextId}
+                    onApplyProjectDefaults={(project) => {
+                      if (project.defaultCustomAgentId) setCustomAgentId(project.defaultCustomAgentId);
+                      if (project.defaultHarness) setHarness(project.defaultHarness);
+                    }}
                     customAgentsLoading={customAgentsLoading}
                     onCustomAgentChange={setCustomAgentId}
                     routing={{
