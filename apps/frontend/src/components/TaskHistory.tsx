@@ -1,7 +1,7 @@
 import { RotateCcw, Square, TriangleAlert } from "lucide-react";
 
 export type TaskHistoryStatus =
-  | "submitting" | "pending_approval" | "running" | "completed"
+  | "submitting" | "pending_approval" | "pending" | "running" | "completed"
   | "error" | "aborted" | "cancelled" | "unknown" | "rejected" | "expired";
 
 export interface TaskHistoryAttempt {
@@ -11,6 +11,7 @@ export interface TaskHistoryAttempt {
   status: TaskHistoryStatus;
   updatedAt: number;
   error?: string;
+  retryable?: boolean;
 }
 
 export interface TaskHistoryItem {
@@ -21,7 +22,7 @@ export interface TaskHistoryItem {
 }
 
 export function isTaskHistoryRetryable(attempt: TaskHistoryAttempt): boolean {
-  return ["error", "aborted", "cancelled", "rejected", "expired"].includes(attempt.status);
+  return attempt.retryable !== false && ["error", "aborted", "cancelled", "rejected", "expired"].includes(attempt.status);
 }
 
 export function TaskHistory({
@@ -56,7 +57,7 @@ export function TaskHistory({
           const latest = task.attempts.at(-1);
           if (!latest) return null;
           const latestRunId = latest.runId;
-          const active = latest.status === "running" || latest.status === "pending_approval" || latest.status === "submitting";
+          const active = latest.status === "pending" || latest.status === "running" || latest.status === "pending_approval" || latest.status === "submitting";
           const retryable = isTaskHistoryRetryable(latest);
           return (
             <li key={task.taskId} data-testid={`task-history-${task.taskId}`} className="rounded-md border border-[var(--border-1)] px-3 py-2.5">
