@@ -30,8 +30,10 @@ class MemoryStore implements ReasonNetworkOperationStore {
     this.rows.set(id,{...row,state,...(state==="unknown"?{firstAttemptAt:row.firstAttemptAt??now}:{}),...(remoteMessageId ? {remoteMessageId} : {}),updatedAt:now}); return true;
   }
   async getByOperationId(ownerId:string,operationId:string){return [...this.rows.values()].find((row)=>row.scope.ownerId===ownerId&&row.operationId===operationId)??null;}
+  async getByCompanionOperationId(machineId:string,operationId:string){return [...this.rows.values()].find((row)=>row.companionMachineId===machineId&&row.operationId===operationId)??null;}
   async listByOwner(ownerId:string){return [...this.rows.values()].filter((row)=>row.scope.ownerId===ownerId);}
-  async claimNext(machineId:string,claimToken:string,now=Date.now()){const row=[...this.rows.values()].find((item)=>item.companionMachineId===machineId&&item.state==="queued"&&!item.cancelRequested);if(!row)return null;const next={...row,state:"claimed" as const,claimToken,updatedAt:now};this.rows.set(this.id(row.scope,row.idempotencyKey),next);return structuredClone(next);}
+  async claimNext(machineId:string,claimToken:string,now=Date.now()){for(const [key,row] of this.rows)if(row.companionMachineId===machineId&&row.state==="queued"&&row.firstAttemptAt!==null&&row.firstAttemptAt!==undefined&&row.firstAttemptAt<=now-REASON_NETWORK_RECOVERY_WINDOW_MS)this.rows.set(key,{...row,state:"unknown",claimToken:undefined,updatedAt:now});const row=[...this.rows.values()].find((item)=>item.companionMachineId===machineId&&item.state==="queued"&&!item.cancelRequested&&(item.firstAttemptAt===null||item.firstAttemptAt===undefined||item.firstAttemptAt>now-REASON_NETWORK_RECOVERY_WINDOW_MS));if(!row)return null;const next={...row,state:"claimed" as const,claimToken,firstAttemptAt:row.firstAttemptAt??now,updatedAt:now};this.rows.set(this.id(row.scope,row.idempotencyKey),next);return structuredClone(next);}
+  async expireClaim(machineId:string,operationId:string,now=Date.now()){const row=await this.getByOperationId("owner-1",operationId);if(!row||row.companionMachineId!==machineId||row.state!=="claimed"||row.firstAttemptAt===null||row.firstAttemptAt===undefined||row.firstAttemptAt>now-REASON_NETWORK_RECOVERY_WINDOW_MS)return false;this.rows.set(this.id(row.scope,row.idempotencyKey),{...row,state:"unknown",claimToken:undefined,updatedAt:now});return true;}
   async settleClaim(machineId:string,operationId:string,claimToken:string,state:"accepted"|"unknown"|"rejected",remoteMessageId?:string,now=Date.now()){const row=await this.getByOperationId("owner-1",operationId);if(!row||row.state!=="claimed"||row.companionMachineId!==machineId||row.claimToken!==claimToken)return false;this.rows.set(this.id(row.scope,row.idempotencyKey),{...row,state,claimToken:undefined,...(remoteMessageId?{remoteMessageId}:{}),updatedAt:now});return true;}
   async cancelOperation(ownerId:string,operationId:string){const row=await this.getByOperationId(ownerId,operationId);if(!row)return "not_found" as const;if(["pending_approval","approved","queued"].includes(row.state)){this.rows.set(this.id(row.scope,row.idempotencyKey),{...row,state:"cancelled"});return "cancelled" as const;}if(row.state==="claimed"){this.rows.set(this.id(row.scope,row.idempotencyKey),{...row,cancelRequested:true});return "cancel_requested" as const;}return "not_cancellable" as const;}
   async cancelGrant(ownerId:string,grantId:string){for(const [key,row] of this.rows)if(row.scope.ownerId===ownerId&&row.scope.grantId===grantId){if(["pending_approval","approved","queued"].includes(row.state))this.rows.set(key,{...row,state:"cancelled"});else if(row.state==="claimed")this.rows.set(key,{...row,cancelRequested:true});}}
@@ -71,13 +73,30 @@ describe("Reason Network OSS adapter", () => {
       INSERT INTO reason_network_operations VALUES('owner-old','grant-old','conv-old','session-old','key-unknown','digest-unknown','peer-old','unknown',NULL,456);
       INSERT INTO reason_network_operations VALUES('owner-old','grant-old','conv-old','session-old','key-accepted','digest-accepted','peer-old','accepted','remote-old',789);`);
     const db=sqliteD1(sqlite);const store=new D1ReasonNetworkOperationStore({AGENT_AUDIT:db});
-    const unknown=await store.get({ownerId:"owner-old",grantId:"grant-old",conversationId:"conv-old",sessionId:"session-old"},"key-unknown");
+    const scope={ownerId:"owner-old",grantId:"grant-old",conversationId:"conv-old",sessionId:"session-old"};
+    const [unknown,accepted]=await Promise.all([store.get(scope,"key-unknown"),new D1ReasonNetworkOperationStore({AGENT_AUDIT:db}).get(scope,"key-accepted")]);
     expect(unknown).toMatchObject({state:"unknown",firstAttemptAt:0});
     expect(unknown?.operationId).toMatch(/^rno-legacy-/);
+    expect(accepted).toMatchObject({state:"accepted",remoteMessageId:"remote-old"});
     expect(await listReasonNetworkGrants({AGENT_AUDIT:db},"owner-old")).toMatchObject([{grantId:"grant-old",companionMachineId:null,status:"active"}]);
     await db.prepare("UPDATE reason_network_grants SET companion_machine_id='machine-old' WHERE grant_id='grant-old'").run();
     expect(await store.recover("owner-old",unknown!.operationId!,Date.now())).toBe(false);
-    expect(await store.get({ownerId:"owner-old",grantId:"grant-old",conversationId:"conv-old",sessionId:"session-old"},"key-accepted")).toMatchObject({state:"accepted",remoteMessageId:"remote-old"});
+    sqlite.close();
+  });
+
+  it("retries an interrupted additive schema upgrade without rebuilding the operation ledger",async()=>{
+    const sqlite=new DatabaseSync(":memory:");
+    sqlite.exec(`CREATE TABLE reason_network_grants(grant_id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,revoked_at INTEGER);
+      CREATE TABLE reason_network_operations(owner_id TEXT NOT NULL,grant_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,payload_digest TEXT NOT NULL,destination TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('pending_approval','approved','accepted','unknown','rejected','cancelled')),remote_message_id TEXT,updated_at INTEGER NOT NULL,PRIMARY KEY(owner_id,grant_id,conversation_id,session_id,idempotency_key));
+      INSERT INTO reason_network_operations VALUES('owner-partial','grant-partial','conv-partial','session-partial','key-partial','digest-partial','peer-partial','unknown',NULL,456);
+      ALTER TABLE reason_network_operations ADD COLUMN operation_id TEXT;
+      UPDATE reason_network_operations SET operation_id='rno-partial-upgrade';`);
+    const db=sqliteD1(sqlite);const scope={ownerId:"owner-partial",grantId:"grant-partial",conversationId:"conv-partial",sessionId:"session-partial"};
+    const migrated=await new D1ReasonNetworkOperationStore({AGENT_AUDIT:db}).get(scope,"key-partial");
+    expect(migrated).toMatchObject({operationId:"rno-partial-upgrade",state:"unknown",firstAttemptAt:0});
+    const columns=await db.prepare("PRAGMA table_info(reason_network_operations)").all<{name:string}>();
+    expect(columns.results?.map((column)=>column.name)).toContain("dispatch_state");
+    expect(await new D1ReasonNetworkOperationStore({AGENT_AUDIT:db}).get(scope,"key-partial")).toMatchObject({operationId:"rno-partial-upgrade",state:"unknown"});
     sqlite.close();
   });
 
@@ -92,9 +111,8 @@ describe("Reason Network OSS adapter", () => {
     expect(claimed?.firstAttemptAt).toBe(now);
     await store.settleClaim("machine-window","rno-window","claim-window","unknown",undefined,now);
     expect(await store.recover("owner-window","rno-window",now+REASON_NETWORK_RECOVERY_WINDOW_MS-1)).toBe(true);
-    const retry=await store.claimNext("machine-window","claim-window-2",now+REASON_NETWORK_RECOVERY_WINDOW_MS-1);
-    expect(retry?.firstAttemptAt).toBe(now);
-    await store.settleClaim("machine-window","rno-window","claim-window-2","unknown",undefined,now+REASON_NETWORK_RECOVERY_WINDOW_MS-1);
+    expect(await store.claimNext("machine-window","claim-too-late",now+REASON_NETWORK_RECOVERY_WINDOW_MS)).toBeNull();
+    expect((await store.get(scope,"stable-window"))?.state).toBe("unknown");
     expect(await store.recover("owner-window","rno-window",now+REASON_NETWORK_RECOVERY_WINDOW_MS)).toBe(false);
     expect((await store.get(scope,"stable-window"))?.state).toBe("unknown");
     sqlite.close();

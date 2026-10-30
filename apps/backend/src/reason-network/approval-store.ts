@@ -39,8 +39,13 @@ export async function ensureReasonNetworkApprovalSchema(env: ReasonNetworkApprov
   if (initialized.has(env.AGENT_AUDIT)) return;
   for (const sql of SQL) await env.AGENT_AUDIT.prepare(sql).run();
   const columns=await env.AGENT_AUDIT.prepare("PRAGMA table_info(reason_network_grants)").all<{name:string}>();
-  if (!(columns.results??[]).some((column)=>column.name==="companion_machine_id"))
-    await env.AGENT_AUDIT.prepare("ALTER TABLE reason_network_grants ADD COLUMN companion_machine_id TEXT").run();
+  if (!(columns.results??[]).some((column)=>column.name==="companion_machine_id")){
+    try{await env.AGENT_AUDIT.prepare("ALTER TABLE reason_network_grants ADD COLUMN companion_machine_id TEXT").run();}
+    catch(error){
+      const current=await env.AGENT_AUDIT.prepare("PRAGMA table_info(reason_network_grants)").all<{name:string}>();
+      if(!(current.results??[]).some((column)=>column.name==="companion_machine_id"))throw error;
+    }
+  }
   initialized.add(env.AGENT_AUDIT);
 }
 const hex = (bytes: Uint8Array) => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
