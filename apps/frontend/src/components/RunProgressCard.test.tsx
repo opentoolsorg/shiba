@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RunProgressCard } from "./RunProgressCard";
 import type { RetainedRun } from "../types";
 import { normalizeRunStatus } from "../types";
@@ -40,6 +40,28 @@ describe("RunProgressCard", () => {
     render(<RunProgressCard run={baseRun({ status: "running" })} />);
     expect(screen.getByTestId("run-progress").getAttribute("data-run-status")).toBe("running");
     expect(screen.getByText(/Sandbox run in progress/i)).toBeTruthy();
+  });
+
+  it("offers cancellation only while the real run is in flight", () => {
+    const onCancel = vi.fn();
+    const { rerender } = render(
+      <RunProgressCard run={baseRun({ status: "running" })} onCancel={onCancel} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run run-abc" }));
+    expect(onCancel).toHaveBeenCalledWith("run-abc");
+
+    rerender(<RunProgressCard run={baseRun({ status: "completed" })} onCancel={onCancel} />);
+    expect(screen.queryByRole("button", { name: "Cancel run run-abc" })).toBeNull();
+  });
+
+  it("makes a pending cancellation visible and prevents repeated requests", () => {
+    const onCancel = vi.fn();
+    render(
+      <RunProgressCard run={baseRun({ status: "pending" })} onCancel={onCancel} cancelling />,
+    );
+    const button = screen.getByRole("button", { name: "Cancel run run-abc" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toContain("Requesting");
   });
 
   it("links pullUrl when present", () => {
