@@ -30,6 +30,7 @@ import {
   getCollaborationMembership,
   getCollaborationRoom,
   humanActorId,
+  createCollaborationAgentReply,
   linkCollaborationHandoffRun,
   listCollaborationHandoffs,
   listCollaborationMemberships,
@@ -283,9 +284,8 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
         "room.read",
       );
       if ("response" in access && access.response) return access.response;
-      const [members, messages, handoffs] = await Promise.all([
+      const [members, handoffs] = await Promise.all([
         listCollaborationMemberships(env, scope, roomId),
-        listCollaborationMessages(env, scope, roomId),
         listCollaborationHandoffs(env, scope, roomId),
       ]);
       const handoffsWithExecution = await Promise.all(
@@ -309,19 +309,94 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
             ].find((item) => item.approvalId === handoff.approvalId);
             const runBody = runResponse.ok
               ? ((await runResponse.json().catch(() => ({}))) as {
-                  run?: { status?: string; summary?: string; error?: string; pullUrl?: string };
+                  run?: {
+                    runId?: string;
+                    status?: string;
+                    summary?: string;
+                    error?: string;
+                    errorWire?: { userMessage?: string };
+                    pullUrl?: string;
+                    customAgentId?: string;
+                    customAgentVersion?: number;
+                    approval?: { approvalId?: string };
+                    deliverables?: Array<{
+                      path?: string;
+                      artifactId?: string;
+                      version?: number;
+                      sha256?: string;
+                    }>;
+                  };
                 })
               : {};
+            const run = runBody.run;
+            if (
+              handoff.status === "active" &&
+              run?.status === "completed" &&
+              run.runId === handoff.runId &&
+              run.customAgentId === handoff.recipientActorId.slice("agent:".length) &&
+              run.customAgentVersion === handoff.profileVersion &&
+              run.approval?.approvalId === handoff.approvalId
+            ) {
+              const artifacts = (run.deliverables ?? [])
+                .slice(0, 8)
+                .flatMap((item, index) =>
+                  typeof item.path === "string" && item.path.length <= 240
+                    ? [{
+                        index,
+                        path: item.path,
+                        ...(typeof item.artifactId === "string"
+                          ? { artifactId: item.artifactId.slice(0, 128) }
+                          : {}),
+                        ...(Number.isSafeInteger(item.version) && Number(item.version) > 0
+                          ? { version: Number(item.version) }
+                          : {}),
+                        ...(typeof item.sha256 === "string" && /^[a-f0-9]{64}$/i.test(item.sha256)
+                          ? { sha256: item.sha256 }
+                          : {}),
+                      }]
+                    : [],
+                );
+              const replyLines = [
+                `Completed approved task: ${handoff.taskId}`,
+                (run.summary?.trim() || "Completed with no summary.").slice(0, 1_800),
+                ...(run.pullUrl ? [`Pull request: ${run.pullUrl.slice(0, 300)}`] : []),
+                ...(artifacts.length
+                  ? [`Deliverables: ${artifacts.map((item) => item.path).join(", ")}`]
+                  : []),
+              ];
+              await createCollaborationAgentReply(env, scope, {
+                messageId: `agent_reply_${handoff.handoffId}`,
+                roomId,
+                handoffId: handoff.handoffId,
+                runId: handoff.runId,
+                agentUserId: handoff.recipientUserId,
+                agentActorId: handoff.recipientActorId,
+                profileVersion: handoff.profileVersion ?? 0,
+                body: replyLines.join("\n").slice(0, 2_400),
+                sourceArtifactRefs: artifacts,
+                createdAt: Date.now(),
+              });
+            }
             return {
               ...handoff,
               execution: {
                 approvalId: handoff.approvalId,
                 runId: handoff.runId,
-                ...(approval ? { approvalStatus: approval.status } : {}),
+                approvalStatus: approval?.status ?? "unknown",
                 ...(runBody.run?.status ? { runStatus: runBody.run.status } : {}),
                 ...(runBody.run?.summary ? { summary: runBody.run.summary } : {}),
-                ...(runBody.run?.error ? { error: runBody.run.error } : {}),
+                ...(runBody.run?.error || runBody.run?.errorWire?.userMessage
+                  ? { error: (runBody.run.error ?? runBody.run.errorWire?.userMessage)?.slice(0, 800) }
+                  : runBody.run?.status === "unknown"
+                    ? { error: "The run outcome could not be verified." }
+                    : runBody.run?.status === "error" || runBody.run?.status === "failed"
+                      ? { error: "The employee run ended with an error." }
+                      : {}),
                 ...(runBody.run?.pullUrl ? { pullUrl: runBody.run.pullUrl } : {}),
+                ...(!runBody.run && approval?.status !== "pending"
+                  ? { runStatus: "unknown", error: "The run outcome could not be verified." }
+                  : {}),
+                ...(!runResponse.ok || !runBody.run ? { unavailable: true } : {}),
               },
             };
           } catch {
@@ -330,12 +405,16 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
               execution: {
                 approvalId: handoff.approvalId,
                 runId: handoff.runId,
+                approvalStatus: "unknown",
+                runStatus: "unknown",
+                error: "Run status is temporarily unavailable.",
                 unavailable: true,
               },
             };
           }
         }),
       );
+      const messages = await listCollaborationMessages(env, scope, roomId);
       return json({
         room: access.room,
         currentUserId: scope.userId,
@@ -485,6 +564,8 @@ export async function handleCollaboration(request: Request, env: Env): Promise<R
         body.body.length > MAX_MESSAGE_LENGTH
       )
         return invalidBody(`Message must be 1–${MAX_MESSAGE_LENGTH} characters.`);
+      if (typeof body.messageId === "string" && body.messageId.startsWith("agent_reply_"))
+        return invalidBody("Message id uses a reserved employee reply namespace.");
       const sender = actorFor(scope, access.membership.actorKind, access.membership.actorId);
       const message = {
         kind: "message" as const,

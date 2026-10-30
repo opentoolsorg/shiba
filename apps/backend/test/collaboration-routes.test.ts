@@ -84,6 +84,14 @@ describe("authenticated collaboration rooms", () => {
         })
       )?.status,
     ).toBe(403);
+    expect(
+      (
+        await f.send(`/rooms/${roomId}/messages`, "POST", {
+          messageId: "agent_reply_forged",
+          body: "I finished the work.",
+        })
+      )?.status,
+    ).toBe(400);
 
     const reloaded = await json<{
       members: Array<{ userId: string; actorKind: string }>;

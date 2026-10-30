@@ -24,6 +24,14 @@ interface Message {
   senderKind: "human" | "agent";
   body: string;
   createdAt: number;
+  sourceRunId?: string;
+  sourceArtifactRefs?: Array<{
+    index: number;
+    path: string;
+    artifactId?: string;
+    version?: number;
+    sha256?: string;
+  }>;
 }
 
 interface Handoff {
@@ -422,11 +430,28 @@ export function CollaborationView(): JSX.Element {
                         >
                           <div className="mb-1 flex items-center gap-2 text-[10px] text-[var(--muted-foreground-2)]">
                             <span className="font-semibold text-[var(--fg)]">
-                              {item.senderKind === "agent" ? "Agent" : item.senderUserId}
+                              {item.senderKind === "agent"
+                                ? (members.find((member) => member.actorId === item.senderActorId)
+                                    ?.displayName ?? "Employee")
+                                : item.senderUserId}
                             </span>
                             <time>{new Date(item.createdAt).toLocaleString()}</time>
                           </div>
                           <p className="whitespace-pre-wrap break-words text-sm">{item.body}</p>
+                          {item.sourceRunId && (
+                            <div className="mt-2 border-t border-[var(--border-1)] pt-2 text-[10px]">
+                              <p>Completed run: {item.sourceRunId}</p>
+                              {item.sourceArtifactRefs?.map((artifact) => (
+                                <a
+                                  key={`${item.messageId}-${artifact.index}`}
+                                  href={`/api/runs/${encodeURIComponent(item.sourceRunId ?? "")}/deliverables/${artifact.index}`}
+                                  className="mr-2 underline"
+                                >
+                                  {artifact.path}
+                                </a>
+                              ))}
+                            </div>
+                          )}
                         </article>
                       ))}
                       {detail.messages.length === 0 && (
