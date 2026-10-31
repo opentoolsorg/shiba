@@ -17,10 +17,11 @@ const workerOrigin = `http://localhost:${workerPort}`;
 const workerLoopbackOrigin = `http://127.0.0.1:${workerPort}`;
 const tempRoot = await mkdtemp(path.join(tmpdir(), "shiba-browser-acceptance-"));
 const stateDir = path.join(tempRoot, "wrangler-state");
-const screenshotDir = path.join(tmpdir(), "shiba-e2e-acceptance", "screenshots");
+const outputDir = process.env.SHIBA_ACCEPTANCE_OUTPUT_DIR ?? path.join(tmpdir(), "shiba-e2e-acceptance");
+const screenshotDir = path.join(outputDir, "screenshots");
 const screenshotPath = path.join(screenshotDir, `${path.basename(tempRoot)}-journey.png`);
 await mkdir(screenshotDir, { recursive: true });
-const evidencePath = path.join(tmpdir(), "shiba-e2e-acceptance", "browser.latest.json");
+const evidencePath = path.join(outputDir, "browser.latest.json");
 await mkdir(path.dirname(evidencePath), { recursive: true });
 
 const varsPath = path.join(backendDir, ".dev.vars");

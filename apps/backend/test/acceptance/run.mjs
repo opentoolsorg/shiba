@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,8 +11,7 @@ const plan = JSON.parse(readFileSync(planPath, "utf8"));
 const revision = () => spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).stdout.trim();
 const sourceRevision = revision();
 const runId = new Date().toISOString().replaceAll(":", "-");
-const outputDir = path.join(tmpdir(), "shiba-e2e-acceptance");
-mkdirSync(outputDir, { recursive: true });
+const outputDir = mkdtempSync(path.join(tmpdir(), "shiba-e2e-acceptance-"));
 
 const filesByApp = {
   backend: plan.journeys
@@ -35,7 +34,7 @@ for (const [app, files] of Object.entries(filesByApp)) {
   if (files.length === 0) continue;
   const appRoot = path.join(repoRoot, "apps", app);
   const reportPath = path.join(outputDir, `${runId}-${app}.json`);
-  const args = ["exec", "vitest", "run", "--reporter=json", `--outputFile=${reportPath}`, ...files];
+  const args = ["exec", "vitest", "run", "--maxWorkers=2", "--reporter=json", `--outputFile=${reportPath}`, ...files];
   const result = spawnSync("corepack", ["pnpm@10.34.4", ...args], {
     cwd: appRoot,
     env: { ...process.env, CI: "true" },
@@ -91,6 +90,7 @@ let browserStatus = "not_run";
 if (browserJourney?.script) {
   const browserRun = spawnSync(process.execPath, [path.join(repoRoot, browserJourney.script)], {
     cwd: repoRoot,
+    env: { ...process.env, SHIBA_ACCEPTANCE_OUTPUT_DIR: outputDir },
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
   });
