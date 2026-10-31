@@ -140,6 +140,7 @@ let activeRunId;
 let activeHarnessChild;
 let heldClaim;
 const groupedChildren = new WeakSet();
+const terminatingChildren = new WeakSet();
 
 /** Signal only a group that this daemon explicitly created for this child. */
 function signalOwnedChild(child, signal) {
@@ -152,10 +153,15 @@ function signalOwnedChild(child, signal) {
 }
 
 function terminateOwnedChild(child) {
+  // The execution deadline and command timeout may fire in the same turn.
+  // One termination owns escalation; a second timer could signal a dead group.
+  if (terminatingChildren.has(child)) return;
+  terminatingChildren.add(child);
   signalOwnedChild(child, "SIGTERM");
   const escalation = setTimeout(() => signalOwnedChild(child, "SIGKILL"), 1500);
   escalation.unref();
-  child.once("close", () => clearTimeout(escalation));
+  child.once("exit", () => clearTimeout(escalation));
+  child.once("error", () => clearTimeout(escalation));
 }
 
 function ownChild(child, detached, execution) {
