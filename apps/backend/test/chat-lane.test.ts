@@ -318,7 +318,7 @@ describe("decideChatApproval", () => {
   it("posts the decision and resolves on an approved result", async () => {
     const { requests, resolve } = fakeOrchestrator({ body: { result: "approved" } });
     const result = await decideChatApproval(env(), input, resolve);
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, approved: true, requestedApproved: true });
     expect(requests[0]!.url).toBe("https://internal/api/approvals");
     expect(requests[0]!.body).toEqual({
       threadKey: "discord:777",
@@ -332,7 +332,13 @@ describe("decideChatApproval", () => {
   it("resolves on a rejected result", async () => {
     const { resolve } = fakeOrchestrator({ body: { result: "rejected" } });
     const result = await decideChatApproval(env(), { ...input, approved: false }, resolve);
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, approved: false, requestedApproved: false });
+  });
+
+  it("returns the authoritative outcome when the orchestrator recorded the opposite decision", async () => {
+    const { resolve } = fakeOrchestrator({ body: { result: "rejected" } });
+    const result = await decideChatApproval(env(), input, resolve);
+    expect(result).toEqual({ ok: true, approved: false, requestedApproved: true });
   });
 
   it("reports an already-resolved pointer when the result is unknown", async () => {

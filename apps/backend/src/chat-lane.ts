@@ -46,6 +46,7 @@ export function parseChatTaskRequest(input: {
 // Discord caps a message at 2000 chars; oversized tasks post as follow-up
 // chunks in the same thread — the card can never hide approved text.
 const CARD_TASK_LIMIT = 1500;
+const TELEGRAM_CHUNK_SIZE = 3900;
 
 /** Plain-text card body: the exact frozen input the approver is deciding on. */
 export function chatApprovalText(input: {
@@ -74,6 +75,16 @@ export function chatTaskChunks(task: string, limit: number): string[] {
   const chunks: string[] = [];
   for (let i = 0; i < task.length; i += limit) {
     chunks.push(task.slice(i, i + limit));
+  }
+  return chunks;
+}
+
+/** Follow-up messages when the approval card truncates the frozen task. */
+export function chatTaskFollowUpChunks(task: string, chunkSize = TELEGRAM_CHUNK_SIZE): string[] {
+  if (task.length <= CARD_TASK_LIMIT) return [];
+  const chunks: string[] = [];
+  for (let i = 0; i < task.length; i += chunkSize) {
+    chunks.push(task.slice(i, i + chunkSize));
   }
   return chunks;
 }
@@ -162,7 +173,7 @@ export async function decideChatApproval(
   env: Env,
   input: { platform: ChatPlatform; threadKey: string; approvalId: string; approved: boolean; decidedBy: string },
   resolve: ResolveOrchestrator = defaultResolver(env),
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; approved: boolean; requestedApproved: boolean } | { ok: false; error: string }> {
   let response: Response;
   try {
     const stub = await resolve(input.threadKey);
@@ -194,7 +205,8 @@ export async function decideChatApproval(
   if (body.result !== "approved" && body.result !== "rejected") {
     return { ok: false, error: "This approval is already resolved or expired — nothing to do." };
   }
-  return { ok: true };
+  const approved = body.result === "approved";
+  return { ok: true, approved, requestedApproved: input.approved };
 }
 
 /** Bounded insertion-ordered set of delivery ids already acked. */

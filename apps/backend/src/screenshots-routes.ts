@@ -1,4 +1,5 @@
 import type { Env } from "./env.js";
+import { assertSandboxArtifactAccess, readArtifactAccessAgent } from "./artifact-access.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { isValidSandboxId } from "./sandbox-routes.js";
 import { screenshotKeyFor } from "./screenshot.js";
@@ -31,6 +32,13 @@ export async function handleScreenshot(request: Request, env: Env): Promise<Resp
   if (!object) {
     return Response.json({ error: "Screenshot not found." }, { status: 404 });
   }
+  const denied = await assertSandboxArtifactAccess(
+    request,
+    env,
+    sandboxId,
+    readArtifactAccessAgent(object),
+  );
+  if (denied) return denied;
   return new Response(object.body, {
     headers: {
       "Content-Type": "image/png",

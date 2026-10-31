@@ -1,4 +1,5 @@
 import type { Env } from "./env.js";
+import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import {
@@ -40,6 +41,14 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
   if (auth.principal) {
     if (request.method === "GET" && !requireV1Read(auth.principal)) return v1Forbidden();
     if (request.method !== "GET" && !requireV1Write(auth.principal)) return v1Forbidden();
+  }
+  if (request.method !== "GET") {
+    const originBlock = rejectCrossOriginMutation(request);
+    if (originBlock) return originBlock;
+    if (request.method !== "DELETE") {
+      const jsonBlock = rejectNonJsonMutation(request);
+      if (jsonBlock) return jsonBlock;
+    }
   }
 
   let agentId: string | null = null;

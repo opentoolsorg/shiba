@@ -34,6 +34,8 @@ export interface SandboxEgressPin {
   githubRepoPath?: string;
   /** Org context for per-org model key and egress handling. */
   orgId?: string;
+  /** Frozen AI Gateway BYOK alias from the approved model connection. */
+  gatewayByokAlias?: string;
 }
 
 export interface ExecResult {

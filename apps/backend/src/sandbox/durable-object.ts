@@ -89,6 +89,18 @@ export class Sandbox extends DurableObject<Env> {
     this.persistOutbound(config);
   }
 
+  async setOutboundGatewayByokAlias(alias: string): Promise<void> {
+    const normalized = alias.trim();
+    if (!normalized) throw new Error("Gateway BYOK alias is required.");
+    const config = this.getOutboundConfig();
+    if (config.gatewayByokAlias && config.gatewayByokAlias !== normalized) {
+      throw new Error("Sandbox is already bound to a different gateway credential.");
+    }
+    if (config.gatewayByokAlias === normalized) return;
+    config.gatewayByokAlias = normalized;
+    this.persistOutbound(config);
+  }
+
   async approveHarnessEgress(hosts: string[]): Promise<void> {
     const config = this.getOutboundConfig();
     config.allowedHosts = [...hosts];
