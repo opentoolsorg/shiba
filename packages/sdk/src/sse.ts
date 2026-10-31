@@ -17,6 +17,9 @@ export interface StreamOptions {
   maxReconnectAttempts?: number;
 }
 
+/** Pending frame bytes before the next event delimiter. */
+const MAX_PENDING_FRAME_BYTES = 512_000;
+
 function parseSseBlock(block: string): SseEvent<string> | null {
   const lines = block.split("\n");
   let id: string | undefined;
@@ -45,6 +48,26 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Index of the next SSE event delimiter starting at `from`. */
+function nextEventDelimiter(buffer: string, from: number): { index: number; length: number } {
+  const lf = buffer.indexOf("\n\n", from);
+  const crlf = buffer.indexOf("\r\n\r\n", from);
+  const cr = buffer.indexOf("\r\r", from);
+  let index = -1;
+  let length = 2;
+  for (const candidate of [
+    { index: lf, length: 2 },
+    { index: crlf, length: 4 },
+    { index: cr, length: 2 },
+  ]) {
+    if (candidate.index >= 0 && (index < 0 || candidate.index < index)) {
+      index = candidate.index;
+      length = candidate.length;
+    }
+  }
+  return { index, length };
+}
+
 export async function* streamSse<T = unknown>(options: StreamOptions): AsyncGenerator<T> {
   const reconnect = options.reconnect ?? true;
   const maxAttempts = options.maxReconnectAttempts ?? 8;
@@ -70,15 +93,20 @@ export async function* streamSse<T = unknown>(options: StreamOptions): AsyncGene
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let scanFrom = 0;
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        let split = buffer.indexOf("\n\n");
-        while (split !== -1) {
-          const block = buffer.slice(0, split);
-          buffer = buffer.slice(split + 2);
+        if (buffer.length > MAX_PENDING_FRAME_BYTES) {
+          throw new ShibaApiError("SSE frame exceeded size limit", 413, null);
+        }
+        let split = nextEventDelimiter(buffer, scanFrom);
+        while (split.index !== -1) {
+          const block = buffer.slice(0, split.index);
+          buffer = buffer.slice(split.index + split.length);
+          scanFrom = 0;
           const parsed = parseSseBlock(block);
           if (parsed) {
             if (parsed.id) lastEventId = parsed.id;
@@ -90,8 +118,9 @@ export async function* streamSse<T = unknown>(options: StreamOptions): AsyncGene
             }
             yield data;
           }
-          split = buffer.indexOf("\n\n");
+          split = nextEventDelimiter(buffer, scanFrom);
         }
+        scanFrom = Math.max(0, buffer.length - 3);
       }
     } finally {
       reader.releaseLock();
