@@ -253,6 +253,7 @@ function rethrowLocalApiError(error, context) {
   if (context === "pair" && error?.status === 401) {
     fail("pairing token expired, reused, or invalid — mint a new one in Remote Access.", EXIT_PAIR_TOKEN);
   }
+  if (context === "pair") fail(`pairing failed: ${error instanceof Error ? error.message : String(error)}`);
   if (error instanceof Error) throw error;
   throw new Error(String(error));
 }
