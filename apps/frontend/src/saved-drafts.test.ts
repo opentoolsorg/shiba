@@ -40,6 +40,15 @@ describe("composer drafts", () => {
     expect(readDraft("missing")).toBe("");
   });
 
+  it("namespaces drafts by verified owner and session", () => {
+    const aliceDefault = composerDraftScope("alice@example.test", "default");
+    const bobDefault = composerDraftScope("bob@example.test", "default");
+    writeDraft(aliceDefault, "alice text");
+    writeDraft(bobDefault, "bob text");
+    expect(readDraft(aliceDefault)).toBe("alice text");
+    expect(readDraft(bobDefault)).toBe("bob text");
+  });
+
   it("deletes the scope on an empty or whitespace write", () => {
     writeDraft("a", "hello");
     writeDraft("a", "  ");
