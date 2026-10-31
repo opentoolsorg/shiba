@@ -25,6 +25,8 @@ import { JsonRpcPeer, type JsonRpcInbound } from "./jsonrpc.js";
 const THREAD_KEY_PREFIX = "acp";
 const SPINE_POLL_MS = 1500;
 const RUNS_POLL_LIMIT = 50;
+const RUN_DISCOVERY_MAX_MS = 15 * 60 * 1000;
+const PUMP_FAILURE_BUDGET = 120;
 const TERMINAL_STATUSES = new Set(["completed", "error", "aborted", "cancelled"]);
 
 interface SessionState {
@@ -246,12 +248,14 @@ export class ShibaAcpServer {
     }
 
     // 1. Mint the approval — nothing runs yet; the gate IS the product.
+    const acpThreadKey = `${THREAD_KEY_PREFIX}:${session.id}`;
     const queued = await this.deps.client.queueRun({
       repoUrl: session.repoUrl,
       task: text,
       baseBranch: session.baseBranch,
       ...(session.model !== null ? { codingModel: session.model } : {}),
-      commandId: `acp:${session.id}:${this.now()}`,
+      commandId: `${acpThreadKey}:${this.now()}`,
+      threadKey: acpThreadKey,
     });
     this.emitUpdate(session.id, {
       sessionUpdate: "agent_message_chunk",
@@ -269,12 +273,15 @@ export class ShibaAcpServer {
       kind: "execute",
     });
     const decision = await this.deps.client.resolveApproval({
-      threadKey: `${THREAD_KEY_PREFIX}:${session.id}`,
+      threadKey: acpThreadKey,
       approvalId: queued.approvalId,
       approved: pick === "allow",
       decidedBy: "acp-client",
     });
     if (pick === "reject" || decision.result === "rejected") {
+      return { stopReason: "refusal" };
+    }
+    if (decision.result !== "approved") {
       return { stopReason: "refusal" };
     }
 
@@ -290,15 +297,29 @@ export class ShibaAcpServer {
   private async pump(session: SessionState, approvalId: string): Promise<void> {
     let runId = session.runId;
     let settledBy: string | null = null;
+    const startedAt = this.now();
+    let failures = 0;
     while (!session.cancelled) {
+      if (this.now() - startedAt > RUN_DISCOVERY_MAX_MS) {
+        session.settle?.resolve("end_turn");
+        session.settle = null;
+        return;
+      }
+      if (failures >= PUMP_FAILURE_BUDGET) {
+        session.settle?.resolve("end_turn");
+        session.settle = null;
+        return;
+      }
       // Spine events → session/update (incremental, cursor-paged).
       try {
         const page = await this.deps.client.fetchSpine(session.spineCursor);
+        failures = 0;
         for (const event of page.events) {
           session.spineCursor = Math.max(session.spineCursor, event.seq);
           this.emitSpineEvent(session, event);
         }
       } catch {
+        failures += 1;
         // A dropped poll just delays updates; the run record check below still settles.
       }
 
@@ -306,12 +327,15 @@ export class ShibaAcpServer {
         try {
           runId = await this.findRunId(approvalId);
           if (runId !== null) session.runId = runId;
+          failures = 0;
         } catch {
-          // keep polling
+          failures += 1;
+          // keep polling until discovery budget exhausts
         }
       } else {
         try {
           const run = await this.deps.client.getRun(runId);
+          failures = 0;
           if (TERMINAL_STATUSES.has(run.status)) {
             if (typeof run.summary === "string" && run.summary !== "") {
               this.emitUpdate(session.id, {
@@ -331,7 +355,8 @@ export class ShibaAcpServer {
             return;
           }
         } catch {
-          // transient — poll again
+          failures += 1;
+          // transient — poll again until budget exhausts
         }
       }
       await this.sleep(SPINE_POLL_MS);

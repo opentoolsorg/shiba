@@ -256,6 +256,7 @@ describe("OpenCodeAgent response boundary", () => {
       goto: vi.fn(async () => ({})),
       screenshot: vi.fn(async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47])),
       setRequestInterception: vi.fn(async () => undefined),
+      evaluateOnNewDocument: vi.fn(async () => undefined),
       on: vi.fn((_event: string, handler: (request: unknown) => void) => {
         requestHandlers.push(handler);
       }),

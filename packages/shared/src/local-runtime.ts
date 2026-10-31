@@ -175,6 +175,8 @@ export interface LocalDispatchRecord {
   }[];
   /** One-shot interrupt flag the daemon consumes. */
   interrupt?: boolean;
+  /** Dashboard user who queued this run; harness control is scoped to them. */
+  dashboardOwnerId?: string;
 }
 
 /** A claimed record goes stale this long after its claim with no result —
