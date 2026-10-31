@@ -125,7 +125,7 @@ export function IntegrationCatalogDirectory({
         <p className="text-[11px] text-[var(--muted-foreground-2)]">
           {visible.length} of {INTEGRATION_CATALOG.length} integrations
           {tab === "connected" ? " with live or deployment-backed status" : ""}.
-          Bridge and SaaS MCP rows stay catalog-only until PR B/C.
+          Bridge rows use Grok Bot in PR C. Custom MCP rows connect above or via Agents & MCP.
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
