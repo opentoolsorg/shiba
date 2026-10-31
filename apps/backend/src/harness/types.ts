@@ -226,6 +226,23 @@ export interface HarnessCapabilities {
 /** Deterministic verify verdict — load-bearing, unlike the advisory quality score. */
 export type VerificationOutcome = { ok: true } | { ok: false; reason: string };
 
+function parseExecSettledReceipt(
+  detail: string | undefined,
+): { command?: string; exit?: number; refused?: boolean } | null {
+  if (!detail) return null;
+  try {
+    const parsed = JSON.parse(detail) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      command: typeof parsed.command === "string" ? parsed.command : undefined,
+      exit: typeof parsed.exit === "number" ? parsed.exit : undefined,
+      refused: parsed.refused === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The shared deterministic verify every sandbox harness runs: a completed
  * run must have produced evidence — a non-empty diff or captured files,
@@ -252,15 +269,14 @@ export function verifyRunOutcome(
         reason: "testCommand was declared but this harness cannot run tests — refusing to report unverified success.",
       };
     }
-    // Receipts record the shell-joined command — compare the same form.
+    // Receipts record the shell-joined command — compare the parsed receipt, not substrings.
     // A refused command never executed: its receipt does not count as run.
     const commandString = shellJoin(input.testCommand);
-    const settled = (result.signals ?? []).find(
-      (signal) =>
-        signal.kind === "exec.settled" &&
-        signal.detail?.includes(commandString) &&
-        !signal.detail.includes('"refused":true'),
-    );
+    const settled = (result.signals ?? []).find((signal) => {
+      if (signal.kind !== "exec.settled") return false;
+      const receipt = parseExecSettledReceipt(signal.detail);
+      return receipt?.command === commandString && receipt.refused !== true;
+    });
     const display = input.testCommand.join(" ");
     if (!settled) {
       return {
@@ -268,7 +284,8 @@ export function verifyRunOutcome(
         reason: `Test command ${JSON.stringify(display)} produced no exec receipt — refused by the allowlist or never ran.`,
       };
     }
-    if (!settled.detail?.includes('"exit":0')) {
+    const receipt = parseExecSettledReceipt(settled.detail);
+    if (receipt?.exit !== 0) {
       return {
         ok: false,
         reason: `Test command ${JSON.stringify(display)} did not exit 0 — refusing to report a failed-test run as completed.`,

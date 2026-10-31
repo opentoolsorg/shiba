@@ -85,7 +85,14 @@ function valueForms(values: Record<string, string>): [string, string][] {
 /** Replace each approved value (longest form first) with a placeholder naming its variable. */
 export function runEnvScrubber(values: Record<string, string>): (text: string) => string {
   const forms = valueForms(values);
-  return (text) => forms.reduce((out, [name, form]) => out.split(form).join(`[redacted:${name}]`), text);
+  return (text) => {
+    let out = text;
+    for (const [name, form] of forms) {
+      if (!text.includes(form)) continue;
+      out = out.split(form).join(`[redacted:${name}]`);
+    }
+    return out;
+  };
 }
 
 /** The name of the first approved value found in `text`, if any. */
@@ -93,17 +100,36 @@ function runEnvLeakName(text: string, values: Record<string, string>): string | 
   return valueForms(values).find(([, form]) => text.includes(form))?.[0];
 }
 
-// Include +++ headers: added content starting with ++ is indistinguishable without parsing hunks.
-function addedLines(diff: string): string {
+function formForName(values: Record<string, string>, name: string): string | undefined {
+  return valueForms(values).find(([n]) => n === name)?.[1];
+}
+
+// Strip diff syntax so multiline secrets and file bodies are checked as written.
+function addedDiffText(diff: string): string {
   return diff
     .split("\n")
     .filter((line) => line.startsWith("+"))
+    .map((line) => (line.startsWith("+++ ") ? line.slice(4) : line.slice(1)))
     .join("\n");
 }
 
 /** The name of the first approved value the diff adds, if any. */
 export function runEnvDiffLeakName(diff: string, values: Record<string, string>): string | undefined {
-  return runEnvLeakName(addedLines(diff), values);
+  return runEnvLeakName(addedDiffText(diff), values);
+}
+
+/** UTF-8 publication bytes when Git diff presentation omits added lines. */
+function utf8FileEnvLeak(content: string, diff: string, values: Record<string, string>): string | undefined {
+  const leaked = runEnvLeakName(content, values);
+  if (leaked === undefined) return undefined;
+  const form = formForName(values, leaked);
+  if (form === undefined) return leaked;
+  if (addedDiffText(diff).includes(form)) return leaked;
+  const lines = diff.split("\n");
+  if (lines.some((line) => line.includes(form)) && !lines.some((line) => line.startsWith("+") && line.includes(form))) {
+    return undefined;
+  }
+  return leaked;
 }
 
 // Redacting file contents would corrupt the change; fail and drop it instead.
@@ -118,12 +144,15 @@ export function guardRunEnvLeak(result: CodingTaskResult, values: Record<string,
       ? { signals: result.signals.map((s) => (s.detail !== undefined ? { ...s, detail: scrub(s.detail) } : s)) }
       : {}),
   };
-  // Text files show up in the diff's added lines; binary files only through their content.
   const leaked =
     runEnvDiffLeakName(result.diff, values) ??
     result.files
       .filter((f) => f.encoding === "base64" && f.content !== null)
       .map((f) => runEnvLeakName(atob(f.content as string), values))
+      .find(Boolean) ??
+    result.files
+      .filter((f) => f.encoding === "utf8" && f.content !== null)
+      .map((f) => utf8FileEnvLeak(f.content as string, result.diff, values))
       .find(Boolean);
   if (leaked === undefined) return scrubbed;
   return {

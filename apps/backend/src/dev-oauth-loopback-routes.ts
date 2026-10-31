@@ -12,6 +12,8 @@ import { timingSafeEqualString } from "./security.js";
 export const DEV_OAUTH_LOOPBACK_HEADER = "x-shiba-dev-oauth-loopback-secret";
 
 const CALLBACK_TTL_MS = 5 * 60 * 1000;
+const MAX_CALLBACK_CACHE = 256;
+const PRUNE_BATCH = 32;
 
 type StoredCallback = { url: string; at: number };
 
@@ -59,14 +61,29 @@ export function oauthStateFromCallbackUrl(url: string): string | null {
 
 function pruneExpired(): void {
   const cutoff = Date.now() - CALLBACK_TTL_MS;
+  let removed = 0;
   for (const [state, row] of byState) {
-    if (row.at < cutoff) byState.delete(state);
+    if (row.at >= cutoff) continue;
+    byState.delete(state);
+    removed += 1;
+    if (removed >= PRUNE_BATCH) break;
   }
 }
 
-function storeCallback(state: string, url: string): void {
+function enforceCallbackCacheLimit(): void {
+  while (byState.size > MAX_CALLBACK_CACHE) {
+    const oldest = byState.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    byState.delete(oldest);
+  }
+}
+
+function storeCallback(state: string, url: string): boolean {
   pruneExpired();
+  if (!byState.has(state) && byState.size >= MAX_CALLBACK_CACHE) return false;
   byState.set(state, { url, at: Date.now() });
+  enforceCallbackCacheLimit();
+  return true;
 }
 
 function takeCallback(state: string): string | null {
@@ -112,7 +129,9 @@ export async function handleDevOAuthLoopback(request: Request, env: Env): Promis
     if (state === null) {
       return Response.json({ error: "Callback URL is missing OAuth state." }, { status: 400 });
     }
-    storeCallback(state, url);
+    if (!storeCallback(state, url)) {
+      return Response.json({ error: "OAuth callback cache is full." }, { status: 429 });
+    }
     return Response.json({ ok: true });
   }
 
