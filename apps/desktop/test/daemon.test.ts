@@ -166,10 +166,6 @@ describe("shiba-local-daemon operator errors", () => {
 
   it("exits 76 when the Worker returns an HTML Access page", async () => {
     const root = mkdtempSync(join(tmpdir(), "shiba-daemon-access-"));
-    writeFileSync(
-      join(root, "config.json"),
-      JSON.stringify({ workerUrl: "http://127.0.0.1:1", adapterToken: "tok", machineId: "m1" }),
-    );
     const server = createServer((req, res) => {
       req.resume();
       req.on("end", () => {
@@ -182,6 +178,7 @@ describe("shiba-local-daemon operator errors", () => {
     try {
       const { port } = server.address() as AddressInfo;
       const url = `http://127.0.0.1:${port}`;
+      writeFileSync(join(root, "config.json"), JSON.stringify({ workerUrl: url, adapterToken: "paired-test-token", machineId: "paired-machine-test" }));
       const d = spawn(process.execPath, [DAEMON, "--once", "--poll", "200"], {
         env: {
           ...process.env,
