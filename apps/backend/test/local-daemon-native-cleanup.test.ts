@@ -11,7 +11,9 @@ import { expect, it } from "vitest";
 
 const exec = promisify(execFile);
 
-it.each([false, true])("confirms native provider cleanup before settlement (SIGKILL denied: %s)", async (denyKill) => {
+it.each(["confirmed", "kill-denied", "stop-during-startup"])("confirms native provider cleanup before settlement (%s)", async (mode) => {
+  const denyKill = mode === "kill-denied";
+  const startupStop = mode === "stop-during-startup";
   const root = await mkdtemp(path.join(os.tmpdir(), "shiba-native-cleanup-"));
   const repo = path.join(root, "repo");
   const bin = path.join(root, "bin");
@@ -21,6 +23,7 @@ it.each([false, true])("confirms native provider cleanup before settlement (SIGK
   const ignoredTerm = path.join(root, "ignored-term");
   const deniedMarker = path.join(root, "kill-denied");
   const heartbeat = path.join(root, "provider-heartbeat");
+  const releaseMkdir = path.join(root, "release-session-mkdir");
   await mkdir(repo); await mkdir(bin); await mkdir(operatorHome);
   await exec("git", ["init", "-b", "main", repo]);
   await writeFile(path.join(repo, "README.md"), "before\n");
@@ -47,6 +50,15 @@ it.each([false, true])("confirms native provider cleanup before settlement (SIGK
   await writeFile(preloader, [
     "import fs from 'node:fs';",
     "import { ChildProcess } from 'node:child_process';",
+    "import promises from 'node:fs/promises';",
+    "const originalMkdir=promises.mkdir.bind(promises);",
+    "promises.mkdir=async function(...args){",
+    `  if(${startupStop}&&String(args[0])===${JSON.stringify(path.join(root, "run", "runs", "native-cleanup", "home"))}&&new Error().stack.includes('openLoggedSession')){`,
+    "    console.error('fixture: session log mkdir paused');",
+    `    while(!fs.existsSync(${JSON.stringify(releaseMkdir)}))await new Promise(resolve=>setTimeout(resolve,10));`,
+    "  }",
+    "  return originalMkdir(...args);",
+    "};",
     "const originalKill=process.kill.bind(process), originalChildKill=ChildProcess.prototype.kill;",
     "function deny(pid,signal){",
     `  if(!${denyKill}||signal!=='SIGKILL'||!fs.existsSync(${JSON.stringify(successMarker)}))return;`,
@@ -85,9 +97,16 @@ it.each([false, true])("confirms native provider cleanup before settlement (SIGK
     } else {
       if (request.url === "/api/local/result") {
         results.push(body.result);
-        const pid = Number(await readFile(providerPidFile, "utf8"));
-        try { process.kill(pid, 0); aliveAtSettlement.push(true); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; aliveAtSettlement.push(false); }
+        if (existsSync(providerPidFile)) {
+          const pid = Number(await readFile(providerPidFile, "utf8"));
+          try { process.kill(pid, 0); aliveAtSettlement.push(true); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; aliveAtSettlement.push(false); }
+        } else aliveAtSettlement.push(false);
+        if (startupStop) {
+          // Keep shutdown's HTTP receipt open while the paused native startup resumes.
+          await writeFile(releaseMkdir, "released after shutdown receipt");
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
       }
       response.end("{}");
     }
@@ -102,7 +121,7 @@ it.each([false, true])("confirms native provider cleanup before settlement (SIGK
     unrelated.stdout.once("data", (chunk) => resolve(Number(String(chunk).trim())));
   });
   const daemon = spawn(process.execPath, ["--import", preloader,
-    fileURLToPath(new URL("../../../scripts/shiba-local-daemon.mjs", import.meta.url)), ...(denyKill ? ["--poll", "500"] : ["--once"]),
+    fileURLToPath(new URL("../../../scripts/shiba-local-daemon.mjs", import.meta.url)), ...(denyKill || startupStop ? ["--poll", "500"] : ["--once"]),
   ], {
     env: { ...process.env, HOME: operatorHome, PATH: `${bin}:${process.env.PATH}`,
       SHIBA_LOCAL_RUN_ROOT: path.join(root, "run"), SHIBA_WORKER_URL: `http://127.0.0.1:${address.port}`,
@@ -111,15 +130,30 @@ it.each([false, true])("confirms native provider cleanup before settlement (SIGK
   });
   stopAfterUnexpectedClaim = () => { daemon.kill("SIGTERM"); };
   let output = "";
+  let startupStopSent = false;
   daemon.stdout.on("data", (chunk) => { output += String(chunk); });
-  daemon.stderr.on("data", (chunk) => { output += String(chunk); });
+  daemon.stderr.on("data", (chunk) => {
+    output += String(chunk);
+    if (startupStop && !startupStopSent && output.includes("fixture: session log mkdir paused")) {
+      startupStopSent = true;
+      daemon.kill("SIGTERM");
+    }
+  });
   const timer = setTimeout(() => daemon.kill("SIGKILL"), 12_000);
   try {
     const exit = await new Promise<number | null>((resolve, reject) => { daemon.once("error", reject); daemon.once("close", resolve); });
-    expect(existsSync(successMarker), output).toBe(true);
-    expect(existsSync(ignoredTerm), output).toBe(true);
     expect(results, output).toHaveLength(1);
-    if (denyKill) {
+    if (startupStop) {
+      expect(startupStopSent, output).toBe(true);
+      expect(existsSync(releaseMkdir), output).toBe(true);
+      expect(existsSync(providerPidFile), "A native provider spawned after shutdown settlement began.").toBe(false);
+      expect(existsSync(successMarker), output).toBe(false);
+      expect(exit, output).toBe(143);
+      expect(results[0]).toMatchObject({ status: "error", summary: expect.stringContaining("daemon stopped") });
+      expect(claims, output).toBe(1);
+    } else if (denyKill) {
+      expect(existsSync(successMarker), output).toBe(true);
+      expect(existsSync(ignoredTerm), output).toBe(true);
       expect(existsSync(deniedMarker), output).toBe(true);
       expect(exit, output).toBe(70);
       expect(results[0]).toMatchObject({ status: "error", summary: expect.stringMatching(/termination unconfirmed/i) });
@@ -128,6 +162,8 @@ it.each([false, true])("confirms native provider cleanup before settlement (SIGK
       expect(claims, output).toBe(1);
       expect(aliveAtSettlement).toEqual([true]);
     } else {
+      expect(existsSync(successMarker), output).toBe(true);
+      expect(existsSync(ignoredTerm), output).toBe(true);
       expect(exit, output).toBe(0);
       expect(results[0]).toMatchObject({ status: "completed", exitCode: 0, summary: expect.stringContaining("native fixture completed successfully") });
       expect(aliveAtSettlement, "Provider must be reaped before publishing completed.").toEqual([false]);
