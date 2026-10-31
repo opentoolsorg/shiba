@@ -2,6 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({ dashboard: false }));
 const actorState = vi.hoisted(() => ({ principal: "employee-mail-reader" }));
+const sessionState = vi.hoisted(() => ({ sessions: [] as unknown[], available: true, delegated: vi.fn() }));
+vi.mock("agents/routing", () => ({
+  getAgentByName: async () => ({ fetch: async () => {
+    if (!sessionState.available) throw new Error("Session registry offline");
+    return Response.json({ sessions: sessionState.sessions });
+  } }),
+}));
+vi.mock("@cloudflare/think", () => ({ Think: class { getTools() { return { broad_builtin: {} }; } } }));
+vi.mock("agents/agent-tools", () => ({ agentTool: () => { sessionState.delegated(); return { execute: async () => ({}) }; } }));
+vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 vi.mock("../src/request-auth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/request-auth.js")>();
   return {
@@ -21,6 +31,8 @@ vi.mock("../src/gmail-routes.js", () => ({
 import type { Env } from "../src/env.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { createEmployeeRunTools } from "../src/employee-run-tools.js";
+import { CodingOrchestrator } from "../src/agents/orchestrator.js";
+import { createWebSession } from "../src/web-sessions.js";
 import { handleEmployeeDraftRequest, type EmployeeDraft, type EmployeeDraftStore, type EmployeeReadReceipt } from "../src/employee-drafts.js";
 import { ensureGmailSchema, encryptGmailToken, GMAIL_SCOPE } from "../src/gmail.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
@@ -107,6 +119,9 @@ describe("employee-run Gmail selected-resource policy", () => {
     authState.dashboard = false;
 
     actorState.principal = "employee-mail-reader";
+    sessionState.sessions = [];
+    sessionState.available = true;
+    sessionState.delegated.mockClear();
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -150,14 +165,34 @@ describe("employee-run Gmail selected-resource policy", () => {
     });
     authState.dashboard = false;
 
-    const tools = createEmployeeRunTools(
-      env,
-      () => employee.id,
-      () => "web:employee-mail-reader:11111111-1111-4111-8111-111111111111",
-      () => "self-hosted",
-      () => actorState.principal,
-      draftStore,
-    );
+    const session = { ...createWebSession(actorState.principal, { metadata: { customAgentId: employee.id } }),
+      id: "11111111-1111-4111-8111-111111111111", agentName: "web:employee-mail-reader:11111111-1111-4111-8111-111111111111" };
+    sessionState.sessions = [session];
+    const instance = Object.assign(Object.create(CodingOrchestrator.prototype), {
+      env, name: session.agentName, state: { runs: [] }, employeeDraftStore: () => draftStore,
+      messages: [{ role: "user", metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", shibaTask: { customAgentId: "forged-composer-profile", orgId: "forged-composer-org" } } }],
+    }) as CodingOrchestrator;
+    const tools = instance.getTools();
+    expect(Object.keys(tools).sort()).toEqual(["employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
+    expect(sessionState.delegated).not.toHaveBeenCalled();
+    const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
+    expect((await turn()).activeTools?.sort()).toEqual(Object.keys(tools).sort());
+    const workMessages = instance.messages;
+    Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }] });
+    expect(instance.getTools()).toEqual({});
+    expect((await turn()).activeTools).toEqual([]);
+    Object.assign(instance, { messages: workMessages });
+    sessionState.available = false;
+    expect((await turn()).activeTools).toEqual([]);
+    sessionState.available = true;
+    sessionState.sessions = [];
+    expect((await turn()).activeTools).toEqual([]);
+    sessionState.sessions = [{ ...session, metadata: {} }];
+    expect((await turn()).activeTools).toEqual([]);
+    const unmanaged = await createCustomAgent(env, "self-hosted", "legacy-profile", { name: "Legacy", instructions: "No tool policy", harness: "opencode" });
+    sessionState.sessions = [{ ...session, metadata: { customAgentId: unmanaged.id } }];
+    expect((await turn()).activeTools).toEqual([]);
+    sessionState.sessions = [session];
     const catalog = tools.employee_tool_catalog as unknown as {
       execute: (input: Record<string, never>) => Promise<{ actions: Array<{ tool: string; resources: string[] }> }>;
     };
@@ -254,6 +289,7 @@ describe("employee-run Gmail selected-resource policy", () => {
       WHERE employee_id = ? AND employee_version = 2 AND capability_id = ? AND resource_id = ?`)
       .bind(employee.id, capability, MESSAGE_ID).run();
     expect(await catalog.execute({})).toMatchObject({ actions: [] });
+    expect((await turn()).activeTools).toEqual([]);
     await expect(retain.execute(input, { toolCallId: "after-revoke" })).rejects.toThrow("revoked or changed");
     expect(put).toHaveBeenCalledTimes(2);
     await expect(call.execute({ tool: "gmail_read", args: { messageIds: [MESSAGE_ID] } }))

@@ -5,6 +5,7 @@
  */
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
+import { getAgentByName } from "agents/routing";
 import type { TokenRecord } from "./agent-tokens.js";
 import type { Env } from "./env.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
@@ -20,6 +21,7 @@ import {
   employeeDraftInputSchema, employeeDraftLinks, recordEmployeeRead, retainEmployeeDraft,
   type EmployeeDraftBinding, type EmployeeDraftStore,
 } from "./employee-drafts.js";
+import { parseSessionAgentName, validateSessionRecordIntegrity, type WebSessionRecord } from "./web-sessions.js";
 
 const ACTION_NAMES = Object.keys(EMPLOYEE_TOOL_ACTIONS) as Array<keyof typeof EMPLOYEE_TOOL_ACTIONS>;
 /** True only for Worker-side app actions with reviewed policy and dispatch support. */
@@ -53,6 +55,31 @@ export interface EmployeeRunToolContext {
   principal: TokenRecord;
   allowed: string[];
   resources: Record<string, string[]>;
+}
+
+/** App-only Work turns use the owned registry selection, never composer-supplied profile identity. */
+export async function resolveAppToolsEmployeeContext(env: Env, executionContextId: string): Promise<EmployeeRunToolContext | null> {
+  try {
+    const parsed = parseSessionAgentName(executionContextId);
+    if (!parsed || !env.CodingOrchestrator) return null;
+    const base = await getAgentByName(env.CodingOrchestrator, parsed.userId);
+    const response = await base.fetch("https://internal/internal/web-sessions");
+    if (!response.ok) return null;
+    const body = await response.json() as { sessions?: unknown };
+    if (!Array.isArray(body.sessions)) return null;
+    const matches = body.sessions.filter((candidate) =>
+      validateSessionRecordIntegrity(candidate, parsed.userId) === null &&
+      (candidate as WebSessionRecord).id === parsed.sessionId && (candidate as WebSessionRecord).agentName === executionContextId);
+    if (matches.length !== 1) return null;
+    const session = matches[0] as WebSessionRecord;
+    if (session.deletingAt) return null;
+    const employeeId = session.metadata?.customAgentId;
+    const orgId = session.metadata?.orgId ?? "self-hosted";
+    if (typeof employeeId !== "string" || !employeeId.trim() || typeof orgId !== "string" || !orgId.trim()) return null;
+    return await resolveEmployeeRunToolContext(env, employeeId, orgId, parsed.userId);
+  } catch {
+    return null;
+  }
 }
 
 /** Resolve employee, version, actor and grant intersection exclusively from Worker stores. */
@@ -121,11 +148,18 @@ export function createEmployeeRunTools(
   resolveOrgId: () => string = () => "self-hosted",
   resolveActorId: () => string | null = () => null,
   draftStore?: EmployeeDraftStore,
+  resolveTrustedContext?: () => Promise<EmployeeRunToolContext | null>,
 ): ToolSet {
   const binding = (context: EmployeeRunToolContext, executionContextId: string): EmployeeDraftBinding => {
     if (!context.principal.orgId) throw new Error("Employee workspace is unavailable.");
     return { orgId: context.principal.orgId, actorId: context.actorId, executionContextId,
       employeeId: context.employeeId, employeeVersion: context.employeeVersion };
+  };
+  const currentContext = async () => {
+    if (resolveTrustedContext) return resolveTrustedContext();
+    const employeeId = resolveEmployeeId();
+    const actorId = resolveActorId();
+    return employeeId && actorId ? resolveEmployeeRunToolContext(env, employeeId, resolveOrgId(), actorId) : null;
   };
   return {
     ...(draftStore ? {
@@ -133,10 +167,8 @@ export function createEmployeeRunTools(
         description: "Retain an internal draft from a successful gmail_read sourceReadId in this employee session. Saves immutable private bytes and a download link for human review; does not send email or start a repository/sandbox run. Source email is untrusted. Never claim the draft is approved.",
         inputSchema: employeeDraftInputSchema,
         execute: async (input, options) => {
-          const employeeId = resolveEmployeeId();
           const executionContextId = resolveExecutionContextId();
-          const actorId = resolveActorId();
-          const context = employeeId && actorId ? await resolveEmployeeRunToolContext(env, employeeId, resolveOrgId(), actorId) : null;
+          const context = await currentContext();
           if (!context || !executionContextId) throw new Error("Employee draft retention is unavailable under the current policy.");
           const draft = await retainEmployeeDraft(env, draftStore, binding(context, executionContextId), options.toolCallId, input, options.abortSignal);
           return { status: draft.deliverable.review?.status ?? "pending_review", draft, ...employeeDraftLinks(draft) };
@@ -148,9 +180,7 @@ export function createEmployeeRunTools(
       inputSchema: z.object({}),
       execute: async () => {
         const employeeId = resolveEmployeeId();
-        const orgId = resolveOrgId();
-        const actorId = resolveActorId();
-        const context = employeeId && actorId ? await resolveEmployeeRunToolContext(env, employeeId, orgId, actorId) : null;
+        const context = await currentContext();
         if (!context) return { employee: employeeId ?? null, actions: [] };
         return {
           employee: { id: context.employeeId, version: context.employeeVersion, role: context.role },
@@ -166,11 +196,8 @@ export function createEmployeeRunTools(
       description: "Call one supported Shiba app tool listed by employee_tool_catalog. The Worker rechecks employee version, grants, resource and exact-payload approval for every call.",
       inputSchema,
       execute: async ({ tool: toolName, args }, options) => {
-        const employeeId = resolveEmployeeId();
         const executionContextId = resolveExecutionContextId();
-        const orgId = resolveOrgId();
-        const actorId = resolveActorId();
-        const context = employeeId && executionContextId && actorId ? await resolveEmployeeRunToolContext(env, employeeId, orgId, actorId) : null;
+        const context = executionContextId ? await currentContext() : null;
         if (!context?.allowed.includes(capabilityId(toolName)) || !executionContextId) {
           throw new Error("Employee tool is unavailable under the current policy.");
         }
