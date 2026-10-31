@@ -6,6 +6,7 @@ import {
   parseDecisionData,
 } from "@shiba/shared";
 import {
+  CARD_TASK_LIMIT,
   chatApprovalText,
   chatTaskChunks,
   createSeenRing,
@@ -219,10 +220,15 @@ describe("chatApprovalText / decisionLine", () => {
 
   it("splits an oversized task into chunks the lane posts after the card", () => {
     const task = "x".repeat(5000);
-    const chunks = chatTaskChunks(task, 1900);
+    const chunks = chatTaskChunks(task, CARD_TASK_LIMIT, 1900);
     expect(chunks).toHaveLength(3);
     expect(chunks.join("")).toBe(task);
-    expect(chatTaskChunks("short", 1900)).toEqual([]);
+    expect(chatTaskChunks("short", CARD_TASK_LIMIT, 1900)).toEqual([]);
+  });
+
+  it("posts the full task when the card truncates but the message cap still fits", () => {
+    const task = "z".repeat(1700);
+    expect(chatTaskChunks(task, CARD_TASK_LIMIT, 1900)).toEqual([task]);
   });
 
   it("does not truncate a task at the limit", () => {

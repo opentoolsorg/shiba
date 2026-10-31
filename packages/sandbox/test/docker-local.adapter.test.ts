@@ -3,19 +3,24 @@ import { createDockerLocalSandboxProvider, type DockerExecutor } from "../src/ad
 import { describeSandboxProviderContract } from "../src/contract-suite.js";
 
 function mockDocker(): DockerExecutor {
-  const running = new Set<string>();
+  const running = new Map<string, string>();
   const files = new Map<string, string>();
   return {
     async run(args) {
       if (args[0] === "inspect") {
         const name = args[args.length - 1]!;
-        const ok = running.has(name);
-        return { stdout: ok ? "true" : "false", stderr: "", exitCode: ok ? 0 : 1 };
+        const instanceId = running.get(name);
+        if (instanceId === undefined) {
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        return { stdout: `true|${instanceId}`, stderr: "", exitCode: 0 };
       }
       if (args[0] === "run") {
         const nameIdx = args.indexOf("--name");
         const name = nameIdx >= 0 ? args[nameIdx + 1]! : "unknown";
-        running.add(name);
+        const labelIdx = args.indexOf("shiba.instance_id=");
+        const instanceId = labelIdx >= 0 ? args[labelIdx]!.slice("shiba.instance_id=".length) : name;
+        running.set(name, instanceId);
         return { stdout: "cid\n", stderr: "", exitCode: 0 };
       }
       if (args[0] === "exec") {
