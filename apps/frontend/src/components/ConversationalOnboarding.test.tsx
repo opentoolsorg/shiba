@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConversationalOnboarding } from "./ConversationalOnboarding";
 import { EMPTY_ONBOARDING_DRAFT, type OnboardingDraft } from "../onboarding-draft";
 import { OnboardingConflictError, type FirstRunProgressUpdate } from "../onboarding-progress-client";
 import type { FirstRunProgressSnapshot } from "./FirstRunWizard";
 
+beforeEach(() => { vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ sources: [] }) }))); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 const id = "draft_00000000-0000-4000-8000-000000000001";
 const initial: FirstRunProgressSnapshot = {
@@ -20,7 +21,7 @@ const reviewDraft: OnboardingDraft = { ...EMPTY_ONBOARDING_DRAFT, version: 1, cu
 function harness(options: { draft?: OnboardingDraft; fail?: (update: FirstRunProgressUpdate) => Promise<void> } = {}) {
   let server = { ...initial, ...(options.draft ? { draftTaskId: id, draftTask: options.draft } : {}) };
   const resume = vi.fn(async () => {}), refresh = vi.fn(async () => {}), dismiss = vi.fn(async () => {});
-  const close = vi.fn(), navigate = vi.fn(), useDraft = vi.fn(), legacy = vi.fn();
+  const close = vi.fn(), navigate = vi.fn(), useDraft = vi.fn(), legacy = vi.fn(), configure = vi.fn();
   const updates: FirstRunProgressUpdate[] = [];
   function Harness({ account = "owner-a" }: { account?: string }) {
     const [progress, setProgress] = useState(server);
@@ -34,9 +35,9 @@ function harness(options: { draft?: OnboardingDraft; fail?: (update: FirstRunPro
       server = { ...server, draftTaskId: id, draftTask: draft, revision: server.revision + 1 };
       setProgress(server);
     };
-    return <ConversationalOnboarding progress={progress} onUpdate={update} onResume={resume} onRefresh={refresh} onDismiss={dismiss} onClose={close} onNavigate={navigate} onLegacyGuide={legacy} onUseDraft={useDraft} draftScope={account} />;
+    return <ConversationalOnboarding progress={progress} onUpdate={update} onResume={resume} onRefresh={refresh} onDismiss={dismiss} onClose={close} onNavigate={navigate} onLegacyGuide={legacy} onUseDraft={useDraft} onConfigureEmployee={configure} draftScope={account} />;
   }
-  return { Harness, updates, resume, refresh, dismiss, close, navigate, useDraft, legacy, get server() { return server; } };
+  return { Harness, updates, resume, refresh, dismiss, close, navigate, useDraft, legacy, configure, get server() { return server; } };
 }
 
 const send = async (label: string, text: string) => {
@@ -48,7 +49,6 @@ const send = async (label: string, text: string) => {
 describe("conversational first task setup", () => {
   it("saves chips and free answers into an honest transcript, then requires explicit draft creation", async () => {
     const h = harness();
-    vi.stubGlobal("fetch", vi.fn());
     render(<h.Harness />);
     fireEvent.click(screen.getByRole("button", { name: "A research brief with sources" }));
     await screen.findByRole("textbox", { name: "Your answer: Audience" });
@@ -75,7 +75,8 @@ describe("conversational first task setup", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create first task draft" }));
     await screen.findByRole("heading", { name: "First task draft saved" });
     expect(h.close).not.toHaveBeenCalled(); expect(h.useDraft).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith("/api/memory/sources", { credentials: "same-origin", cache: "no-store" });
     fireEvent.click(screen.getByRole("button", { name: "Use first task draft in Work" }));
     expect(h.useDraft).toHaveBeenCalledWith({ draftTaskId: id, version: h.server.draftTask?.version, draftTask: h.server.draftTask });
   });
@@ -136,6 +137,49 @@ describe("conversational first task setup", () => {
     view.unmount(); render(<h.Harness />);
     expect(screen.getByRole("heading", { name: "First task draft saved" })).toBeTruthy();
     expect(h.updates.filter((body) => body.action === "prepare-task")).toHaveLength(1);
+  });
+
+  it("starts with two roles and reveals alternatives through native details", async () => {
+    const h = harness({ draft: { ...reviewDraft, currentStep: "employee" } });
+    render(<h.Harness />);
+    expect(within(screen.getByRole("group", { name: "Suggested roles" })).getAllByRole("button")).toHaveLength(2);
+    const details = screen.getByText("Other roles").closest("details");
+    expect(details?.open).toBe(false);
+    fireEvent.click(screen.getByText("Other roles"));
+    expect(details?.open).toBe(true);
+    expect(details?.querySelectorAll("button")).toHaveLength(5);
+  });
+
+  it("saves only ready source ids while preserving unsent facts and Memory return", async () => {
+    const source = { id: `memsrc_${"1".repeat(24)}`, title: "Private facts", version: 3, sha256: "a".repeat(64), ingestion: { state: "ready" }, disabledAt: null, expiresAt: null };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ sources: [source, { ...source, id: `memsrc_${"2".repeat(24)}`, title: "Expired facts", expiresAt: 1 }, { ...source, id: `memsrc_${"3".repeat(24)}`, title: "Legacy note", ingestion: undefined, version: undefined }] }) })));
+    const h = harness({ draft: { ...reviewDraft, currentStep: "context" } });
+    const view = render(<h.Harness />);
+    const ready = await screen.findByRole("checkbox", { name: "Private facts · v3 · ready" });
+    expect((screen.getByRole("checkbox", { name: /Expired facts/ }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("checkbox", { name: /Legacy note/ }) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer: Context" }), { target: { value: "Unsent private facts" } });
+    fireEvent.click(ready);
+    await waitFor(() => expect((ready as HTMLInputElement).checked).toBe(true));
+    expect(h.updates.at(-1)).toEqual({ action: "save-draft", draftTask: { sourceIds: [source.id] } });
+    expect((screen.getByRole("textbox", { name: "Your answer: Context" }) as HTMLTextAreaElement).value).toBe("Unsent private facts");
+    fireEvent.click(screen.getByRole("button", { name: "Upload or manage sources, then return" }));
+    await waitFor(() => expect(h.navigate).toHaveBeenCalledWith("memory"));
+    view.unmount(); render(<h.Harness />);
+    expect((screen.getByRole("textbox", { name: "Your answer: Context" }) as HTMLTextAreaElement).value).toBe("Unsent private facts");
+    await screen.findByRole("checkbox", { name: "Private facts · v3 · ready", checked: true });
+  });
+
+  it("offers explicit employee configuration and returns to a saved employee selection", async () => {
+    const h = harness({ draft: { ...reviewDraft, preparedAt: 100 } });
+    render(<h.Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Configure Research employee" }));
+    await waitFor(() => expect(h.configure).toHaveBeenCalledWith("research"));
+    expect(h.dismiss).toHaveBeenCalledOnce();
+    expect(h.updates).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Choose a saved employee" }));
+    await screen.findByRole("textbox", { name: "Your answer: Employee" });
+    expect(h.server.draftTask?.currentStep).toBe("employee");
   });
 
   it("requires all three outcome answers and saves custom employee needs as unconfigured", async () => {

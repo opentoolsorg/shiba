@@ -80,6 +80,20 @@ describe("explicit Worker app-tools Work path", () => {
     expect((screen.getByRole("textbox", { name: "Task description" }) as HTMLTextAreaElement).value).toContain("granted Gmail message");
   });
 
+  it("allows a prepared context brief without app scopes while retaining employee and goal binding", async () => {
+    const binding = { ...context, hasPreparedContext: true, profile: { ...context.profile, config: { ...context.profile.config, toolScopes: [] } } };
+    const sendMessage = vi.fn(async () => {});
+    const reference = { draftTaskId: "draft_00000000-0000-4000-8000-000000000001", version: 2 };
+    expect(appToolsWorkIssue(binding)).toBeNull();
+    await sendAppToolsWork(binding, "Canonical supplied brief", sendMessage, reference);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    await expect(sendAppToolsWork(binding, "Unlinked text", sendMessage)).rejects.toMatchObject({ message: "Review the saved first task draft before sending." });
+    expect(appToolsWorkIssue({ ...binding, hasPreparedContext: false })).not.toBeNull();
+    expect(appToolsWorkIssue({ ...binding, sessionAvailable: false })).not.toBeNull();
+    expect(appToolsWorkIssue({ ...binding, socketName: "stale" })).not.toBeNull();
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
   it("rejects an empty task before touching the message transport", async () => {
     const sendMessage = vi.fn(async () => {});
     await expect(sendAppToolsWork(context, "  ", sendMessage)).rejects.toMatchObject({ message: "Enter a task first." });

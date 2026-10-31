@@ -422,7 +422,11 @@ export function App(): React.JSX.Element {
     }
     return draft;
   });
+  const latestComposerTask = useRef(task);
+  latestComposerTask.current = task;
   const [selectedOnboardingDraftRef, setSelectedOnboardingDraftRef] = useState<OnboardingDraftRef | null>(null);
+  const latestSelectedDraftRef = useRef(selectedOnboardingDraftRef);
+  latestSelectedDraftRef.current = selectedOnboardingDraftRef;
   const selectedOnboardingTaskText = useRef<string | null>(null);
   const initialComposerPrompt = useRef(task);
   const [pendingOnboardingDraft, setPendingOnboardingDraft] = useState<SelectedOnboardingDraft | null>(null);
@@ -641,10 +645,13 @@ export function App(): React.JSX.Element {
   // A failed submit restores its text only into the session it came from.
   const restoreDraft = useCallback((scope: string, text: string, reference?: OnboardingDraftRef | null) => {
     if (draftScope.current === scope) {
+      if (latestComposerTask.current !== "" && latestComposerTask.current !== text) return;
+      const selected = latestSelectedDraftRef.current;
+      if (selected && (selected.draftTaskId !== reference?.draftTaskId || selected.version !== reference?.version)) return;
       selectedOnboardingTaskText.current = text;
       setSelectedOnboardingDraftRef(reference ?? null);
       setTask((current) => (current === "" ? text : current));
-    } else writeDraft(scope, text, reference);
+    } else if (!readDraft(scope)) writeDraft(scope, text, reference);
   }, []);
   const {
     agents: customAgentRecords,
@@ -930,7 +937,8 @@ export function App(): React.JSX.Element {
     profilesUnavailable: customAgentsLoading || Boolean(customAgentsError),
     socketName: agent.name,
     connected: orchestratorName !== null && agent.identified && !agent.connectionError && agent.readyState === 1,
-  }), [selectedSessionId, activeWebSession, sessionApiAvailable, sessionsLoaded, sessionRegistryOwner, orchestratorName, customAgentId, customAgentRecords, customAgentsLoading, customAgentsError, agent.name, agent.identified, agent.connectionError, agent.readyState]);
+    hasPreparedContext: Boolean(activeOnboardingRef && !onboardingExecutionIssue),
+  }), [selectedSessionId, activeWebSession, sessionApiAvailable, sessionsLoaded, sessionRegistryOwner, orchestratorName, customAgentId, customAgentRecords, customAgentsLoading, customAgentsError, agent.name, agent.identified, agent.connectionError, agent.readyState, activeOnboardingRef, onboardingExecutionIssue]);
 
   useEffect(() => {
     if (!signedIn) {
@@ -2532,6 +2540,7 @@ export function App(): React.JSX.Element {
               onUpdate={updateFirstRunProgress} onResume={resumeFirstRunProgress} onRefresh={refreshFirstRunProgress}
               onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={openView}
               onLegacyGuide={() => { setShowFirstRun(false); setShowLegacyFirstRun(true); }}
+              onConfigureEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
               onUseDraft={applyOnboardingDraft} employees={customAgentRecords} draftScope={orchestratorName ?? undefined} />
           ) : mainView === "inbox" ? null : mainView === "dashboard" ? (
             <DashboardView
@@ -3177,6 +3186,8 @@ export function App(): React.JSX.Element {
           ) : mainView === "skills" ? (
             <SkillsView />
           ) : mainView === "custom-agents" ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              {firstRunProgress?.draftTask ? <section aria-label="Return to first task setup" className="border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-3 text-xs text-[var(--fg)]"><p>Configure and save an employee here. Then choose its saved version for your first task.</p><button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { void updateFirstRunProgress({ action: "save-draft", draftTask: { currentStep: "employee" } }).then(openFirstRun).catch(() => setNotice("Setup could not be opened. Retry from your saved first task draft.")); }}>Choose saved employee in setup</button></section> : null}
             <CustomAgentsView
               key={orchestratorName ?? "manual"}
               draftScope={orchestratorName ?? undefined}
@@ -3190,6 +3201,7 @@ export function App(): React.JSX.Element {
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
+            </div>
           ) : mainView === "employee-tools" ? (
             <EmployeeToolPolicyView />
           ) : mainView === "agents" ? (

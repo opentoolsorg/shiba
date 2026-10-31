@@ -579,7 +579,7 @@ export function TaskComposer({
         }} className={inputClass}>
         <option value="repository">Repository task</option>
         <option value="artifact-workspace">Artifact workspace</option>
-        <option value="app-tools">Connected app tools</option>
+        <option value="app-tools">Employee tools and supplied context</option>
       </select>
     </label>
   ) : null;
@@ -589,7 +589,7 @@ export function TaskComposer({
       <form data-testid="task-composer" aria-label="Connected app task composer" onSubmit={handleSubmit}
         className="w-full max-w-[640px] rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-4 flex flex-col gap-3">
         {workTargetPicker}
-        <p className="text-xs text-[var(--muted-foreground-2)]">Use this bot’s granted app tools; no repository required. Sends and coding runs still need separate approval.</p>
+        <p className="text-xs text-[var(--muted-foreground-2)]">Use this bot’s granted app tools or a linked first-task brief; no repository required. Sends and coding runs still need separate approval.</p>
         <textarea ref={textareaRef} aria-label="Task description" value={task}
           onChange={(event) => onTaskChange(event.target.value)} onKeyDown={handleKeyDown}
           placeholder="Describe the outcome using the app resources granted to this bot"

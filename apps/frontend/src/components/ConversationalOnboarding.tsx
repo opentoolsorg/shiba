@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from "react";
-import { EMPLOYEE_TEMPLATES } from "../employee-templates";
+import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
 import { EMPTY_ONBOARDING_DRAFT, OUTCOME_STEPS, type OnboardingDraft, type OnboardingDraftPatch, type OutcomeStepId, type SelectedOnboardingDraft } from "../onboarding-draft";
 import { OnboardingConflictError, type FirstRunProgressUpdate } from "../onboarding-progress-client";
 import { readDraft, writeDraft } from "../saved";
 import type { AppNavView } from "./AppNavRail";
 import type { CustomAgentWire } from "./CustomAgentsView";
+import type { MemorySource } from "./MemorySourcesView";
 import type { FirstRunProgressSnapshot } from "./FirstRunWizard";
 
 const QUESTIONS: Record<OutcomeStepId, { label: string; question: string; field?: keyof OnboardingDraft; choices: string[] }> = {
@@ -27,7 +28,7 @@ function answerFor(draft: OnboardingDraft, step: OutcomeStepId): string {
   return typeof value === "string" ? value : "";
 }
 
-export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefresh, onDismiss, onClose, onNavigate, onLegacyGuide, onUseDraft, employees = [], draftScope }: {
+export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefresh, onDismiss, onClose, onNavigate, onLegacyGuide, onUseDraft, onConfigureEmployee, employees = [], draftScope }: {
   progress: FirstRunProgressSnapshot | null;
   onUpdate: (update: FirstRunProgressUpdate) => Promise<void>;
   onResume: () => Promise<void>;
@@ -37,6 +38,7 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
   onNavigate: (view: AppNavView) => void;
   onLegacyGuide: () => void;
   onUseDraft: (draft: SelectedOnboardingDraft) => void;
+  onConfigureEmployee?: (templateId: EmployeeTemplate["id"] | null) => void;
   employees?: CustomAgentWire[];
   draftScope?: string;
 }): JSX.Element {
@@ -55,6 +57,26 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const resumeGeneration = useRef(0);
+  const [sources, setSources] = useState<MemorySource[]>([]);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [sourceAttempt, setSourceAttempt] = useState(0);
+  useEffect(() => {
+    if (step !== "context") return;
+    let cancelled = false;
+    setSources([]); setSourcesLoading(true); setSourcesError(null);
+    void fetch("/api/memory/sources", { credentials: "same-origin", cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error("Private sources could not be loaded. Retry or continue with supplied facts.");
+      const body = await response.json() as { sources?: MemorySource[] };
+      if (!cancelled) setSources(Array.isArray(body.sources) ? body.sources : []);
+    }).catch((cause) => { if (!cancelled) setSourcesError(cause instanceof Error ? cause.message : "Private sources could not be loaded."); })
+      .finally(() => { if (!cancelled) setSourcesLoading(false); });
+    return () => { cancelled = true; };
+  }, [step, draftScope, sourceAttempt]);
+  const sourceReady = (source: MemorySource) => /^memsrc_[0-9a-f]{24}$/.test(source.id) &&
+    Number.isSafeInteger(source.version) && Number(source.version) > 0 && /^[0-9a-f]{64}$/.test(source.sha256 ?? "") &&
+    source.ingestion?.state === "ready" && source.disabledAt === null && (source.expiresAt === null || source.expiresAt > Date.now());
+
 
   useEffect(() => {
     setInput((scope ? readDraft(scope) : "") || answerFor(latestDraft.current, step));
@@ -78,8 +100,12 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
     setPending({ update, summary, scope: answerScope });
     try {
       await onUpdate(update);
-      if (answerScope && update.action === "save-draft" && Object.keys(update.draftTask ?? {}).length > 1) writeDraft(answerScope, "");
-      setInput(""); setPending(null);
+      const savedAnswer = update.action === "save-draft" && OUTCOME_STEPS.some((item) => {
+        const field = QUESTIONS[item].field;
+        return field && Object.hasOwn(update.draftTask ?? {}, field);
+      });
+      if (savedAnswer) { if (answerScope) writeDraft(answerScope, ""); setInput(""); }
+      setPending(null);
     } catch (failure) {
       setConflict(failure instanceof OnboardingConflictError);
       setError(failure instanceof Error ? failure.message : "Your answer could not be saved. Retry when the connection returns.");
@@ -96,7 +122,7 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
     const deferred = step === "connections" || (step === "employee" && !fields.employeeId && !fields.employeeTemplateId);
     const patch: OnboardingDraftPatch = {
       [field]: text.trim(), ...fields,
-      currentStep: OUTCOME_STEPS[index + 1] ?? "review",
+      currentStep: OUTCOME_STEPS.slice(index + 1).find((item) => item === "review" || (!draft.completedSteps.includes(item) && !draft.skippedSteps.includes(item))) ?? "review",
       completedSteps: deferred ? draft.completedSteps.filter((item) => item !== step) : [...new Set([...draft.completedSteps, step])],
       skippedSteps: deferred ? [...new Set([...draft.skippedSteps, step])] : draft.skippedSteps.filter((item) => item !== step),
     };
@@ -116,13 +142,14 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
     } }, `${current.label}: skipped for now`);
   };
 
-  const leave = async (navigate?: AppNavView) => {
+  const leave = async (navigate?: AppNavView, configure = false) => {
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(null);
     try {
       await onDismiss();
       onClose();
-      if (navigate) onNavigate(navigate);
+      if (configure) onConfigureEmployee?.(draft.employeeTemplateId);
+      else if (navigate) onNavigate(navigate);
     } catch { setError("Your place could not be saved. Try Skip setup again, or leave without saving."); }
     finally { inFlight.current = false; setBusy(false); }
   };
@@ -133,6 +160,7 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
   const recommendationText = `${draft.goal} ${draft.roleAnswer} ${draft.helpAnswer}`.toLowerCase();
   const suggestedId = EMPLOYEE_TEMPLATES.find((template) => recommendationText.includes(template.label.toLowerCase()))?.id ?? "research";
   const suggestedTemplates = [...EMPLOYEE_TEMPLATES.filter((item) => item.id === suggestedId), ...EMPLOYEE_TEMPLATES.filter((item) => item.id !== suggestedId)];
+  const templateCard = (template: EmployeeTemplate) => <button key={template.id} type="button" disabled={busy || Boolean(pending)} onClick={() => saveAnswer(template.label, { employeeTemplateId: template.id, employeeTemplateVersion: 1, employeeId: null, employeeVersion: null })} className={`${BUTTON} text-left`}><strong className="block">{template.label}</strong><span className="mt-1 block">{template.description}</span></button>;
   const suggestionLabel = EMPLOYEE_TEMPLATES.find((item) => item.id === suggestedId)?.label ?? "Research";
   const readyToPrepare = Boolean(draft.goal.trim() && draft.audience.trim() && draft.acceptance.trim());
   const prepared = Boolean(draft.preparedAt && progress?.draftTaskId);
@@ -166,18 +194,28 @@ export function ConversationalOnboarding({ progress, onUpdate, onResume, onRefre
             </div> : null}
             {step === "employee" ? <>
               <p className="text-xs text-[var(--muted-foreground-2)]">Suggested starting point: {suggestionLabel}. A template is not a configured employee or an access grant.</p>
-              <div className="grid gap-2 sm:grid-cols-2">{suggestedTemplates.map((template) => <button key={template.id} type="button" disabled={busy || Boolean(pending)} onClick={() => saveAnswer(template.label, { employeeTemplateId: template.id, employeeTemplateVersion: 1, employeeId: null, employeeVersion: null })} className={`${BUTTON} text-left`}><strong className="block">{template.label}</strong><span className="mt-1 block">{template.description}</span></button>)}</div>
+              <div role="group" aria-label="Suggested roles" className="grid gap-2 sm:grid-cols-2">{suggestedTemplates.slice(0, 2).map(templateCard)}</div>
+              <details><summary className="cursor-pointer text-sm text-[var(--primary)]">Other roles</summary><div className="mt-2 grid gap-2 sm:grid-cols-2">{suggestedTemplates.slice(2).map(templateCard)}</div></details>
               {employees.filter((employee) => employee.archivedAt === undefined).length ? <details><summary className="cursor-pointer text-sm text-[var(--primary)]">Use an existing employee</summary><div className="mt-2 flex flex-wrap gap-2">{employees.filter((employee) => employee.archivedAt === undefined).map((employee) => <button key={employee.id} type="button" disabled={busy || Boolean(pending)} className={BUTTON} onClick={() => saveAnswer(employee.config.name, { employeeId: employee.id, employeeVersion: employee.version, employeeTemplateId: null, employeeTemplateVersion: null })}>{employee.config.name} · v{employee.version}</button>)}</div></details> : null}
             </> : null}
-            {step === "context" ? <p className="text-xs text-[var(--muted-foreground-2)]">Pasted facts and URLs stay supplied context. This step does not fetch a URL, upload a file, or authorize access to a source.</p> : null}
+            {step === "context" ? <section aria-label="Private task sources" className="flex flex-col gap-2 text-xs text-[var(--muted-foreground-2)]">
+              <p>Add facts below or select private uploaded sources. Source versions are saved with the draft; access is checked again before work starts.</p>
+              {sourcesLoading ? <p role="status">Loading private sources…</p> : null}
+              {sourcesError ? <p role="alert">{sourcesError}</p> : null}
+              {!sourcesLoading && !sourcesError && sources.length === 0 ? <p>No uploaded sources yet.</p> : null}
+              {sources.map((source) => <label key={source.id} className="flex items-start gap-2 break-words"><input type="checkbox" checked={draft.sourceIds.includes(source.id)} disabled={busy || Boolean(pending) || !sourceReady(source)} onChange={(event) => { void perform({ action: "save-draft", draftTask: { sourceIds: event.target.checked ? [...draft.sourceIds, source.id] : draft.sourceIds.filter((id) => id !== source.id) } }, "Update selected sources"); }} /><span>{source.title} · {sourceReady(source) ? `v${source.version} · ready` : source.disabledAt !== null ? "disabled" : source.expiresAt !== null && source.expiresAt <= Date.now() ? "expired" : "not available as a versioned source"}</span></label>)}
+              {draft.sourceIds.filter((id) => !sources.some((source) => source.id === id && sourceReady(source))).map((id, index) => <div key={id} className="flex items-center gap-2"><span>Selected source {index + 1} unavailable</span><button type="button" disabled={busy || Boolean(pending)} onClick={() => { void perform({ action: "save-draft", draftTask: { sourceIds: draft.sourceIds.filter((item) => item !== id) } }, "Remove unavailable source"); }} className={BUTTON}>Remove unavailable source {index + 1}</button></div>)}
+              <div className="flex flex-wrap gap-2"><button type="button" disabled={sourcesLoading || busy} onClick={() => setSourceAttempt((attempt) => attempt + 1)} className={BUTTON}>Refresh private sources</button><button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave("memory"); }} className={BUTTON}>Upload or manage sources, then return</button></div>
+            </section> : null}
             {step === "connections" ? <>
               <p className="text-xs text-[var(--muted-foreground-2)]">Your saved brief waits here while you review available connections. No connection or resource permission is created by an answer.</p>
               <button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave("integrations"); }} className={BUTTON}>Review connections, then return</button>
             </> : null}
             {step === "review" ? <section aria-label="First task draft review" className="rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-4 text-sm text-[var(--fg)]">
               <h3 className="font-semibold">{prepared ? "First task draft saved" : "Your first task draft"}</h3>
-              <dl className="mt-3 grid gap-3 break-words"><div><dt className="font-semibold">Goal</dt><dd className="whitespace-pre-wrap">{draft.goal || "Required"}</dd></div><div><dt className="font-semibold">Audience</dt><dd>{draft.audience || "Required"}</dd></div><div><dt className="font-semibold">Acceptance</dt><dd>{draft.acceptance || "Required"}</dd></div><div><dt className="font-semibold">Employee</dt><dd>{selectedEmployee ? `${selectedEmployee.config.name} · saved version ${draft.employeeVersion}` : selectedTemplate ? `${selectedTemplate.label} template · employee configuration pending` : "Employee configuration pending"}</dd></div><div><dt className="font-semibold">Context</dt><dd className="whitespace-pre-wrap">{draft.contextAnswer || "No background supplied yet"}</dd></div><div><dt className="font-semibold">Connections</dt><dd>{draft.connectionAnswer || "Deferred; current access checked when work starts"}</dd></div></dl>
+              <dl className="mt-3 grid gap-3 break-words"><div><dt className="font-semibold">Goal</dt><dd className="whitespace-pre-wrap">{draft.goal || "Required"}</dd></div><div><dt className="font-semibold">Audience</dt><dd>{draft.audience || "Required"}</dd></div><div><dt className="font-semibold">Acceptance</dt><dd>{draft.acceptance || "Required"}</dd></div><div><dt className="font-semibold">Employee</dt><dd>{selectedEmployee ? `${selectedEmployee.config.name} · saved version ${draft.employeeVersion}` : selectedTemplate ? `${selectedTemplate.label} template · employee configuration pending` : "Employee configuration pending"}</dd></div><div><dt className="font-semibold">Context</dt><dd className="whitespace-pre-wrap">{draft.contextAnswer || "No background supplied yet"}{draft.sourceIds.length ? ` · ${draft.sourceIds.length} private source${draft.sourceIds.length === 1 ? "" : "s"} selected` : ""}</dd></div><div><dt className="font-semibold">Connections</dt><dd>{draft.connectionAnswer || "Deferred; current access checked when work starts"}</dd></div></dl>
               <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">This saves a task brief only. It creates no employee, grant, invitation, run, or external action. Source access and readiness are checked when you explicitly start work.</p>
+              {!selectedEmployee ? <div className="mt-3 flex flex-wrap gap-2">{onConfigureEmployee ? <button type="button" disabled={busy || Boolean(pending)} onClick={() => { void leave(undefined, true); }} className={BUTTON}>Configure {selectedTemplate ? `${selectedTemplate.label} employee` : "an employee"}</button> : null}<button type="button" disabled={busy || Boolean(pending)} onClick={() => moveTo("employee")} className={BUTTON}>Choose a saved employee</button></div> : null}
               {!readyToPrepare ? <p role="status" className="mt-2 text-xs text-[var(--warning-fg)]">Add goal, audience, and acceptance before creating a first task draft.</p> : null}
               <div className="mt-4 flex flex-wrap gap-2">{prepared && preparedId ? <button type="button" disabled={busy} onClick={() => onUseDraft({ draftTaskId: preparedId, version: draft.version, draftTask: draft })} className={BUTTON}>Use first task draft in Work</button> : <button type="button" disabled={busy || Boolean(pending) || !readyToPrepare} onClick={() => { void perform({ action: "prepare-task" }, "Create first task draft"); }} className={BUTTON}>Create first task draft</button>}<button type="button" disabled={busy || Boolean(pending)} onClick={() => moveTo("goal")} className={BUTTON}>Edit brief</button></div>
             </section> : null}

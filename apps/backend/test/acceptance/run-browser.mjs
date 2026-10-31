@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { runManagedContextProof, verifyManagedContextApproval, verifyManagedContextDraft } from "./managed-context.mjs";
 import { createReasonNetworkCompanion } from "../../../../scripts/reason-network-companion.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,7 @@ const browserEvents = [];
 const externalFontRequests = [];
 let adapterTimer;
 let heartbeatTimer;
+let managedContext = null;
 let browser;
 
 function logChild(child, name) {
@@ -400,7 +402,7 @@ try {
   let staleRunRequests = 0;
   let staleAppMessages = 0;
   const countStaleRun = (request) => { if (request.method() === "POST" && new URL(request.url()).pathname === "/api/runs") staleRunRequests += 1; };
-  const countStaleSocket = (socket) => socket.on("framesent", ({ payload }) => { if (String(payload).includes("cf_ai_chat_agent")) staleAppMessages += 1; });
+  const countStaleSocket = (socket) => socket.on("framesent", ({ payload }) => { if (String(payload).includes("cf_agent_use_chat_request")) staleAppMessages += 1; });
   page.on("request", countStaleRun);
   page.on("websocket", countStaleSocket);
   await page.reload({ waitUntil: "domcontentloaded" });
@@ -677,7 +679,7 @@ try {
       const paths = envelope.expectedDeliverables ?? ["reports/acceptance.md"];
       const files = paths.map((filePath) => ({
         path: filePath,
-        content: `# Deterministic acceptance output\n\nTask: ${envelope.task}\nEmployee: ${envelope.customAgentId}@v${envelope.customAgentVersion}\n`,
+        content: `# Deterministic acceptance output\n\n${managedContext ? `${managedContext.citation}\n\n` : ""}Task: ${envelope.task}\nEmployee: ${envelope.customAgentId}@v${envelope.customAgentVersion}\n`,
         encoding: "utf8",
       }));
       const result = await jsonPost(`${workerOrigin}/api/local/result`, daemonToken, {
@@ -988,7 +990,7 @@ try {
   await apiJson(page, `/api/memory/projects/${encodeURIComponent(projectId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ purpose: "Changed after this approval was created." }),
+    body: JSON.stringify({ purpose: "Changed after this approval was created.", expectedVersion: (await apiJson(page, `/api/memory/projects/${encodeURIComponent(projectId)}`)).project.version }),
   });
   const approvedPayload = JSON.stringify(pendingApproval);
   assert.ok(approvedPayload.includes(employee.id), "Approval must freeze the employee identity.");
@@ -1181,6 +1183,136 @@ try {
     deliverablePath: completedRun.deliverables?.[0]?.path,
     deliverableBytes: deliverable.text.length,
   });
+
+  // Transport fault only: exercise the installed useAgentChat onError + resolved promise
+  // without forwarding this synthetic app task to any model or connected app.
+  let pendingAppFailure;
+  let appFailureRequests = 0;
+  await context.routeWebSocket("**/agents/**", (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => {
+      let frame;
+      try { frame = JSON.parse(String(message)); } catch { server.send(message); return; }
+      const body = frame.type === "cf_agent_use_chat_request" ? JSON.parse(frame.init.body) : null;
+      const turn = body?.messages?.at(-1);
+      if (turn?.metadata?.shibaWorkTarget === "app-tools") {
+        appFailureRequests += 1;
+        pendingAppFailure = () => socket.send(JSON.stringify({ type: "cf_agent_use_chat_response", id: frame.id, error: true, body: "Synthetic callback stream error" }));
+      } else server.send(message);
+    });
+  });
+  await apiJson(page, "/api/custom-agents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slug: "acceptance-callback-bot", config: { name: "Acceptance Callback Bot", instructions: "Synthetic transport fixture only.", harness: "opencode" } }) });
+  await nav(page, "tasks");
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await page.getByRole("button", { name: "Configure Research employee", exact: true }).click();
+  await page.getByRole("region", { name: "Return to first task setup" }).waitFor();
+  assert.equal((await apiJson(page, "/api/custom-agents")).agents.length, 2, "Configuring a suggestion only opens the existing editor.");
+  await page.getByRole("button", { name: "Choose saved employee in setup", exact: true }).click();
+  await page.getByText("Use an existing employee", { exact: true }).click();
+  await page.getByRole("button", { name: "Acceptance Callback Bot · v1", exact: true }).click();
+  await page.getByRole("button", { name: "Create first task draft", exact: true }).click();
+  await page.getByRole("heading", { name: "First task draft saved", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
+  const replaceCallbackDraft = page.getByRole("button", { name: "Replace with saved draft", exact: true });
+  if (await replaceCallbackDraft.isVisible()) await replaceCallbackDraft.click();
+  await nav(page, "custom-agents");
+  await page.getByRole("button", { name: "Launch bot Acceptance Callback Bot", exact: true }).click();
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
+  await page.getByRole("combobox", { name: "Work target", exact: true }).selectOption("app-tools");
+  const callbackInput = page.getByRole("textbox", { name: "Task description" });
+  const callbackCanonicalTask = await callbackInput.inputValue();
+  await page.getByRole("button", { name: "Send task", exact: true }).click();
+  await waitFor("synthetic app turn reaches the real chat transport", () => appFailureRequests === 1 && pendingAppFailure);
+  pendingAppFailure(); pendingAppFailure = null;
+  await waitFor("onError with a resolved send promise restores the task", async () => (await callbackInput.inputValue()) === callbackCanonicalTask);
+  await page.getByRole("button", { name: "Send task", exact: true }).click();
+  await waitFor("second synthetic app turn reaches transport", () => appFailureRequests === 2 && pendingAppFailure);
+  await callbackInput.fill("Newer unsent text must win.");
+  pendingAppFailure(); pendingAppFailure = null;
+  await waitFor("failed send settles", async () => (await page.getByRole("button", { name: "Sending…", exact: true }).count()) === 0);
+  assert.equal(await callbackInput.inputValue(), "Newer unsent text must win.");
+  assert.equal(appFailureRequests, 2, "Callback errors must never automatically retry a user turn.");
+  checkpoints.push({ id: "app-tools-callback-error-unsent-recovery", status: "passed", installedChatHook: true, transportFaultInjected: true, sourceToolCalled: false, modelCalled: false, restoredAfterCallbackError: true, newerEditPreserved: true, sends: appFailureRequests });
+  await callbackInput.fill("");
+
+  // Real private upload/CAS/isolation proof, then visible source selection in the saved goal.
+  const otherContext = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  const otherOwnerPage = await otherContext.newPage();
+  await otherOwnerPage.goto(`${workerOrigin}/app/`, { waitUntil: "domcontentloaded" });
+  await otherOwnerPage.getByLabel("Email").fill("acceptance-other@example.test");
+  await otherOwnerPage.getByLabel("Password").fill("e2e-password-2026!");
+  await otherOwnerPage.getByRole("button", { name: "Sign in", exact: true }).click();
+  await waitFor("second authenticated owner session", async () => (await apiJson(otherOwnerPage, "/api/auth/get-session")).user?.email === "acceptance-other@example.test");
+  managedContext = await runManagedContextProof({ page, origin: workerOrigin, api: (url, init) => apiJson(page, url, init), report: (checkpoint) => checkpoints.push(checkpoint), fixture: { otherOwnerPage } });
+  await otherContext.close();
+  await page.getByRole("button", { name: "New thread", exact: true }).click();
+  await nav(page, "tasks");
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await page.getByRole("button", { name: "Edit employee", exact: true }).click();
+  await page.getByRole("textbox", { name: "Your answer: Employee" }).waitFor();
+  await page.getByText("Use an existing employee", { exact: true }).click();
+  await page.getByRole("button", { name: `Acceptance Researcher · v${employeeVersion}`, exact: true }).click();
+  await page.getByRole("region", { name: "First task draft review" }).waitFor();
+  await page.getByRole("button", { name: "Edit context", exact: true }).click();
+  const contextAnswer = page.getByRole("textbox", { name: "Your answer: Context" });
+  const groundedFacts = "Prepare a reviewable report from the selected private source. Do not send or publish.";
+  await contextAnswer.fill(groundedFacts);
+  const selectedSource = page.getByRole("checkbox", { name: `${managedContext.sourceTitle} · v3 · ready`, exact: true });
+  await selectedSource.check();
+  await waitFor("source id saved in the goal", async () => (await apiJson(page, "/api/onboarding/progress")).draftTask.sourceIds.includes(managedContext.source.id));
+  assert.equal(await contextAnswer.inputValue(), groundedFacts, "Selecting sources preserves the unsent answer.");
+  await page.getByRole("button", { name: "Upload or manage sources, then return", exact: true }).click();
+  await page.getByRole("region", { name: "Workspace memory sources" }).waitFor();
+  await nav(page, "tasks");
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await contextAnswer.waitFor();
+  assert.equal(await contextAnswer.inputValue(), groundedFacts);
+  assert.equal(await selectedSource.isChecked(), true);
+  await contextAnswer.press("Control+Enter");
+  await page.getByRole("region", { name: "First task draft review" }).waitFor();
+  await page.getByRole("button", { name: "Create first task draft", exact: true }).click();
+  await page.getByRole("heading", { name: "First task draft saved", exact: true }).waitFor();
+  const sourceGoal = await apiJson(page, "/api/onboarding/progress");
+  assert.equal(sourceGoal.draftTask.employeeId, employee.id);
+  assert.equal(sourceGoal.draftTask.employeeVersion, employeeVersion);
+  assert.deepEqual(sourceGoal.draftTask.sourceRefs, managedContext.sourceRefs);
+  await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
+  // The earlier ordinary task may still be unsent; replacement is explicit.
+  const replaceGoal = page.getByRole("button", { name: "Replace with saved draft", exact: true });
+  if (await replaceGoal.isVisible()) await replaceGoal.click();
+  await composer.getByRole("combobox", { name: "Project context" }).selectOption("");
+  await composer.getByRole("button", { name: /^Project: / }).click();
+  await page.getByPlaceholder("https://github.com/owner/repo").fill("https://github.com/fixture/acceptance-repo");
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+  await composer.getByRole("button", { name: "Thread configuration" }).click();
+  await page.getByRole("menuitemradio", { name: /Acceptance Researcher/ }).click();
+  await composer.getByRole("button", { name: "Run on: Cloud" }).click();
+  await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).focus();
+  await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).press("Enter");
+  if (!(await page.getByRole("button", { name: "Refresh paired computers" }).isVisible().catch(() => false))) await composer.getByRole("button", { name: "Run on: Local" }).click();
+  await page.getByRole("button", { name: "Refresh paired computers" }).click();
+  await composer.getByLabel("Local computer").selectOption(machineId);
+  await page.keyboard.press("Escape");
+  const beforeGoalClaims = adapterClaims;
+  await composer.getByRole("button", { name: "Send task", exact: true }).click();
+  const goalApproval = await waitFor("source-bound first goal approval", async () => (await apiJson(page, "/api/approvals")).approvals.find((item) => item.draftTaskId === sourceGoal.draftTaskId && item.draftTaskVersion === sourceGoal.draftTask.version));
+  const boundGoal = { draftTaskId: sourceGoal.draftTaskId, version: sourceGoal.draftTask.version, approvalId: goalApproval.approvalId };
+  await verifyManagedContextApproval({ page, api: (url, init) => apiJson(page, url, init), report: (checkpoint) => checkpoints.push(checkpoint), context: managedContext, goal: boundGoal });
+  assert.equal(adapterClaims, beforeGoalClaims, "The prepared goal must still wait for explicit approval.");
+  assert.equal((await apiJson(page, "/api/onboarding/progress")).activatedAt, null, "An unrelated approved artifact must not activate this goal.");
+  await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  const goalRun = await waitFor("source-bound first goal artifact", async () => (await apiJson(page, "/api/runs")).runs.find((item) => item.draftTaskId === boundGoal.draftTaskId && item.draftTaskVersion === boundGoal.version && item.status === "completed"));
+  boundGoal.runId = goalRun.runId;
+  await verifyManagedContextDraft({ page, api: (url, init) => apiJson(page, url, init), report: (checkpoint) => checkpoints.push(checkpoint), context: managedContext, goal: boundGoal });
+  await nav(page, "tasks");
+  await page.getByLabel("Review decision for reports/acceptance.md").selectOption("approved");
+  await page.getByRole("button", { name: "Save review", exact: true }).click();
+  await waitFor("the exact current goal activates after human acceptance", async () => (await apiJson(page, "/api/onboarding/progress")).activatedAt !== null);
+  checkpoints.push({ id: "onboarding-source-goal-configure-return-accept", status: "passed", ...boundGoal, employeeId: employee.id, sourceRefs: managedContext.sourceRefs, explicitPrepare: true, explicitApproval: true, explicitAcceptance: true, automaticExternalActions: false });
 
   await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
   await page.getByRole("heading", { name: "Approvals", exact: true }).waitFor();
