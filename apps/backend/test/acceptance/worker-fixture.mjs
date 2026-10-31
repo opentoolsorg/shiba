@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { cp, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -37,8 +37,8 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
     logs.push(String(chunk).replaceAll(authSecret, "[fixture-auth]").replaceAll(adapterToken, "[fixture-adapter]").slice(-4096));
     if (logs.length > 100) logs.splice(0, logs.length - 100);
   };
-  function launch(command, args) {
-    const child = spawn(command, args, { cwd: repoRoot, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  function launch(command, args, cwd = repoRoot) {
+    const child = spawn(command, args, { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     children.add(child);
     child.stdout.on("data", collect); child.stderr.on("data", collect);
     child.once("error", collect); child.once("close", () => children.delete(child));
@@ -68,8 +68,8 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
     await Promise.all([...children].map(stopChild));
     await rm(tempRoot, { recursive: true, force: true });
   }
-  async function command(commandPath, args) {
-    const child = launch(commandPath, args);
+  async function command(commandPath, args, cwd = repoRoot) {
+    const child = launch(commandPath, args, cwd);
     let timer;
     try {
       const code = await Promise.race([
@@ -80,7 +80,11 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
     } finally { clearTimeout(timer); await stopChild(child); }
   }
   try {
-    if (buildAssets) await command("pnpm", ["-C", "apps/frontend", "build"]);
+    if (buildAssets) {
+      const localEnvFiles = [".env", ".env.local", ".env.production", ".env.production.local"];
+      if ((await readdir(path.join(repoRoot, "apps/frontend"))).some((name) => localEnvFiles.includes(name))) throw new Error("Fixture build requires an isolated frontend without local .env files.");
+      await command("pnpm", ["-C", "apps/frontend", "build"]);
+    }
     const assets = path.join(tempRoot, "assets");
     await cp(path.join(repoRoot, "apps/frontend/dist/client"), assets, { recursive: true, filter: (source) => path.basename(source) !== "_redirects" });
     const wranglerRequire = createRequire(await realpath(path.join(repoRoot, "node_modules/wrangler/package.json")));
@@ -106,8 +110,8 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
     const configPath = path.join(tempRoot, "wrangler.json");
     await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
     const wrangler = path.join(repoRoot, "node_modules/wrangler/bin/wrangler.js");
-    await command(process.execPath, [wrangler, "d1", "migrations", "apply", "fixture-0", "--local", `--config=${configPath}`, `--persist-to=${persistDir}`]);
-    const worker = launch(process.execPath, [wrangler, "dev", "--local", `--config=${configPath}`, `--persist-to=${persistDir}`, `--port=${port}`, "--ip=127.0.0.1", "--inspector-port=0", "--enable-containers=false"]);
+    await command(process.execPath, [wrangler, "d1", "migrations", "apply", "fixture-0", "--local", `--config=${configPath}`, `--persist-to=${persistDir}`], tempRoot);
+    const worker = launch(process.execPath, [wrangler, "dev", "--local", `--config=${configPath}`, `--persist-to=${persistDir}`, `--port=${port}`, "--ip=127.0.0.1", "--inspector-port=0", "--enable-containers=false"], tempRoot);
     const until = Date.now() + 45_000;
     while (Date.now() < until) {
       if (worker.exitCode !== null || worker.signalCode !== null) throw new Error(`Fixture Worker exited.\n${logs.slice(-15).join("")}`);
