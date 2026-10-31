@@ -111,7 +111,7 @@ describe("owner-scoped external MCP registry", () => {
     await discoverExternalMcpServer(env, draft);
     const server = (await getExternalMcpServer(env, "org-a", owner.principal, draft.id))!;
     const tool = (await listExternalMcpServers(env, "org-a", owner.principal))[0]!.tools[0]!;
-    expect(tool).toMatchObject({ remoteName: "sum", effect: "unreviewed", enabled: false });
+    expect(tool).toMatchObject({ remoteName: "sum", effect: "unreviewed", recommendedEffect: "unreviewed", enabled: false });
     await expect(registerExternalMcpTools(createToolRegistry(env), env, agent)).resolves.toBeUndefined();
     await reviewExternalMcpTool(env, server, tool.id, "read", tool.schemaVersion);
     const reviewed = (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!;

@@ -1,8 +1,17 @@
 import { listTokens, orgIdForRecord } from "../agent-tokens.js";
 import type { V1Context } from "./context.js";
 import { createExternalMcpServer, disableExternalMcpServer, discoverExternalMcpServer,
-  getExternalMcpServer, listExternalMcpAccess, listExternalMcpServers, listExternalMcpTools, reviewExternalMcpTool,
+  getExternalMcpServer, listExternalMcpAccess, listExternalMcpCatalogConnections, listExternalMcpServers, listExternalMcpTools, reviewExternalMcpTool,
   setExternalMcpAccess, setExternalMcpToolEnabled, updateExternalMcpServer } from "../external-mcp.js";
+import {
+  beginExternalMcpOAuthConnect,
+  defaultOAuthScopes,
+  discoverExternalMcpOAuth,
+  exchangeExternalMcpOAuthCode,
+  readDeploymentOAuthClientId,
+  saveExternalMcpBearerToken,
+} from "../external-mcp-oauth.js";
+import { CURATED_MCP_VENDORS, curatedMcpVendorByCatalogId } from "@shiba/shared";
 import { decideEmployeeActionApproval as decideApproval, getEmployeeActionApproval, listEmployeeActionApprovals } from "../employee-tool-store.js";
 import { resolveCapabilityInvocationApproval } from "../capability-invocations.js";
 import { executeApprovedExternalMcpAction } from "../external-mcp.js";
@@ -39,7 +48,10 @@ function safeError(error: unknown): Response {
   const statuses: Record<string, number> = { destination_not_trusted: 403, invalid_endpoint: 400, invalid_registration: 400,
     invalid_credential_reference: 400, auth_reference_missing: 409, schema_invalid: 502, redirect_rejected: 502,
     schema_version_changed: 409, tool_not_reviewed_or_schema_changed: 409, invalid_effect_review: 400,
-    server_limit: 409, server_not_found: 404, tool_disabled: 409, approval_not_found: 404 };
+    server_limit: 409, server_not_found: 404, tool_disabled: 409, approval_not_found: 404,
+    invalid_catalog_id: 400, connection_label_required: 400, connection_label_taken: 409, invalid_connection_label: 400,
+    oauth_discovery_failed: 502, oauth_storage_unavailable: 503, oauth_state_invalid: 400, oauth_token_exchange_failed: 502,
+    oauth_refresh_in_progress: 503, oauth_client_not_configured: 503, invalid_bearer: 400 };
   const allowed = new Set(Object.keys(statuses));
   return response({ ok: false, error: allowed.has(code) ? code : "external_mcp_unavailable" }, statuses[code] ?? 503);
 }
@@ -50,6 +62,23 @@ function validCredentialRef(value: unknown): value is string | null {
 }
 
 export async function handleMcp(ctx: V1Context): Promise<Response | null> {
+  if (ctx.url.pathname === "/api/v1/mcp/vendors" && ctx.request.method === "GET") {
+    return response({ ok: true, vendors: CURATED_MCP_VENDORS });
+  }
+  if (ctx.url.pathname === "/api/v1/mcp/catalog-connections" && ctx.request.method === "GET") {
+    return response({ ok: true, connections: await listExternalMcpCatalogConnections(ctx.env, ctx.principal.orgId, ctx.principal.principal) });
+  }
+  if (ctx.url.pathname === "/api/v1/mcp/oauth/callback" && ctx.request.method === "GET") {
+    const state = ctx.url.searchParams.get("state") ?? "";
+    const code = ctx.url.searchParams.get("code") ?? "";
+    if (!state || !code) return response({ ok: false, error: "invalid_request" }, 400);
+    try {
+      const result = await exchangeExternalMcpOAuthCode(ctx.env, { state, code, principal: ctx.principal });
+      const server = await getExternalMcpServer(ctx.env, result.orgId, result.ownerId, result.serverId);
+      if (server) await discoverExternalMcpServer(ctx.env, server).catch(() => {});
+      return response({ ok: true, serverId: result.serverId });
+    } catch (error) { return safeError(error); }
+  }
   const match = ctx.url.pathname.match(/^\/api\/v1\/mcp\/servers(?:\/([^/]+)(?:\/(.*))?)?$/);
   if (!match) return null;
   const part = match[1];
@@ -58,12 +87,25 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
       id: BUILTIN_ID, projectId: null, name: "shiba", config: { transport: "http", url: `${ctx.url.origin}/mcp`, needsAuth: true }, enabled: true,
     } });
     if (ctx.request.method !== "POST") return response({ ok: false, error: "method_not_allowed" }, 405);
-    const input = await body(ctx); if (!input || !knownKeys(input, ["name", "transport", "url", "credentialRef"]) ||
-      typeof input.name !== "string" || input.transport !== "streamable_http" || typeof input.url !== "string" ||
+    const input = await body(ctx); if (!input || !knownKeys(input, ["name", "transport", "url", "credentialRef", "catalogId", "connectionLabel", "visibility", "authMode"]) ||
+      (input.name !== undefined && typeof input.name !== "string") ||
+      (input.transport !== undefined && input.transport !== "streamable_http") ||
+      (input.url !== undefined && typeof input.url !== "string") ||
+      (input.catalogId !== undefined && typeof input.catalogId !== "string") ||
+      (input.connectionLabel !== undefined && typeof input.connectionLabel !== "string") ||
+      (input.visibility !== undefined && input.visibility !== "private" && input.visibility !== "workspace") ||
+      (input.authMode !== undefined && input.authMode !== "oauth" && input.authMode !== "bearer_ref" && input.authMode !== "none") ||
       !validCredentialRef(input.credentialRef ?? null)) return response({ ok: false, error: "invalid_request" }, 400);
     try {
       const server = await createExternalMcpServer(ctx.env, { orgId: ctx.principal.orgId, ownerId: ctx.principal.principal,
-        name: input.name, endpoint: input.url, credentialRef: (input.credentialRef ?? null) as string | null });
+        name: typeof input.name === "string" ? input.name : "",
+        endpoint: typeof input.url === "string" ? input.url : "",
+        credentialRef: (input.credentialRef ?? null) as string | null,
+        catalogId: typeof input.catalogId === "string" ? input.catalogId : null,
+        connectionLabel: typeof input.connectionLabel === "string" ? input.connectionLabel : null,
+        visibility: input.visibility === "workspace" ? "workspace" : "private",
+        authMode: input.authMode === "oauth" || input.authMode === "none" ? input.authMode : "bearer_ref",
+      });
       return response({ ok: true, server }, 201);
     } catch (error) { return safeError(error); }
   }
@@ -84,6 +126,47 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
     catch (error) { return safeError(error); }
   }
   if (action === "" && ctx.request.method === "DELETE") { await disableExternalMcpServer(ctx.env, server); return response({ ok: true, disabled: true }); }
+  if (action === "revoke" && ctx.request.method === "POST") {
+    try {
+      await disableExternalMcpServer(ctx.env, server);
+      return response({ ok: true, revoked: true });
+    } catch (error) { return safeError(error); }
+  }
+  if (action === "oauth/begin" && ctx.request.method === "POST") {
+    const input = await body(ctx);
+    if (!input || !knownKeys(input, ["redirectUri"]) || typeof input.redirectUri !== "string") {
+      return response({ ok: false, error: "invalid_request" }, 400);
+    }
+    if (!server.catalogId || server.authMode !== "oauth") return response({ ok: false, error: "invalid_request" }, 400);
+    const vendor = curatedMcpVendorByCatalogId(server.catalogId);
+    if (!vendor) return response({ ok: false, error: "invalid_catalog_id" }, 400);
+    const clientId = readDeploymentOAuthClientId(ctx.env, server.catalogId);
+    if (!clientId) return response({ ok: false, error: "oauth_client_not_configured" }, 503);
+    try {
+      const discovery = await discoverExternalMcpOAuth(vendor);
+      const begin = await beginExternalMcpOAuthConnect(ctx.env, {
+        serverId: server.id,
+        orgId: server.orgId,
+        ownerId: server.ownerId,
+        catalogId: server.catalogId,
+        redirectUri: input.redirectUri,
+        clientId,
+        scopes: defaultOAuthScopes(server.catalogId),
+        discovery,
+      });
+      return response({ ok: true, ...begin, discovery: { resource: discovery.resource.resource, issuer: discovery.authorizationServer.issuer } });
+    } catch (error) { return safeError(error); }
+  }
+  if (action === "bearer" && ctx.request.method === "POST") {
+    const input = await body(ctx);
+    if (!input || !knownKeys(input, ["token"]) || typeof input.token !== "string") {
+      return response({ ok: false, error: "invalid_request" }, 400);
+    }
+    try {
+      await saveExternalMcpBearerToken(ctx.env, server.orgId, server.ownerId, server.id, input.token);
+      return response({ ok: true });
+    } catch (error) { return safeError(error); }
+  }
   if (action === "discover" && ctx.request.method === "POST") {
     try { const result = await discoverExternalMcpServer(ctx.env, server); return response({ ok: true, schemaVersion: result.schemaVersion, tools: result.tools }); }
     catch (error) { return safeError(error); }
