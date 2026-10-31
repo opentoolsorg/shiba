@@ -1,39 +1,36 @@
 ---
-title: Getting started
-description: Install and validate the local project, then review account deployment requirements.
+title: Your first task
+description: Give Shiba a clear brief, approve the work, and review the result.
 ---
 
-## Prerequisites
+Choose one small task you can easily check. A README update, a launch brief, or a test for a known bug is a good place to start.
 
-Use Node.js 22.13.0 or newer and pnpm 10 or newer. Account deployment requires a Cloudflare Workers Paid plan, Cloudflare account access to Workers, Durable Objects, Containers, KV, R2, D1, Vectorize, and Access, plus a running Docker-compatible engine. Run commands from the repository root. Read [Readiness](/docs/readiness/) before provisioning.
+## 1. Open a thread
 
-For the shortest path to local `wrangler dev` + Docker, run **`pnpm shiba dev`** — see [Local development → Worker and sandbox quickstart](/docs/local-development/#worker-and-sandbox-quickstart). For production in your own account, see [Self-hosting on Cloudflare](/docs/self-hosting/). For product context and honest limits, read the [homepage](/) and [Why I built Shiba](/why-shiba/).
+Sign in to your Shiba workspace. Start a thread, or open **Bots** and select **Launch bot** on an employee you want to work with.
 
-## Install and check locally
+Need a workspace first? Follow [Self-hosting](/docs/self-hosting/), or ask the person who manages your team's installation.
 
-```sh
-pnpm install
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm docs:check
-pnpm build
-```
+## 2. Describe what you want
 
-The combined build assembles the dashboard and docs in `public/`; it does not deploy or publish a pull request. Tests with fakes are unit evidence only.
+Choose the GitHub repository and branch for the task. Tell Shiba what to produce and how you'll judge the result.
 
-## Preview documentation
+For example:
 
-```sh
-pnpm docs:preview
-```
+> Read our product notes and draft a short launch brief for solo developers. Keep it in the marketing folder, flag unsupported claims, and leave it ready for review. Don't publish anything.
 
-Open `http://localhost:4321/docs/`. Production builds include generated Pagefind search; the docs development server does not.
+For a code change, name the problem and ask for a relevant test. A focused request is easier to review than “improve the whole app.”
 
-## Prepare an account deployment
+## 3. Review the request
 
-`pnpm run bootstrap` uses `scripts/setup.mjs` and Alchemy. It requires Docker, Cloudflare OAuth/profile setup (or API credentials in `.env`), prompts for Access emails, the Workers subdomain, and optional secrets, then builds and runs `alchemy deploy`. This is a real account-changing deployment command, not a local test. Review [Deployment](/docs/deployment/) and [Configuration](/docs/configuration/) first.
+Read the approval card. Check the repository, task, and whether creating a pull request is included.
 
-For a first local run, `pnpm dev` starts the dashboard, Wrangler Worker, and docs site together; API and WebSocket requests are proxied to the Worker. Open `http://localhost:5173/app/` for the dashboard and `http://localhost:4321/` for docs. See [Local development](/docs/local-development/) for first-run steps and prerequisites such as Docker for Sandbox tasks.
+Approve it if it matches your intent. Otherwise, reject it and revise the brief. Repository work starts only after approval; if the request changes, review it again.
 
-The current dated verification reports local checks passing but no cloud end-to-end run. OpenCode has a recorded local container exercise; its model request returned 401. Do not infer working cloud coding or inference from a static page, setup status, or local unit tests. After resolving readiness blockers, use an isolated deployment and public test repository, keep publishing off, inspect the approval/result/diff, and record actual outcomes in `VERIFICATION.md`.
+## 4. Check the result
+
+Read the response and inspect the changed files. Check what passed, what failed, and what still needs attention.
+
+Keep related follow-ups in the same thread. Reviewing a result doesn't publish it: decide separately whether to use the draft or publish the proposed code changes.
+
+Next, learn about [employees](/docs/employees/), [threads and results](/docs/dashboard/), or [approvals](/docs/approval-gates/).

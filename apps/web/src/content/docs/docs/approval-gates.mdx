@@ -1,64 +1,31 @@
 ---
-title: Approval Gates
-description: Human-in-the-loop safety controls and authorization boundaries in AI Coworker.
+title: Approvals
+description: Check a proposed task before it starts, then approve it or ask for a change.
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+Before Shiba starts repository work, it asks you to approve the request. Read the approval card in the task's thread or open **Approvals** to find pending decisions.
 
-Approval gates are the central safety invariant in AI Coworker. Autonomous agents are never permitted to clone private code, execute terminal commands, or push git branches without explicit human verification.
+## Check the request
 
-## Why Approval Gates Matter
+Make sure the card matches what you want:
 
-Autonomous coding agents need shell execution, file writes, and package installations to solve real engineering problems. However, granting unconstrained access introduces critical security and stability risks:
+- **Repository and branch:** Is this the right place to work?
+- **Task:** Is the requested change clear and limited to your brief?
+- **Checks:** Are the requested tests or other checks appropriate?
+- **Publishing:** Should Shiba open a pull request, and post a review afterward?
 
-- **Destructive Commands**: Preventing inadvertent `rm -rf`, branch force-pushes, or schema drops.
-- **Malicious Dependency Ingestion**: Verifying that newly added packages originate from trusted registries.
-- **Scope Creep**: Ensuring the agent restricts edits strictly to the requested feature or bugfix.
-- **Cost Controls**: Reviewing projected compute and token usage before launching heavy tasks.
+The card shows the exact request you are approving. If something is wrong, reject it and explain the change in the thread. Review the new request before approving it.
 
-## Approval Channels
+## Approve or reject
 
-AI Coworker provides three synchronous approval mechanisms:
+Choose **Approve** to allow that request to run. Approval applies to the request shown, not every future task in the conversation.
 
-### 1. Slack Interactive Block Kit
-When an agent formulates a plan, it sends a formatted Slack Block Kit card directly to the originating thread:
+Choose **Reject** to cancel the proposed work. No repository work starts for that rejected request. You can revise your brief and try again.
 
-```json
-{
-  "type": "section",
-  "text": {
-    "type": "mrkdwn",
-    "text": "*Delegation Plan:* Fix input sanitization in `apps/backend/src/auth.ts`\n*Target:* `main` branch\n*Commands:* `pnpm test -- auth.test.ts`"
-  },
-  "accessory": {
-    "type": "button",
-    "text": { "type": "plain_text", "text": "Approve Run" },
-    "style": "primary",
-    "value": "run_01a0b4cd"
-  }
-}
-```
+If your team uses Slack approvals, an authorized teammate can also decide from the card in Slack. Your administrator controls who can approve there.
 
-Clicking **Approve** immediately unblocks the Durable Object workflow and provisions the Cloudflare Sandbox container.
+## After approval
 
-### 2. Web Dashboard Review Modal
-The self-hosted dashboard at `/app` displays pending approvals with:
-- Target repository and branch
-- Planned shell commands
-- Estimated compute duration
-- One-click **Approve** or **Reject with Reason** actions
+Return to the thread to follow progress and inspect the result. Read the changed files and reported checks before adopting the work. An approval gives permission to run; it does not guarantee the result is correct.
 
-### 3. REST API & Webhooks
-For CI/CD pipelines, approval decisions can be submitted programmatically:
-
-```bash
-curl -X POST https://your-worker.workers.dev/api/runs/run_01a0b4cd/approve \
-  -H "Authorization: Bearer ${ADMIN_API_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{"approved": true, "reviewer": "octocat"}'
-```
-
-## What Happens When Rejected?
-
-If a developer rejects the proposed plan, the CodingOrchestrator records the rejection reason, aborts container provisioning, and notifies the team. No container is launched, and no git changes are made.
-
+Continue with [Threads and results](/docs/dashboard/) or [Pull request review](/docs/review/).

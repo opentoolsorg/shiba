@@ -2,287 +2,1151 @@
 import AgentCast from '../components/AgentCast.astro';
 import HeroDemo from '../components/HeroDemo.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
+import ShibaMascot from '../components/ShibaMascot.astro';
 
-const title = 'Shiba — Your Tasks. Your AI Team. Your Call.';
-const description = 'An open-source, self-hosted AI workspace for marketing, sales, research, product, design and engineering tasks. Describe the work, review the plan and approve sandbox execution. Early prototype; live cloud validation is pending.';
+const title = 'Shiba — AI Employees for the Work Behind Your Company';
+const description = 'AI employees for the work behind your company: code, design, marketing, sales, operations, finance, and revenue. Describe a task, approve the work, and review the result.';
+
 const faqItems = [
-  { q: 'What is Shiba?', a: 'Shiba is an open-source, self-hosted AI workspace for tasks across marketing, sales, research, product, design and engineering. Start with a task and a role template, review the plan, then approve sandbox execution. Review the resulting files, available downloads and diffs; publishing a GitHub pull request is a separate choice for repository work.' },
-  { q: 'Do I need a repository for non-coding tasks?', a: 'Yes. Start by describing the task, but the current execution backend requires a connected repository before a run can execute, including reports and research. The repository provides the working context and a place for files; connecting it is execution setup, not a requirement that every task be a code change.' },
-  { q: 'What can a role deliver?', a: 'Role templates guide instructions and expected files: campaign drafts, account briefs, sourced research, product briefs, design specs, or code and tests. Review and download available file deliverables in the app. Outputs depend on your task, evidence and configured access; roles are not dedicated PDF or spreadsheet exporters and do not grant permission to send outreach, post campaigns or change production systems.' },
-  { q: 'What happens before I approve?', a: 'The orchestrator proposes a plan and a structured approval card. Planning can call model providers, but no sandbox container starts before approval, except for narrowly scoped unattended automations you explicitly enable.' },
-  { q: 'Where do my code and credentials go?', a: 'Execution runs in your Cloudflare account. Your chosen model provider receives code context; its retention and training policies apply. Supported provider-backed harnesses use dummy keys with Worker-side egress authorization. Bare cursor and antigravity routes are registered but unrunnable until proven. The experimental Antigravity configuration stores OAuth tokens in a container profile; do not use it with untrusted repositories. Read the configuration and readiness docs.' },
-  { q: 'Which tools can I use?', a: 'Choose OpenCode, Claude Code, Codex, Grok, or Pi, and configure your own credentials in the Providers dashboard. Start tasks from the dashboard, Slack, Telegram, Discord, API v1, or Automations. Only OpenCode has been locally exercised, reaching a provider-auth failure rather than established inference. The other four are adapters, not live-run. Bare cursor and antigravity routes are registered but unrunnable until proven.' },
-  { q: 'What does it cost?', a: 'Shiba is free software under AGPL-3.0-only, with no Shiba subscription or seat fees. You pay Cloudflare and your selected model provider directly for infrastructure and model usage.' },
-  { q: 'Is it production-ready?', a: 'Not yet. Shiba is an early prototype under active development. Core orchestration, approval gating, and container adapters have automated tests, but a real container, live model, and live GitHub run must still be verified on your deploy. The readiness docs separate shipped code from live proof.' },
-  { q: 'How do I get started?', a: 'Clone the repository, install Node.js 22.13+ and pnpm 10+, and test locally with pnpm shiba dev. Follow the self-hosting docs to deploy into your Cloudflare account. Mobile browsers can open the dashboard; native iPhone and desktop apps are not released.' },
+  {"q": "What is Shiba?", "a": "Shiba is an open-source workspace for AI employees. Give an employee a task and the context it needs, review the proposed work, and inspect the files or changes it returns."},
+  {"q": "What kind of work can I give it?", "a": "Draft campaign copy, research an account using supplied context, outline a design, fix a bug, prepare an operating checklist, or organize supplied figures into a draft budget or pipeline summary. Set clear instructions and review the result before using it."},
+  {"q": "Do I need a repository for non-coding tasks?", "a": "Yes. Every task currently needs a GitHub repository, including non-code work. It gives Shiba context and a place to return draft files. The task does not have to change code."},
+  {"q": "What happens before I approve?", "a": "Shiba can plan and call a model before approval. Normal task execution waits for your decision on the exact request. Scoped unattended automations require explicit permission in advance."},
+  {"q": "Where does my information go?", "a": "You host the app in your own account. The model provider you choose receives the context needed for its requests. Review the security and connection settings before using confidential information."},
+  {"q": "Which agents and connections can I use?", "a": "The provider catalog includes agent adapters such as OpenCode, Claude Code, and Codex. Availability depends on your configured connection. Chat channels and other integrations also need setup; a listed adapter is not evidence of a successful live run."},
+  {"q": "What does it cost?", "a": "The software is free to self-host under AGPL-3.0-only. You pay for hosting and model usage through your chosen providers."},
+  {"q": "Is it production-ready?", "a": "Shiba is an early prototype. Automated tests cover parts of the workflow, but a successful cloud task with a live model and GitHub has not been established in the readiness record. Validate your own setup before relying on it."},
+  {"q": "How do I get started?", "a": "Follow the self-hosting guide to set up Shiba, then start with a small task and review its result. The dashboard works in a browser. Native mobile and public desktop releases are not available."}
 ];
+
 const schema = [
-  { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'Shiba', url: 'https://tryshiba.dev/', description, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Cloudflare Workers', license: 'https://spdx.org/licenses/AGPL-3.0-only.html', sameAs: 'https://github.com/princepal9120/shiba', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }, featureList: ['Task-first workspace with configurable role templates', 'Approval-gated sandbox execution', 'Reviewable file deliverables, available downloads and diffs', 'Connected repository required for execution', 'OpenCode, Claude Code, Codex, Grok, and Pi harnesses'] },
+  { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'Shiba', url: 'https://tryshiba.dev/', description, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Cloudflare Workers', license: 'https://spdx.org/licenses/AGPL-3.0-only.html', sameAs: 'https://github.com/princepal9120/shiba', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }, featureList: ['AI employees for company work', 'Approval-gated sandbox execution', 'Reviewable draft files and diffs', 'Connected repository required for execution', 'Configurable agents and model connections'] },
   { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqItems.map(item => ({ '@type': 'Question', name: item.q, acceptedAnswer: { '@type': 'Answer', text: item.a } })) },
 ];
-const steps = [
-  { name: 'Describe the work.', detail: 'A campaign draft, an account brief, a research question or a code change. Start with the outcome and your context; choose a role to shape the instructions.', data: '“Research competitors for our next launch”' },
-  { name: 'Set up. Then approve.', detail: 'Connect a repository for execution—even for research and reports. Review the plan, repository, branch and model route. Standard sandbox execution waits for your approval.', data: 'Task → plan → required setup → approval' },
-  { name: 'Review the deliverables.', detail: 'Follow progress, inspect files and diffs, and download available deliverables. A GitHub pull request is a separate choice when the work calls for one.', data: 'Progress → files → your review' },
+
+const worksWith = [
+  { name: 'OpenCode', icon: '/assets/harnesses/opencode.svg' },
+  { name: 'Claude Code', icon: '/assets/harnesses/claude.svg' },
+  { name: 'Codex', icon: '/assets/harnesses/openai.svg' },
+  { name: 'Grok', icon: '/assets/harnesses/grok.svg' },
+  { name: 'Cursor', icon: '/assets/harnesses/cursor.svg' },
+  { name: 'Slack', icon: '/assets/channels/slack.svg' },
+  { name: 'Telegram', icon: '/assets/channels/telegram.svg' },
+  { name: 'Discord', icon: '/assets/channels/discord.svg' },
+  { name: 'Linear', icon: '/assets/channels/linear.svg' },
+  { name: 'GitHub', icon: '/assets/channels/github.svg' },
 ];
-const channels = [
-  { name: 'Dashboard', type: 'image', src: '/assets/mascot/pet-logo.png', note: 'Your workspace, in a browser.' },
-  { name: 'Slack', type: 'image', src: '/assets/channels/slack.svg', note: 'A task and an approval, in-thread.' },
-  { name: 'Telegram', type: 'image', src: '/assets/channels/telegram.svg', note: 'Send a task to your configured bot.' },
-  { name: 'Discord', type: 'image', src: '/assets/channels/discord.svg', note: 'Commands, mentions, and progress.' },
-  { name: 'API v1', type: 'api', note: 'Build it into your own workflow.' },
-  { name: 'Automations', type: 'automations', note: 'Configure repeatable work explicitly.' },
+
+const chatbotComparisons = [
+  {
+    id: 'marketing',
+    role: 'Marketing',
+    botReply: "Here's a 7-step marketing strategy: 1. Identify target personas. 2. Draft value proposition. 3. Publish blog posts. 4. Run paid ads. 5. Measure KPIs. Would you like me to elaborate on step 1?",
+    shibaAction: {
+      branch: 'task/launch-brief',
+      files: ['marketing/brief.md', 'marketing/campaign.md'],
+      status: 'Ready for your approval',
+      summary: 'Drafted campaign brief and announcement copy into repository. Waits for your review before merging.'
+    }
+  },
+  {
+    id: 'coding',
+    role: 'Coding',
+    botReply: "You could fix this by checking if the session exists: `if (!session) return false;`. Paste this into your auth handler and restart your server to see if it resolves the issue.",
+    shibaAction: {
+      branch: 'task/checkout-fix',
+      files: ['src/auth/session.ts', 'test/auth-session.test.ts'],
+      status: 'Tests passing · Ready for review',
+      summary: 'Reproduced bug in isolated sandbox, wrote regression test, applied fix, verified build cleanly.'
+    }
+  },
+  {
+    id: 'design',
+    role: 'Design',
+    botReply: "I suggest a clean mobile navigation with high contrast, a sticky header, and 44px touch targets. Be sure to test keyboard focus indicators and ARIA roles for screen readers.",
+    shibaAction: {
+      branch: 'task/mobile-nav-spec',
+      files: ['design/spec.md', 'design/review-checklist.md'],
+      status: 'Specification drafted',
+      summary: 'Outlined full mobile navigation flow, state transitions, keyboard shortcuts, and WCAG checklist.'
+    }
+  },
+  {
+    id: 'qa',
+    role: 'QA',
+    botReply: "Common sign-in edge cases include expired tokens, network dropouts, rate limiting, and SQL injection in input fields. Remember to write tests for each of these scenarios.",
+    shibaAction: {
+      branch: 'task/auth-qa-run',
+      files: ['qa/report.md', 'qa/reproduction-log.txt'],
+      status: 'Check completed in sandbox',
+      summary: 'Executed sign-in checks in container, captured exact HTTP responses, and logged reproduction steps.'
+    }
+  }
+];
+
+const controls = [
+  { title: 'Approval gate', text: 'Work pauses before any repository commit. You retain final authority over every merge.' },
+  { title: 'Your Cloudflare account', text: 'Runs on Workers and Containers in your cloud infrastructure. Stored data stays yours.' },
+  { title: 'Sandbox per task', text: 'Each task executes in an ephemeral container with strict memory and CPU limits.' },
+  { title: 'Repository required', text: 'Non-coding and coding tasks operate inside a designated GitHub repository.' },
+  { title: 'Deployment-owned credentials', text: 'Model keys stay inside Cloudflare AI Gateway; containers never receive raw secrets.' },
+  { title: 'Reviewable diffs', text: 'Inspect line-by-line diffs, generated drafts, and test logs before accepting work.' }
+];
+
+const steps = [
+  { num: '01', title: 'Self host in your account', text: 'Deploy to Cloudflare Workers with Docker sandbox container in minutes.' },
+  { num: '02', title: 'Connect a repository', text: 'Select a GitHub repo to give your AI employees context and output files.' },
+  { num: '03', title: 'Assign your first task', text: 'Describe the work, review the proposed plan, and approve the run.' }
 ];
 ---
 <MarketingPage title={title} description={description} path="/" schema={schema}>
   <div class="landing">
-    <section class="shell home-hero" aria-labelledby="home-title">
-      <div class="hero-copy">
-        <a class="release-note" href="/docs/readiness/"><span class="release-dot" aria-hidden="true"></span>Open source. Early, and out in the open.</a>
-        <h1 id="home-title">Your tasks.<br />Your team.<br /><em>Your call.</em></h1>
-        <p class="hero-subhead">An AI workspace for marketing, sales, research, product, design and engineering. Describe the work, choose a role and review the plan. You approve standard sandbox execution.</p>
+    <!-- Section 1: Hero + Product Window + Works With chips -->
+    <section class="home-hero" aria-labelledby="home-title">
+      <div class="hero-header-stack">
+        <span class="eyebrow-chip">Open source · Self-hosted</span>
+        <h1 id="home-title" class="hero-title">
+          AI employees for<br />
+          <span class="title-accent">the work behind your company.</span>
+        </h1>
+        <p class="hero-subhead">
+          From code and design to marketing, sales, operations, finance, and revenue work. Give Shiba a task, review the plan, and keep the final decision.
+        </p>
         <div class="hero-actions">
-          <a class="cta cta-primary" href="/docs/self-hosting/">Self-host Shiba</a>
-          <a class="cta cta-secondary" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">Star on GitHub <span aria-hidden="true">↗</span></a>
+          <a class="cta cta-primary" href="/docs/self-hosting/">Self host Shiba</a>
+          <a class="secondary-quiet-link" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">
+            Star on GitHub <span aria-hidden="true">↗</span>
+          </a>
         </div>
-        <p class="hero-note">Self-hosted · AGPL-3.0 · Bring your own model</p>
-        <p class="hero-note">Start with the task. A connected repository is required before execution, including research and reports.</p>
+        <div class="hero-disclosures">
+          <p class="hero-note">Free software to self-host. Hosting and model usage cost extra.</p>
+          <p class="hero-note">Tasks need a GitHub repository and your approval. The demo is a simulation.</p>
+        </div>
+
+        <!-- Static "Works with" chip row -->
+        <div class="works-with-band" aria-label="Compatible tools and harnesses">
+          <span class="works-label">Works with:</span>
+          <div class="works-chips">
+            {worksWith.map(tool => (
+              <div class="works-chip">
+                <img src={tool.icon} alt="" width="16" height="16" class="chip-icon" loading="lazy" decoding="async" />
+                <span>{tool.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-      <div class="hero-product"><HeroDemo /></div>
+
+      <!-- 3-Pane Product Window -->
+      <div class="hero-product-frame">
+        <HeroDemo />
+      </div>
     </section>
 
-    <div class="compatibility" role="region" aria-label="Surfaces and harness catalog">
-      <button type="button" class="marquee-toggle" aria-pressed="false" data-marquee-toggle hidden>Pause scrolling</button>
-      <div class="marquee-track">{[false, true].map(duplicate => <div class="marquee-set" aria-hidden={duplicate ? 'true' : undefined}>
-        {['Dashboard', 'Slack', 'Telegram', 'Discord', 'API v1', 'Automations', 'OpenCode', 'Claude Code', 'Codex', 'Grok', 'Pi'].map(name => <span>{name}<i aria-hidden="true">·</i></span>)}
-      </div>)}</div>
-    </div>
-
-    <section id="how-it-works" class="shell home-section steps-section" data-reveal aria-labelledby="steps-title">
-      <div class="section-head"><p class="eyebrow">A little direction. A lot of possibility.</p><h2 id="steps-title">From “what if”<br />to <em>ready for review.</em></h2><p class="section-lead">A clear task, a visible plan and work you can inspect. The outcome comes first; repository setup supports execution.</p></div>
-      <div class="steps-grid">{steps.map((step, i) => <article class="step-card"><span class="step-number" aria-hidden="true">0{i + 1}</span><h3>{step.name}</h3><p>{step.detail}</p><div class="step-data">{step.data}</div></article>)}</div>
+    <!-- Section 2: Dark Manifesto Band -->
+    <section class="manifesto-band" aria-label="Shiba Principle">
+      <div class="manifesto-inner">
+        <p class="manifesto-eyebrow">The Shiba principle</p>
+        <h2 class="manifesto-quote">
+          AI employees that work in your repos and wait for your approval.
+        </h2>
+        <div class="manifesto-actions">
+          <a class="cta cta-primary" href="/docs/self-hosting/">Self host Shiba</a>
+          <span class="manifesto-sub">Open source · AGPL-3.0-only · Your infrastructure</span>
+        </div>
+      </div>
     </section>
 
-    <section id="trust" class="trust-band" aria-labelledby="trust-title">
-      <div class="shell trust-layout" data-reveal>
-        <div class="trust-copy"><p class="eyebrow">Permission is the point.</p><h2 id="trust-title">Capable by design.<br /><em>Never in charge.</em></h2><p class="section-lead">Shiba can propose the next move. You decide whether it happens. A sandbox starts only after approval, unless you explicitly enable a scoped unattended automation.</p>
+    <!-- Section 3: Real Dashboard (#dashboard) -->
+    <section id="dashboard" class="home-section dashboard-section" data-reveal aria-labelledby="dashboard-title">
+      <div class="section-head">
+        <p class="eyebrow">The real dashboard</p>
+        <h2 id="dashboard-title">Every employee,<br />one workspace.</h2>
+        <p class="section-lead">Start a bot from a role template, then give it work in its own thread. Plans, approvals and pull requests stay in one place.</p>
+      </div>
+      <figure class="dashboard-comic-panel">
+        <picture>
+          <source data-theme-source srcset="/assets/dashboard/agents-dark.png" media="(prefers-color-scheme: dark)" />
+          <img
+            src="/assets/dashboard/agents-light.png"
+            width="1280"
+            height="844"
+            loading="lazy"
+            decoding="async"
+            alt="Shiba dashboard Agents page with role templates for Engineering, Marketing, Sales, Product, Design, Research, Operations and QA beside the workspace sidebar."
+          />
+        </picture>
+        <figcaption class="caption-5">Screenshot of a local Shiba build before a repository is connected.</figcaption>
+      </figure>
+    </section>
+
+    <!-- Section 4: What makes Shiba a hire -->
+    <section class="home-section hire-section" data-reveal aria-labelledby="hire-title">
+      <div class="section-head">
+        <p class="eyebrow">Built for real responsibility</p>
+        <h2 id="hire-title">What makes Shiba<br />a hire, not a prompt.</h2>
+        <p class="section-lead">Chatbots give suggestions and leave the execution to you. Shiba owns the task inside your repo and returns reviewable work.</p>
+      </div>
+      <div class="hire-grid">
+        <article class="hire-card">
+          <div class="card-num">01</div>
+          <h3>Owns a repo task</h3>
+          <p>Reads the issue, navigates your code tree, writes tests, and commits work to a dedicated branch.</p>
+          <div class="vignette-box">
+            <div class="vignette-bar"><span>branch: task/launch-brief</span><span class="vignette-tag">git</span></div>
+            <pre class="vignette-code"><code>$ git checkout -b task/launch-brief
+› reading repository context
+› creating marketing/brief.md
+✓ 2 files committed</code></pre>
+          </div>
+        </article>
+
+        <article class="hire-card">
+          <div class="card-num">02</div>
+          <h3>Works across your tools</h3>
+          <p>Configured bots interact through Slack, Telegram, Discord, and Linear. No manual copy-pasting between browser windows.</p>
+          <div class="vignette-box tools-vignette">
+            <div class="tools-cluster">
+              <span class="tool-badge"><img src="/assets/channels/slack.svg" alt="" width="20" height="20" /> Slack</span>
+              <span class="tool-badge"><img src="/assets/channels/linear.svg" alt="" width="20" height="20" /> Linear</span>
+              <span class="tool-badge"><img src="/assets/channels/discord.svg" alt="" width="20" height="20" /> Discord</span>
+              <span class="tool-badge"><img src="/assets/channels/github.svg" alt="" width="20" height="20" /> GitHub</span>
+            </div>
+            <p class="tools-caption">Configured adapters running on your own API tokens.</p>
+          </div>
+        </article>
+
+        <article class="hire-card">
+          <div class="card-num">03</div>
+          <h3>Waits for your approval</h3>
+          <p>Never merges code, writes to production, or acts on external services until you inspect the proposal and grant permission.</p>
+          <div class="vignette-box approval-vignette">
+            <div class="vignette-bar"><span>Gate: Human Review</span><span class="vignette-alert">Pending</span></div>
+            <div class="vignette-approval-row">
+              <span class="vignette-btn approve">Approve &amp; run →</span>
+              <span class="vignette-btn reject">Reject</span>
+            </div>
+          </div>
+        </article>
+      </div>
+      <div class="mascot-peek-corner" data-mascot-peek>
+        <ShibaMascot character="operations" />
+      </div>
+    </section>
+
+    <!-- Section 5: A chatbot suggests. Shiba delivers. -->
+    <section class="home-section delivers-section" data-reveal aria-labelledby="delivers-title">
+      <div class="section-head">
+        <p class="eyebrow">Practical outcomes</p>
+        <h2 id="delivers-title">A chatbot suggests.<br />Shiba delivers.</h2>
+        <p class="section-lead">Compare the generic text walls of chat assistants with concrete repository deliverables.</p>
+      </div>
+
+      <div class="delivers-widget">
+        <div class="delivers-tabs" aria-label="Select comparison role">
+          {chatbotComparisons.map((c, i) => (
+            <button
+              type="button"
+              class:list={['delivers-tab-btn', { 'is-active': i === 0 }]}
+              data-delivers-tab={c.id}
+              aria-pressed={i === 0 ? 'true' : 'false'}
+            >
+              {c.role}
+            </button>
+          ))}
+        </div>
+
+        <div class="delivers-panels">
+          {chatbotComparisons.map((c, i) => (
+            <div class:list={['delivers-panel', { 'is-active': i === 0 }]} data-delivers-panel={c.id}>
+              <div class="compare-col chatbot-col">
+                <div class="compare-badge">Standard chatbot</div>
+                <h4>Suggests theory</h4>
+                <div class="chat-bubble">
+                  <p>{c.botReply}</p>
+                </div>
+                <span class="compare-result fail">Result: You do all the actual work</span>
+              </div>
+
+              <div class="compare-col shiba-col">
+                <div class="compare-badge shiba-badge">Shiba AI employee</div>
+                <h4>Prepares the deliverable</h4>
+                <div class="shiba-deliverable-card">
+                  <div class="deliv-meta">
+                    <span>Branch: <code>{c.shibaAction.branch}</code></span>
+                    <span class="deliv-status">{c.shibaAction.status}</span>
+                  </div>
+                  <div class="deliv-files">
+                    {c.shibaAction.files.map(f => (
+                      <div class="deliv-file-pill"><span>📄</span><code>{f}</code></div>
+                    ))}
+                  </div>
+                  <p class="deliv-desc">{c.shibaAction.summary}</p>
+                </div>
+                <span class="compare-result ok">Result: You review, approve, and merge</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 6: #employees roster (AgentCast) -->
+    <section id="employees" class="home-section employees-section" data-reveal aria-labelledby="employees-title">
+      <div class="section-head">
+        <p class="eyebrow">Nine dedicated roles</p>
+        <h2 id="employees-title">AI employees for<br />every company department.</h2>
+        <p class="section-lead">Give each employee clear instructions and the files you want back. Four built-in templates, plus infinite custom roles.</p>
+      </div>
+      <AgentCast />
+    </section>
+
+    <!-- Section 7: #trust Tagline Reveal -->
+    <section id="trust" class="home-section trust-section" aria-labelledby="trust-title">
+      <div class="trust-layout" data-reveal>
+        <div class="trust-copy">
+          <p class="eyebrow">Permission is the point.</p>
+          <h2 id="trust-title" class="tagline-reveal" aria-label="Capable by design. Never in charge.">
+            <span class="tagline-line"><span class="tagline-word" data-tagline-word>Capable</span> <span class="tagline-word" data-tagline-word>by</span> <span class="tagline-word" data-tagline-word>design.</span></span>
+            <span class="tagline-line"><span class="tagline-word" data-tagline-word>Never</span> <span class="tagline-word" data-tagline-word>in</span> <span class="tagline-word" data-tagline-word>charge.</span></span>
+          </h2>
+          <p class="section-lead">See the proposed task before it runs. Approve the exact request, reject it, or change direction. Unattended automations require explicit, scoped permission.</p>
           <a class="text-link" href="/docs/approval-gates/">Inside the approval gate <span aria-hidden="true">→</span></a>
-          <div class="trust-details"><div><h3>Your account.</h3><p>Execution runs in isolated Cloudflare Sandbox containers, on infrastructure you own.</p></div><div><h3>A visible trail.</h3><p>Follow streaming logs, inspect files and diffs, and review available deliverables before deciding what to do next.</p></div></div>
+          <div class="trust-details">
+            <div>
+              <h3>Keep the work yours.</h3>
+              <p>Host Shiba in your own account and choose the connections it uses. Your model provider still receives the context sent with its requests.</p>
+            </div>
+            <div>
+              <h3>Review before you rely on it.</h3>
+              <p>Read the returned work and checks, then decide what to keep. Teams evaluating Shiba can start with the <a class="text-link" href="/docs/readiness/">readiness guide</a>.</p>
+            </div>
+          </div>
         </div>
         <div class="permission-visual" aria-label="Example of the approval boundary">
-          <div class="permission-top"><span class="permission-icon" aria-hidden="true">◇</span><span>Execution boundary</span><span class="permission-status">Waiting for you</span></div>
-          <div class="permission-plan"><span class="small-label">Proposed task</span><strong>Research competitors for our next launch</strong><div class="permission-data"><span>Repository</span><code>example/team-workspace</code><span>Branch</span><code>task/competitor-research</code></div></div>
+          <div class="permission-top">
+            <span class="permission-icon" aria-hidden="true">◇</span>
+            <span>Example approval</span>
+            <span class="permission-status">Waiting for you</span>
+          </div>
+          <div class="permission-plan">
+            <span class="small-label">Proposed task</span>
+            <strong>Prepare a draft budget from supplied figures</strong>
+            <div class="permission-data">
+              <span>Repository</span><code>example/team-workspace</code>
+              <span>Branch</span><code>task/draft-budget</code>
+            </div>
+          </div>
           <div class="gate-line"><span></span><b>Human approval required</b><span></span></div>
-          <div class="permission-bottom"><span class="lock-symbol" aria-hidden="true">⌑</span><div><strong>Sandbox not started</strong><p>Your permission opens the gate.</p></div><span class="quiet-dot" aria-hidden="true"></span></div>
+          <div class="permission-bottom">
+            <span class="lock-symbol" aria-hidden="true">⌑</span>
+            <div>
+              <strong>Sandbox not started</strong>
+              <p>Review the request before work begins.</p>
+            </div>
+            <span class="quiet-dot" aria-hidden="true"></span>
+          </div>
           <p class="visual-caption">Illustrative boundary, not a live run. Planning may call a model before approval.</p>
         </div>
       </div>
     </section>
 
-    <section id="employees" class="shell home-section employees-section" data-reveal aria-labelledby="employees-title">
-      <div class="section-head"><p class="eyebrow">A role for the work.</p><h2 id="employees-title">Good company.<br /><em>Clear responsibilities.</em></h2><p class="section-lead">Start with a role template or configure your own. Each Shiba represents a working brief: instructions, expected deliverables and a human handoff. You choose the harness and model separately.</p></div>
-      <AgentCast />
-      <div class="employees-links"><a class="text-link" href="/why-shiba/">Why Shiba</a><a class="text-link" href="/open-source-devin-alternative/">An open-source Devin alternative</a><a class="text-link" href="/blog/">Journal</a><a class="text-link" href="/waitlist/">Waitlist &amp; contribute</a><a class="text-link" href="/integrations/">Meet the integrations <span aria-hidden="true">→</span></a><a class="text-link" href="/network/">How the network works <span aria-hidden="true">→</span></a></div>
+    <!-- Section 8: Autonomous, not unsupervised -->
+    <section class="home-section controls-section" data-reveal aria-labelledby="controls-title">
+      <div class="section-head">
+        <p class="eyebrow">Governance &amp; safety</p>
+        <h2 id="controls-title">Autonomous,<br />not unsupervised.</h2>
+        <p class="section-lead">Real guardrails built into the architectural foundation. No hidden external calls or unvetted merges.</p>
+      </div>
+
+      <div class="controls-grid">
+        {controls.map(item => (
+          <div class="control-box">
+            <h3>{item.title}</h3>
+            <p>{item.text}</p>
+          </div>
+        ))}
+      </div>
     </section>
 
-    <section id="channels" class="surface-band" aria-labelledby="channels-title">
-      <div class="shell home-section" data-reveal><div class="section-head"><p class="eyebrow">Less switching. More doing.</p><h2 id="channels-title">Right where<br /><em>you already work.</em></h2><p class="section-lead">Start a task in chat or open the dashboard. Same agent, same approval boundary, a different way in.</p></div>
-        <div class="channels-grid">
-          {channels.map(channel => (
-            <article class="channel-card">
-              <span class="channel-mark" aria-hidden="true">
-                {channel.type === 'image' && (
-                  <img
-                    src={channel.src}
-                    alt=""
-                    width="36"
-                    height="36"
-                    class={`channel-icon ${channel.name === 'Dashboard' ? 'channel-mascot' : ''}`}
-                    loading="lazy"
-                    decoding="async"
-                  />
-                )}
-                {channel.type === 'api' && (
-                  <svg class="channel-icon channel-svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1" />
-                    <path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1" />
-                  </svg>
-                )}
-                {channel.type === 'automations' && (
-                  <svg class="channel-icon channel-svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                    <path d="M3 3v5h5" />
-                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-                    <path d="M16 21h5v-5" />
-                  </svg>
-                )}
-              </span>
-              <h3>{channel.name}</h3>
-              <p>{channel.note}</p>
+    <!-- Section 9: #how-it-works -->
+    <section id="how-it-works" class="home-section steps-section" data-reveal aria-labelledby="steps-title">
+      <div class="section-head">
+        <p class="eyebrow">A task. A plan. A result to review.</p>
+        <h2 id="steps-title">From “what if”<br />to ready for review.</h2>
+        <p class="section-lead">Start with a piece of work you can describe. Shiba helps turn it into files and changes your team can review.</p>
+      </div>
+
+      <div class="steps-container">
+        <div class="steps-grid">
+          {steps.map(step => (
+            <article class="step-card">
+              <span class="step-number" aria-hidden="true">{step.num}</span>
+              <h3>{step.title}</h3>
+              <p>{step.text}</p>
             </article>
           ))}
         </div>
-        <div class="surface-foot"><p>Bring your own credentials and configure each integration. Mobile browsers can open the dashboard; native iPhone and desktop apps are not released.</p><a class="text-link" href="/integrations/">Find your way in <span aria-hidden="true">→</span></a></div>
+
+        <!-- Terminal tile with real command from docs -->
+        <div class="terminal-tile" aria-label="Terminal installation command">
+          <div class="terminal-bar">
+            <span class="term-dots"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></span>
+            <span class="term-title">bash — shiba local setup</span>
+          </div>
+          <pre class="terminal-body"><code><span class="term-prompt">$</span> git clone https://github.com/princepal9120/shiba.git
+<span class="term-prompt">$</span> cd shiba &amp;&amp; pnpm install
+<span class="term-prompt">$</span> pnpm shiba dev
+<span class="term-dim">› worker listening at http://127.0.0.1:8787</span>
+<span class="term-dim">› sandbox container image built: standard-4</span>
+<span class="term-ok">✓ ready for task assignment</span></code></pre>
+        </div>
       </div>
     </section>
 
-    <section id="proof" class="shell home-section proof-section" data-reveal aria-labelledby="proof-title">
-      <div class="proof-layout"><div class="section-head"><p class="eyebrow">Open source. Open about the edges.</p><h2 id="proof-title">Early days.<br /><em>Nothing to hide.</em></h2><p class="section-lead">No invented benchmarks. No borrowed customer logos. Just the code, the boundaries, and the work still ahead.</p><a class="text-link" href="/docs/readiness/">Read the readiness notes <span aria-hidden="true">→</span></a></div>
-        <div class="readiness-list"><article><span class="readiness-marker" aria-hidden="true">↗</span><div><h3>Yours to inspect.</h3><p>AGPL-3.0-only. The orchestration, sandbox adapters, and approval logic are public. No Shiba seat fees; Cloudflare and model usage are billed by those providers.</p><a class="text-link" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">Explore the source <span aria-hidden="true">↗</span></a></div></article><article><span class="readiness-marker" aria-hidden="true">◌</span><div><h3>What is—and isn't—verified.</h3><p>Shiba is an early prototype. No cloud end-to-end run is recorded in the readiness docs; shipped code is not the same as live proof.</p><dl class="verification-split"><div><dt>In the repository</dt><dd>Automated checks for orchestration, approval gating, and container adapters.</dd></div><div><dt>Needs live proof</dt><dd>A real container, live model, and GitHub publishing on your deploy. Experimental ComputeSDK backends are not live-verified.</dd></div></dl></div></article><article><span class="readiness-marker" aria-hidden="true">◇</span><div><h3>Know the boundaries.</h3><p>Your model provider receives code context. Credential handling varies by harness; Antigravity OAuth is a known container-profile exception. Read the configuration before enabling it.</p><a class="text-link" href="/docs/configuration/">Configuration and credential flags <span aria-hidden="true">→</span></a></div></article></div>
+    <!-- Section 10: #proof -->
+    <section id="proof" class="home-section proof-section" data-reveal aria-labelledby="proof-title">
+      <div class="proof-layout">
+        <div class="section-head">
+          <p class="eyebrow">Know what you’re trying.</p>
+          <h2 id="proof-title">Start small.<br />Check the result.</h2>
+          <p class="section-lead">Shiba is an early prototype. Explore the source and the verification notes before giving it work your company depends on.</p>
+          <a class="text-link" href="/docs/readiness/">Read the readiness notes <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="readiness-list">
+          <article class="proof-card">
+            <span class="readiness-marker" aria-hidden="true">↗</span>
+            <div>
+              <h3>Yours to inspect.</h3>
+              <p>The source is public under AGPL-3.0-only. Read how work is planned, approved, and returned before running it in your own account.</p>
+              <a class="text-link" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">Explore the source <span aria-hidden="true">↗</span></a>
+            </div>
+          </article>
+          <article class="proof-card">
+            <span class="readiness-marker" aria-hidden="true">◌</span>
+            <div>
+              <h3>What still needs proving.</h3>
+              <p>No successful cloud task with a live model and GitHub is established in the readiness record.</p>
+              <dl class="verification-split">
+                <div>
+                  <dt>In the repository</dt>
+                  <dd>Automated checks for task handling, approval, and execution adapters.</dd>
+                </div>
+                <div>
+                  <dt>Needs live proof</dt>
+                  <dd>A complete task using your hosting, model connection, and GitHub setup.</dd>
+                </div>
+              </dl>
+            </div>
+          </article>
+          <article class="proof-card">
+            <span class="readiness-marker" aria-hidden="true">◇</span>
+            <div>
+              <h3>Know the boundaries.</h3>
+              <p>Connections have different access and data-handling requirements. Review them before adding private company information or enabling an experimental agent.</p>
+              <a class="text-link" href="/docs/configuration/">Connection setup and limits <span aria-hidden="true">→</span></a>
+            </div>
+          </article>
+        </div>
       </div>
     </section>
 
-    <section id="faq" class="shell home-section faq-section" data-reveal aria-labelledby="faq-title"><div class="faq-layout"><div class="section-head"><p class="eyebrow">A few things worth asking.</p><h2 id="faq-title">Good<br /><em>questions.</em></h2><p class="section-lead">The short version here.<br />The details are in the docs.</p><a class="text-link" href="/docs/overview/">Open the docs <span aria-hidden="true">→</span></a></div><div class="faq-list">{faqItems.map(item => <details class="faq-item"><summary><span>{item.q}</span><span class="faq-toggle" aria-hidden="true">+</span></summary><div class="faq-answer"><p>{item.a}</p></div></details>)}</div></div></section>
+    <!-- Section 11: #faq Accordion -->
+    <section id="faq" class="home-section faq-section" data-reveal aria-labelledby="faq-title">
+      <div class="faq-layout">
+        <div class="section-head">
+          <p class="eyebrow">A few things worth asking.</p>
+          <h2 id="faq-title">Good<br />questions.</h2>
+          <p class="section-lead">The short version here.<br />The details are in the docs.</p>
+          <a class="text-link" href="/docs/overview/">Open the docs <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="faq-list">
+          {faqItems.map(item => (
+            <details class="faq-item">
+              <summary>
+                <span>{item.q}</span>
+                <span class="faq-toggle" aria-hidden="true">+</span>
+              </summary>
+              <div class="faq-answer">
+                <p>{item.a}</p>
+              </div>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
 
-    <section class="shell closing" data-reveal aria-labelledby="closing-title"><p class="eyebrow">Your next teammate runs on your terms.</p><h2 id="closing-title">A little more help.<br /><em>A lot more control.</em></h2><p>Make room for an agent that asks first.</p><div class="hero-actions"><a class="cta cta-primary" href="/docs/self-hosting/">Self-host Shiba</a><a class="cta cta-secondary" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">Star on GitHub <span aria-hidden="true">↗</span></a></div><span class="closing-note">Early prototype. Self-hosted. Always your call.</span></section>
+    <!-- Section 12: Closing CTA -->
+    <section class="closing-section" data-reveal aria-labelledby="closing-title">
+      <div class="closing-inner">
+        <p class="eyebrow">Your next employee runs on your terms.</p>
+        <h2 id="closing-title">Give the next task<br />a clear place to start.</h2>
+        <p class="closing-lead">Set up Shiba, choose one piece of work, and review what comes back.</p>
+        <div class="hero-actions">
+          <a class="cta cta-primary" href="/docs/self-hosting/">Self host Shiba</a>
+          <a class="secondary-quiet-link" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">
+            Star on GitHub <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+        <span class="closing-note">Start with a small task. Keep the final decision.</span>
+      </div>
+    </section>
   </div>
 </MarketingPage>
 
 <script is:inline>
   (function() {
-    var marquee = document.querySelector('.compatibility');
-    var toggle = document.querySelector('[data-marquee-toggle]');
     var motion = matchMedia('(prefers-reduced-motion: reduce)');
-    if (marquee && toggle) {
-      var track = marquee.querySelector('.marquee-track');
-      function updateMarqueeControl() { toggle.hidden = motion.matches || !track || getComputedStyle(track).animationName === 'none'; }
-      updateMarqueeControl();
-      motion.addEventListener('change', updateMarqueeControl);
-      toggle.addEventListener('click', function() {
-        var paused = toggle.getAttribute('aria-pressed') !== 'true';
-        toggle.setAttribute('aria-pressed', String(paused));
-        toggle.textContent = paused ? 'Play scrolling' : 'Pause scrolling';
-        marquee.classList.toggle('is-paused', paused);
+
+    // Staggered per-word tagline observer
+    var tagline = document.querySelector('.tagline-reveal');
+    var words = document.querySelectorAll('.tagline-reveal .tagline-word');
+    if (tagline && words.length > 0 && 'IntersectionObserver' in window && !motion.matches) {
+      tagline.classList.add('tagline-interactive');
+      words.forEach(function(word, index) {
+        word.style.transitionDelay = (index * 75) + 'ms';
       });
-      document.addEventListener('visibilitychange', function() { marquee.classList.toggle('is-hidden', document.hidden); });
+      var wordObserver = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-active');
+            wordObserver.unobserve(entry.target);
+          }
+        });
+      }, {
+        threshold: 0.1,
+        rootMargin: '0px 0px -15% 0px'
+      });
+      words.forEach(function(word) {
+        wordObserver.observe(word);
+      });
     }
+
+    // Role tabs for section 5 ("A chatbot suggests. Shiba delivers.")
+    var tabBtns = document.querySelectorAll('[data-delivers-tab]');
+    var panels = document.querySelectorAll('[data-delivers-panel]');
+    if (tabBtns.length > 0 && panels.length > 0) {
+      tabBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var role = btn.getAttribute('data-delivers-tab');
+          tabBtns.forEach(function(b) {
+            var active = b === btn;
+            b.classList.toggle('is-active', active);
+            b.setAttribute('aria-pressed', String(active));
+          });
+          panels.forEach(function(p) {
+            p.classList.toggle('is-active', p.getAttribute('data-delivers-panel') === role);
+          });
+        });
+      });
+    }
+
+    // Mascot corner peek observer
+    var mascotPeek = document.querySelector('[data-mascot-peek]');
+    if (mascotPeek && 'IntersectionObserver' in window && !motion.matches) {
+      var mascotObserver = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-peeking');
+            mascotObserver.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.2 });
+      mascotObserver.observe(mascotPeek);
+    }
+
+    // General section reveal observer
     if (!('IntersectionObserver' in window) || motion.matches) return;
-    var observer = new IntersectionObserver(function(entries) { entries.forEach(function(entry) { if (entry.isIntersecting) { entry.target.classList.add('is-in'); observer.unobserve(entry.target); } }); }, { rootMargin: '0px 0px -6% 0px' });
-    document.querySelectorAll('[data-reveal]').forEach(function(section) { section.classList.add('will-reveal'); observer.observe(section); });
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-in');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { rootMargin: '0px 0px -6% 0px' });
+    document.querySelectorAll('[data-reveal]').forEach(function(section) {
+      section.classList.add('will-reveal');
+      observer.observe(section);
+    });
   })();
 </script>
 
 <style>
-  .landing { --soft-accent: color-mix(in srgb, var(--navy) 5%, var(--paper)); --hairline: color-mix(in srgb, var(--ink) 11%, transparent); --soft-shadow: 0 3px 5px color-mix(in srgb, var(--ink) 3%, transparent), 0 18px 60px color-mix(in srgb, var(--ink) 6%, transparent); overflow: clip; }
-  .home-hero { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 28px; align-items: center; padding-block: 64px 88px; min-height: 840px; position: relative; }
-  .hero-copy { grid-column: span 5; position: relative; z-index: 1; }
-  .hero-product { grid-column: 7 / span 6; position: relative; min-width: 0; }
-  .hero-product::before { content: ''; position: absolute; inset: 6% -18% 0 -25%; background: radial-gradient(ellipse at 50% 48%, color-mix(in srgb, var(--navy) 13%, transparent), transparent 68%); pointer-events: none; }
-  .release-note { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; text-decoration: none; font-size: 11px; color: var(--ink-2); }
-  .release-note > span:last-child { color: var(--navy); margin-left: 2px; }
-  .release-dot { display: block; width: 6px; height: 6px; flex: none; background: var(--navy); border-radius: 50%; }
-  .hero-copy h1 { font-family: 'Instrument Serif', Georgia, serif; margin: 24px 0 28px; font-size: clamp(72px, 7.1vw, 100px); line-height: .99; font-weight: 400; letter-spacing: -.035em; max-width: none; }
-  h1 em, h2 em { font-style: italic; font-weight: 400; color: var(--navy); }
-  .hero-subhead { max-width: 37ch; font-size: 17px; line-height: 1.7; color: var(--ink-2); margin: 0; letter-spacing: -.012em; }
-  .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; align-items: center; }
-  .cta { min-height: 50px; display: inline-flex; align-items: center; justify-content: center; gap: 16px; padding: 12px 18px; border-radius: 9px; font-size: 12px; line-height: 1.5; font-weight: 550; text-decoration: none; transition: transform 240ms var(--ease-out), box-shadow 240ms var(--ease-out), background 240ms; }
-  .cta-primary { background: var(--navy); color: var(--on-accent); box-shadow: 0 3px 8px color-mix(in srgb, var(--navy) 14%, transparent), inset 0 1px 0 color-mix(in srgb, var(--on-accent) 17%, transparent); }
-  .cta-secondary { border: 1px solid var(--hairline); background: color-mix(in srgb, var(--card) 75%, transparent); color: var(--ink); }
-  .cta:hover { transform: translateY(-2px); box-shadow: var(--soft-shadow); }
-  .cta-primary:hover { background: var(--navy-2); }
-  .hero-note { font-size: 11px; color: var(--ink-2); margin-top: 20px; }
-  .compatibility { border-block: 1px solid var(--hairline); padding-block: 23px; overflow: hidden; background: color-mix(in srgb, var(--card) 40%, var(--paper)); }
-  .marquee-toggle { display: block; margin: 0 auto 16px; min-height: 44px; padding: 8px 16px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--card); color: var(--ink); font: 12px 'Geist', sans-serif; cursor: pointer; }
-  .compatibility:is(.is-paused, .is-hidden) .marquee-track { animation-play-state: paused; }
-  .marquee-track { display: flex; width: max-content; }
-  :global(.nav-js) .marquee-track { animation: surfaces-drift 48s linear infinite; }
-  :global(:root:not(.nav-js)) .marquee-track { width: 100%; }
-  :global(:root:not(.nav-js)) .marquee-set { width: 100%; flex-wrap: wrap; justify-content: center; gap: 15px 0; }
-  :global(:root:not(.nav-js)) .marquee-set[aria-hidden='true'] { display: none; }
-  .marquee-set { flex: none; display: flex; align-items: center; }
-  .marquee-set > span { display: inline-flex; align-items: center; gap: 38px; padding-right: 38px; font: 14px 'Geist', sans-serif; font-weight: 450; letter-spacing: -.02em; color: var(--ink-2); }
-  .marquee-set i { font-style: normal; color: var(--navy); }
-  .compatibility:hover .marquee-track, .compatibility:focus-within .marquee-track { animation-play-state: paused; }
-  @keyframes surfaces-drift { to { transform: translateX(-50%); } }
-  .home-section { padding-block: 128px; }
-  .section-head { max-width: 650px; }
-  .eyebrow { font: 12px/1.6 'Geist', sans-serif; font-weight: 500; text-transform: none; letter-spacing: .01em; color: var(--navy); margin: 0 0 22px; }
-  h2 { font-size: clamp(44px, 4.4vw, 64px); line-height: 1.05; letter-spacing: -.025em; margin: 0 0 24px; }
-  .section-lead { font-size: 17px; line-height: 1.7; color: var(--ink-2); max-width: 49ch; margin: 0; }
-  .steps-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 45px; margin-top: 64px; }
-  .step-card { min-width: 0; }
-  .step-number { display: inline-block; margin-bottom: 25px; font: 48px/.9 'Instrument Serif', Georgia, serif; color: color-mix(in srgb, var(--navy) 75%, var(--ink)); letter-spacing: -.04em; }
-  .step-card h3 { font: 550 19px/1.3 'Geist', sans-serif; letter-spacing: -.025em; margin: 0 0 14px; }
-  .step-card p { font-size: 14px; line-height: 1.8; color: var(--ink-2); margin: 0; }
-  .step-data { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--hairline); font: 10px/1.7 'Geist Mono', monospace; color: var(--ink-2); }
-  .trust-band { background: linear-gradient(120deg, var(--soft-accent), color-mix(in srgb, var(--card) 55%, var(--paper))); border-block: 1px solid var(--hairline); padding-block: 125px; }
-  .trust-layout { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 28px; align-items: center; }
-  .trust-copy { grid-column: span 6; }
-  .trust-copy h2 { font-size: clamp(44px, 4vw, 58px); }
-  .trust-copy .section-lead { max-width: 43ch; }
-  .text-link { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; color: var(--navy); font-size: 13px; text-decoration: none; }
-  .text-link:hover { text-decoration: underline; text-underline-offset: 5px; }
-  .trust-copy > .text-link { margin-top: 17px; }
-  .trust-details { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; border-top: 1px solid var(--hairline); padding-top: 27px; margin-top: 32px; max-width: 480px; }
-  .trust-details h3 { font: 550 13px/1.5 'Geist', sans-serif; margin: 0 0 8px; }
-  .trust-details p { font-size: 12px; line-height: 1.8; margin: 0; color: var(--ink-2); }
-  .permission-visual { grid-column: 8 / span 5; border: 1px solid var(--hairline); border-radius: 18px; background: var(--card); box-shadow: var(--soft-shadow); padding: 24px; }
-  .permission-top { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-2); padding-bottom: 24px; }
-  .permission-icon { color: var(--navy); font-size: 18px; }
-  .permission-status { margin-left: auto; padding: 5px 8px; border-radius: 20px; background: var(--soft-accent); color: var(--navy); font-size: 9px; }
-  .small-label { display: block; color: var(--ink-2); font-size: 10px; margin-bottom: 9px; }
-  .permission-plan > strong { font-weight: 550; font-size: 16px; line-height: 1.6; letter-spacing: -.02em; display: block; }
-  .permission-data { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; margin-top: 24px; font-size: 10px; color: var(--ink-2); }
-  .permission-data code { font: 10px 'Geist Mono', monospace; overflow-wrap: anywhere; color: var(--ink); }
-  .gate-line { display: flex; align-items: center; gap: 12px; color: var(--navy); margin: 32px -10px; }
-  .gate-line span { flex: 1; border-top: 1px dashed color-mix(in srgb, var(--navy) 40%, transparent); }
-  .gate-line b { font-size: 10px; font-weight: 500; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--navy) 25%, transparent); border-radius: 7px; background: var(--soft-accent); }
-  .permission-bottom { display: flex; align-items: center; gap: 14px; padding: 14px; background: var(--panel-2); border-radius: 10px; }
-  .lock-symbol { font-size: 25px; color: var(--ink-2); }
-  .permission-bottom strong { font-size: 12px; font-weight: 500; }
-  .permission-bottom p { margin: 3px 0 0; font-size: 10px; color: var(--ink-2); }
-  .quiet-dot { margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-2); }
-  .visual-caption { font-size: 10px; line-height: 1.7; margin: 20px 0 0; color: var(--ink-2); }
-  .employees-section .section-head { margin-bottom: 48px; }
-  .employees-links { display: flex; gap: 12px 32px; flex-wrap: wrap; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--hairline); }
-  .employees-links a { display: inline-flex; align-items: center; min-height: 44px; }
-  .employees-links a:focus-visible { outline: 2px solid var(--navy); outline-offset: 4px; }
-  .surface-band { background: var(--soft-accent); border-block: 1px solid var(--hairline); }
-  .channels-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 54px; }
-  .channel-card { padding: 28px; border-radius: 15px; background: color-mix(in srgb, var(--card) 85%, transparent); border: 1px solid var(--hairline); transition: transform 280ms var(--ease-out), box-shadow 280ms; }
-  .channel-card:hover { transform: translateY(-4px); box-shadow: var(--soft-shadow); }
-  .channel-mark { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 26px; border-radius: 10px; background: var(--soft-accent); color: var(--navy); overflow: hidden; flex-shrink: 0; }
-  .channel-icon { display: block; width: 30px; height: 30px; object-fit: contain; }
-  .channel-mascot { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; }
-  .channel-svg { width: 22px; height: 22px; }
-  .channel-card h3 { font: 550 17px/1.4 'Geist', sans-serif; letter-spacing: -.02em; margin: 0 0 8px; }
-  .channel-card p { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.7; }
-  .surface-foot { display: flex; align-items: center; gap: 30px; justify-content: space-between; margin-top: 22px; }
-  .surface-foot p { max-width: 68ch; font-size: 11px; line-height: 1.8; color: var(--ink-2); }
-  .surface-foot a { flex: none; }
-  .proof-layout, .faq-layout { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 28px; }
-  .proof-layout .section-head, .faq-layout .section-head { grid-column: span 5; }
-  .readiness-list, .faq-list { grid-column: 7 / span 6; }
-  .proof-layout .section-lead, .faq-layout .section-lead { max-width: 35ch; }
-  .proof-layout .section-head > a, .faq-layout .section-head > a { margin-top: 20px; }
-  .readiness-list article { display: flex; gap: 20px; border-top: 1px solid var(--hairline); padding: 30px 0; }
-  .readiness-list article:first-child { padding-top: 0; border: 0; }
-  .readiness-marker { color: var(--navy); font-size: 22px; width: 25px; flex: none; line-height: 1; }
-  .readiness-list h3 { font: 550 19px/1.4 'Geist', sans-serif; letter-spacing: -.025em; margin: 0 0 12px; }
-  .readiness-list p { color: var(--ink-2); font-size: 14px; line-height: 1.8; margin: 0; }
-  .readiness-list a { margin-top: 7px; font-size: 12px; }
-  .verification-split { display: grid; gap: 14px; margin: 20px 0 0; padding: 18px; border-radius: 10px; background: var(--soft-accent); }
-  .verification-split dt { color: var(--navy); font-size: 11px; font-weight: 500; margin-bottom: 5px; }
-  .verification-split dd { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.8; }
-  .faq-section { border-top: 1px solid var(--hairline); }
-  .faq-item { border-bottom: 1px solid var(--hairline); }
-  .faq-item:first-child { border-top: 1px solid var(--hairline); }
-  .faq-item summary { display: flex; gap: 20px; justify-content: space-between; align-items: center; min-height: 76px; padding: 20px 0; list-style: none; font-size: 15px; font-weight: 500; line-height: 1.6; cursor: pointer; }
+  /* 1120px hairline frame column (GetOverlay layout style) */
+  .landing {
+    max-width: 1120px;
+    margin-inline: auto;
+    border-left: 1px solid var(--hairline);
+    border-right: 1px solid var(--hairline);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Geist Mono', monospace;
+  }
+  @media (max-width: 1120px) {
+    .landing { border-left: none; border-right: none; }
+  }
+
+  /* Section baseline and anchor scroll clearance */
+  section[id] { scroll-margin-top: 96px; }
+  .home-hero, .manifesto-band, .home-section, .closing-section {
+    border-bottom: 1px solid var(--hairline);
+    padding: 96px 40px;
+  }
+  @media (max-width: 768px) {
+    .home-hero, .manifesto-band, .home-section, .closing-section {
+      padding: 64px 20px;
+    }
+  }
+
+  /* Shared Typography & Buttons */
+  .eyebrow, .manifesto-eyebrow, .card-num, .works-label {
+    font: 600 12px/1.4 'Geist Mono', monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 12px;
+  }
+  .eyebrow-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 999px;
+    font: 600 11px/1.4 'Geist Mono', monospace;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: var(--card);
+    color: var(--ink);
+    margin-bottom: 20px;
+  }
+  .section-head { max-width: 760px; margin-bottom: 48px; }
+  .section-head h2 {
+    font: 400 clamp(36px, 5vw, 56px)/0.98 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 16px;
+    color: var(--ink);
+  }
+  .section-lead {
+    font: 400 15px/1.6 'Geist Mono', monospace;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 65ch;
+  }
+
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font: 600 14px/1.4 'Geist Mono', monospace;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
+  }
+  .cta-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+    border: 2px solid var(--accent-border);
+    box-shadow: -3px 3px 0 var(--accent-border);
+  }
+  .cta-primary:hover { transform: translateY(-1px); box-shadow: -4px 4px 0 var(--accent-border); }
+  .cta-primary:active { transform: translateY(1px); box-shadow: -2px 2px 0 var(--accent-border); }
+
+  .secondary-quiet-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 48px;
+    padding: 12px 20px;
+    color: var(--ink-2);
+    font: 500 14px/1.4 'Geist Mono', monospace;
+    text-decoration: none;
+    transition: color 150ms var(--ease-out);
+  }
+  .secondary-quiet-link:hover { color: var(--ink); }
+
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent);
+    font: 600 13px/1.4 'Geist Mono', monospace;
+    text-decoration: none;
+    margin-top: 16px;
+  }
+  .text-link:hover { text-decoration: underline; }
+
+  /* SECTION 1: Single-Column Hero */
+  .home-hero { text-align: center; }
+  .hero-header-stack {
+    max-width: 860px;
+    margin-inline: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 48px;
+  }
+  .hero-title {
+    font: 400 clamp(44px, 7vw, 76px)/0.95 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 20px;
+    color: var(--ink);
+  }
+  .title-accent { color: var(--accent); }
+  .hero-subhead {
+    max-width: 560px;
+    font: 400 15px/1.6 'Geist Mono', monospace;
+    color: var(--ink-2);
+    margin: 0 0 28px;
+  }
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .hero-disclosures { margin-bottom: 32px; }
+  .hero-note { font: 400 12px/1.5 'Geist Mono', monospace; color: var(--ink-2); margin: 4px 0; }
+
+  /* Works with chips */
+  .works-with-band {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .works-label { margin: 0; font-size: 11px; color: var(--ink-2); }
+  .works-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .works-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    background: var(--card);
+    font: 500 12px/1.4 'Geist Mono', monospace;
+    color: var(--ink);
+  }
+  .chip-icon { display: block; flex: none; }
+
+  .hero-product-frame {
+    max-width: 1040px;
+    margin-inline: auto;
+    text-align: left;
+  }
+
+  /* SECTION 2: Dark Manifesto Band */
+  .manifesto-band {
+    background: #131209;
+    color: #F6F1E6;
+    text-align: center;
+  }
+  .manifesto-inner { max-width: 800px; margin-inline: auto; }
+  .manifesto-quote {
+    font: 400 clamp(32px, 5.5vw, 52px)/1.02 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #F6F1E6;
+    margin: 0 0 32px;
+  }
+  .manifesto-actions { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .manifesto-sub { font: 400 12px/1.4 'Geist Mono', monospace; color: #A9A291; }
+
+  /* SECTION 3: Real Dashboard Comic Panel */
+  .dashboard-comic-panel {
+    margin: 0;
+    border: 2px solid var(--border);
+    box-shadow: -4px 4px 0 var(--border);
+    background: var(--card);
+  }
+  .dashboard-comic-panel img { display: block; width: 100%; height: auto; }
+  .caption-5 {
+    padding: 12px 16px;
+    font: 400 12px/1.5 'Geist Mono', monospace;
+    color: var(--ink-2);
+    border-top: 1.5px solid var(--hairline);
+    background: color-mix(in srgb, var(--panel-2) 40%, var(--card));
+  }
+
+  /* SECTION 4: What Makes Shiba a Hire */
+  .hire-section { position: relative; }
+  .hire-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+  .hire-card {
+    border: 2px solid var(--border);
+    box-shadow: -3px 3px 0 var(--border);
+    background: var(--card);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  .hire-card h3 {
+    font: 400 28px/1.05 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+    color: var(--ink);
+  }
+  .hire-card p { font: 400 13px/1.5 'Geist Mono', monospace; color: var(--ink-2); margin: 0 0 20px; }
+  .vignette-box {
+    margin-top: auto;
+    border: 1.5px solid var(--border);
+    background: var(--paper);
+    padding: 12px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .vignette-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px dashed var(--hairline);
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+    color: var(--ink-2);
+  }
+  .vignette-tag { font-size: 10px; text-transform: uppercase; font-weight: 600; }
+  .vignette-code { margin: 0; font: 400 11px/1.5 'Geist Mono', monospace; color: var(--ink); overflow-x: auto; }
+  .tools-cluster { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .tool-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--hairline); background: var(--card); border-radius: 4px; }
+  .tools-caption { margin: 0; font-size: 11px; color: var(--ink-2); }
+  .vignette-alert { color: var(--accent); font-weight: 600; font-size: 10px; text-transform: uppercase; }
+  .vignette-approval-row { display: flex; gap: 8px; margin-top: 6px; }
+  .vignette-btn {
+    padding: 6px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .vignette-btn.approve { background: var(--accent); color: var(--on-accent); border-color: var(--accent-border); }
+  .vignette-btn.reject { background: var(--card); color: var(--ink); }
+
+  .mascot-peek-corner {
+    position: absolute;
+    right: 20px;
+    bottom: -15px;
+    width: 90px;
+    height: 90px;
+    opacity: 0;
+    transform: translateX(30px);
+    transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out);
+    pointer-events: none;
+  }
+  .mascot-peek-corner.is-peeking { opacity: 1; transform: translateX(0); }
+  @media (prefers-reduced-motion: reduce) {
+    .mascot-peek-corner { opacity: 1; transform: none; transition: none; }
+  }
+
+  /* SECTION 5: Delivers Widget */
+  .delivers-widget {
+    border: 2px solid var(--border);
+    box-shadow: -4px 4px 0 var(--border);
+    background: var(--card);
+  }
+  .delivers-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    border-bottom: 2px solid var(--border);
+    background: color-mix(in srgb, var(--panel-2) 50%, var(--card));
+  }
+  .delivers-tab-btn {
+    flex: 1;
+    min-width: 120px;
+    padding: 12px 16px;
+    border: 0;
+    border-right: 1.5px solid var(--border);
+    background: transparent;
+    color: var(--ink-2);
+    font: 600 13px/1.4 'Geist Mono', monospace;
+    cursor: pointer;
+    transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
+  }
+  .delivers-tab-btn:last-child { border-right: none; }
+  .delivers-tab-btn:hover { background: color-mix(in srgb, var(--accent) 8%, var(--card)); color: var(--ink); }
+  .delivers-tab-btn.is-active {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .delivers-panel { display: none; padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
+  .delivers-panel.is-active { display: grid; }
+  .compare-col {
+    padding: 20px;
+    border: 1.5px solid var(--hairline);
+    background: var(--paper);
+    display: flex;
+    flex-direction: column;
+  }
+  .shiba-col { border-color: var(--border); background: color-mix(in srgb, var(--card) 60%, var(--paper)); }
+  .compare-badge {
+    align-self: flex-start;
+    padding: 3px 8px;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--ink-2);
+    margin-bottom: 12px;
+  }
+  .shiba-badge { background: var(--accent); color: var(--on-accent); border-color: var(--accent-border); }
+  .compare-col h4 {
+    font: 400 24px/1 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+  .chat-bubble {
+    padding: 14px;
+    border: 1px solid var(--hairline);
+    background: var(--card);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    margin-bottom: 16px;
+  }
+  .shiba-deliverable-card {
+    padding: 14px;
+    border: 1.5px solid var(--border);
+    background: var(--card);
+    border-radius: 4px;
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+  .deliv-meta { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 10px; }
+  .deliv-status { color: var(--ok); font-weight: 600; }
+  .deliv-files { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .deliv-file-pill { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .deliv-desc { font-size: 12px; line-height: 1.5; color: var(--ink-2); margin: 0; }
+  .compare-result {
+    margin-top: auto;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .compare-result.fail { color: var(--ink-2); }
+  .compare-result.ok { color: var(--accent); }
+
+  /* SECTION 7: #trust Tagline Reveal */
+  .trust-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 48px; align-items: start; }
+  .tagline-reveal {
+    font: 400 clamp(40px, 6vw, 68px)/0.96 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 20px;
+    color: var(--ink);
+  }
+  .tagline-line { display: block; }
+  .tagline-word { display: inline-block; transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out); }
+  .tagline-interactive .tagline-word { opacity: 0; transform: translateY(6px); }
+  .tagline-interactive .tagline-word.is-active { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) {
+    .tagline-interactive .tagline-word { opacity: 1 !important; transform: none !important; transition: none !important; }
+  }
+  .trust-details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 32px; }
+  .trust-details h3 {
+    font: 400 24px/1 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .trust-details p { font-size: 13px; line-height: 1.6; color: var(--ink-2); margin: 0; }
+
+  .permission-visual {
+    border: 2px solid var(--border);
+    box-shadow: -4px 4px 0 var(--border);
+    background: var(--card);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .permission-top { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+  .permission-status { margin-left: auto; color: var(--accent); font-weight: 600; text-transform: uppercase; font-size: 11px; }
+  .permission-plan strong { display: block; font: 400 22px/1.2 'Bebas Neue', 'Geist', sans-serif; margin: 6px 0 10px; color: var(--ink); }
+  .small-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
+  .permission-data { display: grid; grid-template-columns: 80px 1fr; gap: 6px; font-size: 11px; color: var(--ink-2); }
+  .gate-line { display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 11px; text-transform: uppercase; font-weight: 600; }
+  .gate-line span { flex: 1; height: 1.5px; background: currentColor; }
+  .permission-bottom { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1.5px solid var(--border); background: var(--paper); border-radius: 4px; }
+  .permission-bottom strong { display: block; font-size: 12px; margin-bottom: 2px; }
+  .permission-bottom p { margin: 0; font-size: 11px; color: var(--ink-2); }
+  .visual-caption { font-size: 11px; color: var(--ink-2); margin: 0; text-align: center; }
+
+  /* SECTION 8: 2x3 Hairline Controls Grid */
+  .controls-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border: 1px solid var(--hairline);
+  }
+  .control-box {
+    padding: 24px;
+    border-right: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
+    background: var(--card);
+  }
+  .control-box:nth-child(3n) { border-right: none; }
+  .control-box:nth-child(n+4) { border-bottom: none; }
+  .control-box h3 {
+    font: 400 24px/1 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+    color: var(--ink);
+  }
+  .control-box p { font: 400 13px/1.5 'Geist Mono', monospace; color: var(--ink-2); margin: 0; }
+
+  /* SECTION 9: #how-it-works & Terminal Tile */
+  .steps-container { display: flex; flex-direction: column; gap: 32px; }
+  .steps-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+  .step-card {
+    border: 2px solid var(--border);
+    box-shadow: -3px 3px 0 var(--border);
+    background: var(--card);
+    padding: 24px;
+  }
+  .step-number { font: 400 36px/1 'Bebas Neue', 'Geist', sans-serif; color: var(--accent); display: block; margin-bottom: 8px; }
+  .step-card h3 {
+    font: 400 24px/1 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+    color: var(--ink);
+  }
+  .step-card p { font: 400 13px/1.5 'Geist Mono', monospace; color: var(--ink-2); margin: 0; }
+
+  .terminal-tile {
+    border: 2px solid var(--border);
+    box-shadow: -4px 4px 0 var(--border);
+    background: #111111;
+    color: #F6F1E6;
+    overflow: hidden;
+  }
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    background: #1F1F1F;
+    border-bottom: 1.5px solid #333333;
+  }
+  .term-dots { display: flex; gap: 6px; margin-right: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.red { background: #E26D5A; }
+  .dot.yellow { background: #EBC04B; }
+  .dot.green { background: #8FBC6F; }
+  .term-title { font-size: 11px; color: #A9A291; text-transform: uppercase; letter-spacing: 0.04em; }
+  .terminal-body {
+    padding: 16px 20px;
+    margin: 0;
+    font: 400 13px/1.7 'Geist Mono', monospace;
+    overflow-x: auto;
+  }
+  .term-prompt { color: var(--accent); font-weight: 600; }
+  .term-dim { color: #888888; display: block; }
+  .term-ok { color: #8FBC6F; display: block; font-weight: 600; }
+
+  /* SECTION 10: #proof */
+  .proof-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 48px; }
+  .readiness-list { display: flex; flex-direction: column; gap: 20px; }
+  .proof-card {
+    border: 2px solid var(--border);
+    box-shadow: -3px 3px 0 var(--border);
+    background: var(--card);
+    padding: 24px;
+    display: flex;
+    gap: 16px;
+  }
+  .readiness-marker { font-size: 20px; color: var(--accent); flex: none; line-height: 1; }
+  .proof-card h3 {
+    font: 400 24px/1 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .proof-card p { font: 400 13px/1.5 'Geist Mono', monospace; color: var(--ink-2); margin: 0 0 12px; }
+  .verification-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 0; }
+  .verification-split dt { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); }
+  .verification-split dd { margin: 2px 0 0; font-size: 12px; color: var(--ink); }
+
+  /* SECTION 11: #faq */
+  .faq-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); gap: 48px; }
+  .faq-list { display: flex; flex-direction: column; gap: 12px; }
+  .faq-item {
+    border: 2px solid var(--border);
+    box-shadow: -2px 2px 0 var(--border);
+    background: var(--card);
+  }
+  .faq-item summary {
+    padding: 16px 20px;
+    font: 600 14px/1.4 'Geist Mono', monospace;
+    color: var(--ink);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    list-style: none;
+  }
   .faq-item summary::-webkit-details-marker { display: none; }
-  .faq-toggle { flex: none; color: var(--ink-2); font-size: 22px; font-weight: 300; transition: transform 240ms; }
+  .faq-toggle { font-size: 18px; color: var(--accent); transition: transform 150ms var(--ease-out); }
   .faq-item[open] .faq-toggle { transform: rotate(45deg); }
-  .faq-answer { padding: 0 30px 26px 0; }
-  .faq-answer p { font-size: 13px; line-height: 1.9; margin: 0; color: var(--ink-2); }
-  .closing { position: relative; isolation: isolate; text-align: center; padding: 95px 30px; border: 1px solid var(--hairline); border-radius: 20px; background: radial-gradient(ellipse at 50% 100%, color-mix(in srgb, var(--navy) 11%, var(--card)), var(--card) 75%); }
-  .closing h2 { font-size: clamp(50px, 5.3vw, 76px); margin-bottom: 22px; }
-  .closing > p:not(.eyebrow) { color: var(--ink-2); font-size: 16px; }
-  .closing .hero-actions { justify-content: center; }
-  .closing-note { display: block; font-size: 10px; color: var(--ink-2); margin-top: 25px; }
-  .will-reveal { opacity: 0; transform: translateY(16px); transition: opacity 600ms var(--ease-out), transform 600ms var(--ease-out); }
-  .will-reveal.is-in { opacity: 1; transform: none; }
-  section[id] { scroll-margin-top: 30px; }
-  @media (max-width: 1100px) { .home-hero { gap: 20px; padding-top: 40px; } .hero-copy { grid-column: span 6; } .hero-product { grid-column: 7 / span 6; } .hero-copy h1 { font-size: 84px; } .hero-subhead { font-size: 16px; } .hero-actions { gap: 10px; } .cta { padding-inline: 14px; font-size: 11px; } .permission-visual { grid-column: 7 / span 6; } }
-  @media (max-width: 800px) { .home-hero { grid-template-columns: 1fr; gap: 32px; min-height: 0; padding-block: 54px 70px; } .hero-copy, .hero-product { grid-column: auto; } .hero-copy { max-width: 570px; } .hero-copy h1 { font-size: clamp(66px, 12vw, 90px); } .hero-copy h1 br:nth-child(2) { display: none; } .hero-subhead { max-width: 46ch; font-size: 17px; } .hero-product { width: 100%; max-width: 600px; margin-inline: auto; } .home-section { padding-block: 90px; } .steps-grid { gap: 24px; } .trust-band { padding-block: 90px; } .trust-layout { grid-template-columns: 1fr; gap: 45px; } .trust-copy, .permission-visual { grid-column: auto; } .permission-visual { max-width: 550px; width: 100%; } .proof-layout, .faq-layout { grid-template-columns: 1fr; gap: 48px; } .proof-layout .section-head, .faq-layout .section-head, .readiness-list, .faq-list { grid-column: auto; } .channels-grid { gap: 12px; } .channel-card { padding: 20px; } .surface-foot { align-items: flex-start; flex-direction: column; gap: 0; } }
-  @media (max-width: 550px) { .home-hero { padding-top: 35px; gap: 18px; } .hero-copy h1 { font-size: 70px; margin-top: 18px; line-height: 1.02; } .hero-copy h1 br:nth-child(2) { display: initial; } .hero-subhead { font-size: 16px; line-height: 1.75; max-width: 35ch; } .release-note { font-size: 10px; gap: 7px; } .hero-actions { margin-top: 26px; gap: 9px; } .cta { min-height: 48px; padding-inline: 15px; font-size: 11px; gap: 10px; } .hero-note { font-size: 10px; } .home-section { padding-block: 80px; } h2, .trust-copy h2 { font-size: 46px; } .section-lead { font-size: 16px; } .eyebrow { font-size: 11px; margin-bottom: 20px; } .steps-grid { grid-template-columns: 1fr; gap: 40px; margin-top: 40px; } .step-card { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px 18px; } .step-number { grid-row: span 3; font-size: 40px; margin-top: 3px; } .step-card h3 { margin: 0; font-size: 18px; } .step-card p { grid-column: 2; font-size: 13px; } .step-data { grid-column: 2; margin-top: 3px; padding-top: 14px; font-size: 9px; } .trust-band { padding-block: 80px; } .trust-details { gap: 20px; } .permission-visual { padding: 20px; } .permission-top { font-size: 10px; } .permission-status { font-size: 8px; } .permission-plan > strong { font-size: 14px; } .permission-data { font-size: 9px; gap: 12px 8px; } .permission-data code { font-size: 9px; } .channels-grid { grid-template-columns: 1fr 1fr; margin-top: 36px; } .channel-card { padding: 20px 16px; } .channel-mark { margin-bottom: 20px; } .channel-card h3 { font-size: 15px; } .channel-card p { font-size: 11px; } .readiness-list h3 { font-size: 18px; } .readiness-list p { font-size: 13px; } .faq-item summary { min-height: 72px; font-size: 14px; } .closing { padding: 65px 18px; } .closing h2 { font-size: 48px; } .closing .hero-actions { flex-direction: column; } .closing .cta { width: 100%; max-width: 260px; } }
-  @media (prefers-reduced-motion: reduce) { .marquee-track { animation: none; width: 100%; } .marquee-set { flex-wrap: wrap; justify-content: center; gap: 15px 0; } .marquee-set[aria-hidden='true'] { display: none; } .marquee-set > span { font-size: 12px; gap: 18px; padding-right: 18px; } .compatibility { mask-image: none; } .will-reveal { opacity: 1; transform: none; } *, *::before, *::after { animation: none !important; transition: none !important; } .cta:hover, .channel-card:hover { transform: none; } }
+  .faq-answer {
+    padding: 0 20px 16px;
+    font: 400 13px/1.6 'Geist Mono', monospace;
+    color: var(--ink-2);
+  }
+  .faq-answer p { margin: 0; }
+
+  /* SECTION 12: Closing CTA */
+  .closing-section { text-align: center; }
+  .closing-inner { max-width: 760px; margin-inline: auto; }
+  .closing-inner h2 {
+    font: 400 clamp(40px, 6vw, 64px)/0.96 'Bebas Neue', 'Geist', sans-serif;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin: 0 0 16px;
+    color: var(--ink);
+  }
+  .closing-lead { font: 400 15px/1.6 'Geist Mono', monospace; color: var(--ink-2); margin: 0 0 28px; }
+  .closing-note { display: block; margin-top: 16px; font: 400 12px/1.4 'Geist Mono', monospace; color: var(--ink-2); }
+
+  /* Responsive Breakpoints */
+  @media (max-width: 900px) {
+    .hire-grid, .steps-grid { grid-template-columns: 1fr; }
+    .delivers-panel { grid-template-columns: 1fr; }
+    .trust-layout, .proof-layout, .faq-layout { grid-template-columns: 1fr; gap: 32px; }
+    .controls-grid { grid-template-columns: 1fr; }
+    .control-box { border-right: none; }
+    .control-box:nth-child(n+4) { border-bottom: 1px solid var(--hairline); }
+    .control-box:last-child { border-bottom: none; }
+    .trust-details { grid-template-columns: 1fr; }
+  }
+
+  /* Reveal animation */
+  @media (prefers-reduced-motion: no-preference) {
+    .will-reveal {
+      opacity: 0;
+      transform: translateY(12px);
+      transition: opacity 400ms var(--ease-out), transform 400ms var(--ease-out);
+    }
+    .will-reveal.is-in {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 </style>

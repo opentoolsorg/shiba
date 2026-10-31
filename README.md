@@ -1,4 +1,4 @@
-# Shiba — AI Coworker
+# Shiba — AI employees for the work behind your company
 
 [![Site](https://img.shields.io/badge/Site-tryshiba.dev-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://tryshiba.dev/)
 [![Documentation](https://img.shields.io/badge/Docs-tryshiba.dev%2Fdocs-teal?style=flat-square)](https://tryshiba.dev/docs/)
@@ -10,7 +10,11 @@
 [![AgentDesk](https://img.shields.io/badge/AgentDesk-white-label%20AI%20voice%20agent%20platform-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://github.com/princepal9120/agentdesk)
 [![Awesome Solo Founder OSS](https://img.shields.io/badge/Awesome%20Solo%20Founder%20OSS-Curated%20OSS%20stack%20for%20solo%20founders-teal?style=flat-square)](https://github.com/princepal9120/awesome-solo-founder-oss)
 
-Shiba is an open-source, self-hosted AI software engineer — an account-owned Cloudflare workspace: describe a GitHub task, review the proposed delegation, approve or reject it, and inspect a sandbox-generated diff. The repository is a pnpm monorepo containing a React dashboard, an Astro/Starlight documentation site, and a Cloudflare Worker backend built around Agents and Sandbox containers running OpenCode.
+Shiba is an open-source workspace for AI employees doing the work behind a company: engineering, design, marketing, sales, operations, finance, research, and revenue planning.
+
+Describe a task, review the proposed work, and approve the request. Shiba returns files and changes for you to inspect: a code fix, campaign draft, account brief, operating checklist, or draft budget using figures you supply. All execution currently needs a GitHub repository, including non-code work.
+
+The software is free to self-host. You pay for hosting and model usage through your chosen providers. Start with [your first task](https://tryshiba.dev/docs/getting-started/) or the [self-hosting guide](https://tryshiba.dev/docs/self-hosting/).
 
 **Status: deployed prototype, not production-ready.** No live end-to-end cloud run is claimed. Two hosts exist: `tryshiba.dev` is the Cloudflare Pages site (landing `/`, docs `/docs/` — static only), and `app.tryshiba.dev` is the deployed Worker (dashboard `/app/` plus the API) behind Cloudflare Access with `workers.dev` disabled. The Worker deploy proves the stack provisions and serves; it does not establish a live coding run. `VERIFICATION.md` records passing local typecheck, lint, tests, and build checks; the backend remains a prototype until a dated run meets the P2 acceptance bar in `PLAN.md` §15: submit → approve → clone/code/collect with a diff that matches reality, rejection starting no container, honest failure exit codes, PRs with deletions shown as deleted, and peak memory measured.
 
@@ -23,6 +27,8 @@ Shiba is an open-source, self-hosted AI software engineer — an account-owned C
 Provider traffic is intercepted at the Sandbox egress boundary and forwarded through the account owner's AI Gateway binding — there is no provider callback route (the dead callback path was deleted; the forwarder and its route no longer exist).
 
 ## Repository layout
+
+The pnpm monorepo contains a React dashboard, an Astro/Starlight docs site, and a Cloudflare Worker backend for approved tasks.
 
 ~~~text
 .
@@ -142,7 +148,7 @@ claude mcp add --transport http shiba https://<worker-host>/mcp --header "Author
 
 Tools: `queue_run` (`sandbox:exec`) plus `run_status`, `list_runs`, `list_approvals` (`runs:read`, scoped to records the token's principal queued), and email and memory tools behind their own scopes. `queue_run` only queues — a human approves in the dashboard, on iPhone, or in Slack; there is no approve tool. Details: [/docs/mcp](apps/web/src/content/docs/docs/mcp.md).
 
-The built-in email backend has a documented OpenAPI contract at `GET /api/email/openapi.json` ([email API guide](apps/web/src/content/docs/docs/api.md#email-api)). The Inbox downloads stored attachments through an Access-gated route; sending a draft still requires human approval. This is Shiba's own API, not a Goshen Email `/v1` clone.
+The built-in email backend has a documented OpenAPI contract at `GET /api/email/openapi.json` ([email API guide](apps/web/src/content/docs/docs/api.mdx#email-api)). The Inbox downloads stored attachments through an Access-gated route; sending a draft still requires human approval. This is Shiba's own API, not a Goshen Email `/v1` clone.
 
 To connect a cloud agent to mail, assign its exact `/mcp` token principal in Inbox settings. Email tools then see only that agent's assigned mailboxes; unassigned mailboxes stay dashboard-only. [Pairing guide](apps/web/src/content/docs/docs/mcp.md#pair-a-cloud-agent-with-its-mailbox).
 

@@ -1,699 +1,127 @@
 ---
 import MarketingPage from '../layouts/MarketingPage.astro';
 
+const description = 'Why I built Shiba: AI employees for the work behind a company, with human approval, reviewable results, and software you can self-host.';
 const articleSchema = {
   '@context': 'https://schema.org',
   '@type': 'TechArticle',
-  headline: 'Why I Built Shiba: Approval-Gated AI Coding on Your Own Cloudflare',
-  description:
-    'The story behind Shiba: choose a supported agent harness and model per run, execute inside your own Cloudflare account, and inspect every diff and failure before merge.',
-  author: {
-    '@type': 'Person',
-    name: 'Prince Pal',
-    sameAs: ['https://github.com/princepal9120'],
-  },
-  publisher: {
-    '@type': 'Organization',
-    name: 'Shiba',
-    logo: {
-      '@type': 'ImageObject',
-      url: 'https://tryshiba.dev/assets/mascot/shiba-logo-512.png',
-    },
-  },
+  headline: 'Why I Built Shiba: AI Employees for the Work Behind a Company',
+  description,
+  author: { '@type': 'Person', name: 'Prince Pal', sameAs: ['https://github.com/princepal9120'] },
+  publisher: { '@type': 'Organization', name: 'Shiba', logo: { '@type': 'ImageObject', url: 'https://tryshiba.dev/assets/mascot/shiba-logo-512.png' } },
   datePublished: '2026-09-26',
-  dateModified: '2026-10-30',
+  dateModified: '2026-11-01',
   mainEntityOfPage: 'https://tryshiba.dev/why-shiba/',
   image: 'https://tryshiba.dev/assets/og/shiba-og.png',
 };
+const examples = [
+  ['Engineering', 'Fix a bug, add a test, and explain the change.'],
+  ['Design', 'Draft a user flow, interface copy, or a design specification.'],
+  ['Marketing', 'Turn product notes into a launch brief and editable campaign copy.'],
+  ['Sales & revenue', 'Prepare an account brief, outreach draft, or summary of supplied pipeline notes.'],
+  ['Operations', 'Write a release checklist, handoff, or recovery runbook.'],
+  ['Finance', 'Organize supplied expense information or prepare a draft budget for human review.'],
+];
 ---
 
 <MarketingPage
-  title="Why I Built Shiba — Approval-Gated AI Coding on Your Own Cloudflare"
-  description="The story behind Shiba: choose a supported agent harness and model per run, execute inside your own Cloudflare account, and inspect every diff and failure before merge."
+  title="Why I Built Shiba — AI Employees for Company Work"
+  description={description}
   path="/why-shiba/"
   type="article"
   publishedTime="2026-09-26T00:00:00Z"
-  modifiedTime="2026-10-30T00:00:00Z"
+  modifiedTime="2026-11-01T00:00:00Z"
   schema={articleSchema}
-  breadcrumbs={[
-    { name: 'Home', path: '/' },
-    { name: 'Why Shiba', path: '/why-shiba/' },
-  ]}
+  breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'Why Shiba', path: '/why-shiba/' }]}
 >
-  <!-- HERO MANIFESTO -->
   <section class="shell hero">
-    <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-[var(--card)] border border-[var(--line-2)] text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--navy)] mb-6 shadow-[2px_2px_0_var(--paper-shadow)]">
-      <span class="w-2 h-2 bg-[var(--navy)] animate-pulse" aria-hidden="true"></span>
-      <span>FOUNDER NOTES · OCTOBER 2026</span>
-    </div>
-    <h1 class="manifesto-title text-[var(--ink)]">
-      Devin showed what autonomous coding could be. I wanted to <span class="text-[var(--navy)]">pick the model</span>.
-    </h1>
-    <p class="lead text-[var(--ink-2)]">
-      Shiba is an open-source, approval-gated AI coding coworker deployed inside <em>your own Cloudflare account</em>.
-      Select the harness and model per task, require human approval before any sandbox starts, and inspect real diffs and exit codes — including when something fails.
-    </p>
+    <p class="eyebrow">A note from the founder</p>
+    <h1>More help with company work.<br /><em>The final say stays with you.</em></h1>
+    <p class="lead">Shiba is an AI employee workspace for the work behind a company: engineering, design, marketing, sales, operations, finance, and research. Describe the task, approve the proposed work, and review what comes back.</p>
     <div class="hero-actions">
-      <a class="button" href="/waitlist/">
-        <span>Join the Waitlist &amp; Contribute</span>
-        <span aria-hidden="true">→</span>
-      </a>
-      <a class="button button-outline" href="/open-source-devin-alternative/">
-        <span>Read the Evaluation Guide</span>
-      </a>
-      <a class="button button-outline" href="/docs/getting-started/">
-        <span>Quickstart Guide</span>
-      </a>
-      <a class="button button-outline" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">
-        <span>GitHub Source ↗</span>
-      </a>
+      <a class="button" href="/docs/getting-started/">Start with one task <span aria-hidden="true">→</span></a>
+      <a class="button button-outline" href="https://github.com/opentoolsorg/shiba" target="_blank" rel="noopener noreferrer">Explore the source <span aria-hidden="true">↗</span></a>
     </div>
-    <p class="hero-status font-mono text-[11px] text-[var(--ink-2)] mt-6">
-      Honest status: a working prototype. Typecheck, lint, imports, tests, and build pass locally. No cloud end-to-end run is recorded; see the remaining verification gaps in <a class="text-[var(--navy)] underline" href="/docs/readiness/">Readiness</a>.
-    </p>
   </section>
 
-  <div class="shell">
-    <!-- 00: THE SETUP -->
+  <div class="shell story">
     <section class="story-section" aria-labelledby="origin-title">
-      <div class="section-label"><span class="micro">00 / The Setup</span></div>
+      <p class="section-label">01 / Where it started</p>
       <div class="prose-body">
-        <h2 id="origin-title" class="text-[var(--ink)]">Two subscriptions, one workflow, and zero say in model routing</h2>
-        <p class="text-[var(--ink-2)]">
-          For months I ran Devin alongside my own local CLI setup. Devin's underlying engineering is solid: it handles medium-to-large backend changes without hand-holding, and its sandbox environment removes local machine friction.
-        </p>
-        <p class="text-[var(--ink-2)]">
-          The friction was never coding quality. It was autonomy without choice. A small frontend polish task was routed to the same heavyweight model as a multi-file architecture refactor. When I wanted to use a specialized frontend model, or point a fast model at a routine rename, there was no switch to flip.
-        </p>
-        <blockquote class="pull-quote">
-          I wanted Devin-level background execution and computer use — inside my own harness, on my own routing, deployed in my own cloud account.
-        </blockquote>
-        <p class="text-[var(--ink-2)]">
-          That single requirement is why Shiba exists.
-        </p>
+        <h2 id="origin-title">I wanted more choice in how agents worked.</h2>
+        <p>I started with coding agents. I used Devin alongside local tools and wanted to choose the model for each task, run the software in my own account, and inspect the result.</p>
+        <blockquote>I wanted Devin-level background execution — with my own tools, my own routing, and a clear point where I could say yes or no.</blockquote>
+        <p>That became Shiba. The aim is broader now: help with the work around a company, from a code change to the brief, research, and operating notes that go with it.</p>
       </div>
     </section>
 
-    <!-- 01: THREE REAL FRICTIONS -->
-    <section class="story-section" aria-labelledby="section-friction">
-      <div class="section-label"><span class="micro">01 / What Kept Breaking</span></div>
+    <section class="story-section" aria-labelledby="section-work">
+      <p class="section-label">02 / The work</p>
       <div class="prose-body">
-        <h2 id="section-friction" class="text-[var(--ink)]">Three friction points in daily agent use</h2>
-        <p class="text-[var(--ink-2)]">
-          Everything that slowed down daily work came down to ownership, credential exposure, and visibility:
-        </p>
-
-        <div class="friction-list my-8">
-          <div class="friction-row">
-            <div class="friction-num" aria-hidden="true">01</div>
-            <div>
-              <h3 class="text-xl font-bold text-[var(--ink)] mb-2">Fixed vendor model routing</h3>
-              <p class="text-[var(--ink-2)] text-sm leading-relaxed mb-0">
-                A large refactor needs deep reasoning; a small CSS alignment or documentation tweak needs speed and low token cost. Forcing every prompt through one fixed vendor pipeline wastes both time and budget.
-              </p>
-            </div>
-          </div>
-
-          <div class="friction-row">
-            <div class="friction-num" aria-hidden="true">02</div>
-            <div>
-              <h3 class="text-xl font-bold text-[var(--ink)] mb-2">Passing real credentials into containers</h3>
-              <p class="text-[var(--ink-2)] text-sm leading-relaxed mb-0">
-                When a coding agent executes arbitrary code or pulls third-party packages, putting personal API keys or broad GitHub tokens into that environment is dangerous. Real tokens must stay outside the container boundary.
-              </p>
-            </div>
-          </div>
-
-          <div class="friction-row">
-            <div class="friction-num" aria-hidden="true">03</div>
-            <div>
-              <h3 class="text-xl font-bold text-[var(--ink)] mb-2">Opaque status instead of verifiable evidence</h3>
-              <p class="text-[var(--ink-2)] text-sm leading-relaxed mb-0">
-                When a background job fails, a developer needs concrete evidence: which files were modified, the exact shell exit code, stderr output, and a unified diff. A vague completed card is not proof of working code.
-              </p>
-            </div>
-          </div>
-        </div>
+        <h2 id="section-work">Start with a useful piece of work.</h2>
+        <p>An employee is a working brief: what to do, what context to use, and what to hand back. These are examples of responsibilities you can give one.</p>
+        <dl class="work-list">
+          {examples.map(([role, task]) => <div><dt>{role}</dt><dd>{task}</dd></div>)}
+        </dl>
+        <p>The built-in starting templates are Engineering, Marketing, Research, and Operations. Use custom instructions for other roles. A role does not connect your accounts or give permission to publish, send messages, update a CRM, or move money.</p>
+        <p>For now, every execution needs a GitHub repository, including document work. It provides context and a place for the files. You review the actual output before using it.</p>
       </div>
     </section>
 
-    <!-- 02: THE PRODUCT CONTRACT -->
     <section class="story-section" aria-labelledby="section-ask">
-      <div class="section-label"><span class="micro">02 / The Ask</span></div>
+      <p class="section-label">03 / Your decision</p>
       <div class="prose-body">
-        <h2 id="section-ask" class="text-[var(--ink)]">The Shiba product contract</h2>
-        <p class="text-[var(--ink-2)]">
-          Shiba is not a clone of any commercial product. It is a self-hosted architecture built on six specific rules:
-        </p>
-        <ul class="check-list my-8">
-          <li><strong>Autonomous execution off your laptop</strong> — tasks execute inside isolated Cloudflare Sandbox containers so your laptop stays quiet and cool.</li>
-          <li><strong>Pluggable agent harnesses</strong> — pin and run OpenCode, Claude Code, Codex, or Devin depending on task requirements.</li>
-          <li><strong>Granular model routing</strong> — route each run to the best model through Cloudflare AI Gateway BYOK credentials.</li>
-          <li><strong>Account-owned infrastructure</strong> — you own the Cloudflare Worker, the D1/Durable Objects storage, and the container runtime.</li>
-          <li><strong>Worker-side credentials for supported harnesses</strong> — provider-backed harnesses use dummy keys and Worker-side egress authorization. Antigravity OAuth tokens currently live in a container profile; do not enable it for untrusted repositories. See <a href="/docs/configuration/">configuration limitations</a>.</li>
-          <li><strong>Approval gate before execution</strong> — runs require a structured approval card by default before a sandbox starts. Narrow, explicitly enabled unattended automations are an exception; planning can call models before approval.</li>
+        <h2 id="section-ask">Keep the important decisions visible.</h2>
+        <ul class="principles">
+          <li><strong>Choose the scope.</strong> Give a concrete task and say what a useful result looks like.</li>
+          <li><strong>Approve the request.</strong> Read the repository, task, and publishing choices before standard repository execution starts.</li>
+          <li><strong>Review the result.</strong> Inspect the files, changes, and reported checks. A finished task still needs your judgment.</li>
         </ul>
-        <p class="text-[var(--ink-2)]">
-          The name comes from the Japanese dog breed — loyal, vigilant, and independent. Shiba runs in your own account and asks for approval before sandbox execution by default, with a narrow opt-in exception for unattended automations.
-        </p>
+        <p>The conversation stays in a thread, so you can discuss the result without starting the context again. Another execution still follows its approval flow.</p>
       </div>
     </section>
 
-    <!-- 03: ROUTING TABLE -->
-    <section class="story-section" aria-labelledby="section-routing">
-      <div class="section-label"><span class="micro">03 / Routing</span></div>
-      <div class="prose-body">
-        <h2 id="section-routing" class="text-[var(--ink)]">Routing the right model to the right task</h2>
-        <p class="text-[var(--ink-2)]">
-          An autonomous agent locked to a single model is inflexible. The Shiba container image packages four pinned CLI harnesses. For every task, you choose the harness and model pairing:
-        </p>
-        <div class="route-table my-8" role="table" aria-label="Harness and model routing by task type">
-          <div class="route-head" role="row">
-            <span role="columnheader">Task category</span>
-            <span role="columnheader">Recommended route</span>
-            <span role="columnheader">Engineering rationale</span>
-          </div>
-          <div class="route-row" role="row">
-            <span role="cell" class="route-task">Frontend &amp; UI</span>
-            <span role="cell" class="font-mono text-xs text-[var(--ink)]">UI-focused vision/coding model</span>
-            <span role="cell">Fast iterations on styling, layout, and component markup without heavy reasoning overhead.</span>
-          </div>
-          <div class="route-row" role="row">
-            <span role="cell" class="route-task">Architecture &amp; Refactors</span>
-            <span role="cell" class="font-mono text-xs text-[var(--ink)]">Deep reasoning model (Opus / Sonnet)</span>
-            <span role="cell">Cross-file consistency, type-safety boundaries, and architectural migrations.</span>
-          </div>
-          <div class="route-row" role="row">
-            <span role="cell" class="route-task">Bugfixes &amp; Renames</span>
-            <span role="cell" class="font-mono text-xs text-[var(--ink)]">Fast flash model (Gemini 2.5 Flash)</span>
-            <span role="cell">High speed, sub-dollar cost per hundred runs, sufficient for bounded fixes.</span>
-          </div>
-          <div class="route-row" role="row">
-            <span role="cell" class="route-task">Long Background Tasks</span>
-            <span role="cell" class="font-mono text-xs text-[var(--ink)]">Autonomous container runner</span>
-            <span role="cell">Runs test suites, captures diffs, and streams logs back to your dashboard or Slack thread.</span>
-          </div>
-        </div>
-        <p class="text-[var(--ink-2)]">
-          Routing resolution follows a deterministic cascade: <strong>per-run prompt override → automation schedule setting → repository purpose policy → deployment default</strong>. Invalid routes fail closed before the approval card is minted.
-        </p>
-      </div>
-    </section>
-  </div>
-
-  <div class="shell">
-    <!-- 04: THE LANDSCAPE -->
-    <section class="story-section" aria-labelledby="section-problem">
-      <div class="section-label">
-        <span class="micro">04 / The Landscape</span>
-      </div>
-      <div class="prose-body">
-        <h2 id="section-problem" class="text-[var(--ink)]">Three existing trade-offs in AI coding</h2>
-        <p class="text-[var(--ink-2)]">
-          Developers evaluating coding agents typically balance three distinct trade-offs:
-        </p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 my-8">
-          <div class="feature-card">
-            <div class="card-num" aria-hidden="true">01</div>
-            <h3 class="text-[var(--ink)] font-bold text-base mb-2">Hosted SaaS agents</h3>
-            <p class="text-[var(--ink-2)] text-xs leading-relaxed">
-              Convenient zero-setup infrastructure, but proprietary code, vendor-controlled model routing, and code stored on third-party servers.
-            </p>
-          </div>
-          <div class="feature-card">
-            <div class="card-num" aria-hidden="true">02</div>
-            <h3 class="text-[var(--ink)] font-bold text-base mb-2">Local CLI tools</h3>
-            <p class="text-[var(--ink-2)] text-xs leading-relaxed">
-              Direct machine access and high privacy, but tasks block your local terminal, drain battery, halt when the laptop sleeps, and lack team webhook triggers.
-            </p>
-          </div>
-          <div class="feature-card">
-            <div class="card-num" aria-hidden="true">03</div>
-            <h3 class="text-[var(--ink)] font-bold text-base mb-2">Heavy self-hosted stacks</h3>
-            <p class="text-[var(--ink-2)] text-xs leading-relaxed">
-              Full control, but require operating Kubernetes clusters, Postgres, Redis, Celery, and custom ingress proxies just to run a coding agent.
-            </p>
-          </div>
-        </div>
-        <p class="text-[var(--ink-2)]">
-          Shiba targets the middle path: <strong>a serverless, single-tenant deployment in your own Cloudflare account</strong> that provisions ephemeral Linux containers on demand.
-        </p>
-      </div>
-    </section>
-
-    <!-- 05: THE CLOUDFLARE FOUNDATION -->
-    <section class="story-section" aria-labelledby="section-cloudflare">
-      <div class="section-label">
-        <span class="micro">05 / Architecture</span>
-      </div>
-      <div class="prose-body">
-        <h2 id="section-cloudflare" class="text-[var(--ink)]">Why Shiba runs on Cloudflare Workers + Sandbox</h2>
-        <p class="text-[var(--ink-2)]">
-          Instead of operating long-running virtual machines, Shiba leverages Cloudflare's serverless primitives:
-        </p>
-
-        <div class="space-y-6 my-8">
-          <div class="pillar-row">
-            <div class="pillar-icon" aria-hidden="true">01</div>
-            <div>
-              <h3 class="text-lg font-bold text-[var(--ink)] mb-1">Cloudflare Workers: Orchestration Brain</h3>
-              <p class="text-[var(--ink-2)] text-sm leading-relaxed">
-                The planning agent runs as a TypeScript Worker powered by the Cloudflare Agents SDK. It handles webhooks, cron automations, Slack/Telegram bots, and human approval queues.
-              </p>
-            </div>
-          </div>
-
-          <div class="pillar-row">
-            <div class="pillar-icon" aria-hidden="true">02</div>
-            <div>
-              <h3 class="text-lg font-bold text-[var(--ink)] mb-1">Cloudflare Sandbox: Isolated Linux Containers</h3>
-              <p class="text-[var(--ink-2)] text-sm leading-relaxed">
-                Each approved task starts a dedicated Sandbox container with Git, Node.js, Python, and pinned coding CLIs. The container clones the repository, executes the task, produces a unified diff, and terminates.
-              </p>
-            </div>
-          </div>
-
-          <div class="pillar-row highlight">
-            <div class="pillar-icon accent" aria-hidden="true">03</div>
-            <div>
-              <h3 class="text-lg font-bold text-[var(--navy)] mb-1">Egress Credential Interception</h3>
-              <p class="text-[var(--ink)] text-sm leading-relaxed">
-                <strong>Supported provider-backed harnesses use dummy keys.</strong> The Worker authorizes provider and GitHub requests at egress. This is not a universal isolation guarantee: Antigravity OAuth tokens live in a container profile, and live verification remains tracked in the <a href="/docs/readiness/">readiness docs</a>.
-              </p>
-            </div>
-          </div>
-
-          <div class="pillar-row">
-            <div class="pillar-icon" aria-hidden="true">04</div>
-            <div>
-              <h3 class="text-lg font-bold text-[var(--ink)] mb-1">Durable Objects &amp; SQLite: State &amp; Streaming</h3>
-              <p class="text-[var(--ink-2)] text-sm leading-relaxed">
-                Durable Objects provide atomic coordination for human approval state, WebSocket hibernation for streaming container terminal logs, and embedded SQLite for run history.
-              </p>
-            </div>
-          </div>
-
-          <div class="pillar-row">
-            <div class="pillar-icon" aria-hidden="true">05</div>
-            <div>
-              <h3 class="text-lg font-bold text-[var(--ink)] mb-1">Cloudflare Access: Zero Trust Authentication</h3>
-              <p class="text-[var(--ink-2)] text-sm leading-relaxed">
-                Front your dashboard and API endpoints with your team's SSO, email one-time pins, or hardware security keys without running a separate auth service.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 06: COMPARISON -->
     <section class="story-section" aria-labelledby="section-devin">
-      <div class="section-label">
-        <span class="micro">06 / Comparison</span>
-      </div>
+      <p class="section-label">04 / Choosing a tool</p>
       <div class="prose-body">
-        <h2 id="section-devin" class="text-[var(--ink)]">Factual comparison: Devin Cloud vs. Shiba</h2>
-        <p class="text-[var(--ink-2)]">
-          <a href="https://devin.ai" target="_blank" rel="noopener noreferrer" class="text-[var(--navy)] underline font-bold">Devin Cloud</a> is an impressive hosted service for teams who want zero setup. Shiba is built for teams who want to run in their own cloud account under open-source governance.
-        </p>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-6 font-mono text-xs">
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-3">Devin Cloud</h3>
-            <ul class="text-[var(--ink-2)] space-y-2 list-disc pl-4">
-              <li><strong>Hosting:</strong> Multi-tenant managed cloud infrastructure hosted by Cognition.</li>
-              <li><strong>Model routing:</strong> Fixed, vendor-selected model pipeline.</li>
-              <li><strong>Source:</strong> Proprietary closed-source SaaS.</li>
-              <li><strong>Execution gate:</strong> Autonomous agent flow with in-run human messaging.</li>
-              <li><strong>Pricing:</strong> Flat per-seat monthly subscription plans.</li>
-              <li><strong>Audience:</strong> Teams wanting managed infrastructure without self-hosting responsibilities.</li>
-            </ul>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--navy)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--navy)] text-sm mb-3">Shiba (Cloudflare Native)</h3>
-            <ul class="text-[var(--ink)] space-y-2 list-disc pl-4">
-              <li><strong>Hosting:</strong> Deployed in your own Cloudflare account (Workers + Sandbox).</li>
-              <li><strong>Model routing:</strong> Pluggable harnesses (OpenCode, Claude Code, Codex, Devin) and custom models.</li>
-              <li><strong>Source:</strong> AGPL-3.0-only inspectable open-source repository.</li>
-              <li><strong>Execution gate:</strong> Approval card required before any sandbox container boots.</li>
-              <li><strong>Pricing:</strong> Pay-as-you-go Cloudflare compute + BYOK model token costs at market rates.</li>
-              <li><strong>Audience:</strong> Developers and teams requiring data residency, custom routing, and approval control.</li>
-            </ul>
-          </div>
-        </div>
-
-        <p class="text-xs text-[var(--ink-2)] mt-4">
-          For a detailed technical evaluation guide, read our <a href="/open-source-devin-alternative/" class="text-[var(--navy)] underline font-bold">Open Source Devin Alternative Guide</a>.
-        </p>
+        <h2 id="section-devin">Factual comparison: Devin Cloud vs. Shiba</h2>
+        <p>Devin helped shape the original question, but Shiba is not a claim of feature parity or a benchmark result. Choose the tool that fits the work and the responsibility your team wants to take on.</p>
+        <p>Shiba's source is available under <strong>AGPL-3.0-only</strong>, and you can run it in your own Cloudflare account. The software is free to self-host; hosting and model usage cost extra. You also take responsibility for setup, access, and operation.</p>
+        <p>Try a small task you can check, then judge the output, the review effort, and the actual cost. The <a href="/open-source-devin-alternative/">evaluation guide</a> gives you a starting checklist.</p>
       </div>
     </section>
 
-    <!-- 07: REACH & INTERFACES -->
-    <section class="story-section" aria-labelledby="section-roadmap">
-      <div class="section-label">
-        <span class="micro">07 / Reach</span>
-      </div>
-      <div class="prose-body">
-        <h2 id="section-roadmap" class="text-[var(--ink)]">Trigger tasks from where your team works</h2>
-        <p class="text-[var(--ink-2)]">
-          An autonomous agent should integrate into existing developer workflows rather than forcing everyone into a new portal.
-        </p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-6 font-mono text-xs">
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">Implemented &amp; Tested Locally</h3>
-            <ul class="text-[var(--ink-2)] space-y-1.5 list-disc pl-4">
-              <li>Web Dashboard (real-time diffs, terminal streaming)</li>
-              <li>CLI trigger commands &amp; local runner pairing</li>
-              <li>Cron schedule automations (5-minute floor)</li>
-              <li>GitHub webhook triggers (issue comments, PR labels)</li>
-              <li>Slack bot (@shiba mentions and /shiba commands)</li>
-              <li>Telegram and Discord bot triggers</li>
-              <li>MCP server gateway (read-only state, queue tasks; cannot approve)</li>
-            </ul>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--navy)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--navy)] text-sm mb-2">Cloud Verification In Progress</h3>
-            <ul class="text-[var(--ink)] space-y-1.5 list-disc pl-4">
-              <li>End-to-end cloud inference against AI Gateway live endpoints</li>
-              <li>Multi-turn Slack approvals across live team channels</li>
-              <li>Container peak memory limits under heavy compilation workloads</li>
-              <li>Long-running task recovery across WebSocket hibernation cycles</li>
-            </ul>
-          </div>
-        </div>
-        <p class="text-[var(--ink-2)] text-sm">
-          We maintain full transparency on verified features versus in-development milestones. Track real-time progress on <a href="/docs/readiness/" class="text-[var(--navy)] underline font-bold">Product Readiness</a>.
-        </p>
-      </div>
-    </section>
-
-    <!-- 08: RUN IT LOCALLY -->
-    <section class="story-section" aria-labelledby="section-deploy">
-      <div class="section-label">
-        <span class="micro">08 / Quickstart</span>
-      </div>
-      <div class="prose-body">
-        <h2 id="section-deploy" class="text-[var(--ink)]">Get started with Shiba</h2>
-        <p class="text-[var(--ink-2)]">
-          Prerequisites: Node.js 22.13+, pnpm 10+, and a running Docker daemon for container testing.
-        </p>
-
-        <div class="bg-[var(--card)] border border-[var(--line-2)] p-5 font-mono text-xs text-[var(--ink)] my-6 space-y-4 shadow-[2px_2px_0_var(--paper-shadow)] max-w-full overflow-x-auto">
-          <div>
-            <span class="text-[var(--ink-2)]"># 1. Clone the repository</span><br/>
-            <span class="text-[var(--navy)] font-bold">git clone</span> https://github.com/princepal9120/shiba.git<br/>
-            <span class="text-[var(--navy)] font-bold">cd</span> shiba &amp;&amp; <span class="text-[var(--navy)] font-bold">pnpm install</span>
-          </div>
-          <div>
-            <span class="text-[var(--ink-2)]"># 2. Configure local environment variables</span><br/>
-            <span class="text-[var(--navy)] font-bold">cp</span> apps/backend/.dev.vars.example apps/backend/.dev.vars
-          </div>
-          <div>
-            <span class="text-[var(--ink-2)]"># 3. Run the local development server</span><br/>
-            <span class="text-[var(--navy)] font-bold">pnpm dev</span>
-          </div>
-          <div>
-            <span class="text-[var(--ink-2)]"># 4. Verify code quality, tests, and build</span><br/>
-            <span class="text-[var(--navy)] font-bold">pnpm typecheck &amp;&amp; pnpm lint &amp;&amp; pnpm test &amp;&amp; pnpm build</span>
-          </div>
-        </div>
-
-        <p class="text-xs text-[var(--ink-2)] font-mono">
-          For Slack bot setup, GitHub App configuration, and Cloudflare Access policies, see the <a href="/docs/getting-started/" class="text-[var(--navy)] underline font-bold">Quickstart Guide</a>. Source code published under <a href="https://github.com/princepal9120/shiba/blob/main/LICENSE" class="text-[var(--navy)] underline font-bold">AGPL-3.0-only</a>.
-        </p>
-      </div>
-    </section>
-
-    <!-- CLOSING CTA -->
-    <section class="closing-section">
-      <div class="inline-block px-3 py-1.5 bg-[var(--card)] border border-[var(--line-2)] font-mono text-[var(--navy)] text-[10px] uppercase tracking-[0.14em] mb-4 shadow-[2px_2px_0_var(--paper-shadow)]">
-        OWN YOUR CODING AGENT
-      </div>
-      <h2 class="text-3xl sm:text-5xl font-bold text-[var(--ink)] tracking-tight mb-4">
-        Run your coding coworker on your own terms.
-      </h2>
-      <p class="lead mb-8 text-[var(--ink-2)] mx-auto max-w-2xl">
-        Shiba gives you Devin-level autonomy with transparent model routing, strict credential isolation, and approval gates before any code runs. Join our open-source community to build, test, and shape the roadmap.
-      </p>
-      <div class="hero-actions justify-center">
-        <a class="button" href="/waitlist/">
-          <span>Join the Waitlist &amp; Community →</span>
-        </a>
-        <a class="button button-outline" href="/open-source-devin-alternative/">
-          <span>Devin Alternative Guide</span>
-        </a>
-        <a class="button button-outline" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">
-          <span>Star on GitHub ↗</span>
-        </a>
+    <section class="closing-section" aria-labelledby="section-deploy">
+      <h2 id="section-deploy">Try one task before changing your workflow.</h2>
+      <p>Shiba is still under development. Start with a low-risk task and review <a href="/docs/readiness/">deployment readiness</a> before using it for live work.</p>
+      <div class="hero-actions">
+        <a class="button" href="/docs/getting-started/">Read the quickstart <span aria-hidden="true">→</span></a>
+        <a class="button button-outline" href="/waitlist/">Follow the project</a>
       </div>
     </section>
   </div>
 </MarketingPage>
 
 <style>
-  .hero {
-    padding-top: clamp(64px, 10vw, 128px);
-    padding-bottom: clamp(56px, 8vw, 96px);
-    border-bottom: 1px solid var(--line);
-  }
-  .manifesto-title {
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-size: clamp(2.25rem, 5vw, 4.25rem);
-    font-weight: 400;
-    line-height: 1.02;
-    letter-spacing: -0.03em;
-    max-width: 1040px;
-    margin-bottom: 24px;
-  }
-  .hero-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-top: 32px;
-  }
-  .hero-actions .button {
-    min-height: 44px;
-    padding-inline: 18px;
-  }
-  .hero-status { max-width: 65ch; }
-  .hero-status a { text-underline-offset: 3px; }
-  .micro {
-    display: inline-block;
-    font-family: 'Geist Mono', monospace;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    color: var(--ink-2);
-    border-top: 1px solid var(--line-2);
-    padding-top: 12px;
-  }
-  .story-section {
-    border-bottom: 1px solid var(--line);
-    display: grid;
-    grid-template-columns: minmax(120px, 0.72fr) minmax(0, 3fr);
-    gap: clamp(32px, 5vw, 80px);
-    padding-block: clamp(64px, 9vw, 112px);
-  }
-  .section-label {
-    padding-top: 8px;
-  }
-  .prose-body {
-    max-width: 900px;
-    min-width: 0;
-  }
-  .prose-body h2 {
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-size: clamp(1.85rem, 3.4vw, 2.85rem);
-    font-weight: 400;
-    line-height: 1.08;
-    margin-bottom: 24px;
-    letter-spacing: -0.02em;
-    text-wrap: balance;
-  }
-  .prose-body p {
-    max-width: 68ch;
-    color: var(--ink-2);
-    font-size: 15px;
-    line-height: 1.75;
-    margin-bottom: 20px;
-  }
-  .pull-quote {
-    border-left: 3px solid var(--navy);
-    background: var(--card);
-    padding: 20px 24px;
-    margin-block: 28px;
-    box-shadow: 2px 2px 0 var(--paper-shadow);
-    font-size: clamp(1.05rem, 1.6vw, 1.25rem);
-    line-height: 1.5;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    text-wrap: balance;
-    color: var(--ink);
-  }
-  .check-list {
-    list-style: none;
-    padding: 0;
-    display: grid;
-    gap: 4px;
-  }
-  .check-list li {
-    position: relative;
-    padding: 14px 18px 14px 44px;
-    background: var(--card);
-    border: 1px solid var(--line-2);
-    font-size: 14px;
-    line-height: 1.6;
-    color: var(--ink-2);
-  }
-  .check-list li::before {
-    content: '→';
-    position: absolute;
-    left: 18px;
-    top: 14px;
-    color: var(--navy);
-    font-family: 'Geist Mono', monospace;
-    font-weight: 700;
-  }
-  .check-list li strong { color: var(--ink); }
-  .friction-list {
-    display: grid;
-    gap: 16px;
-  }
-  .friction-row {
-    display: flex;
-    gap: 20px;
-    background: var(--card);
-    border: 1px solid var(--line-2);
-    padding: 20px 24px;
-    align-items: flex-start;
-    box-shadow: 2px 2px 0 var(--paper-shadow);
-  }
-  .friction-num {
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    background: var(--panel-2);
-    border: 1px solid var(--line-2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: 'Geist Mono', monospace;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--navy);
-  }
-  .route-table {
-    display: grid;
-    border: 1px solid var(--line-2);
-    background: var(--card);
-    box-shadow: 2px 2px 0 var(--paper-shadow);
-  }
-  .route-head, .route-row {
-    display: grid;
-    grid-template-columns: minmax(130px, 0.9fr) minmax(150px, 1.2fr) minmax(0, 2fr);
-    gap: 16px;
-    padding: 14px 20px;
-    align-items: baseline;
-  }
-  .route-head {
-    border-bottom: 1px solid var(--line-2);
-    font-family: 'Geist Mono', monospace;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--navy);
-    font-weight: 700;
-  }
-  .route-row {
-    border-bottom: 1px solid var(--line);
-    font-size: 13px;
-    line-height: 1.55;
-    color: var(--ink-2);
-  }
-  .route-row:last-child { border-bottom: none; }
-  .route-row .route-task {
-    color: var(--ink);
-    font-weight: 600;
-  }
-  .feature-card {
-    background: var(--card);
-    border: 1px solid var(--line-2);
-    padding: 24px 20px;
-    box-shadow: 2px 2px 0 var(--paper-shadow);
-  }
-  .feature-card .card-num {
-    font-family: 'Geist Mono', monospace;
-    font-size: 11px;
-    color: var(--navy);
-    font-weight: 700;
-    margin-bottom: 12px;
-  }
-  .pillar-row {
-    display: flex;
-    gap: 20px;
-    background: var(--card);
-    border: 1px solid var(--line-2);
-    padding: 22px 24px;
-    align-items: flex-start;
-    box-shadow: 2px 2px 0 var(--paper-shadow);
-  }
-  .pillar-row.highlight {
-    border-color: var(--navy);
-  }
-  .pillar-icon {
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    background: var(--panel-2);
-    border: 1px solid var(--line-2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: 'Geist Mono', monospace;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--navy);
-  }
-  .pillar-icon.accent {
-    background: var(--navy);
-    color: var(--on-accent);
-    border-color: var(--navy);
-  }
-  .closing-section {
-    padding-block: 80px;
-    text-align: center;
-    max-width: 800px;
-    margin-inline: auto;
-  }
-  .closing-section h2 {
-    font-family: 'Instrument Serif', Georgia, serif;
-  }
-  .feature-card, .pillar-row, .friction-row, .route-table {
-    transition: transform var(--dur-med) var(--ease-out), box-shadow var(--dur-med) var(--ease-out), border-color var(--dur-fast) ease;
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .feature-card:hover, .pillar-row:hover, .friction-row:hover {
-      transform: translate(-2px, -2px);
-      box-shadow: 4px 4px 0 var(--paper-shadow);
-      border-color: var(--navy);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .feature-card, .pillar-row, .friction-row, .route-table { transition: none; }
-    .feature-card:hover, .pillar-row:hover, .friction-row:hover { transform: none; }
-  }
-  @media (max-width: 800px) {
-    .story-section {
-      grid-template-columns: 1fr;
-      gap: 24px;
-      padding-block: 60px;
-    }
-    .section-label { padding-top: 0; }
-    .route-head, .route-row { grid-template-columns: 1fr; gap: 6px; }
-  }
-  @media (max-width: 480px) {
-    .hero-actions .button { flex: 1 1 100%; min-height: 44px; }
-    .pillar-row, .friction-row { gap: 14px; padding: 18px 16px; }
-    .pillar-icon, .friction-num { width: 32px; height: 32px; font-size: 12px; }
-  }
+  .hero { padding-block: clamp(56px, 8vw, 104px); border-bottom: 1px solid var(--line); }
+  .hero h1 { max-width: 1000px; font-size: clamp(2.4rem, 5vw, 4.5rem); }
+  .hero .lead { max-width: 68ch; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .hero-actions .button { min-height: 44px; }
+  .story-section { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(0, 3fr); gap: clamp(28px, 5vw, 80px); padding-block: clamp(44px, 7vw, 80px); border-bottom: 1px solid var(--line); }
+  .section-label { margin: 8px 0 0; font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--ink-2); }
+  .prose-body { min-width: 0; max-width: 850px; }
+  .prose-body h2, .closing-section h2 { font-size: clamp(1.8rem, 3.2vw, 2.8rem); text-wrap: balance; }
+  .prose-body p, .closing-section p { max-width: 68ch; color: var(--ink-2); line-height: 1.75; }
+  .prose-body blockquote { margin: 28px 0; padding-left: 22px; border-left: 2px solid var(--navy); color: var(--ink); font-size: 1.2rem; line-height: 1.6; }
+  .work-list { margin-block: 28px; }
+  .work-list > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; padding-block: 16px; border-top: 1px solid var(--line); }
+  .work-list dt { color: var(--ink); font-weight: 600; }
+  .work-list dd { margin: 0; color: var(--ink-2); line-height: 1.65; }
+  .principles { padding-left: 1.2rem; color: var(--ink-2); }
+  .principles li { margin-block: 16px; line-height: 1.65; }
+  .principles strong { color: var(--ink); }
+  .closing-section { max-width: 760px; padding-block: clamp(44px, 7vw, 80px); }
+  @media (max-width: 800px) { .story-section { grid-template-columns: 1fr; gap: 18px; } }
+  @media (max-width: 480px) { .work-list > div { grid-template-columns: 1fr; gap: 4px; } .hero-actions .button { width: 100%; } }
 </style>

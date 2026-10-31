@@ -1,0 +1,44 @@
+---
+import LanguageSelect from '@astrojs/starlight/components/LanguageSelect.astro';
+import Search from '@astrojs/starlight/components/Search.astro';
+import SiteTitle from '@astrojs/starlight/components/SiteTitle.astro';
+import ThemeSelect from '@astrojs/starlight/components/ThemeSelect.astro';
+
+const path = Astro.url.pathname.replace(/\/$/, '');
+const selfHostPages = ['self-hosting', 'onboarding', 'launch', 'deployment', 'configuration', 'readiness', 'sandbox-providers', 'sandbox-cheapest-provider', 'sandbox-custom-provider', 'remote-access-setup', 'github-setup', 'slack-setup', 'linear-setup', 'telegram-setup', 'discord-setup', 'runtime-limits', 'security', 'hosted-alternatives'];
+const developerPages = ['api', 'sdk', 'architecture', 'local-development', 'contributing', 'sandbox-sdk-1', 'mcp', 'task-settings', 'automation-reference', 'review-reference', 'triggers', 'swarm-desk', 'waitlist', 'claude-code', 'agents/claude-code', 'agents/codex', 'agents/opencode', 'implementation-status'];
+const page = path.replace(/^\/docs\//, '');
+const activeSection = selfHostPages.includes(page) ? 'self-host' : developerPages.includes(page) ? 'developers' : 'guide';
+const sections = [
+  { id: 'guide', label: 'Guide', href: '/docs/overview/' },
+  { id: 'self-host', label: 'Self-hosting', href: '/docs/self-hosting/' },
+  { id: 'developers', label: 'Developers', href: '/docs/api/' },
+];
+---
+
+<div class="docs-header">
+  <div class="docs-header-main">
+    <div class="docs-brand">
+      <SiteTitle />
+      <span class="docs-brand-divider" aria-hidden="true">/</span>
+      <span class="docs-brand-label">Docs</span>
+    </div>
+    <div class="docs-search print:hidden">
+      <Search />
+    </div>
+    <div class="docs-header-controls print:hidden">
+      <a class="docs-source-link" href="https://github.com/opentoolsorg/shiba" aria-label="Shiba source code on GitHub">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m8 5-7 7 7 7m8-14 7 7-7 7m-3-17-2 20" /></svg>
+        <span>Source</span>
+      </a>
+      <ThemeSelect />
+      <LanguageSelect />
+    </div>
+  </div>
+  <nav class="docs-section-nav print:hidden" aria-label="Documentation sections">
+    {sections.map(section => (
+      <a href={section.href} class:list={['docs-section-link', { 'is-current': activeSection === section.id }]} aria-current={activeSection === section.id ? 'location' : undefined}>{section.label}</a>
+    ))}
+    <a class="docs-open-app" href="/app/">Open app <span aria-hidden="true">↗</span></a>
+  </nav>
+</div>

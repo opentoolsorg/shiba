@@ -1,483 +1,113 @@
 ---
 import MarketingPage from '../layouts/MarketingPage.astro';
 
+const description = 'Evaluate Shiba as an open-source Devin alternative: try real company work, review the result, and understand the self-hosting trade-off.';
 const articleSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'TechArticle',
-  headline: 'Open-Source Devin Alternative: An Architecture and Evaluation Guide',
-  description:
-    'An honest guide to evaluating Shiba as an open-source, self-hosted Devin alternative. Compare architecture, approval gates, credential isolation, and real costs.',
-  author: {
-    '@type': 'Organization',
-    name: 'Shiba',
-    url: 'https://tryshiba.dev',
-  },
-  publisher: {
-    '@type': 'Organization',
-    name: 'Shiba',
-    logo: {
-      '@type': 'ImageObject',
-      url: 'https://tryshiba.dev/assets/mascot/shiba-logo-512.png',
-    },
-  },
-  datePublished: '2026-09-26',
-  dateModified: '2026-10-30',
-  mainEntityOfPage: 'https://tryshiba.dev/open-source-devin-alternative/',
-  image: 'https://tryshiba.dev/assets/og/shiba-og.png',
+  '@context': 'https://schema.org', '@type': 'TechArticle',
+  headline: 'Open-Source Devin Alternative: A Practical Evaluation Guide', description,
+  author: { '@type': 'Organization', name: 'Shiba', url: 'https://tryshiba.dev' },
+  publisher: { '@type': 'Organization', name: 'Shiba', logo: { '@type': 'ImageObject', url: 'https://tryshiba.dev/assets/mascot/shiba-logo-512.png' } },
+  datePublished: '2026-09-26', dateModified: '2026-11-01',
+  mainEntityOfPage: 'https://tryshiba.dev/open-source-devin-alternative/', image: 'https://tryshiba.dev/assets/og/shiba-og.png',
 };
+const questions = [
+  ['Useful output', 'Can the employee return something your team can inspect: a code change, brief, report, or checklist?'],
+  ['Permission', 'Can you see the proposed request before repository work starts, including whether a pull request will be published?'],
+  ['Review', 'Can you read the files and reported checks, spot missing evidence, and decide what to use?'],
+  ['Operation', 'Are you willing to set up the installation, manage access, and pay the hosting and model providers?'],
+];
 ---
 
 <MarketingPage
-  title="Open-Source Devin Alternative: Evaluation Guide — Shiba"
-  description="An honest guide to evaluating Shiba as an open-source, self-hosted Devin alternative. Compare architecture, approval gates, credential isolation, and real costs."
+  title="Open-Source Devin Alternative: A Practical Guide — Shiba"
+  description={description}
   path="/open-source-devin-alternative/"
   type="article"
   publishedTime="2026-09-26T00:00:00Z"
-  modifiedTime="2026-10-30T00:00:00Z"
+  modifiedTime="2026-11-01T00:00:00Z"
   schema={articleSchema}
-  breadcrumbs={[
-    { name: 'Home', path: '/' },
-    { name: 'Open-Source Devin Alternative', path: '/open-source-devin-alternative/' },
-  ]}
+  breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'Open-Source Devin Alternative', path: '/open-source-devin-alternative/' }]}
 >
-  <!-- HERO EVALUATION -->
   <section class="shell hero">
-    <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-[var(--card)] border border-[var(--line-2)] text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--navy)] mb-6 shadow-[2px_2px_0_var(--paper-shadow)]">
-      <span class="w-2 h-2 bg-[var(--navy)] animate-pulse" aria-hidden="true"></span>
-      <span>EVALUATION GUIDE · ARCHITECTURE &amp; GOVERNANCE</span>
-    </div>
-    <h1 class="manifesto-title text-[var(--ink)]">
-      Looking for an <span class="text-[var(--navy)]">open-source Devin alternative</span>?
-    </h1>
-    <p class="lead text-[var(--ink-2)]">
-      Developers evaluating alternatives to Devin typically seek five core capabilities: inspectable source code, flexible model routing, background execution off their laptop, isolated task containers, and human approval before changes merge.
-      Here is an honest, architectural guide to evaluating <strong>Shiba</strong> against those requirements.
-    </p>
+    <p class="eyebrow">An evaluation guide</p>
+    <h1>Looking for an open-source<br /><em>Devin alternative?</em></h1>
+    <p class="lead">Start with the work you need done. Shiba gives solo builders and teams a self-hosted workspace for AI employees across engineering, design, marketing, sales, operations, finance, and research.</p>
+    <p class="intro-note">We build Shiba. This guide is a way to evaluate it, not a claim that it matches every Devin feature or performs better.</p>
     <div class="hero-actions">
-      <a class="button" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">
-        <span>Inspect Source on GitHub</span>
-        <span aria-hidden="true">↗</span>
-      </a>
-      <a class="button button-outline" href="/why-shiba/">
-        <span>Why I Built Shiba</span>
-      </a>
-      <a class="button button-outline" href="/waitlist/">
-        <span>Join Waitlist &amp; Community</span>
-      </a>
-      <a class="button button-outline" href="/docs/approval-gates/">
-        <span>Approval Gate Architecture</span>
-      </a>
+      <a class="button" href="/docs/getting-started/">Try a small task <span aria-hidden="true">→</span></a>
+      <a class="button button-outline" href="https://github.com/opentoolsorg/shiba" target="_blank" rel="noopener noreferrer">Read the source <span aria-hidden="true">↗</span></a>
     </div>
   </section>
 
-  <div class="shell">
-    <!-- 00: EVALUATION PREMISE -->
-    <section class="story-section" aria-labelledby="bias-title">
-      <div class="section-label"><span class="micro">00 / Ground Rules</span></div>
-      <div class="prose-body">
-        <h2 id="bias-title" class="text-[var(--ink)]">Written by the creators of Shiba</h2>
-        <p class="text-[var(--ink-2)]">
-          We build Shiba, so we have an obvious perspective. We do not claim feature parity with Devin or any commercial platform, and this is not a synthetic benchmark. We have not run head-to-head competitive trials, so we make no unsubstantiated claims about relative speed, solve rates, or cost savings.
-        </p>
-        <p class="text-[var(--ink-2)]">
-          Instead, this guide outlines the concrete architectural trade-offs: what self-hosting on Cloudflare Workers and Sandbox containers offers, what it requires from an operator, and how to pilot a single bounded task before changing any production workflow.
-        </p>
-        <p class="text-[var(--ink-2)]">
-          An open-source repository under AGPL-3.0 gives you code inspection, deterministic container images, and no per-seat vendor lock-in. It does not provide free model inference or eliminate Cloudflare infrastructure fees.
-        </p>
-      </div>
+  <div class="shell guide">
+    <section aria-labelledby="comparison-matrix-title">
+      <h2 id="comparison-matrix-title">What you choose with Shiba</h2>
+      <p>The software is open source under AGPL-3.0-only. You run it in your own Cloudflare account, choose a configured model, and manage access to the workspace.</p>
+      <p>That gives you control and responsibility. Hosting and model usage cost extra, and someone needs to maintain the installation. Shiba is under development; review the <a href="/docs/readiness/">readiness checklist</a> before relying on a live deployment.</p>
+      <p>For any hosted alternative, check the provider's current product and pricing information against your requirements. We have not run a head-to-head benchmark or verified comparative cost savings.</p>
     </section>
 
-    <!-- 01: ARCHITECTURAL COMPARISON MATRIX -->
-    <section class="story-section" aria-labelledby="comparison-matrix-title">
-      <div class="section-label"><span class="micro">01 / Comparison</span></div>
-      <div class="prose-body">
-        <h2 id="comparison-matrix-title" class="text-[var(--ink)]">Architectural comparison: Hosted SaaS vs. Shiba</h2>
-        <p class="text-[var(--ink-2)]">
-          Both tools automate repository tasks, but they operate under fundamentally different ownership models:
-        </p>
-
-        <div class="compare-matrix my-8" role="table" aria-label="Comparison between Devin Cloud and Shiba">
-          <div class="matrix-head" role="row">
-            <span role="columnheader">Evaluation dimension</span>
-            <span role="columnheader">Devin Cloud (Hosted SaaS)</span>
-            <span role="columnheader">Shiba (Self-Hosted Cloudflare)</span>
-          </div>
-
-          <div class="matrix-row" role="row">
-            <span role="cell" class="matrix-label">Hosting &amp; Infrastructure</span>
-            <span role="cell">Multi-tenant managed cloud hosted on Cognition infrastructure.</span>
-            <span role="cell" class="highlight-cell">Runs directly in your own Cloudflare account on Workers and Sandbox containers.</span>
-          </div>
-
-          <div class="matrix-row" role="row">
-            <span role="cell" class="matrix-label">Source &amp; Licensing</span>
-            <span role="cell">Proprietary closed-source commercial product.</span>
-            <span role="cell" class="highlight-cell">AGPL-3.0-only inspectable open-source repository.</span>
-          </div>
-
-          <div class="matrix-row" role="row">
-            <span role="cell" class="matrix-label">Human Approval Control</span>
-            <span role="cell">Autonomous loop with chat feedback and post-run pull requests.</span>
-            <span role="cell" class="highlight-cell">Structured approval card required before any container boots (needsApproval: true).</span>
-          </div>
-
-          <div class="matrix-row" role="row">
-            <span role="cell" class="matrix-label">Credential Handling</span>
-            <span role="cell">Stored and managed within the hosted SaaS environment.</span>
-            <span role="cell" class="highlight-cell">Real API keys and GitHub tokens never enter the container; injected at egress.</span>
-          </div>
-
-          <div class="matrix-row" role="row">
-            <span role="cell" class="matrix-label">Agent Harness &amp; Models</span>
-            <span role="cell">Single proprietary agent and model pipeline.</span>
-            <span role="cell" class="highlight-cell">Pluggable catalog: OpenCode, Claude Code, Codex, or Devin CLI with custom BYOK models.</span>
-          </div>
-
-          <div class="matrix-row" role="row">
-            <span role="cell" class="matrix-label">Network &amp; Isolation</span>
-            <span role="cell">Managed cloud sandbox with outbound internet access.</span>
-            <span role="cell" class="highlight-cell">Strict egress allowlist; registry.npmjs.org excluded by default to prevent exfiltration.</span>
-          </div>
-
-          <div class="matrix-row" role="row">
-            <span role="cell" class="matrix-label">Pricing Model</span>
-            <span role="cell">Flat per-seat monthly subscription tiers.</span>
-            <span role="cell" class="highlight-cell">Pay-as-you-go Cloudflare infrastructure + model tokens at cost. Zero software seat fees.</span>
-          </div>
-        </div>
-      </div>
+    <section aria-labelledby="priorities-title">
+      <h2 id="priorities-title">Use four questions to judge the fit.</h2>
+      <dl class="question-list">
+        {questions.map(([label, question]) => <div><dt>{label}</dt><dd>{question}</dd></div>)}
+      </dl>
+      <p>Employees describe responsibilities, not separate models. The built-in templates are Engineering, Marketing, Research, and Operations; other roles use custom instructions.</p>
     </section>
 
-    <!-- 02: THE FIVE CRITERIA -->
-    <section class="story-section" aria-labelledby="priorities-title">
-      <div class="section-label"><span class="micro">02 / Decision Factors</span></div>
-      <div class="prose-body">
-        <h2 id="priorities-title" class="text-[var(--ink)]">Five factors to evaluate before switching</h2>
-        <p class="text-[var(--ink-2)]">
-          Decide which constraint is primary for your team before evaluating any agent:
-        </p>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-8 font-mono text-xs">
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">01 / Source inspectability</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Can your security and engineering teams audit every line of orchestrator logic, tool definition, and container build script?</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">02 / Choice of coding harness</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Can you choose between open-source harnesses like OpenCode or commercial CLI tools like Claude Code and Codex per task?</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">03 / Off-laptop cloud execution</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Does execution run on ephemeral cloud containers so your local workstation remains unburdened and responsive?</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">04 / Concurrent task isolation</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Does each task get its own isolated filesystem and deterministic container ID to eliminate state bleed between runs?</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--navy)] shadow-[2px_2px_0_var(--paper-shadow)] md:col-span-2">
-            <h3 class="font-bold text-[var(--navy)] text-sm mb-2">05 / Explicit pre-execution approval gate</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Can a human engineer inspect the exact repository, branch, and planned tool input before any code is written or container is booted?</p>
-          </div>
-        </div>
-      </div>
+    <section aria-labelledby="bounded-title">
+      <h2 id="bounded-title">Try one task you can check.</h2>
+      <p>Choose a low-risk example from your own work. Give the employee the relevant context and say what should come back.</p>
+      <ul class="examples">
+        <li><strong>Engineering:</strong> fix a reproducible bug and add a regression test.</li>
+        <li><strong>Marketing or design:</strong> turn product notes into a launch brief or a design specification.</li>
+        <li><strong>Sales or revenue:</strong> draft an account brief or summarize supplied pipeline notes.</li>
+        <li><strong>Operations or finance:</strong> write a handoff checklist or draft a budget from figures you provide.</li>
+      </ul>
+      <p>Every execution currently needs a GitHub repository, including non-code tasks. Documents are drafts for your review. A role does not connect an account, update a CRM, send outreach, run bookkeeping, or authorize payments.</p>
+      <ol class="pilot-steps">
+        <li>Describe the task, the repository, and the expected output.</li>
+        <li>Read the proposed request and approve standard repository execution only when it matches your intent.</li>
+        <li>Inspect the files, changes, and checks. Note what was missing or needed correction.</li>
+        <li>Compare the setup effort, review time, and actual hosting and model charges with your other options.</li>
+      </ol>
     </section>
 
-    <!-- 03: AGENT HARNESS CATALOG -->
-    <section class="story-section" aria-labelledby="agents-title">
-      <div class="section-label"><span class="micro">03 / Agent Catalog</span></div>
-      <div class="prose-body">
-        <h2 id="agents-title" class="text-[var(--ink)]">Pick the agent harness for each repository task</h2>
-        <p class="text-[var(--ink-2)]">
-          Shiba does not force a single agent architecture. Its Docker base image pins supported CLI harnesses, allowing the orchestrator to delegate work according to the task type:
-        </p>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-6 font-mono text-xs">
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">Supported Harnesses</h3>
-            <ul class="text-[var(--ink-2)] space-y-2 list-disc pl-4">
-              <li><code>opencode</code> — default open coding harness using provider-native headless execution.</li>
-              <li><code>claude-code</code> — Anthropic CLI, optimized for deep reasoning and Slack/Telegram threads.</li>
-              <li><code>codex</code> — OpenAI agent CLI for autonomous code generation.</li>
-              <li><code>devin</code> — Devin CLI runner for operators with existing accounts.</li>
-            </ul>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">Transparent Credential Reporting</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">
-              Gateway-backed agents authenticate through Cloudflare AI Gateway with BYOK credentials that the Worker never stores in plaintext. The dashboard reports configuration status transparently without making assumptions about provider health.
-            </p>
-          </div>
-        </div>
-      </div>
+    <section aria-labelledby="cost-title">
+      <h2 id="cost-title">Free software. Separate running costs.</h2>
+      <p>You do not need a Shiba subscription or an invitation to self-host the source. You pay the hosting and model providers you configure. Your task size, model, and usage determine those costs.</p>
+      <p>See <a href="/docs/costs/">Costs</a> and <a href="/docs/self-hosting/">Self-hosting</a> before setting up an installation. Keep publication off for the first task, then review the result before deciding what to share.</p>
     </section>
 
-    <!-- 04: THE APPROVAL GATE -->
-    <section class="story-section" aria-labelledby="gate-title">
-      <div class="section-label"><span class="micro">04 / Approval Gate</span></div>
-      <div class="prose-body">
-        <h2 id="gate-title" class="text-[var(--ink)]">A human reviews before compute starts</h2>
-        <p class="text-[var(--ink-2)]">
-          Many autonomous tools run unattended loops and notify you after code is committed. Shiba makes human approval a blocking gate. Every request produces a pending approval card:
-        </p>
-
-        <div class="p-5 my-6 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)] font-mono text-xs text-[var(--ink-2)] overflow-x-auto leading-relaxed">
-          Dashboard · Slack @shiba · Telegram · Webhook<br />
-          &nbsp;&nbsp;└── pending approval card &nbsp;[repo, branch, exact prompt, harness]<br />
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── human approves → Durable Object starts isolated Sandbox container<br />
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── streams terminal logs, unified diff, PR<br />
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── human rejects &nbsp;→ record resolved, zero compute provisioned
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 my-6 font-mono text-xs">
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">01 / Exact text execution</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Repository URL, base branch, prompt text, and harness are cryptographically frozen in the approval record. Nothing runs outside that payload.</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">02 / Rejection provisions nothing</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Rejecting a task terminates the workflow immediately. No container is spun up, no git clone occurs, and no compute minutes are billed.</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">03 / Ephemeral approval pointers</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Slack and Telegram interactive buttons carry single-use approval IDs re-validated server-side. Stale notifications cannot trigger runs.</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--navy)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--navy)] text-sm mb-2">04 / Strict approver allowlists</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Chat webhooks check cryptographic signatures and enforce explicit <code>SLACK_APPROVERS</code> lists. Unauthorized channel members cannot approve tasks.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 05: CREDENTIAL ISOLATION -->
-    <section class="story-section" aria-labelledby="creds-title">
-      <div class="section-label"><span class="micro">05 / Security</span></div>
-      <div class="prose-body">
-        <h2 id="creds-title" class="text-[var(--ink)]">Credentials remain outside the container</h2>
-        <p class="text-[var(--ink-2)]">
-          <strong>No real provider API key or GitHub token ever enters the execution container.</strong> Egress requests are intercepted by the Cloudflare Worker:
-        </p>
-
-        <ul class="text-[var(--ink-2)] space-y-2 list-disc pl-5 my-4 text-sm leading-relaxed">
-          <li><strong>Model egress:</strong> The container uses dummy credentials. Outbound provider requests are routed through your Cloudflare AI Gateway binding, which attaches the authorized secret header.</li>
-          <li><strong>Repository Git transport:</strong> <code>GITHUB_TOKEN</code> is injected in the Worker via Sandbox HTTPS interception. Tokens never appear in clone URLs, bash environment variables, or container logs.</li>
-          <li><strong>Strict outbound network filtering:</strong> Only approved provider hostnames are reachable. <code>registry.npmjs.org</code> is omitted by default to prevent supply-chain exfiltration during autonomous runs.</li>
-        </ul>
-      </div>
-    </section>
-
-    <!-- 06: HOW TO PILOT A BOUNDED TASK -->
-    <section class="story-section" aria-labelledby="bounded-title">
-      <div class="section-label"><span class="micro">06 / Evaluation Pilot</span></div>
-      <div class="prose-body">
-        <h2 id="bounded-title" class="text-[var(--ink)]">How to pilot one bounded task</h2>
-        <p class="text-[var(--ink-2)]">
-          Before migrating any active engineering workflow, test Shiba on a single, well-defined bug or refactor:
-        </p>
-
-        <div class="p-5 my-6 bg-[var(--card)] border border-[var(--navy)] shadow-[2px_2px_0_var(--paper-shadow)] font-mono text-xs text-[var(--ink-2)] leading-relaxed">
-          Example pilot prompt:<br />
-          "Fix the duplicate status message emitted after reconnecting. Reproduce by interrupting the connection during delivery and verifying reconnection. Keep existing status labels intact. Run test/delivery.test.ts, inspect git diff, and report any skipped checks."
-        </div>
-
-        <p class="text-[var(--ink-2)] text-sm leading-relaxed">
-          Evaluate four concrete measurements from the pilot run:
-        </p>
-        <ul class="text-[var(--ink-2)] space-y-1.5 list-disc pl-5 my-4 text-xs font-mono">
-          <li><strong>Setup friction:</strong> Time required to clone, configure <code>.dev.vars</code>, and start the local environment.</li>
-          <li><strong>Human interventions:</strong> Number of manual corrections needed before task completion.</li>
-          <li><strong>Verification evidence:</strong> Whether the agent ran tests, reported real exit codes, and generated a clean unified diff.</li>
-          <li><strong>Review time:</strong> How quickly a reviewer can assess the PR diff versus writing the change manually.</li>
-        </ul>
-      </div>
-    </section>
-
-    <!-- 07: TOTAL COST OF OWNERSHIP -->
-    <section class="story-section" aria-labelledby="cost-title">
-      <div class="section-label"><span class="micro">07 / Cost Model</span></div>
-      <div class="prose-body">
-        <h2 id="cost-title" class="text-[var(--ink)]">Understanding self-hosted costs</h2>
-        <p class="text-[var(--ink-2)]">
-          Self-hosting eliminates vendor per-seat licensing, but introduces three direct infrastructure components:
-        </p>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 my-8 font-mono text-xs">
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">Cloudflare Compute</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Workers, Durable Objects storage, and Sandbox container execution minutes billed directly to your Cloudflare account.</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--line-2)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--ink)] text-sm mb-2">Model Inference</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">LLM tokens consumed by the planning Worker and coding harnesses, routed through your AI Gateway credentials at cost.</p>
-          </div>
-          <div class="p-5 bg-[var(--card)] border border-[var(--navy)] shadow-[2px_2px_0_var(--paper-shadow)]">
-            <h3 class="font-bold text-[var(--navy)] text-sm mb-2">Review Time</h3>
-            <p class="text-[var(--ink-2)] leading-relaxed">Engineering time spent reviewing approval cards and pull request diffs. The approval gate ensures you remain in control.</p>
-          </div>
-        </div>
-
-        <p class="text-[var(--ink-2)] text-sm">
-          For detailed pricing mechanics and billing breakdowns, review our <a href="/docs/costs/" class="text-[var(--navy)] underline font-bold">Cost Documentation</a>.
-        </p>
-      </div>
-    </section>
-
-    <!-- 08: WHEN SHIBA IS A FIT -->
-    <section class="story-section" aria-labelledby="fit-title">
-      <div class="section-label"><span class="micro">08 / Decision</span></div>
-      <div class="prose-body">
-        <h2 id="fit-title" class="text-[var(--ink)]">When Shiba is the right fit</h2>
-        <p class="text-[var(--ink-2)]">
-          Shiba is ideal for engineering teams that want autonomous coding capabilities deployed inside their own cloud infrastructure, with mandatory approval before execution and full auditability of every line of code.
-        </p>
-        <p class="text-[var(--ink-2)]">
-          If your priority is a turn-key managed SaaS with zero infrastructure setup, a hosted service like Devin Cloud remains an excellent solution. If your priority is data ownership, model choice, and approval control, Shiba is built for you.
-        </p>
-
-        <div class="hero-actions mt-8">
-          <a class="button" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer">
-            <span>Clone the Repository</span>
-            <span aria-hidden="true">↗</span>
-          </a>
-          <a class="button button-outline" href="/why-shiba/">
-            <span>Why I Built Shiba</span>
-          </a>
-          <a class="button button-outline" href="/waitlist/">
-            <span>Join the Community</span>
-          </a>
-        </div>
+    <section class="closing-section" aria-labelledby="next-title">
+      <h2 id="next-title">Evaluate the work, not the promise.</h2>
+      <p>A small task will tell you more about the fit than a feature checklist. Start there, and keep the final decision with your team.</p>
+      <div class="hero-actions">
+        <a class="button" href="/docs/getting-started/">Read the quickstart <span aria-hidden="true">→</span></a>
+        <a class="button button-outline" href="/why-shiba/">Why I built Shiba</a>
       </div>
     </section>
   </div>
 </MarketingPage>
 
 <style>
-  .hero {
-    padding-top: clamp(64px, 10vw, 128px);
-    padding-bottom: clamp(56px, 8vw, 96px);
-    border-bottom: 1px solid var(--line);
-  }
-  .manifesto-title {
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-size: clamp(2.25rem, 5vw, 4.25rem);
-    font-weight: 400;
-    line-height: 1.02;
-    letter-spacing: -0.03em;
-    max-width: 1040px;
-    margin-bottom: 24px;
-  }
-  .hero-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-top: 32px;
-  }
-  .hero-actions .button {
-    min-height: 44px;
-    padding-inline: 18px;
-  }
-  .micro {
-    display: inline-block;
-    font-family: 'Geist Mono', monospace;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    color: var(--ink-2);
-    border-top: 1px solid var(--line-2);
-    padding-top: 12px;
-  }
-  .story-section {
-    border-bottom: 1px solid var(--line);
-    display: grid;
-    grid-template-columns: minmax(120px, 0.72fr) minmax(0, 3fr);
-    gap: clamp(32px, 5vw, 80px);
-    padding-block: clamp(64px, 9vw, 112px);
-  }
-  .section-label {
-    padding-top: 8px;
-  }
-  .prose-body {
-    max-width: 900px;
-    min-width: 0;
-  }
-  .prose-body h2 {
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-size: clamp(1.85rem, 3.4vw, 2.85rem);
-    font-weight: 400;
-    line-height: 1.08;
-    margin-bottom: 24px;
-    letter-spacing: -0.02em;
-    text-wrap: balance;
-  }
-  .prose-body p {
-    max-width: 68ch;
-    color: var(--ink-2);
-    font-size: 15px;
-    line-height: 1.75;
-    margin-bottom: 20px;
-  }
-  .compare-matrix {
-    display: grid;
-    border: 1px solid var(--line-2);
-    background: var(--card);
-    box-shadow: 2px 2px 0 var(--paper-shadow);
-  }
-  .matrix-head, .matrix-row {
-    display: grid;
-    grid-template-columns: minmax(130px, 1fr) minmax(160px, 1.4fr) minmax(160px, 1.6fr);
-    gap: 16px;
-    padding: 14px 20px;
-    align-items: start;
-  }
-  .matrix-head {
-    border-bottom: 1px solid var(--line-2);
-    font-family: 'Geist Mono', monospace;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--navy);
-    font-weight: 700;
-    background: var(--panel-2);
-  }
-  .matrix-row {
-    border-bottom: 1px solid var(--line);
-    font-size: 13px;
-    line-height: 1.55;
-    color: var(--ink-2);
-  }
-  .matrix-row:last-child {
-    border-bottom: none;
-  }
-  .matrix-label {
-    font-family: 'Geist Mono', monospace;
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--ink);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .highlight-cell {
-    color: var(--ink);
-  }
-  @media (max-width: 800px) {
-    .story-section {
-      grid-template-columns: 1fr;
-      gap: 24px;
-      padding-block: 60px;
-    }
-    .section-label { padding-top: 0; }
-    .matrix-head, .matrix-row {
-      grid-template-columns: 1fr;
-      gap: 6px;
-    }
-    .matrix-head { display: none; }
-    .matrix-row {
-      padding: 16px;
-      border-bottom: 1px solid var(--line-2);
-    }
-  }
-  @media (max-width: 480px) {
-    .hero-actions .button { flex: 1 1 100%; min-height: 44px; }
-  }
+  .hero { padding-block: clamp(56px, 8vw, 104px); border-bottom: 1px solid var(--line); }
+  .hero h1 { font-size: clamp(2.4rem, 5vw, 4.5rem); max-width: 1000px; }
+  .hero .lead { max-width: 68ch; }
+  .intro-note { max-width: 66ch; color: var(--ink-2); font-size: .9rem; line-height: 1.65; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .hero-actions .button { min-height: 44px; }
+  .guide { max-width: 1000px; }
+  .guide > section { padding-block: clamp(40px, 6vw, 72px); border-bottom: 1px solid var(--line); }
+  .guide h2 { font-size: clamp(1.8rem, 3.2vw, 2.8rem); text-wrap: balance; }
+  .guide p { max-width: 70ch; color: var(--ink-2); line-height: 1.75; }
+  .question-list { margin-block: 28px; }
+  .question-list > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 24px; padding-block: 18px; border-top: 1px solid var(--line); }
+  .question-list dt { font-weight: 600; color: var(--ink); }
+  .question-list dd { margin: 0; color: var(--ink-2); line-height: 1.65; }
+  .examples, .pilot-steps { max-width: 70ch; padding-left: 1.3rem; color: var(--ink-2); }
+  .examples li, .pilot-steps li { margin-block: 14px; line-height: 1.65; }
+  .examples strong { color: var(--ink); }
+  .closing-section { border-bottom: 0 !important; }
+  @media (max-width: 480px) { .question-list > div { grid-template-columns: 1fr; gap: 4px; } .hero-actions .button { width: 100%; } }
 </style>

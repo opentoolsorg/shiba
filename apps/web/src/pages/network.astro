@@ -2,10 +2,10 @@
 import MarketingPage from '../layouts/MarketingPage.astro';
 
 const agents = [
-  { mark: 'OC', logo: '/assets/harnesses/opencode.svg', name: 'OpenCode', lane: 'Default harness', description: 'The default coding harness for an approved sandbox run.', href: '/docs/agents/opencode/' },
-  { mark: 'CC', logo: '/assets/harnesses/claude.svg', name: 'Claude Code', lane: 'Harness adapter', description: 'Run the Claude Code CLI through Shiba’s configured provider-backed lane.', href: '/docs/agents/claude-code/' },
-  { mark: 'CX', logo: '/assets/harnesses/openai.svg', name: 'Codex', lane: 'Harness adapter', description: 'Choose the Codex CLI for a task without changing the approval workflow.', href: '/docs/agents/codex/' },
-  { mark: 'AC', name: 'ACP agents', lane: 'Registry configuration', description: 'Select an allowlisted ACP agent from your operator-pinned registry snapshot, with a supported distribution and matching credentials.', href: '/docs/claude-code/' },
+  { mark: 'OC', logo: '/assets/harnesses/opencode.svg', name: 'OpenCode', lane: 'Default harness', description: 'The default tool for carrying out an approved task in its working repository.', href: '/docs/agents/opencode/' },
+  { mark: 'CC', logo: '/assets/harnesses/claude.svg', name: 'Claude Code', lane: 'Harness adapter', description: 'Use your configured Claude Code connection for an approved task.', href: '/docs/agents/claude-code/' },
+  { mark: 'CX', logo: '/assets/harnesses/openai.svg', name: 'Codex', lane: 'Harness adapter', description: 'Choose Codex for the task while keeping the same approval and review flow.', href: '/docs/agents/codex/' },
+  { mark: 'AC', name: 'ACP agents', lane: 'Registry configuration', description: 'Use a compatible agent that your workspace owner has configured and allowed.', href: '/docs/claude-code/' },
 ];
 const surfaces = [
   { name: 'Dashboard', detail: 'Describe a task and review its run.', href: '/docs/dashboard/' },
@@ -18,69 +18,69 @@ const surfaces = [
   { name: 'MCP', detail: 'Call Shiba from an MCP client.', href: '/docs/mcp/' },
 ];
 const faqs = [
-  { q: 'Is this a peer-to-peer agent network?', a: 'No. Today, Shiba coordinates work centrally: the orchestrator delegates a task to a selected coding harness. Direct agent-to-agent messaging is a design preview below, not a shipped feature.' },
-  { q: 'Do all the agents run on every task?', a: 'No. Each delegated sandbox run uses one selected harness. Different tasks can use different harnesses; this page does not promise a self-organizing swarm or shared agent memory.' },
-  { q: 'Does every entry point bypass the approval card?', a: 'No. Interactive delegated coding tasks require approval before sandbox execution. Automations require approval by default; narrowly configured unattended policies are an explicit opt-in. Review those policies before enabling schedules or webhooks.' },
-  { q: 'Can I use this with my team?', a: 'You can save custom-agent configurations for your organization, including harness, model and sandbox defaults. An agent configuration is not a new human teammate or an independently communicating agent. Configure identities, permissions and integration approvers for your installation.' },
-  { q: 'Is every integration proven in a live deployment?', a: 'No. The repository includes implementations and targeted tests, but the readiness documentation records gaps in provider-backed and cloud end-to-end verification. Check the current readiness notes and validate your own account before relying on a connection.' },
+  { q: 'Is this a peer-to-peer agent network?', a: 'No. Shiba coordinates each task and sends the approved work to one selected AI tool. Direct messaging between agents is only a design preview below.' },
+  { q: 'Do all the agents run on every task?', a: 'No. Each run uses one selected AI tool. You can use different tools for different tasks, but they do not form a self-organizing team or share memory automatically.' },
+  { q: 'Who approves the work?', a: 'An authorized person reviews and approves the proposed request before standard repository execution. Automated tasks also require approval by default; advanced unattended settings are a separate opt-in.' },
+  { q: 'Can I use this with my team?', a: 'You can save employee instructions for work your team repeats, such as campaign drafts, account briefs, operating plans, or budget notes from supplied figures. Engineering, Marketing, Research, and Operations have starting templates; other responsibilities use custom instructions. Check the setup and readiness guides before relying on an installation.' },
+  { q: 'Is every integration proven in a live deployment?', a: 'No. A supported connection still needs configuration and a successful test in your installation. The readiness guide records what remains unverified.' },
 ];
 ---
 
 <MarketingPage
-  title="Agent network — Shiba"
-  description="Connect coding harnesses to one approval-gated workflow. See how Shiba coordinates tasks today, which surfaces can reach it, and what is still planned."
+  title="How Work Moves Through Shiba — AI Employees"
+  description="See how AI employees turn company tasks into work you can review, across engineering, design, marketing, sales, operations and finance."
   path="/network/"
   breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'Agent network', path: '/network/' }]}
 >
   <div id="network-main" class="network shell">
     <header class="network-hero">
-      <div class="eyebrow"><span class="signal" aria-hidden="true"></span> Harnesses and surfaces</div>
-      <h1>Different coding agents.<br /><em>One approval gate.</em></h1>
+      <div class="eyebrow"><span class="signal" aria-hidden="true"></span> From a brief to a result</div>
+      <h1>Different company tasks.<br /><em>One clear handoff.</em></h1>
       <div class="hero-bottom">
-        <p>Bring your coding harnesses into Shiba. Give them a task, review the handoff, and keep execution behind an approval gate.</p>
-        <a class="button primary" href="/docs/self-hosting/">Connect your first agent</a>
+        <p>A campaign brief, a code change, an account summary, or a draft budget: give an employee the context and the result you need. Choose a working repository, approve the request, and review the files it returns.</p>
+        <a class="button primary" href="/docs/self-hosting/">Self-host Shiba</a>
       </div>
       <div class="hero-index"><span>YOUR INFRASTRUCTURE. YOUR CALL.</span><a href="#today">See the handoff <span aria-hidden="true">↓</span></a></div>
     </header>
 
     <section id="today" class="chapter" aria-labelledby="today-title">
       <div class="chapter-meta"><span>01 / THE HANDOFF</span><span class="badge today">Today</span></div>
-      <div class="section-heading"><h2 id="today-title">Coordination, without<br />giving up control.</h2><p>Shiba’s orchestrator prepares the delegation. You approve the exact task input. A selected harness does the coding in an isolated sandbox—not in the orchestrator.</p></div>
+      <div class="section-heading"><h2 id="today-title">Coordination, without<br />giving up control.</h2><p>Shiba prepares a proposed task for your review. Once you approve its exact request, a selected AI tool works in a separate environment and returns files or changes to inspect.</p></div>
 
       <figure class="network-map" aria-labelledby="map-caption">
-        <div class="map-topline"><span>SHIBA / DELEGATED CODING PATH</span><span>ONE HARNESS PER RUN</span></div>
+        <div class="map-topline"><span>SHIBA / APPROVED TASK FLOW</span><span>ONE TOOL PER RUN</span></div>
         <div class="map-grid" aria-hidden="true">
           <div class="map-node human"><span class="node-id">01 / REQUEST</span><strong>You</strong><span>Task + repository</span></div>
           <div class="map-link link-one">→</div>
-          <div class="map-node orchestrator"><span class="node-id">02 / COORDINATE</span><strong>Shiba orchestrator</strong><span>Prepare the handoff</span></div>
+          <div class="map-node orchestrator"><span class="node-id">02 / COORDINATE</span><strong>Shiba</strong><span>Prepare the handoff</span></div>
           <div class="map-link link-two">→</div>
           <div class="map-node gate"><span class="node-id">03 / YOUR DECISION</span><strong>Approval gate</strong><span>Review exact input</span><span class="gate-stamp">WAITING FOR YOU</span></div>
           <div class="map-link link-three">↓</div>
-          <div class="map-node sandbox"><div class="sandbox-title"><span class="node-id">04 / ISOLATED SANDBOX</span><span class="sandbox-note">Choose one</span></div><div class="harness-nodes"><span>OpenCode</span><span>Claude Code</span><span>Codex</span><span>ACP registry</span></div><span class="sandbox-description">Clone → selected harness → collect changes</span></div>
+          <div class="map-node sandbox"><div class="sandbox-title"><span class="node-id">04 / ISOLATED SANDBOX</span><span class="sandbox-note">Choose one</span></div><div class="harness-nodes"><span>OpenCode</span><span>Claude Code</span><span>Codex</span><span>ACP registry</span></div><span class="sandbox-description">Open repository → work on task → collect changes</span></div>
           <div class="map-link link-four">→</div>
-          <div class="map-node result"><span class="node-id">05 / REVIEW</span><strong>Diff → pull request</strong><span>When publication is configured</span></div>
+          <div class="map-node result"><span class="node-id">05 / REVIEW</span><strong>Files and changes</strong><span>Review before publishing</span></div>
         </div>
-        <figcaption id="map-caption">You submit a task → Shiba’s orchestrator proposes a delegation → you approve its input → one selected harness runs inside an isolated sandbox → changes are collected, with optional pull request publication. This is a workflow diagram, not a live status display.</figcaption>
+        <figcaption id="map-caption">Describe the task and its repository → review and approve the request → one selected tool does the work → inspect the resulting files and changes. Pull request publication is optional. This diagram illustrates the flow; it is not a live status display.</figcaption>
       </figure>
 
       <div class="how-grid">
-        <article><span class="step">01</span><h3>Describe the work.</h3><p>Point Shiba at a repository and a task. The orchestrator prepares a <code>delegate_coding_task</code> call.</p></article>
-        <article><span class="step">02</span><h3>Inspect the handoff.</h3><p>The delegation tool requires approval. Review the card before the coding sandbox starts.</p></article>
-        <article><span class="step">03</span><h3>Review the result.</h3><p>The harness works in the sandbox. Inspect changed files and the diff; configure GitHub publication when you want a PR.</p></article>
+        <article><span class="step">01</span><h3>Describe the work.</h3><p>Name the result you need and choose its repository. For a finance task, supply the figures; for account research, supply the sources you want considered.</p></article>
+        <article><span class="step">02</span><h3>Inspect the handoff.</h3><p>Check the task, repository, and any publishing request on the approval card before work begins.</p></article>
+        <article><span class="step">03</span><h3>Review the result.</h3><p>Read the draft, changes, and reported checks. Decide what to use, revise, or publish.</p></article>
       </div>
-      <aside class="readiness"><strong>Implemented ≠ live-verified.</strong> “Today” describes repository functionality, not a production-readiness guarantee. Provider-backed runs and account-owned integrations need validation in your deployment. <a href="/docs/readiness/">Read the evidence and gaps →</a></aside>
+      <aside class="readiness"><strong>Check your installation.</strong> Supported tools and connections still need configuration and a successful test before you rely on them. <a href="/docs/readiness/">Read the evidence and gaps →</a></aside>
     </section>
 
     <section class="chapter" aria-labelledby="agents-title">
-      <div class="chapter-meta"><span>02 / THE AGENTS</span><span>SELECT THE HARNESS, KEEP THE WORKFLOW</span></div>
-      <div class="section-heading"><h2 id="agents-title">Agents you can connect.</h2><p>A harness is the coding CLI that executes a run. Shiba supplies the coordination around it. Connections need the matching credentials and deployment configuration.</p></div>
+      <div class="chapter-meta"><span>02 / THE EXECUTION TOOLS</span><span>CHOOSE THE TOOL, KEEP THE WORKFLOW</span></div>
+      <div class="section-heading"><h2 id="agents-title">Tools behind the work.</h2><p>An employee’s role describes its job. A harness is the AI tool that carries out the approved task. Your workspace owner configures the available tools and their connections.</p></div>
       <div class="agent-list">{agents.map((agent) => <article class="agent-row"><span class={`agent-mark ${agent.logo ? 'brand-chip' : ''}`} aria-hidden="true">{agent.logo ? <img src={agent.logo} alt="" width="26" height="26" class="agent-logo" loading="lazy" decoding="async" /> : agent.mark}</span><div><h3>{agent.name}</h3><span class="agent-lane">{agent.lane}</span></div><p>{agent.description}</p><a href={agent.href} aria-label={`Read ${agent.name} configuration docs`}>Configuration</a></article>)}</div>
-      <div class="team-note"><span class="eyebrow">A setup your team can reuse</span><h3>Save the way an agent should work.</h3><p>Custom agents let your organization save harness, model and sandbox defaults rather than rebuild a configuration for every task. These are reusable configurations—not a claim that agents can message one another.</p><a class="text-link" href="/docs/overview/">Explore Shiba’s setup →</a></div>
+      <div class="team-note"><span class="eyebrow">A setup your team can reuse</span><h3>Save the way an employee role should work.</h3><p>Save instructions for a campaign writer, sales researcher, designer, operations helper, or finance reviewer. Reuse that brief for the next task instead of starting from scratch. Roles guide the work; they do not grant access to external services.</p><a class="text-link" href="/docs/employees/">Create an employee →</a></div>
     </section>
 
     <section class="chapter" aria-labelledby="surfaces-title">
-      <div class="chapter-meta"><span>03 / THE ENTRY POINTS</span><span>DIFFERENT SURFACES. SAME CONTROL PLANE.</span></div>
-      <div class="section-heading"><h2 id="surfaces-title">Reach it from anywhere<br />you already work.</h2><p>Start from the dashboard, your terminal, an automation or a connected conversation. Configure each surface’s authentication and permissions before using it.</p></div>
+      <div class="chapter-meta"><span>03 / THE ENTRY POINTS</span><span>START WHERE THE WORK STARTS.</span></div>
+      <div class="section-heading"><h2 id="surfaces-title">Bring a task from<br />where you work.</h2><p>Start in the dashboard or a supported conversation. Your workspace owner sets up each connection, so check what is available in your installation.</p></div>
       <div class="surfaces">
         {surfaces.map((surface, i) => (
           <a class="surface" href={surface.href}>
@@ -97,38 +97,30 @@ const faqs = [
           </a>
         ))}
       </div>
-      <div class="tool-strip"><span class="eyebrow">Small tool surface</span><div><code>delegate_coding_task</code><span>Orchestrator → approved coding run</span></div><a href="/docs/mcp/">MCP tools & setup →</a></div>
+      <div class="tool-strip"><span class="eyebrow">Bring your own workflow</span><div><strong>Request → approve → review</strong><span>Use a supported MCP client to request work and read its status.</span></div><a href="/docs/mcp/">MCP tools & setup →</a></div>
     </section>
 
     <section class="chapter" aria-labelledby="security-title">
       <div class="chapter-meta"><span>04 / THE BOUNDARIES</span><span>SECURITY IS PART OF THE HANDOFF</span></div>
-      <div class="section-heading"><h2 id="security-title">More agents shouldn’t<br />mean more exposed keys.</h2><p>The provider-backed sandbox path keeps real model and GitHub credentials at the Worker boundary. It is an implemented design—not a blanket security guarantee.</p></div>
+      <div class="section-heading"><h2 id="security-title">Keep access separate<br />from the assignment.</h2><p>Creating a role does not give it new account access. Shiba’s configured execution path keeps credentials separate from the working task; review the security guide for its boundaries.</p></div>
       <div class="security-grid">
-        <article><span class="eyebrow">Worker-side credentials</span><h3>Real keys stay outside.</h3><p>Provider-backed harnesses receive dummy model keys. The Worker attaches configured credentials at egress; GitHub authorization is also handled outside the container. Other credential lanes have their own requirements.</p></article>
-        <article><span class="eyebrow">Per-run isolation</span><h3>A separate workspace.</h3><p>Delegated coding runs use isolated Sandbox containers. Egress is restricted by the selected harness’s allowed hosts. Review the security docs and your account configuration.</p></article>
-        <article><span class="eyebrow">Human approval</span><h3>The handoff stops here.</h3><p>Interactive delegation pauses for the approval card before sandbox execution. Automation approval is the default; unattended policies must be explicitly configured.</p></article>
-        <article><span class="eyebrow">Tool-call audit</span><h3>A fingerprint, not raw input.</h3><p>For serializable MCP gateway tool arguments, <code>args_hash</code> stores a SHA-256 fingerprint of sorted-key JSON, not raw arguments. Unhashable input records <code>&lt;unhashable&gt;</code>; OAuth audit events hash event-specific strings. Writes to <code>audit_log</code> are best-effort, not a guarantee that every action is recorded.</p></article>
+        <article><span class="eyebrow">Worker-side credentials</span><h3>Real keys stay outside.</h3><p>The supported provider-backed path gives the task placeholder model keys. Configured credentials are added outside its working environment.</p></article>
+        <article><span class="eyebrow">Per-run isolation</span><h3>A separate workspace.</h3><p>Each delegated run gets a separate working environment. The selected tool and your installation settings determine which services it can reach.</p></article>
+        <article><span class="eyebrow">Human approval</span><h3>The handoff stops here.</h3><p>Review the exact proposed task before repository execution. Automated tasks use approval by default too.</p></article>
+        <article><span class="eyebrow">Recorded activity</span><h3>Inspect what happened.</h3><p>Supported tool activity can leave an audit record for review. Records are best-effort and do not guarantee that every action is captured; use the task’s results and checks as well.</p></article>
       </div>
       <a class="text-link security-link" href="/docs/security/">Read the credential boundaries and limitations →</a>
     </section>
 
     <section class="chapter planned" aria-labelledby="planned-title">
       <div class="chapter-meta"><span>05 / A POSSIBLE NEXT HANDOFF</span><span class="badge">Planned · design preview</span></div>
-      <div class="preview-grid"><div><h2 id="planned-title">What if agents could<br />hand each other context?</h2><p>Direct agent-to-agent messaging is not shipped. A future design could let an agent discover a team and send a scoped handoff, while keeping human control explicit.</p><p class="preview-caution">No available API. No delivery date. The names opposite illustrate an idea, not commands you can run.</p></div><div class="preview-terminal" role="group" aria-label="Non-executable design preview of planned agent messaging"><div class="terminal-label">DESIGN PREVIEW / NOT AVAILABLE</div><pre><code><span class="comment"># Proposed interaction, not a Shiba API</span>
-list_team()
-
-<span class="comment"># A scoped handoff to another agent</span>
-send_message(
-  to: "reviewer",
-  context: "Please review this change"
-)
-
-<span class="comment"># Not executable today.</span></code></pre></div></div>
+      <div class="preview-grid"><div><h2 id="planned-title">Future ideas,<br />clearly separated.</h2><p>Direct messaging between agents is not available. For now, keep related work in a thread and use saved employee instructions to make repeat tasks easier.</p></div><div class="preview-terminal" role="note" aria-label="Future agent collaboration is not available"><div class="terminal-label">PLANNED / NOT AVAILABLE</div><pre>Agent-to-agent handoffs are an idea under consideration.
+There is no available API or delivery date.</pre></div></div>
     </section>
 
     <section class="chapter faq" aria-labelledby="faq-title"><div class="chapter-meta"><span>06 / A FEW CLEAR ANSWERS</span></div><div class="faq-grid"><h2 id="faq-title">Before you<br />connect.</h2><div>{faqs.map((faq) => <details><summary>{faq.q}<span aria-hidden="true">+</span></summary><p>{faq.a}</p></details>)}</div></div></section>
 
-    <section class="closing" aria-labelledby="cta-title"><span class="eyebrow">START WITH ONE APPROVED TASK</span><h2 id="cta-title">Your agents.<br /><em>Your final say.</em></h2><p>Self-host Shiba, configure a harness, and follow the documented verification steps before trusting a run.</p><div class="cta-actions"><a class="button primary" href="/docs/self-hosting/">Read the self-hosting guide</a><a class="button secondary" href="https://github.com/princepal9120/shiba">Explore on GitHub <span aria-hidden="true">↗</span></a></div></section>
+    <section class="closing" aria-labelledby="cta-title"><span class="eyebrow">START WITH ONE APPROVED TASK</span><h2 id="cta-title">Your agents.<br /><em>Your final say.</em></h2><p>Start with one brief and a result you can check. Shiba is free to self-host; hosting and model usage cost extra. Follow the setup and readiness guides before relying on a new installation.</p><div class="cta-actions"><a class="button primary" href="/docs/self-hosting/">Read the self-hosting guide</a><a class="button secondary" href="https://github.com/princepal9120/shiba">Explore on GitHub <span aria-hidden="true">↗</span></a></div></section>
   </div>
 </MarketingPage>
 

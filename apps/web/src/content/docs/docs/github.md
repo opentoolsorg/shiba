@@ -1,30 +1,37 @@
 ---
-title: GitHub integration
-description: Public cloning, optional publishing, and acknowledgment-only webhooks.
+title: GitHub
+description: Choose a repository, review changes, and decide whether to open a pull request.
 ---
 
-## Clone support
+Use GitHub as the home for work Shiba produces: code, documents, or test reports. Choose whether Shiba should open a pull request when you submit a task. Review the proposed changes before merging.
 
-Use an HTTPS GitHub repository URL and its actual base branch (default main). Embedded credentials and other hosts are rejected.
+<span id="clone-support"></span>
 
-**Private cloning is not implemented.** The Sandbox adapter calls `gitCheckout` without transport authorization. `GITHUB_TOKEN` is used for optional PR publishing, not cloning. Never embed credentials in the clone URL.
+## Choose a repository
 
-## Optional publishing
+Enter the repository's HTTPS GitHub URL and the branch you want to work from. Ask your administrator to grant access if the repository is private. Never put a token or password in the URL.
 
-Publishing is off by default. The parent checks for GITHUB_TOKEN before a requested publish run starts. Use a least-privilege fine-grained token with Contents write and Pull requests write permissions on an owned test repository, subject to organization policies. See [GitHub token documentation](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+For your first task, choose a small change in a repository you can check easily. Leave **Create pull request** off while you learn the review flow.
 
-~~~sh
-npx wrangler secret put GITHUB_TOKEN --config apps/backend/wrangler.jsonc
-~~~
+<span id="optional-publishing"></span>
 
-The Worker publisher is implemented to create blobs, a tree, a commit, an `shiba/<sandboxId>` branch, and a PR via REST. It does not merge the PR or put the token in the container. API failures can leave branches/commits behind; inspect the repository before retrying. These implementation details and unit tests are not evidence of a live end-to-end publish. `VERIFICATION.md` records no live cloud run.
+## Open a pull request
 
-### Fidelity limits
+1. Turn on **Create pull request** when you want the result sent to GitHub.
+2. Review the repository, branch, task, and publishing choice on the approval card.
+3. Approve the request, then inspect the returned changes and checks.
+4. Open the pull request link when publishing succeeds. Review it in GitHub before merging.
 
-The publisher accepts captured contents, not a complete Git patch. Capture is bounded, deleted paths are not delete entries, and files are published with mode 100644. Deletions, renames, executable bits, and large-file preservation are not established. No-change publishing errors with “Nothing to publish”. Keep publishing off until the changes you intend to make have a validated round trip.
+Approving a task does not approve a merge. See [Reviewing pull requests](/docs/review/) for the available review options.
+
+<span id="fidelity-limits"></span>
+
+## Check the result
+
+Review the actual diff, especially file deletions, renamed files, and file permissions. Large results may be incomplete; read any limits or errors before adopting the change.
 
 ## Webhooks
 
-Set GITHUB_WEBHOOK_SECRET and configure /api/github/webhook with the same secret, subject to deployment authentication. The handler verifies HMAC-SHA256 and acknowledges valid JSON. It does **not** create tasks, respond to issues, or auto-approve work.
+Your administrator can connect GitHub events to [automations](/docs/automations/). The event starts the configured workflow; it is not permission to run arbitrary work.
 
-Source: apps/backend/src/github.ts, apps/backend/src/agents/opencode-agent.ts, apps/backend/src/index.ts.
+For repository access, publishing limits, and event setup, use [GitHub setup](/docs/github-setup/).

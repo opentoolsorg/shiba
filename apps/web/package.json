@@ -2,7 +2,7 @@
   "name": "@shiba/web",
   "version": "0.1.0",
   "private": true,
-  "description": "Shiba AI Coworker landing + docs: Astro/Starlight site copied into public/ at build time.",
+  "description": "Shiba landing + docs: Astro/Starlight site copied into public/ at build time.",
   "type": "module",
   "scripts": {
     "build": "astro build",
