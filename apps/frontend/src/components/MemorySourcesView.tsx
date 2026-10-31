@@ -1,5 +1,5 @@
 /** Owner-scoped, self-hostable memory notes and source references. */
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from "react";
 
 type SourceKind = "note" | "document" | "conversation" | "reference" | "other";
 interface MemorySource {
@@ -13,11 +13,15 @@ interface MemorySource {
   retentionDays: number | null;
   expiresAt: number | null;
   disabledAt: number | null;
+  version?: number;
+  sha256?: string;
+  ingestion?: { state: "ready"; filename: string; mediaType: string; bytes: number };
 }
 interface MemoryHit extends MemorySource {
   score: number;
   trust: "untrusted";
   context: string;
+  citations?: Array<{ version: number; sha256: string; lineStart: number; lineEnd: number; section?: string; text: string; textTruncated?: boolean }>;
 }
 interface MemoryProject {
   id: string;
@@ -32,12 +36,17 @@ interface MemoryProject {
   disabledAt: number | null;
 }
 
+class MemoryApiError extends Error {
+  constructor(message: string, readonly currentSource?: MemorySource) { super(message); }
+}
+
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...init });
-  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string; currentSource?: MemorySource };
   if (!response.ok)
-    throw new Error(
+    throw new MemoryApiError(
       typeof body.error === "string" ? body.error : `Request failed: ${response.status}`,
+      response.status === 409 ? body.currentSource : undefined,
     );
   return body;
 }
@@ -58,6 +67,7 @@ export function MemorySourcesView(): JSX.Element {
   const [referenceUrl, setReferenceUrl] = useState("");
   const [retentionDays, setRetentionDays] = useState("365");
   const [editing, setEditing] = useState<string | null>(null);
+  const [editingVersion, setEditingVersion] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<MemoryHit[]>([]);
   const [searchActive, setSearchActive] = useState(false);
@@ -71,12 +81,25 @@ export function MemorySourcesView(): JSX.Element {
   const [projectSourceIds, setProjectSourceIds] = useState<string[]>([]);
   const [projectAgent, setProjectAgent] = useState("");
   const [projectHarness, setProjectHarness] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [cleanupPending, setCleanupPending] = useState<Array<{ id: string; filename: string }>>([]);
+  const [uploadsPending, setUploadsPending] = useState<Array<{ id: string; filename: string }>>([]);
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const uploadBusy = useRef(false);
+  const recallEpoch = useRef(0);
 
   const load = useCallback(async () => {
+    const epoch = ++recallEpoch.current;
+    setHits([]);
+    setSearchActive(false);
     try {
-      const body = await apiJson<{ sources?: MemorySource[] }>("/api/memory/sources");
+      const body = await apiJson<{ sources?: MemorySource[]; cleanupPending?: Array<{ id: string; filename: string }>; uploadsPending?: Array<{ id: string; filename: string }> }>("/api/memory/sources");
+      if (epoch !== recallEpoch.current) return;
       setSources(Array.isArray(body.sources) ? body.sources : []);
+      setCleanupPending(body.cleanupPending ?? []);
+      setUploadsPending(body.uploadsPending ?? []);
       const projectBody = await apiJson<{ projects?: MemoryProject[] }>("/api/memory/projects");
+      if (epoch !== recallEpoch.current) return;
       setProjects(Array.isArray(projectBody.projects) ? projectBody.projects : []);
       setError(null);
     } catch (cause) {
@@ -87,8 +110,40 @@ export function MemorySourcesView(): JSX.Element {
     void load();
   }, [load]);
 
+  const upload = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!uploadFile || uploadBusy.current) return;
+    uploadBusy.current = true;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (!/\.(txt|md)$/i.test(uploadFile.name) || uploadFile.size < 1 || uploadFile.size > 40_000) throw new Error("Choose a nonempty TXT or Markdown file, at most 40000 bytes.");
+      await apiJson("/api/memory/sources/upload", { method: "POST", headers: { "Content-Type": uploadFile.name.toLowerCase().endsWith(".md") ? "text/markdown" : "text/plain", "X-Source-Filename": uploadFile.name }, body: uploadFile });
+      setUploadFile(null);
+      if (uploadInput.current) uploadInput.current.value = "";
+      await load();
+      setNotice("File validated and stored privately. Immutable version ready for retrieval.");
+    } catch (cause) {
+      await load();
+      setError(cause instanceof Error ? cause.message : "Upload failed. Retry the complete file.");
+    }
+    finally { uploadBusy.current = false; setBusy(false); }
+  };
+
+  const retryCleanup = async (id: string) => {
+    setBusy(true);
+    try {
+      const result = await apiJson<{ cleanup?: string }>(`/api/memory/sources/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await load();
+      setNotice(result.cleanup === "pending" ? "Source remains excluded. File cleanup is still pending." : "Stored file cleanup complete.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "File cleanup failed."); }
+    finally { setBusy(false); }
+  };
+
   const resetForm = () => {
     setEditing(null);
+    setEditingVersion(null);
     setTitle("");
     setContent("");
     setKind("note");
@@ -108,6 +163,7 @@ export function MemorySourcesView(): JSX.Element {
         kind,
         referenceUrl: referenceUrl || null,
         retentionDays: retention,
+        ...(editingVersion !== null ? { expectedVersion: editingVersion } : {}),
       };
       await apiJson(
         editing ? `/api/memory/sources/${encodeURIComponent(editing)}` : "/api/memory/sources",
@@ -121,6 +177,11 @@ export function MemorySourcesView(): JSX.Element {
       await load();
       setNotice(editing ? "Memory source updated." : "Memory source saved.");
     } catch (cause) {
+      await load();
+      if (cause instanceof MemoryApiError && cause.currentSource?.id === editing) {
+        setEditingVersion(cause.currentSource.version ?? null);
+        setNotice("Current source refreshed. Your text is unchanged; inspect the stored source before saving again.");
+      }
       setError(cause instanceof Error ? cause.message : "Memory source could not be saved.");
     } finally {
       setBusy(false);
@@ -129,6 +190,7 @@ export function MemorySourcesView(): JSX.Element {
 
   const edit = (source: MemorySource) => {
     setEditing(source.id);
+    setEditingVersion(source.version ?? null);
     setTitle(source.title);
     setContent(source.content);
     setKind(source.kind);
@@ -160,14 +222,14 @@ export function MemorySourcesView(): JSX.Element {
   };
 
   const remove = async (source: MemorySource) => {
-    if (!window.confirm(`Permanently delete “${source.title}” and its text from Shiba memory?`))
+    if (!window.confirm(`Forget “${source.title}” for future retrieval and delete stored file versions? Existing approved snapshots remain unchanged.`))
       return;
     setBusy(true);
     setError(null);
     try {
-      await apiJson(`/api/memory/sources/${encodeURIComponent(source.id)}`, { method: "DELETE" });
+      const result = await apiJson<{ cleanup?: string }>(`/api/memory/sources/${encodeURIComponent(source.id)}`, { method: "DELETE" });
       await load();
-      setNotice("Source and stored text permanently deleted.");
+      setNotice(result.cleanup === "pending" ? "Source forgotten for future retrieval. Stored file cleanup is pending." : "Source and stored files deleted. Existing approved snapshots remain unchanged.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Source could not be deleted.");
     } finally {
@@ -179,12 +241,15 @@ export function MemorySourcesView(): JSX.Element {
     event.preventDefault();
     setBusy(true);
     setError(null);
+    const epoch = recallEpoch.current;
     try {
       const body = await apiJson<{ hits?: MemoryHit[] }>(
         `/api/memory/recall?q=${encodeURIComponent(query)}`,
       );
-      setHits(Array.isArray(body.hits) ? body.hits : []);
-      setSearchActive(true);
+      if (epoch === recallEpoch.current) {
+        setHits(Array.isArray(body.hits) ? body.hits : []);
+        setSearchActive(true);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Memory recall failed.");
     } finally {
@@ -282,7 +347,7 @@ export function MemorySourcesView(): JSX.Element {
         </div>
         <div className="p-3 text-sm">
           <p>
-            Private text memory is stored in Shiba’s local SQLite-backed Durable Object. Retrieval
+            Private extracted text is stored in Shiba’s local SQLite-backed Durable Object; uploaded file versions stay in private storage. Retrieval
             uses local keyword ranking; source text is treated as untrusted reference data.
           </p>
           <p className="mt-1 text-xs text-[var(--ink-2)]">
@@ -306,12 +371,30 @@ export function MemorySourcesView(): JSX.Element {
         </div>
       ) : null}
 
+      <form onSubmit={(event) => void upload(event)} className="flex flex-col gap-2 border border-[var(--line)] bg-[var(--card)] p-3">
+        <h3 className="font-serif text-lg">Upload source file</h3>
+        <p className="text-xs">TXT and Markdown only, UTF-8, at most 40000 bytes. PDF, Office, archives, HTML and SVG are unsupported. Files become ready after validation and private storage succeed. Recall expiry excludes text; original files remain stored until Delete.</p>
+        <label className="text-xs">TXT or Markdown file
+          <input ref={uploadInput} type="file" accept=".txt,.md,text/plain,text/markdown" disabled={busy} onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} />
+        </label>
+        <button type="submit" disabled={busy || !uploadFile} className={PRIMARY}>{uploadBusy.current ? "Validating and storing…" : "Upload file"}</button>
+      </form>
+      {cleanupPending.length ? <section aria-label="Pending file cleanup" className="border border-[var(--line)] p-3 text-xs">
+        <p>These removed or uncommitted file versions are excluded from retrieval. Stored file deletion is pending.</p>
+        {cleanupPending.map((item) => <p key={item.id}>{item.filename} <button type="button" disabled={busy} className={BUTTON} onClick={() => void retryCleanup(item.id)}>Retry file cleanup</button></p>)}
+      </section> : null}
+      {uploadsPending.length ? <section aria-label="Unresolved uploads" className="border border-[var(--line)] p-3 text-xs">
+        <p>These uploads have no committed new version. Reload to check progress. Interrupted writes require operator reconciliation; cleanup cannot safely delete an upload still in progress.</p>
+        {uploadsPending.map((item) => <p key={item.id}>{item.filename}</p>)}
+      </section> : null}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
         <form
           onSubmit={(event) => void save(event)}
           className="flex flex-col gap-2 border border-[var(--line)] bg-[var(--card)] p-3 shadow-[2px_2px_0_var(--paper-shadow)]"
         >
           <h3 className="font-serif text-lg">{editing ? "Edit source" : "Add to memory"}</h3>
+          {editingVersion !== null ? <p className="text-xs">Current source version: {editingVersion}. Saving corrections creates a new immutable version.</p> : null}
           <label className="text-xs font-mono">
             TITLE
             <input
@@ -445,6 +528,7 @@ export function MemorySourcesView(): JSX.Element {
                     <p className="text-[10px] font-mono uppercase text-[var(--ink-2)]">
                       {hit.kind} · untrusted source text
                     </p>
+                    {hit.citations?.map((citation) => <p key={`${citation.version}:${citation.lineStart}`} className="text-xs break-all">v{citation.version} · line {citation.lineStart}{citation.section ? ` · ${citation.section}` : ""}{citation.textTruncated ? " · excerpt" : ""} · SHA-256 {citation.sha256}</p>)}
                     {hit.referenceUrl ? (
                       <a
                         className="text-xs text-[var(--navy)] underline break-all"
@@ -626,6 +710,7 @@ export function MemorySourcesView(): JSX.Element {
                           ? `expires ${new Date(source.expiresAt).toLocaleDateString()}`
                           : "retention deadline unavailable"}
                     </p>
+                    {source.ingestion ? <p className="text-xs break-all">Extraction: {source.ingestion.state} · version {source.version} · {source.ingestion.bytes} bytes · SHA-256 {source.sha256}</p> : <p className="text-xs">Pasted note; upload TXT/Markdown to pin an immutable task source.</p>}
                     {source.referenceUrl ? (
                       <a
                         className="text-xs text-[var(--navy)] underline break-all"
