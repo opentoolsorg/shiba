@@ -86,6 +86,8 @@ export interface Env {
    * would be a quota-exhaustion vector. Keyed on `cf-connecting-ip`.
    */
   MCP_RATE_LIMIT?: RateLimit;
+  /** Comma-separated exact HTTPS destination hostnames trusted for outbound MCP. Empty means disabled. */
+  MCP_TRUSTED_HOSTS?: string;
   /**
    * Optional. Workers Browser Rendering endpoint (wrangler `browser` binding,
    * megaplan T33). `puppeteer.launch()` accepts the Fetcher shape directly;
