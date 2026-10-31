@@ -131,7 +131,7 @@ import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
 import { ORCHESTRATOR_NAME } from "../slack-routes.js";
 import { areSkillPinsActive, resolveSkillPins } from "../skills-store.js";
-import { allocateArtifactVersions, artifactIdentity, parseArtifactReview, prepareRunArtifacts, updateArtifactReview } from "../artifact-metadata.js";
+import { allocateArtifactVersions, artifactIdentity, artifactReviewRevision, authoritativeArtifactReview, parseArtifactReview, prepareRunArtifacts, updateArtifactReview } from "../artifact-metadata.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
   classifyExecutorError,
@@ -5086,24 +5086,64 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     runId: string,
     deliverableIndex: number,
     commandId: string,
+    expected: { artifactId: string; artifactVersion: number; reviewRevision: number },
     agentPrincipal: string | null,
   ): Promise<Response> {
     if (agentPrincipal !== null) return Response.json({ error: "Run not found." }, { status: 404 });
-    const sourceRun = this.store.get(runId);
-    const deliverable = sourceRun?.deliverables?.[deliverableIndex];
+    let sourceRun = this.store.get(runId);
+    let deliverable = sourceRun?.deliverables?.[deliverableIndex];
     if (!sourceRun || sourceRun.status !== "completed" || !deliverable) {
       return Response.json({ error: "Completed artifact not found." }, { status: 404 });
     }
-    const review = deliverable.review;
-    if (review?.status !== "changes_requested" || !review.note) {
-      return Response.json({ error: "Save a revision request with a note before creating its approval." }, { status: 409 });
+    let review = deliverable.review;
+    const lineageId = artifactLineageForRun(this.refreshTaskHistory(), sourceRun);
+    const currentArtifactId = await artifactIdentity(sourceRun, deliverable.path, lineageId);
+    // Identity derivation yields to the DO scheduler; re-read before acting so
+    // concurrent review changes cannot create an approval from a stale view.
+    sourceRun = this.store.get(runId);
+    deliverable = sourceRun?.deliverables?.[deliverableIndex];
+    review = deliverable?.review;
+    if (!sourceRun || sourceRun.status !== "completed" || !deliverable || !review) {
+      return Response.json({ error: "Completed artifact not found." }, { status: 404 });
     }
+    const currentRevision = artifactReviewRevision(review);
     let tasks = this.refreshTaskHistory();
     const sourceTask = tasks.find((candidate) => candidate.attempts.some((attempt) =>
       attempt.runId === runId || (sourceRun.approval?.approvalId && attempt.approvalId === sourceRun.approval.approvalId),
     ));
     if (!sourceTask || !taskVisibleTo(sourceTask, this.name ?? "default")) {
       return Response.json({ error: "Artifact task lineage was not found." }, { status: 409 });
+    }
+    const priorForReview = tasks.find((task) =>
+      task.revisionOf?.taskId === sourceTask.taskId &&
+      task.revisionOf.runId === runId &&
+      task.revisionOf.artifactId === expected.artifactId &&
+      task.revisionOf.artifactVersion === expected.artifactVersion &&
+      task.revisionOf.reviewRevision === expected.reviewRevision,
+    );
+    if (priorForReview) {
+      const attempt = priorForReview.attempts.at(-1);
+      return Response.json({ task: taskHistoryDto(priorForReview), approvalId: attempt?.approvalId, deduped: true, started: false });
+    }
+    if (
+      currentArtifactId !== expected.artifactId ||
+      (deliverable.version ?? 1) !== expected.artifactVersion ||
+      currentRevision !== expected.reviewRevision
+    ) {
+      return Response.json({
+        error: "Artifact review changed. Refresh the current review before creating a revision approval.",
+        currentReview: authoritativeArtifactReview(review),
+        artifactId: currentArtifactId,
+        artifactVersion: deliverable.version ?? 1,
+      }, { status: 409 });
+    }
+    if (review.status !== "changes_requested" || !review.note) {
+      return Response.json({
+        error: "Save a revision request with a note before creating its approval.",
+        currentReview: authoritativeArtifactReview(review),
+        artifactId: currentArtifactId,
+        artifactVersion: deliverable.version ?? 1,
+      }, { status: 409 });
     }
     const revisionCommandId = `artifact-revision:${commandId}`;
     const existingRevision = tasks.find((task) => task.attempts.some((attempt) => attempt.commandId === revisionCommandId));
@@ -5134,7 +5174,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return Response.json({ error: "The revision note makes the approved task too long. Shorten it and save the review again." }, { status: 400 });
     }
     const artifactLineageId = sourceTask.artifactLineageId ?? sourceTask.taskId;
-    const artifactId = await artifactIdentity(sourceRun, deliverable.path, artifactLineageId);
+    const artifactId = currentArtifactId;
 
     // Recheck after the only await so a retried client command remains idempotent.
     tasks = this.state?.tasks ?? [];
@@ -5159,6 +5199,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       runId,
       artifactId,
       artifactVersion: deliverable.version ?? 1,
+      reviewRevision: currentRevision,
       path: deliverable.path,
     };
     const revisionTask = createDurableTask({
@@ -5433,7 +5474,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (!review) return Response.json({ error: "Choose approve, request changes with a note, or reset review." }, { status: 400 });
       const run = this.store.get(runId);
       if (!run) return Response.json({ error: "Run not found." }, { status: 404 });
-      const updated = updateArtifactReview(run, Number(artifactReviewMatch[2]), review, Date.now());
+      const index = Number(artifactReviewMatch[2]);
+      const current = run.deliverables?.[index];
+      if (!current || run.status !== "completed") return Response.json({ error: "Completed deliverable not found." }, { status: 404 });
+      if (artifactReviewRevision(current.review) !== review.expectedRevision) {
+        return Response.json({
+          error: "Review changed in another tab. Compare the current server review with your draft before saving again.",
+          currentReview: authoritativeArtifactReview(current.review),
+        }, { status: 409 });
+      }
+      const updated = updateArtifactReview(run, index, review, Date.now());
       if (!updated) return Response.json({ error: "Completed deliverable not found." }, { status: 404 });
       this.store.replace(runId, updated);
       return Response.json({ ok: true, deliverable: updated.deliverables![Number(artifactReviewMatch[2])] });
@@ -5465,7 +5515,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             sha256: deliverable.sha256,
             bytes: deliverable.bytes,
             createdAt: candidate.createdAt,
-            review: deliverable.review ?? { status: "pending_review" as const },
+            review: authoritativeArtifactReview(deliverable.review),
             ...(deliverable.provenance ? { provenance: deliverable.provenance } : {}),
           });
         }
@@ -5486,8 +5536,21 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (typeof commandId !== "string" || !/^[a-zA-Z0-9:_-]{8,200}$/.test(commandId)) {
         return Response.json({ error: "commandId must be an 8-200 character revision idempotency key." }, { status: 400 });
       }
+      const revisionBody = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : {};
+      const { artifactId, artifactVersion, reviewRevision } = revisionBody;
+      if (typeof artifactId !== "string" || !/^artifact_[a-f0-9]{32}$/.test(artifactId) ||
+          !Number.isSafeInteger(artifactVersion) || (artifactVersion as number) < 1 ||
+          !Number.isSafeInteger(reviewRevision) || (reviewRevision as number) < 0) {
+        return Response.json({ error: "artifactId, artifactVersion, and reviewRevision are required." }, { status: 400 });
+      }
       try {
-        return await this.createArtifactRevision(runId, Number(artifactRevisionMatch[2]), commandId, agentPrincipal);
+        return await this.createArtifactRevision(runId, Number(artifactRevisionMatch[2]), commandId, {
+          artifactId,
+          artifactVersion: artifactVersion as number,
+          reviewRevision: reviewRevision as number,
+        }, agentPrincipal);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return Response.json({ error: message }, { status: 409 });

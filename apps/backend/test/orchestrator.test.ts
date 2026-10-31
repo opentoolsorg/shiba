@@ -274,11 +274,19 @@ describe("durable artifact review state", () => {
     }] });
     const update = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/review", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status: "changes_requested", note: "Add citations" }),
+      body: JSON.stringify({ status: "changes_requested", note: "Add citations", expectedRevision: 0 }),
     }));
     expect(update.status).toBe(200);
     expect(instance.state.runs?.find((item) => item.runId === "r2")?.deliverables?.[0]?.review)
-      .toEqual({ status: "changes_requested", updatedAt: expect.any(Number), note: "Add citations" });
+      .toEqual({ status: "changes_requested", revision: 1, updatedAt: expect.any(Number), note: "Add citations" });
+    const staleDecision = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "approved", expectedRevision: 0 }),
+    }));
+    expect(staleDecision.status).toBe(409);
+    expect(await staleDecision.json()).toMatchObject({
+      currentReview: { status: "changes_requested", note: "Add citations", revision: 1 },
+    });
     const history = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/history"));
     const payload = await history.json() as { artifactId: string; versions: Array<Record<string, unknown>> };
     expect(payload.artifactId).toBe(first.deliverables?.[0]?.artifactId);
@@ -294,8 +302,8 @@ describe("durable artifact review state", () => {
     const request = (body: unknown) => instance.onRequest(new Request("https://internal/api/runs/r1/deliverables/0/review", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     }));
-    expect((await request({ status: "changes_requested" })).status).toBe(400);
-    expect((await request({ status: "approved" })).status).toBe(404);
+    expect((await request({ status: "changes_requested", expectedRevision: 0 })).status).toBe(400);
+    expect((await request({ status: "approved", expectedRevision: 0 })).status).toBe(404);
   });
 
   it("creates an explicit fresh revision approval with artifact lineage and never dispatches it", async () => {
@@ -309,7 +317,7 @@ describe("durable artifact review state", () => {
       deliverables: [{
         path: "reports/brief.md", mediaType: "text/markdown", bytes: 4, sha256: "a".repeat(64),
         version: 3, sourceRunId: "artifact-source-run",
-        review: { status: "changes_requested" as const, updatedAt: 20, note: "Add citations" },
+        review: { status: "changes_requested" as const, revision: 4, updatedAt: 20, note: "Add citations" },
       }],
     };
     const approvalBody = {
@@ -328,8 +336,24 @@ describe("durable artifact review state", () => {
     instance.setState({ ...instance.state, runs: [source], tasks: [sourceTask] });
 
     const request = () => instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ commandId: "artifact-revision:source-1234" }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        commandId: "artifact-revision:source-1234",
+        artifactId: sourceArtifact.artifactId,
+        artifactVersion: 3,
+        reviewRevision: 4,
+      }),
     }));
+    const staleBinding = await instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        commandId: "artifact-revision:stale-12345",
+        artifactId: sourceArtifact.artifactId,
+        artifactVersion: 3,
+        reviewRevision: 3,
+      }),
+    }));
+    expect(staleBinding.status).toBe(409);
+    expect(await staleBinding.json()).toMatchObject({ currentReview: { revision: 4, note: "Add citations" } });
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
     const created = await request();
     expect(created.status).toBe(200);
     const payload = await created.json() as { approvalId: string; started: boolean; task: { taskId: string; revisionOf: Record<string, unknown> } };
@@ -337,7 +361,7 @@ describe("durable artifact review state", () => {
     expect(payload.approvalId).not.toBe("original-approval");
     expect(payload.task.revisionOf).toMatchObject({
       taskId: "task-source", runId: source.runId, artifactId: source.deliverables?.[0]?.artifactId,
-      artifactVersion: 3, path: "reports/brief.md",
+      artifactVersion: 3, reviewRevision: 4, path: "reports/brief.md",
     });
     expect(instance.state.pendingApprovals?.at(-1)).toMatchObject({
       approvalId: payload.approvalId, task: expect.stringContaining("Add citations"), status: "pending",
@@ -345,6 +369,16 @@ describe("durable artifact review state", () => {
     expect(instance.state.tasks?.at(-1)).toMatchObject({ artifactLineageId: "task-source", revisionOf: payload.task.revisionOf });
     const replay = await request().then((response) => response.json()) as { approvalId: string; deduped?: boolean };
     expect(replay).toMatchObject({ approvalId: payload.approvalId, deduped: true });
+    const reloadRetry = await instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        commandId: "artifact-revision:after-reload",
+        artifactId: sourceArtifact.artifactId,
+        artifactVersion: 3,
+        reviewRevision: 4,
+      }),
+    })).then((response) => response.json()) as { approvalId: string; deduped?: boolean };
+    expect(reloadRetry).toMatchObject({ approvalId: payload.approvalId, deduped: true });
+    expect(instance.state.pendingApprovals).toHaveLength(1);
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 });

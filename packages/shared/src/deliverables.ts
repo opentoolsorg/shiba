@@ -42,6 +42,8 @@ export interface ArtifactProvenance {
 export type ArtifactReviewStatus = "pending_review" | "approved" | "changes_requested";
 export interface ArtifactReview {
   status: ArtifactReviewStatus;
+  /** Monotonic compare-and-set version. Missing on pre-CAS stored records. */
+  revision?: number;
   updatedAt?: number;
   note?: string;
 }

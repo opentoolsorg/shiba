@@ -35,6 +35,7 @@ export interface ArtifactRevisionSource {
   runId: string;
   artifactId: string;
   artifactVersion: number;
+  reviewRevision?: number;
   path: string;
 }
 

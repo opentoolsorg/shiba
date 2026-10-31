@@ -27,9 +27,14 @@ vi.mock("agents/routing", () => ({
       if (!target) return Response.json({ error: "Run not found." }, { status: 404 });
       if (action[3] === "history") return Response.json({ artifactId: target.deliverables?.[Number(action[2])]?.artifactId, versions: [{ runId: target.runId, index: Number(action[2]), version: 1 }] });
       if (typeof request === "string" || request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
-      const body = await request.json() as { status: string; note?: string };
+      const body = await request.json() as { status: string; note?: string; expectedRevision?: number };
       if (action[3] === "revision") return Response.json({ ok: true, approvalId: "fresh-approval", started: false });
-      target.deliverables[Number(action[2])]!.review = { ...body, updatedAt: 500 };
+      target.deliverables[Number(action[2])]!.review = {
+        status: body.status,
+        ...(body.note ? { note: body.note } : {}),
+        revision: (body.expectedRevision ?? 0) + 1,
+        updatedAt: 500,
+      };
       return Response.json({ ok: true, deliverable: target.deliverables[Number(action[2])] });
     }
     const runId = decodeURIComponent(url.pathname.split("/").pop()!);
@@ -113,10 +118,10 @@ describe("authenticated requested-deliverable downloads", () => {
     const { run } = await seed();
     const reviewRequest = new Request("https://dashboard.test/api/runs/same-run/deliverables/0/review", {
       method: "POST", headers: { Authorization: "Bearer fixture", "X-Fixture-User": "owner-a", "content-type": "application/json" },
-      body: JSON.stringify({ status: "approved" }),
+      body: JSON.stringify({ status: "approved", expectedRevision: 0 }),
     });
     expect((await handleRuns(reviewRequest, env))?.status).toBe(200);
-    expect(run.deliverables[0]?.review).toEqual({ status: "approved", updatedAt: 500 });
+    expect(run.deliverables[0]?.review).toEqual({ status: "approved", revision: 1, updatedAt: 500 });
     const history = await handleRuns(request("/api/runs/same-run/deliverables/0/history"), env);
     expect(history?.status).toBe(200);
     expect((await history!.json() as { versions: unknown[] }).versions).toHaveLength(1);

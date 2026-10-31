@@ -2,6 +2,7 @@ import type { ArtifactReviewStatus, DelegatedRun, RunDeliverable } from "@shiba/
 
 export interface ArtifactReviewInput {
   status: ArtifactReviewStatus;
+  expectedRevision: number;
   note?: string;
 }
 
@@ -57,7 +58,7 @@ export async function prepareRunArtifacts(
           ? { customAgent: { id: run.customAgentId, version: run.customAgentVersion } }
           : {}),
       },
-      review: { status: "pending_review", updatedAt: now },
+      review: { status: "pending_review", revision: 0, updatedAt: now },
     });
   }
   return output;
@@ -100,6 +101,7 @@ export function parseArtifactReview(value: unknown): ArtifactReviewInput | null 
   const body = value as Record<string, unknown>;
   if (typeof body.status !== "string" || !reviewStatuses.has(body.status as ArtifactReviewStatus))
     return null;
+  if (!Number.isSafeInteger(body.expectedRevision) || (body.expectedRevision as number) < 0) return null;
   if (body.note !== undefined && (typeof body.note !== "string" || body.note.length > 500))
     return null;
   const note =
@@ -107,7 +109,16 @@ export function parseArtifactReview(value: unknown): ArtifactReviewInput | null 
       ? body.note.trim()
       : undefined;
   if (body.status === "changes_requested" && !note) return null;
-  return { status: body.status as ArtifactReviewStatus, ...(note ? { note } : {}) };
+  return { status: body.status as ArtifactReviewStatus, expectedRevision: body.expectedRevision as number, ...(note ? { note } : {}) };
+}
+
+/** Old persisted reviews predate CAS; treat them as revision zero without rewriting them on reads. */
+export function artifactReviewRevision(review: RunDeliverable["review"] | undefined): number {
+  return Number.isSafeInteger(review?.revision) && (review?.revision ?? -1) >= 0 ? review!.revision! : 0;
+}
+
+export function authoritativeArtifactReview(review: RunDeliverable["review"] | undefined): NonNullable<RunDeliverable["review"]> {
+  return { ...(review ?? { status: "pending_review" as const }), revision: artifactReviewRevision(review) };
 }
 
 export function updateArtifactReview(
@@ -119,12 +130,14 @@ export function updateArtifactReview(
   const currentDeliverables = run.deliverables;
   const current = currentDeliverables?.[index];
   if (!current || !currentDeliverables || run.status !== "completed") return null;
+  if (artifactReviewRevision(current.review) !== input.expectedRevision) return null;
   const deliverables = currentDeliverables.map((item, itemIndex) =>
     itemIndex === index
       ? {
           ...item,
           review: {
             status: input.status,
+            revision: input.expectedRevision + 1,
             updatedAt: now,
             ...(input.note ? { note: input.note } : {}),
           },
