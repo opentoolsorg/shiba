@@ -243,7 +243,9 @@ try {
   const { chromium } = desktopRequire("playwright-core");
   browser = await chromium.launch({
     headless: true,
-    executablePath: "/usr/bin/chromium",
+    executablePath: process.env.SHIBA_BROWSER_EXECUTABLE ?? (process.platform === "darwin"
+      ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      : "/usr/bin/chromium"),
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
