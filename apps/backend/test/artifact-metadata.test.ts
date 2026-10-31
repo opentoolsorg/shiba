@@ -3,6 +3,7 @@ import type { DelegatedRun, RunDeliverable } from "@shiba/shared";
 import {
   allocateArtifactVersions,
   artifactIdentity,
+  authoritativeArtifactReview,
   parseArtifactReview,
   prepareRunArtifacts,
   updateArtifactReview,
@@ -118,23 +119,27 @@ describe("durable artifact metadata", () => {
 
   it("validates review actions and persists approved or requested-change state on completed runs only", () => {
     const source = run({ deliverables: [output] });
-    expect(parseArtifactReview({ status: "approved" })).toEqual({ status: "approved" });
-    expect(parseArtifactReview({ status: "changes_requested", note: "  Add sources  " })).toEqual({
+    expect(parseArtifactReview({ status: "approved", expectedRevision: 0 })).toEqual({ status: "approved", expectedRevision: 0 });
+    expect(parseArtifactReview({ status: "changes_requested", expectedRevision: 1, note: "  Add sources  " })).toEqual({
       status: "changes_requested",
+      expectedRevision: 1,
       note: "Add sources",
     });
-    expect(parseArtifactReview({ status: "changes_requested" })).toBeNull();
-    expect(parseArtifactReview({ status: "approved", note: "x".repeat(501) })).toBeNull();
+    expect(parseArtifactReview({ status: "changes_requested", expectedRevision: 1 })).toBeNull();
+    expect(parseArtifactReview({ status: "approved", note: "x".repeat(501), expectedRevision: 0 })).toBeNull();
+    expect(parseArtifactReview({ status: "approved" })).toBeNull();
+    expect(authoritativeArtifactReview({ status: "approved" })).toEqual({ status: "approved", revision: 0 });
     expect(
-      updateArtifactReview(source, 0, { status: "approved" }, 500)?.deliverables?.[0]?.review,
-    ).toEqual({ status: "approved", updatedAt: 500 });
+      updateArtifactReview(source, 0, { status: "approved", expectedRevision: 0 }, 500)?.deliverables?.[0]?.review,
+    ).toEqual({ status: "approved", revision: 1, updatedAt: 500 });
     expect(
-      updateArtifactReview(source, 0, { status: "changes_requested", note: "Add sources" }, 501)
+      updateArtifactReview(source, 0, { status: "changes_requested", expectedRevision: 0, note: "Add sources" }, 501)
         ?.deliverables?.[0]?.review,
-    ).toEqual({ status: "changes_requested", updatedAt: 501, note: "Add sources" });
+    ).toEqual({ status: "changes_requested", revision: 1, updatedAt: 501, note: "Add sources" });
+    expect(updateArtifactReview(source, 0, { status: "approved", expectedRevision: 1 }, 502)).toBeNull();
     expect(
-      updateArtifactReview(run({ ...source, status: "running" }), 0, { status: "approved" }, 502),
+      updateArtifactReview(run({ ...source, status: "running" }), 0, { status: "approved", expectedRevision: 0 }, 502),
     ).toBeNull();
-    expect(updateArtifactReview(source, 1, { status: "approved" }, 503)).toBeNull();
+    expect(updateArtifactReview(source, 1, { status: "approved", expectedRevision: 0 }, 503)).toBeNull();
   });
 });

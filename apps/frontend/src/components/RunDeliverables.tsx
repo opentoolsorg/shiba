@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import type { RunDeliverable, RunStatus } from "@shiba/shared";
 
 interface ArtifactVersion {
@@ -9,9 +9,12 @@ interface ArtifactVersion {
   sha256: string;
   bytes: number;
   createdAt: number;
-  review: { status: "pending_review" | "approved" | "changes_requested"; note?: string };
+  review: { status: "pending_review" | "approved" | "changes_requested"; revision?: number; updatedAt?: number; note?: string };
   provenance?: RunDeliverable["provenance"];
 }
+
+type ReviewState = NonNullable<RunDeliverable["review"]>;
+const reviewRevision = (review: ReviewState | undefined) => review?.revision ?? 0;
 
 function artifactRoute(runId: string, index: number, action: string, sessionId?: string): string {
   const route = `/api/runs/${encodeURIComponent(runId)}/deliverables/${index}/${action}`;
@@ -104,22 +107,34 @@ function ArtifactDetails({
   const [history, setHistory] = useState<ArtifactVersion[]>([]);
   const [reviewStatus, setReviewStatus] = useState(file.review?.status ?? "pending_review");
   const [note, setNote] = useState(file.review?.note ?? "");
-  const [savedReview, setSavedReview] = useState(file.review);
+  const [savedReview, setSavedReview] = useState<ReviewState | undefined>(file.review);
+  const [expectedReviewRevision, setExpectedReviewRevision] = useState(reviewRevision(file.review));
+  const [currentArtifactId, setCurrentArtifactId] = useState(file.artifactId);
   const [message, setMessage] = useState("");
   const [revisionCommandId, setRevisionCommandId] = useState<string | null>(null);
   const [revisionCreated, setRevisionCreated] = useState(false);
   const [saving, setSaving] = useState(false);
+  const reviewAuthorityVersion = useRef(0);
   useEffect(() => {
-    if (!file.artifactId || !completed) return;
+    if (!completed) return;
     let active = true;
+    const requestVersion = reviewAuthorityVersion.current;
     void fetch(artifactRoute(runId, index, "history", sessionId), {
       headers: { accept: "application/json" },
     })
       .then((response) =>
-        response.ok ? (response.json() as Promise<{ versions?: ArtifactVersion[] }>) : null,
+        response.ok ? (response.json() as Promise<{ artifactId?: string; versions?: ArtifactVersion[] }>) : null,
       )
       .then((payload) => {
-        if (active && payload?.versions) setHistory(payload.versions);
+        if (active && payload?.versions) {
+          setHistory(payload.versions);
+          if (payload.artifactId) setCurrentArtifactId(payload.artifactId);
+          const currentVersion = payload.versions.find((version) => version.runId === runId && version.index === index);
+          if (currentVersion?.review && reviewAuthorityVersion.current === requestVersion) {
+            setSavedReview(currentVersion.review);
+            setExpectedReviewRevision(reviewRevision(currentVersion.review));
+          }
+        }
       })
       .catch(() => {
         if (active) setMessage("Version history is temporarily unavailable.");
@@ -137,20 +152,35 @@ function ArtifactDetails({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           status: reviewStatus,
+          expectedRevision: expectedReviewRevision,
           ...(reviewStatus === "changes_requested" && note.trim() ? { note: note.trim() } : {}),
         }),
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        currentReview?: ReviewState;
+        deliverable?: { review?: ReviewState };
+      };
+      if (response.status === 409 && result.currentReview) {
+        reviewAuthorityVersion.current += 1;
+        setSavedReview(result.currentReview);
+        setExpectedReviewRevision(reviewRevision(result.currentReview));
+        setRevisionCreated(false);
+        setMessage(`${result.error ?? "Review changed in another tab."} Current saved review: ${result.currentReview.status.replaceAll("_", " ")}${result.currentReview.note ? ` · ${result.currentReview.note}` : ""}. Your draft is unchanged.`);
+        return;
+      }
       if (!response.ok) throw new Error(result.error ?? "Could not save review.");
-      setSavedReview({
-        status: reviewStatus,
-        updatedAt: Date.now(),
-        ...(reviewStatus === "changes_requested" ? { note: note.trim() } : {}),
-      });
+      const authoritative = result.deliverable?.review;
+      if (!authoritative) throw new Error("Review was saved, but the server did not return its authoritative state.");
+      reviewAuthorityVersion.current += 1;
+      setSavedReview(authoritative);
+      setExpectedReviewRevision(reviewRevision(authoritative));
+      setRevisionCreated(false);
+      setRevisionCommandId(null);
       setMessage(
-        reviewStatus === "approved"
+        authoritative.status === "approved"
           ? "Approved."
-          : reviewStatus === "changes_requested"
+          : authoritative.status === "changes_requested"
             ? "Revision requested."
             : "Review reset.",
       );
@@ -169,13 +199,32 @@ function ArtifactDetails({
       const response = await fetch(artifactRoute(runId, index, "revision", sessionId), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ commandId }),
+        body: JSON.stringify({
+          commandId,
+          artifactId: currentArtifactId,
+          artifactVersion: file.version ?? 1,
+          reviewRevision: expectedReviewRevision,
+        }),
       });
       const result = (await response.json().catch(() => ({}))) as {
         error?: string;
         approvalId?: string;
+        currentReview?: ReviewState;
       };
+      if (response.status === 409 && result.currentReview) {
+        reviewAuthorityVersion.current += 1;
+        setSavedReview(result.currentReview);
+        setExpectedReviewRevision(reviewRevision(result.currentReview));
+        setRevisionCreated(false);
+        setMessage(`${result.error ?? "Review changed in another tab."} Current saved review: ${result.currentReview.status.replaceAll("_", " ")}${result.currentReview.note ? ` · ${result.currentReview.note}` : ""}. Your draft is unchanged.`);
+        return;
+      }
       if (!response.ok) throw new Error(result.error ?? "Could not create revision approval.");
+      if (result.currentReview) {
+        reviewAuthorityVersion.current += 1;
+        setSavedReview(result.currentReview);
+        setExpectedReviewRevision(reviewRevision(result.currentReview));
+      }
       setRevisionCreated(true);
       setMessage(`Revision approval ${result.approvalId ?? "created"}. Review it in Approvals before work starts.`);
     } catch (error) {
@@ -219,7 +268,7 @@ function ArtifactDetails({
       </a>
       {savedReview && (
         <span className="text-[11px] text-[var(--muted-foreground-2)]">
-          Review: {savedReview.status.replaceAll("_", " ")}
+          Current saved review: {savedReview.status.replaceAll("_", " ")}
           {savedReview.note ? ` · ${savedReview.note}` : ""}
         </span>
       )}
@@ -251,7 +300,7 @@ function ArtifactDetails({
           <button
             type="button"
             className="text-[var(--primary)] underline disabled:opacity-50"
-            disabled={saving || (reviewStatus === "changes_requested" && !note.trim())}
+            disabled={saving || (reviewStatus === "changes_requested" && !note.trim()) || !currentArtifactId}
             onClick={() => void saveReview()}
           >
             {saving ? "Saving…" : "Save review"}
@@ -260,7 +309,7 @@ function ArtifactDetails({
             <button
               type="button"
               className="text-[var(--primary)] underline disabled:opacity-50"
-              disabled={saving || revisionCreated}
+              disabled={saving || revisionCreated || !currentArtifactId}
               onClick={() => void createRevisionApproval()}
             >
               {revisionCreated ? "Revision approval created" : "Create revision approval"}
