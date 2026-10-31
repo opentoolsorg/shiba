@@ -30,6 +30,7 @@ import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
 import { handleIntegrationsRoutes } from "./integrations-routes.js";
+import { handleIntegrationProviderRoutes } from "./integrations-provider-routes.js";
 import { handleLinearWebhook } from "./linear/routes.js";
 import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
@@ -46,6 +47,7 @@ import { handleApiKeys } from "./api-keys-routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleEmployeeTools } from "./employee-tool-routes.js";
 import { handleSkills } from "./skills-routes.js";
+import { handleFounderSkills } from "./founder-skills-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
@@ -287,6 +289,8 @@ export default {
       if (reasonNetworkResponse) return reasonNetworkResponse;
       const skillsResponse = await handleSkills(request, env);
       if (skillsResponse) return skillsResponse;
+      const founderSkillsResponse = await handleFounderSkills(request, env);
+      if (founderSkillsResponse) return founderSkillsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
       if (orgSandboxResponse) return orgSandboxResponse;
       const orgModelKeysResponse = await handleOrgModelKeys(request, env);
@@ -450,6 +454,10 @@ export default {
       const integrationsResponse = await handleIntegrationsRoutes(request, env);
       if (integrationsResponse) {
         return integrationsResponse;
+      }
+      const integrationProviderResponse = await handleIntegrationProviderRoutes(request, env);
+      if (integrationProviderResponse) {
+        return integrationProviderResponse;
       }
       const sentryResponse = await handleSentryWebhook(request, env);
       if (sentryResponse) {
