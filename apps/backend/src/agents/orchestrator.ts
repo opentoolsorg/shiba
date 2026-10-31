@@ -1986,7 +1986,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
       }
     }
-    const intakeOrgId = trustedIntakeOrgId(this.name, input as Record<string, unknown>);
+    const intakeOrgId =
+      input.intake === LOCAL_INTAKE_DASHBOARD
+        ? DASHBOARD_ORG_ID
+        : trustedIntakeOrgId(this.name, input as Record<string, unknown>);
     if (input.expectedCustomAgentVersion !== undefined &&
       (!Number.isSafeInteger(input.expectedCustomAgentVersion) || Number(input.expectedCustomAgentVersion) < 1)) {
       return Response.json({ error: "Invalid expected custom-agent version." }, { status: 400 });

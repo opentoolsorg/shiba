@@ -882,6 +882,28 @@ describe("worker authentication gate (T7)", () => {
     vi.mocked(routing.routeAgentRequest).mockResolvedValue(null);
   });
 
+  it("routes agent WebSocket through the decoded canonical agent name", async () => {
+    const routing = await import("agents/routing");
+    vi.mocked(proxyToSandbox).mockResolvedValue(null);
+    const routed: Request[] = [];
+    vi.mocked(routing.routeAgentRequest).mockImplementation(async (request) => {
+      routed.push(request);
+      return new Response("agent");
+    });
+    const worker = (await import("../src/index.js")).default;
+    await worker.fetch(
+      new Request("https://example.com/agents/coding-orchestrator/%61lice%40example.com/ws", {
+        headers: { "CF-Access-Authenticated-User-Email": "alice@example.com" },
+      }),
+      makeAccessEnv(),
+    );
+    expect(routed).toHaveLength(1);
+    expect(new URL(routed[0]!.url).pathname).toBe(
+      "/agents/coding-orchestrator/alice%40example.com/ws",
+    );
+    vi.mocked(routing.routeAgentRequest).mockResolvedValue(null);
+  });
+
   it("serves public marketing assets but gates dashboard assets without verified Access identity", async () => {
     const routing = await import("agents/routing");
     vi.mocked(proxyToSandbox).mockResolvedValue(null);
