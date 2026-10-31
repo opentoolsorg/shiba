@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { INTEGRATION_CATALOG } from "@shiba/shared";
 import { IntegrationsView } from "./IntegrationsView";
 
 afterEach(() => {
@@ -8,18 +9,110 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function defaultSetup() {
+  return {
+    slack: { signingSecret: true, botToken: true, approvers: 2, channelRepos: true },
+    github: { token: true, app: false, publish: true, webhookSecret: true },
+    linear: { webhookSecret: false, apiToken: false, defaultRepo: false },
+    slackVerification: { signingSecret: true },
+    gateway: { id: "gw", token: true, reachable: "yes" },
+    access: { required: false },
+    betterAuth: { configured: true },
+    models: { orchestrator: "test", coding: "test", harness: "test", roles: [] },
+    automations: { enabled: false, typeSafe: true },
+    mailbox: { addressOverride: false, sendEnabled: false },
+    doctor: { ok: true, checkedAt: 1, findings: [], roles: [] },
+  };
+}
+
+function reasonNetworkJson() {
+  return {
+    status: {
+      state: "setup_required",
+      enabled: false,
+      dispatchConfigured: false,
+      networkMembership: "not_checked",
+      activeGrants: 0,
+      pendingApprovals: 0,
+    },
+    grants: [] as unknown[],
+    approvals: [] as unknown[],
+    operations: [] as unknown[],
+  };
+}
+
+function stubIntegrationsFetch(setup = defaultSetup()) {
+  const reason = reasonNetworkJson();
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/setup/status") return Response.json(setup);
+    if (url === "/api/mailboxes") return Response.json({ mailboxes: [{ address: "ops@example.test" }] });
+    if (url === "/api/connections/gmail") return Response.json({ configured: false, connection: null, grants: [] });
+    if (url === "/api/v1/mcp/servers") return Response.json({ servers: [{ id: "server-1" }] });
+    if (url.endsWith("/api/reason-network/status")) return Response.json(reason.status);
+    if (url.endsWith("/api/reason-network/grants") && (init?.method ?? "GET") === "GET") {
+      return Response.json({ grants: reason.grants });
+    }
+    if (url.includes("/api/reason-network/approvals") && (init?.method ?? "GET") === "GET") {
+      return Response.json({ approvals: reason.approvals });
+    }
+    if (url.endsWith("/api/reason-network/v1/operations") && (init?.method ?? "GET") === "GET") {
+      return Response.json({ operations: reason.operations });
+    }
+    if (url === "/api/providers") return Response.json({ org: "local", defaultProviderId: "codex", providers: [] });
+    if (url.startsWith("/api/capabilities")) return Response.json({ entries: [] });
+    return Response.json({});
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+  return fetchMock;
+}
+
+describe("IntegrationsView Viktor catalog", () => {
+  it("renders seeded catalog rows with search and domain filter", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    expect(await screen.findByText("HubSpot")).toBeTruthy();
+    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} integrations`))).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "All" }));
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "stripe" } });
+    expect(screen.getByTestId("integration-catalog-row-stripe")).toBeTruthy();
+    expect(screen.queryByTestId("integration-catalog-row-slack")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Filter by domain"), { target: { value: "ops" } });
+    expect(screen.getByTestId("integration-catalog-row-slack")).toBeTruthy();
+    expect(screen.queryByTestId("integration-catalog-row-stripe")).toBeNull();
+  });
+
+  it("switches Viktor tabs and shows live GitHub status from setup status", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    await screen.findByTestId("integration-catalog-row-github");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Connected" }));
+    const githubRow = screen.getByTestId("integration-catalog-row-github");
+    expect(githubRow.textContent).toMatch(/Connected/);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Needs attention" }));
+    expect(screen.getByTestId("integration-catalog-row-linear")).toBeTruthy();
+    expect(screen.getByTestId("integration-catalog-row-hubspot")).toBeTruthy();
+  });
+
+  it("preserves setup detail panels behind Show setup details", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    await screen.findByText("HubSpot");
+    fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
+    expect(await screen.findByTestId("integration-linear")).toBeTruthy();
+    expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);
+  });
+});
+
 describe("IntegrationsView capability catalog", () => {
   it("uses API-backed connection facts and saved skills without running provider actions", async () => {
-    const setup = {
-      slack: { signingSecret: true, botToken: true, approvers: 2, channelRepos: true },
-      github: { token: true, app: false, publish: true, webhookSecret: true },
-      linear: { webhookSecret: false, apiToken: false, defaultRepo: false },
-      slackVerification: { signingSecret: true },
-      gateway: { id: "gw", token: true, reachable: "yes" }, access: { required: false },
-      betterAuth: { configured: true }, models: { orchestrator: "test", coding: "test", harness: "test", roles: [] },
-      automations: { enabled: false, typeSafe: true }, mailbox: { addressOverride: false, sendEnabled: false },
-      doctor: { ok: true, checkedAt: 1, findings: [], roles: [] },
-    };
+    const setup = defaultSetup();
     const provider = {
       id: "codex", label: "Codex", blurb: "Codex provider", adapter: "codex-acp", packageName: "codex-acp",
       license: "Apache-2.0", harness: "codex-acp", protocol: "acp", spawn: ["codex"], defaultModel: "model",
@@ -33,6 +126,21 @@ describe("IntegrationsView capability catalog", () => {
       calls.push({ url, method });
       if (url === "/api/setup/status") return Response.json(setup);
       if (url === "/api/mailboxes") return Response.json({ mailboxes: [{ address: "ops@example.test" }] });
+      if (url === "/api/connections/gmail") return Response.json({ configured: false, connection: null, grants: [] });
+      if (url === "/api/v1/mcp/servers") return Response.json({ servers: [] });
+      if (url.endsWith("/api/reason-network/status")) {
+        return Response.json({
+          state: "setup_required",
+          enabled: false,
+          dispatchConfigured: false,
+          networkMembership: "not_checked",
+          activeGrants: 0,
+          pendingApprovals: 0,
+        });
+      }
+      if (url.endsWith("/api/reason-network/grants")) return Response.json({ grants: [] });
+      if (url.includes("/api/reason-network/approvals")) return Response.json({ approvals: [] });
+      if (url.endsWith("/api/reason-network/v1/operations")) return Response.json({ operations: [] });
       if (url === "/api/providers") return Response.json({ org: "local", defaultProviderId: "codex", providers: [provider] });
       if (url === "/api/capabilities?limit=50") return Response.json({ entries: [{
         id: "mcp:shiba:gmail_search", name: "gmail_search", source: "mcp:shiba", version: "1",
@@ -102,6 +210,21 @@ describe("IntegrationsView capability catalog", () => {
         linear: { webhookSecret: false, apiToken: false, defaultRepo: false },
       });
       if (url === "/api/mailboxes") return Response.json({ mailboxes: [] });
+      if (url === "/api/connections/gmail") return Response.json({ configured: false, connection: null, grants: [] });
+      if (url === "/api/v1/mcp/servers") return Response.json({ servers: [] });
+      if (url.endsWith("/api/reason-network/status")) {
+        return Response.json({
+          state: "setup_required",
+          enabled: false,
+          dispatchConfigured: false,
+          networkMembership: "not_checked",
+          activeGrants: 0,
+          pendingApprovals: 0,
+        });
+      }
+      if (url.endsWith("/api/reason-network/grants")) return Response.json({ grants: [] });
+      if (url.includes("/api/reason-network/approvals")) return Response.json({ approvals: [] });
+      if (url.endsWith("/api/reason-network/v1/operations")) return Response.json({ operations: [] });
       if (url === "/api/capabilities?limit=50") return Response.json({ entries: [] });
       if (url === "/api/capabilities/invocations?limit=25") return Response.json({ entries: [] });
       return Response.json({});
