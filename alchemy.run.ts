@@ -169,6 +169,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   crons: ["*/5 * * * *"],
   env: {
     GATEWAY_ID: "default",
+    INTEGRATIONS_PROVIDER: "composio",
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
@@ -306,6 +307,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "BETTER_AUTH_OWNER_EMAIL",
       "GMAIL_CLIENT_SECRET",
       "GMAIL_TOKEN_KEY",
+      "COMPOSIO_API_KEY",
       "MODEL_CREDENTIAL_KEY",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
