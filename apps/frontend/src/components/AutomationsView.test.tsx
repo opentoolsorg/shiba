@@ -1,110 +1,80 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AutomationsView } from "./AutomationsView";
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+vi.mock("./CustomAgentsView", () => ({ useCustomAgentOptions: () => ({ agents: [{ id: "bot-1", config: { name: "Reviewer" } }] }) }));
+const fetchMock = vi.fn();
+beforeEach(() => { vi.stubGlobal("fetch", fetchMock); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
-describe("AutomationsView scheduled workspace drafts", () => {
-  it("submits a timezone-aware repo-free target and exposes pause/resume", async () => {
-    let record = {
-      id: "weekly-brief",
-      prompt: "Prepare the brief",
-      repoUrl: "",
-      executionTarget: {
-        kind: "artifact-workspace",
-        workspaceName: "Sales",
-        expectedDeliverables: ["sales/account-brief.md"],
-      },
-      enabled: true,
-      runCount: 0,
-      triggers: [{ kind: "schedule" }],
-    };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
-      if (path === "/api/custom-agents") return Response.json({ agents: [] });
-      if (path.startsWith("/api/skills?")) return Response.json({ skills: [] });
-      if (path === "/api/automations" && init?.method === "POST") {
-        return Response.json({ automation: record }, { status: 201 });
-      }
-      if (path === "/api/automations" && (!init?.method || init.method === "GET")) return Response.json({ automations: [record] });
-      if (path === "/api/automations/weekly-brief" && init?.method === "PATCH") {
-        record = { ...record, enabled: (JSON.parse(String(init.body)) as { enabled: boolean }).enabled };
-        return Response.json({ automation: record });
-      }
-      return Response.json({ error: "not found" }, { status: 404 });
-    });
-    vi.stubGlobal("fetch", fetchMock);
+function respond(automations: unknown[] = []) {
+  fetchMock.mockResolvedValue({ ok: true, json: async () => ({ automations }) });
+}
+
+describe("AutomationsView", () => {
+  it("shows a quiet empty state and opens recipes from New automation", async () => {
+    respond();
     render(<AutomationsView />);
-
-    fireEvent.change(screen.getByLabelText("Workspace name"), { target: { value: "Sales" } });
-    fireEvent.change(screen.getByLabelText("Scheduled workspace prompt"), { target: { value: "Prepare a grounded weekly brief" } });
-    fireEvent.change(screen.getByLabelText("Workspace schedule cron"), { target: { value: "0 9 * * 1-5" } });
-    fireEvent.change(screen.getByLabelText("IANA timezone"), { target: { value: "America/Los_Angeles" } });
-    fireEvent.change(screen.getByLabelText("Scheduled workspace deliverables"), { target: { value: "sales/account-brief.md\nsales/outreach-draft.md" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create scheduled draft" }));
-
-    await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[0] === "/api/automations" && call[1]?.method === "POST")).toBe(true));
-    const createCall = fetchMock.mock.calls.find((call) => call[0] === "/api/automations" && call[1]?.method === "POST");
-    const body = JSON.parse(String(createCall?.[1]?.body)) as Record<string, unknown>;
-    expect(body).toMatchObject({
-      prompt: "Prepare a grounded weekly brief",
-      executionTarget: {
-        kind: "artifact-workspace",
-        workspaceName: "Sales",
-        expectedDeliverables: ["sales/account-brief.md", "sales/outreach-draft.md"],
-      },
-      triggers: [{ kind: "schedule", cron: "0 9 * * 1-5", timezone: "America/Los_Angeles" }],
-    });
-    expect(body).not.toHaveProperty("repoUrl");
-
-    const pause = await screen.findByRole("button", { name: "Pause" });
-    fireEvent.click(pause);
-    await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[0] === "/api/automations/weekly-brief" && call[1]?.method === "PATCH")).toBe(true));
-    expect(fetchMock.mock.calls.find((call) => call[0] === "/api/automations/weekly-brief" && call[1]?.method === "PATCH")?.[1]?.body)
-      .toBe(JSON.stringify({ enabled: false }));
+    expect(await screen.findByText("No automations yet. Start with a recipe.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "New automation" }));
+    expect(screen.getByRole("heading", { name: "Start with a recipe" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Use recipe" })).toHaveLength(6);
   });
 
-  it("stores a saved skill snapshot and offers an explicit pin review action", async () => {
-    const skill = {
-      id: "skill-aaaaaaaaaaaaaaaaaaaaaaaa", version: 3, status: "active", owned: true,
-      name: "Evidence rules", sourceUrl: "https://example.test/skill.md", instructions: "Cite every claim.",
-      createdAt: 1, updatedAt: 3,
-    };
-    let record: Record<string, unknown> | null = null;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
-      if (path === "/api/custom-agents") return Response.json({ agents: [] });
-      if (path.startsWith("/api/skills?")) return Response.json({ skills: [skill] });
-      if (path === "/api/automations" && init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-        record = { ...body, id: "skill-schedule", repoUrl: "", enabled: true, runCount: 0, triggers: [{ kind: "schedule" }] };
-        return Response.json({ automation: record }, { status: 201 });
-      }
-      if (path === "/api/automations" && (!init?.method || init.method === "GET")) return Response.json({ automations: record ? [record] : [] });
-      if (path === "/api/automations/skill-schedule" && init?.method === "PATCH") return Response.json({ automation: record });
-      return Response.json({ error: "not found" }, { status: 404 });
-    });
-    vi.stubGlobal("fetch", fetchMock);
+  it("searches and collapses status groups without hiding manual run actions", async () => {
+    respond([
+      { id: "manual-audit", repoUrl: "https://github.com/acme/app", prompt: "Audit", enabled: true, triggers: [{ kind: "manual" }] },
+      { id: "nightly-lint", repoUrl: "https://github.com/acme/other", prompt: "Lint", enabled: false, triggers: [{ kind: "schedule" }] },
+    ]);
     render(<AutomationsView />);
-    fireEvent.change(screen.getByLabelText("Scheduled workspace prompt"), { target: { value: "Prepare a sourced draft" } });
-    await screen.findByLabelText(`Pin ${skill.name}`);
-    fireEvent.click(screen.getByLabelText(`Pin ${skill.name}`));
-    fireEvent.click(screen.getByRole("button", { name: "Create scheduled draft" }));
-    await waitFor(() => expect(record).not.toBeNull());
-    const createBody = JSON.parse(String(fetchMock.mock.calls.find((call) => call[1]?.method === "POST")?.[1]?.body)) as {
-      skillPins: { id: string; version: string; source: string; instructions: string; sha256: string }[];
-    };
-    expect(createBody.skillPins[0]).toMatchObject({ id: skill.id, version: "3", source: skill.sourceUrl, instructions: expect.stringContaining("Cite every claim.") });
-    expect(createBody.skillPins[0]?.sha256).toMatch(/^[a-f0-9]{64}$/);
+    const group = await screen.findByRole("button", { name: "Enabled 1" });
+    fireEvent.click(group);
+    expect(group.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Run now" })).toBeNull();
+    fireEvent.click(group);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search automations" }), { target: { value: "acme/app" } });
+    expect(screen.queryByRole("button", { name: "Disabled 1" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/automations/manual-audit/run", { method: "POST" }));
+  });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review current pins" }));
-    await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === "PATCH")).toBe(true));
-    const reviewBody = JSON.parse(String(fetchMock.mock.calls.find((call) => call[1]?.method === "PATCH")?.[1]?.body)) as Record<string, unknown>;
-    expect(reviewBody.reviewSkillPins).toBe(true);
-    expect(reviewBody.skillPins).toEqual(createBody.skillPins);
+  it("keeps recipe validation and sends the existing creation contract", async () => {
+    respond();
+    render(<AutomationsView />);
+    await screen.findByText("No automations yet. Start with a recipe.");
+    fireEvent.click(screen.getByRole("button", { name: "New automation" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search automations" }), { target: { value: "Repository audit" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use recipe" }));
+    expect(screen.getByRole("status").textContent).toContain("Enter a GitHub repository URL first.");
+    fireEvent.change(screen.getByRole("textbox", { name: "Repository URL" }), { target: { value: "https://github.com/acme/app" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Bot for new automations" }), { target: { value: "bot-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use recipe" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/automations", expect.objectContaining({ method: "POST", body: expect.any(String) })));
+    const call = fetchMock.mock.calls.find((entry) => entry[1]?.method === "POST");
+    expect(JSON.parse(call?.[1].body)).toMatchObject({ id: "manual-audit", repoUrl: "https://github.com/acme/app", enabled: true, customAgentId: "bot-1", triggers: [{ kind: "manual" }] });
+  });
+
+  it("shows load failures and retries", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    render(<AutomationsView />);
+    expect(await screen.findByText("Automations could not be loaded (503).")).toBeTruthy();
+    respond();
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(await screen.findByText("No automations yet. Start with a recipe.")).toBeTruthy();
+  });
+
+  it("copies trigger endpoints and reports clipboard errors", async () => {
+    respond();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<AutomationsView />);
+    fireEvent.click(screen.getByRole("button", { name: "Triggers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy webhook endpoint" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy webhook endpoint" }).textContent).toBe("Copied"));
+    expect(writeText).toHaveBeenCalledWith("/api/github/webhook");
+    writeText.mockRejectedValueOnce(new Error("Denied"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy events endpoint" }));
+    expect(await screen.findByRole("status")).toHaveProperty("textContent", "Could not copy the endpoint. Select and copy it instead.");
   });
 });

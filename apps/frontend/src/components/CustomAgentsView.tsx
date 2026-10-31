@@ -5,7 +5,8 @@ import { agentThreads, type WebThread } from "../agent-threads";
 import { formatTimeAgo } from "../ui-helpers";
 import { sanitizeCustomAgentSlug, type CustomAgentConfig } from "@shiba/shared";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
-import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
+import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
+import { RoleShiba } from "./RoleShiba";
 import { AgentTemplatesCatalog } from "./AgentTemplatesCatalog";
 import type { AgentTemplate } from "@shiba/shared";
 
@@ -347,7 +348,7 @@ export function CustomAgentsView({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+    <div className="employee-directory flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
       <PageHeader
         title="Bots"
         detail="Reusable bots with a model, sandbox, and instructions for every task."
@@ -391,7 +392,7 @@ export function CustomAgentsView({
                 <button type="button" onClick={() => resetForm()} className="text-[11px] text-[var(--primary)]">
                   Cancel edit
                 </button>
-              ) : hasDraft(form) ? <button type="button" disabled={busy} onClick={() => resetForm(true)} className="text-[11px] text-[var(--primary)]">Discard draft</button> : null}
+) : hasDraft(form) ? <button type="button" disabled={busy} onClick={() => resetForm(true)} className="text-[11px] text-[var(--primary)]">Discard draft</button> : null}
             </div>
             {!editingId && draftScope ? <p role="status" className="text-xs text-[var(--muted-foreground-2)]">
               {draftStorageAvailable ? "Draft saved only on this browser for your account. Return here after setup or reload to continue." : "Browser storage is unavailable. Keep this page open to retain your draft."}
@@ -574,8 +575,8 @@ export function CustomAgentsView({
                   className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-4 py-3 flex flex-col sm:flex-row items-start justify-between gap-3 shadow-[var(--sh-card)]"
                 >
                   <div className="min-w-0">
+                    <div className="mb-3 flex items-center gap-3"><RoleShiba slug={agent.slug} decorative className="size-12" /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug))}</span></div>
                     <div className="text-sm font-medium text-[var(--fg)]">
-                      {agent.config.emoji ? `${agent.config.emoji} ` : ""}
                       {agent.config.name}
                       <span className="text-[11px] font-mono text-[var(--muted-foreground-2)] ml-2">
                         {agent.slug}
@@ -586,7 +587,7 @@ export function CustomAgentsView({
                       {agent.config.instructions}
                     </div>
                     <div className="text-[10px] font-mono text-[var(--muted-foreground-3)] mt-1">
-                      {agent.config.harness}
+                      Runs on {agent.config.harness}
                       {agent.config.codingModel ? ` · ${agent.config.codingModel}` : " · Default model"}
                       {agent.config.sandboxProvider ? ` · ${agent.config.sandboxProvider}` : ""}
                     </div>

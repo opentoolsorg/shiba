@@ -40,14 +40,149 @@ function renderComposer(variant: "hero" | "docked", overrides: Partial<TaskCompo
 }
 
 describe("TaskComposer", () => {
+  it("places repository and execution target below the prompt and send controls", () => {
+    const onSubmit = vi.fn();
+    renderComposer("hero", { task: "Write a market report", onRunTargetChange: vi.fn(), onSubmit });
+    const prompt = screen.getByRole("textbox", { name: "Task description" });
+    const send = screen.getByRole("button", { name: "Send task" });
+    const repo = screen.getByRole("button", { name: "Project: Select repository" });
+    const target = screen.getByRole("button", { name: "Run on: Cloud" });
+    expect(prompt.compareDocumentPosition(repo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(send.compareDocumentPosition(repo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(prompt.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(repo.textContent).toContain("Connect repository");
+    expect(screen.getByText(/required for execution, including reports and research/)).toBeTruthy();
+    expect(send.hasAttribute("disabled")).toBe(true);
+    fireEvent.submit(screen.getByRole("form", { name: "Task composer" }));
+    fireEvent.keyDown(prompt, { key: "Enter", ctrlKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("preserves the selected employee in configuration without a bot identity line in the prompt", () => {
+    const onCustomAgentChange = vi.fn();
+    const onSubmit = vi.fn();
+    renderComposer("docked", { repoUrl: "https://github.com/example/work", task: "Prepare a launch brief",
+      customAgentId: "marketing", customAgents: [{ id: "marketing", name: "Marketing bot", slug: "marketing" }],
+      onCustomAgentChange, onSubmit });
+    expect(screen.queryByText(/Bot:/)).toBeNull();
+    expect(screen.queryByText("Marketing bot")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Thread configuration" }));
+    expect(screen.getByRole("menuitemradio", { name: /Marketing bot/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Thread configuration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send task" }));
+    expect(onCustomAgentChange).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("offers balanced general examples as editable drafts, never automatic submissions", () => {
+    const onTaskChange = vi.fn();
+    const onSubmit = vi.fn();
+    renderComposer("hero", { onTaskChange, onSubmit });
+    const prompts = [
+      "Draft a marketing campaign brief from the product notes",
+      "Prepare a sales account brief from my supplied notes",
+      "Research a market question and write a report with sources",
+      "Turn customer feedback into a product and design brief",
+      "Fix a small bug and add a regression test",
+    ];
+    for (const prompt of prompts) expect(screen.getByRole("button", { name: prompt })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: prompts[0] }));
+    expect(onTaskChange).toHaveBeenCalledWith(prompts[0]);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Task description" }));
+  });
+
+  it.each(["hero", "docked"] as const)("keeps the named %s composer outside scroll-clipping ancestors", (variant) => {
+    renderComposer(variant, { agentName: "Shiba" });
+    const composer = screen.getByRole("form", { name: "Task composer" });
+    let ancestor = composer.parentElement;
+    while (ancestor) {
+      expect(ancestor.className).not.toMatch(/(?:^|\s)overflow(?:-[xy])?-(?:auto|scroll|hidden)(?:\s|$)/);
+      ancestor = ancestor.parentElement;
+    }
+    if (variant === "hero") {
+      const emptyStateScroller = screen.getByRole("heading", { name: "Shiba" }).closest(".overflow-y-auto");
+      expect(emptyStateScroller).toBeTruthy();
+      expect(emptyStateScroller?.contains(composer)).toBe(false);
+    }
+  });
+
+  it("returns environment editor focus to its menu or chip opener on Escape", () => {
+    renderComposer("docked", { envVars: [{ name: "REPORT_TOPIC", value: "Launch" }], onEnvVarsChange: vi.fn() });
+    const add = screen.getByRole("button", { name: "Add to message" });
+    const chip = screen.getByRole("button", { name: "1 environment variable attached" });
+    fireEvent.click(add);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Environment variables/ }));
+    let editor = screen.getByRole("menu", { name: "Environment variables" });
+    expect(document.activeElement).toBe(editor.querySelector("input"));
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(add);
+    fireEvent.click(chip);
+    editor = screen.getByRole("menu", { name: "Environment variables" });
+    expect(document.activeElement).toBe(editor.querySelector("input"));
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
+
+  it("focuses the repository picker and restores its trigger on Escape", () => {
+    renderComposer("docked");
+    const trigger = screen.getByRole("button", { name: "Project: Select repository" });
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Search repositories" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Search repositories" }), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("uses the selected profile slug rather than a custom name for the empty-state role", () => {
+    renderComposer("hero", { agentName: "Evidence partner", customAgentId: "research-1", customAgents: [{ id: "research-1", name: "Evidence partner", slug: "research-bot" }] });
+    expect(screen.getByRole("heading", { name: "Evidence partner" })).toBeTruthy();
+    expect(document.querySelector('[data-employee-role="research"]')).toBeTruthy();
+    expect(document.querySelector('[data-employee-role="custom"]')).toBeNull();
+  });
+
+  it("shows the agent empty state and bottom composer with prefill-only role examples", () => {
+    const onTaskChange = vi.fn();
+    const onSubmit = vi.fn();
+    const prompt = "Research my top three competitors and write a one-page brief";
+    renderComposer("hero", { agentName: "Research bot", examplePrompts: [prompt], onTaskChange, onSubmit });
+    expect(screen.getByRole("heading", { name: "Research bot" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Task description" }).getAttribute("placeholder")).toBe("What do you want to get done? Share the goal, context, and output you need.");
+    expect(screen.getByText("Shiba can make mistakes. Check important info.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add to message" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: prompt }));
+    expect(onTaskChange).toHaveBeenCalledWith(prompt);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Task description" }));
+  });
+
+  it("disables example prefill and preserves a typed draft", () => {
+    const onTaskChange = vi.fn();
+    const prompt = "Research competitors";
+    renderComposer("hero", { agentName: "Research bot", examplePrompts: [prompt], task: "My unfinished task", onTaskChange });
+    const example = screen.getByRole("button", { name: prompt }) as HTMLButtonElement;
+    expect(example.disabled).toBe(true);
+    expect(example.title).toBe("Clear your draft to use an example");
+    fireEvent.click(example);
+    expect(onTaskChange).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox", { name: "Task description" }) as HTMLTextAreaElement).value).toBe("My unfinished task");
+  });
+
   it("states the empty-thread prompt and keeps send disabled until there is a task", () => {
     renderComposer("hero");
-    expect(screen.getByRole("heading", { name: "What should Shiba change?" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "What would you like to get done?" })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Task description" }).getAttribute("placeholder")).toBe(
-      "Describe the change in this repository",
+      "What do you want to get done? Share the goal, context, and output you need.",
     );
     expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
   });
+
 
   it("lets a user select project context and explicitly apply its employee defaults", () => {
     const onProjectContextChange = vi.fn();
@@ -108,11 +243,19 @@ describe("TaskComposer", () => {
     renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables: "reports/brief.md", task: "Draft a brief", repoUrl: "", onSubmit });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
     expect(onSubmit).toHaveBeenCalledOnce();
+
+
+  it("explains the approval gate and labels the deployment default truthfully", () => {
+    renderComposer("hero");
+    expect(screen.getByText("Plan a campaign, prepare sales materials, research a question, or build something. Connect a repository for execution. Planning can start before approval; standard sandbox execution requires approval.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Model: Auto" }).textContent).toContain("Auto");
+    expect(screen.getByRole("button", { name: "Send task" }).className).toContain("size-11");
+
   });
 
   it("docks without the empty-thread heading once a run is going", () => {
     renderComposer("docked");
-    expect(screen.queryByRole("heading", { name: "What should Shiba change?" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "What would you like to get done?" })).toBeNull();
   });
 
   it("renders the effort chip for claude-code and lists options on open", () => {

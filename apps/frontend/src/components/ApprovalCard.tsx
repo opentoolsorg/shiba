@@ -31,10 +31,11 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
       ? rawTestCommand.join(" ")
       : undefined;
   return (
-    <div className="border border-[var(--warning-fg)]/60 bg-[var(--panel)] rounded-[var(--radius-button)] shadow-[var(--sh-overlay)] overflow-hidden">
-      <div className="flex items-center justify-between bg-[var(--warning-subtle)] border-b border-[color-mix(in_oklch,var(--warning-fg)_40%,transparent)] px-3 py-1.5 min-h-[31px]">
-        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--warning-fg)]">approval.gate</span>
-        <span className="bez-marks" aria-hidden="true"><i /><i /><i /></span>
+    <div className="bg-[var(--bg)] overflow-hidden">
+      <div className="flex items-center px-4 min-h-11 text-xs text-[var(--muted-foreground-2)]" role="status">
+        {decided && decision !== undefined
+          ? decision ? "Approved — sandbox starting" : "Rejected — nothing ran"
+          : "Waiting for your approval"}
       </div>
       <div className="p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
@@ -43,13 +44,13 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
             <img
               src="/assets/mascot/pet-logo.png"
               alt="Shiba Guard"
-              className="w-5 h-5 rounded-full bg-white object-contain border border-[var(--warning)]/50 shrink-0 cursor-default"
+              className="w-5 h-5 rounded-full bg-[var(--card)] object-contain border border-[var(--warning)]/50 shrink-0 cursor-default"
             />
           </Tooltip>
           <span className="truncate">{approval.tool}</span>
         </div>
         {decided && decision !== undefined ? (
-          <span className={`text-[10px] uppercase tracking-wider font-bold border px-2 py-0.5 rounded-[var(--radius-button)] shrink-0 ${
+          <span className={`text-xs font-medium border px-2 py-0.5 rounded-[var(--radius-button)] shrink-0 ${
             decision
               ? "bg-[var(--success)]/15 border-[color-mix(in_oklch,var(--success)_30%,transparent)] text-[var(--success)]"
               : "bg-[var(--destructive-soft)] border-[var(--destructive)] text-[var(--destructive)]"
@@ -57,8 +58,8 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
             {decision ? "Approved" : "Rejected"}
           </span>
         ) : (
-          <span className="text-[10px] uppercase tracking-wider font-bold bg-[var(--warning-fg)]/15 border border-[color-mix(in_oklch,var(--warning-fg)_30%,transparent)] text-[var(--warning-fg)] px-2 py-0.5 rounded-[var(--radius-button)] shrink-0">
-            Action Required
+          <span className="text-xs font-medium bg-[var(--warning-fg)]/15 border border-[color-mix(in_oklch,var(--warning-fg)_30%,transparent)] text-[var(--warning-fg)] px-2 py-0.5 rounded-[var(--radius-button)] shrink-0">
+            Needs approval
           </span>
         )}
       </div>
@@ -97,7 +98,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <Tooltip content="Approve tool execution inside isolated container" side="top">
           <button
             type="button"
-            className="bg-[var(--success)] hover:opacity-90 text-[var(--card)] font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm shadow-[var(--sh-card)] flex items-center gap-1.5 active:scale-[0.98]"
+            className="bg-[var(--inverse)] hover:bg-[var(--inverse-hover)] text-[var(--inverse-text)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 text-sm flex items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             disabled={decided}
             onClick={() => onDecideApproval(approval.approvalId, true)}
           >
@@ -109,7 +110,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <Tooltip content="Reject tool execution and cancel operation" side="top">
           <button
             type="button"
-            className="bg-transparent border border-[var(--destructive)] text-[var(--destructive)] hover:bg-[var(--destructive-soft)] font-semibold py-2 px-5 touch:min-h-11 rounded-[var(--radius-button)] transition-all disabled:opacity-50 text-sm flex items-center gap-1.5 active:scale-[0.98]"
+            className="bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] text-[var(--fg)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 text-sm flex items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             disabled={decided}
             onClick={() => onDecideApproval(approval.approvalId, false)}
           >
