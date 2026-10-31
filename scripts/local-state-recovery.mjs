@@ -42,9 +42,12 @@ async function offline(root) {
   try {
     await exec(process.platform === "darwin" ? "/usr/sbin/lsof" : "lsof", ["-F", "p", "+D", root], { timeout: 10_000, killSignal: "SIGKILL", maxBuffer: 1024 * 1024 });
   } catch (error) {
-    // lsof uses exit 1 with no output when no files are open. Anything else is uncertain.
     if (error.stdout?.trim()) throw new Error("Persistence files are open. Stop Wrangler and all other readers/writers first.");
-    if (error.code === 1 && error.stdout?.trim() === "" && error.stderr?.trim() === "") return;
+    if (error.code === 1 && !error.stdout?.trim()) {
+      const stderrLines = String(error.stderr ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+      const benign = stderrLines.length === 0 || stderrLines.every((line) => line.startsWith("lsof: WARNING:"));
+      if (benign) return;
+    }
     throw new Error(`Cannot establish offline state: lsof inspection failed (${error.code ?? "unknown"}). Stop writers and check permissions.`);
   }
   throw new Error("Persistence files are open. Stop Wrangler and all other readers/writers first.");

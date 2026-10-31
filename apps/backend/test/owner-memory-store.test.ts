@@ -89,6 +89,19 @@ describe("owner memory sources", () => {
     expect(store.list().map((source) => source.id)).toEqual([disabled.id, expired.id]);
   });
 
+  it("rejects stored content when whitespace padding exceeds the raw character cap", () => {
+    const { store } = makeStore();
+    const body = "x".repeat(40_000);
+    expect(() =>
+      store.create({
+        title: "Padded note",
+        content: `${" ".repeat(40)}${body}${" ".repeat(40)}`,
+        kind: "note",
+        retentionDays: null,
+      }),
+    ).toThrow(/content must be 40000 characters or fewer/);
+  });
+
   it("returns provenance and encodes hostile retrieved text inside untrusted framing", () => {
     const { store } = makeStore();
     const hostile =

@@ -157,7 +157,11 @@ function requireText(value: unknown, field: string, max: number): string {
 
 function sourceContent(value: unknown): string {
   requireText(value, "content", MAX_SOURCE_CHARS);
-  return value as string;
+  const raw = value as string;
+  if (raw.length > MAX_SOURCE_CHARS) {
+    throw new InputError(`content must be ${MAX_SOURCE_CHARS} characters or fewer.`);
+  }
+  return raw;
 }
 
 function validateKind(value: unknown): OwnerMemorySourceKind {

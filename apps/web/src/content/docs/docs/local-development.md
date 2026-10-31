@@ -109,12 +109,12 @@ Stop every local Worker, daemon, CLI, viewer and other process using the chosen 
 Choose explicit paths; both output directories below must be absent. No default store is discovered or backed up automatically:
 
 ```sh
-rtk proxy install -d -m 700 "$HOME/shiba-backups"
-rtk proxy node scripts/local-state-recovery.mjs backup --offline \
+mkdir -p -m 700 "$HOME/shiba-backups"
+node scripts/local-state-recovery.mjs backup --offline \
   .shiba/local-state "$HOME/shiba-backups/local-snapshot-001"
-rtk proxy node scripts/local-state-recovery.mjs verify \
+node scripts/local-state-recovery.mjs verify \
   "$HOME/shiba-backups/local-snapshot-001"
-rtk proxy node scripts/local-state-recovery.mjs restore --offline \
+node scripts/local-state-recovery.mjs restore --offline \
   "$HOME/shiba-backups/local-snapshot-001" .shiba/local-state-recovered
 ```
 
@@ -129,7 +129,7 @@ After that review, select the recovered root explicitly through `SHIBA_PERSIST_T
 Run the isolated recovery drill:
 
 ```sh
-rtk proxy pnpm -C apps/backend exec vitest run test/local-state-recovery.test.ts
+pnpm -C apps/backend exec vitest run test/local-state-recovery.test.ts
 ```
 
 The drill seeds an actual local Wrangler Worker with Durable Object, D1 and R2 bindings, stops it, backs up state, changes that state through the bindings, restores into another root, restarts and checks the original values and binary object hash. It also selects the preserved changed root again to demonstrate rollback, and rejects open stores, missing offline acknowledgement, corruption and source changes during copying. All state/configuration is temporary and contains fixture data only. This proves local persistence mechanics, not whole-application or remote production recovery. `pnpm selfhost:smoke` remains a separate clean-boot check.
