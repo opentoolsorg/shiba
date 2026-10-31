@@ -84,6 +84,34 @@ export type IntegrationProviderBeginConnectResponse = z.infer<
 
 export const INTEGRATIONS_PROVIDER_PAGE_SIZE_DEFAULT = 8;
 
+/** BroadcastChannel + postMessage type for Composio OAuth popup completion. */
+export const SHIBA_INTEGRATIONS_OAUTH_CHANNEL = "shiba-integrations-oauth";
+
+export const integrationProviderExecuteRequestSchema = z.object({
+  toolSlug: z.string().min(1),
+  arguments: z.record(z.string(), z.unknown()).optional(),
+  toolkitSlug: z.string().min(1).optional(),
+  sessionId: z.string().min(1).optional(),
+  connectedAccountId: z.string().min(1).optional(),
+});
+export type IntegrationProviderExecuteRequest = z.infer<typeof integrationProviderExecuteRequestSchema>;
+
+export const integrationProviderExecuteResponseSchema = z.object({
+  ok: z.boolean(),
+  status: z.enum(["completed", "failed"]),
+  output: z.unknown().optional(),
+  error: z.string().optional(),
+  sessionId: z.string().optional(),
+});
+export type IntegrationProviderExecuteResponse = z.infer<typeof integrationProviderExecuteResponseSchema>;
+
+export const integrationProviderSessionResponseSchema = z.object({
+  ok: z.boolean(),
+  sessionId: z.string().nullable().optional(),
+  error: z.string().optional(),
+});
+export type IntegrationProviderSessionResponse = z.infer<typeof integrationProviderSessionResponseSchema>;
+
 export function parseIntegrationsProviderId(raw: string | undefined): IntegrationsProviderId {
   const normalized = raw?.trim().toLowerCase();
   if (normalized === "composio" || normalized === "none" || normalized === "grokbot") {

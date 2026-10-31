@@ -500,6 +500,12 @@ export interface Env {
   INTEGRATIONS_PROVIDER?: string;
   /** Composio platform API key — Worker secret; never sent to sandboxes. */
   COMPOSIO_API_KEY?: string;
+  /** Typo alias read by composioApiKey(); prefer COMPOSIO_API_KEY in wrangler secrets. */
+  COMPOSITO_API_KEY?: string;
+  /** Override Composio REST v3 base (toolkits, connected accounts). */
+  COMPOSIO_API_BASE_URL?: string;
+  /** Override Composio tool-router session base (default v3.1). */
+  COMPOSIO_SESSION_API_BASE_URL?: string;
   /**
    * Exact OAuth callback URL registered with Composio for connected-account linking.
    * Defaults to `{origin}/api/integrations/provider/callback` when unset (loopback/dev).

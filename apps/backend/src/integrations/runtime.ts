@@ -9,9 +9,11 @@ let cached: { key: string; provider: IntegrationProvider } | null = null;
 
 function configHash(env: Env, selected: IntegrationsProviderId): string {
   if (selected === "composio") {
-    const hasKey = Boolean(env.COMPOSIO_API_KEY?.trim());
+    const hasKey = Boolean(env.COMPOSIO_API_KEY?.trim() || env.COMPOSITO_API_KEY?.trim());
     const callback = env.INTEGRATIONS_CALLBACK_URI?.trim() ?? "";
-    return `${selected}:${hasKey ? "key" : "no-key"}:${callback}`;
+    const v3 = env.COMPOSIO_API_BASE_URL?.trim() ?? "";
+    const session = env.COMPOSIO_SESSION_API_BASE_URL?.trim() ?? "";
+    return `${selected}:${hasKey ? "key" : "no-key"}:${callback}:${v3}:${session}`;
   }
   return selected;
 }
