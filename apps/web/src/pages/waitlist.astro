@@ -293,9 +293,7 @@ const waitlistSchema = {
         throw new Error(result.error ?? 'Could not save your registration. Please try again.');
       }
 
-      status.textContent = result.alreadyJoined
-        ? "✓ You're already registered! Thanks for being an early supporter."
-        : "✓ You're in! Thank you for supporting this approval-gated open-source project.";
+      status.textContent = "✓ You're in! Thank you for supporting this approval-gated open-source project.";
       status.className = 'min-h-[24px] text-center text-xs font-mono font-bold status-ok';
       form.reset();
     } catch (error) {

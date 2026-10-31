@@ -106,11 +106,16 @@ export function ensureDevVars({
     }
   }
 
-  mkdirSync(dirname(devVarsPath), { recursive: true });
+  mkdirSync(dirname(devVarsPath), { recursive: true, mode: 0o700 });
   if (existsSync(devVarsPath)) {
     chmodSync(devVarsPath, 0o600);
   }
   writeFileSync(devVarsPath, out, { mode: 0o600 });
+  try {
+    chmodSync(devVarsPath, 0o600);
+  } catch {
+    // Best-effort on platforms that restrict chmod.
+  }
   return { created, appended, path: devVarsPath };
 }
 
