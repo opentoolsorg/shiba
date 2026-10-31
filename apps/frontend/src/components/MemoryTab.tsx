@@ -60,6 +60,7 @@ export function filterFactsByAgent(facts: MemoryFact[], agent: string): MemoryFa
 export type MemoryViewMode = "facts" | "sessions" | "sources";
 
 export interface MemoryTabProps {
+  initialViewMode?: MemoryViewMode;
   /** Optional initial facts (useful for tests and seeded state) */
   initialFacts?: MemoryFact[];
   /** Optional initial sessions (useful for tests and seeded state) */
@@ -86,7 +87,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
   const [forgetBusy, setForgetBusy] = useState<string | null>(null);
 
   // View & filtering controls
-  const [viewMode, setViewMode] = useState<MemoryViewMode>("facts");
+  const [viewMode, setViewMode] = useState<MemoryViewMode>(props.initialViewMode ?? "facts");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
 

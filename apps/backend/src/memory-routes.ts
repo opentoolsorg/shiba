@@ -6,7 +6,9 @@
 import type { Env } from "./env.js";
 import { MEMORY_REGISTRY_NAME, memoryRegistryStub, memoryStub, ownerMemoryStub } from "./memory-do.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
-import { methodNotAllowed } from "./route-utils.js";
+import { hasSameOriginIntent, methodNotAllowed } from "./route-utils.js";
+import { readMemoryUpload } from "./owner-memory-ingestion.js";
+import { InputError } from "./security.js";
 
 const MEMORY_DO_BASE = "https://internal/internal/memory";
 
@@ -22,6 +24,9 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
   }
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
+  }
+  if (["POST", "PATCH", "DELETE"].includes(request.method) && !hasSameOriginIntent(request)) {
+    return Response.json({ error: "Same-origin request required." }, { status: 403 });
   }
   if (env.Memory === undefined) {
     return Response.json(
@@ -42,7 +47,16 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
     const init: RequestInit = { method: request.method };
     const contentType = request.headers.get("content-type");
     if (contentType !== null) init.headers = { "Content-Type": contentType };
-    if (request.method === "POST" || request.method === "PATCH") init.body = await request.text();
+    if (pathname === "/api/memory/sources/upload" && request.method === "POST") {
+      try {
+        const upload = await readMemoryUpload(request);
+        init.body = upload.bytes as Uint8Array<ArrayBuffer>;
+        init.headers = { "Content-Type": upload.mediaType, "X-Source-Filename": upload.filename };
+      } catch (error) {
+        if (error instanceof InputError) return Response.json({ error: error.message }, { status: 400 });
+        throw error;
+      }
+    } else if (request.method === "POST" || request.method === "PATCH") init.body = await request.text();
     return stub.fetch(target, init);
   }
   // Legacy Memory facts and session records have only an agent name, not an

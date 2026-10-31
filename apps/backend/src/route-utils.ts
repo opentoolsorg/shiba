@@ -16,6 +16,12 @@ export function methodNotAllowed(): Response {
   return Response.json({ error: "Method not allowed." }, { status: 405 });
 }
 
+/** Cookie-authenticated writes need explicit same-origin intent, including native renderers. */
+export function hasSameOriginIntent(request: Request): boolean {
+  return request.headers.get("origin") === new URL(request.url).origin &&
+    request.headers.get("sec-fetch-site") !== "cross-site";
+}
+
 /** Same contract as the DO `jsonBody` — a JSON object or a 400. */
 export async function jsonObjectBody(request: Request): Promise<Record<string, unknown>> {
   let body: unknown;

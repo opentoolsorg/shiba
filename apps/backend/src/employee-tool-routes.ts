@@ -14,6 +14,8 @@ import {
   getCapabilityInvocationByIdempotencyKey,
 } from "./capability-invocations.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
+import { isEmployeeExternalMcpScope, listEmployeeExternalMcpChoices } from "./employee-external-mcp.js";
+import { getExternalMcpServer } from "./external-mcp.js";
 import {
   EMPLOYEE_TOOL_POLICY_VERSION,
   capabilityId,
@@ -32,6 +34,7 @@ import {
   requestEmployeeActionApproval,
   resolveEmployeeConnectionGrant,
   resolveEmployeeToolPolicy,
+  employeeExternalPolicyVersion,
 } from "./employee-tool-store.js";
 
 const MAX_TOOLS = 50;
@@ -67,7 +70,8 @@ function bearer(request: Request): string | null {
 }
 
 function supportedToolId(value: unknown): value is string {
-  return typeof value === "string" && Object.hasOwn(EMPLOYEE_TOOL_ACTIONS, value.slice("mcp:shiba:".length)) && value.startsWith("mcp:shiba:");
+  return typeof value === "string" && (isEmployeeExternalMcpScope(value) ||
+    Object.hasOwn(EMPLOYEE_TOOL_ACTIONS, value.slice("mcp:shiba:".length)) && value.startsWith("mcp:shiba:"));
 }
 
 function hasControlCharacters(value: string): boolean {
@@ -135,7 +139,19 @@ async function configurePolicy(request: Request, env: Env, employeeId: string): 
   )) return jsonError("unsupported_or_invalid_capability_grants", 400);
   const catalog = createToolRegistry(env);
   registerAllMcpTools(catalog, env);
+  const externalChoices = await listEmployeeExternalMcpChoices(env, auth.orgId, configurer);
+  const externalResourceArguments = body.externalResourceArguments ?? {};
+  if (typeof externalResourceArguments !== "object" || externalResourceArguments === null || Array.isArray(externalResourceArguments)) return jsonError("invalid_external_resource_arguments", 400);
+  const externalSchemaVersions = body.externalSchemaVersions ?? {};
+  if (typeof externalSchemaVersions !== "object" || externalSchemaVersions === null || Array.isArray(externalSchemaVersions)) return jsonError("invalid_external_schema_versions", 400);
   for (const [id] of entries) {
+    if (isEmployeeExternalMcpScope(id)) {
+      const choice = externalChoices.find((item) => item.capabilityId === id);
+      const field = (externalResourceArguments as Record<string, unknown>)[id];
+      if (!choice || typeof field !== "string" || !choice.resourceArguments.includes(field)) return jsonError("external_capability_or_resource_field_not_reviewed", 400);
+      if ((externalSchemaVersions as Record<string, unknown>)[id] !== choice.schemaVersion) return jsonError("external_schema_version_conflict", 409);
+      continue;
+    }
     const toolName = id.slice("mcp:shiba:".length) as keyof typeof EMPLOYEE_TOOL_ACTIONS;
     const registered = catalog.tools().find((tool) => tool.name === toolName);
     if (!registered || registered.scope !== EMPLOYEE_TOOL_ACTIONS[toolName].requiredScope) return jsonError("unsupported_employee_tool_action", 400);
@@ -143,6 +159,20 @@ async function configurePolicy(request: Request, env: Env, employeeId: string): 
   const toolScopes = entries.map(([id]) => id).sort();
   const resourceConnectionsByCapability: Record<string, Record<string, string>> = {};
   const resourceAccountsByCapability: Record<string, Record<string, string>> = {};
+  const resourcePolicyVersionsByCapability: Record<string, Record<string, string>> = {};
+  const resourceGenerationsByCapability: Record<string, Record<string, number>> = {};
+  for (const [id, resources] of entries) {
+    if (!isEmployeeExternalMcpScope(id)) continue;
+    const choice = externalChoices.find((item) => item.capabilityId === id);
+    if (!choice) return jsonError("external_capability_not_reviewed", 400);
+    const field = (externalResourceArguments as Record<string, string>)[id];
+    if (!field) return jsonError("external_resource_field_required", 400);
+    resourceConnectionsByCapability[id] = Object.fromEntries((resources as string[]).map((resource) => [resource, choice.serverId]));
+    resourceAccountsByCapability[id] = { ...resourceConnectionsByCapability[id] };
+    resourcePolicyVersionsByCapability[id] = Object.fromEntries((resources as string[]).map((resource) => [resource,
+      employeeExternalPolicyVersion(choice.generation, choice.schemaVersion, field)]));
+    resourceGenerationsByCapability[id] = Object.fromEntries((resources as string[]).map((resource) => [resource, choice.generation]));
+  }
   const gmailCapability = "mcp:shiba:gmail_read";
   if (Object.hasOwn(resourcesByCapability, gmailCapability)) {
     const owner = await gmailOwner(request, env);
@@ -181,6 +211,8 @@ async function configurePolicy(request: Request, env: Env, employeeId: string): 
       resourcesByCapability: resourcesByCapability as Record<string, readonly string[]>,
       resourceConnectionsByCapability,
       resourceAccountsByCapability,
+      resourcePolicyVersionsByCapability,
+      resourceGenerationsByCapability,
     });
   } catch (error) {
     // Config scopes alone never authorize dispatch; a failed grant write leaves
@@ -201,7 +233,15 @@ async function readPolicy(request: Request, env: Env, employeeId: string): Promi
   const grants = await listEmployeeToolGrantRecords(env, {
     orgId: auth.orgId, employeeId, employeeVersion: profile.version,
   });
+  const ownerId = auth.principal?.principal ?? await resolveUserId(request, env);
+  const externalCapabilities = ownerId ? await listEmployeeExternalMcpChoices(env, auth.orgId, ownerId) : [];
+  const externalResourceArguments = Object.fromEntries(externalCapabilities.flatMap((choice) => {
+    const prefix = `external-mcp:${choice.generation}:${choice.schemaVersion}:`;
+    const grant = grants.find((item) => item.capabilityId === choice.capabilityId && item.lifecycle === "active" && item.policyVersion.startsWith(prefix));
+    return grant ? [[choice.capabilityId, grant.policyVersion.slice(prefix.length)]] : [];
+  }));
   return Response.json({ ok: true, employeeId, employeeVersion: profile.version,
+    externalCapabilities, externalResourceArguments,
     toolScopes: profile.config.toolScopes ?? [], grants: grants.map(({ subjectType, subjectId, capabilityId, resourceId, lifecycle, updatedAt }) => ({
       subjectType, subjectId, capabilityId, resourceId, lifecycle, updatedAt,
     })) }, { headers: { "cache-control": "no-store" } });
@@ -417,7 +457,10 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
   if (auth.principal) return v1Forbidden();
   if (request.method === "GET" && !approvalId) {
     const rows = await listEmployeeActionApprovals(env, { orgId: auth.orgId, status: "pending", limit: 50 });
-    return Response.json({ ok: true, approvals: rows }, { headers: { "cache-control": "no-store" } });
+    const ownerId = await resolveUserId(request, env);
+    const visible = await Promise.all(rows.map(async (row) => !row.employeeContext || ownerId &&
+      await getExternalMcpServer(env, auth.orgId, ownerId, row.employeeId) ? row : null));
+    return Response.json({ ok: true, approvals: visible.filter((row) => row !== null) }, { headers: { "cache-control": "no-store" } });
   }
   if (request.method === "POST" && approvalId) {
     const body = await parseObject(request);
@@ -426,6 +469,7 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
       orgId: auth.orgId, employeeId: typeof body.employeeId === "string" ? body.employeeId : "", approvalId,
     });
     if (!record) return jsonError("not_found", 404);
+    if (record.employeeContext) return jsonError("external_mcp_owner_approval_route_required", 409);
     const decidedBy = await resolveUserId(request, env);
     if (!decidedBy) return jsonError("authentication_required", 401);
     const decided = await decideEmployeeActionApproval(env, {

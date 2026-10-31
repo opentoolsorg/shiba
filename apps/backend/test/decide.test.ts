@@ -138,6 +138,16 @@ describe("decideRunTransition — queue", () => {
     expect(next).toEqual(run);
   });
 
+  it("replays only the identical collaboration handoff identity", () => {
+    const run = pendingRun({ collaborationHandoffId: "handoff-a" });
+    const same = decideRunTransition({ run }, queue({ input: { ...INPUT, collaborationHandoffId: "handoff-a" } }));
+    expect("events" in same && same.events[0]).toMatchObject({ replayed: true });
+    for (const input of [INPUT, { ...INPUT, collaborationHandoffId: "handoff-b" }]) {
+      expectError(run, queue({ input }), "input_conflict");
+    }
+    expectError(pendingRun(), queue({ input: { ...INPUT, collaborationHandoffId: "handoff-a" } }), "input_conflict");
+  });
+
   it("rejects queue for an existing runId with different input", () => {
     expectError(
       pendingRun(),

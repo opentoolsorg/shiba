@@ -263,6 +263,7 @@ export function AppNavRail({
     "providers",
     "skills",
     "custom-agents",
+    "employee-tools",
     "integrations",
     "remote",
     "settings",

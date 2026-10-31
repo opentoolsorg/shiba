@@ -32,6 +32,7 @@ async function openBotsDirectory() {
 try {
   await openBotsDirectory();
   await page.getByRole("button", { name: "Create bot", exact: true }).waitFor();
+  await page.getByText("Advanced settings", { exact: true }).click();
   await page.getByLabel("Slug", { exact: true }).fill(`browser-auditor-${stamp}`);
   await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel("Instructions", { exact: true }).fill("Review locally and require approval before any execution.");
@@ -52,6 +53,7 @@ try {
   const { session } = await sessionCreated.json();
   fixtureSessionId = session.id;
   assert.equal(session.metadata.customAgentId, agent.id);
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
   await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
   await page.getByLabel("Task composer").waitFor();
   passed("Start a fresh bot-associated thread and select its profile in the composer");

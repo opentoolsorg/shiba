@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import process from "node:process";
 
 /** Minimal JSON-RPC client for the upstream documented MCP stdio transport. */
-export async function connectReasonNetworkStdio({ executablePath, timeoutMs = 120_000 }) {
+export async function connectReasonNetworkStdio({ executablePath, timeoutMs = 120_000, onSendAttempt = () => {} }) {
   if (typeof executablePath !== "string" || !executablePath.startsWith("/")) throw new TypeError("Reason Network executable must be an absolute path.");
   const child = spawn(executablePath, ["mcp"], {
     shell: false,
@@ -13,15 +13,16 @@ export async function connectReasonNetworkStdio({ executablePath, timeoutMs = 12
       .filter((key) => typeof process.env[key] === "string")
       .map((key) => [key, process.env[key]])),
   });
-  await Promise.race([
-    once(child, "spawn"),
-    once(child, "error").then(([error]) => Promise.reject(error)),
-  ]);
-  const lines = createInterface({ input: child.stdout });
   const pending = new Map();
   let nextId = 1;
   let closed = false;
   const rejectPending = (error) => { for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(error); } pending.clear(); };
+  const failTransport = (error) => { closed = true; rejectPending(error); };
+  child.stdin.on("error", failTransport);
+  child.once("error", failTransport);
+  child.once("close", (code) => failTransport(new Error(`Reason Network MCP process closed (${code}).`)));
+  await once(child, "spawn");
+  const lines = createInterface({ input: child.stdout });
   lines.on("line", (line) => {
     let message;
     try { message = JSON.parse(line); } catch { return; }
@@ -32,37 +33,45 @@ export async function connectReasonNetworkStdio({ executablePath, timeoutMs = 12
     if (message.error) entry.reject(new Error(`MCP ${message.error.code ?? "error"}: ${String(message.error.message ?? "request failed")}`));
     else entry.resolve(message.result);
   });
-  child.once("error", (error) => { closed = true; rejectPending(error); });
-  child.once("close", (code) => { closed = true; rejectPending(new Error(`Reason Network MCP process closed (${code}).`)); });
-  const request = (method, params) => new Promise((resolve, reject) => {
+  const write = (message, onWrite = () => {}) => new Promise((resolve, reject) => {
+    if (closed || !child.stdin.writable) return reject(new Error("Reason Network MCP process is unavailable."));
+    try {
+      const line = `${JSON.stringify(message)}\n`;
+      onWrite?.();
+      child.stdin.write(line, (error) => {
+        if (error) { failTransport(error); reject(error); }
+        else resolve();
+      });
+    } catch (error) { failTransport(error); reject(error); }
+  });
+  const request = (method, params, onWrite = () => {}) => new Promise((resolve, reject) => {
     if (closed || !child.stdin.writable) return reject(new Error("Reason Network MCP process is unavailable."));
     const id = nextId++;
     const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Reason Network MCP ${method} timed out.`)); }, timeoutMs);
     timer.unref?.();
     pending.set(id, { resolve, reject, timer });
-    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`, (error) => {
-      if (error) { pending.delete(id); clearTimeout(timer); reject(error); }
-    });
+    void write({ jsonrpc: "2.0", id, method, params }, onWrite).catch(failTransport);
   });
-  const notify = (method, params = {}) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
+  const notify = (method, params = {}) => write({ jsonrpc: "2.0", method, params });
   try {
     await request("initialize", {
       protocolVersion: "2025-03-26",
       capabilities: {},
       clientInfo: { name: "shiba-local-reason-companion", version: "0.1.0" },
     });
-    notify("notifications/initialized");
+    await notify("notifications/initialized");
   } catch (error) {
     lines.close(); child.kill("SIGTERM"); throw error;
   }
   return {
     async listTools() { return await request("tools/list", {}); },
-    async callTool(input) { return await request("tools/call", input); },
+    async callTool(input) { return await request("tools/call", input, input.name === "send_message" ? onSendAttempt : undefined); },
     async close() {
-      if (!closed) {
-        lines.close(); child.stdin.end();
-        await Promise.race([once(child, "close"), new Promise((resolve) => setTimeout(resolve, 1_000))]);
-        if (!closed) child.kill("SIGTERM");
+      if (child.exitCode === null && child.signalCode === null) {
+        lines.close();
+        try { child.stdin.end(); } catch (error) { failTransport(error); }
+        await Promise.race([new Promise((resolve) => child.once("close", resolve)), new Promise((resolve) => setTimeout(resolve, 1_000))]);
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
       }
     },
   };
