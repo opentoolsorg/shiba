@@ -80,6 +80,9 @@ export interface ToolCallContext {
   env: McpGatewayEnv;
   /** The verified token record for this request. */
   principal: TokenRecord;
+  /** Durable receipt identity for this logical dispatch; stable on receipt replays. */
+  invocationId?: string;
+  idempotencyKey?: string;
 }
 
 export type McpToolHandler = (
@@ -310,7 +313,8 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
         requireScope(principal, tool.scope);
         const result = await tool.handler(
           (args ?? {}) as Record<string, unknown>,
-          { env, principal: principal as TokenRecord },
+          { env, principal: principal as TokenRecord,
+            ...(invocationId ? { invocationId } : {}), ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}) },
         );
         const status = result.structuredContent && typeof result.structuredContent === "object"
           ? (result.structuredContent as Record<string, unknown>).status
