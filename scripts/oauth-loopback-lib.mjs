@@ -45,23 +45,12 @@ export async function notifyWorkerOAuthCallback(callbackUrl) {
  * @param {string} callbackUrl
  * @returns {string}
  */
-export function oauthCallbackSuccessHtml(callbackUrl) {
-  const safe = JSON.stringify(callbackUrl);
+export function oauthCallbackSuccessHtml(_callbackUrl) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"/><title>Shiba sign-in</title></head>
 <body>
 <p>Sign-in complete. Return to the Shiba dashboard — this tab can close.</p>
-<script>
-(function () {
-  var url = ${safe};
-  try {
-    if (window.opener && !window.opener.closed) {
-      window.opener.postMessage({ type: ${JSON.stringify(SHIBA_OAUTH_CALLBACK_MESSAGE)}, url: url }, "*");
-    }
-  } catch (e) {}
-})();
-</script>
 </body>
 </html>`;
 }

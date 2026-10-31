@@ -111,6 +111,8 @@ export async function handleQueuedMessagesList(ctx: V1Context): Promise<Response
   let id: string;
   try { id = decodeURIComponent(match[1]!); }
   catch { return Response.json({ ok: false, error: "invalid_thread" }, { status: 400 }); }
+  const run = await readRun(ctx, id);
+  if (run instanceof Response) return run;
   const items = await listQueuedMessages(ctx.env, id);
   return Response.json({ ok: true, items });
 }

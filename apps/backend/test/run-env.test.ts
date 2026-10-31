@@ -355,6 +355,18 @@ describe("leak guard", () => {
     }
   });
 
+  it("fails when a UTF-8 file body adds a secret the diff omits", () => {
+    const guarded = guardRunEnvLeak(
+      {
+        ...RESULT,
+        diff: "",
+        files: [{ path: "secret.env", content: `DATABASE_URL=${SECRET}`, encoding: "utf8" }],
+      },
+      values,
+    );
+    expect(guarded.status).toBe("error");
+  });
+
   it("ignores a value the repo already had — context, removed lines and file bodies aren't leaks", () => {
     const guarded = guardRunEnvLeak(
       {
