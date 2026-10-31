@@ -267,6 +267,54 @@ describe("owner-scoped external MCP registry", () => {
     expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
   });
 
+  it.each([true, false])("rejects an opposite approval decision without changing persisted state (first approve: %s)", async (approved) => {
+    const { env, sqlite } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
+    const { server, tool } = await discoveredServer(env, fixture.fetchMock);
+    await reviewExternalMcpTool(env, server, tool.id, "approval_required", tool.schemaVersion);
+    const reviewed = await getExternalMcpServer(env, "org-a", owner.principal, server.id);
+    if (!reviewed) throw new Error("Fixture server missing");
+    await setExternalMcpToolEnabled(env, reviewed, tool.id, true, tool.schemaVersion);
+    await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
+    const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
+    const pending = await registry.invoke(tool.gatewayName, { a: 3, b: 2 }, agent);
+    const approvalId = (pending.structuredContent as { approvalId: string }).approvalId;
+    const route = `/${server.id}/approvals/${approvalId}`;
+    expect((await api(env, route, "POST", { approved }))?.status).toBe(200);
+    const snapshot = () => ({
+      approval: sqlite.prepare("SELECT * FROM employee_tool_approvals WHERE approval_id=?").get(approvalId),
+      receipt: sqlite.prepare("SELECT * FROM capability_invocations WHERE approval_id=?").all(approvalId),
+      uses: sqlite.prepare("SELECT * FROM external_mcp_approval_uses WHERE approval_id=?").all(approvalId),
+      remoteCalls: fixture.calls.filter((method) => method === "tools/call").length,
+    });
+    const before = snapshot();
+    expect((await api(env, route, "POST", { approved: !approved }))?.status).toBe(409);
+    expect(snapshot()).toEqual(before);
+    expect((await api(env, route, "POST", { approved }))?.status).toBe(200);
+    expect(snapshot()).toEqual(before);
+    expect(before.remoteCalls).toBe(approved ? 1 : 0);
+  });
+
+  it.each([true, false])("settles simultaneous opposite decisions according to the persisted winner only (first approve: %s)", async (firstDecision) => {
+    const { env, sqlite } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
+    const { server, tool } = await discoveredServer(env, fixture.fetchMock);
+    await reviewExternalMcpTool(env, server, tool.id, "approval_required", tool.schemaVersion);
+    const reviewed = await getExternalMcpServer(env, "org-a", owner.principal, server.id);
+    if (!reviewed) throw new Error("Fixture server missing");
+    await setExternalMcpToolEnabled(env, reviewed, tool.id, true, tool.schemaVersion);
+    await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
+    const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
+    const pending = await registry.invoke(tool.gatewayName, { a: 7, b: 2 }, agent);
+    const approvalId = (pending.structuredContent as { approvalId: string }).approvalId;
+    const route = `/${server.id}/approvals/${approvalId}`;
+    const decisions = [firstDecision, !firstDecision];
+    const responses = await Promise.all(decisions.map((approved) => api(env, route, "POST", { approved })));
+    const saved = sqlite.prepare("SELECT status FROM employee_tool_approvals WHERE approval_id=?").get(approvalId) as { status: string };
+    responses.forEach((response, index) => expect(response?.status).toBe(decisions[index] === (saved.status === "approved") ? 200 : 409));
+    const receipts = await listCapabilityInvocations(env, { orgId: "org-a" });
+    expect(receipts).toMatchObject([{ status: saved.status === "approved" ? "succeeded" : "denied", approvalId }]);
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(saved.status === "approved" ? 1 : 0);
+  });
+
   it("does not let a duplicate concurrent approval overwrite the in-flight receipt", async () => {
     for (const disableServer of [false, true]) {
       const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
