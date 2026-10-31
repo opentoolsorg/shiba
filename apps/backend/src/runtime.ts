@@ -469,7 +469,13 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       let overlap: string[] = [];
       if (setupCommit !== null) {
         try {
-          overlap = await setupOverlap(ops, workdir, setupCommit, collection.changedFiles, {
+          const overlapPaths = [
+            ...new Set([
+              ...collection.changedFiles,
+              ...(input.expectedDeliverables ?? []),
+            ]),
+          ];
+          overlap = await setupOverlap(ops, workdir, setupCommit, overlapPaths, {
             signals,
             signal: opts?.signal,
           });
