@@ -263,6 +263,11 @@ export class Automations {
         return current ? { version: current.version, configSha256: await sha256Hex(JSON.stringify(current.config)) } : null;
       },
       resolveApproval: (input) => resolveOnOrchestrator(orchestrator, input),
+      bridgeContext: this.env.AGENT_AUDIT ? {
+        env: this.env,
+        orgId: "self-hosted",
+        ownerId: "automations",
+      } : undefined,
     };
   }
 
