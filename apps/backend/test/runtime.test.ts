@@ -757,6 +757,20 @@ describe("worker authentication gate (T7)", () => {
     expect(getAgentByName).not.toHaveBeenCalled();
   });
 
+  it("with REQUIRE_ACCESS and no ACCESS_AUD, a forged identity header → 401", async () => {
+    vi.mocked(proxyToSandbox).mockResolvedValue(null);
+    vi.mocked(getAgentByName).mockClear();
+    const worker = (await import("../src/index.js")).default;
+    const res = await worker.fetch(
+      new Request("https://example.com/api/runs", {
+        headers: { "CF-Access-Authenticated-User-Email": "attacker@evil.test" },
+      }),
+      makeAccessEnv(),
+    );
+    expect(res.status).toBe(401);
+    expect(getAgentByName).not.toHaveBeenCalled();
+  });
+
   it("without Access config, loopback /api/runs is routed", async () => {
     vi.mocked(proxyToSandbox).mockResolvedValue(null);
     const stubFetch = vi.fn().mockResolvedValue(new Response("routed"));
@@ -851,25 +865,24 @@ describe("worker authentication gate (T7)", () => {
     expect(res.status).toBe(503);
   });
 
-  it("gates routeAgentRequest without an Access header", async () => {
+  it("gates routeAgentRequest without verified Access identity", async () => {
     const routing = await import("agents/routing");
     vi.mocked(proxyToSandbox).mockResolvedValue(null);
     vi.mocked(routing.routeAgentRequest).mockResolvedValue(new Response("agent"));
     const worker = (await import("../src/index.js")).default;
     const denied = await worker.fetch(new Request("https://example.com/agents/chat"), makeAccessEnv());
     expect(denied.status).toBe(401);
-    // Only /agents/coding-orchestrator/<authenticated identity> reaches the DO.
-    const allowed = await worker.fetch(
+    const headerOnly = await worker.fetch(
       new Request("https://example.com/agents/coding-orchestrator/alice%40example.com", {
         headers: { "CF-Access-Authenticated-User-Email": "alice@example.com" },
       }),
       makeAccessEnv(),
     );
-    expect(await allowed.text()).toBe("agent");
+    expect(headerOnly.status).toBe(401);
     vi.mocked(routing.routeAgentRequest).mockResolvedValue(null);
   });
 
-  it("serves public marketing assets but gates dashboard assets without an Access header", async () => {
+  it("serves public marketing assets but gates dashboard assets without verified Access identity", async () => {
     const routing = await import("agents/routing");
     vi.mocked(proxyToSandbox).mockResolvedValue(null);
     vi.mocked(routing.routeAgentRequest).mockResolvedValue(null);
@@ -878,13 +891,13 @@ describe("worker authentication gate (T7)", () => {
     expect(publicPage.status).toBe(200);
     const denied = await worker.fetch(new Request("https://example.com/app/"), makeAccessEnv());
     expect(denied.status).toBe(401);
-    const allowed = await worker.fetch(
+    const headerOnly = await worker.fetch(
       new Request("https://example.com/app/", {
         headers: { "CF-Access-Authenticated-User-Email": "alice@example.com" },
       }),
       makeAccessEnv(),
     );
-    expect(await allowed.text()).toBe("assets");
+    expect(headerOnly.status).toBe(401);
   });
 });
 

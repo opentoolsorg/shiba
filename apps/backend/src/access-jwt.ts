@@ -46,13 +46,20 @@ export async function verifiedAccessOwner(request: Request, aud: string): Promis
  */
 export async function withVerifiedAccessIdentity(
   request: Request,
-  env: { ACCESS_AUD?: string },
+  env: { ACCESS_AUD?: string; REQUIRE_ACCESS?: string },
 ): Promise<Request> {
-  if (!env.ACCESS_AUD) return request;
-  const token = request.headers.get(ACCESS_JWT_HEADER);
-  const email = token ? await verifyAccessJwt(token, env.ACCESS_AUD) : null;
   const headers = new Headers(request.headers);
-  if (email) headers.set(ACCESS_EMAIL_HEADER, email);
-  else headers.delete(ACCESS_EMAIL_HEADER);
-  return new Request(request, { headers });
+  if (env.ACCESS_AUD) {
+    const token = request.headers.get(ACCESS_JWT_HEADER);
+    const email = token ? await verifyAccessJwt(token, env.ACCESS_AUD) : null;
+    if (email) headers.set(ACCESS_EMAIL_HEADER, email);
+    else headers.delete(ACCESS_EMAIL_HEADER);
+    return new Request(request, { headers });
+  }
+  // REQUIRE_ACCESS without ACCESS_AUD must not trust a client-sent email header.
+  if (env.REQUIRE_ACCESS) {
+    headers.delete(ACCESS_EMAIL_HEADER);
+    return new Request(request, { headers });
+  }
+  return request;
 }
