@@ -40,6 +40,8 @@ export type EgressEnv = Pick<
 export interface OutboundHandlerCtx {
   params?: unknown;
   orgId?: string;
+  /** Run initiator — personal provider keys must match this user. */
+  initiatorUserId?: string;
   /** Frozen AI Gateway BYOK alias from the approved model connection. */
   gatewayByokAlias?: string;
 }
@@ -169,7 +171,7 @@ async function forwardProvider(
     }
   }
   if (kind) {
-    const secret = await readProviderSecretForOrg(env, orgId, kind);
+    const secret = await readProviderSecretForOrg(env, orgId, kind, providerCredentialUser(ctx));
     if (secret) return fetchWithUserKey(request, host, kind, secret);
   }
   const slug = GATEWAY_PROVIDERS[host];
@@ -216,6 +218,11 @@ async function forwardProvider(
     // Fetch errors can embed authenticated request details; never return or log them.
     return new Response("Provider gateway request failed.", { status: 502 });
   }
+}
+
+function providerCredentialUser(ctx?: OutboundHandlerCtx | string): string | undefined {
+  if (typeof ctx === "string") return ctx;
+  return ctx?.initiatorUserId ?? ctx?.orgId;
 }
 
 export function forwardGoogle(
@@ -302,7 +309,12 @@ export async function forwardClaudeSubscription(
       : `CLAUDE_SUBSCRIPTION_TOKEN_${account.toUpperCase().replace(/-/g, "_")}`;
   const saved =
     account === "default"
-      ? await readProviderSecretForOrg(env, ctx?.orgId, "claude-setup")
+      ? await readProviderSecretForOrg(
+          env,
+          ctx?.orgId,
+          "claude-setup",
+          ctx?.initiatorUserId ?? ctx?.orgId,
+        )
       : undefined;
   const configured = (env as Record<string, unknown>)[secretName];
   const token = saved ?? (typeof configured === "string" ? configured : undefined);

@@ -33,7 +33,7 @@ describe("parseReviewEnvelope", () => {
   });
 
   it("does not throw on garbage", () => {
-    expect(parseReviewEnvelope("not json")).toEqual({ summary: "", findings: [], rejected: 0 });
+    expect(parseReviewEnvelope("not json")).toEqual({ summary: "", findings: [], rejected: 0, findingsPresent: false });
     expect(parseReviewEnvelope(null).findings).toEqual([]);
   });
 });

@@ -23,8 +23,6 @@ import {
   setItemStatus,
 } from "../github-project.js";
 import { allowedHostsFor, resolveHarness } from "../harness/index.js";
-import { readModelConfig } from "../model-policy.js";
-import { isApprovedRoute } from "../model-connections.js";
 import type { EgressOverride } from "../harness/types.js";
 import { assertHarnessAuthorized } from "../auth/index.js";
 import {
@@ -33,10 +31,10 @@ import {
   type CodingTaskInput,
   type CodingTaskResult,
 } from "../opencode-input.js";
+import { parseReviewEnvelope } from "@shiba/shared";
 import {
   createRuntimeAdapter,
   LOCAL_DISPATCH_MESSAGE,
-  resolveRuntimeName,
   type LocalDispatchClient,
   type ProgressEvent,
   type SandboxOps,
@@ -60,6 +58,7 @@ import { boundTail, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { captureBrowserE2eEvidence, formatBrowserE2ePrSection } from "../browser-e2e/capture.js";
 import { captureRunPreview } from "../screenshot.js";
 import { guardRunEnvLeak, openRunEnv, runEnvDiffLeakName, runEnvScrubber } from "../run-env-seal.js";
+import { assertChildDispatchAuthorized } from "../child-dispatch.js";
 import { postSlackMessage } from "../slack.js";
 import { SlackProgressReporter } from "../slack-persona.js";
 import { messageText, renderRunTranscript } from "../transcript.js";
@@ -96,7 +95,7 @@ export async function pinSandboxEgress(
     ...(outboundByHost ? { outboundByHost } : {}),
     ...(githubRepoPath ? { githubRepoPath } : {}),
     ...(selection.orgId ? { orgId: selection.orgId } : {}),
-    ...(selection.gatewayByokAlias ? { gatewayByokAlias: selection.gatewayByokAlias } : {}),
+    ...(selection.initiatorUserId ? { initiatorUserId: selection.initiatorUserId } : {}),
   });
 }
 
@@ -177,20 +176,14 @@ export function createSandboxOps(
  * intra-deployment DO stub; the bearer-token front door is for the
  * operator daemon only, so these calls carry no credential.
  */
-function workerLocalDispatchClient(env: Env, dashboardOwnerId?: string): LocalDispatchClient {
+function workerLocalDispatchClient(env: Env): LocalDispatchClient {
   const stub = () => localDispatchStub(env);
   return {
-    async dispatch(envelope, targetMachineId, ownerId) {
+    async dispatch(envelope, targetMachineId) {
       const res = await stub().fetch(new Request("https://local-dispatch/dispatch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          envelope,
-          ...(targetMachineId !== undefined ? { targetMachineId } : {}),
-          ...((ownerId ?? dashboardOwnerId) !== undefined
-            ? { dashboardOwnerId: ownerId ?? dashboardOwnerId }
-            : {}),
-        }),
+        body: JSON.stringify({ envelope, ...(targetMachineId !== undefined ? { targetMachineId } : {}) }),
       }));
       if (!res.ok) throw new Error(`dispatch: ${res.status} ${await res.text()}`);
     },
@@ -257,6 +250,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             role: message.role,
             text: messageText(message),
           })));
+          if (!verifyStandinEnabled(this.env)) {
+            await assertChildDispatchAuthorized(this.env, input);
+          }
           if (input.publishPullRequest && !this.env.GITHUB_TOKEN) {
             throw new Error("publishPullRequest was requested but GITHUB_TOKEN is not configured.");
           }
@@ -272,21 +268,19 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             // flow before a container spins up — assert at the admission seam,
             // after the harness is resolved, before any sandbox work starts.
             await assertHarnessAuthorized(this.env, harness, input);
-            // T51: the approved input's runtime wins over the deployment's
-            // RUNTIME default. "local" needs both the deployment flag and the
-            // dispatch mailbox; every other surface refused it at intake, and
-            // this is the last place a forged envelope could reach.
-            const runtimeName = input.runtime ?? resolveRuntimeName(this.env.RUNTIME);
+            // T51: only the runtime frozen on the approved envelope may run.
+            // The deployment RUNTIME default never upgrades an absent field to local.
+            const runtimeName = input.runtime ?? "sandbox";
+            if (runtimeName === "local" && input.runtime !== "local") {
+              throw new Error('runtime "local" was not approved for this task.');
+            }
             let adapter;
             if (runtimeName === "local") {
               if (this.env[LOCAL_RUNTIME_FLAG] !== "1") {
                 throw new Error(LOCAL_DISPATCH_MESSAGE);
               }
               adapter = createRuntimeAdapter("local", harness, {
-                client: workerLocalDispatchClient(
-                  this.env,
-                  input.initiatorUserId?.trim() || this.name,
-                ),
+                client: workerLocalDispatchClient(this.env),
               });
             } else {
               adapter = createRuntimeAdapter(runtimeName, harness);
@@ -332,19 +326,11 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             this.envScrub = runEnv !== undefined ? runEnvScrubber(runEnv) : null;
             const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
             const overrides = harness.egressOverrides?.(runInput);
-            const effectiveOrgId = runInput.orgId || "self-hosted";
-            let gatewayByokAlias: string | undefined;
-            if (isApprovedRoute(runInput.route) && runInput.route.connectionId) {
-              const snapshot = await readModelConfig(this.env);
-              const connection = snapshot.connections.find((entry) => entry.id === runInput.route!.connectionId);
-              if (connection?.credentialRef && connection.authMode === "gateway-byok") {
-                gatewayByokAlias = connection.credentialRef;
-              }
-            }
+            const effectiveOrgId = runInput.orgId || runInput.initiatorUserId || "self-hosted";
             const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides, {
               orgId: effectiveOrgId,
+              initiatorUserId: runInput.initiatorUserId,
               taskProviderId: runInput.sandboxProvider,
-              ...(gatewayByokAlias ? { gatewayByokAlias } : {}),
             });
             result = await adapter.runCodingTask(ops, runInput, emit, {
               signal,
@@ -363,6 +349,25 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
               },
             });
             if (runEnv !== undefined) result = guardRunEnvLeak(result, runEnv);
+            if (input.role === "reviewer" && result.status === "completed") {
+              const rawFindings = (result as CodingTaskResult & { findings?: unknown }).findings;
+              const envelope = parseReviewEnvelope(
+                rawFindings !== undefined ? { summary: result.summary, findings: rawFindings } : result.summary,
+              );
+              if (!envelope.findingsPresent) {
+                result = {
+                  ...result,
+                  status: "error",
+                  summary: "Review output is missing structured findings.",
+                };
+              } else {
+                result = {
+                  ...result,
+                  findings: envelope.findings,
+                  summary: envelope.summary || result.summary,
+                };
+              }
+            }
           }
           checkCancelled();
           if (result.status === "completed" && input.expectedDeliverables?.length) {
@@ -462,6 +467,8 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       diff: this.safeText(result.diff, 20_000),
       files: [],
       ...(result.deliverables ? { deliverables: result.deliverables } : {}),
+      ...(result.usage ? { usage: result.usage } : {}),
+      ...(result.findings ? { findings: result.findings } : {}),
       ...(result.testEvidence
         ? {
             testEvidence: {
@@ -488,16 +495,11 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     // or sandbox problem can never lose a publish.
     const capture = verifyStandinEnabled(this.env)
       ? null
-      : await captureRunPreview(this.env, {
-          sandboxId: input.sandboxId,
-          ...(input.envOwner ? { accessAgent: input.envOwner } : {}),
-        });
+      : await captureRunPreview(this.env, { sandboxId: input.sandboxId });
     const e2eCapture = verifyStandinEnabled(this.env)
       ? null
-      : await captureBrowserE2eEvidence(this.env, {
-          sandboxId: input.sandboxId,
-          ...(input.envOwner ? { accessAgent: input.envOwner } : {}),
-        });
+      : await captureBrowserE2eEvidence(this.env, { sandboxId: input.sandboxId });
+    signal?.throwIfAborted();
     const bodyLines = [
       this.safeText(result.summary, 4000),
       "",

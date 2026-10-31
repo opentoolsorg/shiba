@@ -115,11 +115,17 @@ function envelopeRecord(raw: unknown): Record<string, unknown> | null {
 }
 
 /** Never throws. Invalid findings increment `rejected` and are dropped. */
-export function parseReviewEnvelope(raw: unknown): { summary: string; findings: ReviewFinding[]; rejected: number } {
+export function parseReviewEnvelope(raw: unknown): {
+  summary: string;
+  findings: ReviewFinding[];
+  rejected: number;
+  findingsPresent: boolean;
+} {
   const record = envelopeRecord(raw);
-  if (record === null) return { summary: "", findings: [], rejected: 0 };
+  if (record === null) return { summary: "", findings: [], rejected: 0, findingsPresent: false };
   const summary = typeof record.summary === "string" ? record.summary : "";
-  const items = Array.isArray(record.findings) ? record.findings : [];
+  const findingsPresent = Array.isArray(record.findings);
+  const items: unknown[] = findingsPresent ? (record.findings as unknown[]) : [];
   const findings: ReviewFinding[] = [];
   let rejected = 0;
   for (const item of items) {
@@ -127,7 +133,7 @@ export function parseReviewEnvelope(raw: unknown): { summary: string; findings: 
     if (finding === null) rejected += 1;
     else findings.push(finding);
   }
-  return { summary, findings, rejected };
+  return { summary, findings, rejected, findingsPresent };
 }
 
 /** Findings at or above `threshold` become inline comments. The rest stay in the review body. */

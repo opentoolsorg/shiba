@@ -53,10 +53,11 @@ const testKv = {
 
 export function productionEnvStubs(): Pick<
   Env,
-  "ModelConfig" | "Mailbox" | "MEMORY_ENABLED" | "AI_GATEWAY_TOKEN" | "AGENT_TOKENS" | "DASHBOARD_APPROVERS"
+  "ModelConfig" | "Mailbox" | "MEMORY_ENABLED" | "AI_GATEWAY_TOKEN" | "AGENT_TOKENS" | "MODEL_CREDENTIAL_KEY" | "DASHBOARD_APPROVERS"
 > {
   return {
     AI_GATEWAY_TOKEN: "test-gateway-token",
+    MODEL_CREDENTIAL_KEY: "ab".repeat(32),
     AGENT_TOKENS: testKv,
     DASHBOARD_APPROVERS: "test",
     ModelConfig: {

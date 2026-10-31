@@ -1,7 +1,10 @@
 import { readUIMessageStream, type UIMessageChunk } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenCodeAgent, createSandboxOps } from "../src/agents/opencode-agent.js";
+import { sealChildDispatch } from "../src/child-dispatch.js";
 import { formatAgentToolInput, parseAgentResultText, type CodingTaskInput, type CodingTaskResult } from "../src/opencode-input.js";
+
+const DISPATCH_KEY = "fe".repeat(32);
 
 const mocks = vi.hoisted(() => ({
   run: vi.fn(), publish: vi.fn(), sandbox: vi.fn(), progress: vi.fn(), decodeFile: vi.fn(), launch: vi.fn(),
@@ -21,14 +24,28 @@ const INPUT: CodingTaskInput = {
   publishPullRequest: false, sandboxId: "run-abcdef12345678",
   codingModel: "google/gemini-3.5-flash-lite",
 };
+let sealedInput: CodingTaskInput = INPUT;
+
+async function sealed(overrides: Partial<CodingTaskInput> = {}): Promise<CodingTaskInput> {
+  const base = { ...INPUT, ...overrides };
+  return {
+    ...base,
+    ...(await sealChildDispatch({ MODEL_CREDENTIAL_KEY: DISPATCH_KEY }, {
+      approvalId: "agent-tool:test",
+      sandboxId: base.sandboxId,
+      inputHash: "a".repeat(64),
+    })),
+  };
+}
+
 const RESULT: CodingTaskResult = {
   status: "completed", exitCode: 0, stderrTail: "", changedFiles: ["a.ts"],
   diff: "+fixed", files: [{ path: "a.ts", content: "complete file", encoding: "utf8" }], summary: "Done.",
 };
 
-function agent(input = INPUT, token?: string) {
+function agent(input = sealedInput, token?: string) {
   return Object.assign(Object.create(OpenCodeAgent.prototype) as OpenCodeAgent, {
-    env: { GITHUB_TOKEN: token },
+    env: { GITHUB_TOKEN: token, MODEL_CREDENTIAL_KEY: DISPATCH_KEY },
     messages: [{ id: "input", role: "user", parts: [{ type: "text", text: formatAgentToolInput(input) }] }],
     reportProgress: mocks.progress,
   });
@@ -44,12 +61,13 @@ async function responseFor(instance: OpenCodeAgent, signal?: AbortSignal) {
   return { chunks, text, result: parseAgentResultText(text) };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks();
   resetSandboxProviderCache();
   mocks.sandbox.mockReturnValue({});
   mocks.run.mockResolvedValue(RESULT);
   mocks.publish.mockResolvedValue({ pullUrl: "https://github.com/owner/repo/pull/1" });
+  sealedInput = await sealed();
 });
 
 describe("requested deliverable private persistence", () => {
@@ -60,13 +78,12 @@ describe("requested deliverable private persistence", () => {
       expectedDeliverables: ["sales/account-brief.md"],
     };
     const content = "# Account brief\nSynthetic fixture only.\n";
-    const instance = agent({
-      ...INPUT,
+    const instance = agent(await sealed({
       repoUrl: "",
       publishPullRequest: false,
       executionTarget,
       expectedDeliverables: executionTarget.expectedDeliverables,
-    });
+    }));
     const put = vi.fn(async (_key: string, _body: string, _options: unknown) => ({ key: "stored" }));
     Object.assign(instance.env, { ATTACHMENTS: { put } });
     mocks.run.mockImplementation(async (_ops, input) => {
@@ -95,7 +112,7 @@ describe("requested deliverable private persistence", () => {
   });
 
   it("stores only requested complete files and returns metadata without bodies in the assistant result", async () => {
-    const instance = agent({ ...INPUT, publishPullRequest: false, expectedDeliverables: ["reports/brief.md"] });
+    const instance = agent(await sealed({ publishPullRequest: false, expectedDeliverables: ["reports/brief.md"] }));
     const put = vi.fn(async (_key: string, _body: string, _options: unknown) => ({ key: "stored" }));
     Object.assign(instance.env, { ATTACHMENTS: { put } });
     const content = "PRIVATE_REQUESTED_REPORT_BODY";
@@ -115,7 +132,7 @@ describe("requested deliverable private persistence", () => {
   });
 
   it.each(["missing", "storage-failure", "cancel-during-storage"])("does not expose a manifest after %s", async (failure) => {
-    const instance = agent({ ...INPUT, publishPullRequest: false, expectedDeliverables: ["brief.md"] });
+    const instance = agent(await sealed({ publishPullRequest: false, expectedDeliverables: ["brief.md"] }));
     const controller = new AbortController();
     const put = vi.fn(async () => {
       if (failure === "cancel-during-storage") controller.abort();
@@ -152,7 +169,7 @@ describe("OpenCodeAgent response boundary", () => {
       return { ...RESULT, summary: `${secret} ${token}`, diff: `${"x".repeat(40_000)}${secret} ${token}`,
         stderrTail: secret, files: [{ path: "private", content: "RAW_FILE_MUST_NOT_LEAVE", encoding: "utf8" }] };
     });
-    const { text, result } = await responseFor(agent(INPUT, token));
+    const { text, result } = await responseFor(agent(sealedInput, token));
     expect(text).not.toContain(secret);
     expect(text).not.toContain(token);
     expect(text).not.toContain("RAW_FILE_MUST_NOT_LEAVE");
@@ -175,7 +192,7 @@ describe("OpenCodeAgent response boundary", () => {
     ];
     mocks.run.mockResolvedValue({ ...RESULT, files });
     const signal = new AbortController().signal;
-    const { text, result } = await responseFor(agent({ ...INPUT, publishPullRequest: true }, "token"), signal);
+    const { text, result } = await responseFor(agent(await sealed({ publishPullRequest: true }), "token"), signal);
     expect(mocks.publish.mock.calls[0]?.[0]).toMatchObject({ files });
     expect(result.files).toEqual([]);
     expect(text).not.toContain(files[0]!.content);
@@ -183,7 +200,7 @@ describe("OpenCodeAgent response boundary", () => {
   });
 
   it("forwards GITHUB_API_BASE to publication so a mock GitHub receives the PR write", async () => {
-    const instance = agent({ ...INPUT, publishPullRequest: true }, "token");
+    const instance = agent(await sealed({ publishPullRequest: true }), "token");
     Object.assign(instance.env, { GITHUB_API_BASE: "http://127.0.0.1:4010" });
     await responseFor(instance);
     expect(mocks.publish).toHaveBeenCalledWith(expect.anything(), { apiBase: "http://127.0.0.1:4010" });
@@ -206,7 +223,7 @@ describe("OpenCodeAgent response boundary", () => {
   });
 
   it("fails before sandbox creation for missing publication credentials", async () => {
-    const { result } = await responseFor(agent({ ...INPUT, publishPullRequest: true }));
+    const { result } = await responseFor(agent(await sealed({ publishPullRequest: true })));
     expect(result.status).toBe("error");
     expect(result.summary).toContain("GITHUB_TOKEN is not configured");
     expect(mocks.sandbox).not.toHaveBeenCalled();
@@ -238,7 +255,7 @@ describe("OpenCodeAgent response boundary", () => {
       controller.abort();
       return RESULT;
     });
-    const { result } = await responseFor(agent({ ...INPUT, publishPullRequest: true }, "token"), controller.signal);
+    const { result } = await responseFor(agent(await sealed({ publishPullRequest: true }), "token"), controller.signal);
     expect(result.summary).toBe("Run cancelled.");
     expect(mocks.publish).not.toHaveBeenCalled();
   });
@@ -272,14 +289,16 @@ describe("OpenCodeAgent response boundary", () => {
       exposePort: vi.fn(async () => ({ url: previewUrl })),
       unexposePort: vi.fn(async () => undefined),
     });
+    const publishInput = await sealed({ publishPullRequest: true });
     const instance = Object.assign(Object.create(OpenCodeAgent.prototype) as OpenCodeAgent, {
       env: {
         GITHUB_TOKEN: "token",
+        MODEL_CREDENTIAL_KEY: DISPATCH_KEY,
         BROWSER: {},
         ATTACHMENTS: { put: vi.fn(async () => undefined) },
         WORKER_HOSTNAME: "shiba.example.com",
       },
-      messages: [{ id: "input", role: "user", parts: [{ type: "text", text: formatAgentToolInput({ ...INPUT, publishPullRequest: true }) }] }],
+      messages: [{ id: "input", role: "user", parts: [{ type: "text", text: formatAgentToolInput(publishInput) }] }],
       reportProgress: mocks.progress,
     });
     await responseFor(instance);
@@ -308,7 +327,7 @@ describe("OpenCodeAgent response boundary", () => {
         outputTail: "Test Files  12 passed (12)\n Tests  96 passed",
       },
     });
-    await responseFor(agent({ ...INPUT, publishPullRequest: true }, "token"));
+    await responseFor(agent(await sealed({ publishPullRequest: true }), "token"));
     const body = (mocks.publish.mock.calls[0]?.[0] as { body: string }).body;
     expect(body).toContain("**Test evidence:** `'pnpm' 'test'` → exit 0");
     expect(body).toContain("Tests  96 passed");
@@ -318,7 +337,7 @@ describe("OpenCodeAgent response boundary", () => {
 
   it("reports a publication error instead of emitting coding success", async () => {
     mocks.publish.mockRejectedValue(new Error("GitHub unavailable"));
-    const { result, text } = await responseFor(agent({ ...INPUT, publishPullRequest: true }, "token"));
+    const { result, text } = await responseFor(agent(await sealed({ publishPullRequest: true }), "token"));
     expect(result.status).toBe("error");
     expect(result.summary).toBe("GitHub unavailable");
     expect(text).not.toContain("Pull request:");

@@ -34,16 +34,19 @@ const round: ReviewRound = {
 
 describe("postReview", () => {
   it("posts one COMMENT review and then reuses it", async () => {
-    const reviews: Array<{ id: number; html_url: string; body: string }> = [];
+    const reviews: Array<{ id: number; html_url: string; body: string; user?: { login: string } }> = [];
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/user")) {
+        return new Response(JSON.stringify({ login: "shiba-bot" }), { status: 200 });
+      }
       if (init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as { event: string; commit_id: string; comments: Array<{ side: string; line: number }> };
+        const body = JSON.parse(String(init.body)) as { event: string; commit_id: string; comments: Array<{ side: string; line: number }>; body: string };
         expect(body.event).toBe("COMMENT");
         expect(body.commit_id).toBe("abc");
         expect(body.comments).toEqual([expect.objectContaining({ side: "RIGHT", line: 3 })]);
-        const review = { id: 9, html_url: "https://github.com/acme/widgets/pull/4#pullrequestreview-9", body: String(body) };
-        reviews.push({ ...review, body: (JSON.parse(String(init.body)) as { body: string }).body });
+        const review = { id: 9, html_url: "https://github.com/acme/widgets/pull/4#pullrequestreview-9", body: body.body, user: { login: "shiba-bot" } };
+        reviews.push(review);
         return new Response(JSON.stringify(review), { status: 200 });
       }
       return new Response(JSON.stringify(reviews), { status: 200 });
