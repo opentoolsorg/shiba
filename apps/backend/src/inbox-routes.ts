@@ -30,6 +30,20 @@ import { InputError, NotFoundError } from "./security.js";
 const MAILBOX_DO_BASE = "https://internal/internal/mailbox";
 const INBOX_LIST_LIMIT = 50;
 
+function rejectCrossSiteMutation(request: Request): Response | null {
+  const url = new URL(request.url);
+  if (
+    request.headers.get("origin") !== url.origin ||
+    request.headers.get("sec-fetch-site") === "cross-site"
+  ) {
+    return Response.json(
+      { error: "Same-origin request required." },
+      { status: 403, headers: { "cache-control": "no-store" } },
+    );
+  }
+  return null;
+}
+
 async function mailboxDoJson<T>(
   stub: DurableObjectStub,
   path: string,
@@ -235,6 +249,12 @@ export async function handleInbox(request: Request, env: Env): Promise<Response 
   try {
     if (pathname === "/api/mailboxes") {
       if (request.method === "POST") {
+        const crossSite = rejectCrossSiteMutation(request);
+        if (crossSite) return crossSite;
+        const contentType = request.headers.get("content-type") ?? "";
+        if (!contentType.toLowerCase().startsWith("application/json")) {
+          return Response.json({ error: "Expected application/json." }, { status: 415 });
+        }
         // Without a registered address, inbound mail bounces and sends 400.
         const body = await mailboxDoJson<{ mailbox: MailboxRecord }>(
           mailboxDirectoryStub(env),

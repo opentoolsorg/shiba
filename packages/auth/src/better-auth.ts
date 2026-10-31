@@ -204,7 +204,13 @@ function assertOwnerBootstrap(
       message: "This email is not allowed to create the dashboard owner.",
     });
   }
-  if (token) {
+  const loopback = isLoopbackRequest(request);
+  if (!loopback || token) {
+    if (!token) {
+      throw new APIError("FORBIDDEN", {
+        message: "Sign-up is locked until a setup token or an allowlisted owner email is configured.",
+      });
+    }
     const provided = request?.headers.get(BETTER_AUTH_BOOTSTRAP_HEADER) ?? "";
     if (!secretsEqual(token, provided)) {
       throw new APIError("FORBIDDEN", {
@@ -212,7 +218,7 @@ function assertOwnerBootstrap(
       });
     }
   }
-  if (!token && !owner && !isLoopbackRequest(request)) {
+  if (!token && !owner && !loopback) {
     throw new APIError("FORBIDDEN", {
       message: "Sign-up is locked until a setup token or an allowlisted owner email is configured.",
     });
