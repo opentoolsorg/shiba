@@ -23,6 +23,8 @@ import {
   setItemStatus,
 } from "../github-project.js";
 import { allowedHostsFor, resolveHarness } from "../harness/index.js";
+import { readModelConfig } from "../model-policy.js";
+import { isApprovedRoute } from "../model-connections.js";
 import type { EgressOverride } from "../harness/types.js";
 import { assertHarnessAuthorized } from "../auth/index.js";
 import {
@@ -94,6 +96,7 @@ export async function pinSandboxEgress(
     ...(outboundByHost ? { outboundByHost } : {}),
     ...(githubRepoPath ? { githubRepoPath } : {}),
     ...(selection.orgId ? { orgId: selection.orgId } : {}),
+    ...(selection.gatewayByokAlias ? { gatewayByokAlias: selection.gatewayByokAlias } : {}),
   });
 }
 
@@ -321,9 +324,18 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
             const overrides = harness.egressOverrides?.(runInput);
             const effectiveOrgId = runInput.orgId || "self-hosted";
+            let gatewayByokAlias: string | undefined;
+            if (isApprovedRoute(runInput.route) && runInput.route.connectionId) {
+              const snapshot = await readModelConfig(this.env);
+              const connection = snapshot.connections.find((entry) => entry.id === runInput.route!.connectionId);
+              if (connection?.credentialRef && connection.authMode === "gateway-byok") {
+                gatewayByokAlias = connection.credentialRef;
+              }
+            }
             const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides, {
               orgId: effectiveOrgId,
               taskProviderId: runInput.sandboxProvider,
+              ...(gatewayByokAlias ? { gatewayByokAlias } : {}),
             });
             result = await adapter.runCodingTask(ops, runInput, emit, {
               signal,
@@ -467,10 +479,16 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     // or sandbox problem can never lose a publish.
     const capture = verifyStandinEnabled(this.env)
       ? null
-      : await captureRunPreview(this.env, { sandboxId: input.sandboxId });
+      : await captureRunPreview(this.env, {
+          sandboxId: input.sandboxId,
+          ...(input.envOwner ? { accessAgent: input.envOwner } : {}),
+        });
     const e2eCapture = verifyStandinEnabled(this.env)
       ? null
-      : await captureBrowserE2eEvidence(this.env, { sandboxId: input.sandboxId });
+      : await captureBrowserE2eEvidence(this.env, {
+          sandboxId: input.sandboxId,
+          ...(input.envOwner ? { accessAgent: input.envOwner } : {}),
+        });
     const bodyLines = [
       this.safeText(result.summary, 4000),
       "",
