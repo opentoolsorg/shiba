@@ -29,7 +29,7 @@ export async function handleLinearWebhook(
     if (!(await verifyLinearWebhook(raw, sig, secret))) {
       return Response.json({ error: "Invalid Linear webhook signature." }, { status: 401 });
     }
-  } else if (!env.LINEAR_ALLOW_UNSIGNED_WEBHOOK) {
+  } else if (env.LINEAR_ALLOW_UNSIGNED_WEBHOOK !== "1") {
     return Response.json(
       { error: "Linear webhooks are not configured: set LINEAR_WEBHOOK_SECRET or LINEAR_ALLOW_UNSIGNED_WEBHOOK=1 for local mocks." },
       { status: 503 },
