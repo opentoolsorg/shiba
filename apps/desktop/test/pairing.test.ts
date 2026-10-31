@@ -149,6 +149,25 @@ describe("desktop:pair", () => {
     expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
   });
 
+  it("requires native confirmation when saved config points at another deployment", async () => {
+    const OTHER = "https://other.example.com";
+    const confirmPairElsewhere = vi.fn(async () => false);
+    const { deps, handlers } = makeDeps({
+      readLocalConfig: () => ({ workerUrl: OTHER, machineId: "old-id" }),
+      supervisor: {
+        status: () => ({ state: "unpaired" }),
+        stop: vi.fn(),
+        forkDaemon: vi.fn(() => fakeChild()),
+      },
+      confirmPairElsewhere,
+    });
+    registerDesktopIpc(deps);
+    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    expect(confirmPairElsewhere).toHaveBeenCalledWith(OTHER);
+    expect(res).toEqual({ ok: false, error: "Pairing cancelled." });
+    expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
+  });
+
   const LOCAL_HERE = { workerUrl: ORIGIN, machineId: "old-id" };
   const polling = { type: "status", state: "polling", machineId: "new-id", harnesses: [] };
 

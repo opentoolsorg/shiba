@@ -70,7 +70,7 @@ describe("trusted run queue ownership reaches actual human approval", () => {
     expect(queued?.status, await queued?.clone().text()).toBe(200);
     const approval = target.state.pendingApprovals![0]!;
     expect(approval.threadKey).toBe(kind === "personal" ? OWNER : session.agentName);
-    expect(approval.orgId).toBe("self-hosted");
+    expect(approval.orgId).toBe(OWNER);
     expect(fixtures.execute).not.toHaveBeenCalled();
     const resolved = await handleApprovals(request("/api/approvals", { threadKey: approval.threadKey, approvalId: approval.approvalId, approved: true }), env);
     expect(resolved?.status).toBe(200);
@@ -85,7 +85,7 @@ describe("trusted run queue ownership reaches actual human approval", () => {
       config: { name: "Own", instructions: "Use the approved repo", harness: "opencode" } });
     const queued = await handleRuns(request("/api/runs", { repoUrl: "https://github.com/o/r", task: "Inspect", customAgentId: "profile", orgId: "victim-org", threadKey: "victim" }), env);
     expect(queued?.status, await queued?.clone().text()).toBe(200);
-    expect(fixtures.resolveProfile).toHaveBeenCalledWith(env, "self-hosted", "profile", undefined);
-    expect(user.state.pendingApprovals?.[0]).toMatchObject({ orgId: "self-hosted", threadKey: OWNER, customAgentId: "profile" });
+    expect(fixtures.resolveProfile).toHaveBeenCalledWith(env, OWNER, "profile", undefined);
+    expect(user.state.pendingApprovals?.[0]).toMatchObject({ orgId: OWNER, threadKey: OWNER, customAgentId: "profile" });
   });
 });

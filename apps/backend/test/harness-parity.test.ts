@@ -140,7 +140,7 @@ describe("harness registry parity", () => {
 
 describe("codex-subscription queue intake", () => {
   it("refuses intake without its opt-in flag before creating an approval", async () => {
-    const instance = agent();
+    const instance = agent({ MODEL_CREDENTIAL_KEY: undefined });
     const response = await queueRun(instance, "codex-subscription");
     const body = (await response.json()) as { error?: string };
 

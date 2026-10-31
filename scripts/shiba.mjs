@@ -4,7 +4,7 @@
  * Node stdlib only. Never prints secret values.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -91,6 +91,11 @@ function applyDevVarPatch(patch) {
   const path = devVarFile();
   const text = existsSync(path) ? readFileSync(path, "utf8") : "";
   writeFileSync(path, mergeDevVarsText(text, patch), { mode: 0o600 });
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Best-effort: some platforms restrict chmod on open files.
+  }
   console.log(`  ✓ .dev.vars keys recorded: ${keys.sort().join(", ")}`);
 }
 
@@ -389,22 +394,32 @@ async function fetchDoctor(host) {
   return body.doctor;
 }
 
+function escapeTerminal(text) {
+  return String(text ?? "").replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g, (ch) => {
+    const code = ch.charCodeAt(0).toString(16).padStart(2, "0");
+    return `\\x${code}`;
+  });
+}
+
 function printDoctor(doctor) {
   const lines = [];
   lines.push(doctor.ok ? "setup doctor: ok" : "setup doctor: problems found");
   for (const finding of doctor.findings ?? []) {
     const tag = finding.severity === "ok" ? "✓" : finding.severity === "warn" ? "!" : "✗";
-    lines.push(`${tag} ${finding.id}: ${finding.message}`);
-    if (finding.fix) lines.push(`    fix: ${finding.fix}`);
+    lines.push(`${tag} ${escapeTerminal(finding.id)}: ${escapeTerminal(finding.message)}`);
+    if (finding.fix) lines.push(`    fix: ${escapeTerminal(finding.fix)}`);
     if (finding.fixAction) {
-      lines.push(`    action: pnpm shiba setup fix ${finding.fixAction.id} — ${finding.fixAction.label}`);
+      lines.push(
+        `    action: pnpm shiba setup fix ${escapeTerminal(finding.fixAction.id)} — ${escapeTerminal(finding.fixAction.label)}`,
+      );
     }
   }
   for (const row of doctor.roles ?? []) {
     const route =
-      `${row.role} → ${row.harness} / ${row.model}` + (row.connectionId ? ` (${row.connectionId})` : "");
-    lines.push(row.ok ? `✓ ${route}` : `✗ ${route}: ${row.message ?? "blocked"}`);
-    if (!row.ok && row.fix) lines.push(`    fix: ${row.fix}`);
+      `${escapeTerminal(row.role)} → ${escapeTerminal(row.harness)} / ${escapeTerminal(row.model)}` +
+      (row.connectionId ? ` (${escapeTerminal(row.connectionId)})` : "");
+    lines.push(row.ok ? `✓ ${route}` : `✗ ${route}: ${escapeTerminal(row.message ?? "blocked")}`);
+    if (!row.ok && row.fix) lines.push(`    fix: ${escapeTerminal(row.fix)}`);
   }
   return lines.join("\n");
 }

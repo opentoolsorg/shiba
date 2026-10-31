@@ -157,6 +157,11 @@ describe("per-lane spec hooks (ce-code-review fixes)", () => {
     expect(hosts).toEqual(expect.arrayContaining(["opencode.ai", "api.deepseek.com"]));
   });
 
+  it("opencode-acp does not grant DeepSeek when another provider is selected", () => {
+    const hosts = resolveHarness("opencode-acp").egressHosts("google/gemini-3.5-flash");
+    expect(hosts).toEqual(["generativelanguage.googleapis.com"]);
+    expect(hosts).not.toContain("api.deepseek.com");
+  });
 
   it("opencode-acp passes provider/model through — OpenCode's ACP grammar needs the prefix", () => {
     const opencodeAcp = resolveHarness("opencode-acp");

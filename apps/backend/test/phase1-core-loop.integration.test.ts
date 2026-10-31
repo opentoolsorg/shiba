@@ -34,7 +34,7 @@ const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
   schedule: vi.fn(async (..._args: unknown[]) => ({})),
-  harnessMode: "happy" as "happy" | "coding-error" | "review-error",
+  harnessMode: "happy" as "happy" | "coding-error" | "review-error" | "review-invalid",
 }));
 
 vi.mock("@cloudflare/think", () => ({
@@ -74,6 +74,9 @@ function createMockGitHubFetch() {
     const json = (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+    if (url.endsWith("/user")) {
+      return json({ login: "shiba-bot" });
+    }
     if (url.endsWith("/git/ref/heads/main")) {
       return json({ object: { sha: "base-sha" } });
     }
@@ -107,6 +110,7 @@ function createMockGitHubFetch() {
         id: postedReviews.length + 1,
         html_url: `${PULL_URL}#pullrequestreview-${postedReviews.length + 1}`,
         body: body.body,
+        user: { login: "shiba-bot" },
       };
       postedReviews.push(review);
       return json(review);
@@ -117,6 +121,7 @@ function createMockGitHubFetch() {
           id: review.id,
           html_url: review.html_url,
           body: review.body,
+          user: { login: "shiba-bot" },
         })),
       );
     }
@@ -160,6 +165,7 @@ function env(overrides: Partial<Env> = {}): Env {
   return {
     ...productionEnvStubs(),
     Sandbox: {},
+    DASHBOARD_APPROVERS: "tester",
     GITHUB_TOKEN: TOKEN,
     GITHUB_API_BASE: API_BASE,
     ...overrides,
@@ -261,6 +267,9 @@ function wireFakeHarness(github: ReturnType<typeof createMockGitHubFetch>) {
         summary: "Reviewer harness failed.",
       });
     }
+    if (mocks.harnessMode === "review-invalid") {
+      return reviewerEnvelope("Invalid findings").replace(JSON.stringify([finding]), JSON.stringify([{ title: "Lost finding" }]));
+    }
     return reviewerEnvelope("One high finding on README.");
   });
 }
@@ -272,6 +281,18 @@ beforeEach(() => {
 });
 
 describe("Phase 1 core loop (integration)", () => {
+  it("rejects a disabled computer deployment instead of freezing sandbox approval", async () => {
+    const instance = agent({ RUNTIME: "computer", SHIBA_VERIFY_STANDIN: "1" });
+    const queued = await instance.onRequest(new Request("https://internal/api/runs", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repoUrl: REPO, task: "Add a README", publishPullRequest: false }),
+    }));
+    expect(queued.status).toBe(400);
+    expect(await queued.text()).toContain("preview-only");
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
   it("does not start work before approval, then records a diff and a stub pull request", async () => {
     const github = createMockGitHubFetch();
     vi.stubGlobal("fetch", github.fetchImpl);
@@ -539,6 +560,20 @@ describe("Phase 1 core loop (integration)", () => {
     );
     expect(stuck).toHaveLength(0);
 
+    vi.unstubAllGlobals();
+  });
+
+  it("fails malformed reviewer output before posting or merging", async () => {
+    const github = createMockGitHubFetch();
+    vi.stubGlobal("fetch", github.fetchImpl);
+    mocks.harnessMode = "review-invalid";
+    wireFakeHarness(github);
+    const instance = agent();
+    await queueAndApprove(instance);
+    await vi.waitFor(() => expect((instance.state.reviewRounds ?? [])[0]?.error).toBe("review_findings_invalid"));
+    expect(instance.state.reviewRounds?.[0]?.status).toBe("failed");
+    expect(github.postedReviews).toHaveLength(0);
+    expect(instance.state.pendingApprovals?.some((approval) => approval.kind === "pr_merge")).toBe(false);
     vi.unstubAllGlobals();
   });
 

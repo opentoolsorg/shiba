@@ -15,6 +15,7 @@
 import { buildChatThreadName, buildDecisionData, parseDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
 import { seenDelivery } from "./automations-stub.js";
 import {
+  CARD_TASK_LIMIT,
   chatApprovalText,
   chatTaskChunks,
   decideChatApproval,
@@ -274,7 +275,7 @@ export async function handleDiscordInteractions(
         components: decisionButtons(queued.approvalId),
         allowed_mentions: NO_MENTIONS,
       });
-      for (const chunk of chatTaskChunks(queueBody!.task, 1900)) {
+      for (const chunk of chatTaskChunks(queueBody!.task, CARD_TASK_LIMIT, 1900)) {
         await send("POST", webhook, { content: chunk, allowed_mentions: NO_MENTIONS });
       }
     });
@@ -329,7 +330,7 @@ export async function handleDiscordInteractions(
       }
       // Empty components retire the buttons so the card can't be pressed again.
       await send("PATCH", `${webhook}/messages/@original`, {
-        content: `${interaction.message?.content ?? "Approval"}\n\n${decisionLine(decision.approved, `<@${userId}>`)}`,
+        content: `${interaction.message?.content ?? "Approval"}\n\n${decisionLine(result.approved, result.approved === decision.approved ? `<@${userId}>` : "an earlier decision")}`,
         components: [],
         allowed_mentions: NO_MENTIONS,
       });

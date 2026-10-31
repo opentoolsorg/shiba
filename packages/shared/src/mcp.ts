@@ -58,6 +58,14 @@ export const queueRunInputSchema = z.object({
   testCommand: testCommandSchema
     .optional()
     .describe("Project test command as an argv array, e.g. [\"pnpm\", \"test\"]."),
+  commandId: z
+    .string()
+    .optional()
+    .describe("Idempotency key for this queue request."),
+  threadKey: z
+    .string()
+    .optional()
+    .describe("Approval routing key; dashboard intake overwrites unless ACP-bound."),
 });
 
 export type QueueRunInput = z.infer<typeof queueRunInputSchema>;

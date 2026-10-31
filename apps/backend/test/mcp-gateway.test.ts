@@ -8,7 +8,13 @@ vi.mock("@cloudflare/sandbox", () => ({
 }));
 const routed = vi.hoisted(() => ({ requests: [] as Request[] }));
 vi.mock("agents/routing", () => ({
-  getAgentByName: async () => ({ fetch: async () => new Response("{}", { status: 404 }) }),
+  getAgentByName: async () => ({ fetch: async (request: Request | string) => {
+    if (request instanceof Request && new URL(request.url).pathname === "/agents/coding-orchestrator/default") {
+      routed.requests.push(request);
+      return new Response("ok");
+    }
+    return new Response("{}", { status: 404 });
+  } }),
   routeAgentRequest: async (request: Request) => {
     if (new URL(request.url).pathname !== "/agents/coding-orchestrator/default") return null;
     routed.requests.push(request);

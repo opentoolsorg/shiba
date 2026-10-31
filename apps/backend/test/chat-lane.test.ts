@@ -6,6 +6,7 @@ import {
   parseDecisionData,
 } from "@shiba/shared";
 import {
+  CARD_TASK_LIMIT,
   chatApprovalText,
   chatTaskChunks,
   createSeenRing,
@@ -219,10 +220,15 @@ describe("chatApprovalText / decisionLine", () => {
 
   it("splits an oversized task into chunks the lane posts after the card", () => {
     const task = "x".repeat(5000);
-    const chunks = chatTaskChunks(task, 1900);
+    const chunks = chatTaskChunks(task, CARD_TASK_LIMIT, 1900);
     expect(chunks).toHaveLength(3);
     expect(chunks.join("")).toBe(task);
-    expect(chatTaskChunks("short", 1900)).toEqual([]);
+    expect(chatTaskChunks("short", CARD_TASK_LIMIT, 1900)).toEqual([]);
+  });
+
+  it("posts the full task when the card truncates but the message cap still fits", () => {
+    const task = "z".repeat(1700);
+    expect(chatTaskChunks(task, CARD_TASK_LIMIT, 1900)).toEqual([task]);
   });
 
   it("does not truncate a task at the limit", () => {
@@ -318,7 +324,7 @@ describe("decideChatApproval", () => {
   it("posts the decision and resolves on an approved result", async () => {
     const { requests, resolve } = fakeOrchestrator({ body: { result: "approved" } });
     const result = await decideChatApproval(env(), input, resolve);
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, approved: true, requestedApproved: true });
     expect(requests[0]!.url).toBe("https://internal/api/approvals");
     expect(requests[0]!.body).toEqual({
       threadKey: "discord:777",
@@ -332,7 +338,13 @@ describe("decideChatApproval", () => {
   it("resolves on a rejected result", async () => {
     const { resolve } = fakeOrchestrator({ body: { result: "rejected" } });
     const result = await decideChatApproval(env(), { ...input, approved: false }, resolve);
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, approved: false, requestedApproved: false });
+  });
+
+  it("returns the authoritative outcome when the orchestrator recorded the opposite decision", async () => {
+    const { resolve } = fakeOrchestrator({ body: { result: "rejected" } });
+    const result = await decideChatApproval(env(), input, resolve);
+    expect(result).toEqual({ ok: true, approved: false, requestedApproved: true });
   });
 
   it("reports an already-resolved pointer when the result is unknown", async () => {

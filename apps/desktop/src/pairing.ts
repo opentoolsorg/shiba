@@ -167,9 +167,16 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
       return { ok: false, error: "Invalid pairing token." };
     }
     return singleFlight(connectionChange, async () => {
+      const local = deps.readLocalConfig();
+      const savedOrigin = local?.workerUrl ? originOf(local.workerUrl) : undefined;
       const status = deps.supervisor.status();
-      if (status.state === "paired-elsewhere") {
-        const confirmed = await deps.confirmPairElsewhere(status.pairedTo);
+      const replacingOtherDeployment =
+        status.state === "paired-elsewhere" ||
+        (savedOrigin !== undefined && savedOrigin !== origin);
+      if (replacingOtherDeployment) {
+        const pairedTo =
+          status.state === "paired-elsewhere" ? status.pairedTo : savedOrigin;
+        const confirmed = await deps.confirmPairElsewhere(pairedTo);
         if (!confirmed) return { ok: false, error: "Pairing cancelled." };
       }
       // Read before stop(): stopping resets the live status and drops machineId.

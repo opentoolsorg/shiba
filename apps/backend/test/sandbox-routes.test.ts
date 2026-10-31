@@ -57,6 +57,10 @@ vi.mock("../src/org-request-auth.js", () => ({
   resolveOrgForApiRequest: vi.fn(async () => ({ orgId: "self-hosted", principal: null })),
 }));
 
+vi.mock("../src/sandbox/debug-access.js", () => ({
+  assertAuthorizedSandboxDebug: vi.fn(async () => null),
+}));
+
 function makeEnv(): Env {
   return {
     Sandbox: {} as any,
@@ -153,7 +157,10 @@ describe("handleSandboxRoutes", () => {
     const env = makeEnv();
     const req = new Request("https://internal/api/sandboxes/test-sb-1/exec", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://internal",
+      },
       body: JSON.stringify({ command: "git status" }),
     });
     const res = await handleSandboxRoutes(req, env);

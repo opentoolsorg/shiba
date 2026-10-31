@@ -65,8 +65,9 @@ import { agentTool } from "agents/agent-tools";
 import { type ToolSet, tool } from "ai";
 import { Effect } from "effect";
 import { z } from "zod";
+import type { TokenRecord } from "../agent-tokens.js";
 import { postToChatThread } from "../chat-lane.js";
-import { createRunCodeTool } from "../codemode.js";
+import { createRunCodeTool, ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "../codemode.js";
 import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
 import { createEmployeeRunTools, employeeCanRetainDraft, employeeRunToolPolicyMode, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
 import { onboardingRunFields, onboardingSourceInstructions, type OnboardingRunFields } from "@shiba/shared";
@@ -100,9 +101,11 @@ import { mailboxDirectoryStub, mailboxStub, registeredMailbox } from "../mailbox
 import { ownerMemoryStub } from "../memory-do.js";
 import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
-import { orgIdFromIntake } from "../org-request-auth.js";
+import { approvalResolveForbidden } from "../approval-resolve-auth.js";
+import { DASHBOARD_ORG_ID, intakeOrgIdForOrchestrator, orgIdFromIntake } from "../org-request-auth.js";
+import { sealChildDispatch } from "../child-dispatch.js";
 import { openRunEnv } from "../run-env-seal.js";
-import { resolveRuntimeName } from "../runtime.js";
+import { COMPUTER_PREVIEW_MESSAGE, resolveRuntimeName } from "../runtime.js";
 import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
 import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
@@ -479,6 +482,15 @@ function repoPullUrl(output: string, repoUrl: string): string | undefined {
 }
 
 export class CodingOrchestrator extends Think<Env, OrchestratorState> {
+  override async onBeforeSubAgent(
+    _request: Request,
+    child: { className: string; name: string },
+  ): Promise<Response | void> {
+    if (child.className === "OpenCodeAgent" && !this.hasAgentToolRun("OpenCodeAgent", child.name)) {
+      return new Response("Not found.", { status: 404 });
+    }
+  }
+
   /** The orchestrator plans and delegates; it never runs shell commands. */
   override workspaceBash = false;
 
@@ -995,7 +1007,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const ownerMemoryId = isDashboardAgentName(this.name)
       ? initiatorUserIdFromOrchestratorName(this.name)
       : undefined;
-    const runCode = createRunCodeTool(this.env, ownerMemoryId);
+    const codeOwner = initiatorUserIdFromOrchestratorName(this.name);
+    const codePrincipal: TokenRecord = codeOwner
+      ? { principal: codeOwner, scopes: ORCHESTRATOR_SCOPES, created: 0, revoked: false }
+      : ORCHESTRATOR_PRINCIPAL;
+    const runCode = createRunCodeTool(this.env, ownerMemoryId, codePrincipal);
     if (runCode) tools.run_code = runCode;
     return tools;
   }
@@ -1012,8 +1028,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   /** The authenticated workspace scope pinned by the dashboard composer. */
   private employeeToolOrgId(): string {
-    const orgId = this.composerPin().orgId;
-    return typeof orgId === "string" && orgId.trim() ? orgId.trim() : "self-hosted";
+    return intakeOrgIdForOrchestrator(this.name, this.composerPin() as Record<string, unknown>);
   }
 
   private employeeDraftStore(): EmployeeDraftStore {
@@ -1240,7 +1255,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         repoUrl: input.repoUrl,
         executionTarget: input.executionTarget,
         publishPullRequest: input.publishPullRequest,
-        orgId: orgIdFromIntake(input as Record<string, unknown>),
+        orgId: intakeOrgIdForOrchestrator(this.name, input as Record<string, unknown>),
         initiatorUserId: initiatorUserIdFromOrchestratorName(this.name),
         runtime: input.runtime,
         sandboxProvider: input.sandboxProvider,
@@ -1365,8 +1380,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // counts; the intake gate can never be bypassed by a chat-surface tool
       // call because a `default`/`slack:*` DO fails isDashboardAgentName.
       const callRuntime = _input.runtime;
-      if (callRuntime === "local" || reserved.runtime === "local") {
-        if (reserved.runtime !== callRuntime) {
+      const approvedRuntime = reserved.runtime ?? "sandbox";
+      if (approvedRuntime === "local" || callRuntime === "local") {
+        if (reserved.runtime !== callRuntime && callRuntime !== undefined) {
           return "Approved input does not match this call's runtime.";
         }
         if (this.env[LOCAL_RUNTIME_FLAG] !== "1" || !isDashboardAgentName(this.name)) {
@@ -1423,6 +1439,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         baseBranch: input.baseBranch,
         publishPullRequest: input.publishPullRequest,
         sandboxId,
+        accessAgent: this.name,
         ...(reserved.orgId ? { orgId: reserved.orgId } : pointer?.orgId ? { orgId: pointer.orgId } : {}),
         ...(reserved.sandboxProvider !== undefined ? { sandboxProvider: reserved.sandboxProvider } : {}),
         ...(reserved.customAgentId !== undefined ? { customAgentId: reserved.customAgentId } : {}),
@@ -1435,7 +1452,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         // The reserved run's frozen command is what the human approved.
         ...(reserved.testCommand ? { testCommand: reserved.testCommand } : {}),
         ...(reserved.expectedDeliverables !== undefined ? { expectedDeliverables: reserved.expectedDeliverables } : {}),
-        ...(reserved.runtime !== undefined ? { runtime: reserved.runtime } : {}),
+        ...(reserved.runtime !== undefined ? { runtime: reserved.runtime } : { runtime: "sandbox" as const }),
         // Read from the hashed run record, never the mutable pointer.
         ...(reserved.runtime === "local" && reserved.targetMachineId !== undefined
           ? { targetMachineId: reserved.targetMachineId }
@@ -1647,7 +1664,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               await revalidateOnboardingBinding(this.env, initiatorUserIdFromOrchestratorName(this.name), reserved);
               const dispatchSignal = AbortSignal.any([signal, fiberSignal]);
               dispatchSignal.throwIfAborted();
-              return childExecute(formatAgentToolInput(fullInput), {
+              const dispatchInputHash = startEvidence?.inputHash;
+              if (!dispatchInputHash) {
+                throw new Error("Approved run is missing dispatch input hash.");
+              }
+              const sealedInput: CodingTaskInput = {
+                ...fullInput,
+                ...(await sealChildDispatch(this.env, {
+                  approvalId: callId,
+                  sandboxId,
+                  inputHash: dispatchInputHash,
+                })),
+              };
+              return childExecute(formatAgentToolInput(sealedInput), {
                 toolCallId: callId,
                 // The caller's signal and the run-cancel controller reach the
                 // child exactly as before; fiberSignal additionally fires if
@@ -2092,7 +2121,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
       }
     }
-    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    const intakeOrgId =
+      input.intake === LOCAL_INTAKE_DASHBOARD
+        ? DASHBOARD_ORG_ID
+        : intakeOrgIdForOrchestrator(this.name, input as Record<string, unknown>);
     if (input.expectedCustomAgentVersion !== undefined &&
       (!Number.isSafeInteger(input.expectedCustomAgentVersion) || Number(input.expectedCustomAgentVersion) < 1)) {
       return Response.json({ error: "Invalid expected custom-agent version." }, { status: 400 });
@@ -2355,7 +2387,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // posts never carry that voucher — they refuse here, before an approval
     // exists. The delegate tool path re-checks the same rule against the DO
     // name in executeDelegatedTask.
-    const runtime = runtimeForPreflight;
+    const effectiveRuntime =
+      runtimeForPreflight ??
+      (executionTarget?.kind === "artifact-workspace" ? ("sandbox" as const) : resolveRuntimeName(this.env.RUNTIME));
+    if (effectiveRuntime === "computer") {
+      return Response.json({ error: COMPUTER_PREVIEW_MESSAGE }, { status: 400 });
+    }
+    if (effectiveRuntime === "local" && input.intake !== LOCAL_INTAKE_DASHBOARD) {
+      return Response.json(
+        { error: 'runtime "local" is admitted only through the dashboard.' },
+        { status: 403 },
+      );
+    }
     const targetMachineId =
       typeof input.targetMachineId === "string" ? input.targetMachineId.trim() : input.targetMachineId;
     if (
@@ -2367,7 +2410,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 400 },
       );
     }
-    if (runtime === "local") {
+    if (effectiveRuntime === "local") {
       if (this.env[LOCAL_RUNTIME_FLAG] !== "1") {
         return Response.json(
           { error: "The local runtime is not enabled on this deployment (SHIBA_LOCAL_RUNTIME=1)." },
@@ -2398,12 +2441,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (executionTarget?.kind === "artifact-workspace" && runSetup) {
       return Response.json({ error: "Repo setup is only available for repository runs." }, { status: 400 });
     }
-    if (runSetup && (runtime ?? resolveRuntimeName(this.env.RUNTIME)) === "local") {
+    if (runSetup && effectiveRuntime === "local") {
       return Response.json({ error: "Repo setup isn't supported on the local runtime yet." }, { status: 400 });
     }
     let runEnv: FrozenRunEnv | undefined;
     try {
-      runEnv = await this.intakeRunEnv(input.environment, runtime);
+      runEnv = await this.intakeRunEnv(input.environment, effectiveRuntime);
     } catch (error) {
       return Response.json(
         { error: error instanceof Error ? error.message : "Invalid environment variables." },
@@ -2451,8 +2494,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             ? { authAccount: input.authAccount.trim().slice(0, 32) }
             : {}),
           // T51: the approved runtime rides the hashed frozen input.
-          ...(runtime !== undefined ? { runtime } : {}),
-          ...(runtime === "local" && targetMachineId !== undefined ? { targetMachineId } : {}),
+          ...( { runtime: effectiveRuntime === "local" ? ("local" as const) : ("sandbox" as const) } ),
+          ...(effectiveRuntime === "local" && targetMachineId !== undefined ? { targetMachineId } : {}),
           ...(testCommand !== undefined ? { testCommand } : {}),
           ...(expectedDeliverables !== undefined ? { expectedDeliverables } : {}),
           ...(skillPins !== undefined && skillPins.length > 0 ? { skillPins } : {}),
@@ -2906,8 +2949,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     approvalId?: unknown;
     approved?: unknown;
     decidedBy?: unknown;
+    source?: unknown;
   }): Promise<Response> {
-    const { threadKey, approvalId, approved, decidedBy: rawDecidedBy } = body;
+    const { threadKey, approvalId, approved, decidedBy: rawDecidedBy, source } = body;
     if (
       typeof threadKey !== "string" ||
       typeof approvalId !== "string" ||
@@ -2919,6 +2963,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       typeof rawDecidedBy === "string" && rawDecidedBy.trim()
         ? rawDecidedBy.slice(0, 200)
         : "unknown";
+    const storedApproval = this.approvals.find((record) => record.approvalId === approvalId && record.threadKey === threadKey);
+    const forbidden = approvalResolveForbidden(this.env, {
+      threadKey,
+      approved,
+      decidedBy,
+      source,
+      ...(storedApproval && threadKey.startsWith("acp:")
+        ? { ownedAcpApproval: { orchestratorName: this.name, threadKey: storedApproval.threadKey } }
+        : {}),
+    });
+    if (forbidden !== null) {
+      return Response.json({ error: forbidden }, { status: 403 });
+    }
     // A retried resolve (double-clicked card, redelivered callback) reads
     // the durable command receipt and learns the original answer instead
     // of re-litigating the decision — the receipt, the pointer update,
@@ -3116,7 +3173,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let codingModel = input.codingModel;
     let connectionId = input.connectionId;
     let sandboxProvider: string | undefined;
-    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    const intakeOrgId = intakeOrgIdForOrchestrator(this.name, input as Record<string, unknown>);
     let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> | undefined;
     if (input.skillPins !== undefined && input.skillPins.length > 0) {
       const skillOwnerId = initiatorUserIdFromOrchestratorName(this.name);
@@ -3173,11 +3230,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       connectionId,
       ...(sandboxProvider ? { sandboxProvider } : {}),
     });
-    const runEnv = await this.intakeRunEnv(this.composerEnv(), input.runtime);
+    const runEnv = await this.intakeRunEnv(this.composerEnv(), resolveRuntimeName(this.env.RUNTIME));
     const runSetup = this.composerRunSetup();
-    if (runSetup && (input.runtime ?? resolveRuntimeName(this.env.RUNTIME)) === "local") {
+    const deploymentRuntime = resolveRuntimeName(this.env.RUNTIME);
+    if (deploymentRuntime === "computer") throw new Error(COMPUTER_PREVIEW_MESSAGE);
+    const chatFrozenRuntime =
+      deploymentRuntime === "local" && isDashboardAgentName(this.name) ? ("local" as const) : ("sandbox" as const);
+    if (runSetup && chatFrozenRuntime === "local") {
       throw new Error("Repo setup isn't supported on the local runtime yet.");
     }
+    if (chatFrozenRuntime === "local" && !isDashboardAgentName(this.name)) {
+      throw new Error('runtime "local" requires SHIBA_LOCAL_RUNTIME=1 and a dashboard session.');
+    }
+    const chatInitiator = initiatorUserIdFromOrchestratorName(this.name);
     const pendingApprovals = createPendingApproval(this.approvals, {
         ...onboardingRunFields(goalBinding ?? {}),
         threadKey: this.name ?? "default",
@@ -3197,11 +3262,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(typeof input.authAccount === "string" && input.authAccount.trim()
           ? { authAccount: input.authAccount.trim().slice(0, 32) }
           : {}),
-        ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
+        runtime: chatFrozenRuntime,
         ...(expectedDeliverables !== undefined ? { expectedDeliverables } : {}),
         ...(skillPins !== undefined ? { skillPins } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
         ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
+        ...(chatInitiator ? { queuedBy: chatInitiator } : {}),
       createdAt: Date.now(),
     });
     const pendingRecord = pendingApprovals.find((item) => item.approvalId === toolCallId);
@@ -3755,6 +3821,26 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const pull = parent?.pullUrl ? this.parsePull(parent.pullUrl) : null;
     const roundId = run.reviewRoundId ?? `${run.reviewOf ?? run.runId}:head`;
     const envelope = parseReviewEnvelope(output);
+    if (!envelope.findingsPresent || envelope.rejected > 0) {
+      this.writeRound({
+        roundId,
+        codingRunId: parent?.runId ?? run.reviewOf ?? run.runId,
+        reviewRunId: run.runId,
+        pull: {
+          owner: pull?.owner ?? "",
+          repo: pull?.repo ?? "",
+          number: pull?.number ?? 0,
+          headSha: pull ? await this.pullHeadSha(pull.owner, pull.repo, pull.number) : "head",
+          url: parent?.pullUrl ?? "",
+        },
+        status: "failed",
+        findings: [],
+        summary: envelope.summary,
+        error: envelope.rejected > 0 ? "review_findings_invalid" : "review_findings_missing",
+        generation: run.generation,
+      });
+      return;
+    }
     const headSha = pull ? await this.pullHeadSha(pull.owner, pull.repo, pull.number) : "head";
     const round: ReviewRound = {
       roundId,
@@ -3782,6 +3868,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     try {
       const posted = await postReview(round, githubCred.token, {
         apiBase: githubCred.apiBase,
+        credentialMode: githubCred.mode,
         inlineThreshold: this.inlineReviewThreshold(),
       });
       const postedRound: ReviewRound = {
@@ -5096,6 +5183,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     try {
       const posted = await postReview(round, cred.token, {
         apiBase: cred.apiBase,
+        credentialMode: cred.mode,
         inlineThreshold: this.inlineReviewThreshold(),
       });
       const next: ReviewRound = { ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() };

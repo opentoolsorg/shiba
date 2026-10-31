@@ -251,7 +251,11 @@ describe("dashboard inbox routes", () => {
     const env = makeEnv({ [DIRECTORY]: directory });
     const payload = JSON.stringify({ address: "agent@shiba.dev", label: "Agent" });
     const response = await worker.fetch(
-      new Request("http://localhost/api/mailboxes", { method: "POST", body: payload }),
+      new Request("http://localhost/api/mailboxes", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: payload,
+      }),
       env,
       ctx,
     );
@@ -263,11 +267,45 @@ describe("dashboard inbox routes", () => {
       { method: "POST", match: "/internal/mailbox/mailboxes", body: { error: "address required" }, status: 400 },
     ]);
     const bad = await worker.fetch(
-      new Request("http://localhost/api/mailboxes", { method: "POST", body: "{}" }),
+      new Request("http://localhost/api/mailboxes", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: "{}",
+      }),
       makeEnv({ [DIRECTORY]: rejecting }),
       ctx,
     );
     expect(bad.status).toBe(400);
+  });
+
+  it("POST /api/mailboxes rejects cross-site and non-JSON mutations", async () => {
+    const directory = makeStub([
+      { method: "POST", match: "/internal/mailbox/mailboxes", body: { mailbox: { address: "agent@shiba.dev" } }, status: 201 },
+    ]);
+    const env = makeEnv({ [DIRECTORY]: directory });
+    const payload = JSON.stringify({ address: "agent@shiba.dev" });
+    const crossSite = await worker.fetch(
+      new Request("http://localhost/api/mailboxes", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://evil.example" },
+        body: payload,
+      }),
+      env,
+      ctx,
+    );
+    expect(crossSite.status).toBe(403);
+    expect(directory.calls).toHaveLength(0);
+    const wrongType = await worker.fetch(
+      new Request("http://localhost/api/mailboxes", {
+        method: "POST",
+        headers: { "content-type": "text/plain", origin: "http://localhost" },
+        body: payload,
+      }),
+      env,
+      ctx,
+    );
+    expect(wrongType.status).toBe(415);
+    expect(directory.calls).toHaveLength(0);
   });
 
   it("GET /api/emails fans out across mailboxes, tags each row, sorts newest first", async () => {

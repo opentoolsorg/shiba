@@ -6,7 +6,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const ENV_FILE = ".env";
 const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -21,8 +21,12 @@ if (existsSync(ENV_FILE)) {
     if (m) env[m[1]] = m[2];
   }
 }
-const save = () =>
+const save = () => {
+  if (existsSync(ENV_FILE)) {
+    chmodSync(ENV_FILE, 0o600);
+  }
   writeFileSync(ENV_FILE, Object.entries(env).filter(([, v]) => v !== "").map(([k, v]) => `${k}=${v}`).join("\n") + "\n", { mode: 0o600 });
+};
 const ask = async (name, hint, fallback = env[name] ?? "") => {
   const shown = fallback && /TOKEN|SECRET|KEY/.test(name) ? "<kept>" : fallback;
   const answer = (await rl.question(`${name} — ${hint}${shown ? ` [${shown}]` : ""}: `)).trim();

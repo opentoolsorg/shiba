@@ -55,11 +55,40 @@ case "$url" in
 esac
 
 # Flatten a single top-level directory (archives like amp-acp-<plat>/).
-n_entries="$(find "$tmp/x" -mindepth 1 -maxdepth 1 | wc -l)"
-if [ "$n_entries" = "1" ] && [ -d "$tmp/x"/* ]; then
-  mv "$tmp/x"/*/* "$dest"/ 2>/dev/null || cp -R "$tmp/x"/*/* "$dest"/
+# Never follow symlinks: a malicious archive could point outside staging.
+safe_top_dir() {
+  _candidate="$1"
+  [ -L "$_candidate" ] && return 1
+  [ -d "$_candidate" ] || return 1
+  _real="$(cd "$_candidate" 2>/dev/null && pwd -P)" || return 1
+  _staging="$(cd "$tmp/x" 2>/dev/null && pwd -P)" || return 1
+  case "$_real" in
+    "$_staging"|"$_staging"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+n_entries="$(find "$tmp/x" -mindepth 1 -maxdepth 1 ! -type l | wc -l)"
+  if [ "$n_entries" = "1" ]; then
+  _top="$(find "$tmp/x" -mindepth 1 -maxdepth 1 ! -type l -print -quit)"
+  if safe_top_dir "$_top"; then
+    for _entry in "$_top"/*; do
+      [ -e "$_entry" ] || continue
+      [ -L "$_entry" ] && continue
+      _base="$(basename "$_entry")"
+      mv "$_entry" "$dest/$_base" 2>/dev/null || cp -R "$_entry" "$dest/$_base"
+    done
+  else
+    echo "shiba-acp-install: archive layout escapes staging (symlink or path traversal)" >&2
+    exit 1
+  fi
 else
-  mv "$tmp/x"/* "$dest"/ 2>/dev/null || cp -R "$tmp/x"/* "$dest"/
+  for _entry in "$tmp/x"/*; do
+    [ -e "$_entry" ] || continue
+    [ -L "$_entry" ] && continue
+    _base="$(basename "$_entry")"
+    mv "$_entry" "$dest/$_base" 2>/dev/null || cp -R "$_entry" "$dest/$_base"
+  done
 fi
 
 # Executable bit: anything the registry names as cmd must run.

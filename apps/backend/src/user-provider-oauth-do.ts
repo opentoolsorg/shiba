@@ -39,6 +39,10 @@ function xaiTokenEndpointKey(): string {
   return "xai:token-endpoint";
 }
 
+function oauthGenerationKey(provider: UserOAuthProvider): string {
+  return `oauth-generation:${provider}`;
+}
+
 export function userProviderOAuthStub(
   env: Pick<Env, "UserProviderOAuth">,
   userId: string,
@@ -81,6 +85,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       }
       if (url.pathname === "/logout" && request.method === "DELETE") {
         if (!provider) return Response.json({ error: "provider required" }, { status: 400 });
+        await this.invalidateOAuthGeneration(provider);
         await deleteUserOAuthRecord(this.env, this.userId(), provider);
         await this.ctx.storage.delete(pendingKey(provider));
         return Response.json({ ok: true });
@@ -95,6 +100,28 @@ export class UserProviderOAuth extends DurableObject<Env> {
 
   private userId(): string {
     return this.ctx.id.name ?? "default";
+  }
+
+  private async oauthGeneration(provider: UserOAuthProvider): Promise<number> {
+    return (await this.ctx.storage.get<number>(oauthGenerationKey(provider))) ?? 0;
+  }
+
+  private async invalidateOAuthGeneration(provider: UserOAuthProvider): Promise<void> {
+    const next = (await this.oauthGeneration(provider)) + 1;
+    await this.ctx.storage.put(oauthGenerationKey(provider), next);
+  }
+
+  private async assertOAuthGenerationOnly(provider: UserOAuthProvider, expected: number): Promise<void> {
+    if ((await this.oauthGeneration(provider)) !== expected) {
+      throw new Error("Not connected.");
+    }
+  }
+
+  private async assertOAuthGeneration(provider: UserOAuthProvider, expected: number): Promise<void> {
+    await this.assertOAuthGenerationOnly(provider, expected);
+    if ((await loadUserOAuthRecord(this.env, this.userId(), provider)) === null) {
+      throw new Error("Not connected.");
+    }
   }
 
   private async status(provider: UserOAuthProvider): Promise<{ connected: boolean; expiresAt?: number }> {
@@ -165,6 +192,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
 
     if (provider === "cursor") {
       const pending = pendingRaw as PendingCursorSignIn;
+      const generation = await this.oauthGeneration(provider);
       const verifier = await openOAuthPendingField(this.env, userId, provider, "verifier", pending.verifierCipher);
       const poll = await pollCursorOnce(pending.uuid, verifier);
       if (poll.status === "pending") {
@@ -173,6 +201,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
           message: "Still waiting for Cursor approval in the browser. Finish sign-in again in a few seconds.",
         });
       }
+      await this.assertOAuthGenerationOnly(provider, generation);
       await saveUserOAuthRecord(this.env, userId, provider, poll.record);
       await this.ctx.storage.delete(pendingKey(provider));
       return Response.json({
@@ -197,6 +226,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       pending.codeVerifierCipher,
     );
 
+    const generation = await this.oauthGeneration(provider);
     let record;
     if (provider === "antigravity") {
       const client = resolveAntigravityOAuthClient(this.env);
@@ -212,6 +242,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       return Response.json({ error: "Unknown provider." }, { status: 400 });
     }
 
+    await this.assertOAuthGenerationOnly(provider, generation);
     await saveUserOAuthRecord(this.env, userId, provider, record);
     await this.ctx.storage.delete(pendingKey(provider));
     const label =
@@ -230,6 +261,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
     const record = await loadUserOAuthRecord(this.env, this.userId(), provider);
     if (!record) throw new Error("Not connected.");
     if (record.expiresAt > Date.now() + 60_000) return record;
+    const generation = await this.oauthGeneration(provider);
     let refreshed;
     if (provider === "antigravity") {
       const client = resolveAntigravityOAuthClient(this.env);
@@ -243,6 +275,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       await this.ctx.storage.put(xaiTokenEndpointKey(), tokenEndpoint);
     }
     const merged = { ...refreshed, projectId: refreshed.projectId ?? record.projectId };
+    await this.assertOAuthGeneration(provider, generation);
     await saveUserOAuthRecord(this.env, this.userId(), provider, merged);
     return merged;
   }

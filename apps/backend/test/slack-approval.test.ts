@@ -47,8 +47,12 @@ function slackHeaders(timestamp: string, signature: string): Record<string, stri
 function testDeps(overrides: Partial<{ pending: boolean }> = {}) {
   const pending = overrides.pending ?? true;
   return {
-    dispatchApprove: vi.fn(async (_pointer: ApprovalPointer, _userId: string): Promise<void> => {}),
-    dispatchReject: vi.fn(async (_pointer: ApprovalPointer, _userId: string): Promise<void> => {}),
+    dispatchApprove: vi.fn(async (_pointer: ApprovalPointer, _userId: string): Promise<{ result: string }> => ({
+      result: "approved",
+    })),
+    dispatchReject: vi.fn(async (_pointer: ApprovalPointer, _userId: string): Promise<{ result: string }> => ({
+      result: "rejected",
+    })),
     respond: vi.fn(async (_responseUrl: string, _text: string): Promise<void> => {}),
     replaceCard: vi.fn(async (_responseUrl: string, _body: Record<string, unknown>): Promise<void> => {}),
     isUnresolved: vi.fn(async (_pointer: ApprovalPointer): Promise<boolean> => pending),
@@ -131,6 +135,18 @@ describe("approval pointer value", () => {
 });
 
 describe("buildApprovalBlocks", () => {
+  it("escapes thread and approval identifiers in context mrkdwn", () => {
+    const blocks = buildApprovalBlocks({
+      repoUrl: "https://github.com/o/r",
+      task: "t",
+      threadKey: "evil` · <!channel>",
+      approvalId: "appr`<!here>",
+    });
+    const context = JSON.stringify(blocks[1]);
+    expect(context).not.toContain("<!channel>");
+    expect(context).toContain("&lt;!channel&gt;");
+  });
+
   it("renders the exact structured input and pointer-valued buttons", () => {
     const pointer = { threadKey: "slack:T:C:123.456", approvalId: "appr_1" };
     const blocks = buildApprovalBlocks({
@@ -410,6 +426,24 @@ describe("handleSlackInteract", () => {
     expect(response?.status).toBe(200);
     await vi.waitFor(() => expect(respond).toHaveBeenCalledOnce());
     expect(respond.mock.calls[0]![1]).toContain("could not be recorded");
+  });
+
+  it("records the orchestrator outcome on the card, not the clicked button when they differ", async () => {
+    const deps = testDeps();
+    deps.dispatchApprove.mockResolvedValueOnce({ result: "rejected" });
+    const blocks = buildApprovalBlocks({ threadKey: THREAD, approvalId: "appr_1", repoUrl: "https://github.com/o/r", task: "fix it" });
+    const request = await signedInteractRequest({
+      userId: "U1",
+      actionId: "approve",
+      threadKey: THREAD,
+      approvalId: "appr_1",
+      blocks,
+    });
+    await handleSlackInteract(request, routeEnv("U1"), deps);
+    expect(deps.replaceCard).toHaveBeenCalledOnce();
+    const body = deps.replaceCard.mock.calls[0]![1] as { blocks: unknown[] };
+    expect(JSON.stringify(body.blocks)).toContain("*Rejected*");
+    expect(JSON.stringify(body.blocks)).not.toContain("*Approved* by");
   });
 
   it("approve replaces the card: buttons gone, approver and running status shown", async () => {

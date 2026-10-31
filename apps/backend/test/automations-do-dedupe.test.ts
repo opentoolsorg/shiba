@@ -99,6 +99,18 @@ describe("Automations DO dedupe storage", () => {
     });
   });
 
+  it("keeps GitHub payload replay keys outside sweeps and migrates legacy keys", async () => {
+    const { do: automation, storage } = makeDo();
+    storage.data.set("dedupe:gh-payload:legacy", Date.now() - 3_600_001);
+    expect(await (await automation.fetch(dedupeRequest("gh-payload:legacy"))).json()).toEqual({ seen: true });
+    await automation.fetch(dedupeRequest("gh-payload:new"));
+    expect(storage.data.has("dedupe:gh-payload:new")).toBe(false);
+    expect(storage.data.has("dedupe:gh-payload:legacy")).toBe(false);
+    expect(storage.data.has("github-payload-replay:gh-payload:legacy")).toBe(true);
+    expect(storage.data.has("github-payload-replay:gh-payload:new")).toBe(true);
+    expect(await (await automation.fetch(dedupeRequest("gh-payload:legacy"))).json()).toEqual({ seen: true });
+  });
+
   it("throttles sweeps under separate metadata and preserves it across DO recreation", async () => {
     const storage = new FakeDurableStorage();
     const first = makeDo(storage).do;

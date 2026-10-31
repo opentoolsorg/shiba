@@ -353,6 +353,33 @@ describe("authorize + exchange", () => {
     // The rotated-out refresh is refused, not replayed.
     expect((await refresh(token.refresh_token as string))!.status).toBe(400);
   });
+
+  it("returns 503 on revoke when the credential store read fails", async () => {
+    const { env, kv } = makeEnv();
+    const { token } = await fullGrant(env);
+    const originalGet = kv.get.bind(kv);
+    kv.get = async (key: string) => {
+      if (String(key).includes("oauth_at_")) throw new Error("kv down");
+      return originalGet(key);
+    };
+    const response = await handleOAuth(new Request(`${ORIGIN}/oauth/revoke`, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: token.access_token as string }).toString(),
+    }), env, null);
+    expect(response!.status).toBe(503);
+  });
+
+  it("allows only one concurrent refresh rotation to succeed", async () => {
+    const { env } = makeEnv();
+    const { token } = await fullGrant(env);
+    const refresh = () => handleOAuth(new Request(`${ORIGIN}/oauth/token`, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token.refresh_token as string }).toString(),
+    }), env, null);
+    const [first, second] = await Promise.all([refresh(), refresh()]);
+    const statuses = [first!.status, second!.status].sort();
+    expect(statuses).toEqual([200, 400]);
+  });
 });
 
 describe("rate limiting + audit", () => {

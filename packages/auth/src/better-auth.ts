@@ -179,7 +179,7 @@ export function publicBootstrap(
   const requirements = bootstrapRequirements(env);
   return {
     ...requirements,
-    locked: !isLoopbackRequest(request) && !requirements.requiresToken && !requirements.requiresOwnerEmail,
+    locked: !isLoopbackRequest(request) && !requirements.requiresToken,
   };
 }
 
@@ -204,18 +204,19 @@ function assertOwnerBootstrap(
       message: "This email is not allowed to create the dashboard owner.",
     });
   }
-  if (token) {
+  const loopback = isLoopbackRequest(request);
+  if (!loopback || token) {
+    if (!token) {
+      throw new APIError("FORBIDDEN", {
+        message: "Sign-up is locked until a setup token is configured.",
+      });
+    }
     const provided = request?.headers.get(BETTER_AUTH_BOOTSTRAP_HEADER) ?? "";
     if (!secretsEqual(token, provided)) {
       throw new APIError("FORBIDDEN", {
         message: "A setup token is required to create the first account.",
       });
     }
-  }
-  if (!token && !owner && !isLoopbackRequest(request)) {
-    throw new APIError("FORBIDDEN", {
-      message: "Sign-up is locked until a setup token or an allowlisted owner email is configured.",
-    });
   }
 }
 

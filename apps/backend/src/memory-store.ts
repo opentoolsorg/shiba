@@ -61,6 +61,9 @@ export const MEMORY_STATEMENTS: readonly string[] = [
   // Purge bookkeeping: a TTL-expired row is dequeued only after its
   // vector + registry cleanup lands, so a cleanup that outlives the row
   // delete is retried by the next read instead of lost with it.
+  `CREATE TABLE IF NOT EXISTS index_repair_pending (
+     fact_id TEXT PRIMARY KEY
+   )`,
   `CREATE TABLE IF NOT EXISTS purge_pending (
      fact_id TEXT PRIMARY KEY,
      enqueued_at INTEGER NOT NULL
@@ -185,6 +188,18 @@ export class MemoryStore {
     for (const statement of MEMORY_STATEMENTS) {
       this.exec(statement);
     }
+  }
+
+  markIndexRepair(id: string): void {
+    this.exec(`INSERT OR IGNORE INTO index_repair_pending (fact_id) VALUES (?)`, id);
+  }
+
+  pendingIndexRepairs(): string[] {
+    return this.exec(`SELECT fact_id FROM index_repair_pending LIMIT 128`).map((row) => String(row.fact_id));
+  }
+
+  clearIndexRepair(id: string): void {
+    this.exec(`DELETE FROM index_repair_pending WHERE fact_id = ?`, id);
   }
 
   // -- facts (per-agent stub) ------------------------------------------------

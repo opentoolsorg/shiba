@@ -165,8 +165,48 @@ export interface SwarmIntake {
   url?: string;
 }
 
+const MAX_SWARM_INTAKE_CHARS = 16_384;
+
+function parseLinearIssueUrl(trimmed: string): SwarmIntake | null {
+  if (trimmed.length > MAX_SWARM_INTAKE_CHARS) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "linear.app") return null;
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  if (segments.length < 3 || segments[1] !== "issue") return null;
+  const keyMatch = segments[2]!.match(/^([A-Z][A-Z0-9]+-\d+)$/i);
+  if (!keyMatch) return null;
+  const key = keyMatch[1] ?? "";
+  const slug = segments[3];
+  let title = key;
+  if (slug && !slug.includes("/")) {
+    const withSpaces = slug.replace(/-/g, " ");
+    title = withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+  }
+  return {
+    source: "linear",
+    title,
+    prompt: `Linear ${key}: ${title}\n${trimmed}`,
+    externalId: key,
+    url: trimmed,
+  };
+}
+
 export function parseSwarmIntake(text: string): SwarmIntake {
   const trimmed = text.trim();
+  if (trimmed.length > MAX_SWARM_INTAKE_CHARS) {
+    return {
+      source: "plain",
+      title: trimmed.slice(0, 120),
+      prompt: trimmed.slice(0, MAX_SWARM_INTAKE_CHARS),
+      externalId: undefined,
+      url: undefined,
+    };
+  }
   if (!trimmed) {
     return {
       source: "plain",
@@ -177,28 +217,8 @@ export function parseSwarmIntake(text: string): SwarmIntake {
     };
   }
 
-  // Linear issue URL: https://linear.app/<org>/issue/<KEY>-<n>/<slug> (or without slug)
-  // Example: https://linear.app/myorg/issue/ENG-123/fix-the-login
-  const linearUrlRegex = /^https:\/\/linear\.app\/[^/]+\/issue\/([A-Z][A-Z0-9]+-\d+)(?:\/([^/\s?#]+))?.*$/i;
-  const linearUrlMatch = trimmed.match(linearUrlRegex);
-  if (linearUrlMatch) {
-    const key = linearUrlMatch[1] ?? "";
-    const slug = linearUrlMatch[2];
-    let title = key;
-    if (slug) {
-      const withSpaces = slug.replace(/-/g, " ");
-      title = withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
-    }
-    const url = trimmed;
-    const prompt = `Linear ${key}: ${title}\n${url}`;
-    return {
-      source: "linear",
-      title,
-      prompt,
-      externalId: key,
-      url,
-    };
-  }
+  const linearFromUrl = parseLinearIssueUrl(trimmed);
+  if (linearFromUrl) return linearFromUrl;
 
   // Bare key line: ENG-123: Fix the login (regex ^([A-Z][A-Z0-9]+-\d+):\s+(.+)$ on trimmed text, single line)
   const bareKeyRegex = /^([A-Z][A-Z0-9]+-\d+):\s+(.+)$/;

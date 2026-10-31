@@ -17,7 +17,7 @@ import {
   reconcileConnectionOrder,
   type Connection,
 } from "./model-connections.js";
-import { isAccessConfigured, resolveUserId } from "./request-auth.js";
+import { isAccessConfigured, resolveUserId, requireSameOriginBrowserMutation } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { readSetupStatus } from "./setup-status.js";
 import { applySetupFix, setupWizardCatalog } from "./setup-fixes.js";
@@ -95,6 +95,8 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
     if (request.method !== "POST") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });
     }
+    const csrf = requireSameOriginBrowserMutation(request);
+    if (csrf) return csrf;
     let body: unknown;
     try {
       body = await request.json();
@@ -179,6 +181,10 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
       );
     }
     const inner = url.pathname.slice("/api/model-config".length);
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      const csrf = requireSameOriginBrowserMutation(request);
+      if (csrf) return csrf;
+    }
     return stub.fetch(new Request(`https://internal${inner}${url.search}`, request));
   }
   return null;

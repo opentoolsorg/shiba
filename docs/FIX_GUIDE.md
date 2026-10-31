@@ -26,14 +26,14 @@ Set these on the live Worker. Wrangler names:
 | `BETTER_AUTH_SECRET` | secret, 32 characters or more | Already on. Keep it. Signing key for the session cookie. |
 | `BETTER_AUTH_URL` | plain var | Already `https://app.tryshiba.dev` in `apps/backend/wrangler.jsonc`. Cookie scope and origin checks. Do not point it at another host. |
 | `AGENT_AUDIT` | D1 binding | Database name `shiba-audit`, id in `apps/backend/wrangler.jsonc`. Auth tables and `audit_log`. |
-| `BETTER_AUTH_BOOTSTRAP_TOKEN` | secret | One of the two first-account locks. The sign-up form sends it as header `x-shiba-bootstrap-token`. |
-| `BETTER_AUTH_OWNER_EMAIL` | secret | The other lock. Only this email can create the first account. Compared with case ignored. |
+| `BETTER_AUTH_BOOTSTRAP_TOKEN` | secret | Required first-account lock on public hosts. The sign-up form sends it as header `x-shiba-bootstrap-token`. |
+| `BETTER_AUTH_OWNER_EMAIL` | secret | Optional additional lock. Only this email can create the first account. Compared with case ignored. |
 | `MODEL_CREDENTIAL_KEY` | secret, 64 hex characters | Encrypts Codex tokens, Claude setup tokens, and pasted Gemini, xAI, OpenCode, and DeepSeek keys. Generate with `openssl rand -hex 32`. Required before Finish sign-in or Use API credential can store anything. |
 | `AI_GATEWAY_TOKEN` | secret | Optional. Not used by the Providers cards. Leave unset if you do not want a gateway. |
 | `AGENT_TOKENS` | KV binding | Already in wrangler. Holds the encrypted provider grant and pasted keys. Not D1. |
 | `ChatGptAuth` | Durable Object | Already in wrangler. Holds the Codex device-code pending grant and the encrypted ChatGPT connection. |
 
-Set **either** `BETTER_AUTH_BOOTSTRAP_TOKEN` **or** `BETTER_AUTH_OWNER_EMAIL` before anyone can claim the public dashboard. You can set both. Loopback `wrangler dev` can still create the first account without them. `https://app.tryshiba.dev` cannot.
+Set `BETTER_AUTH_BOOTSTRAP_TOKEN` before anyone can claim the public dashboard. Set `BETTER_AUTH_OWNER_EMAIL` to further restrict signup to the owner. Loopback `wrangler dev` can still create the first account without them. `https://app.tryshiba.dev` cannot.
 
 Leave every other existing secret in place. An Alchemy deploy (`pnpm run deploy:alchemy`) **deletes Worker secrets that are missing from the root `.env`**. If you use Alchemy, copy every name in `apps/backend/worker-secrets.json` into `.env` first, including `MODEL_CREDENTIAL_KEY`. `wrangler secret put` does not delete the others.
 
@@ -81,7 +81,7 @@ Pass looks like: deploy exits 0 and `https://app.tryshiba.dev/api/whoami` still 
 curl -sS -m 20 https://app.tryshiba.dev/api/auth/bootstrap
 ```
 
-Pass looks like JSON. `locked` is false when a token or owner email is set. `locked` is true when neither is set. The body must not contain the token or the email.
+Pass looks like JSON. On public hosts, `locked` is false when a token is set and true when it is absent, even if an owner email is set. The body must not contain the token or the email.
 
 ## 4. Did shiba-qa-test@example.com become the owner?
 
