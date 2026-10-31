@@ -156,7 +156,7 @@ function toolRow(row: Record<string, unknown> | null, catalogId: string | null =
   let inputSchema: unknown;
   try { inputSchema = JSON.parse(row.input_schema_json); } catch { return null; }
   if (!isRecord(inputSchema)) return null;
-  const recommended = recommendedExternalMcpToolEffect(catalogId, row.remote_name as string);
+  const recommended = catalogId ? recommendedExternalMcpToolEffect(catalogId, row.remote_name as string) : "unreviewed";
   return { id: row.id, serverId: row.server_id, remoteName: row.remote_name,
     capabilityId: row.capability_id,
     gatewayName: row.gateway_name, description: row.description, inputSchema, schemaVersion: row.schema_version,
@@ -425,10 +425,20 @@ export async function createExternalMcpServer(env: Env, input: {
   }
   if (!name || name.length > 80 || (input.credentialRef && !CREDENTIAL_REF.test(input.credentialRef))) throw new Error("invalid_registration");
   const now = Date.now(); const id = crypto.randomUUID().replaceAll("-", "");
-  await env.AGENT_AUDIT.prepare(`INSERT INTO external_mcp_servers (id, org_id, owner_id, name, transport, endpoint, credential_ref,
+  try {
+    await env.AGENT_AUDIT.prepare(`INSERT INTO external_mcp_servers (id, org_id, owner_id, name, transport, endpoint, credential_ref,
     status, generation, health, catalog_id, connection_label, visibility, auth_mode, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'streamable_http', ?, ?, 'draft', 1, 'unknown', ?, ?, ?, ?, ?, ?)`)
-    .bind(id, input.orgId, input.ownerId, name, endpoint, input.credentialRef, catalogId, connectionLabel, visibility, authMode, now, now).run();
+      .bind(id, input.orgId, input.ownerId, name, endpoint, input.credentialRef, catalogId, connectionLabel, visibility, authMode, now, now).run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/UNIQUE constraint failed/i.test(message) &&
+        (message.includes("external_mcp_catalog_label") ||
+         ["org_id", "owner_id", "catalog_id", "connection_label"].every((column) => message.includes(`external_mcp_servers.${column}`)))) {
+      throw new Error("connection_label_taken");
+    }
+    throw error;
+  }
   return getExternalMcpServer(env, input.orgId, input.ownerId, id);
 }
 

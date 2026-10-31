@@ -357,6 +357,9 @@ export function ExternalMcpManagement(): JSX.Element {
             </div>
           </form>
           {server.tools.map((tool) => {
+            const recommendation = tool.recommendedEffect === "unreviewed" ? undefined : tool.recommendedEffect;
+            const effectiveEffect = effectChoices[tool.id] ?? recommendation ??
+              (tool.effect === "unreviewed" ? "" : tool.effect);
             const principalGrants = (access[server.id] ?? [])
               .filter((grant) => grant.capabilityId === tool.capabilityId && grant.enabled)
               .map((grant) => grant.principal);
@@ -387,11 +390,7 @@ export function ExternalMcpManagement(): JSX.Element {
                     <select
                       aria-label={`Effect for ${tool.remoteName}`}
                       className={inputClass}
-                      value={
-                        effectChoices[tool.id] ??
-                          tool.recommendedEffect ??
-                          (tool.effect === "unreviewed" ? "" : tool.effect)
-                      }
+                      value={effectiveEffect}
                       onChange={(event) => {
                         if (
                           event.target.value === "read" ||
@@ -413,7 +412,7 @@ export function ExternalMcpManagement(): JSX.Element {
                   <button
                     type="button"
                     className={buttonClass}
-                    disabled={busy !== null || !effectChoices[tool.id]}
+                    disabled={busy !== null || !effectiveEffect}
                     onClick={() =>
                       void run(
                         `review:${tool.id}`,
@@ -421,7 +420,7 @@ export function ExternalMcpManagement(): JSX.Element {
                           await request(`${base}/${server.id}/tools/${tool.id}/review`, {
                             method: "POST",
                             body: JSON.stringify({
-                              effect: effectChoices[tool.id],
+                              effect: effectiveEffect,
                               schemaVersion: tool.schemaVersion,
                             }),
                           });

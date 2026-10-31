@@ -42,6 +42,9 @@ export interface ExternalMcpOAuthTokens {
   expiresAt: number;
   scope?: string;
   tokenType: string;
+  tokenEndpoint?: string;
+  clientId?: string;
+  revocationEndpoint?: string;
 }
 
 export interface ExternalMcpOAuthPending {
@@ -51,6 +54,7 @@ export interface ExternalMcpOAuthPending {
   catalogId: string;
   redirectUri: string;
   codeVerifierCipher: string;
+  revocationEndpoint?: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
   clientId: string;
@@ -97,14 +101,19 @@ async function loadPendingByState(env: Env, state: string): Promise<(ExternalMcp
     .first<Record<string, unknown>>();
   if (!row || typeof row.server_id !== "string" || typeof row.code_verifier_cipher !== "string") return null;
   if (!oauthReady(env)) return null;
-  const codeVerifier = await decryptAuthJson(
+  const pendingSecret = await decryptAuthJson(
     row.code_verifier_cipher as string,
     env.MODEL_CREDENTIAL_KEY!,
     String(row.org_id),
     String(row.owner_id),
     `external-mcp-pending:${row.server_id}`,
   );
+  // Older pending rows encrypted only the verifier; new rows also retain vendor metadata.
+  const secret = pendingSecret.startsWith("{")
+    ? JSON.parse(pendingSecret) as { verifier: string; revocationEndpoint?: string }
+    : { verifier: pendingSecret };
   return {
+    revocationEndpoint: secret.revocationEndpoint,
     serverId: row.server_id as string,
     orgId: row.org_id as string,
     ownerId: row.owner_id as string,
@@ -116,7 +125,7 @@ async function loadPendingByState(env: Env, state: string): Promise<(ExternalMcp
     clientId: row.client_id as string,
     scopes: row.scopes as string,
     expiresAt: row.expires_at as number,
-    codeVerifier,
+    codeVerifier: secret.verifier,
   };
 }
 
@@ -136,6 +145,13 @@ export async function ensureExternalMcpOAuthSchema(env: Env): Promise<void> {
       scopes TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL
+    )`,
+  ).run();
+  await env.AGENT_AUDIT.prepare(
+    `CREATE TABLE IF NOT EXISTS external_mcp_oauth_refresh_locks (
+      server_id TEXT PRIMARY KEY,
+      lease_id TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
     )`,
   ).run();
   await ensureSubscriptionCredentialSchema(env);
@@ -159,7 +175,7 @@ export async function beginExternalMcpOAuthConnect(
   const { verifier, challenge } = await generatePkce();
   const state = randomHex(24);
   const cipher = await encryptAuthJson(
-    verifier,
+    JSON.stringify({ verifier, revocationEndpoint: input.discovery.authorizationServer.revocation_endpoint }),
     env.MODEL_CREDENTIAL_KEY!,
     input.orgId,
     input.ownerId,
@@ -202,12 +218,14 @@ export async function beginExternalMcpOAuthConnect(
 
 export async function exchangeExternalMcpOAuthCode(
   env: Env,
-  input: { state: string; code: string },
+  input: { state: string; code: string; principal: { orgId: string; principal: string } },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ serverId: string; orgId: string; ownerId: string }> {
   if (!oauthReady(env)) throw new Error("oauth_storage_unavailable");
   const pending = await loadPendingByState(env, input.state);
-  if (!pending) throw new Error("oauth_state_invalid");
+  if (!pending || pending.orgId !== input.principal.orgId || pending.ownerId !== input.principal.principal) {
+    throw new Error("oauth_state_invalid");
+  }
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: input.code,
@@ -233,6 +251,9 @@ export async function exchangeExternalMcpOAuthCode(
   if (!tokenJson.access_token) throw new Error("oauth_token_exchange_failed");
   const expiresAt = Date.now() + (tokenJson.expires_in ?? 3600) * 1000;
   const tokens: ExternalMcpOAuthTokens = {
+    tokenEndpoint: pending.tokenEndpoint,
+    clientId: pending.clientId,
+    revocationEndpoint: pending.revocationEndpoint,
     accessToken: tokenJson.access_token,
     refreshToken: tokenJson.refresh_token,
     expiresAt,
@@ -318,23 +339,36 @@ export async function revokeExternalMcpOAuth(
   input: { orgId: string; ownerId: string; serverId: string; revocationEndpoint?: string },
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
-  const tokens = await loadExternalMcpOAuthTokens(env, input.orgId, input.ownerId, input.serverId);
-  if (tokens && input.revocationEndpoint) {
-    const body = new URLSearchParams({ token: tokens.refreshToken ?? tokens.accessToken });
-    await fetchImpl(input.revocationEndpoint, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body,
-      redirect: "error",
-      signal: AbortSignal.timeout(8_000),
-    }).catch(() => {});
+  let vendorRevocationFailed = false;
+  try {
+    const tokens = await loadExternalMcpOAuthTokens(env, input.orgId, input.ownerId, input.serverId);
+    const endpoint = input.revocationEndpoint ?? tokens?.revocationEndpoint;
+    if (tokens && endpoint) {
+      const body = new URLSearchParams({
+        token: tokens.refreshToken ?? tokens.accessToken,
+        token_type_hint: tokens.refreshToken ? "refresh_token" : "access_token",
+        ...(tokens.clientId ? { client_id: tokens.clientId } : {}),
+      });
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+        redirect: "error",
+        signal: AbortSignal.timeout(8_000),
+      });
+      vendorRevocationFailed = !response.ok;
+    }
+  } catch {
+    vendorRevocationFailed = true;
+  } finally {
+    await deleteExternalMcpOAuthTokens(env, input.orgId, input.ownerId, input.serverId);
   }
-  await deleteExternalMcpOAuthTokens(env, input.orgId, input.ownerId, input.serverId);
   await audit(env, {
     principal: input.ownerId,
     tool: "external_mcp.revoke",
     argsHash: await sha256Hex(input.serverId),
-    outcome: "ok",
+    outcome: vendorRevocationFailed ? "error" : "ok",
+    ...(vendorRevocationFailed ? { detail: "vendor_revocation_failed_local_credentials_deleted" } : {}),
   });
 }
 
@@ -354,15 +388,77 @@ export async function saveExternalMcpBearerToken(
   });
 }
 
+// Single flight within a Worker isolate, scoped to the credential database and owner.
+const refreshes = new WeakMap<Env["AGENT_AUDIT"], Map<string, Promise<string | undefined>>>();
+
 export async function resolveExternalMcpBearer(
   env: Env,
   orgId: string,
   ownerId: string,
   serverId: string,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<string | undefined> {
-  const oauth = await loadExternalMcpOAuthTokens(env, orgId, ownerId, serverId);
-  if (oauth && oauth.expiresAt > Date.now()) return oauth.accessToken;
-  return undefined;
+  let inFlight = refreshes.get(env.AGENT_AUDIT);
+  if (!inFlight) { inFlight = new Map(); refreshes.set(env.AGENT_AUDIT, inFlight); }
+  const key = JSON.stringify([orgId, ownerId, serverId]);
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+  const resolve = async () => {
+    const oauth = await loadExternalMcpOAuthTokens(env, orgId, ownerId, serverId);
+    if (!oauth) return undefined;
+    if (oauth.expiresAt > Date.now()) return oauth.accessToken;
+    if (!oauth.refreshToken || !oauth.tokenEndpoint || !oauth.clientId) return undefined;
+    await ensureExternalMcpOAuthSchema(env);
+    const leaseId = crypto.randomUUID();
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const now = Date.now();
+      const lease = await env.AGENT_AUDIT.prepare(
+        `INSERT INTO external_mcp_oauth_refresh_locks (server_id, lease_id, expires_at) VALUES (?, ?, ?)
+         ON CONFLICT(server_id) DO UPDATE SET lease_id = excluded.lease_id, expires_at = excluded.expires_at
+         WHERE external_mcp_oauth_refresh_locks.expires_at <= ?`,
+      ).bind(serverId, leaseId, now + 30_000, now).run();
+      if (lease.meta.changes > 0) break;
+      const refreshed = await loadExternalMcpOAuthTokens(env, orgId, ownerId, serverId);
+      if (!refreshed) return undefined;
+      if (refreshed.expiresAt > Date.now()) return refreshed.accessToken;
+      if (Date.now() >= deadline) throw new Error("oauth_refresh_in_progress");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    try {
+      // Another isolate may have rotated the credentials while this caller waited.
+      const current = await loadExternalMcpOAuthTokens(env, orgId, ownerId, serverId);
+      if (!current) return undefined;
+      if (current.expiresAt > Date.now()) return current.accessToken;
+      if (!current.refreshToken || !current.tokenEndpoint || !current.clientId) return undefined;
+      const response = await fetchImpl(current.tokenEndpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: current.refreshToken, client_id: current.clientId }),
+        redirect: "error",
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok) throw new Error("oauth_token_exchange_failed");
+      const token = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; token_type?: string };
+      if (!token.access_token) throw new Error("oauth_token_exchange_failed");
+      const updated: ExternalMcpOAuthTokens = {
+        ...current,
+        accessToken: token.access_token,
+        refreshToken: token.refresh_token ?? current.refreshToken,
+        expiresAt: Date.now() + (token.expires_in ?? 3600) * 1000,
+        scope: token.scope ?? current.scope,
+        tokenType: token.token_type ?? current.tokenType,
+      };
+      await saveExternalMcpOAuthTokens(env, orgId, ownerId, serverId, updated);
+      return updated.accessToken;
+    } finally {
+      await env.AGENT_AUDIT.prepare("DELETE FROM external_mcp_oauth_refresh_locks WHERE server_id = ? AND lease_id = ?")
+        .bind(serverId, leaseId).run();
+    }
+  };
+  const promise = resolve();
+  inFlight.set(key, promise);
+  try { return await promise; } finally { inFlight.delete(key); }
 }
 
 export function deploymentOAuthClientEnvKey(catalogId: string): string {
