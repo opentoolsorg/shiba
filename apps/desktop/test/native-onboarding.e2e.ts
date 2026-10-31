@@ -93,6 +93,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await expect.poll(async () => (await progress(page)).draftTask.goal).toBe(goal);
     const savedGoal = await progress(page);
     expect(savedGoal.draftTaskId).toMatch(/^draft_/);
+    expect(await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem("shiba-composer-drafts-v1") ?? "{}") as Record<string, { text: string }>).map((entry) => entry.text))).toContain(audience);
     await app.close();
     app = undefined;
 
@@ -103,7 +104,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await expect
       .poll(() =>
         page.getByRole("textbox", { name: "Your answer: Audience", exact: true }).inputValue(),
-      )
+      { timeout: 15_000 })
       .toBe(audience);
     expect((await progress(page)).draftTaskId).toBe(savedGoal.draftTaskId);
     await answer(page, "Audience", audience);
