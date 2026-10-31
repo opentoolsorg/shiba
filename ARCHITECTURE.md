@@ -93,7 +93,7 @@ approves it, and the container's outbound network is allowlisted per run.
 
 | DO | Owns | Migration |
 |---|---|---|
-| `CodingOrchestrator` | one conversation per repo/project; approval state; `delegate_coding_task` | v1 |
+| `CodingOrchestrator` | conversation, approval, retained-run state, and additive logical task/attempt lineage; `delegate_coding_task` | v1 |
 | `OpenCodeAgent` | the sandbox-side coding agent session | v1 |
 | `Sandbox` | container lifecycle for one run | v1 |
 | `Automations` | automation records, dedupe, daily budget | v2 |
@@ -102,6 +102,12 @@ approves it, and the container's outbound network is allowlisted per run.
 | `Waitlist` | signups | v6 |
 | `ModelConfig` | model connections + purpose policy | v7 |
 | `LocalDispatch` | local-runtime dispatch mailbox: pending/claimed/settled run envelopes | v9 |
+
+Logical task history is an additive `tasks` field on each existing
+`CodingOrchestrator` state, not a new Durable Object or SQLite schema. Existing
+run IDs and `/api/runs` remain canonical; unlinked retained runs are backfilled
+as one-attempt legacy tasks on task-history reads. Frozen approval snapshots
+stay in orchestrator state and are omitted from the authenticated history DTO.
 
 Migration tag **v4** created `McpGateway`. T29a moved the MCP gateway to a
 stateless `createMcpHandler` server (`mcp-gateway.ts` builds an SDK v2

@@ -24,7 +24,9 @@ function ThemedToaster() {
   return (
     <Toaster
       theme={resolvedTheme === "dark" ? "dark" : "light"}
-      position="bottom-right"
+      // Keep transient notifications away from the task composer submit
+      // control, which is anchored at the bottom-right of the viewport.
+      position="top-right"
       richColors
     />
   );

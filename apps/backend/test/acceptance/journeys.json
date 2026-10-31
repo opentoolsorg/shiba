@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "target": {
+    "pullRequest": 162,
+    "branch": "codex/ai-coworker-catalog-checkpoint",
+    "head": "resolved-at-run-time",
+    "base": "1f80d1aa184fd07f752351f3b5463440bcde5fa8"
+  },
+  "execution": {
+    "mode": "local-deterministic",
+    "providerAdapter": "phase1-core-loop fake agent-tool executor and mock GitHub fetch",
+    "storageAdapters": ["in-memory D1 fixtures", "in-memory R2 fixture"],
+    "liveProvidersUsed": false,
+    "realSandboxStarted": false
+  },
+  "journeys": [
+    {
+      "id": "onboarding-resume",
+      "description": "Persist onboarding step, dismiss, reload and resume; account evidence stays server owned.",
+      "tests": [
+        "apps/backend/test/onboarding-progress.test.ts",
+        "apps/backend/test/first-run-reliability.test.ts",
+        "apps/frontend/src/components/FirstRunWizard.test.tsx",
+        "apps/frontend/src/onboarding-progress-client.test.ts"
+      ]
+    },
+    {
+      "id": "employee-create-and-launch",
+      "description": "Create an employee profile, persist and launch its thread, and prove its selected profile version/provider are frozen at the approval boundary.",
+      "tests": [
+        "apps/backend/test/custom-agents-routes.test.ts",
+        "apps/backend/test/custom-agent-approval-gate.test.ts",
+        "apps/backend/test/custom-agents-resolve.test.ts",
+        "apps/frontend/src/components/CustomAgentsView.test.tsx"
+      ]
+    },
+    {
+      "id": "chat-task-exact-approval-execution",
+      "description": "Queue a task through the real orchestrator request handler, prove the deterministic harness stays idle before approval, then approve the frozen input and verify its completed diff/result.",
+      "tests": [
+        "apps/backend/test/phase1-core-loop.integration.test.ts",
+        "apps/backend/test/chat-lane.test.ts",
+        "apps/backend/test/chat-gate-pin.test.ts"
+      ]
+    },
+    {
+      "id": "tool-invocation-receipts",
+      "description": "Persist scoped tool-invocation receipts and approval pointers without storing arguments or result bodies; replay and terminal transitions are covered.",
+      "tests": [
+        "apps/backend/test/capability-invocations.test.ts",
+        "apps/backend/test/mcp-run-tools.test.ts",
+        "apps/backend/test/command-receipts.test.ts"
+      ]
+    },
+    {
+      "id": "employee-gmail-selected-resources",
+      "description": "Discover owner-selected Gmail message metadata, read only the selected message through an ordinary employee run, then deny unselected and revoked messages before another provider read. All Google HTTP is mocked; no live inbox is accessed.",
+      "tests": [
+        "apps/backend/test/employee-tool-gmail-resource.test.ts",
+        "apps/backend/test/employee-tool-routes.test.ts",
+        "apps/backend/test/gmail.test.ts",
+        "apps/frontend/src/components/EmployeeToolPolicyView.test.tsx"
+      ]
+    },
+    {
+      "id": "project-context-approval-dispatch",
+      "description": "Persist an owner-scoped project and selected source, attach the project to Work intake, freeze a provenance-framed snapshot at approval, edit the project, then prove dispatch and reload retain the approved text. Cross-owner sources and disabled, expired, or deleted sources are denied.",
+      "tests": [
+        "apps/backend/test/owner-memory-store.test.ts",
+        "apps/backend/test/memory-routes-owner.test.ts",
+        "apps/backend/test/orchestrator.test.ts",
+        "apps/frontend/src/components/MemorySourcesView.test.tsx",
+        "apps/frontend/src/components/TaskComposer.test.tsx"
+      ],
+      "browserCheckpoint": "project-context-approval-run-reload"
+    },
+    {
+      "id": "artifact-delivery",
+      "description": "Approve artifact-workspace input, verify requested files, store bytes in the deterministic R2 adapter, and exercise the authenticated download route.",
+      "tests": [
+        "apps/backend/test/phase1-core-loop.integration.test.ts",
+        "apps/backend/test/run-deliverables-routes.test.ts",
+        "apps/backend/test/deliverables-contracts.test.ts"
+      ]
+    },
+    {
+      "id": "rooms-and-handoffs",
+      "description": "Create and reload a room, persist messages, enforce membership, create bounded handoffs and cancel a lineage.",
+      "tests": [
+        "apps/backend/test/collaboration-routes.test.ts",
+        "apps/frontend/src/components/CollaborationView.test.tsx"
+      ]
+    },
+    {
+      "id": "slack-web-room-continuity",
+      "description": "Verify a signed Slack thread event, explicitly map it to an owner room, preserve source provenance and deduplicate replies, then create a web-authored delivery intent and send it only after configured dashboard approval through a mocked Slack installation/post receipt. No Slack installation, subscription, token, or real message is used.",
+      "tests": [
+        "apps/backend/test/slack-room-bridge.test.ts",
+        "apps/backend/test/slack.test.ts",
+        "apps/frontend/src/components/CollaborationView.test.tsx"
+      ]
+    },
+    {
+      "id": "reason-network-approval-setup",
+      "description": "Bind an exact-message approval to a paired local machine, queue it through the Worker, reject a different machine, then exercise the fake MCP companion and authenticated result path without starting the upstream executable or contacting a peer.",
+      "tests": [
+        "apps/backend/test/reason-network-approval.test.ts",
+        "apps/backend/test/reason-network-adapter.test.ts",
+        "apps/backend/test/reason-network-companion.test.ts",
+        "apps/frontend/src/components/ReasonNetworkSetup.test.tsx"
+      ],
+      "browserCheckpoint": "reason-worker-queue-fake-companion-result"
+    },
+    {
+      "id": "external-mcp-reviewed-lifecycle",
+      "description": "Register a mock HTTPS Streamable HTTP server, discover and review its schema, enable a scoped principal capability, exercise read dispatch and exact-payload owner approval with durable receipts, then revoke access. All transport calls use a local fixture; no external MCP host or credential is configured.",
+      "tests": [
+        "apps/backend/test/external-mcp.test.ts",
+        "apps/frontend/src/components/ExternalMcpManagement.test.tsx"
+      ]
+    },
+    {
+      "id": "skill-version-lifecycle",
+      "description": "Create and reload a versioned skill draft, preserve immutable versions, review/activate exact text, and exercise the dashboard editor recovery paths.",
+      "tests": [
+        "apps/backend/test/skills-routes.test.ts",
+        "apps/frontend/src/components/SkillsView.test.tsx"
+      ]
+    },
+    {
+      "id": "failure-retry-cancel-reload",
+      "description": "Exercise deterministic harness failure, review retry, run cancellation fencing, command replay, and durable-state restart behavior where implemented.",
+      "tests": [
+        "apps/backend/test/phase1-core-loop.integration.test.ts",
+        "apps/backend/test/orchestrator-fencing.test.ts",
+        "apps/backend/test/command-receipts.test.ts",
+        "apps/backend/test/first-run-reliability.test.ts"
+      ]
+    },
+    {
+      "id": "live-sandbox-and-provider-execution",
+      "status": "blocked",
+      "blocker": "Not executed: this acceptance suite deliberately uses a deterministic local harness adapter; the delegated scope prohibits credential setup and paid/live provider execution, and a synthetic executor is not evidence that a live Sandbox or model provider works."
+    },
+    {
+      "id": "full-browser-worker-session",
+      "description": "Run Chromium against the local Wrangler Worker serving the built frontend, with real local Durable Objects, D1, built-in auth, and the supported local-runtime claim/result protocol. Cover onboarding resume, active skill reload, a persisted room/message/handoff, employee creation, exact human approval, local adapter receipt, and artifact download.",
+      "script": "apps/backend/test/acceptance/run-browser.mjs",
+      "adapter": "Temporary deterministic local-runtime adapter using the authenticated pairing and claim/result APIs; returns clearly marked fixture text and no provider call."
+    }
+  ]
+}

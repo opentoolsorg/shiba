@@ -19,6 +19,24 @@ vi.mock("agents/routing", () => ({
       return state.sessions.get(actor)?.includes(id) ? Response.json({ session: { id } }) : Response.json({ error: "Session not found." }, { status: 404 });
     }
     if (typeof request !== "string") state.requests.push(request);
+    const action = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([0-7])\/(review|history|revision)$/);
+    if (action) {
+      const target = state.runs.get(actor+"|"+decodeURIComponent(action[1]!)) as {
+        runId: string; deliverables: Array<Record<string, unknown>>;
+      } | undefined;
+      if (!target) return Response.json({ error: "Run not found." }, { status: 404 });
+      if (action[3] === "history") return Response.json({ artifactId: target.deliverables?.[Number(action[2])]?.artifactId, versions: [{ runId: target.runId, index: Number(action[2]), version: 1 }] });
+      if (typeof request === "string" || request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      const body = await request.json() as { status: string; note?: string; expectedRevision?: number };
+      if (action[3] === "revision") return Response.json({ ok: true, approvalId: "fresh-approval", started: false });
+      target.deliverables[Number(action[2])]!.review = {
+        status: body.status,
+        ...(body.note ? { note: body.note } : {}),
+        revision: (body.expectedRevision ?? 0) + 1,
+        updatedAt: 500,
+      };
+      return Response.json({ ok: true, deliverable: target.deliverables[Number(action[2])] });
+    }
     const runId = decodeURIComponent(url.pathname.split("/").pop()!);
     const run = state.runs.get(actor+"|"+runId);
     return run ? Response.json({ run }) : Response.json({ error: "Run not found." }, { status: 404 });
@@ -94,6 +112,35 @@ describe("authenticated requested-deliverable downloads", () => {
     expect(scoped?.status).toBe(200);
     state.runs.clear(); await seed("default");
     expect((await handleRuns(request(), env))?.status).toBe(404);
+  });
+
+  it("forwards review updates and history only through the authenticated owning run store", async () => {
+    const { run } = await seed();
+    const reviewRequest = new Request("https://dashboard.test/api/runs/same-run/deliverables/0/review", {
+      method: "POST", headers: { Authorization: "Bearer fixture", "X-Fixture-User": "owner-a", "content-type": "application/json" },
+      body: JSON.stringify({ status: "approved", expectedRevision: 0 }),
+    });
+    expect((await handleRuns(reviewRequest, env))?.status).toBe(200);
+    expect(run.deliverables[0]?.review).toEqual({ status: "approved", revision: 1, updatedAt: 500 });
+    const history = await handleRuns(request("/api/runs/same-run/deliverables/0/history"), env);
+    expect(history?.status).toBe(200);
+    expect((await history!.json() as { versions: unknown[] }).versions).toHaveLength(1);
+    expect((await handleRuns(request("/api/runs/same-run/deliverables/0/history", "owner-b"), env))?.status).toBe(404);
+    expect(state.requests.filter((item) => item.url.includes("/history"))).toHaveLength(2);
+    expect(state.runs.has("owner-b|same-run")).toBe(false);
+  });
+
+  it("forwards explicit artifact revision requests through the authenticated session store", async () => {
+    await seed(buildSessionAgentName("owner-a", SESSION));
+    state.sessions.set("owner-a", [SESSION]);
+    const response = await handleRuns(new Request(`https://dashboard.test/api/runs/same-run/deliverables/0/revision?session=${SESSION}`, {
+      method: "POST", headers: { Authorization: "Bearer fixture", "X-Fixture-User": "owner-a", "content-type": "application/json" },
+      body: JSON.stringify({ commandId: "artifact-revision:abc-12345" }),
+    }), env);
+    expect(response?.status).toBe(200);
+    expect(await response!.json()).toMatchObject({ approvalId: "fresh-approval", started: false });
+    expect(state.requests.at(-1)?.url).toContain("/deliverables/0/revision");
+    expect(state.requests.at(-1)?.url).toContain(`session=${SESSION}`);
   });
 
   it("keeps same run/sandbox identifiers isolated across owners by manifest and content-addressed storage", async () => {

@@ -53,6 +53,47 @@ beforeEach(() => {
 });
 
 describe("requested deliverable private persistence", () => {
+  it("runs an artifact-workspace target without a repository and retains its requested output", async () => {
+    const executionTarget = {
+      kind: "artifact-workspace" as const,
+      workspaceName: "Sales workspace",
+      expectedDeliverables: ["sales/account-brief.md"],
+    };
+    const content = "# Account brief\nSynthetic fixture only.\n";
+    const instance = agent({
+      ...INPUT,
+      repoUrl: "",
+      publishPullRequest: false,
+      executionTarget,
+      expectedDeliverables: executionTarget.expectedDeliverables,
+    });
+    const put = vi.fn(async (_key: string, _body: string, _options: unknown) => ({ key: "stored" }));
+    Object.assign(instance.env, { ATTACHMENTS: { put } });
+    mocks.run.mockImplementation(async (_ops, input) => {
+      expect(input.repoUrl).toBe("");
+      expect(input.executionTarget).toEqual(executionTarget);
+      return {
+        ...RESULT,
+        changedFiles: ["sales/account-brief.md"],
+        files: [{ path: "sales/account-brief.md", content, encoding: "utf8" }],
+      };
+    });
+
+    const { result, text } = await responseFor(instance);
+
+    expect(result.status).toBe("completed");
+    expect(result.deliverables).toEqual([{
+      path: "sales/account-brief.md",
+      bytes: content.length,
+      mediaType: "text/markdown; charset=utf-8",
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }]);
+    expect(put).toHaveBeenCalledOnce();
+    expect(put.mock.calls[0]?.[1]).toBe(content);
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(text).not.toContain(content);
+  });
+
   it("stores only requested complete files and returns metadata without bodies in the assistant result", async () => {
     const instance = agent({ ...INPUT, publishPullRequest: false, expectedDeliverables: ["reports/brief.md"] });
     const put = vi.fn(async (_key: string, _body: string, _options: unknown) => ({ key: "stored" }));

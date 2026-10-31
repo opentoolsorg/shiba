@@ -138,16 +138,28 @@ describe("GET /api/spine", () => {
     await instance.onRequest(resolveBody(mineApproval));
     await instance.onRequest(resolveBody(theirsApproval));
 
-    const response = await instance.onRequest(spineGet("agent-alpha"));
-    const body = (await response.json()) as { events: SpineEvent[]; outbox: OutboxEntry[] };
     const mineRun = `agent-tool:${mineApproval}`;
     const theirsRun = `agent-tool:${theirsApproval}`;
+    instance.state.runs = (instance.state.runs ?? []).map((run) => ({
+      ...run,
+      usage: { costUsd: run.runId === mineRun ? 1 : 5 },
+    }));
+
+    const response = await instance.onRequest(spineGet("agent-alpha"));
+    const body = (await response.json()) as {
+      events: SpineEvent[];
+      outbox: OutboxEntry[];
+      executionBudget: { spentUsd: number; reportedRuns: number };
+    };
     // Alpha's own run events are visible; the other run's and any
     // runId-less orchestrator-internal events stay hidden.
     expect(body.events.some((e) => e.runId === mineRun)).toBe(true);
     expect(body.events.every((e) => e.runId === mineRun)).toBe(true);
     expect(body.events.some((e) => e.runId === theirsRun)).toBe(false);
     expect(body.outbox.every((e) => e.runId === mineRun)).toBe(true);
+    // Policy counters remain tenant-wide so the dashboard matches the
+    // dispatch gate, even though the agent's event rows stay principal-scoped.
+    expect(body.executionBudget).toMatchObject({ spentUsd: 6, reportedRuns: 2 });
   });
 
   it("filters outbox rows to the principal's runs — not vacuously", async () => {

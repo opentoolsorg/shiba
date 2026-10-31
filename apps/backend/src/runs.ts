@@ -23,7 +23,9 @@ import type {
   Receipt,
   RunPatch,
   RunStatus,
+  SkillExecutionPin,
   RuntimeSelection,
+  ExecutionTarget,
 } from "@shiba/shared";
 import {
   applyRunEvents,
@@ -53,6 +55,7 @@ export function createRun(args: {
   runId: string;
   sandboxId: string;
   repoUrl: string;
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
@@ -63,7 +66,10 @@ export function createRun(args: {
   orgId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  collaborationHandoffId?: string;
   customAgentVersion?: number;
+  employeeToolPolicyVersion?: number;
+  skillPins?: SkillExecutionPin[];
   route?: ApprovedRoute;
   /** T48: account-scoped continuation identity from the selected harness. */
   continuationKey?: string;
@@ -103,6 +109,7 @@ export function createRun(args: {
     input: {
       sandboxId: args.sandboxId,
       repoUrl: args.repoUrl,
+      ...(args.executionTarget !== undefined ? { executionTarget: args.executionTarget } : {}),
       task: args.task,
       baseBranch: args.baseBranch,
       publishPullRequest: args.publishPullRequest,
@@ -113,7 +120,10 @@ export function createRun(args: {
       ...(args.orgId !== undefined ? { orgId: args.orgId } : {}),
       ...(args.sandboxProvider !== undefined ? { sandboxProvider: args.sandboxProvider } : {}),
       ...(args.customAgentId !== undefined ? { customAgentId: args.customAgentId } : {}),
+      ...(args.collaborationHandoffId !== undefined ? { collaborationHandoffId: args.collaborationHandoffId } : {}),
       ...(args.customAgentVersion !== undefined ? { customAgentVersion: args.customAgentVersion } : {}),
+      ...(args.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: args.employeeToolPolicyVersion } : {}),
+      ...(args.skillPins !== undefined ? { skillPins: args.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(args.route !== undefined ? { route: args.route } : {}),
       ...(args.continuationKey !== undefined ? { continuationKey: args.continuationKey } : {}),
       ...(args.continuesKey !== undefined ? { continuesKey: args.continuesKey } : {}),

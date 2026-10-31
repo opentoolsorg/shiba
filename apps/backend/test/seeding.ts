@@ -27,6 +27,8 @@ export interface SeedInput {
   runtime?: "sandbox" | "local";
   /** T52: the delegation role frozen onto the approval pointer. */
   role?: import("../../../packages/shared/src/roles.js").AgentRole;
+  orgId?: string;
+  skillPins?: import("@shiba/shared").SkillExecutionPin[];
 }
 
 type SeedableState = { runs: DelegatedRun[]; pendingApprovals?: PendingApproval[] };
@@ -74,6 +76,8 @@ export function approvePointerOnly<S extends SeedableState>(
     ...(input.route !== undefined ? { route: input.route } : {}),
     ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
+    ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+    ...(input.skillPins !== undefined ? { skillPins: input.skillPins } : {}),
     createdAt: now - 1_000,
   });
   const { approvals } = resolvePendingApproval(
@@ -105,12 +109,14 @@ export function approveDirect<S extends SeedableState>(
     publishPullRequest: record.publishPullRequest ?? false,
     ...(record.route !== undefined ? { route: record.route } : {}),
     ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),
+    ...(record.skillPins !== undefined ? { skillPins: record.skillPins } : {}),
   };
   const run = createRun({
     runId: `agent-tool:${callId}`,
     sandboxId: `sbx-${callId}`,
     ...frozen,
     ...(record.runtime !== undefined ? { runtime: record.runtime } : {}),
+    ...(record.orgId !== undefined ? { orgId: record.orgId } : {}),
     approval: approvalEvidenceFor(record, frozen),
   });
   host.setState({

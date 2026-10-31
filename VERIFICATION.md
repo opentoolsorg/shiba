@@ -1131,7 +1131,13 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
   status as the computer-use tools).
 ## 2026-10-08 — Shiba Desktop (T59–T66): local-prototype verification
 
-**Status: local prototype. Not accepted against a real deployment.** Per-task evidence lives in `apps/web/docs/evidence/desktop/`; this entry only summarizes it.
+**Status: local prototype. Not accepted against a real deployment.** Per-task evidence lives in `apps/web/docs/evidence/desktop/`; **`VERIFICATION/desktop.md`** is the operator + manual acceptance checklist (automated slices and remaining blockers).
+
+### 2026-10-31 — Desktop path wiring (unit)
+- Remote Access **Connections** row shows `This computer · idle` (and harness summary) from the desktop bridge when running inside Shiba Desktop.
+- Successful **Connect this computer** re-probes the daemon supervisor so tray/bridge status resyncs after pairing.
+- Shared labels: `packages/shared/src/desktop-connection-label.ts`; tests in `apps/frontend/src/desktop-connection-label.test.ts` and extended `apps/desktop/test/pairing.test.ts`.
+- **Still blocked-for-manual:** DESKTOP-PLAN §7 on macOS with a real Access-fronted deployment, signing/notarization, tray/notification click-through, T62 credential spike.
 
 ### Verified so far (unit / integration / static)
 - T59 (`T59-docs.md`): `spec/GOAL.md` item 15, ADR 0001, PLAN §21 + tracker row; `pnpm docs:verify` passed (49 pages, 2479 links).

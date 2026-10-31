@@ -88,6 +88,8 @@ export interface ExecResult {
 }
 
 export interface SandboxOps {
+  /** Pin only the selected model/provider hosts, with no GitHub repository scope. */
+  pinEgress?(): Promise<void>;
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
   writeFile(path: string, content: string): Promise<void>;
   exec(
@@ -256,19 +258,35 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     };
 
     throwIfAborted(opts?.signal);
-    await emit({
-      phase: "clone",
-      message: `Cloning ${input.repoUrl} (branch ${input.baseBranch}).`,
-      fraction: 0.05,
-    });
-    // The ops handle being bound is the readiness claim; egress pinning
-    // runs inside this first call as one retried unit with the clone.
-    milestone("sandbox.ready", input.sandboxId);
-    try {
-      await ops.gitCheckout(input.repoUrl, { branch: input.baseBranch, targetDir: workdir });
-      milestone("clone.complete", input.baseBranch);
-    } catch (error) {
-      return failureResult(`Clone failed: ${shortError(error)}`, 0, "", signals);
+    if (input.executionTarget?.kind === "artifact-workspace") {
+      await emit({ phase: "clone", message: "Preparing an isolated artifact workspace.", fraction: 0.05 });
+      milestone("sandbox.ready", input.sandboxId);
+      try {
+        if (!ops.pinEgress) throw new Error("Sandbox provider cannot pin artifact-workspace egress.");
+        await ops.pinEgress();
+        const init = await scoped.exec(shellJoin(["git", "init", "--initial-branch=main", workdir]), { cwd: "/workspace", signal: opts?.signal });
+        if (init.exitCode !== 0) throw new Error(boundTail(init.stderr, 1000) || "git init failed.");
+        const baseline = await scoped.exec(shellJoin(["git", "-C", workdir, "-c", "user.name=shiba", "-c", "user.email=shiba@shiba.local", "commit", "--allow-empty", "-m", "shiba artifact workspace baseline"]), { cwd: "/workspace", signal: opts?.signal });
+        if (baseline.exitCode !== 0) throw new Error(boundTail(baseline.stderr, 1000) || "Could not initialize artifact workspace baseline.");
+        milestone("clone.complete", "artifact-workspace");
+      } catch (error) {
+        return failureResult(`Artifact workspace initialization failed: ${shortError(error)}`, 0, "", signals);
+      }
+    } else {
+      await emit({
+        phase: "clone",
+        message: `Cloning ${input.repoUrl} (branch ${input.baseBranch}).`,
+        fraction: 0.05,
+      });
+      // The ops handle being bound is the readiness claim; egress pinning
+      // runs inside this first call as one retried unit with the clone.
+      milestone("sandbox.ready", input.sandboxId);
+      try {
+        await ops.gitCheckout(input.repoUrl, { branch: input.baseBranch, targetDir: workdir });
+        milestone("clone.complete", input.baseBranch);
+      } catch (error) {
+        return failureResult(`Clone failed: ${shortError(error)}`, 0, "", signals);
+      }
     }
 
     // T72: only when the human opted in; before the baseline so installs and generated files aren't part of the change.
@@ -671,6 +689,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         task: input.task,
         ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
         ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+        ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
         ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
         ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
         ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
@@ -1009,7 +1028,10 @@ function streamProgress(
 function withDeliverableInstructions(input: CodingTaskInput): CodingTaskInput {
   const expected = expectedDeliverablesSchema.parse(input.expectedDeliverables ?? []);
   if (!expected.length) return input;
-  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to the approved repository workspace):\n${expected.map((path) => `- ${path}`).join("\n")}\nWrite complete nonempty UTF-8 text files at these exact paths. JSON files must parse. Each file must be at most 16384 UTF-8 bytes, and all requested files together at most 65536 bytes. A completion claim without these files will fail verification.` };
+  const workspace = input.executionTarget?.kind === "artifact-workspace"
+    ? `the approved artifact workspace${input.executionTarget.workspaceName ? ` (${input.executionTarget.workspaceName})` : ""}`
+    : "the approved repository workspace";
+  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to ${workspace}):\n${expected.map((path) => `- ${path}`).join("\n")}\nWrite complete nonempty UTF-8 text files at these exact paths. JSON files must parse. Each file must be at most 16384 UTF-8 bytes, and all requested files together at most 65536 bytes. A completion claim without these files will fail verification.` };
 }
 
 /** Read regular files from the settled Git snapshot. Symlinks (including

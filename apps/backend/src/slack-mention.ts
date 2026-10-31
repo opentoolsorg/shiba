@@ -27,6 +27,10 @@ import {
   resolveSlackHarness,
   resolveThreadTs,
 } from "./slack-thread.js";
+import {
+  chatEmployeeQueueExtras,
+  resolveChatEmployeeFromText,
+} from "./chat-employee.js";
 
 const SLACK_REPLIES = "https://slack.com/api/conversations.replies";
 
@@ -256,10 +260,6 @@ export async function handleSlackEvent(
     channelId,
     channelRepos: parseChannelRepoMap(env.SLACK_CHANNEL_REPOS),
   });
-  if (resolution.kind === "ask") {
-    await postMessage({ channel: channelId, threadTs, text: slackAskForRepo() });
-    return;
-  }
 
   const task = gatherSlackContext({ threadMessages }) || stripMentionMarkers(mentionText);
   if (!task) {
@@ -271,6 +271,17 @@ export async function handleSlackEvent(
     return;
   }
 
+  const employeeResolution = await resolveChatEmployeeFromText(env, task);
+  if (employeeResolution.kind === "error") {
+    await postMessage({ channel: channelId, threadTs, text: employeeResolution.error });
+    return;
+  }
+  const taskForRun = employeeResolution.taskText;
+  if (!taskForRun) {
+    await postMessage({ channel: channelId, threadTs, text: slackAskForTask() });
+    return;
+  }
+
   // TypeSafe Choice: classify intent to sharpen the orchestrator system prompt.
   // Fail-open — null means no classification, no change to the run path.
   const intentApiKey = env.TYPESAFE_API_KEY?.trim() ?? "";
@@ -278,7 +289,7 @@ export async function handleSlackEvent(
     ? await classifySlackMentionIntent(
         intentApiKey,
         stripMentionMarkers(mentionText),
-        task,
+        taskForRun,
         deps.typeSafeFetch,
       ).catch(() => null)
     : null;
@@ -288,17 +299,60 @@ export async function handleSlackEvent(
   // The hint becomes part of the task the run executes — the card renders
   // taskWithHint verbatim so the human approves exactly what will run.
   const taskWithHint = hint ? `${hint}
-${task}` : task;
+${taskForRun}` : taskForRun;
 
-  // Slack tasks launch Claude Code by default (resolveSlackHarness) — the
-  // card shows the exact agent the human is approving.
-  const harness = resolveSlackHarness(env);
+  let employeeExtras: Awaited<ReturnType<typeof chatEmployeeQueueExtras>> | null = null;
+  if (employeeResolution.kind === "ok") {
+    employeeExtras = await chatEmployeeQueueExtras(
+      env,
+      employeeResolution.agent,
+      employeeResolution.orgId,
+      taskWithHint,
+      resolution.kind === "ask" ? null : resolution.repoUrl,
+    );
+    if (!employeeExtras.ok) {
+      if (employeeExtras.error) {
+        await postMessage({ channel: channelId, threadTs, text: employeeExtras.error });
+        return;
+      }
+      await postMessage({ channel: channelId, threadTs, text: slackAskForRepo() });
+      return;
+    }
+  }
+
+  if (!employeeExtras?.ok && resolution.kind === "ask") {
+    await postMessage({ channel: channelId, threadTs, text: slackAskForRepo() });
+    return;
+  }
+
+  const repoUrl = employeeExtras?.ok
+    ? (employeeExtras.extras.repoUrl ?? "")
+    : resolution.kind === "ask"
+      ? ""
+      : resolution.repoUrl;
+  const harness = employeeExtras?.ok && employeeExtras.extras.harness
+    ? employeeExtras.extras.harness
+    : resolveSlackHarness(env);
   const payload = buildSlackRunPayload({
-    repoUrl: resolution.repoUrl,
-    task: taskWithHint,
+    repoUrl,
+    task: employeeExtras?.ok ? employeeExtras.task : taskWithHint,
     channelId,
     userId,
     harness,
+    ...(employeeExtras?.ok
+      ? {
+          orgId: employeeExtras.extras.orgId,
+          customAgentId: employeeExtras.extras.customAgentId,
+          customAgentVersion: employeeExtras.extras.customAgentVersion,
+          ...(employeeExtras.extras.employeeToolPolicyVersion !== undefined
+            ? { employeeToolPolicyVersion: employeeExtras.extras.employeeToolPolicyVersion }
+            : {}),
+          ...(employeeExtras.extras.executionTarget
+            ? { executionTarget: employeeExtras.extras.executionTarget }
+            : {}),
+          publishPullRequest: employeeExtras.extras.publishPullRequest,
+        }
+      : {}),
   });
   const queueRun =
     deps.queueRun ??
@@ -324,8 +378,8 @@ ${task}` : task;
   try {
     const { approvalId } = await queueRun({
       threadKey,
-      repoUrl: resolution.repoUrl,
-      task: taskWithHint,
+      repoUrl,
+      task: payload.task,
       channelId,
       userId,
       harness,
@@ -333,13 +387,18 @@ ${task}` : task;
     await postMessage({
       channel: channelId,
       threadTs,
-      text: slackAck({ repoUrl: resolution.repoUrl, harness }),
+      text: slackAck({
+        repoUrl: repoUrl || undefined,
+        harness,
+        ...(employeeExtras?.ok ? { employeeLabel: employeeExtras.extras.employeeLabel } : {}),
+      }),
       blocks: buildApprovalBlocks({
         threadKey,
         approvalId,
-        repoUrl: resolution.repoUrl,
-        task: taskWithHint,
+        repoUrl: repoUrl || "(artifact workspace)",
+        task: payload.task,
         harness,
+        ...(employeeExtras?.ok ? { employeeLabel: employeeExtras.extras.employeeLabel } : {}),
       }),
     });
   } catch (error) {

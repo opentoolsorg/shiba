@@ -16,7 +16,7 @@ node scripts/mint-token.mjs --agent claude-code --scopes sandbox:exec,runs:read 
 | Flag | Meaning |
 | --- | --- |
 | `--agent <name>` | Principal recorded on every audit row. No whitespace, max 128 chars. |
-| `--scopes <a,b>` | Comma list from: `email:read`, `email:draft`, `email:send`, `email:delete`, `memory:read`, `memory:write`, `runs:read`, `sandbox:exec`, `admin:tokens`. |
+| `--scopes <a,b>` | Comma list from: `email:read`, `email:draft`, `email:send`, `email:delete`, `memory:read`, `memory:write`, `runs:read`, `sandbox:exec`, `mcp:external`, `admin:tokens`. |
 | `--ttl-days N` | Optional. The KV entry expires after N days, and the token stops working then. |
 | `--host <host>` | Your Worker host, used in the printed `claude mcp add` line. |
 | `--write` | Also runs the printed `wrangler kv key put … --remote` for you. Without it, nothing is written. |
@@ -45,8 +45,26 @@ Run `claude mcp list` to confirm that `shiba` connects. A 401 means the token is
 | `create_draft`, `update_draft`, `draft_reply`, `move_email` | `email:draft` | Draft and organize. |
 | `send_email`, `send_reply` | `email:send` | Queue an email send for human approval. |
 | `delete_email` | `email:delete` | Queue a delete for human approval. |
-| `memory_recall`, `memory_sessions` | `memory:read` | Read shared memory. |
-| `memory_bank`, `memory_forget` | `memory:write` | Write shared memory. |
+| `memory_recall`, `memory_sessions` | `memory:read` | Read memory banked by this verified token principal. |
+| `memory_bank`, `memory_forget` | `memory:write` | Write or forget facts in this verified token principal's memory partition. |
+
+### Add an owner-reviewed external MCP server
+
+In **Agents & MCP → External MCP servers**, create a draft with an HTTPS Streamable HTTP endpoint and, when needed, the name of an already provisioned `MCP_CREDENTIAL_*` Worker secret. Shiba stores only that reference. No secret value is entered in the dashboard, sent to a model, or copied into the capability catalog. The deployment operator must explicitly set `MCP_TRUSTED_HOSTS` to comma-separated exact public hostnames before Shiba will contact them; an empty list is disabled by default.
+
+Use **Discover / retry** to fetch a bounded tool schema snapshot. Read each remote description as untrusted text. For each namespaced capability, explicitly review its effect as either read-only or “may mutate” (which requires approval for every exact call), then enable it. Grant each enabled capability only to an active MCP principal that has the `mcp:external` scope. A changed schema disables the affected capability and clears its principal grants until it is reviewed and enabled again. A server health error disables its capabilities; retry discovery before reconnecting.
+
+Discovery accepts a strict JSON Schema subset: objects, strings, numbers, integers, booleans, arrays, string enums, and supported length/item/numeric bounds. Unsupported assertion keywords such as `pattern`, `format`, `uniqueItems`, or `$ref` fail discovery rather than being ignored.
+
+The inbound `/mcp` gateway lists only currently enabled capabilities granted to its verified bearer principal. Policy is reloaded at invocation, and the normal durable tool receipt records the result. Calls classified as potentially mutating first create an exact-argument human approval, visible on the external-server card. The owner's **Approve and dispatch** action executes only that frozen payload and settles its invocation receipt; a model retry never dispatches a write. The tool response is marked untrusted. Shiba supports HTTPS Streamable HTTP with no redirects and optional bearer authentication from a preprovisioned secret reference. OAuth setup, SSE-only and stdio servers, private/local/metadata destinations, custom auth headers and self-hosted private transport are unsupported. No server is contacted unless an authenticated owner explicitly starts discovery or an enabled tool is invoked (or the owner approves a frozen write).
+
+### Memory ownership and legacy compatibility
+
+MCP memory facts are partitioned by the verified token principal. `memory_recall` searches only that principal's facts, and `memory_sessions` filters to the same exact principal; a caller cannot select another agent. Dashboard compatibility routes similarly expose legacy facts and sessions only when the legacy agent name exactly matches the authenticated user identity. Loopback-only development uses the `default` agent partition. Owner-scoped workspace memory sources use a separate hashed identity partition.
+
+Older facts and sessions in the shared registry have no owner field beyond their legacy agent name. Shiba does not merge those rows across identities, infer ownership from content, or silently move them into a user's workspace. Rows with an exact identity match remain readable through the compatibility routes; unmatched legacy rows stay stored but inaccessible through user-facing memory reads. There is no automatic migration or deletion. A future migration would require an operator-reviewed mapping from a legacy agent partition to exactly one owner before moving its data.
+
+Dashboard users can save Projects in the private workspace memory view. A project stores its name, purpose, selected employee defaults, and up to eight references to existing sources in the same owner partition; reference URLs are metadata only and are never fetched. Project edits increment a version. At approval time Shiba freezes the selected project version and a bounded snapshot of each active linked source, with source IDs, titles, kinds, update timestamps, and reference URLs. Source text remains explicitly untrusted reference data. Editing or deleting a project after approval does not change that approval or its run. Disabling, deleting, or expiring a linked source blocks new approvals until the owner edits the project to remove or restore that source. Existing approved snapshots remain available to their already approved run. Data stays in the existing owner-partitioned SQLite-backed Memory Durable Object; there is no provider dependency or background source fetch.
 
 ### Pair a cloud agent with its mailbox
 
