@@ -1006,10 +1006,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const context = actorId ? await resolveEmployeeRunToolContext(this.env, employeeId, orgId, actorId) : null;
     const allowed = Boolean(context?.allowed.length);
     return {
-      activeTools: Object.keys(ctx.tools).filter((name) =>
-        name !== "run_code" &&
-        (name !== "employee_tool_call" || allowed),
-      ),
+      activeTools: Object.keys(ctx.tools).filter((name) => {
+        if (name === "run_code") return false;
+        if (!allowed && (name === "employee_tool_catalog" || name === "employee_tool_call")) return false;
+        return true;
+      }),
       instructions: `${ctx.system}\n\nThis is a selected employee context. Use employee_tool_catalog to discover the currently granted Shiba app actions and exact resources. Only employee_tool_call can invoke those Worker-side actions. The coding harness shell and CLI tools are separate and are not restricted by this app-tool policy.`,
     };
   }

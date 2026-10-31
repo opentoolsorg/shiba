@@ -4,6 +4,8 @@ import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { HARNESS_IDS } from "@shiba/shared";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
+import { replaceEmployeeToolGrants } from "../src/employee-tool-store.js";
 import { activateSkill, createSkill, disableSkill, reviewSkill } from "../src/skills-store.js";
 import { LocalDispatch } from "../src/local-dispatch.js";
 import { createRun, RunStore, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
@@ -245,6 +247,55 @@ describe("local run cleanup", () => {
     expect(leakedContainers().some((leak) => leak.sandboxId === run.sandboxId)).toBe(false);
     expect(instance.state.leakedContainers?.unknown).toBeDefined();
     expect(instance.state.leakedContainers?.["real-cloud"]).toBeUndefined();
+  });
+});
+
+describe("employee tool policy in normal chat turns", () => {
+  it("preserves never-managed Code Mode but keeps managed-empty policy deny-all after revoke", async () => {
+    const instance = agent();
+    const { database } = customAgentD1();
+    Object.assign(instance, {
+      env: { ...instance.env, AGENT_AUDIT: database },
+      name: "owner@example.test",
+    });
+    const employee = await createCustomAgent(instance.env, "self-hosted", "run-status-employee", {
+      name: "Run status employee", instructions: "Read only the approved run status.", harness: "opencode",
+    });
+    Object.assign(instance, { messages: [{
+      role: "user",
+      metadata: { shibaTask: { customAgentId: employee.id, orgId: "self-hosted" } },
+    }] });
+    const tools = { run_code: {}, employee_tool_catalog: {}, employee_tool_call: {}, delegate_coding_task: {} };
+    const turn = () => instance.beforeTurn({ tools, system: "base system" } as never);
+
+    const legacy = await turn();
+    expect(legacy.activeTools).toContain("run_code");
+    expect(legacy.activeTools).not.toContain("employee_tool_catalog");
+
+    const configured = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
+      ...employee.config, toolScopes: ["mcp:shiba:run_status"],
+    }, employee.version);
+    await replaceEmployeeToolGrants(instance.env, {
+      orgId: "self-hosted", employeeId: employee.id, employeeVersion: configured.version,
+      actorId: "owner@example.test", role: "operator", capabilityIds: ["mcp:shiba:run_status"],
+      resourcesByCapability: { "mcp:shiba:run_status": ["run-1"] },
+    });
+    const configuredTurn = await turn();
+    expect(configuredTurn.activeTools).not.toContain("run_code");
+    expect(configuredTurn.activeTools).toContain("employee_tool_catalog");
+    expect(configuredTurn.activeTools).toContain("employee_tool_call");
+
+    const cleared = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
+      ...configured.config, toolScopes: [],
+    }, configured.version);
+    await replaceEmployeeToolGrants(instance.env, {
+      orgId: "self-hosted", employeeId: employee.id, employeeVersion: cleared.version,
+      actorId: "owner@example.test", role: "operator", capabilityIds: [], resourcesByCapability: {},
+    });
+    const revokedTurn = await turn();
+    expect(revokedTurn.activeTools).not.toContain("run_code");
+    expect(revokedTurn.activeTools).not.toContain("employee_tool_catalog");
+    expect(revokedTurn.activeTools).not.toContain("employee_tool_call");
   });
 });
 

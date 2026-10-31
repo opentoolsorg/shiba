@@ -1,6 +1,7 @@
 import { randomHex } from "./mailbox-store.js";
 import type { AuditEnv } from "./audit.js";
 import { initAudit } from "./audit.js";
+import { expireUnusedEmployeeActionApproval } from "./capability-invocations.js";
 import type { EmployeeRole } from "./employee-tool-policy.js";
 import type { EmployeeActionApproval } from "./employee-tool-policy.js";
 import type { CapabilityRef, ConnectionGrant } from "./connection-policy.js";
@@ -367,6 +368,18 @@ export async function getEmployeeActionApproval(
     await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = 'expired' WHERE approval_id = ? AND status = 'pending'`).bind(approval.approvalId).run();
     return { ...approval, status: "expired" };
   }
+  if (approval.status === "approved" && now >= approval.expiresAt) {
+    const expired = await expireUnusedEmployeeActionApproval(env, {
+      approvalId: approval.approvalId, orgId: approval.orgId, principal: approval.actorId, now,
+    });
+    if (expired) return { ...approval, status: "expired" };
+    // If the atomic expiration lost to a concurrent dispatch, the durable
+    // idempotency receipt owns the outcome. Keep approved so the caller can
+    // retrieve that receipt; never create a fresh approval and new write key.
+    const current = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT} WHERE approval_id = ? LIMIT 1`)
+      .bind(approval.approvalId).first<Record<string, unknown>>();
+    return current ? approvalFromRow(current) : approval;
+  }
   return approval;
 }
 
@@ -392,6 +405,15 @@ export async function findEmployeeActionApproval(
   if (approval.status === "pending" && now >= approval.expiresAt) {
     await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = 'expired' WHERE approval_id = ? AND status = 'pending'`).bind(approval.approvalId).run();
     return { ...approval, status: "expired" };
+  }
+  if (approval.status === "approved" && now >= approval.expiresAt) {
+    const expired = await expireUnusedEmployeeActionApproval(env, {
+      approvalId: approval.approvalId, orgId: approval.orgId, principal: approval.actorId, now,
+    });
+    if (expired) return { ...approval, status: "expired" };
+    const current = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT} WHERE approval_id = ? LIMIT 1`)
+      .bind(approval.approvalId).first<Record<string, unknown>>();
+    return current ? approvalFromRow(current) : approval;
   }
   return approval;
 }
