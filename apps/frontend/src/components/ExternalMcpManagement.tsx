@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import type { AgentPrincipal } from "../types";
 
 interface ExternalTool { id: string; remoteName: string; capabilityId: string; gatewayName: string; description: string; schemaVersion: string; effect: "unreviewed" | "read" | "approval_required"; reviewedAt: number | null; enabled: boolean }
@@ -26,20 +26,38 @@ export function ExternalMcpManagement(): JSX.Element {
   const [name, setName] = useState(""); const [endpoint, setEndpoint] = useState(""); const [credentialRef, setCredentialRef] = useState("");
   const [effectChoices, setEffectChoices] = useState<Record<string, "read" | "approval_required">>({});
   const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const refreshEpoch = useRef(0);
 
   const refresh = useCallback(async () => {
+    const epoch = ++refreshEpoch.current;
     const [serverBody, tokenBody] = await Promise.all([
       request<{ servers: ExternalServer[] }>(base),
       request<{ principals?: AgentPrincipal[] }>("/api/agents"),
     ]);
-    setServers(Array.isArray(serverBody.servers) ? serverBody.servers : []);
+    if (epoch !== refreshEpoch.current) return;
+    const nextServers = Array.isArray(serverBody.servers) ? serverBody.servers : [];
     setPrincipals(Array.isArray(tokenBody.principals) ? tokenBody.principals : []);
+    setServers(nextServers);
+    const details = await Promise.all(nextServers.map(async (server) => {
+      const [detail, pending] = await Promise.all([
+        request<{ tools?: ExternalTool[]; access?: ExternalAccess[] }>(`${base}/${server.id}/tools`),
+        request<{ approvals?: ExternalApproval[] }>(`${base}/${server.id}/approvals`),
+      ]);
+      return { id: server.id, tools: detail.tools ?? [], access: detail.access ?? [], approvals: pending.approvals ?? [] };
+    }));
+    if (epoch !== refreshEpoch.current) return;
+    const detailsById = new Map(details.map((detail) => [detail.id, detail]));
+    setServers(nextServers.map((server) => ({ ...server, tools: detailsById.get(server.id)?.tools ?? server.tools ?? [] })));
+    setAccess(Object.fromEntries(details.map((detail) => [detail.id, detail.access])));
+    setApprovals(Object.fromEntries(details.map((detail) => [detail.id, detail.approvals])));
   }, []);
   const refreshDetails = useCallback(async (id: string) => {
+    const epoch = ++refreshEpoch.current;
     const [detail, pending] = await Promise.all([
       request<{ tools?: ExternalTool[]; access?: ExternalAccess[] }>(`${base}/${id}/tools`),
       request<{ approvals?: ExternalApproval[] }>(`${base}/${id}/approvals`),
     ]);
+    if (epoch !== refreshEpoch.current) return;
     setServers((current) => current.map((server) => server.id === id ? { ...server, tools: detail.tools ?? [] } : server));
     setAccess((current) => ({ ...current, [id]: detail.access ?? [] }));
     setApprovals((current) => ({ ...current, [id]: pending.approvals ?? [] }));

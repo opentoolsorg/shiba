@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
-import { createToolRegistry } from "../src/mcp-gateway.js";
+import { createToolRegistry, visibleToolsForPrincipal } from "../src/mcp-gateway.js";
 import { createExternalMcpServer, discoverExternalMcpServer, getExternalMcpServer,
-  listExternalMcpServers, registerExternalMcpTools, reviewExternalMcpTool, setExternalMcpAccess, setExternalMcpToolEnabled,
-  validateExternalMcpEndpoint } from "../src/external-mcp.js";
+  disableExternalMcpServer, listExternalMcpAccess, listExternalMcpServers, registerExternalMcpTools, reviewExternalMcpTool,
+  setExternalMcpAccess, setExternalMcpToolEnabled, validateExternalMcpEndpoint } from "../src/external-mcp.js";
 import { listCapabilityInvocations } from "../src/capability-invocations.js";
 import { listEmployeeActionApprovals } from "../src/employee-tool-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { handleMcp as handleMcpV1 } from "../src/v1/mcp.js";
 import type { V1Context } from "../src/v1/context.js";
-import { createToken } from "../src/agent-tokens.js";
+import { createToken, orgIdForRecord, verifyToken } from "../src/agent-tokens.js";
 
 const endpoint = "https://mcp.example.com/mcp";
 const remoteTools = [
@@ -29,17 +29,21 @@ function environment() {
   return { env: { AGENT_AUDIT: database, AGENT_TOKENS, MCP_TRUSTED_HOSTS: "mcp.example.com" } as unknown as Env, sqlite };
 }
 
-async function api(env: Env, path: string, method = "GET", value?: unknown) {
+async function api(env: Env, path: string, method = "GET", value?: unknown, principal = owner) {
   const url = new URL(`https://shiba.test/api/v1/mcp/servers${path}`);
   const request = new Request(url, { method, headers: { "content-type": "application/json" },
     ...(value === undefined ? {} : { body: JSON.stringify(value) }) });
-  return handleMcpV1({ request, env, url, principal: owner, forward: async () => new Response() } as V1Context);
+  return handleMcpV1({ request, env, url, principal, forward: async () => new Response() } as V1Context);
 }
 
 function mockMcp() {
   const calls: string[] = [];
   let tools = structuredClone(remoteTools);
   let fail = false;
+  let toolCallGate: Promise<void> | null = null;
+  let releaseToolCall: (() => void) | null = null;
+  let markToolCallStarted: () => void = () => {};
+  const toolCallStarted = new Promise<void>((resolve) => { markToolCallStarted = resolve; });
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     if (url.href !== endpoint) throw new Error(`untrusted destination ${url.href}`);
@@ -53,10 +57,17 @@ function mockMcp() {
     } });
     if (request.method === "notifications/initialized") return new Response(null, { status: 202 });
     if (request.method === "tools/list") return Response.json({ jsonrpc: "2.0", id: request.id, result: { tools } });
-    if (request.method === "tools/call") return Response.json({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: "fixture response" }] } });
+    if (request.method === "tools/call") {
+      markToolCallStarted();
+      if (toolCallGate) await toolCallGate;
+      return Response.json({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: "fixture response" }] } });
+    }
     throw new Error(`unexpected MCP method ${request.method}`);
   });
-  return { calls, fetchMock, get tools() { return tools; }, set tools(next) { tools = next; }, set fail(value: boolean) { fail = value; } };
+  return { calls, fetchMock, waitForToolCall: () => toolCallStarted,
+    holdToolCalls() { toolCallGate = new Promise<void>((resolve) => { releaseToolCall = resolve; }); },
+    releaseToolCalls() { releaseToolCall?.(); toolCallGate = null; },
+    get tools() { return tools; }, set tools(next) { tools = next; }, set fail(value: boolean) { fail = value; } };
 }
 
 async function addServer(env: Env) {
@@ -106,6 +117,67 @@ describe("owner-scoped external MCP registry", () => {
     await expect(getExternalMcpServer(env, "org-a", "other-owner", server.id)).resolves.toBeNull();
   });
 
+  it("keeps independent capabilities active through review, disable and rediscovery; whole-server disable still stops all calls", async () => {
+    const { env } = environment(); const fixture = mockMcp();
+    fixture.tools = [remoteTools[0]!, { ...remoteTools[0]!, name: "count" }];
+    vi.stubGlobal("fetch", fixture.fetchMock);
+    const draft = await addServer(env);
+    await discoverExternalMcpServer(env, draft);
+    const initial = (await listExternalMcpServers(env, "org-a", owner.principal))[0]!;
+    const sum = initial.tools.find((tool) => tool.remoteName === "sum");
+    const count = initial.tools.find((tool) => tool.remoteName === "count");
+    if (!sum || !count) throw new Error("two fixture capabilities were not discovered");
+
+    for (const tool of [sum, count]) {
+      await reviewExternalMcpTool(env, (await getExternalMcpServer(env, "org-a", owner.principal, draft.id))!, tool.id, "read", tool.schemaVersion);
+      await setExternalMcpToolEnabled(env, (await getExternalMcpServer(env, "org-a", owner.principal, draft.id))!, tool.id, true, tool.schemaVersion);
+      await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: draft.id, toolId: tool.id, principal: agent.principal, enabled: true });
+    }
+    let server = (await getExternalMcpServer(env, "org-a", owner.principal, draft.id))!;
+    const invokeRegistered = async () => {
+      const registry = createToolRegistry(env);
+      await registerExternalMcpTools(registry, env, agent);
+      return registry;
+    };
+    let registry = await invokeRegistered();
+    expect((await registry.invoke(sum.gatewayName, { a: 2, b: 3 }, agent)).isError).not.toBe(true);
+    expect((await registry.invoke(count.gatewayName, { a: 1, b: 1 }, agent)).isError).not.toBe(true);
+
+    await discoverExternalMcpServer(env, server);
+    server = (await getExternalMcpServer(env, "org-a", owner.principal, draft.id))!;
+    expect(server.status).toBe("enabled");
+    registry = await invokeRegistered();
+    expect(registry.tools().map((tool) => tool.name)).toEqual(expect.arrayContaining([sum.gatewayName, count.gatewayName]));
+
+    await reviewExternalMcpTool(env, server, sum.id, "approval_required", sum.schemaVersion);
+    server = (await getExternalMcpServer(env, "org-a", owner.principal, draft.id))!;
+    expect(server.status).toBe("enabled");
+    registry = await invokeRegistered();
+    expect(registry.tools().map((tool) => tool.name)).toContain(count.gatewayName);
+    expect(registry.tools().map((tool) => tool.name)).not.toContain(sum.gatewayName);
+    expect((await registry.invoke(count.gatewayName, { a: 1, b: 1 }, agent)).isError).not.toBe(true);
+
+    const access = await listExternalMcpAccess(env, "org-a", draft.id);
+    expect(access.find((grant) => grant.capabilityId === count.capabilityId)?.enabled).toBe(true);
+    await setExternalMcpToolEnabled(env, server, sum.id, false, sum.schemaVersion);
+    expect((await getExternalMcpServer(env, "org-a", owner.principal, draft.id))?.status).toBe("enabled");
+    expect((await registry.invoke(count.gatewayName, { a: 1, b: 1 }, agent)).isError).not.toBe(true);
+
+    fixture.tools = [{ ...remoteTools[0]!, description: "Changed schema metadata." }, { ...remoteTools[0]!, name: "count" }];
+    expect((await registry.invoke(count.gatewayName, { a: 1, b: 1 }, agent)).isError).toBe(true);
+    server = (await getExternalMcpServer(env, "org-a", owner.principal, draft.id))!;
+    expect(server.status).toBe("enabled");
+    const afterDrift = (await listExternalMcpServers(env, "org-a", owner.principal))[0]!.tools;
+    expect(afterDrift.find((tool) => tool.remoteName === "sum")).toMatchObject({ enabled: false, effect: "unreviewed" });
+    expect(afterDrift.find((tool) => tool.remoteName === "count")?.enabled).toBe(true);
+    registry = await invokeRegistered();
+    expect((await registry.invoke(count.gatewayName, { a: 1, b: 1 }, agent)).isError).not.toBe(true);
+
+    await disableExternalMcpServer(env, server);
+    expect((await getExternalMcpServer(env, "org-a", owner.principal, draft.id))?.status).toBe("disabled");
+    expect((await registry.invoke(count.gatewayName, { a: 1, b: 1 }, agent)).isError).toBe(true);
+  });
+
   it("queues unknown effects for exact owner approval, then dispatches only the frozen payload and settles its receipt", async () => {
     const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
     const { server, tool } = await discoveredServer(env, fixture.fetchMock);
@@ -126,7 +198,50 @@ describe("owner-scoped external MCP registry", () => {
     expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([{ status: "succeeded", approvalId: pending.approvalId }]);
     const duplicate = await api(env, `/${server.id}/approvals/${pending.approvalId}`, "POST", { approved: true });
     expect(duplicate?.status).toBe(200);
-    expect(await duplicate!.json()).toMatchObject({ dispatch: { status: "failed", errorCode: "approval_already_used" } });
+    expect(await duplicate!.json()).toMatchObject({ dispatch: { status: "succeeded" } });
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
+  });
+
+  it("creates a new approval for a new identical intent while replaying the same idempotency key", async () => {
+    const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
+    const { server, tool } = await discoveredServer(env, fixture.fetchMock);
+    await reviewExternalMcpTool(env, server, tool.id, "approval_required", tool.schemaVersion);
+    const reviewed = (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!;
+    await setExternalMcpToolEnabled(env, reviewed, tool.id, true, tool.schemaVersion);
+    await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
+    const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
+    const first = await registry.invoke(tool.gatewayName, { a: 4, b: 9 }, agent, { idempotencyKey: "same-operation" });
+    const firstApproval = (first.structuredContent as { approvalId: string }).approvalId;
+    const replay = await registry.invoke(tool.gatewayName, { a: 4, b: 9 }, agent, { idempotencyKey: "same-operation" });
+    expect(replay._meta).toMatchObject({ "com.shiba/invocation": { replayed: true } });
+    const second = await registry.invoke(tool.gatewayName, { a: 4, b: 9 }, agent, { idempotencyKey: "new-operation" });
+    const secondApproval = (second.structuredContent as { approvalId: string }).approvalId;
+    expect(secondApproval).not.toBe(firstApproval);
+    expect((await listEmployeeActionApprovals(env, { orgId: "org-a", status: "pending" })).map((item) => item.approvalId))
+      .toEqual(expect.arrayContaining([firstApproval, secondApproval]));
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(0);
+  });
+
+  it("does not let a duplicate concurrent approval overwrite the in-flight receipt", async () => {
+    const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
+    const { server, tool } = await discoveredServer(env, fixture.fetchMock);
+    await reviewExternalMcpTool(env, server, tool.id, "approval_required", tool.schemaVersion);
+    const reviewed = (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!;
+    await setExternalMcpToolEnabled(env, reviewed, tool.id, true, tool.schemaVersion);
+    await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
+    const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
+    const pendingResult = await registry.invoke(tool.gatewayName, { a: 6, b: 2 }, agent);
+    const approvalId = (pendingResult.structuredContent as { approvalId: string }).approvalId;
+    fixture.holdToolCalls();
+    const firstDispatch = api(env, `/${server.id}/approvals/${approvalId}`, "POST", { approved: true });
+    await fixture.waitForToolCall();
+    const duplicateResponse = await api(env, `/${server.id}/approvals/${approvalId}`, "POST", { approved: true });
+    expect(await duplicateResponse!.json()).toMatchObject({ dispatch: { status: "in_progress" } });
+    expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([{ status: "approved", approvalId }]);
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
+    fixture.releaseToolCalls();
+    expect(await (await firstDispatch)!.json()).toMatchObject({ dispatch: { status: "succeeded" } });
+    expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([{ status: "succeeded", approvalId }]);
     expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
   });
 
@@ -210,5 +325,33 @@ describe("owner-scoped external MCP registry", () => {
     const revoked = await api(env, `/${draft.id}/tools`);
     expect((await revoked!.json() as { access: Array<{ enabled: boolean }> }).access).toEqual([]);
     expect(token.token).toMatch(/^shb_/);
+  });
+
+  it("mints a default self-hosted token, grants it to an external MCP capability, then lists and calls that tool", async () => {
+    const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
+    const selfHostedOwner = { ...owner, orgId: "self-hosted" };
+    const created = await api(env, "", "POST", { name: "Self-hosted fixture", transport: "streamable_http", url: endpoint, credentialRef: null }, selfHostedOwner);
+    expect(created?.status).toBe(201);
+    const server = (await created!.json() as { server: { id: string } }).server;
+    await api(env, `/${server.id}/discover`, "POST", {}, selfHostedOwner);
+    const catalog = await api(env, `/${server.id}/tools`, "GET", undefined, selfHostedOwner);
+    const tool = ((await catalog!.json() as { tools: Array<{ id: string; gatewayName: string; schemaVersion: string }> }).tools)[0]!;
+    await api(env, `/${server.id}/tools/${tool.id}/review`, "POST", { effect: "read", schemaVersion: tool.schemaVersion }, selfHostedOwner);
+    await api(env, `/${server.id}/tools/${tool.id}/enable`, "POST", { schemaVersion: tool.schemaVersion }, selfHostedOwner);
+
+    const minted = await createToken(env, "normal-static-agent", ["mcp:external"]);
+    expect(minted.record.orgId).toBeUndefined();
+    expect(orgIdForRecord(minted.record)).toBe("self-hosted");
+    const grant = await api(env, `/${server.id}/tools/${tool.id}/grant`, "POST", { principal: minted.record.principal, enabled: true }, selfHostedOwner);
+    expect(grant?.status).toBe(200);
+
+    const authenticated = await verifyToken(env, minted.token);
+    expect(authenticated).not.toBeNull();
+    const registry = createToolRegistry(env);
+    await registerExternalMcpTools(registry, env, authenticated!);
+    expect(visibleToolsForPrincipal(registry.tools(), authenticated).map((entry) => entry.name)).toContain(tool.gatewayName);
+    const result = await registry.invoke(tool.gatewayName, { a: 7, b: 8 }, authenticated!);
+    expect(result.isError).not.toBe(true);
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
   });
 });
