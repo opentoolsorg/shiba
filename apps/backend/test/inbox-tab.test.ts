@@ -747,7 +747,7 @@ describe("dashboard memory routes", () => {
       "https://internal/internal/memory/sessions?agent=default",
     );
     const del = await worker.fetch(
-      new Request("http://localhost/api/memory/facts/fact-1", { method: "DELETE" }),
+      new Request("http://localhost/api/memory/facts/fact-1", { method: "DELETE", headers: { Origin: "http://localhost" } }),
       env,
       ctx,
     );
@@ -762,7 +762,7 @@ describe("dashboard memory routes", () => {
   it("DELETE /api/memory/facts/:id forwards the encoded segment without double-encoding", async () => {
     const { env, memoryStub } = memoryEnv();
     await worker.fetch(
-      new Request("http://localhost/api/memory/facts/my%20fact", { method: "DELETE" }),
+      new Request("http://localhost/api/memory/facts/my%20fact", { method: "DELETE", headers: { Origin: "http://localhost" } }),
       env,
       ctx,
     );

@@ -176,10 +176,6 @@ export class Automations {
     return this.storeFrom(state.items);
   }
 
-  private async save(store: AutomationStore): Promise<void> {
-    await this.ctx.storage.put("state", { items: store.list() } satisfies AutomationsState);
-  }
-
   /**
    * Merge the in-flight fire's accounting into the latest persisted state.
    * Queue calls yield to PATCH/DELETE requests, so replacing the old snapshot
@@ -862,15 +858,17 @@ export class Automations {
       } catch {
         return Response.json({ error: "Automation not found." }, { status: 404 });
       }
-      const store = await this.load();
-      const automation = store.get(id);
+      if (request.method === "DELETE") {
+        return this.ctx.storage.transaction(async (transaction) => {
+          const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+          if (!state.items.some((item) => item.id === id)) return Response.json({ error: "Automation not found." }, { status: 404 });
+          await transaction.put("state", { items: state.items.filter((item) => item.id !== id) } satisfies AutomationsState);
+          return Response.json({ ok: true, id });
+        });
+      }
+      const automation = (await this.load()).get(id);
       if (!automation) {
         return Response.json({ error: "Automation not found." }, { status: 404 });
-      }
-      if (request.method === "DELETE") {
-        store.remove(id);
-        await this.save(store);
-        return Response.json({ ok: true, id });
       }
       let body: unknown;
       try {
@@ -949,17 +947,28 @@ export class Automations {
           return Response.json({ error: error instanceof Error ? error.message : "Invalid reviewed skill pins." }, { status: 400 });
         }
       }
-      const updated: Automation = {
-        ...automation,
+      const selectsCustomAgent = patch.customAgentId === null || (typeof patch.customAgentId === "string" && patch.customAgentId.trim() !== "");
+      const config = {
         ...(typeof patch.enabled === "boolean" ? { enabled: patch.enabled } : {}),
         ...(typeof patch.prompt === "string" ? { prompt: patch.prompt.trim() } : {}),
-        ...(patch.customAgentId !== undefined ? { customAgentId } : {}),
-        ...(patch.customAgentId !== undefined || patch.reviewCustomAgent === true ? { customAgentPin } : {}),
+        ...(selectsCustomAgent ? { customAgentId } : {}),
+        ...(patch.customAgentId === null || patch.reviewCustomAgent === true ? { customAgentPin } : {}),
         ...(patch.skillPins !== undefined ? { skillPins } : {}),
       };
-      store.upsert(updated);
-      await this.save(store);
-      return Response.json({ automation: publicAutomation(updated) });
+      // Validation can yield to ticks, other edits, and deletion. Only requested
+      // configuration fields belong to PATCH; runtime state belongs to the fire path.
+      return this.ctx.storage.transaction(async (transaction) => {
+        const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+        const latest = state.items.find((item) => item.id === id);
+        if (!latest) return Response.json({ error: "Automation not found." }, { status: 404 });
+        if ((!selectsCustomAgent && patch.reviewCustomAgent === true && latest.customAgentId !== customAgentId) ||
+            (selectsCustomAgent && patch.customAgentId !== null && latest.customAgentId !== customAgentId && patch.reviewCustomAgent !== true)) {
+          return Response.json({ error: "Automation employee changed during review. Reload before updating it." }, { status: 409 });
+        }
+        const updated: Automation = { ...latest, ...config };
+        await transaction.put("state", { items: state.items.map((item) => item.id === id ? updated : item) } satisfies AutomationsState);
+        return Response.json({ automation: publicAutomation(updated) });
+      });
     }
     const manualId = /^\/api\/automations\/([^/]+)\/run\/?$/.exec(url.pathname)?.[1];
     if (manualId && request.method === "POST") {

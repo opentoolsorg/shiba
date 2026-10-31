@@ -36,7 +36,8 @@ import {
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import type { SavedSkill } from "../saved";
-import { expectedDeliverablesSchema, HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
+import { hasComposerInput, parseArtifactDeliverables } from "../execution-target-input";
 
 // Ambient types for browser Web Speech API.
 interface SpeechRecognitionResultItem {
@@ -95,6 +96,11 @@ export interface ModelRoutingControl {
 }
 
 export interface TaskComposerProps {
+  blockedReason?: string | null;
+  appToolsWork?: boolean;
+  onAppToolsWorkChange?: (value: boolean) => void;
+  appToolsWorkIssue?: string | null;
+  onOpenEmployeeTools?: () => void;
   repoUrl: string;
   task: string;
   baseBranch: string;
@@ -278,6 +284,11 @@ const inputClass =
   "bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-sm)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] placeholder-[var(--muted-foreground-3)] transition-colors";
 
 export function TaskComposer({
+  blockedReason = null,
+  appToolsWork = false,
+  onAppToolsWorkChange,
+  appToolsWorkIssue = null,
+  onOpenEmployeeTools,
   repoUrl,
   task,
   baseBranch,
@@ -332,15 +343,13 @@ export function TaskComposer({
   const localTargetBlocked = runTarget === "local" && (
     !localRunAvailable || !targetMachineId || localComputersLoading || localComputersError !== null
   );
-  const artifactPathsValid = expectedDeliverablesSchema.safeParse(
-    artifactDeliverables.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
-  ).success;
-  const sendDisabled = busy || task.trim() === "" ||
-    (executionTargetKind === "repository" && repoUrl.trim() === "") ||
+  const artifactPathsValid = parseArtifactDeliverables(artifactDeliverables).success;
+  const computerTaskBlocked =
     (executionTargetKind === "artifact-workspace" && !artifactPathsValid) ||
     localTargetBlocked || Boolean(
     customAgentId && (customAgentsLoading || !customAgents.some((agent) => agent.id === customAgentId)),
   );
+  const sendDisabled = busy || isSubmitting || clearing || Boolean(blockedReason) || !hasComposerInput({ task, repoUrl, executionTargetKind, appToolsWork }) || (appToolsWork ? appToolsWorkIssue !== null : computerTaskBlocked);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hero = variant === "hero";
 
@@ -558,6 +567,45 @@ export function TaskComposer({
     <ChevronDown aria-hidden="true" className="size-3 text-[var(--icon-muted)] shrink-0" />
   );
 
+  const workTargetPicker = onAppToolsWorkChange ? (
+    <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground-2)]">
+      Work target
+      <select aria-label="Work target" value={appToolsWork ? "app-tools" : executionTargetKind}
+        disabled={isSubmitting || busy}
+        onChange={(event) => {
+          const value = event.target.value;
+          onAppToolsWorkChange(value === "app-tools");
+          if (value === "repository" || value === "artifact-workspace") onExecutionTargetKindChange?.(value);
+        }} className={inputClass}>
+        <option value="repository">Repository task</option>
+        <option value="artifact-workspace">Artifact workspace</option>
+        <option value="app-tools">Employee tools and supplied context</option>
+      </select>
+    </label>
+  ) : null;
+
+  if (appToolsWork) return (
+    <div className={hero ? "flex-1 flex items-center justify-center px-4 py-8" : "w-full"}>
+      <form data-testid="task-composer" aria-label="Connected app task composer" onSubmit={handleSubmit}
+        className="w-full max-w-[640px] rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-4 flex flex-col gap-3">
+        {workTargetPicker}
+        <p className="text-xs text-[var(--muted-foreground-2)]">Use this bot’s granted app tools or a linked first-task brief; no repository required. Sends and coding runs still need separate approval.</p>
+        <textarea ref={textareaRef} aria-label="Task description" value={task}
+          onChange={(event) => onTaskChange(event.target.value)} onKeyDown={handleKeyDown}
+          placeholder="Describe the outcome using the app resources granted to this bot"
+          className="min-h-24 w-full resize-y bg-transparent text-sm text-[var(--fg)] focus:outline-none" />
+        {blockedReason || appToolsWorkIssue ? <p role="status" className="text-xs text-[var(--warning-fg)]">{blockedReason ?? appToolsWorkIssue}</p> : null}
+        <div className="flex items-center justify-between gap-3">
+          {onOpenEmployeeTools ? <button type="button" onClick={onOpenEmployeeTools} className="text-xs text-[var(--primary)]">Review app permissions</button> : <span />}
+          <button type="submit" aria-label={isSubmitting ? "Sending…" : "Send task"} disabled={sendDisabled || isSubmitting || clearing}
+            className="rounded-[var(--radius-button)] bg-[var(--primary)] px-3 py-2 text-xs font-semibold text-[var(--primary-text)] disabled:opacity-40">
+            {isSubmitting ? "Sending…" : "Send task"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+
   const form = (
     <form
       data-testid="task-composer"
@@ -568,8 +616,10 @@ export function TaskComposer({
       }`}
     >
       {/* Top Chips Row: Project (Repo) + Run Target */}
+      {blockedReason ? <p role="status" className="text-xs text-[var(--warning-fg)]">{blockedReason}</p> : null}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {onExecutionTargetKindChange ? (
+        {workTargetPicker}
+        {!onAppToolsWorkChange && onExecutionTargetKindChange ? (
           <div className="relative">
             <Tooltip content="Choose where this task produces its work" side="top">
               <button

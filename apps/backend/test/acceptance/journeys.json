@@ -1,15 +1,18 @@
 {
   "schemaVersion": 1,
   "target": {
-    "pullRequest": 162,
-    "branch": "codex/ai-coworker-catalog-checkpoint",
+    "pullRequest": 163,
+    "branch": "cursor/desktop-local-path-wiring-9e7a",
     "head": "resolved-at-run-time",
-    "base": "1f80d1aa184fd07f752351f3b5463440bcde5fa8"
+    "base": "0c4ccc480c4ddbccfae5e384f37d90c80a21ab45"
   },
   "execution": {
     "mode": "local-deterministic",
     "providerAdapter": "phase1-core-loop fake agent-tool executor and mock GitHub fetch",
-    "storageAdapters": ["in-memory D1 fixtures", "in-memory R2 fixture"],
+    "storageAdapters": [
+      "in-memory D1 fixtures",
+      "in-memory R2 fixture"
+    ],
     "liveProvidersUsed": false,
     "realSandboxStarted": false
   },
@@ -60,6 +63,17 @@
         "apps/backend/test/employee-tool-routes.test.ts",
         "apps/backend/test/gmail.test.ts",
         "apps/frontend/src/components/EmployeeToolPolicyView.test.tsx"
+      ]
+    },
+    {
+      "id": "employee-internal-draft",
+      "description": "Use the explicit app-tools Work marker with a server-bound employee session, read chosen Gmail IDs through mocked provider HTTP, retain immutable private draft bytes without constructing a coding delegate, then exercise authenticated download and human review CAS. Frontend transport and review controls are component tested; this is not a live model or browser-backed Gmail journey.",
+      "tests": [
+        "apps/backend/test/conversation-mode.test.ts",
+        "apps/backend/test/employee-tool-gmail-resource.test.ts",
+        "apps/backend/test/run-deliverables-routes.test.ts",
+        "apps/frontend/src/components/TaskComposerAppTools.test.tsx",
+        "apps/frontend/src/components/RetainedDraftCard.test.tsx"
       ]
     },
     {
@@ -135,6 +149,29 @@
         "apps/backend/test/orchestrator-fencing.test.ts",
         "apps/backend/test/command-receipts.test.ts",
         "apps/backend/test/first-run-reliability.test.ts"
+      ]
+    },
+    {
+      "id": "pr162-review-regressions",
+      "description": "Carry all 17 review candidates into PR163: dispatch after Chat, owner-compatible room routing, atomic edits/migrations, origin intent, approval decision races, frozen replay identity, daemon transport/send boundaries, and frontend submission/revision recovery. All provider and peer calls use deterministic adapters.",
+      "tests": [
+        "apps/backend/test/orchestrator.test.ts",
+        "apps/backend/test/collaboration-owner-routing.test.ts",
+        "apps/backend/test/automations-tick.test.ts",
+        "apps/backend/test/employee-tool-store.test.ts",
+        "apps/backend/test/memory-routes-owner.test.ts",
+        "apps/backend/test/external-mcp.test.ts",
+        "apps/backend/test/decide.test.ts",
+        "apps/backend/test/runs.test.ts",
+        "apps/backend/test/reason-network-companion.test.ts",
+        "apps/backend/test/local-daemon-transport.test.ts",
+        "apps/backend/test/reason-network-daemon.test.ts",
+        "apps/backend/test/reason-network-stdio.test.ts",
+        "apps/frontend/src/project-contexts.test.tsx",
+        "apps/frontend/src/components/AppNavRail.test.tsx",
+        "apps/frontend/src/components/TaskComposer.test.tsx",
+        "apps/frontend/src/execution-target-input.test.ts",
+        "apps/frontend/src/components/RunDeliverables.test.tsx"
       ]
     },
     {

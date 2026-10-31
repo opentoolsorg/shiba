@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("agents/routing", () => ({ getAgentByName: vi.fn() }));
 vi.mock("../src/slack-routes.js", () => ({ ORCHESTRATOR_NAME: "default" }));
@@ -37,6 +37,7 @@ class FakeStorage {
 
 const NOW = Date.UTC(2026, 9, 28, 10, 0);
 const REPO = "https://github.com/owner/repo";
+afterEach(() => vi.restoreAllMocks());
 
 function makeDo(items: Automation[]) {
   const storage = new FakeStorage();
@@ -70,6 +71,48 @@ function addDueBatch(storage: FakeStorage, id: string) {
 }
 
 describe("automation tick webhook and schedule state", () => {
+  it.each([false, true])("keeps latest fire state and unrelated updates while PATCH validates (deleted=%s)", async (deleted) => {
+    const scheduled = createAutomation({
+      id: "slow-patch", prompt: "Prepare a draft", repoUrl: REPO,
+      triggers: [{ kind: "schedule", cron: "0 3 * * *", timezone: "America/Los_Angeles" }],
+    }).automation;
+    const other = createAutomation({ id: "other", prompt: "Other draft", repoUrl: REPO, triggers: [{ kind: "manual" }] }).automation;
+    const { automation, storage, orchestrator } = makeDo([scheduled, other]);
+    const pin = { id: "reviewed-skill", version: "1", source: "saved-library", instructions: "Use supplied sources only." };
+    const sha256 = await reviewedSkillPinSha256(pin);
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    vi.spyOn(crypto.subtle, "digest").mockImplementationOnce(async (algorithm, data) => {
+      entered(); await gate; return digest(algorithm, data);
+    });
+    const patch = (id: string, body: unknown) => automation.fetch(new Request(`https://internal/api/automations/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }));
+    const pending = patch(scheduled.id, { prompt: "Reviewed draft", skillPins: [{ ...pin, sha256, enabled: true }], reviewSkillPins: true });
+    await started;
+    expect(await automation.tick(orchestrator, NOW)).toEqual({ fired: 1 });
+    const fired = (await storage.get<AutomationsState>("state"))?.items.find((item) => item.id === scheduled.id);
+    expect((await patch(other.id, { prompt: "Other updated" })).status).toBe(200);
+    if (deleted) {
+      expect((await automation.fetch(new Request(`https://internal/api/automations/${scheduled.id}`, { method: "DELETE" }))).status).toBe(200);
+    } else expect((await patch(scheduled.id, { enabled: false })).status).toBe(200);
+    release();
+    expect((await pending).status).toBe(deleted ? 404 : 200);
+    const latest = await storage.get<AutomationsState>("state");
+    expect(latest?.items.find((item) => item.id === other.id)?.prompt).toBe("Other updated");
+    const saved = latest?.items.find((item) => item.id === scheduled.id);
+    if (deleted) expect(saved).toBeUndefined();
+    else {
+      expect(saved).toMatchObject({ enabled: false, prompt: "Reviewed draft", runCount: 1, runsToday: 1 });
+      expect(saved?.occurrences).toEqual(fired?.occurrences);
+      expect(saved?.scheduleFiredAt).toEqual(fired?.scheduleFiredAt);
+      expect(saved?.lastTriggeredAt).toBe(fired?.lastTriggeredAt);
+    }
+  });
+
   it("preserves a pause that arrives while the scheduled queue request is pending", async () => {
     const scheduled = createAutomation({
       id: "pause-during-queue",

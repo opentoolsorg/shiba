@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OnboardingProgressClient } from "./onboarding-progress-client";
+import { OnboardingConflictError, OnboardingProgressClient } from "./onboarding-progress-client";
 import type { FirstRunProgressSnapshot } from "./components/FirstRunWizard";
 
 const initial: FirstRunProgressSnapshot = {
@@ -9,6 +9,17 @@ const initial: FirstRunProgressSnapshot = {
 };
 
 describe("OnboardingProgressClient", () => {
+  it("adopts a newer conflicting draft without silently overwriting it", async () => {
+    const latest = { ...initial, revision: 3 };
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method
+      ? Response.json(latest, { status: 409 }) : Response.json(initial));
+    const applied = vi.fn();
+    const client = new OnboardingProgressClient(fetcher, applied);
+    await client.read();
+    await expect(client.update({ action: "save-draft", draftTask: { goal: "My pending goal" } })).rejects.toBeInstanceOf(OnboardingConflictError);
+    expect(applied).toHaveBeenLastCalledWith(latest);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
   it("serializes resume and dismissal using the latest revision", async () => {
     const requests: Array<{ action: string; expectedRevision: number }> = [];
     let server = initial;

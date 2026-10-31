@@ -299,7 +299,11 @@ export function RemoteAccessView(): JSX.Element {
                 <span className="font-mono text-[var(--fg)] truncate">{identity.kind === "ok" ? identity.agent : "—"}</span>
               </div>
               {bridge ? (
-                <div className="sm:col-span-2 flex flex-col gap-1 border-t border-[var(--border-1)] pt-3">
+                <div
+                  className="sm:col-span-2 flex flex-col gap-1 border-t border-[var(--border-1)] pt-3"
+                  role="status"
+                  aria-live="polite"
+                >
                   <div className="flex items-center gap-2">
                     <span
                       className={`size-2 rounded-full shrink-0 ${
@@ -314,7 +318,7 @@ export function RemoteAccessView(): JSX.Element {
                       aria-hidden="true"
                     />
                     <span className="text-[var(--muted-foreground-2)]">This app</span>
-                    <span className="font-mono text-[var(--fg)] truncate" role="status">
+                    <span className="font-mono text-[var(--fg)] truncate">
                       {desktopStatus
                         ? formatDesktopConnectionLabel(desktopStatus)
                         : "Checking desktop connection…"}

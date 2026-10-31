@@ -248,7 +248,7 @@ describe("CustomAgentsView", () => {
     expect(failed).toHaveBeenCalledTimes(2);
   });
 
-  it("requires slug, name, and instructions before creating", async () => {
+  it("requires name and instructions before creating", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({ ok: true, json: async () => ({ agents: [] }) })),
@@ -258,7 +258,7 @@ describe("CustomAgentsView", () => {
       expect(screen.getByText("No bots")).toBeTruthy();
     });
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    expect(screen.getByRole("alert").textContent).toContain("Slug, name, and instructions are required.");
+    expect(screen.getByRole("alert").textContent).toContain("Name and instructions are required.");
   });
 
   it("asks before deleting and removes the row after the server accepts", async () => {

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { runManagedContextProof, verifyManagedContextApproval, verifyManagedContextDraft } from "./managed-context.mjs";
 import { createReasonNetworkCompanion } from "../../../../scripts/reason-network-companion.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -17,10 +18,11 @@ const workerOrigin = `http://localhost:${workerPort}`;
 const workerLoopbackOrigin = `http://127.0.0.1:${workerPort}`;
 const tempRoot = await mkdtemp(path.join(tmpdir(), "shiba-browser-acceptance-"));
 const stateDir = path.join(tempRoot, "wrangler-state");
-const screenshotDir = path.join(tmpdir(), "shiba-e2e-acceptance", "screenshots");
+const outputDir = process.env.SHIBA_ACCEPTANCE_OUTPUT_DIR ?? path.join(tmpdir(), "shiba-e2e-acceptance");
+const screenshotDir = path.join(outputDir, "screenshots");
 const screenshotPath = path.join(screenshotDir, `${path.basename(tempRoot)}-journey.png`);
 await mkdir(screenshotDir, { recursive: true });
-const evidencePath = path.join(tmpdir(), "shiba-e2e-acceptance", "browser.latest.json");
+const evidencePath = path.join(outputDir, "browser.latest.json");
 await mkdir(path.dirname(evidencePath), { recursive: true });
 
 const varsPath = path.join(backendDir, ".dev.vars");
@@ -33,6 +35,7 @@ const browserEvents = [];
 const externalFontRequests = [];
 let adapterTimer;
 let heartbeatTimer;
+let managedContext = null;
 let browser;
 
 function logChild(child, name) {
@@ -243,7 +246,9 @@ try {
   const { chromium } = desktopRequire("playwright-core");
   browser = await chromium.launch({
     headless: true,
-    executablePath: "/usr/bin/chromium",
+    executablePath: process.env.SHIBA_BROWSER_EXECUTABLE ?? (process.platform === "darwin"
+      ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      : "/usr/bin/chromium"),
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
@@ -274,6 +279,169 @@ try {
   await page.getByLabel("Email").fill("acceptance-owner@example.test");
   await page.getByLabel("Password").fill("e2e-password-2026!");
   await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await page.getByRole("region", { name: "First task setup" }).waitFor();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const goalText = "A reply draft grounded in a selected email";
+  let failedSetupSave = false;
+  await page.route("**/api/onboarding/progress", async (route) => {
+    const request = route.request();
+    if (!failedSetupSave && request.method() === "POST" && request.postDataJSON()?.action === "save-draft") {
+      failedSetupSave = true;
+      await route.abort("failed");
+    } else await route.continue();
+  });
+  const goalChip = page.getByRole("button", { name: goalText, exact: true });
+  await goalChip.focus();
+  await goalChip.press("Enter");
+  await page.getByRole("region", { name: "Setup recovery" }).waitFor();
+  await page.unroute("**/api/onboarding/progress");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("textbox", { name: "Your answer: Goal" }).waitFor();
+  assert.equal(await page.getByRole("textbox", { name: "Your answer: Goal" }).inputValue(), goalText);
+  await page.getByRole("button", { name: "Send answer", exact: true }).click();
+  await page.getByRole("textbox", { name: "Your answer: Audience" }).waitFor();
+  await page.getByRole("button", { name: "A customer", exact: true }).press("Enter");
+  const acceptanceText = "Use only supported facts, cite the selected source, and never send.";
+  await page.getByRole("textbox", { name: "Your answer: Acceptance" }).fill(acceptanceText);
+  await page.getByRole("textbox", { name: "Your answer: Acceptance" }).press("Control+Enter");
+  await page.getByRole("textbox", { name: "Your answer: Your role" }).waitFor();
+  await page.getByRole("button", { name: "Skip question", exact: true }).click();
+  await page.getByRole("textbox", { name: "Your answer: Help" }).waitFor();
+  await page.getByRole("button", { name: "Writing and editing", exact: true }).click();
+  await page.getByRole("textbox", { name: "Your answer: Employee" }).waitFor();
+  await page.getByRole("button", { name: /Research Produce a sourced report/ }).click();
+  const suppliedContext = "Use only supplied fixture facts. Connection and resource grants remain separate.";
+  await page.getByRole("textbox", { name: "Your answer: Context" }).fill(suppliedContext);
+  await page.getByRole("textbox", { name: "Your answer: Context" }).press("Control+Enter");
+  await page.getByRole("textbox", { name: "Your answer: Connections" }).waitFor();
+  await page.getByRole("button", { name: "Review connections, then return", exact: true }).click();
+  await waitFor("connection navigation", () => page.url().includes("/integrations"));
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("region", { name: "Saved first task draft" }).waitFor();
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await page.getByRole("textbox", { name: "Your answer: Connections" }).waitFor();
+  assert.ok(await page.getByRole("log", { name: "Setup conversation" }).getByText(acceptanceText, { exact: true }).isVisible());
+  await page.getByRole("button", { name: "I will use supplied context first", exact: true }).click();
+  await page.getByRole("region", { name: "First task draft review" }).waitFor();
+  let prepareRequests = 0;
+  const countPrepare = (request) => {
+    if (request.url().endsWith("/api/onboarding/progress") && request.method() === "POST" && request.postDataJSON()?.action === "prepare-task") prepareRequests += 1;
+  };
+  page.on("request", countPrepare);
+  await page.getByRole("button", { name: "Create first task draft", exact: true }).evaluate((button) => { button.click(); button.click(); });
+  await page.getByRole("heading", { name: "First task draft saved", exact: true }).waitFor();
+  page.off("request", countPrepare);
+  const preparedSetup = await apiJson(page, "/api/onboarding/progress");
+  assert.equal(prepareRequests, 1);
+  assert.equal(preparedSetup.draftTask.goal, goalText);
+  assert.equal(preparedSetup.draftTask.audience, "A customer");
+  assert.equal(preparedSetup.draftTask.acceptance, acceptanceText);
+  assert.equal(preparedSetup.draftTask.employeeId, null);
+  assert.equal(preparedSetup.draftTask.employeeTemplateId, "research");
+  assert.ok(preparedSetup.draftTask.preparedAt);
+  assert.equal(preparedSetup.activatedAt, null);
+  assert.deepEqual(preparedSetup.draftTask.sourceRefs, []);
+  assert.equal((await apiJson(page, "/api/runs")).runs.length, 0);
+  assert.equal((await apiJson(page, "/api/custom-agents")).agents.length, 0);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  const onboardingScreenshot = path.join(screenshotDir, `${path.basename(tempRoot)}-onboarding-narrow.png`);
+  await page.screenshot({ path: onboardingScreenshot, fullPage: true });
+  evidence.screenshots.push(onboardingScreenshot);
+  checkpoints.push({ id: "conversational-onboarding-answers-recovery-review", status: "passed", draftTaskId: preparedSetup.draftTaskId, version: preparedSetup.draftTask.version, prepareRequests, viewport: "375x812", reducedMotion: true, runsCreated: 0, employeesCreated: 0 });
+  await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
+  await page.getByRole("group", { name: "Selected first-task goal" }).waitFor();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("group", { name: "Selected first-task goal" }).waitFor();
+  const taskInput = page.getByRole("textbox", { name: "Task description" });
+  const canonicalTask = await taskInput.inputValue();
+  assert.ok(canonicalTask.startsWith(goalText));
+  // A second local fixture identity exercises the same-browser cache boundary.
+  // Copy only the fixture password hash inside isolated SQLite; no token is read or granted.
+  const secondOwnerSql = `
+    INSERT INTO "user" (id,name,email,emailVerified,createdAt,updatedAt)
+      SELECT 'acceptance-owner-b','Acceptance Other Owner','acceptance-other@example.test',emailVerified,createdAt,updatedAt
+      FROM "user" WHERE email='acceptance-owner@example.test';
+    INSERT INTO "account" (id,accountId,providerId,userId,password,createdAt,updatedAt)
+      SELECT 'acceptance-account-b','acceptance-owner-b',providerId,'acceptance-owner-b',password,createdAt,updatedAt
+      FROM "account" WHERE userId=(SELECT id FROM "user" WHERE email='acceptance-owner@example.test') AND providerId='credential';
+  `;
+  const secondOwnerSeed = spawnSync(packageManager, [...packageManagerPrefix, "exec", "wrangler", "d1", "execute", "shiba-audit", "--local", "--persist-to", stateDir, "--config", "apps/backend/wrangler.jsonc", "--command", secondOwnerSql, "--json"], { cwd: root, env: ciEnv, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
+  assert.equal(secondOwnerSeed.status, 0, `Second local owner fixture failed: ${secondOwnerSeed.stderr}`);
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.getByRole("button", { name: /workspace/ }).click();
+  await page.getByRole("menuitem", { name: "Log out", exact: true }).click();
+  await page.getByRole("heading", { name: "Sign in to continue", exact: true }).waitFor();
+  assert.equal(await page.getByRole("group", { name: "Selected first-task goal" }).count(), 0);
+  await page.getByLabel("Email").fill("acceptance-other@example.test");
+  await page.getByLabel("Password").fill("e2e-password-2026!");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("textbox", { name: "Your answer: Goal" }).waitFor();
+  assert.equal(await page.getByRole("textbox", { name: "Your answer: Goal" }).inputValue(), "");
+  assert.equal(await page.getByRole("log", { name: "Setup conversation" }).getByText(goalText, { exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Skip setup", exact: true }).click();
+  await taskInput.waitFor();
+  assert.equal(await taskInput.inputValue(), "");
+  assert.equal(await page.getByRole("group", { name: "Selected first-task goal" }).count(), 0);
+  assert.equal(await page.getByText(goalText, { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Send task", exact: true }).isDisabled(), true);
+  await page.getByRole("button", { name: /workspace/ }).click();
+  await page.getByRole("menuitem", { name: "Log out", exact: true }).click();
+  await page.getByRole("heading", { name: "Sign in to continue", exact: true }).waitFor();
+  await page.getByLabel("Email").fill("acceptance-owner@example.test");
+  await page.getByLabel("Password").fill("e2e-password-2026!");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("group", { name: "Selected first-task goal" }).waitFor();
+  assert.equal(await taskInput.inputValue(), canonicalTask);
+  checkpoints.push({ id: "onboarding-owner-scoped-composer", status: "passed", sameBrowser: true, otherOwnerTextVisible: false, otherOwnerSendDisabled: true, originalOwnerRestored: true });
+  // A same-owner refresh must not silently turn a linked goal into ordinary work.
+  const beforeChangedSetup = await apiJson(page, "/api/onboarding/progress");
+  const changedSetup = await apiJson(page, "/api/onboarding/progress", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "save-draft", expectedRevision: beforeChangedSetup.revision, draftTask: { audience: "A changed audience" } }) });
+  await apiJson(page, "/api/onboarding/progress", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "prepare-task", expectedRevision: changedSetup.revision }) });
+  let staleRunRequests = 0;
+  let staleAppMessages = 0;
+  const countStaleRun = (request) => { if (request.method() === "POST" && new URL(request.url()).pathname === "/api/runs") staleRunRequests += 1; };
+  const countStaleSocket = (socket) => socket.on("framesent", ({ payload }) => { if (String(payload).includes("cf_agent_use_chat_request")) staleAppMessages += 1; });
+  page.on("request", countStaleRun);
+  page.on("websocket", countStaleSocket);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("group", { name: "Selected first-task goal" }).getByText(/saved version needs review/).waitFor();
+  assert.equal(await taskInput.inputValue(), canonicalTask);
+  await page.getByRole("combobox", { name: "Work target", exact: true }).selectOption("artifact-workspace");
+  await page.getByRole("textbox", { name: "Artifact deliverables", exact: true }).fill("deliverables/stale-goal.md");
+  const staleSend = page.getByRole("button", { name: "Send task", exact: true });
+  assert.equal(await staleSend.isDisabled(), true);
+  await taskInput.press("Control+Enter");
+  await taskInput.press("Meta+Enter");
+  // Let App effects, keyboard handlers, and the debounced composer cache settle.
+  await page.waitForTimeout(500);
+  assert.equal(staleRunRequests, 0);
+  assert.equal(staleAppMessages, 0);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("group", { name: "Selected first-task goal" }).getByText(/saved version needs review/).waitFor();
+  assert.equal(await taskInput.inputValue(), canonicalTask);
+  await page.getByRole("combobox", { name: "Work target", exact: true }).selectOption("artifact-workspace");
+  await page.getByRole("textbox", { name: "Artifact deliverables", exact: true }).fill("deliverables/stale-goal.md");
+  assert.equal(await staleSend.isDisabled(), true);
+  await page.getByRole("button", { name: "Remove first-task goal link", exact: true }).click();
+  await page.getByRole("group", { name: "Selected first-task goal" }).waitFor({ state: "detached" });
+  assert.equal(await staleSend.isDisabled(), false);
+  page.off("request", countStaleRun);
+  page.off("websocket", countStaleSocket);
+  checkpoints.push({ id: "onboarding-stale-goal-stays-bound", status: "passed", staleRunRequests, staleAppMessages, explicitRemovalRequired: true, reloadPreserved: true });
+  await taskInput.fill(`${canonicalTask}\nAn edited ordinary task.`);
+  await page.getByRole("group", { name: "Selected first-task goal" }).waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "Use first task draft", exact: true }).click();
+  await page.getByRole("alertdialog", { name: "Replace unsent task" }).waitFor();
+  await page.getByRole("button", { name: "Keep current task", exact: true }).click();
+  assert.ok((await taskInput.inputValue()).endsWith("An edited ordinary task."));
+  assert.equal((await apiJson(page, "/api/runs")).runs.length, 0);
+  checkpoints.push({ id: "onboarding-goal-composer-reload-edit", status: "passed", linkedDraftRestored: true, editingClearsLink: true, replacementConfirmed: true, runsCreated: 0 });
+  await taskInput.fill("");
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await page.getByRole("button", { name: "Advanced setup guide", exact: true }).click();
   await page.getByRole("dialog", { name: "Welcome setup" }).waitFor();
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("heading", { name: "Your agent" }).waitFor();
@@ -286,6 +454,7 @@ try {
   await page.getByRole("dialog", { name: "Welcome setup" }).waitFor({ state: "detached" });
   await page.getByRole("button", { name: /workspace/ }).click();
   await page.getByRole("menuitem", { name: "Finish setting up" }).click();
+  await page.getByRole("button", { name: "Advanced setup guide", exact: true }).click();
   await page.getByRole("heading", { name: "Your agent" }).waitFor();
   checkpoints.push({
     id: "onboarding-close-reload-resume",
@@ -293,7 +462,40 @@ try {
     currentStep: afterDismiss.currentStep,
     revision: afterDismiss.revision,
   });
-  await page.getByRole("button", { name: "Close setup" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("heading", { name: "Model routing" }).waitFor();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("heading", { name: "Your first employee" }).waitFor();
+  await page.getByRole("button", { name: "Set up research →" }).evaluate((button) => { button.click(); button.click(); });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  const interruptedName = "Interrupted onboarding research draft";
+  await page.getByLabel("Name", { exact: true }).fill(interruptedName);
+  const advancedSettings = page.getByText("Advanced settings", { exact: true });
+  assert.equal(await advancedSettings.evaluate((summary) => summary.closest("details").open), false);
+  await advancedSettings.focus();
+  await advancedSettings.press("Enter");
+  assert.equal(await advancedSettings.evaluate((summary) => summary.closest("details").open), true);
+  assert.equal(await advancedSettings.evaluate((summary) => document.activeElement === summary), true);
+  await page.getByLabel("Default repository").fill("https://github.com/example/onboarding-draft");
+  await nav(page, "providers");
+  await page.getByRole("heading", { name: /Providers/ }).first().waitFor();
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), interruptedName);
+  await page.goForward({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: /Providers/ }).first().waitFor();
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), interruptedName);
+  assert.equal(await page.getByLabel("Default repository").inputValue(), "https://github.com/example/onboarding-draft");
+  const beforeCreate = await apiJson(page, "/api/custom-agents");
+  assert.equal(beforeCreate.agents.length, 0, "Onboarding and draft recovery must not create a bot.");
+  const roleProgress = await apiJson(page, "/api/onboarding/progress");
+  assert.equal(roleProgress.currentStep, "employee");
+  assert.equal(roleProgress.activatedAt, null);
+  checkpoints.push({ id: "onboarding-role-draft-back-forward-reload", status: "passed", draftRestored: true, botsCreated: 0, activated: false });
+  await page.getByRole("button", { name: "Discard draft" }).click();
 
   await nav(page, "skills");
   await page.getByRole("heading", { name: "Skills" }).waitFor();
@@ -477,7 +679,7 @@ try {
       const paths = envelope.expectedDeliverables ?? ["reports/acceptance.md"];
       const files = paths.map((filePath) => ({
         path: filePath,
-        content: `# Deterministic acceptance output\n\nTask: ${envelope.task}\nEmployee: ${envelope.customAgentId}@v${envelope.customAgentVersion}\n`,
+        content: `# Deterministic acceptance output\n\n${managedContext ? `${managedContext.citation}\n\n` : ""}Task: ${envelope.task}\nEmployee: ${envelope.customAgentId}@v${envelope.customAgentVersion}\n`,
         encoding: "utf8",
       }));
       const result = await jsonPost(`${workerOrigin}/api/local/result`, daemonToken, {
@@ -518,6 +720,7 @@ try {
 
   await nav(page, "custom-agents");
   await page.getByRole("heading", { name: /Bots|Custom agents/ }).waitFor();
+  await page.getByText("Advanced settings", { exact: true }).click();
   await page.getByPlaceholder("security-reviewer").fill("acceptance-researcher");
   await page.getByPlaceholder("Security reviewer").fill("Acceptance Researcher");
   await page
@@ -721,6 +924,7 @@ try {
   await page.getByRole("button", { name: "Use", exact: true }).click();
   await composer.getByRole("button", { name: "Thread configuration" }).click();
   await page.getByRole("menuitemradio", { name: /Acceptance Researcher/ }).click();
+  await page.keyboard.press("Escape");
   await composer.getByRole("button", { name: "Run on: Cloud" }).click();
   await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).click();
   const refreshPairedComputers = page.getByRole("button", { name: "Refresh paired computers" });
@@ -787,7 +991,7 @@ try {
   await apiJson(page, `/api/memory/projects/${encodeURIComponent(projectId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ purpose: "Changed after this approval was created." }),
+    body: JSON.stringify({ purpose: "Changed after this approval was created.", expectedVersion: (await apiJson(page, `/api/memory/projects/${encodeURIComponent(projectId)}`)).project.version }),
   });
   const approvedPayload = JSON.stringify(pendingApproval);
   assert.ok(approvedPayload.includes(employee.id), "Approval must freeze the employee identity.");
@@ -980,6 +1184,149 @@ try {
     deliverablePath: completedRun.deliverables?.[0]?.path,
     deliverableBytes: deliverable.text.length,
   });
+
+  // Transport fault only: exercise the installed useAgentChat onError + resolved promise
+  // without forwarding this synthetic app task to any model or connected app.
+  let pendingAppFailure;
+  let appFailureRequests = 0;
+  await context.routeWebSocket("**/agents/**", (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => {
+      let frame;
+      try { frame = JSON.parse(String(message)); } catch { server.send(message); return; }
+      const body = frame.type === "cf_agent_use_chat_request" ? JSON.parse(frame.init.body) : null;
+      const turn = body?.messages?.at(-1);
+      if (turn?.metadata?.shibaWorkTarget === "app-tools") {
+        appFailureRequests += 1;
+        pendingAppFailure = () => socket.send(JSON.stringify({ type: "cf_agent_use_chat_response", id: frame.id, error: true, body: "Synthetic callback stream error" }));
+      } else server.send(message);
+    });
+  });
+  await apiJson(page, "/api/custom-agents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slug: "acceptance-callback-bot", config: { name: "Acceptance Callback Bot", instructions: "Synthetic transport fixture only.", harness: "opencode" } }) });
+  await nav(page, "tasks");
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await page.getByRole("button", { name: "Configure Research employee", exact: true }).click();
+  await page.getByRole("region", { name: "Return to first task setup" }).waitFor();
+  assert.equal((await apiJson(page, "/api/custom-agents")).agents.length, 2, "Configuring a suggestion only opens the existing editor.");
+  await page.getByRole("button", { name: "Choose saved employee in setup", exact: true }).click();
+  await page.getByText("Use an existing employee", { exact: true }).click();
+  await page.getByRole("button", { name: "Acceptance Callback Bot · v1", exact: true }).click();
+  await page.getByRole("button", { name: "Create first task draft", exact: true }).click();
+  await page.getByRole("heading", { name: "First task draft saved", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
+  const replaceCallbackDraft = page.getByRole("button", { name: "Replace with saved draft", exact: true });
+  if (await replaceCallbackDraft.isVisible()) await replaceCallbackDraft.click();
+  await nav(page, "custom-agents");
+  await page.getByRole("button", { name: "Launch bot Acceptance Callback Bot", exact: true }).click();
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
+  await page.getByRole("combobox", { name: "Work target", exact: true }).selectOption("app-tools");
+  const callbackInput = page.getByRole("textbox", { name: "Task description" });
+  const callbackCanonicalTask = await callbackInput.inputValue();
+  await page.getByRole("button", { name: "Send task", exact: true }).click();
+  await waitFor("synthetic app turn reaches the real chat transport", () => appFailureRequests === 1 && pendingAppFailure);
+  pendingAppFailure(); pendingAppFailure = null;
+  await waitFor("onError with a resolved send promise restores the task", async () => (await callbackInput.inputValue()) === callbackCanonicalTask);
+  await page.getByRole("button", { name: "Send task", exact: true }).click();
+  await waitFor("second synthetic app turn reaches transport", () => appFailureRequests === 2 && pendingAppFailure);
+  await callbackInput.fill("Newer unsent text must win.");
+  pendingAppFailure(); pendingAppFailure = null;
+  await waitFor("failed send settles", async () => (await page.getByRole("button", { name: "Sending…", exact: true }).count()) === 0);
+  assert.equal(await callbackInput.inputValue(), "Newer unsent text must win.");
+  assert.equal(appFailureRequests, 2, "Callback errors must never automatically retry a user turn.");
+  checkpoints.push({ id: "app-tools-callback-error-unsent-recovery", status: "passed", installedChatHook: true, transportFaultInjected: true, sourceToolCalled: false, modelCalled: false, restoredAfterCallbackError: true, newerEditPreserved: true, sends: appFailureRequests });
+  await callbackInput.fill("");
+
+  // Real private upload/CAS/isolation proof, then visible source selection in the saved goal.
+  const otherContext = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  const otherOwnerPage = await otherContext.newPage();
+  await otherOwnerPage.goto(`${workerOrigin}/app/`, { waitUntil: "domcontentloaded" });
+  await otherOwnerPage.getByLabel("Email").fill("acceptance-other@example.test");
+  await otherOwnerPage.getByLabel("Password").fill("e2e-password-2026!");
+  await otherOwnerPage.getByRole("button", { name: "Sign in", exact: true }).click();
+  await waitFor("second authenticated owner session", async () => (await apiJson(otherOwnerPage, "/api/auth/get-session")).user?.email === "acceptance-other@example.test");
+  managedContext = await runManagedContextProof({ page, origin: workerOrigin, api: (url, init) => apiJson(page, url, init), report: (checkpoint) => checkpoints.push(checkpoint), fixture: { otherOwnerPage } });
+  await otherContext.close();
+  await page.getByRole("button", { name: "New thread", exact: true }).click();
+  await nav(page, "tasks");
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await page.getByRole("button", { name: "Edit employee", exact: true }).click();
+  await page.getByRole("textbox", { name: "Your answer: Employee" }).waitFor();
+  await page.getByText("Use an existing employee", { exact: true }).click();
+  await page.getByRole("button", { name: `Acceptance Researcher · v${employeeVersion}`, exact: true }).click();
+  await page.getByRole("region", { name: "First task draft review" }).waitFor();
+  await page.getByRole("button", { name: "Edit context", exact: true }).click();
+  const contextAnswer = page.getByRole("textbox", { name: "Your answer: Context" });
+  const groundedFacts = "Prepare a reviewable report from the selected private source. Do not send or publish.";
+  await contextAnswer.fill(groundedFacts);
+  const selectedSource = page.getByRole("checkbox", { name: `${managedContext.sourceTitle} · v3 · ready`, exact: true });
+  await selectedSource.click();
+  await waitFor("source id saved in the goal", async () => (await apiJson(page, "/api/onboarding/progress")).draftTask.sourceIds.includes(managedContext.source.id));
+  await waitFor("saved source selection is reflected in the picker", () => selectedSource.isChecked());
+  assert.equal(await contextAnswer.inputValue(), groundedFacts, "Selecting sources preserves the unsent answer.");
+  await page.getByRole("button", { name: "Upload or manage sources, then return", exact: true }).click();
+  await page.getByRole("region", { name: "Workspace memory sources" }).waitFor();
+  await nav(page, "tasks");
+  await page.getByRole("button", { name: "Review setup draft", exact: true }).click();
+  await contextAnswer.waitFor();
+  assert.equal(await contextAnswer.inputValue(), groundedFacts);
+  assert.equal(await selectedSource.isChecked(), true);
+  await contextAnswer.press("Control+Enter");
+  await page.getByRole("region", { name: "First task draft review" }).waitFor();
+  await page.getByRole("button", { name: "Create first task draft", exact: true }).click();
+  await page.getByRole("heading", { name: "First task draft saved", exact: true }).waitFor();
+  const sourceGoal = await apiJson(page, "/api/onboarding/progress");
+  assert.equal(sourceGoal.draftTask.employeeId, employee.id);
+  assert.equal(sourceGoal.draftTask.employeeVersion, employeeVersion);
+  assert.deepEqual(sourceGoal.draftTask.sourceRefs, managedContext.sourceRefs);
+  await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
+  // The earlier ordinary task may still be unsent; replacement is explicit.
+  const replaceGoal = page.getByRole("button", { name: "Replace with saved draft", exact: true });
+  if (await replaceGoal.isVisible()) await replaceGoal.click();
+  await composer.getByRole("combobox", { name: "Project context" }).selectOption("");
+  await composer.getByRole("button", { name: /^Project: / }).click();
+  await page.getByPlaceholder("https://github.com/owner/repo").fill("https://github.com/fixture/acceptance-repo");
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+  await composer.getByRole("button", { name: "Thread configuration" }).click();
+  await page.getByRole("menuitemradio", { name: /Acceptance Researcher/ }).click();
+  await page.keyboard.press("Escape");
+  await composer.getByRole("button", { name: "Run on: Cloud" }).click();
+  await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).focus();
+  await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).press("Enter");
+  if (!(await page.getByRole("button", { name: "Refresh paired computers" }).isVisible().catch(() => false))) await composer.getByRole("button", { name: "Run on: Local" }).click();
+  await page.getByRole("button", { name: "Refresh paired computers" }).click();
+  await composer.getByLabel("Local computer").selectOption(machineId);
+  await page.keyboard.press("Escape");
+  const beforeGoalClaims = adapterClaims;
+  const goalQueued = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/runs" && response.request().method() === "POST");
+  await composer.getByRole("button", { name: "Send task", exact: true }).click();
+  const queuedGoalResponse = await goalQueued;
+  assert.equal(queuedGoalResponse.status(), 200);
+  const goalSessionId = new URL(queuedGoalResponse.url()).searchParams.get("session");
+  const goalQuery = goalSessionId ? `?${new URLSearchParams({ session: goalSessionId })}` : "";
+  const goalApproval = await waitFor("source-bound first goal approval", async () => (await apiJson(page, `/api/approvals${goalQuery}`)).approvals.find((item) => item.draftTaskId === sourceGoal.draftTaskId && item.draftTaskVersion === sourceGoal.draftTask.version));
+  const boundGoal = { draftTaskId: sourceGoal.draftTaskId, version: sourceGoal.draftTask.version, approvalId: goalApproval.approvalId, sessionId: goalSessionId };
+  await verifyManagedContextApproval({ page, api: (url, init) => apiJson(page, url, init), report: (checkpoint) => checkpoints.push(checkpoint), context: managedContext, goal: boundGoal });
+  assert.equal(adapterClaims, beforeGoalClaims, "The prepared goal must still wait for explicit approval.");
+  assert.equal((await apiJson(page, "/api/onboarding/progress")).activatedAt, null, "An unrelated approved artifact must not activate this goal.");
+  await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  const goalRun = await waitFor("source-bound first goal artifact", async () => (await apiJson(page, `/api/runs${goalQuery}`)).runs.find((item) => item.draftTaskId === boundGoal.draftTaskId && item.draftTaskVersion === boundGoal.version && item.status === "completed"));
+  boundGoal.runId = goalRun.runId;
+  await verifyManagedContextDraft({ page, api: (url, init) => apiJson(page, url, init), report: (checkpoint) => checkpoints.push(checkpoint), context: managedContext, goal: boundGoal });
+  await nav(page, "tasks");
+  const goalDownload = `/api/runs/${encodeURIComponent(goalRun.runId)}/deliverables/0${goalQuery}`;
+  await waitFor("the owning thread's exact goal output is visible", async () => (await page.getByRole("link", { name: "Download reports/acceptance.md", exact: true }).getAttribute("href")) === goalDownload);
+  await page.getByLabel("Review decision for reports/acceptance.md").selectOption("approved");
+  const goalReviewed = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/runs/${encodeURIComponent(goalRun.runId)}/deliverables/0/review` && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Save review", exact: true }).click();
+  const reviewedGoalResponse = await goalReviewed;
+  assert.equal(reviewedGoalResponse.status(), 200);
+  assert.equal((await reviewedGoalResponse.json()).deliverable.review.status, "approved");
+  await waitFor("the exact current goal activates after human acceptance", async () => (await apiJson(page, "/api/onboarding/progress")).activatedAt !== null);
+  checkpoints.push({ id: "onboarding-source-goal-configure-return-accept", status: "passed", ...boundGoal, employeeId: employee.id, sourceRefs: managedContext.sourceRefs, explicitPrepare: true, explicitApproval: true, explicitAcceptance: true, automaticExternalActions: false });
 
   await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
   await page.getByRole("heading", { name: "Approvals", exact: true }).waitFor();

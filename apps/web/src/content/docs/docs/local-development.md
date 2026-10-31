@@ -102,39 +102,39 @@ The repository does not bundle model weights or a local inference engine. Do not
 
 ## Local data backup and restore
 
-Stop the local Worker before copying or restoring its persistence directory. A live copy can miss SQLite writes. Keep backups outside the repository, encrypt them, and restrict access: they contain conversations, task data, approvals, and other account content. `.dev.vars` can contain credentials and generated signing keys, so protect it separately and never put it in a shared backup without encryption.
+The recovery CLI copies the complete **local Wrangler v3 persistence tree**, including SQLite databases, WAL files and object blobs. It never starts a Worker, resumes work, contacts Cloudflare, or copies configuration implicitly. Prerequisites: installed project dependencies, Node, native `sqlite3`, and `lsof` (macOS/Linux). Restore requires the exact Wrangler version recorded by the backup; keep the matching lockfile and runtime available.
 
-On macOS/Linux, make a timestamped copy of the whole Wrangler persistence directory:
+Stop every local Worker, daemon, CLI, viewer and other process using the chosen persistence directory. Keep them stopped throughout backup or restore. `--offline` acknowledges this cooperative maintenance window. The tool rejects detected open files and rehashes the source before/after copying, but `lsof` is **not a lock** against a service starting after inspection. Do not use this as a live snapshot mechanism.
 
-```sh
-backup_dir="$HOME/shiba-backups/$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$backup_dir"
-cp -a .shiba/local-state "$backup_dir/local-state"
-# Optional local operator configuration; this file may contain secrets.
-cp -a apps/backend/.dev.vars "$backup_dir/dev.vars" 2>/dev/null || true
-cp -a .shiba/setup.json "$backup_dir/setup.json" 2>/dev/null || true
-```
-
-To restore, stop Shiba first, preserve the current state as a rollback copy, then copy the saved directory back:
+Choose explicit paths; both output directories below must be absent. No default store is discovered or backed up automatically:
 
 ```sh
-mkdir -p .shiba
-backup_dir="$HOME/shiba-backups/<timestamp>"  # choose the backup made above
-if [ -d .shiba/local-state ]; then
-  mv .shiba/local-state ".shiba/local-state.before-restore-$(date -u +%Y%m%dT%H%M%SZ)"
-fi
-cp -a "$backup_dir/local-state" .shiba/local-state
-if [ -f "$backup_dir/dev.vars" ]; then
-  install -m 600 "$backup_dir/dev.vars" apps/backend/.dev.vars
-fi
-if [ -f "$backup_dir/setup.json" ]; then
-  cp -a "$backup_dir/setup.json" .shiba/setup.json
-fi
+mkdir -p -m 700 "$HOME/shiba-backups"
+node scripts/local-state-recovery.mjs backup --offline \
+  .shiba/local-state "$HOME/shiba-backups/local-snapshot-001"
+node scripts/local-state-recovery.mjs verify \
+  "$HOME/shiba-backups/local-snapshot-001"
+node scripts/local-state-recovery.mjs restore --offline \
+  "$HOME/shiba-backups/local-snapshot-001" .shiba/local-state-recovered
 ```
 
-Restore `.dev.vars` only when intentionally restoring the same local installation: its signing/encryption keys must remain paired with the corresponding stored data. Start Shiba and check the dashboard plus `/api/setup/wizard`. `pnpm selfhost:smoke` is a clean-boot check, not a recovery test; it uses and deletes an isolated temporary state directory.
+The bundle contains `manifest.json` plus a raw `state/` tree. Directories have mode `0700`; files have mode `0600`. The manifest records SHA-256 and size for every file, directory inventory, file/byte/database counts and Wrangler version. SQLite `quick_check` runs read-only against disposable copies with their WAL/index sidecars, leaving the originals alone. No row values appear in the manifest or command output. Checksums detect corruption, not an attacker replacing both the data and manifest; there is no signature or built-in encryption. Keep bundles outside the repository and encrypt/protect them: stored account content and encrypted credentials can still be sensitive.
 
-This file-copy procedure covers Wrangler's **local** persistence only. It does not back up a deployed installation's D1, Durable Objects, KV, R2, Vectorize, or Cloudflare account configuration. This repository does not provide a coordinated remote backup/restore command; plan and verify recovery for each enabled Cloudflare product and external provider before storing important data there.
+Restore verifies the entire bundle **before creating the destination**, copies only into a new isolated directory, then rechecks both copies. Existing destinations, overlapping paths, changed sources, unexpected files, links/special files, corrupt SQLite, bad hashes or unsupported versions fail. The original persistence remains in place. `.dev.vars`, `.env`, `.shiba/setup.json`, browser/desktop profiles and provider credentials are not included. Protect signing/encryption keys separately and retain the keys corresponding to the data; a raw state copy alone is not a complete installation backup.
+
+**Do not launch the real app against restored state until an operator has reviewed pending approvals, claimed runs, schedules, Durable Object alarms and effect outboxes.** An older snapshot can resurrect work or external effects already delivered. This tool has no runtime anti-replay gate, does not resolve unknown external outcomes, and grants no approval to resume anything. Production-safe coordinated recovery remains separate work.
+
+After that review, select the recovered root explicitly through `SHIBA_PERSIST_TO` when starting local development. Preserve the original root. To roll back this local selection, stop services again and select the original root instead; do not overwrite either tree. Changing application revisions or SQLite schemas requires a separate migration/compatibility plan.
+
+Run the isolated recovery drill:
+
+```sh
+pnpm -C apps/backend exec vitest run test/local-state-recovery.test.ts
+```
+
+The drill seeds an actual local Wrangler Worker with Durable Object, D1 and R2 bindings, stops it, backs up state, changes that state through the bindings, restores into another root, restarts and checks the original values and binary object hash. It also selects the preserved changed root again to demonstrate rollback, and rejects open stores, missing offline acknowledgement, corruption and source changes during copying. All state/configuration is temporary and contains fixture data only. This proves local persistence mechanics, not whole-application or remote production recovery. `pnpm selfhost:smoke` remains a separate clean-boot check.
+
+There is no coordinated remote backup/restore command for deployed D1, Durable Objects, KV, R2, Vectorize, Cloudflare configuration or external providers. User-level export/deletion, retention and orphan cleanup also remain separate operational work.
 
 Optional scripted harness: `.cursor/skills/verify-shiba/scripts/launch.sh` (uses `--persist-to .verify/state` and the same migrations command).
 

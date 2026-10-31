@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readDraft, writeDraft } from "./saved";
+import { composerDraftScope, readDraft, readDraftReference, writeDraft } from "./saved";
 
 const KEY = "shiba-composer-drafts-v1";
 let store: Map<string, string>;
@@ -15,6 +15,23 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("composer drafts", () => {
+  it("isolates identical session names across authenticated owners and leaves legacy cache unclaimed", () => {
+    writeDraft("default", "Legacy unscoped text");
+    writeDraft(composerDraftScope("owner-a", "default"), "Private A brief", { draftTaskId: "draft_00000000-0000-4000-8000-000000000001", version: 1 });
+    expect(readDraft(composerDraftScope("owner-b", "default"))).toBe("");
+    expect(readDraftReference(composerDraftScope("owner-b", "default"))).toBeNull();
+    expect(readDraft(composerDraftScope("owner-a", "default"))).toBe("Private A brief");
+  });
+  it("retains a strict first-task reference with its session text, then drops it on replacement", () => {
+    const reference = { draftTaskId: "draft_00000000-0000-4000-8000-000000000001", version: 3 };
+    writeDraft("a", "Canonical brief", reference);
+    expect(readDraftReference("a")).toEqual(reference);
+    expect(readDraftReference("b")).toBeNull();
+    writeDraft("a", "An edited ordinary task");
+    expect(readDraftReference("a")).toBeNull();
+    writeDraft("a", "brief", { draftTaskId: "untrusted-id", version: 1 });
+    expect(readDraftReference("a")).toBeNull();
+  });
   it("round-trips a draft per scope", () => {
     writeDraft("a", "hello");
     writeDraft("b", "world");

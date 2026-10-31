@@ -7,6 +7,40 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("EmployeeToolPolicyView", () => {
+  it("saves reviewed MCP resource grants and routes external consent through the owner dispatch action", async () => {
+    const capabilityId = `mcp:shiba:ext_${"a".repeat(12)}_${"b".repeat(16)}`;
+    let version = 1;
+    const writes: Array<{ url: string; body: Record<string, unknown> }> = [];
+    let approvals = [{ approvalId: "external-approval", employeeId: "server-1", employeeVersion: 1, actorId: "owner@example.test", action: "write_record",
+      payload: { record: "record-1", text: "Frozen write" }, status: "pending", createdAt: 1, expiresAt: 99_999_999_999,
+      employeeContext: { employeeId: "employee-1", employeeVersion: 2, executionContextId: "web:owner:session", resourceIds: ["record-1"] } }];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = init?.method ?? "GET";
+      if (url === "/api/custom-agents") return json({ agents: [{ id: "employee-1", slug: "crm", version, config: { name: "CRM reader" } }] });
+      if (url === "/api/agents") return json({ principals: [] });
+      if (url === "/api/whoami") return json({ agent: "owner@example.test", auth: "better-auth" });
+      if (url === "/api/employee-tools/approvals") return json({ approvals });
+      if (url.endsWith("/policy") && method === "GET") return json({ employeeVersion: version, toolScopes: [], grants: [], externalCapabilities: [{
+        capabilityId, tool: capabilityId.slice("mcp:shiba:".length), label: "Fixture CRM · read_record", schemaVersion: "c".repeat(64), resourceArguments: ["record"], effect: "read",
+      }] });
+      if (url.endsWith("/policy") && method === "PUT") { writes.push({ url, body: JSON.parse(String(init?.body)) }); version++; return json({ ok: true }); }
+      if (url === "/api/v1/mcp/servers/server-1/approvals/external-approval" && method === "POST") {
+        writes.push({ url, body: JSON.parse(String(init?.body)) }); approvals = []; return json({ dispatch: { status: "succeeded" } });
+      }
+      return json({ error: `Unexpected ${method} ${url}` }, 500);
+    }));
+    render(<EmployeeToolPolicyView />);
+    fireEvent.click(await screen.findByLabelText("Fixture CRM · read_record · read"));
+    fireEvent.change(screen.getByLabelText("Exact resource values for Fixture CRM · read_record"), { target: { value: "record-1\nrecord-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save grants" }));
+    await screen.findByText(/Policy saved/);
+    expect(writes[0]?.body).toMatchObject({ actorId: "owner@example.test", role: "member", resourcesByCapability: { [capabilityId]: ["record-1", "record-2"] }, externalResourceArguments: { [capabilityId]: "record" }, externalSchemaVersions: { [capabilityId]: "c".repeat(64) } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve exact payload" }));
+    await screen.findByText(/Exact MCP payload approved and dispatched/);
+    expect(writes[1]).toEqual({ url: "/api/v1/mcp/servers/server-1/approvals/external-approval", body: { approved: true } });
+    expect(screen.queryByText(/Frozen write/)).toBeNull();
+  });
+
   it("selects Gmail resources from owner-discovered metadata and submits only checked message IDs", async () => {
     let version = 1;
     const writes: Array<Record<string, unknown>> = [];

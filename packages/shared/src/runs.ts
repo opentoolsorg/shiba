@@ -1,3 +1,4 @@
+import type { OnboardingRunFields } from "./onboarding.js";
 /**
  * Durable run registry wire types — shared between the orchestrator's DO
  * state, the Worker API routes that serve them, and the dashboard. A run
@@ -34,7 +35,7 @@ export type RunStatus =
   | "cancelled"
   | "unknown";
 
-export interface DelegatedRun {
+export interface DelegatedRun extends OnboardingRunFields {
   runId: string;
   sandboxId: string;
   repoUrl: string;

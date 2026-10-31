@@ -1,9 +1,14 @@
 import type { FirstRunProgressSnapshot, FirstRunStepId } from "./components/FirstRunWizard";
+import type { OnboardingDraftPatch } from "./onboarding-draft";
 
-export type FirstRunProgressAction = "step" | "dismiss" | "resume";
+export type FirstRunProgressAction = "step" | "dismiss" | "resume" | "save-draft" | "prepare-task";
 export interface FirstRunProgressUpdate {
   action: FirstRunProgressAction;
   currentStep?: FirstRunStepId;
+  draftTask?: OnboardingDraftPatch;
+}
+export class OnboardingConflictError extends Error {
+  override name = "OnboardingConflictError";
 }
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -45,6 +50,9 @@ export class OnboardingProgressClient {
         const latest = await response.json() as FirstRunProgressSnapshot;
         if (lifecycle !== this.lifecycle) return;
         this.accept(latest, lifecycle, generation);
+        if (body.action === "save-draft" || body.action === "prepare-task") {
+          throw new OnboardingConflictError("Setup changed in another tab. Review the saved answers before retrying yours.");
+        }
         response = await this.send(body, latest.revision);
       }
       if (!response.ok) throw new Error("Onboarding progress could not be saved.");

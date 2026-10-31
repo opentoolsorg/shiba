@@ -1400,6 +1400,36 @@ describe("orchestrator run routes", () => {
 });
 
 describe("approval handoff recovery", () => {
+  it.each(["chat", "app-tools"])("dispatches a frozen API approval after the latest turn switches to %s", async (mode) => {
+    const instance = agent();
+    const queued = await instance.onRequest(new Request("https://internal/api/runs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "approved work" }),
+    }));
+    const { approvalId } = await queued.json() as { approvalId: string };
+    const messages = [{ role: "user", metadata: mode === "chat"
+      ? { shibaMode: "chat" }
+      : { shibaMode: "work", shibaWorkTarget: "app-tools" } }];
+    Object.assign(instance, { messages });
+    expect(instance.getTools()["delegate_coding_task"]).toBeUndefined();
+    mocks.execute.mockResolvedValue(formatAgentResult({
+      status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: "done",
+    }));
+    const approve = () => new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+    });
+    expect((await instance.onRequest(approve())).status).toBe(200);
+    await vi.waitFor(() => expect(instance.state.runs[0]?.status).toBe("completed"));
+    const restarted = agent();
+    Object.assign(restarted, { messages });
+    restarted.setState(structuredClone(instance.state));
+    await restarted.onStart();
+    expect((await restarted.onRequest(approve())).status).toBe(200);
+    expect(restarted.getTools()["delegate_coding_task"]).toBeUndefined();
+    expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
   it("persists decision and run together before dispatch, then fails interrupted work on restart", async () => {
     const instance = agent();
     const queued = await instance.onRequest(new Request("https://internal/api/runs", {
@@ -1415,11 +1445,13 @@ describe("approval handoff recovery", () => {
       // Record what production would have committed — post-spine flush.
       writes.push(structuredClone(instance.state));
     };
+    Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat" } }] });
+    expect(instance.getTools()["delegate_coding_task"]).toBeUndefined();
     // Snapshot exactly at dispatch entry, before any child execution can start.
-    instance.getTools = () => {
+    Object.assign(instance, { approvedRunDelegate: () => {
       crashState = structuredClone(instance.state);
       throw new Error("Simulated process interruption before dispatch");
-    };
+    } });
     const request = () => new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1434,6 +1466,7 @@ describe("approval handoff recovery", () => {
 
     expect(crashState?.runs[0]?.checkpoint).toBe("dispatching");
     const restarted = agent();
+    Object.assign(restarted, { messages: [{ role: "user", metadata: { shibaMode: "chat" } }] });
     restarted.setState(JSON.parse(JSON.stringify(crashState)) as OrchestratorState);
     mocks.execute.mockResolvedValue(formatAgentResult({
       status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: "resumed",

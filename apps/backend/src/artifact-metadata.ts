@@ -45,6 +45,10 @@ export async function prepareRunArtifacts(
       artifactId,
       sourceRunId: run.runId,
       provenance: {
+        ...(run.draftTaskId && run.draftTaskVersion ? { onboarding: {
+          draftTaskId: run.draftTaskId, version: run.draftTaskVersion,
+          sources: (run.onboardingSourceSnapshot?.sources ?? []).map(({ id, version, sha256 }) => ({ id, version, sha256 })),
+        } } : {}),
         ...(run.skillPins?.length
           ? {
               skills: run.skillPins.map(({ skillId, version: skillVersion, name }) => ({

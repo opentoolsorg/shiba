@@ -38,8 +38,10 @@ import {
   type SqlRow,
 } from "./memory-store.js";
 import { InputError } from "./security.js";
+import { memoryContentHash, readMemoryUpload, validateMemoryText } from "./owner-memory-ingestion.js";
 import {
   OwnerMemoryStore,
+  OwnerMemoryConflictError,
   type OwnerMemoryProjectInput,
   type OwnerMemoryProjectPatch,
   type OwnerMemorySourceInput,
@@ -358,6 +360,7 @@ function factJson(fact: FactRecord, agent: string): Record<string, unknown> {
 export class Memory {
   private readonly store: MemoryStore;
   private readonly ownerStore: OwnerMemoryStore;
+  private readonly activeOwnerUploads = new Set<string>();
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -366,7 +369,7 @@ export class Memory {
     const exec: SqlExec = (sql, ...params) =>
       ctx.storage.sql.exec(sql, ...params).toArray() as unknown as SqlRow[];
     this.store = new MemoryStore(exec);
-    this.ownerStore = new OwnerMemoryStore(exec);
+    this.ownerStore = new OwnerMemoryStore(exec, typeof ctx.storage.transactionSync === "function" ? (fn) => ctx.storage.transactionSync(fn) : undefined);
     ctx.blockConcurrencyWhile(async () => {
       this.store.init();
       // Append-only CREATE IF NOT EXISTS migration preserves legacy facts and
@@ -1174,8 +1177,18 @@ export class Memory {
     if (this.isRegistry || !this.agent.startsWith("owner-memory:")) {
       return badRequest("Workspace memory requires an owner-scoped Memory instance.");
     }
+    if (seg.length === 2 && seg[1] === "snapshot") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
+      const body = await this.jsonBody(request);
+      return json({ snapshot: this.ownerStore.snapshotSources(body.sourceIds as string[], body.expectedRefs as Array<{ id: string; version: number; sha256: string }> | undefined) });
+    }
+    if (seg.length === 2 && seg[1] === "upload") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
+      const upload = await readMemoryUpload(request);
+      return this.retainOwnerUpload(upload, { title: upload.filename, content: upload.content, kind: "document" });
+    }
     if (seg.length === 1) {
-      if (request.method === "GET") return json({ sources: this.ownerStore.list() });
+      if (request.method === "GET") return json({ sources: this.ownerStore.list(), cleanupPending: this.ownerStore.pendingCleanup(), uploadsPending: this.ownerStore.pendingUploads() });
       if (request.method !== "POST") return json({ error: "Method not allowed." }, { status: 405 });
       const body = await this.jsonBody(request);
       const source = this.ownerStore.create(body as unknown as OwnerMemorySourceInput);
@@ -1183,19 +1196,84 @@ export class Memory {
     }
     if (seg.length !== 2) return notFound();
     const id = pathParam(seg[1]);
+    if (/^upload_[a-f0-9]{24}$/.test(id)) {
+      if (request.method !== "DELETE") return json({ error: "Method not allowed." }, { status: 405 });
+      if (!this.ownerStore.uploadState(id)) return notFound("Upload not found.");
+      return json({ id, cleanup: await this.cleanupOwnerUpload(id) ? "complete" : "pending" });
+    }
     if (request.method === "GET") {
       const source = this.ownerStore.get(id);
       return source ? json({ source }) : notFound("Memory source not found.");
     }
     if (request.method === "PATCH") {
       const body = await this.jsonBody(request);
+      const current = this.ownerStore.get(id);
+      if (current?.ingestion && ["content", "title", "kind", "referenceUrl"].some((key) => body[key] !== undefined)) {
+        if (!Number.isSafeInteger(body.expectedVersion) || (body.expectedVersion as number) < 1) return badRequest("expectedVersion must identify the managed source version you reviewed.");
+        if (body.expectedVersion !== current.version) return json({ error: "Source changed. Your text is unchanged; review the current source before saving again.", currentSource: current }, { status: 409 });
+        const correction = body.content === undefined ? current.content : body.content;
+        if (typeof correction !== "string") throw new InputError("content must be UTF-8 text.");
+        const bytes = new TextEncoder().encode(correction);
+        const content = validateMemoryText(bytes);
+        return this.retainOwnerUpload({ ...current.ingestion, bytes, content, sha256: await memoryContentHash(bytes) }, { title: current.title, kind: current.kind, referenceUrl: current.referenceUrl, retentionDays: current.retentionDays, ...body, content } as OwnerMemorySourceInput, id, current.version);
+      }
       const source = this.ownerStore.update(id, body as OwnerMemorySourcePatch);
       return source ? json({ source }) : notFound("Memory source not found.");
     }
     if (request.method === "DELETE") {
-      return this.ownerStore.delete(id) ? json({ ok: true, id }) : notFound("Memory source not found.");
+      if (!this.ownerStore.delete(id)) return notFound("Memory source not found.");
+      const keys = this.ownerStore.versionKeys(id);
+      try {
+        if (keys.length) {
+          if (!this.env.ATTACHMENTS) throw new Error("Storage unavailable");
+          await this.env.ATTACHMENTS.delete(keys);
+          this.ownerStore.purgeVersions(id);
+        }
+        return json({ ok: true, id, cleanup: this.ownerStore.hasUnfinishedUploads(id) ? "pending" : "complete" });
+      } catch { return json({ ok: true, id, cleanup: "pending", message: "Source forgotten for future retrieval. Stored file cleanup is pending; retry Delete to finish cleanup." }); }
     }
     return json({ error: "Method not allowed." }, { status: 405 });
+  }
+
+  private async cleanupOwnerUpload(id: string, ownOperation = false): Promise<boolean> {
+    if (this.activeOwnerUploads.has(id) && !ownOperation) return false;
+    const key = this.ownerStore.claimUploadCleanup(id);
+    if (!key || !this.env.ATTACHMENTS) return false;
+    this.activeOwnerUploads.add(id);
+    try {
+      await this.env.ATTACHMENTS.delete(key);
+      this.ownerStore.settleUploadCleanup(id, true);
+      return true;
+    } catch {
+      this.ownerStore.settleUploadCleanup(id, false);
+      return false;
+    } finally { if (!ownOperation) this.activeOwnerUploads.delete(id); }
+  }
+
+  private async retainOwnerUpload(
+    upload: { filename: string; mediaType: string; bytes: Uint8Array; content: string; sha256: string },
+    input: OwnerMemorySourceInput, id?: string, expectedVersion?: number,
+  ): Promise<Response> {
+    if (!this.env.ATTACHMENTS) return json({ error: "Private file storage is unavailable; source was not saved." }, { status: 503 });
+    const objectKey = `owner-memory/${this.agent}/${crypto.randomUUID()}/${upload.sha256}`;
+    const uploadId = `upload_${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}`;
+    // Journal before touching object storage. Unknown interrupted writes stay uploading;
+    // ponytail: only known failed operations are retryable; crash reconciliation is deferred.
+    try {
+      this.ownerStore.stageUpload(uploadId, objectKey, upload.filename, id);
+    } catch { return json({ error: "Upload journal unavailable; no file was written." }, { status: 503 }); }
+    this.activeOwnerUploads.add(uploadId);
+    try {
+      const stored = await this.env.ATTACHMENTS.put(objectKey, upload.bytes as Uint8Array<ArrayBuffer>, { httpMetadata: { contentType: upload.mediaType }, onlyIf: { etagDoesNotMatch: "*" } });
+      if (!stored) throw new Error("File storage did not acknowledge the write.");
+      const source = this.ownerStore.commitUpload(input, { version: (expectedVersion ?? 0) + 1, sha256: upload.sha256, objectKey, filename: upload.filename, mediaType: upload.mediaType, bytes: upload.bytes.byteLength }, id, expectedVersion, Date.now(), uploadId);
+      return json({ source }, { status: id ? 200 : 201 });
+    } catch (error) {
+      try { this.ownerStore.failUpload(uploadId); }
+      catch { return json({ error: "Upload state is uncertain. No new version is ready; reload to check. Interrupted writes require reconciliation.", cleanup: "pending", uploadId }, { status: 503 }); }
+      const cleaned = await this.cleanupOwnerUpload(uploadId, true);
+      return json({ error: error instanceof InputError ? error.message : "Upload could not be committed. Source was not marked ready.", cleanup: cleaned ? "complete" : "pending", uploadId, ...(error instanceof OwnerMemoryConflictError ? { currentSource: id ? this.ownerStore.get(id) : null } : {}) }, { status: error instanceof OwnerMemoryConflictError ? 409 : error instanceof InputError ? 400 : 503 });
+    } finally { this.activeOwnerUploads.delete(uploadId); }
   }
 
   /** Owner-bound project CRUD plus the approval-time source snapshot. */

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { isChatOnlyTurn, toolsForConversationMode } from "../src/conversation-mode.js";
+import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "../src/conversation-mode.js";
 
 describe("conversation mode tool boundary", () => {
+  it("recognizes only the latest user's app-tools target, including alongside a narrowing Chat marker", () => {
+    expect(isAppToolsOnlyTurn([{ role: "user", metadata: { shibaMode: "work", shibaWorkTarget: "app-tools" } }])).toBe(true);
+    expect(isAppToolsOnlyTurn([{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }])).toBe(true);
+    expect(isAppToolsOnlyTurn([{ role: "user", metadata: { shibaWorkTarget: "app-tools" } }, { role: "user", metadata: { shibaMode: "work" } }])).toBe(false);
+    expect(isAppToolsOnlyTurn([{ role: "assistant", metadata: { shibaWorkTarget: "app-tools" } }])).toBe(false);
+    expect(isAppToolsOnlyTurn(undefined)).toBe(false);
+  });
   it("restricts only when the latest user turn explicitly selects Chat", () => {
     expect(isChatOnlyTurn([{ role: "user", metadata: { shibaMode: "chat" } }])).toBe(true);
     expect(isChatOnlyTurn([

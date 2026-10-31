@@ -1,5 +1,13 @@
 export type ConversationMode = "chat" | "work";
 
+/** An explicit app target only narrows authority; Chat still takes precedence. */
+export function isAppToolsOnlyTurn(messages: readonly unknown[] | undefined): boolean {
+  const latest = [...(messages ?? [])].reverse().find((message) => typeof message === "object" && message !== null &&
+    (message as { role?: unknown }).role === "user") as { metadata?: unknown } | undefined;
+  return typeof latest?.metadata === "object" && latest.metadata !== null && !Array.isArray(latest.metadata) &&
+    (latest.metadata as { shibaWorkTarget?: unknown }).shibaWorkTarget === "app-tools";
+}
+
 /** Only an explicit, latest user-turn marker can restrict the turn to chat. */
 export function isChatOnlyTurn(messages: readonly unknown[] | undefined): boolean {
   if (!messages) return false;

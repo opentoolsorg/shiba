@@ -1,3 +1,4 @@
+import { onboardingRunFields, type OnboardingRunFields } from "./onboarding.js";
 /**
  * Durable pending-approval records: the wire shape `/api/approvals` serves
  * and the pure list transforms the orchestrator applies to DO state.
@@ -80,7 +81,7 @@ export function isJsonObject(value: unknown): value is Record<string, JsonValue>
   );
 }
 
-export interface PendingApproval {
+export interface PendingApproval extends OnboardingRunFields {
   threadKey: string;
   approvalId: string;
   repoUrl: string;
@@ -188,7 +189,7 @@ export interface ApprovalExecution {
   executedAt: number;
 }
 
-export interface CreateApprovalInput {
+export interface CreateApprovalInput extends OnboardingRunFields {
   threadKey: string;
   approvalId: string;
   repoUrl: string;
@@ -245,6 +246,7 @@ export function createPendingApproval(
   return [
     ...approvals,
     {
+      ...onboardingRunFields(input),
       threadKey: input.threadKey,
       approvalId: input.approvalId,
       repoUrl: input.repoUrl,
@@ -399,7 +401,7 @@ export interface ApprovalEvidence {
 }
 
 /** The fields the human approves — the input-hash surface. */
-export interface RunInputFields {
+export interface RunInputFields extends OnboardingRunFields {
   repoUrl: string;
   /** Included in the approval hash; absent on legacy repository runs. */
   executionTarget?: ExecutionTarget;
@@ -533,6 +535,7 @@ export function stableHash(value: JsonValue): string {
 export function runInputHash(input: RunInputFields): string {
   const tc = input.testCommand;
   return stableHash({
+    ...onboardingRunFields(input) as unknown as JsonObject,
     repoUrl: input.repoUrl,
     ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget as unknown as JsonValue } : {}),
     task: input.task,

@@ -166,6 +166,7 @@ function ArtifactDetails({
         setSavedReview(result.currentReview);
         setExpectedReviewRevision(reviewRevision(result.currentReview));
         setRevisionCreated(false);
+        setRevisionCommandId(null);
         setMessage(`${result.error ?? "Review changed in another tab."} Current saved review: ${result.currentReview.status.replaceAll("_", " ")}${result.currentReview.note ? ` · ${result.currentReview.note}` : ""}. Your draft is unchanged.`);
         return;
       }
@@ -216,6 +217,7 @@ function ArtifactDetails({
         setSavedReview(result.currentReview);
         setExpectedReviewRevision(reviewRevision(result.currentReview));
         setRevisionCreated(false);
+        setRevisionCommandId(null);
         setMessage(`${result.error ?? "Review changed in another tab."} Current saved review: ${result.currentReview.status.replaceAll("_", " ")}${result.currentReview.note ? ` · ${result.currentReview.note}` : ""}. Your draft is unchanged.`);
         return;
       }

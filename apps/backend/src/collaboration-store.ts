@@ -147,6 +147,8 @@ export interface CollaborationHandoffRow {
   cancelledAt: number | null;
   approvalId?: string | null;
   runId?: string | null;
+  /** Exact historical owner DO; collaboration actor identities remain normalized. */
+  executorAgentName?: string | null;
 }
 
 export class CollaborationStoreError extends Error {
@@ -314,7 +316,7 @@ export async function ensureCollaborationSchema(env: Pick<Env, "AGENT_AUDIT">): 
     throw new CollaborationStoreError("Collaboration storage is unavailable.", 503);
   if (initialized.has(env.AGENT_AUDIT)) return;
   for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
-  for (const column of ["approval_id TEXT", "run_id TEXT"]) {
+  for (const column of ["approval_id TEXT", "run_id TEXT", "executor_agent_name TEXT"]) {
     try {
       await env.AGENT_AUDIT.prepare(
         `ALTER TABLE collaboration_handoffs ADD COLUMN ${column}`,
@@ -542,6 +544,7 @@ function rowHandoff(row: Record<string, unknown>): CollaborationHandoffRow {
     cancelledAt: row.cancelled_at === null ? null : Number(row.cancelled_at),
     ...(typeof row.approval_id === "string" ? { approvalId: row.approval_id } : {}),
     ...(typeof row.run_id === "string" ? { runId: row.run_id } : {}),
+    ...(typeof row.executor_agent_name === "string" ? { executorAgentName: row.executor_agent_name } : {}),
   };
 }
 
@@ -781,6 +784,22 @@ export async function addCollaborationMember(
       roomId,
     )
     .run();
+  return Number(result.meta?.changes ?? 0) === 1;
+}
+
+/** Pin the exact authenticated owner without renaming historical owner/session DOs. */
+export async function pinCollaborationHandoffExecutor(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: Pick<CollaborationScope, "tenantId" | "workspaceId">,
+  handoffId: string,
+  executorAgentName: string,
+): Promise<boolean> {
+  await ensureCollaborationSchema(env);
+  const result = await env.AGENT_AUDIT.prepare(
+    `UPDATE collaboration_handoffs SET executor_agent_name=?
+     WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND sender_user_id=?
+       AND (executor_agent_name IS NULL OR executor_agent_name=?)`,
+  ).bind(executorAgentName, scope.tenantId, scope.workspaceId, handoffId, executorAgentName.trim().toLowerCase(), executorAgentName).run();
   return Number(result.meta?.changes ?? 0) === 1;
 }
 

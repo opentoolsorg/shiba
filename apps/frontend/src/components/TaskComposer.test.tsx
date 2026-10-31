@@ -95,6 +95,21 @@ describe("TaskComposer", () => {
     expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it.each(["", " \n\t"])("blocks sending an artifact task with an empty output list (%j)", (artifactDeliverables) => {
+    const onSubmit = vi.fn();
+    renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables, task: "Draft a brief", repoUrl: "", onSubmit });
+    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("submits valid artifact input with Ctrl+Enter without requiring a repository", () => {
+    const onSubmit = vi.fn();
+    renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables: "reports/brief.md", task: "Draft a brief", repoUrl: "", onSubmit });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
   it("docks without the empty-thread heading once a run is going", () => {
     renderComposer("docked");
     expect(screen.queryByRole("heading", { name: "What should Shiba change?" })).toBeNull();

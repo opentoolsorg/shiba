@@ -7,11 +7,15 @@ import { z } from "zod";
 import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, executionTargetSchema, isSafeDeliverablePath } from "@shiba/shared";
 import { isApprovedRoute, type ApprovedRoute } from "./model-connections.js";
 import { parseGitHubRepoUrl } from "./security.js";
+import { onboardingSourceSnapshotSchema, draftTaskReferenceSchema } from "@shiba/shared";
 
 export const TOOL_INPUT_MARKER = "SHIBA_AI_COWORKER_CODING_TASK_JSON";
 export const RESULT_MARKER = "SHIBA_AI_COWORKER_CODING_RESULT_JSON";
 
 const codingTaskInputSchema = z.object({
+  draftTaskId: draftTaskReferenceSchema.shape.draftTaskId.optional(),
+  draftTaskVersion: draftTaskReferenceSchema.shape.draftTaskVersion.optional(),
+  onboardingSourceSnapshot: onboardingSourceSnapshotSchema.optional(),
   // Empty only for an explicitly selected artifact-workspace target. The
   // historical repository route still requires and validates a GitHub URL.
   repoUrl: z.string().max(2048),
@@ -108,6 +112,10 @@ const codingTaskInputSchema = z.object({
 });
 
 const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input, ctx) => {
+  if ((input.draftTaskId !== undefined || input.draftTaskVersion !== undefined || input.onboardingSourceSnapshot !== undefined) &&
+    (!input.draftTaskId || !input.draftTaskVersion || !input.onboardingSourceSnapshot)) {
+    ctx.addIssue({ code: "custom", message: "Onboarding provenance requires a complete goal reference and approved source snapshot." });
+  }
   if (input.route !== undefined && !isApprovedRoute(input.route)) {
     ctx.addIssue({ code: "custom", message: "route must be an ApprovedRoute (connection/model/harness ids only)." });
   }

@@ -35,6 +35,7 @@ export interface RunDeliverable {
 }
 
 export interface ArtifactProvenance {
+  onboarding?: { draftTaskId: string; version: number; sources: Array<{ id: string; version: number; sha256: string }> };
   skills?: Array<{ skillId: string; version: number; name: string }>;
   customAgent?: { id: string; version: number };
 }

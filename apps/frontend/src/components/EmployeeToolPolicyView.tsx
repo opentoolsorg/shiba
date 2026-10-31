@@ -6,8 +6,9 @@ type Capability = "gmail_read" | "run_status" | "queue_run" | "send_email";
 type Role = "owner" | "admin" | "operator" | "member" | "viewer";
 interface Employee { id: string; slug: string; version: number; config: { name: string } }
 interface Grant { subjectType: string; subjectId: string; capabilityId: string; resourceId: string; lifecycle: string }
-interface Policy { employeeVersion: number; toolScopes: string[]; grants: Grant[] }
-interface Approval { approvalId: string; employeeId: string; employeeVersion: number; actorId: string; executionContextId?: string; action: string; resourceId?: string; payload: Record<string, unknown>; status: string; createdAt: number; expiresAt: number }
+interface ExternalCapability { capabilityId: string; tool: string; label: string; schemaVersion: string; resourceArguments: string[]; effect: "read" | "approval_required" }
+interface Policy { employeeVersion: number; toolScopes: string[]; grants: Grant[]; externalCapabilities?: ExternalCapability[]; externalResourceArguments?: Record<string, string> }
+interface Approval { approvalId: string; employeeId: string; employeeVersion: number; actorId: string; executionContextId?: string; employeeContext?: { employeeId: string; employeeVersion: number; executionContextId: string; resourceIds: string[] }; action: string; resourceId?: string; payload: Record<string, unknown>; status: string; createdAt: number; expiresAt: number }
 interface GmailCandidate { messageId: string; threadId: string; from: string; subject: string; date: string }
 interface EmployeeActor extends AgentPrincipal { source?: "web-session" }
 
@@ -36,6 +37,10 @@ export function EmployeeToolPolicyView(): JSX.Element {
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [selected, setSelected] = useState<Capability[]>([]);
   const [resources, setResources] = useState<Record<Capability, string>>({ gmail_read: "", run_status: "", queue_run: "", send_email: "" });
+  const [externalCapabilities, setExternalCapabilities] = useState<ExternalCapability[]>([]);
+  const [selectedExternal, setSelectedExternal] = useState<string[]>([]);
+  const [externalResources, setExternalResources] = useState<Record<string, string>>({});
+  const [externalArguments, setExternalArguments] = useState<Record<string, string>>({});
   const [gmailQuery, setGmailQuery] = useState("");
   const [gmailCandidates, setGmailCandidates] = useState<GmailCandidate[]>([]);
   const [gmailSearching, setGmailSearching] = useState(false);
@@ -67,6 +72,13 @@ export function EmployeeToolPolicyView(): JSX.Element {
       .filter((grant) => grant.capabilityId === `mcp:shiba:${cap.id}` && (grant.subjectType === "workspace" || grant.subjectType === "role" || grant.subjectType === "actor" && grant.subjectId === effectiveActor))
       .map((grant) => grant.resourceId)])) as Record<Capability, string[]>;
     setResources({ gmail_read: configured.gmail_read.join("\n"), run_status: configured.run_status.join("\n"), queue_run: configured.queue_run.join("\n"), send_email: configured.send_email.join("\n") });
+    const external = next.externalCapabilities ?? [];
+    const selectedIds = next.toolScopes.filter((id) => id.startsWith("mcp:shiba:ext_"));
+    setExternalCapabilities(external);
+    setSelectedExternal(selectedIds);
+    setExternalResources(Object.fromEntries(selectedIds.map((id) => [id, [...new Set(active.filter((grant) => grant.capabilityId === id &&
+      (grant.subjectType === "workspace" || grant.subjectType === "actor" && grant.subjectId === effectiveActor)).map((grant) => grant.resourceId))].join("\n")])));
+    setExternalArguments({ ...Object.fromEntries(external.map((item) => [item.capabilityId, item.resourceArguments[0] ?? ""])), ...next.externalResourceArguments });
   }, []);
 
   useEffect(() => {
@@ -116,7 +128,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
 
   const save = async () => {
     if (!employeeId || !actorId || !policy || busy) return;
-    if (selected.length && !principals.some((principal) => principal.principal === actorId && (principal.live || principal.source === "web-session"))) {
+    if ((selected.length || selectedExternal.length) && !principals.some((principal) => principal.principal === actorId && (principal.live || principal.source === "web-session"))) {
       setError("Choose the current web identity or an active MCP principal before granting tools. Inactive principals can still be selected to revoke existing grants.");
       return;
     }
@@ -126,14 +138,25 @@ export function EmployeeToolPolicyView(): JSX.Element {
       if (!values.length) { setError(`Add at least one exact resource for ${id.replaceAll("_", " ")}.`); return; }
       resourcesByCapability[`mcp:shiba:${id}`] = values;
     }
+    for (const id of selectedExternal) {
+      const capability = externalCapabilities.find((item) => item.capabilityId === id);
+      if (!capability?.resourceArguments.includes(externalArguments[id] ?? "")) {
+        setError("A selected MCP tool is unavailable or changed. Review it in MCP Servers, or remove its employee grant."); return;
+      }
+      const values = (externalResources[id] ?? "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+      if (!values.length) { setError(`Add exact resource values for ${capability.label}.`); return; }
+      resourcesByCapability[id] = values;
+    }
     setBusy(true); setError(null); setNotice(null);
     try {
       await readJson(await fetch(`/api/employee-tools/${encodeURIComponent(employeeId)}/policy`, {
         method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ expectedVersion: policy.employeeVersion, actorId, role, resourcesByCapability }),
+        body: JSON.stringify({ expectedVersion: policy.employeeVersion, actorId, role, resourcesByCapability,
+          ...(selectedExternal.length ? { externalResourceArguments: Object.fromEntries(selectedExternal.map((id) => [id, externalArguments[id]])),
+            externalSchemaVersions: Object.fromEntries(selectedExternal.map((id) => [id, externalCapabilities.find((item) => item.capabilityId === id)?.schemaVersion])) } : {}) }),
       }));
       await refreshPolicy(employeeId, actorId);
-      setNotice(selected.length ? "Policy saved. Grants are bound to this employee version, actor, role and listed resources." : "All tool grants revoked for this employee version.");
+      setNotice(selected.length || selectedExternal.length ? "Policy saved. Grants are bound to this employee version, actor, role and listed resources." : "All tool grants revoked for this employee version.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   };
@@ -157,12 +180,17 @@ export function EmployeeToolPolicyView(): JSX.Element {
   const decide = async (approval: Approval, approved: boolean) => {
     setBusy(true); setError(null); setNotice(null);
     try {
-      await readJson(await fetch(`/api/employee-tools/approvals/${encodeURIComponent(approval.approvalId)}`, {
+      const endpoint = approval.employeeContext ? `/api/v1/mcp/servers/${encodeURIComponent(approval.employeeId)}/approvals/${encodeURIComponent(approval.approvalId)}`
+        : `/api/employee-tools/approvals/${encodeURIComponent(approval.approvalId)}`;
+      const result = await readJson<{ dispatch?: { status: string; errorCode?: string } }>(await fetch(endpoint, {
         method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ employeeId: approval.employeeId, approved }),
+        body: JSON.stringify(approval.employeeContext ? { approved } : { employeeId: approval.employeeId, approved }),
       }));
       await refreshApprovals();
-      setNotice(approved ? "Exact payload approved. The requesting MCP agent can retry the same call; changed payloads require a new approval." : "Approval denied.");
+      if (approval.employeeContext && approved) {
+        if (result.dispatch?.status !== "succeeded") throw new Error(`MCP action ${result.dispatch?.status ?? "not dispatched"}${result.dispatch?.errorCode ? `: ${result.dispatch.errorCode}` : ""}. Inspect its receipt before retrying.`);
+        setNotice("Exact MCP payload approved and dispatched. Its durable receipt records success.");
+      } else setNotice(approved ? "Exact payload approved. The requesting MCP agent can retry the same call; changed payloads require a new approval." : "Approval denied.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   };
@@ -201,19 +229,32 @@ export function EmployeeToolPolicyView(): JSX.Element {
             <p>Selected: {selectedGmailIds.length ? selectedGmailIds.map((id) => <span key={id} className="mr-1 inline-flex items-center gap-1 border border-[var(--border-1)] px-2 py-1 font-mono">{id}<button type="button" aria-label={`Remove Gmail message ${id}`} onClick={() => toggleGmailId(id, false)}>×</button></span>) : "none"}</p>
           </div> : <label className="mt-3 block text-[10px] font-mono text-[var(--muted-foreground-2)]">Allowed {capability.resource.toLowerCase()} values, one per line<textarea className={`${FIELD} mt-1 min-h-16 normal-case`} value={resources[capability.id]} onChange={(event) => setResources((current) => ({ ...current, [capability.id]: event.target.value }))} placeholder={capability.id === "run_status" ? "run_..." : capability.id === "queue_run" ? "https://github.com/org/repo" : "mailbox-id"} /></label> : null}
         </div>)}</div>
-        <div className="flex flex-wrap items-center gap-2"><button type="button" className={BUTTON} disabled={busy || !employeeId || !policy || !actorId} onClick={() => void save()}>{busy ? "Saving…" : selected.length ? "Save grants" : "Revoke all grants"}</button><span className="text-[10px] text-[var(--muted-foreground-2)]">{policy ? `Employee version ${policy.employeeVersion}` : "Policy unavailable"}</span></div>
+        <div className="space-y-3"><h4 className="text-xs font-semibold text-[var(--fg)]">Reviewed HTTPS MCP tools</h4>
+          <p className="text-xs text-[var(--muted-foreground-2)]">Enable and review a server in MCP Servers first. Employee grants allow only exact values in one required string resource argument. Saving grants does not create broad MCP actor access.</p>
+          {!externalCapabilities.length ? <p className="text-xs text-[var(--muted-foreground-2)]">No reviewed, healthy MCP tools with a supported resource argument are available.</p> : null}
+          {externalCapabilities.map((capability) => <div key={capability.capabilityId} className="border border-[var(--border-1)] p-3 space-y-2">
+            <label className="flex items-center gap-2 text-xs text-[var(--fg)]"><input type="checkbox" checked={selectedExternal.includes(capability.capabilityId)} onChange={(event) => setSelectedExternal((current) => event.target.checked ? [...current, capability.capabilityId] : current.filter((id) => id !== capability.capabilityId))} />{capability.label} · {capability.effect === "read" ? "read" : "exact approval required"}</label>
+            <p className="text-[10px] font-mono text-[var(--muted-foreground-2)]" title={capability.schemaVersion}>Reviewed schema {capability.schemaVersion.slice(0, 12)}</p>
+            {selectedExternal.includes(capability.capabilityId) ? <div className="space-y-2">
+              <label className="block text-xs text-[var(--fg)]">Resource argument for {capability.label}<select className={FIELD} value={externalArguments[capability.capabilityId] ?? ""} onChange={(event) => setExternalArguments((current) => ({ ...current, [capability.capabilityId]: event.target.value }))}>{capability.resourceArguments.map((field) => <option key={field}>{field}</option>)}</select></label>
+              <label className="block text-xs text-[var(--fg)]">Exact resource values for {capability.label}<textarea className={FIELD} value={externalResources[capability.capabilityId] ?? ""} onChange={(event) => setExternalResources((current) => ({ ...current, [capability.capabilityId]: event.target.value }))} /></label>
+            </div> : null}
+          </div>)}
+          {selectedExternal.filter((id) => !externalCapabilities.some((item) => item.capabilityId === id)).map((id) => <div key={id} className="text-xs text-[var(--warning-fg)]">Saved MCP capability unavailable: {id} <button type="button" className={BUTTON} onClick={() => setSelectedExternal((current) => current.filter((item) => item !== id))}>Remove unavailable grant</button></div>)}
+        </div>
+        <div className="flex flex-wrap items-center gap-2"><button type="button" className={BUTTON} disabled={busy || !employeeId || !policy || !actorId} onClick={() => void save()}>{busy ? "Saving…" : selected.length || selectedExternal.length ? "Save grants" : "Revoke all grants"}</button><span className="text-[10px] text-[var(--muted-foreground-2)]">{policy ? `Employee version ${policy.employeeVersion}` : "Policy unavailable"}</span></div>
       </section>
 
       <section className="space-y-3">
         <div><h3 className="text-sm font-semibold text-[var(--fg)]">Pending exact-payload approvals</h3><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">A request appears after an employee MCP agent invokes an approved write action. Approval authorizes only the recorded payload, resource and connection generation.</p></div>
         {!approvals.length ? <div className="border border-dashed border-[var(--border-1)] p-5 text-center text-xs text-[var(--muted-foreground-2)]">No pending employee tool approvals.</div> : approvals.map((approval) => <article key={approval.approvalId} className="border border-[var(--border-1)] bg-[var(--card)] p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-semibold text-[var(--fg)]">{approval.action} · {approval.actorId}</div><span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Expires {new Date(approval.expiresAt).toLocaleString()}</span></div>
-          <div className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Employee {approval.employeeId} v{approval.employeeVersion} · resource {approval.resourceId ?? "—"}{approval.executionContextId ? ` · context ${approval.executionContextId}` : ""}</div>
+          <div className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Employee {approval.employeeContext?.employeeId ?? approval.employeeId} v{approval.employeeContext?.employeeVersion ?? approval.employeeVersion} · resource {approval.employeeContext?.resourceIds.join(", ") ?? approval.resourceId ?? "—"}{approval.employeeContext?.executionContextId || approval.executionContextId ? ` · context ${approval.employeeContext?.executionContextId ?? approval.executionContextId}` : ""}</div>
           <pre className="max-h-48 overflow-auto border border-[var(--border-1)] bg-[var(--panel)] p-3 text-[10px] text-[var(--fg)]">{JSON.stringify(approval.payload, null, 2)}</pre>
           <div className="flex gap-2"><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, true)}>Approve exact payload</button><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, false)}>Deny</button></div>
         </article>)}
       </section>
-      <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: supported employee Worker-side app tools are Gmail selected-message reads, run status, queue run and send email. Gmail grants are exact message IDs on the authenticated connected account; this selection flow currently supports Gmail only. Unsupported actions fail closed. These grants do not constrain shell/CLI tools in a coding harness; they add no token or MCP credential to the sandbox. External MCP clients still authenticate with their own bearer token.</p>
+      <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: native employee app tools are Gmail selected-message reads, run status, queue run and send email; this selection flow currently supports Gmail only. Reviewed HTTPS MCP tools additionally support exact values in one required string resource argument. Unsupported schemas and transports fail closed. These grants do not constrain shell/CLI tools in a coding harness; they add no token or MCP credential to the sandbox. External MCP clients still authenticate with their own bearer token.</p>
     </div>
   </div>;
 }

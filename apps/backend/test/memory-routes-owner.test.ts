@@ -30,6 +30,44 @@ describe("owner-scoped memory API routing", () => {
     return { env, names, forwarded };
   }
 
+  it.each(["missing", "wrong", "cross-site"])("blocks %s origin intent before owner or legacy write dispatch", async (intent) => {
+    for (const [method, path] of [
+      ["POST", "/sources"], ["PATCH", "/sources/memsrc_1"], ["DELETE", "/sources/memsrc_1"],
+      ["POST", "/projects"], ["PATCH", "/projects/memproj_1"], ["DELETE", "/projects/memproj_1"],
+      ["DELETE", "/facts/fact-1"],
+    ]) {
+      const { env, names, forwarded } = fixture();
+      const headers = new Headers({ "CF-Access-Authenticated-User-Email": "alice@example.test" });
+      if (intent !== "missing") headers.set("origin", intent === "wrong" ? "https://other.test" : "https://app.test");
+      if (intent === "cross-site") headers.set("sec-fetch-site", "cross-site");
+      const request = new Request(`https://app.test/api/memory${path}`, { method, headers, ...(method !== "DELETE" ? { body: "{}" } : {}) });
+      expect((await handleMemory(request, env))?.status).toBe(403);
+      expect(names).toEqual([]);
+      expect(forwarded).toEqual([]);
+      expect(request.bodyUsed).toBe(false);
+    }
+  });
+
+  it.each(["web", "electron"])("allows explicit same-origin %s writes without trusting a caller owner", async (client) => {
+    const { env, names, forwarded } = fixture();
+    const headers = new Headers({ "CF-Access-Authenticated-User-Email": "alice@example.test", Origin: "https://app.test", "User-Agent": client === "electron" ? "Electron/39 Chrome/142" : "Chrome/142" });
+    if (client === "web") headers.set("sec-fetch-site", "same-origin");
+    const response = await handleMemory(new Request("https://app.test/api/memory/sources?owner=bob", { method: "POST", headers, body: "{}" }), env);
+    expect(response?.status).toBe(200);
+    expect(names).toHaveLength(1);
+    expect(forwarded[0]?.url).toBe("https://internal/internal/memory/sources");
+  });
+
+  it("preserves read routing and authentication ahead of write-intent checks", async () => {
+    const { env, names } = fixture();
+    const unauthenticated = await handleMemory(new Request("https://app.test/api/memory/sources", { method: "POST", body: "{}" }), env);
+    expect(unauthenticated?.status).toBe(401);
+    expect(names).toEqual([]);
+    const read = await handleMemory(new Request("https://app.test/api/memory/sources", { headers: { "CF-Access-Authenticated-User-Email": "alice@example.test" } }), env);
+    expect(read?.status).toBe(200);
+    expect(names).toHaveLength(1);
+  });
+
   it("derives owner partitions from the authenticated identity and ignores owner query parameters", async () => {
     const { env, names, forwarded } = fixture();
     await handleMemory(
@@ -57,6 +95,7 @@ describe("owner-scoped memory API routing", () => {
       headers: {
         "CF-Access-Authenticated-User-Email": "alice@example.test",
         "Content-Type": "application/json",
+        Origin: "https://app.test",
       },
       body: JSON.stringify({ content: "my own note", enabled: false }),
     });
@@ -77,7 +116,7 @@ describe("owner-scoped memory API routing", () => {
     const { env, names, forwarded } = fixture();
     const response = await handleMemory(new Request("https://app.test/api/memory/projects?owner=bob", {
       method: "POST",
-      headers: { "CF-Access-Authenticated-User-Email": "alice@example.test", "Content-Type": "application/json" },
+      headers: { "CF-Access-Authenticated-User-Email": "alice@example.test", "Content-Type": "application/json", Origin: "https://app.test" },
       body: JSON.stringify({ name: "Alice project", sourceIds: ["alice-source"] }),
     }), env);
     expect(response?.status).toBe(200);
@@ -88,7 +127,7 @@ describe("owner-scoped memory API routing", () => {
 
   it("scopes legacy fact and session compatibility to the authenticated agent identity", async () => {
     const { env, names, forwarded } = fixture();
-    const headers = { "CF-Access-Authenticated-User-Email": "alice@example.test" };
+    const headers = { "CF-Access-Authenticated-User-Email": "alice@example.test", Origin: "https://app.test" };
     await handleMemory(
       new Request("https://app.test/api/memory/facts?agent=bob@example.test&q=secret&limit=4", { headers }),
       env,

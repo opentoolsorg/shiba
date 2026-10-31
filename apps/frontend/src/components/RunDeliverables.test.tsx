@@ -15,6 +15,50 @@ const report = {
 };
 
 describe("run deliverables", () => {
+  it("uses a new revision command after adopting a conflicting saved review, preserving the local draft", async () => {
+    const artifact = { ...report, artifactId: "artifact_0123456789abcdef0123456789abcdef", version: 2,
+      review: { status: "changes_requested" as const, revision: 1, updatedAt: 10, note: "Original request" } };
+    const commands: Array<{ commandId: string; reviewRevision: number }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.endsWith("/revision")) return Response.json({ versions: [] });
+      commands.push(JSON.parse(String(init?.body)));
+      return commands.length === 1
+        ? Response.json({ error: "Review changed.", currentReview: { status: "changes_requested", revision: 2, updatedAt: 20, note: "New saved request" } }, { status: 409 })
+        : Response.json({ approvalId: "approval-next" });
+    }));
+    render(<RunDeliverables runId="latest-run" status="completed" deliverables={[artifact]} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Revision note for research/report.md" }), { target: { value: "My unsaved draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create revision approval" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Your draft is unchanged."));
+    expect((screen.getByRole("textbox", { name: "Revision note for research/report.md" }) as HTMLTextAreaElement).value).toBe("My unsaved draft");
+    expect((screen.getByRole("combobox", { name: "Review decision for research/report.md" }) as HTMLSelectElement).value).toBe("changes_requested");
+    fireEvent.click(screen.getByRole("button", { name: "Create revision approval" }));
+    await screen.findByRole("button", { name: "Revision approval created" });
+    expect(commands.map((command) => command.reviewRevision)).toEqual([1, 2]);
+    expect(commands[0]?.commandId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(commands[1]?.commandId).not.toBe(commands[0]?.commandId);
+  });
+
+  it("retains the same revision command for a retry after an uncertain network failure", async () => {
+    const artifact = { ...report, artifactId: "artifact_0123456789abcdef0123456789abcdef", version: 2,
+      review: { status: "changes_requested" as const, revision: 1, updatedAt: 10, note: "Saved request" } };
+    const commands: Array<{ commandId: string; reviewRevision: number }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.endsWith("/revision")) return Response.json({ versions: [] });
+      commands.push(JSON.parse(String(init?.body)));
+      if (commands.length === 1) throw new Error("Connection lost before a response arrived.");
+      return Response.json({ approvalId: "approval-retried" });
+    }));
+    render(<RunDeliverables runId="latest-run" status="completed" deliverables={[artifact]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Create revision approval" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Connection lost"));
+    fireEvent.click(screen.getByRole("button", { name: "Create revision approval" }));
+    await screen.findByRole("button", { name: "Revision approval created" });
+    expect(commands).toHaveLength(2);
+    expect(commands[1]?.commandId).toBe(commands[0]?.commandId);
+    expect(commands.map((command) => command.reviewRevision)).toEqual([1, 1]);
+  });
+
   it("keeps old runs without requested or captured files unchanged", () => {
     const { container } = render(<RunDeliverables runId="old" status="completed" />);
     expect(container.firstChild).toBeNull();

@@ -35,6 +35,7 @@ import {
   humanActorId,
   createCollaborationAgentReply,
   linkCollaborationHandoffRun,
+  pinCollaborationHandoffExecutor,
   listCollaborationHandoffs,
   listCollaborationHandoffsForRoot,
   listCollaborationMemberships,
@@ -118,16 +119,50 @@ function scopeFor(userId: string): CollaborationScope {
   };
 }
 
+/** Legacy rows are mapped only after the exact approval/handoff is found, never by guessing casing. */
+async function handoffExecutor(
+  env: Env,
+  handoff: CollaborationHandoffRow,
+  authenticatedUserId: string,
+): Promise<string | null> {
+  if (handoff.executorAgentName) return handoff.executorAgentName;
+  if (!handoff.approvalId || !handoff.runId) return null;
+  const candidates = new Set([handoff.senderUserId]);
+  if (authenticatedUserId.trim().toLowerCase() === handoff.senderUserId) candidates.add(authenticatedUserId);
+  const matches: string[] = [];
+  for (const name of candidates) {
+    const stub = await getAgentByName(env.CodingOrchestrator, name);
+    const approvals = await stub.fetch("https://internal/api/approvals");
+    if (!approvals.ok) continue;
+    const body = await approvals.json() as { approvals?: Array<{ approvalId: string; collaborationHandoffId?: string }>; decided?: Array<{ approvalId: string; collaborationHandoffId?: string }> };
+    const approval = [...(body.approvals ?? []), ...(body.decided ?? [])]
+      .find(item => item.approvalId === handoff.approvalId);
+    if (approval && approval.collaborationHandoffId !== handoff.handoffId) continue;
+    const runResponse = await stub.fetch(`https://internal/api/runs/${encodeURIComponent(handoff.runId)}`);
+    if (runResponse.ok) {
+      const { run } = await runResponse.json() as { run?: { runId?: string; collaborationHandoffId?: string; approval?: { approvalId?: string } } };
+      if (run?.runId !== handoff.runId || run.collaborationHandoffId !== handoff.handoffId || run.approval?.approvalId !== handoff.approvalId) continue;
+    } else if (runResponse.status !== 404 || !approval) continue;
+    matches.push(name);
+  }
+  const name = matches[0];
+  if (matches.length !== 1 || !name) return null;
+  return await pinCollaborationHandoffExecutor(env, handoff, handoff.handoffId, name) ? name : null;
+}
+
 async function cancelLinkedHandoffExecutors(
   env: Env,
   handoffs: readonly CollaborationHandoffRow[],
+  authenticatedUserId: string,
 ): Promise<{ executorCancellationPending: boolean; outcomeUnknown: boolean }> {
   let executorCancellationPending = false;
   let outcomeUnknown = false;
   for (const item of handoffs) {
     if (!item.approvalId && !item.runId) continue;
     try {
-      const stub = await getAgentByName(env.CodingOrchestrator, item.senderUserId);
+      const executor = await handoffExecutor(env, item, authenticatedUserId);
+      if (!executor) { executorCancellationPending = true; continue; }
+      const stub = await getAgentByName(env.CodingOrchestrator, executor);
       const internal = new Request("https://internal/internal/collaboration-handoff-cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -355,7 +390,9 @@ export async function handleCollaboration(
         handoffs.map(async (handoff) => {
           if (!handoff.approvalId || !handoff.runId || !env.CodingOrchestrator) return handoff;
           try {
-            const owner = await getAgentByName(env.CodingOrchestrator, handoff.senderUserId);
+            const executor = await handoffExecutor(env, handoff, resolvedUserId);
+            if (!executor) return { ...handoff, execution: { unavailable: true, runStatus: "unknown", error: "The historical executor owner has not been verified. Sign in as the requesting owner to reconcile it." } };
+            const owner = await getAgentByName(env.CodingOrchestrator, executor);
             const [approvalResponse, runResponse] = await Promise.all([
               owner.fetch("https://internal/api/approvals"),
               owner.fetch(`https://internal/api/runs/${encodeURIComponent(handoff.runId)}`),
@@ -756,7 +793,7 @@ export async function handleCollaboration(
       );
       if (!removal.changed) return json({ error: "Member not found or cannot be removed." }, 404);
       const cancelledRows = await collectHandoffsForRoots(env, scope, roomId, removal.affectedRootIds);
-      const cancellation = await cancelLinkedHandoffExecutors(env, cancelledRows);
+      const cancellation = await cancelLinkedHandoffExecutors(env, cancelledRows, resolvedUserId);
       return json({ removed: true, ...cancellation }, cancellation.executorCancellationPending || cancellation.outcomeUnknown ? 202 : 200);
     }
 
@@ -1122,7 +1159,13 @@ export async function handleCollaboration(
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose a paired computer for local employee work.");
         }
+        const executorAgentName = saved.executorAgentName ?? resolvedUserId;
+        if (!(await pinCollaborationHandoffExecutor(env, scope, saved.handoffId, executorAgentName))) {
+          return json({ error: "Handoff executor changed. Reload the room before retrying." }, 409);
+        }
+        saved.executorAgentName = executorAgentName;
         const queued = await queueCollaborationRun(request, env, {
+          executorAgentName,
           task,
           ...(repoUrl ? { repoUrl } : {}),
           ...(requestedTarget ? { executionTarget: requestedTarget } : {}),
@@ -1165,7 +1208,7 @@ export async function handleCollaboration(
             status: "cancelled",
             approvalId: approval.approvalId,
             runId,
-          }]);
+          }], resolvedUserId);
           return json(
             {
               error: cleanup.executorCancellationPending || cleanup.outcomeUnknown
@@ -1225,7 +1268,7 @@ export async function handleCollaboration(
         target.roomId,
         target.rootHandoffId,
       );
-      const { executorCancellationPending, outcomeUnknown } = await cancelLinkedHandoffExecutors(env, lineage);
+      const { executorCancellationPending, outcomeUnknown } = await cancelLinkedHandoffExecutors(env, lineage, resolvedUserId);
       if (executorCancellationPending || outcomeUnknown) {
         return json({ cancelled: !executorCancellationPending && !outcomeUnknown, executorCancellationPending, outcomeUnknown }, 202);
       }

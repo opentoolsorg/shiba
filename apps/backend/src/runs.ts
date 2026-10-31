@@ -1,3 +1,4 @@
+import { onboardingRunFields, type OnboardingRunFields } from "@shiba/shared";
 /**
  * Durable run registry helpers. The orchestrator keeps these records in
  * Durable Object state; the Worker gates drill-in routes on them.
@@ -51,7 +52,7 @@ export {
   RUN_DEADLINE_MS,
 } from "@shiba/shared";
 
-export function createRun(args: {
+export function createRun(args: OnboardingRunFields & {
   runId: string;
   sandboxId: string;
   repoUrl: string;
@@ -107,6 +108,7 @@ export function createRun(args: {
     commandId: `queue:${args.runId}`,
     runId: args.runId,
     input: {
+      ...onboardingRunFields(args),
       sandboxId: args.sandboxId,
       repoUrl: args.repoUrl,
       ...(args.executionTarget !== undefined ? { executionTarget: args.executionTarget } : {}),
@@ -177,9 +179,12 @@ function commandForStatus(
         type: "queue",
         commandId,
         runId: run.runId,
+        // continuesKey is consumed at first queue; continuationKey retains its identity.
         input: {
+          ...onboardingRunFields(run),
           sandboxId: run.sandboxId,
           repoUrl: run.repoUrl,
+          ...(run.executionTarget !== undefined ? { executionTarget: structuredClone(run.executionTarget) } : {}),
           task: run.task,
           baseBranch: run.baseBranch,
           publishPullRequest: run.publishPullRequest,
@@ -187,10 +192,30 @@ function commandForStatus(
           ...(run.reviewOf !== undefined ? { reviewOf: run.reviewOf } : {}),
           ...(run.reviewRoundId !== undefined ? { reviewRoundId: run.reviewRoundId } : {}),
           ...(run.queuedBy !== undefined ? { queuedBy: run.queuedBy } : {}),
-          ...(run.route !== undefined ? { route: run.route } : {}),
+          ...(run.orgId !== undefined ? { orgId: run.orgId } : {}),
+          ...(run.sandboxProvider !== undefined ? { sandboxProvider: run.sandboxProvider } : {}),
+          ...(run.customAgentId !== undefined ? { customAgentId: run.customAgentId } : {}),
+          ...(run.collaborationHandoffId !== undefined ? { collaborationHandoffId: run.collaborationHandoffId } : {}),
+          ...(run.customAgentVersion !== undefined ? { customAgentVersion: run.customAgentVersion } : {}),
+          ...(run.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: run.employeeToolPolicyVersion } : {}),
+          ...(run.skillPins !== undefined ? { skillPins: run.skillPins.map((pin) => ({ ...pin })) } : {}),
+          ...(run.route !== undefined ? { route: { ...run.route } } : {}),
+          ...(run.continuationKey !== undefined ? { continuationKey: run.continuationKey } : {}),
+          ...(run.authAccount !== undefined ? { authAccount: run.authAccount } : {}),
           ...(run.runtime !== undefined ? { runtime: run.runtime } : {}),
-          ...(run.testCommand !== undefined ? { testCommand: run.testCommand } : {}),
+          ...(run.targetMachineId !== undefined ? { targetMachineId: run.targetMachineId } : {}),
+          ...(run.testCommand !== undefined ? { testCommand: [...run.testCommand] } : {}),
           ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
+          ...(run.forkedFrom !== undefined ? { forkedFrom: { ...run.forkedFrom } } : {}),
+          ...(run.parentRunId !== undefined ? { parentRunId: run.parentRunId } : {}),
+          ...(run.subagentPath !== undefined ? { subagentPath: run.subagentPath } : {}),
+          ...(run.subagentSandbox !== undefined ? { subagentSandbox: run.subagentSandbox } : {}),
+          ...(run.captainId !== undefined ? { captainId: run.captainId } : {}),
+          ...(run.role !== undefined ? { role: run.role } : {}),
+          ...(run.envNames !== undefined ? { envNames: [...run.envNames] } : {}),
+          ...(run.envDigest !== undefined ? { envDigest: run.envDigest } : {}),
+          ...(run.envSealed !== undefined ? { envSealed: run.envSealed } : {}),
+          ...(run.runSetup === true ? { runSetup: true } : {}),
         },
         at,
       };

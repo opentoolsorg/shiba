@@ -4,6 +4,12 @@ import { describe, expect, it } from "vitest";
 import { ConversationWorkspaceHeading } from "./ConversationWorkspaceHeading";
 
 describe("ConversationWorkspaceHeading", () => {
+  it("labels app tools independently of stale repository or local runtime settings", () => {
+    render(<ConversationWorkspaceHeading title="Research helper" mode="work" appToolsWork executionTargetKind="repository" runTarget="local" repoUrl="https://github.com/acme/ignored" artifactWorkspaceName="Ignored" machineName="dev-laptop" />);
+    expect(screen.getByLabelText("Next task target: Connected app tools")).toBeTruthy();
+    expect(screen.queryByText(/dev-laptop|acme\/ignored/)).toBeNull();
+  });
+
   it("shows the selected repo and cloud execution target without inventing a connection state", () => {
     render(
       <ConversationWorkspaceHeading
