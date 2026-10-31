@@ -29,6 +29,7 @@ const children = [];
 const logs = [];
 const checkpoints = [];
 const adapterEvents = [];
+const browserEvents = [];
 let adapterTimer;
 let heartbeatTimer;
 let browser;
@@ -150,6 +151,7 @@ const evidence = {
   checkpoints,
   screenshots: [],
   adapterEvents,
+  browserEvents,
   error: null,
   workerLogs: [],
 };
@@ -243,8 +245,29 @@ try {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  // The product links Google Fonts for production typography. Acceptance runs
+  // against a local Worker and must not wait on an external font CDN: a
+  // stalled stylesheet can block DOMContentLoaded and leave the session shell
+  // on its pending screen even though local Worker routes are healthy.
+  await context.route(/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/css; charset=utf-8",
+      body: "/* external fonts disabled in deterministic acceptance */",
+    });
+  });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
+  const recordBrowserEvent = (event) => {
+    browserEvents.push({ at: new Date().toISOString(), ...event });
+    if (browserEvents.length > 300) browserEvents.splice(0, browserEvents.length - 300);
+  };
+  page.on("request", (request) => recordBrowserEvent({ kind: "request", url: request.url(), resourceType: request.resourceType() }));
+  page.on("response", (response) => recordBrowserEvent({ kind: "response", url: response.url(), status: response.status() }));
+  page.on("requestfailed", (request) => recordBrowserEvent({ kind: "requestfailed", url: request.url(), error: request.failure()?.errorText ?? "unknown" }));
+  page.on("domcontentloaded", () => recordBrowserEvent({ kind: "domcontentloaded", url: page.url() }));
+  page.on("load", () => recordBrowserEvent({ kind: "load", url: page.url() }));
+  page.on("console", (message) => recordBrowserEvent({ kind: "console", level: message.type(), text: message.text().slice(0, 500) }));
   page.on("pageerror", (error) => logs.push(`browser pageerror: ${error.message}`));
   await page.goto(`${workerOrigin}/app/`, { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "First sign-in? Create the account" }).click();
@@ -970,6 +993,7 @@ try {
 } finally {
   await stopAll();
   evidence.adapterEvents = adapterEvents;
+  evidence.browserEvents = browserEvents.slice(-160);
   evidence.workerLogs = logs.slice(-120);
   await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
   console.log(`Browser journey evidence: ${evidencePath}`);
