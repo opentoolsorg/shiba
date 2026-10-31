@@ -975,10 +975,10 @@ try {
 
   await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
   await page.getByRole("heading", { name: "Approvals", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Refresh", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Waiting", exact: true }).waitFor();
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByRole("heading", { name: "Approvals", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Refresh", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Waiting", exact: true }).waitFor();
   assert.deepEqual(
     externalFontRequests,
     [],
