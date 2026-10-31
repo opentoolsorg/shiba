@@ -166,6 +166,7 @@
         "apps/backend/test/reason-network-companion.test.ts",
         "apps/backend/test/local-daemon-transport.test.ts",
         "apps/backend/test/reason-network-daemon.test.ts",
+        "apps/backend/test/reason-network-stdio.test.ts",
         "apps/frontend/src/project-contexts.test.tsx",
         "apps/frontend/src/components/AppNavRail.test.tsx",
         "apps/frontend/src/components/TaskComposer.test.tsx",
