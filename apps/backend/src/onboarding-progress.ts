@@ -412,15 +412,15 @@ async function persistEvidence(db: D1Database, userId: string, evidence: Onboard
     connection_verified_at=COALESCE(connection_verified_at,?),
     first_successful_run_at=COALESCE(first_successful_run_at,?),
     accepted_artifact_at=COALESCE(accepted_artifact_at,?),
+    -- Activation records a useful accepted outcome, not connection readiness.
     activated_at=CASE WHEN activated_at IS NOT NULL THEN activated_at
-      WHEN ? IS NOT NULL AND (accepted_artifact_at IS NOT NULL OR ? IS NOT NULL) THEN ? ELSE NULL END,
+      WHEN (accepted_artifact_at IS NOT NULL OR ? IS NOT NULL) THEN ? ELSE NULL END,
     revision=revision+CASE WHEN (connection_verified_at IS NULL AND ? IS NOT NULL)
       OR (first_successful_run_at IS NULL AND ? IS NOT NULL)
       OR (accepted_artifact_at IS NULL AND ? IS NOT NULL)
-      OR (activated_at IS NULL AND ? IS NOT NULL
-        AND (accepted_artifact_at IS NOT NULL OR ? IS NOT NULL)) THEN 1 ELSE 0 END,
+      OR (activated_at IS NULL AND (accepted_artifact_at IS NOT NULL OR ? IS NOT NULL)) THEN 1 ELSE 0 END,
     updated_at=MAX(updated_at,?) WHERE user_id=? AND revision=?`).bind(
-    connectedAt, runAt, acceptedAt, connectedAt, acceptedAt, now, connectedAt, runAt, acceptedAt, connectedAt, acceptedAt, now, userId, expectedRevision,
+    connectedAt, runAt, acceptedAt, acceptedAt, now, connectedAt, runAt, acceptedAt, acceptedAt, now, userId, expectedRevision,
   ).run();
 }
 

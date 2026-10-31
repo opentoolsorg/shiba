@@ -198,4 +198,23 @@ describe("validated first-task admission", () => {
     expect(f.instance.state.runs[0]?.status).toBe("error");
     expect(f.instance.state.runs[0]?.onboardingSourceSnapshot?.sources[0]?.version).toBe(1);
   });
+
+  it.each(["chat", "app-tools"])("dispatches an approved frozen goal after the latest turn changes to %s", async (mode) => {
+    const f = await fixture();
+    await f.http();
+    const pointer = f.instance.state.pendingApprovals?.[0];
+    if (!pointer) throw new Error("Missing pointer");
+    Object.assign(f.instance, { messages: [{ role: "user", parts: [{ type: "text", text: "Discuss something else" }], metadata:
+      mode === "chat" ? { shibaMode: "chat" } : { shibaMode: "work", shibaWorkTarget: "app-tools" },
+    }] });
+    mocks.execute.mockResolvedValue(formatAgentResult({ status: "completed", summary: "Frozen draft ready", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [] }));
+    const response = await f.instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvalId: pointer.approvalId, threadKey: pointer.threadKey, approved: true, decidedBy: "owner@example.test" }),
+    }));
+    expect(response.status).toBe(200);
+    await vi.waitFor(() => expect(f.instance.state.runs[0]?.status).toBe("completed"));
+    const envelope = parseAgentToolInput([{ role: "user", text: String(mocks.execute.mock.calls[0]?.[0]) }]);
+    expect(envelope).toMatchObject({ ...f.goal.reference, task: pointer.task, onboardingSourceSnapshot: pointer.onboardingSourceSnapshot });
+  });
 });

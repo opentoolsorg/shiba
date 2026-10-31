@@ -38,7 +38,7 @@ async function call(ctx: ReturnType<typeof context>, method = "GET", body?: unkn
     ...(body === undefined ? {} : { headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   }), ctx.env, ctx.deps);
   if (!response) throw new Error("Progress route did not match.");
-  return response;
+  return response as Omit<Response, "json"> & { json(): Promise<OnboardingProgress> };
 }
 
 async function saveDraft(ctx: ReturnType<typeof context>, draftTask: Record<string, unknown>) {
@@ -65,19 +65,27 @@ describe("server-owned onboarding progress", () => {
     expect(ctx.sqlite.prepare("SELECT current_step FROM user_onboarding_progress WHERE user_id='auth-user-a'").get()).toEqual({ current_step: "employee" });
   });
 
-  it("isolates by immutable Better Auth id and activates only from both server evidence checks", async () => {
+  it("isolates by immutable Better Auth id and activates only from the accepted prepared goal", async () => {
     const ctx = context();
     await prepareDraft(ctx);
     ctx.setEvidence(true, true, false);
     expect(await (await call(ctx)).json()).toMatchObject({ activatedAt: null, acceptedArtifactAt: null, evidence: { connectedProvider: true, successfulRun: true, acceptedDeliverable: false } });
     ctx.setNow(250);
     ctx.setEvidence(false, true, true);
-    expect(await (await call(ctx)).json()).toMatchObject({ activatedAt: null, acceptedArtifactAt: 250, evidence: { connectedProvider: false, successfulRun: true, acceptedDeliverable: true } });
-    ctx.setEvidence(true, true, true);
-    expect(await (await call(ctx)).json()).toMatchObject({ activatedAt: 250 });
+    expect(await (await call(ctx)).json()).toMatchObject({ activatedAt: 250, acceptedArtifactAt: 250, evidence: { connectedProvider: false, successfulRun: true, acceptedDeliverable: true } });
     ctx.setIdentity({ userId: "auth-user-b", ownerEmail: "b@example.test" });
     expect(await (await call(ctx)).json()).toMatchObject({ currentStep: "channels", activatedAt: null });
     expect(ctx.sqlite.prepare("SELECT COUNT(*) AS count FROM user_onboarding_progress").get()).toEqual({ count: 2 });
+  });
+
+  it.each([false, null])("accepts a useful goal output without inventing provider readiness (%s)", async (provider) => {
+    const ctx = context();
+    await prepareDraft(ctx);
+    ctx.setEvidence(provider, false, true);
+    expect(await (await call(ctx)).json()).toMatchObject({
+      activatedAt: 100, acceptedArtifactAt: 100, connectionVerifiedAt: null, firstSuccessfulRunAt: null,
+      evidence: { connectedProvider: provider, successfulRun: false, acceptedDeliverable: true },
+    });
   });
 
   it("rejects stale, cross-origin, unauthenticated, and browser-supplied identity updates", async () => {
@@ -181,7 +189,7 @@ describe("server-owned onboarding progress", () => {
     expect(edited).toMatchObject({ draftTaskId: prepared.draftTaskId, draftTask: { version: 2, preparedAt: null, sourceRefs: [], completedSteps: [] } });
     const stale = await call(ctx, "POST", { action: "save-draft", expectedRevision: prepared.revision, draftTask: { goal: "overwrite" } });
     expect(stale.status).toBe(409);
-    expect((await stale.json()).draftTask.audience).toBe("Executive team");
+    expect((await stale.json()).draftTask?.audience).toBe("Executive team");
   });
 
   it("rejects forged authority, invalid completions, stale employee pins and incomplete preparation", async () => {
@@ -209,7 +217,7 @@ describe("server-owned onboarding progress", () => {
     const ctx = context();
     const saved = await (await saveDraft(ctx, { goal: "g".repeat(2000), audience: "a".repeat(2000), acceptance: "Cited draft" })).json();
     expect((await call(ctx, "POST", { action: "prepare-task", expectedRevision: saved.revision })).status).toBe(400);
-    expect((await (await call(ctx)).json()).draftTask.goal).toHaveLength(2000);
+    expect((await (await call(ctx)).json()).draftTask?.goal).toHaveLength(2000);
   });
 
   it("clears legacy artifact activation with no goal binding during additive migration", async () => {
@@ -230,6 +238,7 @@ describe("server-owned onboarding progress", () => {
     const results = await Promise.all(["First", "Second"].map((goal) => call(ctx, "POST", { action: "save-draft", expectedRevision: 0, draftTask: { goal } })));
     expect(results.map((response) => response.status).sort()).toEqual([200, 409]);
     const [a, b] = await Promise.all(results.map((response) => response.json()));
+    if (!a?.draftTask || !b?.draftTask) throw new Error("Missing saved draft responses");
     expect(a.draftTaskId).toBe(b.draftTaskId);
     expect(a.draftTask.goal).toBe(b.draftTask.goal);
   });
@@ -303,8 +312,8 @@ describe("server-owned onboarding progress", () => {
     expect(await readOnboardingSourceRefs(ctx.env, "a@example.test", [source.id], refs)).toBeNull();
     const updated = await (await call(ctx, "POST", { action: "prepare-task", expectedRevision: prepared.revision })).json();
     if (!prepared.draftTask) throw new Error("Missing prepared test draft");
-    expect(updated.draftTask.version).toBe(prepared.draftTask.version + 1);
-    expect(updated.draftTask.sourceRefs[0].version).toBe(2);
+    expect(updated.draftTask?.version).toBe(prepared.draftTask.version + 1);
+    expect(updated.draftTask?.sourceRefs[0]?.version).toBe(2);
     ctx.env.Memory = { idFromName: (name: string) => name, get: () => ({ fetch: async () => new Response(null, { status: 404 }) }) } as unknown as DurableObjectNamespace;
     expect((await call(ctx, "POST", { action: "prepare-task", expectedRevision: updated.revision })).status).toBe(400);
   });

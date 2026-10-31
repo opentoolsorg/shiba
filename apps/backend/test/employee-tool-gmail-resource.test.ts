@@ -267,9 +267,9 @@ describe("employee-run Gmail selected-resource policy", () => {
       expect(await evidence({ ...goal.reference, draftTaskVersion: goal.reference.draftTaskVersion + 1 })).toBe(false);
       expect(await evidence({ ...goal.reference, draftTaskId: "unrelated-goal" })).toBe(false);
       const activated = await handleOnboardingProgress(new Request("https://shiba.test/api/onboarding/progress"), env, {
-        ...goal.deps, readProviders: async () => [{ connection: { phase: "connected" } } as never], readAcceptedDeliverable: async () => evidence(),
+        ...goal.deps, readProviders: async () => [], readAcceptedDeliverable: async () => evidence(),
       });
-      expect(await activated?.json()).toMatchObject({ activatedAt: expect.any(Number), acceptedArtifactAt: expect.any(Number) });
+      expect(await activated?.json()).toMatchObject({ activatedAt: expect.any(Number), acceptedArtifactAt: expect.any(Number), connectionVerifiedAt: null, evidence: { connectedProvider: false } });
       const current = await goal.update();
       await goal.update({ action: "save-draft", expectedRevision: current.revision, draftTask: { goal: "A different outcome" } });
       expect(await goal.update()).toMatchObject({ activatedAt: null, acceptedArtifactAt: null });
