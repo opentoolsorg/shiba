@@ -23,7 +23,12 @@ describe("security batch 03 — claude subscription account scope", () => {
       const env = {
         CLAUDE_SUBSCRIPTION_TOKEN_WORK: "worker-token",
         AGENT_TOKENS: {
-          get: async () => JSON.stringify({ kind: "claude-setup", secret: "saved-token" }),
+          get: async (key: string) => {
+            if (key === "auth_flow_claude-sub:work") {
+              return JSON.stringify({ phase: "succeeded", ownerSessionId: "self-hosted" });
+            }
+            return JSON.stringify({ kind: "claude-setup", secret: "saved-token" });
+          },
         },
       } as unknown as EgressEnv;
       await forwardClaudeSubscription(
