@@ -30,6 +30,7 @@ const logs = [];
 const checkpoints = [];
 const adapterEvents = [];
 const browserEvents = [];
+const externalFontRequests = [];
 let adapterTimer;
 let heartbeatTimer;
 let browser;
@@ -152,6 +153,7 @@ const evidence = {
   screenshots: [],
   adapterEvents,
   browserEvents,
+  externalFontRequests,
   error: null,
   workerLogs: [],
 };
@@ -245,16 +247,12 @@ try {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
-  // The product links Google Fonts for production typography. Acceptance runs
-  // against a local Worker and must not wait on an external font CDN: a
-  // stalled stylesheet can block DOMContentLoaded and leave the session shell
-  // on its pending screen even though local Worker routes are healthy.
+  // Prove app startup does not require external font hosts. The application
+  // should not request them; if a future change adds a request, block it and
+  // fail the acceptance assertion below rather than supplying replacement CSS.
   await context.route(/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "text/css; charset=utf-8",
-      body: "/* external fonts disabled in deterministic acceptance */",
-    });
+    externalFontRequests.push(route.request().url());
+    await route.abort("blockedbyclient");
   });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
@@ -271,6 +269,7 @@ try {
   page.on("pageerror", (error) => logs.push(`browser pageerror: ${error.message}`));
   await page.goto(`${workerOrigin}/app/`, { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "First sign-in? Create the account" }).click();
+  assert.deepEqual(externalFontRequests, [], "App bootstrap must not request external fonts.");
   await page.getByLabel("Name").fill("Shiba Acceptance Owner");
   await page.getByLabel("Email").fill("acceptance-owner@example.test");
   await page.getByLabel("Password").fill("e2e-password-2026!");
@@ -975,6 +974,16 @@ try {
   });
 
   await page.goto(`${workerOrigin}/approvals/`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Approvals", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Refresh", exact: true }).waitFor();
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Approvals", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Refresh", exact: true }).waitFor();
+  assert.deepEqual(
+    externalFontRequests,
+    [],
+    "Dashboard and approvals reload must remain local-only.",
+  );
   await page.screenshot({ path: screenshotPath, fullPage: true });
   evidence.screenshots.push(screenshotPath);
   evidence.status = "passed";
