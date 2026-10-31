@@ -5272,8 +5272,18 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     } else {
       return Response.json({ error: "Task attempt is already terminal." }, { status: 409 });
     }
-    const next = cancelTaskAttempt(task, attemptNo, Date.now());
-    this.setState({ ...this.state, tasks: tasks.map((candidate) => candidate.taskId === taskId ? next : candidate) });
+    // Provider cleanup may yield while another request appends or refreshes
+    // task history in this Durable Object. Reconcile only this attempt into
+    // the latest task record so cancellation cannot replace newer lineage.
+    const currentTasks = this.state?.tasks ?? [];
+    const currentTask = currentTasks.find((candidate) => candidate.taskId === taskId);
+    const next = cancelTaskAttempt(currentTask ?? task, attemptNo, Date.now());
+    if (currentTask) {
+      this.setState({
+        ...this.state,
+        tasks: currentTasks.map((candidate) => candidate.taskId === taskId ? next : candidate),
+      });
+    }
     return Response.json({ task: taskHistoryDto(next), cancelled: true });
   }
 

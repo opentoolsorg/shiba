@@ -118,6 +118,75 @@ describe("orchestrator durable task-attempt routes", () => {
     expect(hidden.status).toBe(404);
   });
 
+  it("preserves queued and updated task attempts when run cleanup is held during cancellation", async () => {
+    const instance = host();
+    const queuedA = await instance.onRequest(post("/api/runs", {
+      repoUrl: "https://github.com/o/r",
+      task: "Cancel slowly",
+      publishPullRequest: false,
+    }));
+    const { approvalId: approvalA } = await queuedA.json() as { approvalId: string };
+    const taskAId = `task_${approvalA}`;
+    Object.assign(instance, { dispatchApprovedRun: vi.fn() });
+    const approvedA = await instance.onRequest(post("/api/approvals", {
+      threadKey: "default",
+      approvalId: approvalA,
+      approved: true,
+      decidedBy: "test-human",
+    }));
+    expect(approvedA.status).toBe(200);
+    const runAId = instance.state.runs[0]?.runId;
+    expect(runAId).toBeDefined();
+
+    let finishCleanup!: () => void;
+    let cleanupStarted!: () => void;
+    const cleanupStartedPromise = new Promise<void>((resolve) => { cleanupStarted = resolve; });
+    const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
+    Object.assign(instance, {
+      releaseSandboxForRun: vi.fn(async () => {
+        cleanupStarted();
+        await cleanup;
+      }),
+    });
+
+    const cancelA = instance.onRequest(post(`/api/tasks/${taskAId}/cancel`, { attempt: 1 }));
+    await cleanupStartedPromise;
+
+    // The run store was already fenced as cancelled before provider cleanup
+    // yields. A concurrent history read persists that newer attempt state.
+    const duringCleanup = await (await instance.onRequest(new Request("https://internal/api/tasks"))).json() as {
+      tasks: { taskId: string; attempts: { status: string; runId?: string; updatedAt: number }[] }[];
+    };
+    const updatedA = duringCleanup.tasks.find((task) => task.taskId === taskAId)?.attempts[0];
+    expect(updatedA).toMatchObject({ status: "cancelled", runId: runAId });
+    const updatedAtDuringCleanup = updatedA?.updatedAt;
+    expect(updatedAtDuringCleanup).toBeTypeOf("number");
+
+    // Queue B and resolve its approval while A's cleanup remains held. This
+    // writes a second durable task attempt after cancelTask captured its list.
+    const queuedB = await instance.onRequest(post("/api/runs", {
+      repoUrl: "https://github.com/o/r",
+      task: "Keep this queued task",
+      publishPullRequest: false,
+    }));
+    const { approvalId: approvalB } = await queuedB.json() as { approvalId: string };
+    const taskBId = `task_${approvalB}`;
+    const cancelB = await instance.onRequest(post(`/api/tasks/${taskBId}/cancel`, { attempt: 1 }));
+    expect(cancelB.status).toBe(200);
+
+    finishCleanup();
+    const responseA = await cancelA;
+    expect(responseA.status).toBe(200);
+    const final = await (await instance.onRequest(new Request("https://internal/api/tasks"))).json() as typeof duringCleanup;
+    expect(final.tasks.map((task) => task.taskId)).toEqual(expect.arrayContaining([taskAId, taskBId]));
+    expect(final.tasks.find((task) => task.taskId === taskAId)?.attempts[0]).toMatchObject({
+      status: "cancelled",
+      runId: runAId,
+      updatedAt: updatedAtDuringCleanup,
+    });
+    expect(final.tasks.find((task) => task.taskId === taskBId)?.attempts[0]?.status).toBe("cancelled");
+  });
+
   it("refuses retries when the latest run outcome is uncertain", async () => {
     const instance = host();
     const queued = await instance.onRequest(post("/api/runs", { repoUrl: "https://github.com/o/r", task: "Inspect" }));
