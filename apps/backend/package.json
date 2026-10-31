@@ -2,7 +2,7 @@
   "name": "@shiba/backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Shiba AI Coworker backend: Cloudflare Worker + Durable Objects + Sandbox container orchestration.",
+  "description": "Shiba backend: Cloudflare Worker + Durable Objects + Sandbox container orchestration for AI employees across marketing, coding, design and QA.",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --port 8788",

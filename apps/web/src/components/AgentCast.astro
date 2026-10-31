@@ -1,62 +1,61 @@
 ---
 import ShibaMascot from './ShibaMascot.astro';
 
-// Role responsibilities and output paths match apps/frontend/src/employee-templates.ts.
-// These original Shibas represent instruction templates, never models or providers.
+// Built-in templates follow employee-templates.ts; other roles are custom-instruction examples.
+// Original Shiba characters represent responsibilities, not models or service connections.
 const agents = [
-  { character: 'marketing', name: 'Marketing', role: 'Draft a grounded brief and campaign assets for review.', deliverables: ['marketing/brief.md', 'marketing/campaign.md'] },
-  { character: 'sales', name: 'Sales', role: 'Draft evidence-based outreach and account briefs for review.', deliverables: ['sales/account-brief.md', 'sales/outreach.md'] },
-  { character: 'research', name: 'Research', role: 'Produce a sourced report with explicit gaps and uncertainty.', deliverables: ['research/report.md', 'research/sources.json'] },
-  { character: 'product', name: 'Product', role: 'Turn evidence and requirements into a scoped product brief.', deliverables: ['product/brief.md', 'Scope, acceptance criteria and open questions'] },
-  { character: 'design', name: 'Design', role: 'Draft accessible flows and interface copy grounded in the product.', deliverables: ['design/spec.md', 'States, keyboard behavior and acceptance checks'] },
-  { character: 'engineering', name: 'Engineering', role: 'Implement a focused change with regression checks and a handoff.', deliverables: ['Task-scoped code and tests', 'Verification results and handoff'] },
-  { character: 'operations', name: 'Operations', role: 'Write an actionable runbook with checks and recovery steps.', deliverables: ['operations/runbook.md', 'Readiness checks and recovery checklist'] },
-  { character: 'custom', name: 'Your custom role', role: 'Save a named agent with instructions shaped around your organization’s work.', deliverables: ['Your instructions', 'Your expected deliverables'] },
-] as const;
+  {"character": "marketing", "name": "Marketing", "kind": "Built-in template", "role": "Turn a product brief into campaign drafts for your review.", "deliverables": ["Launch brief", "Campaign copy"]},
+  {"character": "sales", "name": "Sales", "kind": "Custom role example", "role": "Prepare account research and outreach drafts from supplied context.", "deliverables": ["Account brief", "Draft outreach"]},
+  {"character": "research", "name": "Research", "kind": "Built-in template", "role": "Answer a focused question with sources and gaps made clear.", "deliverables": ["Research report", "Sources and open questions"]},
+  {"character": "product", "name": "Product", "kind": "Custom role example", "role": "Turn customer evidence into a product brief your team can discuss.", "deliverables": ["Product brief", "Scope and acceptance checks"]},
+  {"character": "design", "name": "Design", "kind": "Custom role example", "role": "Map a user flow and draft interface copy before you build.", "deliverables": ["Design specification", "States and accessibility checks"]},
+  {"character": "engineering", "name": "Engineering", "kind": "Built-in template", "role": "Make a focused code change and report the checks run.", "deliverables": ["Code changes and tests", "Review handoff"]},
+  {"character": "engineering", "name": "QA & Testing", "kind": "Custom role example", "role": "Check a feature and document what passed, failed, or needs another look.", "deliverables": ["Test report", "Reproduction steps"]},
+  {"character": "operations", "name": "Operations", "kind": "Built-in template", "role": "Turn a recurring process into a checklist someone can follow.", "deliverables": ["Operating runbook", "Readiness and recovery steps"]},
+  {"character": "custom", "name": "Your custom role", "kind": "Custom role", "role": "Give an employee instructions for the work your team repeats.", "deliverables": ["Your working brief", "The files you need"]}] as const;
 interface Props { size?: 'card' | 'hero'; }
 const { size = 'card' } = Astro.props;
 ---
-<section class:list={['agent-cast', { 'hero-cast': size === 'hero' }]} aria-label="Shiba employee role templates">
+<section class:list={['agent-cast', { 'hero-cast': size === 'hero' }]} aria-label="Shiba employee role examples">
   <div class="cast-grid">
     {agents.map((agent, index) => (
       <article class="agent-card" data-character={agent.character}>
-        <div class="card-top"><span class="template-label">{agent.character === 'custom' ? 'Configurable' : 'Template'}</span><span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span></div>
+        <div class="card-top"><span class="template-label">{agent.kind}</span><span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span></div>
         <div class="avatar"><ShibaMascot character={agent.character} size={size} /></div>
         <h3>{agent.name}</h3>
         <p class="role">{agent.role}</p>
-        <div class="deliverables"><h4>{agent.character === 'custom' ? 'You define' : 'Typical deliverables'}</h4><ul>{agent.deliverables.map(deliverable => <li>{deliverable}</li>)}</ul></div>
+        <div class="deliverables"><h4>{agent.name === 'Your custom role' ? 'You define' : 'Example outputs'}</h4><ul>{agent.deliverables.map(deliverable => <li>{deliverable}</li>)}</ul></div>
       </article>
     ))}
   </div>
   <div class="cast-notes">
-    <p>Roles configure instructions and expected deliverables, not independent models. They use the harness and model selected for the run. Outputs depend on the task, supplied evidence and available access; a role does not grant external integrations or permission to publish.</p>
-    <p>Planning may precede approval. Standard sandbox execution waits for approval; scoped unattended automation is an explicit opt-in exception. External sending, posting and production changes need supported access and approval for the exact action.</p>
-    <a href="/docs/readiness/">Read the verification evidence <span aria-hidden="true">→</span></a>
-    <p class="readiness-note">Local adapter checks do not establish successful inference or cloud end-to-end execution.</p>
+    <p>Engineering, Marketing, Research, and Operations have built-in templates. The other roles shown here are examples you can create with custom instructions.</p>
+    <p>Roles use information you supply to prepare drafts. A role alone does not connect accounts, make payments, update external services, or grant permission to publish.</p>
+    <a href="/docs/employees/">Create your first employee <span aria-hidden="true">→</span></a>
   </div>
 </section>
 <style>
-  .agent-cast { color: var(--ink, #222320); font-family: 'Geist', sans-serif; }
-  .cast-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
-  .agent-card { min-width: 0; display: flex; flex-direction: column; padding: 24px; background: var(--card, #f6f4ed); border: 1px solid var(--hairline, var(--line-2, #a9aaa3)); border-radius: 16px; transition: border-color .25s ease, box-shadow .25s ease; }
-  .agent-card:hover { border-color: var(--navy, #0000a8); box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 6%, transparent); }
-  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink-2, var(--ink)); font-size: 12px; line-height: 1.5; }
-  .template-label { padding: 4px 9px; border: 1px solid var(--hairline, var(--line-2)); border-radius: 6px; }
-  .avatar { width: 180px; max-width: 100%; min-height: 160px; display: grid; place-items: center; margin: 20px auto; }
+  .agent-cast { color: var(--ink, #111111); font-family: 'Geist Mono', monospace; }
+  .cast-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+  .agent-card { min-width: 0; display: flex; flex-direction: column; padding: 24px; background: var(--card, #F3EEE3); border: 2px solid var(--border, #111111); border-radius: 0; box-shadow: -3px 3px 0 var(--border, #111111); transition: border-color 200ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1), transform 200ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .agent-card:hover { border-color: var(--accent); transform: translate(-1px, -1px); box-shadow: -4px 4px 0 var(--accent-border); }
+  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink-2, #6B6658); font-size: 12px; line-height: 1.5; font-weight: 500; font-family: 'Geist Mono', monospace; }
+  .template-label { padding: 3px 8px; border: 1.5px solid var(--border, #111111); border-radius: 4px; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .avatar { width: 180px; max-width: 100%; min-height: 160px; display: grid; place-items: center; margin: 16px auto; }
   .hero-cast .cast-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .hero-cast .avatar { width: 240px; }
-  .agent-card h3 { color: var(--ink); font: 400 26px/1.2 'Instrument Serif', Georgia, serif; letter-spacing: -.02em; margin: 0 0 12px; }
-  .agent-card .role { color: var(--ink); font: 400 14px/1.75 'Geist', sans-serif; margin: 0 0 24px; }
-  .deliverables { margin-top: auto; padding-top: 20px; border-top: 1px solid var(--hairline, var(--line-2)); }
-  .agent-card .deliverables h4 { color: var(--ink-2, var(--ink)); font: 500 11px/1.5 'Geist Mono', monospace; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 12px; }
-  ul { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
-  li { color: var(--ink); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
-  .cast-notes { max-width: 900px; margin-top: 32px; }
-  .cast-notes p { margin: 0 0 12px; font-size: 13px; line-height: 1.85; color: var(--ink-2, var(--ink)); }
-  .cast-notes a { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; color: var(--navy); font-size: 13px; text-underline-offset: 4px; }
-  .cast-notes a:focus-visible { outline: 2px solid var(--navy); outline-offset: 4px; border-radius: 2px; }
-  .cast-notes .readiness-note { margin-top: 8px; font-size: 12px; }
+  .agent-card h3 { color: var(--ink); font: 400 32px/1 'Bebas Neue', 'Geist', sans-serif; letter-spacing: 0.03em; text-transform: uppercase; margin: 0 0 10px; }
+  .agent-card .role { color: var(--ink-2); font: 400 13px/1.5 'Geist Mono', monospace; margin: 0 0 20px; text-wrap: pretty; }
+  .deliverables { margin-top: auto; padding-top: 16px; border-top: 1.5px dashed var(--line-2, rgba(17,17,17,0.2)); }
+  .agent-card .deliverables h4 { color: var(--ink-2, var(--ink)); font: 600 11px/16px 'Geist Mono', monospace; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 10px; }
+  ul { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+  li { color: var(--ink); font: 400 12px/16px 'Geist Mono', monospace; overflow-wrap: anywhere; }
+  .cast-notes { max-width: 900px; margin-top: 32px; font-family: 'Geist Mono', monospace; }
+  .cast-notes p { margin: 0 0 12px; font: 400 12px/16px 'Geist Mono', monospace; color: var(--ink-2, var(--ink)); text-wrap: pretty; }
+  .cast-notes a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--accent); font: 600 13px/20px 'Geist Mono', monospace; text-underline-offset: 4px; }
+  .cast-notes a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+  .cast-notes .readiness-note { margin-top: 8px; font: 400 12px/16px 'Geist Mono', monospace; }
   @media (max-width: 1100px) { .cast-grid, .hero-cast .cast-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  @media (max-width: 560px) { .cast-grid, .hero-cast .cast-grid { grid-template-columns: 1fr; gap: 20px; } .agent-card { padding: 24px; } .agent-card h3 { font-size: 24px; } }
-  @media (prefers-reduced-motion: reduce) { .agent-card { transition: none; } }
+  @media (max-width: 560px) { .cast-grid, .hero-cast .cast-grid { grid-template-columns: 1fr; gap: 20px; } .agent-card { padding: 20px; } .agent-card h3 { font: 400 28px/1 'Bebas Neue', 'Geist', sans-serif; } }
+  @media (prefers-reduced-motion: reduce) { .agent-card { transition: none !important; transform: none !important; } }
 </style>

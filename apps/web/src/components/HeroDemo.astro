@@ -2,29 +2,103 @@
 import ShibaMascot from './ShibaMascot.astro';
 const states = ['idle', 'thinking', 'waiting-approval', 'working', 'done'] as const;
 const steps = ['Task', 'Plan', 'Approve', 'Work', 'Review'];
+const roles = [
+  { id: 'marketing', name: 'Marketing' },
+  { id: 'coding', name: 'Coding' },
+  { id: 'design', name: 'Design' },
+  { id: 'qa', name: 'QA' },
+] as const;
 ---
-<section class="hero-demo" data-demo data-frame="idle" aria-label="Interactive Shiba product demo">
+<section class="hero-demo" data-demo data-frame="idle" data-active-role="marketing" aria-label="Interactive Shiba product demo">
   <div class="demo-stage"><div class="companion-copy"><span class="companion-dot" aria-hidden="true"></span><span>A little help.<br /><strong>On your terms.</strong></span></div><div class="demo-mascot" data-demo-mascot><ShibaMascot state="idle" /></div></div>
   {states.map(state => <template data-demo-mascot-state={state}><ShibaMascot state={state} /></template>)}
   <div class="demo-window">
-    <div class="demo-bar"><span class="workspace-mark" aria-hidden="true"><img src="/assets/mascot/pet-logo.png" alt="" width="23" height="23" /></span><strong>Shiba workspace</strong><span class="example-tag">Example run</span></div>
-    <p class="demo-caption">Interactive demo, simulated data <span aria-hidden="true">·</span> Nothing runs or ships.</p>
-    <form class="demo-composer" data-demo-form><label for="demo-task">What would you like to get done?</label><div class="composer-row"><input id="demo-task" name="task" value="Research competitors for our next launch" maxlength="100" autocomplete="off" readonly /><button type="submit" disabled data-demo-control aria-label="Send example task">↑</button></div></form>
-    <div class="demo-content" data-demo-content><div class="task-card"><span class="card-kicker">Start with a little direction</span><p class="card-title">A clear task.<br />A little help.</p><p>Try the task above. This is a fixed example, not a connected workspace.</p><span class="task-arrow" aria-hidden="true">↗</span></div></div>
+    <div class="demo-bar">
+      <span class="workspace-mark" aria-hidden="true"><img src="/assets/mascot/pet-logo.png" alt="" width="24" height="24" /></span>
+      <strong>Shiba workspace</strong>
+      <span class="example-tag">Simulated task</span>
+    </div>
+    <div class="workspace-body">
+      <aside class="workspace-sidebar" aria-label="Dashboard navigation">
+        <div class="sidebar-nav">
+          <div class="sidebar-item is-active"><span class="sidebar-icon">▤</span><span>Work</span></div>
+          <div class="sidebar-item"><span class="sidebar-icon">☺</span><span>Agents</span></div>
+          <div class="sidebar-item"><span class="sidebar-icon">💬</span><span>Threads</span></div>
+          <div class="sidebar-item"><span class="sidebar-icon">⎇</span><span>PRs</span></div>
+        </div>
+        <div class="demo-role-bar">
+          <span class="role-bar-label">AI Employees</span>
+          <div class="role-pill-group" aria-label="Select AI employee role">
+            {roles.map((r, i) => (
+              <button type="button" class:list={['role-pill', { 'is-active': i === 0 }]} data-demo-role={r.id} aria-pressed={i === 0 ? 'true' : 'false'}>
+                <span class="role-dot" aria-hidden="true"></span>
+                <span>{r.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </aside>
+      <div class="workspace-main">
+        <p class="demo-caption">Interactive simulation <span aria-hidden="true">·</span> No task is running.</p>
+        <form class="demo-composer" data-demo-form>
+          <label for="demo-task">What would you like to get done?</label>
+          <div class="composer-row">
+            <input id="demo-task" name="task" value="Draft a launch brief and announcement copy" maxlength="100" autocomplete="off" readonly />
+            <button type="submit" disabled data-demo-control aria-label="Send example task">↑</button>
+          </div>
+        </form>
+        <div class="demo-content" data-demo-content>
+          <div class="task-card">
+            <span class="card-kicker">Start with a little direction</span>
+            <p class="card-title">One clear task.<br />A useful first draft.</p>
+            <p>Follow a sample task from plan to review.</p>
+            <span class="task-arrow" aria-hidden="true">↗</span>
+          </div>
+        </div>
+      </div>
+      <aside class="workspace-inspector" aria-label="Task environment details">
+        <div class="inspector-header">Workspace details</div>
+        <div class="inspector-item">
+          <span class="inspector-label">Repository</span>
+          <code class="inspector-value">example/team-workspace</code>
+        </div>
+        <div class="inspector-item">
+          <span class="inspector-label">Execution</span>
+          <span class="inspector-value"><span class="status-dot"></span> Cloudflare sandbox</span>
+        </div>
+        <div class="inspector-item">
+          <span class="inspector-label">Security</span>
+          <span class="inspector-value">Approval required</span>
+        </div>
+        <div class="inspector-foot">
+          <p>Every task runs in an isolated container. Changes wait for your approval before anything is merged.</p>
+        </div>
+      </aside>
+    </div>
     <p class="demo-status" data-demo-status role="status" aria-live="polite">Fixed example. Use the controls to explore; nothing runs or ships.</p>
-    <div class="demo-controls" data-demo-controls hidden><div class="demo-steps" aria-label="Demo steps">{steps.map((step, index) => <button type="button" data-demo-step={index} aria-label={`Show step ${index + 1}: ${step}`} aria-pressed={index === 0}><span>{String(index + 1).padStart(2, '0')}</span>{step}</button>)}</div><button type="button" class="replay" data-demo-playback aria-label="Play simulated demo">Play</button><button type="button" class="replay" data-demo-replay aria-label="Replay">↻<span>Replay</span></button></div>
+    <div class="demo-controls" data-demo-controls hidden>
+      <div class="demo-steps" aria-label="Demo steps">
+        {steps.map((step, index) => (
+          <button type="button" data-demo-step={index} aria-label={`Show step ${index + 1}: ${step}`} aria-pressed={index === 0}>
+            <span>{String(index + 1).padStart(2, '0')}</span>{step}
+          </button>
+        ))}
+      </div>
+      <button type="button" class="replay" data-demo-playback aria-label="Play simulated demo">Play</button>
+      <button type="button" class="replay" data-demo-replay aria-label="Replay">↻<span>Replay</span></button>
+    </div>
   </div>
   <noscript><p class="no-js-note">Static example: JavaScript is off. No task has been run.</p></noscript>
-  <template data-demo-view="idle"><div class="task-card"><span class="card-kicker">Start with a little direction</span><p class="card-title">A clear task.<br />A little help.</p><p>Try the task above. This is a fixed example, not a connected workspace.</p><span class="task-arrow" aria-hidden="true">↗</span></div></template>
-  <template data-demo-view="thinking"><div class="plan-card"><span class="card-kicker">Research role · Thinking it through</span><p class="card-title">A plan before the work.</p><ol><li>Compare the source material you provide</li><li>Draft findings with sources and open questions</li><li>Prepare research files for your review</li></ol><button type="button" class="demo-primary" data-demo-review>Review approval card →</button></div></template>
-  <template data-demo-view="waiting-approval"><div class="approval-card"><span class="card-kicker">Simulated · Your permission, please</span><p class="card-title">Approve this run?</p><dl><div><dt>Repository</dt><dd>example/team-workspace</dd></div><div><dt>Branch</dt><dd>task/competitor-research</dd></div><div><dt>Model route</dt><dd>OpenCode → configured model</dd></div></dl><p>A repository is required, even for research. This standard sandbox run waits for approval.</p><div class="approval-actions"><button type="button" class="demo-primary" data-demo-approve>Approve &amp; run →</button><button type="button" class="demo-secondary" data-demo-reject>Reject</button></div></div></template>
-  <template data-demo-view="working"><div class="build-card"><span class="card-kicker">Simulated · Approved. On it.</span><p class="card-title">Visible progress.</p><div class="stream-log" role="log" aria-label="Simulated execution logs"><div data-log>› sandbox started</div><div data-log hidden>› comparing supplied source material</div><div data-log hidden>› drafting research/report.md</div></div><pre class="diff" aria-label="Illustrative research file preview"><code># Competitor research
+  <template data-demo-view="idle"><div class="task-card"><span class="card-kicker">Start with a little direction</span><p class="card-title">One clear task.<br />A useful first draft.</p><p>Follow a sample task from plan to review.</p><span class="task-arrow" aria-hidden="true">↗</span></div></template>
+  <template data-demo-view="thinking"><div class="plan-card"><span class="card-kicker" data-demo-plan-kicker>Marketing role · Thinking it through</span><p class="card-title" data-demo-plan-title>A plan before the work.</p><ol data-demo-plan-steps><li>Read the product brief and supplied audience notes</li><li>Draft announcement copy and note missing evidence</li><li>Prepare the brief and copy for review</li></ol><button type="button" class="demo-primary" data-demo-review>Review approval card →</button></div></template>
+  <template data-demo-view="waiting-approval"><div class="approval-card"><span class="card-kicker">Simulated · Your permission, please</span><p class="card-title">Approve this run?</p><dl><div><dt>Repository</dt><dd>example/team-workspace</dd></div><div><dt>Branch</dt><dd data-demo-branch>task/launch-campaign-brief</dd></div><div><dt>Agent</dt><dd>Your configured connection</dd></div></dl><p>Check the request before approving this example task.</p><div class="approval-actions"><button type="button" class="demo-primary" data-demo-approve>Approve &amp; run →</button><button type="button" class="demo-secondary" data-demo-reject>Reject</button></div></div></template>
+  <template data-demo-view="working"><div class="build-card"><span class="card-kicker">Simulated · Approved. On it.</span><p class="card-title">Visible progress.</p><div class="stream-log" role="log" aria-label="Simulated execution logs"><div data-log>› work started</div><div data-log hidden data-demo-log-1>› analyzing target audience</div><div data-log hidden data-demo-log-2>› drafting marketing/brief.md</div></div><pre class="diff" aria-label="Illustrative draft file preview"><code data-demo-diff># Product launch campaign brief
 
-Sources linked to each finding.
-Evidence gaps called out.
-Open questions for your review.</code></pre></div></template>
-  <template data-demo-view="done"><div class="result-card"><span class="card-kicker">Simulated · Ready for your review</span><p class="card-title">Files to review.<br />Over to you.</p><p>A sourced draft, not a final decision.</p><div class="pr-tag"><span aria-hidden="true">↗</span><span><strong>Example research deliverables</strong><code>research/report.md</code><code>research/sources.json</code></span><span class="pr-check" aria-hidden="true">✓</span></div><p class="result-foot">Illustrative files only; no download in this demo. In the app, review and download available deliverables.</p></div></template>
-  <template data-demo-view="rejected"><div class="result-card rejected"><span class="card-kicker">You said no. That's the point.</span><p class="card-title">Rejected.<br />Nothing ran.</p><p>No sandbox started. No files changed.</p><button type="button" class="demo-secondary" data-demo-retry>Review the plan again →</button></div></template>
+Audience and product claims from supplied notes.
+Draft announcement options.
+Questions to resolve before publication.</code></pre></div></template>
+  <template data-demo-view="done"><div class="result-card"><span class="card-kicker">Simulated · Ready for your review</span><p class="card-title">Files to review.<br />Over to you.</p><p>Read the draft and decide what needs another pass.</p><div class="pr-tag"><span aria-hidden="true">↗</span><span><strong data-demo-deliverable-title>Example marketing deliverables</strong><span data-demo-deliverable-files><code>marketing/brief.md</code><code>marketing/campaign.md</code></span></span><span class="pr-check" aria-hidden="true">✓</span></div><p class="result-foot">Sample files only. In the app, open the returned work and check the results.</p></div></template>
+  <template data-demo-view="rejected"><div class="result-card rejected"><span class="card-kicker">You said no. That's the point.</span><p class="card-title">Rejected.<br />Nothing ran.</p><p>No task started. No files changed.</p><button type="button" class="demo-secondary" data-demo-retry>Review the plan again →</button></div></template>
 </section>
 <script>
   document.querySelectorAll<HTMLElement>('[data-demo]').forEach(demo => {
@@ -34,30 +108,165 @@ Open questions for your review.</code></pre></div></template>
     const mascot = demo.querySelector<HTMLElement>('[data-demo-mascot]')!;
     const status = demo.querySelector<HTMLElement>('[data-demo-status]')!;
     const playback = demo.querySelector<HTMLButtonElement>('[data-demo-playback]')!;
+    const taskInput = demo.querySelector<HTMLInputElement>('#demo-task')!;
     const motion = matchMedia('(prefers-reduced-motion: reduce)');
+
+    const roleData: Record<string, {
+      task: string;
+      planKicker: string;
+      planTitle: string;
+      planSteps: string[];
+      branch: string;
+      log1: string;
+      log2: string;
+      diff: string;
+      deliverableTitle: string;
+      deliverables: string[];
+    }> = {
+      marketing: {
+        task: 'Draft a launch brief and announcement copy',
+        planKicker: 'Marketing example · Plan',
+        planTitle: 'A brief your team can review.',
+        planSteps: [
+          'Read the product brief and supplied audience notes',
+          'Draft announcement options and note missing evidence',
+          'Prepare the brief and copy for review'
+        ],
+        branch: 'task/launch-campaign-brief',
+        log1: '› reading the supplied product notes',
+        log2: '› drafting marketing/brief.md',
+        diff: '# Launch brief\n\nAudience and product claims from supplied notes.\nDraft announcement options.\nQuestions to resolve before publication.',
+        deliverableTitle: 'Example marketing drafts',
+        deliverables: ['marketing/brief.md', 'marketing/campaign.md']
+      },
+      coding: {
+        task: 'Fix a checkout error and add a regression test',
+        planKicker: 'Coding example · Plan',
+        planTitle: 'A fix with checks to review.',
+        planSteps: [
+          'Reproduce the reported checkout error',
+          'Make a focused change and add a regression test',
+          'Report the checks run and any remaining gaps'
+        ],
+        branch: 'task/checkout-fix',
+        log1: '› reproducing the checkout error',
+        log2: '› preparing the change and test',
+        diff: '@@ checkout validation\n+ Reject an expired session before placing an order.\n+ Add a regression test for the reported error.\n\nIllustrative change summary.',
+        deliverableTitle: 'Example engineering output',
+        deliverables: ['Code change and regression test', 'Check results and handoff']
+      },
+      design: {
+        task: 'Outline a clearer mobile navigation flow',
+        planKicker: 'Design example · Plan',
+        planTitle: 'A design you can discuss.',
+        planSteps: [
+          'Read the product requirements and existing screens',
+          'Map the mobile flow, error states, and keyboard use',
+          'Prepare a design document for review'
+        ],
+        branch: 'task/mobile-navigation-design',
+        log1: '› mapping the navigation flow',
+        log2: '› drafting design/spec.md',
+        diff: '# Mobile navigation design\n\nMenu flow and screen states.\nDraft interface copy.\nKeyboard and accessibility checks to confirm.',
+        deliverableTitle: 'Example design draft',
+        deliverables: ['design/spec.md', 'Flow, states, and review checklist']
+      },
+      qa: {
+        task: 'Check sign-in and document any failures',
+        planKicker: 'QA example · Plan',
+        planTitle: 'A report you can act on.',
+        planSteps: [
+          'Read the sign-in requirements and available test setup',
+          'Run available checks and record observed results',
+          'Document failures, reproduction steps, and blocked checks'
+        ],
+        branch: 'task/sign-in-checks',
+        log1: '› checking the sign-in scenarios',
+        log2: '› drafting qa/report.md',
+        diff: '# Sign-in checks\n\nObserved results for the checks run.\nSteps to reproduce failures.\nChecks still blocked by missing access or tools.',
+        deliverableTitle: 'Example QA report',
+        deliverables: ['qa/report.md', 'Observed results and reproduction steps']
+      }
+    };
+
+    let currentRole = 'marketing';
     let timers: ReturnType<typeof setTimeout>[] = [];
     let playing = false;
     let approved = false;
     let interacted = false;
     let entered = false;
     const later = (fn: () => void, delay: number) => { timers.push(setTimeout(fn, delay)); };
+
     function stop() {
       timers.forEach(clearTimeout); timers = []; playing = false;
       playback.textContent = 'Play'; playback.setAttribute('aria-label', 'Play simulated demo');
       demo.classList.add('is-paused');
     }
+
+    function applyRoleDetails(container: HTMLElement) {
+      const data = roleData[currentRole];
+      if (!data) return;
+
+      const kicker = container.querySelector<HTMLElement>('[data-demo-plan-kicker]');
+      if (kicker) kicker.textContent = data.planKicker;
+
+      const planTitle = container.querySelector<HTMLElement>('[data-demo-plan-title]');
+      if (planTitle) planTitle.textContent = data.planTitle;
+
+      const planSteps = container.querySelector<HTMLElement>('[data-demo-plan-steps]');
+      if (planSteps) {
+        planSteps.replaceChildren(...data.planSteps.map(step => {
+          const li = document.createElement('li');
+          li.textContent = step;
+          return li;
+        }));
+      }
+
+      const branch = container.querySelector<HTMLElement>('[data-demo-branch]');
+      if (branch) branch.textContent = data.branch;
+
+      const log1 = container.querySelector<HTMLElement>('[data-demo-log-1]');
+      if (log1) log1.textContent = data.log1;
+
+      const log2 = container.querySelector<HTMLElement>('[data-demo-log-2]');
+      if (log2) log2.textContent = data.log2;
+
+      const diff = container.querySelector<HTMLElement>('[data-demo-diff]');
+      if (diff) diff.textContent = data.diff;
+
+      const delivTitle = container.querySelector<HTMLElement>('[data-demo-deliverable-title]');
+      if (delivTitle) delivTitle.textContent = data.deliverableTitle;
+
+      const delivFiles = container.querySelector<HTMLElement>('[data-demo-deliverable-files]');
+      if (delivFiles) {
+        delivFiles.replaceChildren(...data.deliverables.map(file => {
+          const code = document.createElement('code');
+          code.textContent = file;
+          return code;
+        }));
+      }
+    }
+
     function show(state: string, message: string) {
       if ((state === 'working' || state === 'done') && !approved) { review(); return; }
       if (state === 'idle' || state === 'thinking' || state === 'rejected') approved = false;
       demo.dataset.frame = state;
       const view = demo.querySelector<HTMLTemplateElement>(`[data-demo-view="${state}"]`);
       const face = demo.querySelector<HTMLTemplateElement>(`[data-demo-mascot-state="${state === 'rejected' ? 'idle' : state}"]`);
-      if (view) content.replaceChildren(view.content.cloneNode(true));
+      if (view) {
+        const clone = view.content.cloneNode(true) as DocumentFragment;
+        const tempDiv = document.createElement('div');
+        tempDiv.appendChild(clone);
+        applyRoleDetails(tempDiv);
+        content.replaceChildren(...Array.from(tempDiv.childNodes));
+      }
       if (face) mascot.replaceChildren(face.content.cloneNode(true));
       status.textContent = message;
       demo.querySelectorAll<HTMLButtonElement>('[data-demo-step]').forEach((button, i) => button.setAttribute('aria-pressed', String(states[i] === state)));
     }
+
     function review() { stop(); show('waiting-approval', 'Your turn. Approve or reject this simulated run. Playback cannot approve it.'); }
+
     function play() {
       stop();
       if (document.hidden) return;
@@ -78,14 +287,32 @@ Open questions for your review.</code></pre></div></template>
       }
       later(review, demo.dataset.frame === 'thinking' ? 1800 : 3800);
     }
+
     function approve() {
       approved = true;
       stop(); show('working', 'Simulated run approved by you. No real task is running.');
       if (motion.matches) demo.querySelectorAll<HTMLElement>('[data-log]').forEach(line => { line.hidden = false; });
       else play();
     }
+
     demo.querySelector<HTMLElement>('[data-demo-controls]')!.hidden = false;
     demo.querySelector<HTMLButtonElement>('[data-demo-control]')!.disabled = false;
+
+    function selectRole(roleId: string) {
+      if (!roleData[roleId]) return;
+      currentRole = roleId;
+      demo.dataset.activeRole = roleId;
+      demo.querySelectorAll<HTMLButtonElement>('[data-demo-role]').forEach(btn => {
+        const active = btn.dataset.demoRole === roleId;
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-pressed', String(active));
+      });
+      if (taskInput) taskInput.value = roleData[roleId].task;
+      approved = false;
+      stop();
+      show('idle', `Selected ${roleId} role. Use controls to explore.`);
+    }
+
     function takeControl(event: Event) {
       const control = (event.target as HTMLElement).closest('button, input');
       if (!control) return;
@@ -93,15 +320,23 @@ Open questions for your review.</code></pre></div></template>
       if (control.hasAttribute('data-demo-playback')) return;
       if (playing) { stop(); status.textContent = 'Playback paused. Use the controls to continue.'; }
     }
+
     demo.addEventListener('click', takeControl);
     demo.addEventListener('keydown', takeControl);
+
     demo.querySelector('form')!.addEventListener('submit', event => {
       event.preventDefault(); stop();
       show('thinking', 'Example plan drafted. Review the approval card to continue.');
     });
+
     demo.addEventListener('click', event => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
       if (!button) return;
+
+      if (button.dataset.demoRole) {
+        selectRole(button.dataset.demoRole);
+        return;
+      }
       if (button.hasAttribute('data-demo-playback')) {
         if (playing) { stop(); status.textContent = 'Playback paused. Play resumes this example step.'; }
         else play();
@@ -117,11 +352,13 @@ Open questions for your review.</code></pre></div></template>
       }
       if (!button.isConnected) { content.tabIndex = -1; content.focus({ preventScroll: true }); }
     });
+
     stop();
     motion.addEventListener('change', () => { stop(); status.textContent = 'Motion preference changed. Use the controls to explore.'; });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && playing) { stop(); status.textContent = 'Playback paused while this tab is hidden. Choose Play to resume.'; }
     });
+
     if ('IntersectionObserver' in window) {
       if (!motion.matches) status.textContent = 'Playback starts in view and stops for approval. You can pause it.';
       const observer = new IntersectionObserver(entries => {
@@ -134,69 +371,116 @@ Open questions for your review.</code></pre></div></template>
   });
 </script>
 <style>
-  .hero-demo { min-width: 0; position: relative; }
-  .demo-stage { height: 168px; display: flex; align-items: center; justify-content: space-between; padding-inline: 40px 22px; }
-  .companion-copy { display: flex; align-items: flex-start; gap: 10px; color: var(--ink-2); font: 12px/1.8 'Geist', sans-serif; }
-  .companion-copy strong { color: var(--ink); font-weight: 500; }
-  .companion-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--navy); margin-top: 9px; }
-  .demo-mascot { width: 185px; height: 171px; align-self: end; flex: none; margin-bottom: -2px; }
-  .demo-window { position: relative; border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent); border-radius: 16px; overflow: hidden; background: var(--card); box-shadow: 0 2px 3px color-mix(in srgb, var(--ink) 3%, transparent), 0 20px 65px -12px color-mix(in srgb, var(--ink) 15%, transparent), 0 0 0 5px color-mix(in srgb, var(--card) 40%, transparent); }
-  .demo-bar { min-height: 54px; display: flex; align-items: center; gap: 9px; padding: 10px 22px; background: color-mix(in srgb, var(--panel-2) 45%, var(--card)); border-bottom: 1px solid var(--line); color: var(--ink); font: 11px 'Geist', sans-serif; }
-  .demo-bar strong { font-weight: 500; }
-  .workspace-mark { display: grid; place-items: center; flex: none; width: 23px; height: 23px; border-radius: 6px; background: #fffaf0; overflow: hidden; }
+  .hero-demo { min-width: 0; position: relative; font-family: 'Geist Mono', monospace; }
+  .demo-stage { height: 140px; display: flex; align-items: flex-end; justify-content: space-between; padding-inline: 32px 24px; position: relative; z-index: 2; margin-bottom: -4px; }
+  .companion-copy { display: flex; align-items: flex-start; gap: 8px; color: var(--ink-2); font: 400 12px/1.6 'Geist Mono', monospace; padding-bottom: 12px; }
+  .companion-copy strong { color: var(--ink); font-weight: 600; }
+  .companion-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex: none; }
+  .demo-mascot { width: 175px; height: 140px; align-self: end; flex: none; }
+
+  /* Comic-style product window */
+  .demo-window { position: relative; border: 2px solid var(--border); border-radius: 0; overflow: hidden; background: var(--card); box-shadow: -4px 4px 0 var(--border); }
+  .demo-bar { min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: color-mix(in srgb, var(--panel-2) 60%, var(--card)); border-bottom: 2px solid var(--border); color: var(--ink); font: 600 12px/1.4 'Geist Mono', monospace; }
+  .workspace-mark { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border: 1.5px solid var(--border); border-radius: 4px; background: #ffffff; overflow: hidden; }
   .workspace-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
-  .example-tag { margin-left: auto; font-size: 11px; color: var(--ink-2); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; }
-  .demo-composer { margin: 18px 20px 0; padding: 13px 14px 5px; border: 1px solid color-mix(in srgb, var(--ink) 17%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--paper) 40%, var(--card)); }
-  .demo-composer label { display: block; margin-bottom: 2px; font-size: 10px; color: var(--ink-2); }
+  .example-tag { margin-left: auto; font-size: 11px; color: var(--ink-2); padding: 2px 8px; border: 1.5px solid var(--hairline); border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  /* 3-Pane workspace body */
+  .workspace-body { display: grid; grid-template-columns: 200px minmax(0, 1fr) 230px; background: var(--card); min-height: 380px; }
+
+  /* Left sidebar */
+  .workspace-sidebar { border-right: 1.5px solid var(--hairline); background: color-mix(in srgb, var(--panel-2) 30%, var(--card)); padding: 12px; display: flex; flex-direction: column; gap: 16px; }
+  .sidebar-nav { display: flex; flex-direction: column; gap: 4px; }
+  .sidebar-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; color: var(--ink-2); border-radius: 4px; cursor: default; }
+  .sidebar-item.is-active { background: color-mix(in srgb, var(--ink) 8%, transparent); color: var(--ink); font-weight: 600; }
+  .sidebar-icon { font-size: 12px; opacity: 0.8; }
+
+  .demo-role-bar { display: flex; flex-direction: column; gap: 6px; }
+  .role-bar-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); padding-inline: 4px; }
+  .role-pill-group { display: flex; flex-direction: column; gap: 4px; }
+  .role-pill { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1.5px solid var(--hairline); border-radius: 6px; background: transparent; color: var(--ink-2); font: 500 12px/1.4 'Geist Mono', monospace; cursor: pointer; min-height: 36px; transition: background 150ms var(--ease-out), color 150ms var(--ease-out), border-color 150ms var(--ease-out); }
+  .role-pill:hover { background: color-mix(in srgb, var(--accent) 10%, var(--card)); color: var(--ink); border-color: var(--accent); }
+  .role-pill.is-active, .role-pill[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent-border); box-shadow: -2px 2px 0 var(--accent-border); font-weight: 600; }
+  .role-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* Center thread pane */
+  .workspace-main { display: flex; flex-direction: column; min-width: 0; }
+  .demo-caption, .no-js-note { color: var(--ink-2); text-align: center; font: 400 12px/1.6 'Geist Mono', monospace; margin: 8px 0 0; }
+  .demo-composer { margin: 12px 16px 0; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 6px; background: var(--paper); }
+  .demo-composer label { display: block; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); }
   .composer-row { display: flex; gap: 8px; align-items: center; }
-  input { min-width: 0; flex: 1; width: 100%; border: 0; background: transparent; color: var(--ink); font: 12px/1.6 'Geist', sans-serif; padding: 8px 0; }
-  button { min-height: 44px; cursor: pointer; font: 11px 'Geist', sans-serif; }
-  .composer-row button { min-width: 44px; border: 0; border-radius: 8px; background: var(--navy); color: var(--on-accent); font-size: 21px; }
-  .demo-content { height: 304px; padding: 25px 26px 20px; overflow: auto; }
-  .demo-content:focus-visible { outline: 2px solid var(--navy); outline-offset: -4px; }
-  .demo-content .card-title { font: 550 27px/1.16 'Geist', sans-serif; letter-spacing: -.035em; margin: 12px 0 14px; color: var(--ink); }
-  .demo-content p { font-size: 11px; line-height: 1.75; margin: 10px 0; color: var(--ink-2); }
-  .card-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--navy); font: 10px/1.5 'Geist', sans-serif; }
+  input { min-width: 0; flex: 1; width: 100%; border: 0; background: transparent; color: var(--ink); font: 400 12px/1.6 'Geist Mono', monospace; padding: 4px 0; }
+  button { min-height: 44px; cursor: pointer; font: 12px 'Geist Mono', monospace; }
+  .composer-row button { min-width: 36px; height: 36px; min-height: 36px; border: 1.5px solid var(--accent-border); border-radius: 6px; background: var(--accent); color: var(--on-accent); font-size: 18px; box-shadow: -2px 2px 0 var(--accent-border); }
+
+  .demo-content { min-height: 280px; flex: 1; padding: 20px 20px; overflow: auto; }
+  .demo-content:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
+  .demo-content .card-title { font: 400 32px/1.05 'Bebas Neue', 'Geist', sans-serif; letter-spacing: 0.02em; text-transform: uppercase; margin: 8px 0 12px; color: var(--ink); }
+  .demo-content p { font-size: 12px; line-height: 1.6; margin: 8px 0; color: var(--ink-2); text-wrap: pretty; }
+  .card-kicker { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font: 600 11px/1.5 'Geist Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
   .card-kicker::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
   .task-card { position: relative; }
-  .task-card .card-title { font-size: 34px; }
-  .task-card p { max-width: 30ch; }
-  .task-arrow { position: absolute; right: 8px; bottom: 0; color: var(--navy); font-size: 54px; line-height: 1; font-weight: 300; }
-  ol { margin: 0 0 18px; padding-left: 18px; font: 12px/2 'Geist', sans-serif; color: var(--ink-2); }
-  dl { margin: 0; font-size: 10px; }
+  .task-card .card-title { font-size: 36px; }
+  .task-card p { max-width: 36ch; }
+  .task-arrow { position: absolute; right: 8px; bottom: 0; color: var(--accent); font-size: 40px; line-height: 1; font-weight: 300; }
+  ol { margin: 0 0 16px; padding-left: 16px; font: 400 12px/1.8 'Geist Mono', monospace; color: var(--ink-2); }
+  dl { margin: 0; font-size: 12px; }
   dl div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px; padding: 6px 0; }
   dt { color: var(--ink-2); } dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
-  .approval-actions { display: flex; gap: 8px; }
-  .demo-primary, .demo-secondary { padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); border-radius: 7px; }
-  .demo-primary { background: var(--navy); color: var(--on-accent); border-color: var(--navy); }
-  .demo-secondary { background: var(--card); color: var(--ink); }
-  .stream-log { font: 10px/1.9 'Geist Mono', monospace; color: var(--ink-2); min-height: 57px; }
-  .diff { margin: 12px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); font: 10px/1.7 'Geist Mono', monospace; overflow: auto; }
-  .diff-remove { color: var(--danger); } .diff-add { color: var(--ok); }
-  .pr-tag { display: flex; align-items: center; gap: 12px; padding: 15px; margin: 20px 0; background: color-mix(in srgb, var(--navy) 4%, var(--card)); border: 1px solid var(--line); border-radius: 10px; color: var(--ink); font-size: 18px; }
+  .approval-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .demo-primary, .demo-secondary { padding: 10px 16px; border: 1.5px solid var(--border); border-radius: 6px; font-weight: 600; font-size: 12px; min-height: 40px; font-family: 'Geist Mono', monospace; }
+  .demo-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent-border); box-shadow: -2px 2px 0 var(--accent-border); }
+  .demo-secondary { background: var(--card); color: var(--ink); box-shadow: -2px 2px 0 var(--border); }
+  .stream-log { font: 400 12px/1.75 'Geist Mono', monospace; color: var(--ink-2); min-height: 56px; }
+  .diff { margin: 12px 0 0; padding: 12px; border: 1.5px solid var(--border); border-radius: 4px; background: var(--panel-2); font: 400 12px/1.6 'Geist Mono', monospace; overflow: auto; }
+  .pr-tag { display: flex; align-items: center; gap: 12px; padding: 14px; margin: 14px 0; background: var(--panel-2); border: 1.5px solid var(--border); border-radius: 4px; color: var(--ink); }
   .pr-tag > span:nth-child(2) { min-width: 0; }
-  .pr-tag strong { display: block; font: 500 11px 'Geist', sans-serif; margin-bottom: 6px; }
-  .pr-tag code { display: block; font: 11px 'Geist Mono', monospace; color: var(--ink-2); overflow-wrap: anywhere; }
-  .pr-check { margin-left: auto; color: var(--ok); font-size: 14px; }
-  .demo-status { min-height: 46px; margin: 0; padding: 10px 22px; font: 11px/1.6 'Geist', sans-serif; color: var(--ink-2); border-top: 1px solid var(--line); display: flex; align-items: center; }
-  .demo-controls { display: flex; align-items: center; gap: 7px; padding: 8px 10px; background: color-mix(in srgb, var(--paper) 50%, var(--card)); border-top: 1px solid var(--line); }
+  .pr-tag strong { display: block; font: 600 12px 'Geist Mono', monospace; margin-bottom: 4px; }
+  .pr-tag code { display: block; font: 400 12px 'Geist Mono', monospace; color: var(--ink-2); overflow-wrap: anywhere; }
+  .pr-check { margin-left: auto; color: var(--ok); font-size: 16px; }
+
+  /* Right inspector pane */
+  .workspace-inspector { border-left: 1.5px solid var(--hairline); background: color-mix(in srgb, var(--panel-2) 20%, var(--card)); padding: 16px; display: flex; flex-direction: column; gap: 14px; font-size: 12px; }
+  .inspector-header { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); border-bottom: 1px solid var(--hairline); padding-bottom: 8px; }
+  .inspector-item { display: flex; flex-direction: column; gap: 2px; }
+  .inspector-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); }
+  .inspector-value { font-size: 12px; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  .inspector-foot { margin-top: auto; padding-top: 12px; border-top: 1px dashed var(--hairline); }
+  .inspector-foot p { font-size: 11px; line-height: 1.5; color: var(--ink-2); margin: 0; }
+
+  /* Status and bottom controls */
+  .demo-status { min-height: 40px; margin: 0; padding: 10px 16px; font: 400 12px/1.6 'Geist Mono', monospace; color: var(--ink-2); border-top: 1.5px solid var(--hairline); display: flex; align-items: center; }
+  .demo-controls { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: color-mix(in srgb, var(--paper) 60%, var(--card)); border-top: 2px solid var(--border); flex-wrap: wrap; justify-content: flex-end; }
   [hidden] { display: none !important; }
-  .demo-steps { display: flex; flex: 1; gap: 3px; min-width: 0; }
-  .demo-steps button { min-width: 44px; flex: 1; padding: 5px 2px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); font-size: 11px; }
-  .demo-steps button > span { display: block; font-size: 12px; margin-bottom: 3px; }
-  .demo-steps button[aria-pressed='true'] { background: var(--card); color: var(--navy); box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 10%, transparent); }
-  .replay { flex: none; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 6px; background: transparent; color: var(--ink-2); border: 0; border-radius: 7px; }
-  .replay:hover, .demo-steps button:hover { background: var(--panel-2); color: var(--ink); }
-  .demo-caption, .no-js-note { color: var(--ink-2); text-align: center; font: 11px/1.7 'Geist', sans-serif; margin: 19px 0 0; }
-  @media (max-width: 1100px) and (min-width: 801px) { .demo-stage { padding-inline: 18px; } .demo-mascot { width: 170px; height: 157px; } .demo-content { padding-inline: 20px; } .replay span { display: none; } .demo-controls { gap: 4px; } .companion-copy { font-size: 11px; } }
-  @media (max-width: 500px) { .demo-stage { height: 155px; padding-inline: 20px 8px; } .demo-mascot { width: 175px; height: 162px; } .companion-copy { font-size: 11px; } .demo-content { padding: 22px 20px; height: 310px; } .demo-content h2 { font-size: 26px; } .demo-bar { padding-inline: 16px; } .demo-composer { margin-inline: 14px; padding-inline: 10px; } input { font-size: 11px; } .replay span { display: none; } .demo-status { min-height: 48px; padding-inline: 17px; } .demo-caption { font-size: 12px; } .demo-controls { gap: 5px; } }
-  /* Small demo copy remains readable at every breakpoint. */
-  .example-tag, .demo-composer label, .card-kicker, dl, .stream-log, .diff, .pr-tag code, .demo-status, .demo-steps button, .demo-steps button > span { font-size: 11px; }
-  .demo-caption { font-size: 12px; margin: 0; padding: 12px 16px 0; }
-  .demo-controls { flex-wrap: wrap; justify-content: flex-end; }
-  .demo-steps { flex-basis: 100%; }
-  .task-card .card-title { font-size: 34px; }
+  .demo-steps { display: flex; flex: 1; gap: 4px; min-width: 0; flex-basis: 100%; }
+  .demo-steps button { min-width: 44px; flex: 1; padding: 8px 4px; border: 1.5px solid var(--hairline); border-radius: 4px; background: transparent; color: var(--ink-2); font-size: 11px; font-family: 'Geist Mono', monospace; }
+  .demo-steps button > span { display: block; font-size: 11px; margin-bottom: 2px; font-weight: 600; }
+  .demo-steps button[aria-pressed='true'] { background: var(--card); color: var(--accent); border-color: var(--accent-border); box-shadow: -2px 2px 0 var(--accent-border); font-weight: 600; }
+  .replay { flex: none; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 12px; background: transparent; color: var(--ink-2); border: 1.5px solid var(--hairline); border-radius: 4px; font-size: 12px; font-family: 'Geist Mono', monospace; }
+  .replay:hover, .demo-steps button:hover { background: var(--panel-2); color: var(--ink); border-color: var(--border); }
+
+  @media (max-width: 900px) {
+    .workspace-body { display: flex; flex-direction: column; }
+    .workspace-sidebar { border-right: none; border-bottom: 1.5px solid var(--hairline); padding: 8px 12px; }
+    .sidebar-nav { display: none; }
+    .role-pill-group { flex-direction: row; flex-wrap: wrap; }
+    .workspace-inspector { display: none; }
+    .demo-content { min-height: 260px; }
+  }
+  @media (max-width: 500px) {
+    .demo-stage { height: 120px; padding-inline: 16px 8px; }
+    .demo-mascot { width: 140px; height: 120px; }
+    .companion-copy { font-size: 11px; }
+    .demo-content { padding: 14px; min-height: 260px; }
+    .demo-bar { padding-inline: 12px; }
+    .demo-composer { margin-inline: 12px; }
+    .demo-status { padding-inline: 12px; }
+    .demo-content .card-title { font-size: 26px; }
+  }
   .is-paused :global(.shiba *) { animation-play-state: paused !important; }
-  @media (max-width: 500px) { .demo-caption { font-size: 12px; } .demo-content .card-title { font-size: 26px; } }
-  @media (prefers-reduced-motion: no-preference) { .demo-content > div { animation: card-arrive 300ms var(--ease-out) both; } @keyframes card-arrive { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } } }
+  @media (prefers-reduced-motion: no-preference) {
+    .demo-content > div { animation: card-arrive 200ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+    @keyframes card-arrive { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  }
 </style>

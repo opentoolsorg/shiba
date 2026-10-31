@@ -80,8 +80,8 @@ const finalSchemas = schema
     <meta name="description" content={description} />
     <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'} />
     <meta name="author" content="Prince Pal" />
-    <meta name="theme-color" content="#f6f4ed" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#191a18" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#FBF8F1" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#131209" media="(prefers-color-scheme: dark)" />
 
     <!-- Open Graph -->
     <meta property="og:type" content={type} />
@@ -94,13 +94,13 @@ const finalSchemas = schema
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="Shiba: It asks before it writes code. A self-hosted AI software engineer on Cloudflare." />
+    <meta property="og:image:alt" content="Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance." />
     {publishedTime && <meta property="article:published_time" content={publishedTime} />}
     {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image:alt" content="Shiba: It asks before it writes code. A self-hosted AI software engineer on Cloudflare." />
+    <meta name="twitter:image:alt" content="Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance." />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
@@ -108,7 +108,7 @@ const finalSchemas = schema
     <!-- Preconnect Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
     <!-- Structured Data (JSON-LD) -->
     {finalSchemas.map((s) => (
@@ -129,7 +129,7 @@ const finalSchemas = schema
           var theme = root.dataset.themePreference === 'system' ? (systemTheme.matches ? 'dark' : 'light') : stored;
           root.dataset.theme = theme;
           document.querySelectorAll('meta[name="theme-color"]').forEach(function(meta) {
-            meta.setAttribute('content', theme === 'dark' ? '#191a18' : '#f6f4ed');
+            meta.setAttribute('content', theme === 'dark' ? '#131209' : '#FBF8F1');
           });
           document.querySelectorAll('source[data-theme-source]').forEach(function(source) {
             source.media = theme === 'dark' ? 'all' : 'not all';
@@ -164,7 +164,7 @@ const finalSchemas = schema
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to main content</a>
-    <header class="site-header sticky top-0 z-50">
+    <header class="site-header">
       <div class="shell header-inner">
         <a class="wordmark" href="/" aria-label="Shiba home">
           <img src="/assets/mascot/pet-logo.png" alt="Shiba Mascot" class="w-7 h-7 rounded-full bg-[var(--logo-paper)] object-contain border border-[var(--line-2)] p-0.5" />
@@ -173,7 +173,7 @@ const finalSchemas = schema
         <button type="button" id="nav-menu-btn" class="nav-menu-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="Open navigation menu"><span class="nav-ico menu-ico" aria-hidden="true">≡</span><span class="nav-ico close-ico" aria-hidden="true">×</span></button>
         <nav aria-label="Main navigation" class="nav-links" id="site-nav">
           <a href="/why-shiba/" class="nav-link" aria-current={path === '/why-shiba/' ? 'page' : undefined}>Why Shiba</a>
-          <a href="/#employees" class="nav-link">Agents</a>
+          <a href="/#employees" class="nav-link">Employees</a>
           <a href="/integrations/" class="nav-link" aria-current={path === '/integrations/' ? 'page' : undefined}>Integrations</a>
           <a href="/docs/overview/" class="nav-link" aria-current={path === '/docs/overview/' ? 'page' : undefined}>Docs</a>
           <a href="https://github.com/princepal9120/shiba" class="nav-link" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
@@ -219,11 +219,11 @@ const finalSchemas = schema
               <span class="wordmark-name text-lg text-[var(--ink)]">Shiba</span>
             </div>
             <p class="text-xs text-[var(--ink-2)] max-w-sm leading-relaxed">
-              A self-hosted AI workspace for tasks across your team. Role templates shape the work; standard sandbox execution requires your approval and a connected repository.
+              AI employees for the work behind your company: engineering, design, marketing, sales, operations and finance. Free to self-host; hosting and model usage cost extra. Repository work starts after you approve it.
             </p>
             <div class="flex items-center gap-2 text-[11px] text-[var(--ink-2)]">
               <span class="w-1.5 h-1.5 footer-ok-dot"></span>
-              <span>Open source (AGPL-3.0-only) · Cloudflare Native</span>
+              <span>Open source (AGPL-3.0-only) · Your installation</span>
             </div>
           </div>
           <div class="space-y-3 text-xs">
@@ -239,22 +239,22 @@ const finalSchemas = schema
             </ul>
           </div>
           <div class="space-y-3 text-xs">
-            <div class="footer-h text-[var(--ink)]">Technical Docs</div>
+            <div class="footer-h text-[var(--ink)]">Help &amp; guides</div>
             <ul class="space-y-2 text-[var(--ink-2)]">
               <li><a href="/docs/overview/" class="hover:text-[var(--navy)] transition-colors">Overview</a></li>
               <li><a href="/docs/getting-started/" class="hover:text-[var(--navy)] transition-colors">Quickstart</a></li>
-              <li><a href="/docs/architecture/" class="hover:text-[var(--navy)] transition-colors">Architecture Spec</a></li>
-              <li><a href="/docs/security/" class="hover:text-[var(--navy)] transition-colors">Security &amp; Egress Gates</a></li>
+              <li><a href="/docs/employees/" class="hover:text-[var(--navy)] transition-colors">Employees</a></li>
+              <li><a href="/docs/approval-gates/" class="hover:text-[var(--navy)] transition-colors">Approvals</a></li>
               <li><a href="/docs/contributing/" class="hover:text-[var(--navy)] transition-colors">Contributor guide</a></li>
               <li><a href="/docs/costs/">Costs</a></li>
-              <li><a href="/docs/sandbox-providers/">Sandbox providers</a></li>
+              <li><a href="/docs/self-hosting/">Self-hosting</a></li>
               <li><a href="/docs/readiness/">Readiness</a></li>
             </ul>
           </div>
         </div>
         <div class="statusbar">
           <div class="statuscell">© 2026 SHIBA · AGPL-3.0 LICENSE</div>
-          <div class="statuscell">CLOUDFLARE WORKERS + SANDBOX</div>
+          <div class="statuscell">YOUR TEAM · YOUR FINAL SAY</div>
           <div class="statuscell status-links">
             <a href="/privacy/">Privacy</a>
             <a href="/terms/">Terms</a>
@@ -314,19 +314,26 @@ const finalSchemas = schema
 </html>
 
 <style is:global>
-  /* bezalel.sh paper-OS marketing system with Light & Dark Theme Support */
+  /* Overlay + Capy in Shiba colors marketing system */
   :root {
     color-scheme: light;
-    --paper: #f6f4ed;
-    --card: #fffef8;
-    --panel-2: #f1efe6;
-    --ink: #222320;
-    /* Muted ink sits at 6.1:1 on paper (was 3.9:1) so the 9-11px mono
-       microcopy that uses it clears WCAG AA for normal text. */
-    --ink-2: #585d50;
-    --line: #e0ded5;
-    --line-2: #d3d2c8;
+    --paper: #FBF8F1;
+    --card: #F3EEE3;
+    --panel-2: #EAE4D6;
+    --raised: #FFFFFF;
+    --ink: #111111;
+    --ink-2: #6B6658;
+    --hairline: rgba(17, 17, 17, 0.12);
+    --line: rgba(17, 17, 17, 0.12);
+    --line-2: rgba(17, 17, 17, 0.2);
     --input-line: #7d7e73;
+    --border: #111111;
+    --accent: #0000a8;
+    --accent-border: #00006b;
+    --accent-hover: #D7732C;
+    --on-accent: #ffffff;
+    --shadow-hard: -3px 3px 0 #111111;
+    --shadow-accent: -3px 3px 0 #00006b;
     --navy: #0000a8;
     --navy-2: #1c1cc8;
     --paper-title: #0000a8;
@@ -336,8 +343,6 @@ const finalSchemas = schema
     --ok: #227146;
     --pending: #8a5a00;
     --danger: #b3261e;
-    --on-accent: #ffffff;
-    /* Brand artwork has dark marks baked in; retain its neutral backing in both themes. */
     --logo-paper: #ffffff;
     --mask-opaque: #000000;
     --window-button: #bdbdbd;
@@ -358,14 +363,23 @@ const finalSchemas = schema
 
   html[data-theme='dark'] {
     color-scheme: dark;
-    --paper: #191a18;
-    --card: #222320;
-    --panel-2: #272824;
-    --ink: #eae8e1;
-    --ink-2: #aaa99f;
-    --line: #3b3d36;
-    --line-2: #4a4c44;
+    --paper: #131209;
+    --card: #181818;
+    --panel-2: #1F1F1F;
+    --raised: #242424;
+    --ink: #F6F1E6;
+    --ink-2: #A9A291;
+    --hairline: rgba(246, 241, 230, 0.14);
+    --line: rgba(246, 241, 230, 0.14);
+    --line-2: rgba(246, 241, 230, 0.22);
     --input-line: #85877b;
+    --border: #F6F1E6;
+    --accent: #9cbce2;
+    --accent-border: #5b7ea8;
+    --accent-hover: #F2934F;
+    --on-accent: #111111;
+    --shadow-hard: -3px 3px 0 #000000;
+    --shadow-accent: -3px 3px 0 #5b7ea8;
     --navy: #9cbce2;
     --navy-2: #b4cde9;
     --paper-title: #222320;
@@ -379,7 +393,6 @@ const finalSchemas = schema
     --text: var(--ink);
     --muted: var(--ink-2);
     --teal: var(--navy);
-    --on-accent: #152335;
     --window-button: #4a4d46;
     --window-edge: #1a1a18;
     --window-highlight: #6c7066;
@@ -389,14 +402,23 @@ const finalSchemas = schema
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme='light']) {
       color-scheme: dark;
-      --paper: #191a18;
-      --card: #222320;
-      --panel-2: #272824;
-      --ink: #eae8e1;
-      --ink-2: #aaa99f;
-      --line: #3b3d36;
-      --line-2: #4a4c44;
+      --paper: #131209;
+      --card: #181818;
+      --panel-2: #1F1F1F;
+      --raised: #242424;
+      --ink: #F6F1E6;
+      --ink-2: #A9A291;
+      --hairline: rgba(246, 241, 230, 0.14);
+      --line: rgba(246, 241, 230, 0.14);
+      --line-2: rgba(246, 241, 230, 0.22);
       --input-line: #85877b;
+      --border: #F6F1E6;
+      --accent: #9cbce2;
+      --accent-border: #5b7ea8;
+      --accent-hover: #F2934F;
+      --on-accent: #111111;
+      --shadow-hard: -3px 3px 0 #000000;
+      --shadow-accent: -3px 3px 0 #5b7ea8;
       --navy: #9cbce2;
       --navy-2: #b4cde9;
       --paper-title: #222320;
@@ -406,7 +428,10 @@ const finalSchemas = schema
       --ok: #8fbc6f;
       --pending: #ebc04b;
       --danger: #e26d5a;
-      --on-accent: #152335;
+      --surface: var(--card);
+      --text: var(--ink);
+      --muted: var(--ink-2);
+      --teal: var(--navy);
       --window-button: #4a4d46;
       --window-edge: #1a1a18;
       --window-highlight: #6c7066;
@@ -424,13 +449,13 @@ const finalSchemas = schema
   html[data-theme='dark'] .icon-sun { display: block; }
   html[data-theme='dark'] .icon-moon { display: none; }
 
-  /* Mobile menu button: desktop-only rules hide it; below 960px it becomes
-     another cell in the actions group and the links collapse into a dropdown. */
-  .nav-menu-toggle { display: none; }
-  .nav-ico { font-family: 'Geist Mono', monospace; font-size: 16px; line-height: 1; }
-  .close-ico { display: none; font-size: 18px; }
-  .nav-menu-toggle[aria-expanded='true'] .menu-ico { display: none; }
-  .nav-menu-toggle[aria-expanded='true'] .close-ico { display: block; }
+  /* Mobile menu button and icon transitions (B7) */
+  .nav-menu-toggle { display: none; position: relative; }
+  .nav-ico { font-family: 'Geist Mono', monospace; font-size: 16px; line-height: 1; transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 300ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .close-ico { position: absolute; inset: 0; display: grid; place-items: center; font-size: 18px; opacity: 0; transform: rotate(-90deg) scale(0.8); }
+  .menu-ico { opacity: 1; transform: rotate(0) scale(1); }
+  .nav-menu-toggle[aria-expanded='true'] .menu-ico { opacity: 0; transform: rotate(90deg) scale(0.8); }
+  .nav-menu-toggle[aria-expanded='true'] .close-ico { opacity: 1; transform: rotate(0) scale(1); }
 
   .footer-ok-dot { background: var(--ok); }
   .status-ok { color: var(--ok); }
@@ -464,20 +489,36 @@ const finalSchemas = schema
   .skip-link { position: fixed; top: 8px; left: 20px; z-index: 100; padding: 10px 16px; background: var(--card); color: var(--navy); transform: translateY(-160%); }
   .skip-link:focus { transform: translateY(0); }
 
-  /* Compact disclosure navigation; the page stays visible behind the header. */
-  .site-header { position: sticky; top: 0; z-index: 50; border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent); background: color-mix(in srgb, var(--paper) 93%, transparent); backdrop-filter: blur(12px); }
-  .header-inner { min-height: 76px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 28px; }
+  /* Compact floating navigation */
+  .site-header {
+    position: sticky;
+    top: 12px;
+    z-index: 50;
+    width: min(1120px, calc(100% - 32px));
+    margin-inline: auto;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 4px 20px color-mix(in srgb, var(--ink) 6%, transparent);
+    transition: border-color 300ms var(--ease-out), box-shadow 300ms var(--ease-out);
+  }
+  .header-inner { min-height: 56px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; padding-inline: 16px; }
   .wordmark { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; text-decoration: none; white-space: nowrap; }
-  .wordmark-name { font-family: 'Instrument Serif', Georgia, serif; font-size: 26px; letter-spacing: -.02em; color: var(--ink); }
-  .nav-links { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; white-space: nowrap; }
-  .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px; font: 12px/1.5 'Geist', sans-serif; text-decoration: none; color: var(--ink-2); border: 0; background: transparent; cursor: pointer; border-radius: 7px; }
-  .nav-link[aria-current='page'], .nav-more-panel a[aria-current='page'] { color: var(--navy); font-weight: 600; }
+  .wordmark-name { font-family: 'Bebas Neue', 'Geist', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.04em; color: var(--ink); text-transform: uppercase; }
+  .nav-links { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; white-space: nowrap; }
+  .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px 10px; font: 500 12px/1.5 'Geist Mono', monospace; text-decoration: none; color: var(--ink-2); border: 0; background: transparent; cursor: pointer; border-radius: 6px; transition: color 150ms var(--ease-out), background 150ms var(--ease-out); }
+  .nav-link[aria-current='page'], .nav-more-panel a[aria-current='page'] { color: var(--accent); font-weight: 600; }
   .nav-actions { display: flex; align-items: center; gap: 10px; }
-  .nav-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; }
-  .nav-cta { display: inline-flex; align-items: center; justify-content: center; gap: 14px; min-height: 44px; padding: 10px 16px; border-radius: 8px; background: var(--navy); color: var(--on-accent); text-decoration: none; font: 500 11px/1.5 'Geist', sans-serif; white-space: nowrap; }
+  .nav-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid var(--hairline); border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out); }
+  .nav-theme-toggle:hover { color: var(--ink); border-color: var(--border); }
+  .nav-cta { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 40px; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: var(--on-accent); text-decoration: none; font: 600 12px/1.5 'Geist Mono', monospace; white-space: nowrap; border: 1.5px solid var(--accent-border); box-shadow: -2px 2px 0 var(--accent-border); transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out); }
+  .nav-cta:hover { transform: translateY(-1px); box-shadow: -3px 3px 0 var(--accent-border); }
+  .nav-cta:active { transform: translateY(1px); box-shadow: -1px 1px 0 var(--accent-border); }
   .nav-more { position: relative; min-width: 58px; }
-  .nav-more-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 190px; padding: 7px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: 0 14px 45px color-mix(in srgb, var(--ink) 13%, transparent); }
-  .nav-more-panel a { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; font: 12px/1.5 'Geist', sans-serif; color: var(--ink-2); text-decoration: none; border-radius: 6px; }
+  .nav-more-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 190px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); box-shadow: -3px 3px 0 var(--border); }
+  .nav-more-panel a { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; font: 500 12px/1.5 'Geist Mono', monospace; color: var(--ink-2); text-decoration: none; border-radius: 6px; }
   .nav-more-panel a:hover, .nav-link:hover { background: var(--panel-2); color: var(--ink); }
   footer a { text-decoration: none; }
   .footer-h { font: 500 13px/1.6 'Geist', sans-serif; }
@@ -485,13 +526,41 @@ const finalSchemas = schema
   .statuscell { font: 10px/1.7 'Geist', sans-serif; color: var(--ink-2); padding: 8px 0; }
   .status-links { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
 
-  /* ---------- shared primitives ---------- */
+  /* Reusable typography scale */
+  .heading-1 { font: 600 60px/60px 'Geist', sans-serif; letter-spacing: -0.035em; font-style: normal; }
+  .heading-2 { font: 600 48px/48px 'Geist', sans-serif; letter-spacing: -0.03em; font-style: normal; }
+  .heading-3 { font: 600 36px/40px 'Geist', sans-serif; letter-spacing: -0.025em; font-style: normal; }
+  .heading-4 { font: 600 30px/36px 'Geist', sans-serif; letter-spacing: -0.02em; font-style: normal; }
+  .heading-5 { font: 600 24px/32px 'Geist', sans-serif; letter-spacing: -0.015em; font-style: normal; }
+  .heading-6 { font: 600 20px/28px 'Geist', sans-serif; letter-spacing: -0.01em; font-style: normal; }
+  .title-1 { font: 500 20px/28px 'Geist', sans-serif; letter-spacing: -0.01em; font-style: normal; }
+  .title-2 { font: 500 18px/28px 'Geist', sans-serif; letter-spacing: -0.01em; font-style: normal; }
+  .title-3 { font: 500 16px/24px 'Geist', sans-serif; font-style: normal; }
+  .title-4 { font: 500 14px/20px 'Geist', sans-serif; font-style: normal; }
+  .title-5 { font: 500 12px/16px 'Geist', sans-serif; font-style: normal; }
+  .body-1 { font: 600 16px/24px 'Geist', sans-serif; font-style: normal; }
+  .body-2 { font: 500 16px/24px 'Geist', sans-serif; font-style: normal; }
+  .body-3 { font: 400 16px/24px 'Geist', sans-serif; font-style: normal; }
+  .body-4 { font: 600 14px/20px 'Geist', sans-serif; font-style: normal; }
+  .body-5 { font: 500 14px/20px 'Geist', sans-serif; font-style: normal; }
+  .body-6 { font: 400 14px/20px 'Geist', sans-serif; font-style: normal; }
+  .button-lg { font: 600 18px/28px 'Geist', sans-serif; font-style: normal; }
+  .button-md { font: 600 16px/24px 'Geist', sans-serif; font-style: normal; }
+  .button-sm { font: 600 14px/20px 'Geist', sans-serif; font-style: normal; }
+  .button-xsm { font: 600 12px/16px 'Geist', sans-serif; font-style: normal; }
+  .caption-1 { font: 500 14px/20px 'Geist', sans-serif; font-style: normal; }
+  .caption-2 { font: 400 14px/20px 'Geist', sans-serif; font-style: normal; }
+  .caption-3 { font: 600 12px/16px 'Geist', sans-serif; font-style: normal; }
+  .caption-4 { font: 500 12px/16px 'Geist', sans-serif; font-style: normal; }
+  .caption-5 { font: 400 12px/16px 'Geist', sans-serif; font-style: normal; }
+
+  /* Shared primitives */
   .eyebrow, .micro { font-family: 'Geist Mono', monospace; text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; color: var(--navy); font-weight: 500; }
-  h1, h2, h3, h4 { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; letter-spacing: -0.01em; line-height: 1.05; color: var(--ink); }
-  h1 { font-size: clamp(57px, 6.5vw, 94px); margin: 16px 0 24px; max-width: 900px; }
-  h2 { font-size: clamp(34px, 3.8vw, 56px); }
+  h1, h2, h3, h4 { font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif; font-weight: 600; font-style: normal; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); }
+  h1 { font-size: clamp(48px, 5.5vw, 60px); margin: 16px 0 24px; max-width: 680px; }
+  h2 { font-size: clamp(32px, 3.8vw, 48px); }
   p { color: var(--ink-2); }
-  .lead { font-size: 15px; line-height: 1.65; max-width: 760px; color: var(--ink-2); }
+  .lead { font-size: 16px; line-height: 24px; max-width: 680px; color: var(--ink-2); }
 
   /* Shared rounded surfaces and soft elevation across marketing pages. */
   .button, input, select, textarea, details, .badge, .statuscell, .status, .monogram, .agent-mark, .harness-nodes span, .gate-stamp { border-radius: var(--r-sm); }
@@ -509,24 +578,72 @@ const finalSchemas = schema
   @media (hover: hover) and (pointer: fine) {
     .nav-link:hover, .status-links a:hover { color: var(--navy); }
     .nav-theme-toggle:hover { background: var(--panel-2); color: var(--navy); }
-    .nav-cta:hover, .button:not(:disabled):hover { background: var(--navy-2); border-color: var(--navy-2); }
+    .button:not(:disabled):hover { background: var(--navy-2); border-color: var(--navy-2); }
     .button-outline:not(:disabled):hover { background: var(--panel-2); color: var(--navy); border-color: var(--navy-2); }
   }
   @media (max-width: 1000px) { .header-inner { gap: 16px; } .nav-links { gap: 2px; } .nav-link { font-size: 11px; padding-inline: 6px; } }
   @media (max-width: 800px) {
-    .header-inner { grid-template-columns: minmax(0, 1fr) auto auto; min-height: 68px; gap: 4px; }
+    .site-header {
+      top: 8px;
+      width: calc(100% - 16px);
+      border-radius: 14px;
+    }
+    .header-inner { grid-template-columns: minmax(0, 1fr) auto auto; min-height: 52px; gap: 4px; padding-inline: 12px; }
     .wordmark { grid-column: 1; grid-row: 1; }
     .nav-menu-toggle { grid-column: 2; grid-row: 1; }
     .nav-actions { grid-column: 3; grid-row: 1; gap: 4px; }
     .nav-js .nav-menu-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer; }
     .nav-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; padding-block: 10px; justify-content: flex-start; }
-    .nav-js .nav-links { position: absolute; top: 100%; left: 0; right: 0; display: none; max-height: calc(100svh - 70px); overflow-y: auto; flex-direction: column; align-items: stretch; gap: 2px; padding: 12px 20px 20px; background: var(--paper); border-bottom: 1px solid var(--line); box-shadow: 0 15px 30px color-mix(in srgb, var(--ink) 7%, transparent); }
+    /* Full-height mobile panel with backdrop blur, overscroll containment and staggered link entrance (B7) */
+    .nav-js .nav-links {
+      position: fixed;
+      top: 68px;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      display: none;
+      height: calc(100svh - 76px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+      padding: 24px 20px;
+      background: color-mix(in srgb, var(--paper) 95%, transparent);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 16px 32px color-mix(in srgb, var(--ink) 8%, transparent);
+      z-index: 49;
+    }
     .nav-js .nav-links.nav-open { display: flex; }
-    .nav-link { font-size: 14px; justify-content: flex-start; padding-inline: 12px; }
+    .nav-js .nav-links.nav-open .nav-link,
+    .nav-js .nav-links.nav-open .nav-more {
+      animation: nav-link-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .nav-js .nav-links.nav-open .nav-link:nth-child(1) { animation-delay: 40ms; }
+    .nav-js .nav-links.nav-open .nav-link:nth-child(2) { animation-delay: 90ms; }
+    .nav-js .nav-links.nav-open .nav-link:nth-child(3) { animation-delay: 140ms; }
+    .nav-js .nav-links.nav-open .nav-link:nth-child(4) { animation-delay: 190ms; }
+    .nav-js .nav-links.nav-open .nav-link:nth-child(5) { animation-delay: 240ms; }
+    .nav-js .nav-links.nav-open .nav-more { animation-delay: 290ms; }
+
+    @keyframes nav-link-enter {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .nav-link { font-size: 15px; justify-content: flex-start; padding: 10px 14px; border-radius: 8px; }
     .nav-more { min-width: 0; }
     .nav-more-btn { width: 100%; }
-    .nav-more-panel { position: static; margin: 3px 0 5px 12px; border: 0; border-left: 1px solid var(--line); border-radius: 0; box-shadow: none; background: transparent; padding: 0 0 0 8px; }
-    .nav-more-panel a { font-size: 13px; }
+    .nav-more-panel { position: static; margin: 4px 0 6px 14px; border: 0; border-left: 2px solid var(--line); border-radius: 0; box-shadow: none; background: transparent; padding: 0 0 0 12px; }
+    .nav-more-panel a { font-size: 14px; padding: 8px 12px; }
   }
   @media (max-width: 400px) { .wordmark-name { font-size: 24px; } .nav-cta { padding-inline: 12px; font-size: 10px; } }
   .button, footer li a, .status-links a, .watch-link { min-height: 44px; }

@@ -37,10 +37,12 @@ shiba-ai-coworker-docs/
 # (`!` cannot re-include inside an excluded dir, so exclude each level.)
 .agents/*
 !.agents/skills/
+!.agents/product-marketing.md
 .agents/skills/*
 !.agents/skills/shiba-monorepo/
 !.agents/skills/testing-dashboard-e2e/
 !.agents/skills/testing-shiba-dashboard/
+!.agents/skills/shiba-ui-polish/
 .claude/
 .tgrep/ 
 audit/
