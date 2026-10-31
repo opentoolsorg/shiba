@@ -127,22 +127,22 @@ async function ensureTables(env: AuditEnv): Promise<void> {
   await initAudit(env);
   for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
   const approvalColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(employee_tool_approvals)").all<{ name: string }>();
-  if (!(approvalColumns.results ?? []).some((column) => column.name === "execution_context_id")) {
-    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN execution_context_id TEXT").run();
-  }
-  if (!(approvalColumns.results ?? []).some((column) => column.name === "consumed_at")) {
-    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN consumed_at INTEGER").run();
-  }
-  if (!(approvalColumns.results ?? []).some((column) => column.name === "consumed_invocation_id")) {
-    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN consumed_invocation_id TEXT").run();
+  for (const [name, type] of [["execution_context_id", "TEXT"], ["consumed_at", "INTEGER"], ["consumed_invocation_id", "TEXT"]]) {
+    if ((approvalColumns.results ?? []).some((column) => column.name === name)) continue;
+    try {
+      await env.AGENT_AUDIT.prepare(`ALTER TABLE employee_tool_approvals ADD COLUMN ${name} ${type}`).run();
+    } catch (error) {
+      if (!new RegExp(`duplicate column name:\\s*${name}\\b`, "i").test(error instanceof Error ? error.message : String(error))) throw error;
+    }
   }
   // Migrate the prior uniqueness key so identical payloads in separate run
-  // contexts receive separate approval records.
-  await env.AGENT_AUDIT.prepare("DROP INDEX IF EXISTS employee_tool_approval_active_payload").run();
-  await env.AGENT_AUDIT.prepare(`CREATE UNIQUE INDEX employee_tool_approval_active_payload
+  // contexts receive separate approval records. Install its replacement first;
+  // cold starts must never drop the live constraint or race to recreate it.
+  await env.AGENT_AUDIT.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS employee_tool_approval_active_payload_v2
     ON employee_tool_approvals(org_id, employee_id, employee_version, actor_id, IFNULL(execution_context_id, ''), capability_id, action,
       argument_digest, IFNULL(resource_id, ''), connection_generation)
     WHERE status IN ('pending','approved')`).run();
+  await env.AGENT_AUDIT.prepare("DROP INDEX IF EXISTS employee_tool_approval_active_payload").run();
   initialized.add(env.AGENT_AUDIT);
 }
 
