@@ -16,8 +16,9 @@
  */
 import { buildChatThreadName, buildDecisionData, parseDecisionData } from "@shiba/shared";
 import {
+  CARD_TASK_LIMIT,
   chatApprovalText,
-  chatTaskFollowUpChunks,
+  chatTaskChunks,
   createSeenRing,
   decideChatApproval,
   decisionLine,
@@ -137,7 +138,7 @@ async function handleMessage(message: TelegramMessage, env: Env, call: TelegramC
   });
   // Telegram's message cap is 4096; a task over the card limit posts in full
   // right after the card so Approve never signs off on hidden text.
-  for (const chunk of chatTaskFollowUpChunks(parsed.task)) {
+  for (const chunk of chatTaskChunks(parsed.task, CARD_TASK_LIMIT, 3900)) {
     await call("sendMessage", { chat_id: chatId, text: chunk });
   }
 }
