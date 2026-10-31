@@ -203,6 +203,41 @@ describe("codex app-server adapter", () => {
     expect(turn.config).toBeUndefined();
   });
 
+  it("auto-denies when an approval request exceeds review limits", async () => {
+    const dir = await scratch();
+    const script = path.join(dir, "fake-codex-long.mjs");
+    const log = path.join(dir, "seen.jsonl");
+    const longFake = CODEX_FAKE.replace(
+      'params: { command: "ls", reason: "list the tree"',
+      `params: { command: ${JSON.stringify("x".repeat(2500))}, reason: "list the tree"`,
+    );
+    await writeFile(script, longFake);
+    const result = await runSessionJob({
+      provider: "codex",
+      model: "gpt-test",
+      cwd: dir,
+      logDir: dir,
+      prompt: "say hello",
+      permissionMode: "approval-required",
+      bin: process.execPath,
+      binArgs: [script],
+      checkpoints: false,
+      emitStdout: false,
+      onApproval: async () => "allow",
+      env: childEnv({ FAKE_MODE: "approve", FAKE_LOG: log }),
+    });
+    expect(result.status).toBe("completed");
+    const seen = await readFile(log, "utf8");
+    expect(seen).toContain('"decision":"decline"');
+    expect(
+      result.events.some(
+        (event) =>
+          event.type === "approval.resolved" &&
+          (event as { decision?: string }).decision === "deny",
+      ),
+    ).toBe(true);
+  });
+
   it("allows and denies a command approval", async () => {
     const allowDir = await scratch();
     const allow = await codexJob(allowDir, "approve", { onApproval: async () => "allow" });

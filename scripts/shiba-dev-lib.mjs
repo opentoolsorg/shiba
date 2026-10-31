@@ -3,7 +3,7 @@
  * Node stdlib only; exported for unit tests.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -103,8 +103,13 @@ export function ensureDevVars({
     }
   }
 
-  mkdirSync(dirname(devVarsPath), { recursive: true });
+  mkdirSync(dirname(devVarsPath), { recursive: true, mode: 0o700 });
   writeFileSync(devVarsPath, out, { mode: 0o600 });
+  try {
+    chmodSync(devVarsPath, 0o600);
+  } catch {
+    // Best-effort on platforms that restrict chmod.
+  }
   return { created, appended, path: devVarsPath };
 }
 
