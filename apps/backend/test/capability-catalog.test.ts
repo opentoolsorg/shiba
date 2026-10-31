@@ -31,6 +31,7 @@ describe("built-in capability catalog", () => {
     expect(entries.every((entry) => entry.allowed && token().scopes.includes(entry.requiredScope))).toBe(true);
     expect(entries.map((entry) => entry.id)).toContain(`${BUILTIN_CAPABILITY_SOURCE}:gmail_search`);
     expect(entries.map((entry) => entry.id)).toContain(`${BUILTIN_CAPABILITY_SOURCE}:run_status`);
+    expect(entries.map((entry) => entry.id)).toContain(`${BUILTIN_CAPABILITY_SOURCE}:grokbot_bridge_status`);
     expect(entries.map((entry) => entry.id)).not.toContain(`${BUILTIN_CAPABILITY_SOURCE}:gmail_send`);
     expect(entries.every((entry) => entry.verification === "not_checked" && entry.healthCheck.available === false)).toBe(true);
     expect(entries.find((entry) => entry.name === "gmail_search")?.inputSchema?.type).toBe("object");

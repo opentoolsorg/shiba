@@ -12,6 +12,7 @@ import {
   updateSkill,
   useSavedSkills,
 } from "../saved";
+import { FounderSkillLibrary } from "./FounderSkillLibrary";
 
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
@@ -120,6 +121,7 @@ export function SkillsView(): JSX.Element {
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
+          <FounderSkillLibrary />
           <div className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-2.5 shadow-[var(--sh-overlay)]">
             <div className="text-xs font-semibold text-[var(--fg)]">{editingId ? "Create a new draft version" : "Add a draft skill"}</div>
             <input type="text" value={name} onChange={(event) => { draftRevision.current += 1; setName(event.target.value); }} placeholder="Skill name" aria-label="Skill name" className={`${FIELD} w-full`} />
