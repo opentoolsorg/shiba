@@ -14,6 +14,7 @@ const CONVERSATION_ID = /^-?\d{1,24}$/;
 const WEB_CONVERSATION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const THREAD_NAME = /^(telegram|discord|web):(.+)$/;
 const DECISION_DATA = /^(approve|reject):([0-9a-f-]{36})$/;
+const EMPLOYEE_DECISION_DATA = /^(emp-approve|emp-reject):([0-9a-f-]{36})$/;
 
 function isValidConversationId(platform: ChatPlatform, id: string): boolean {
   return platform === "web" ? WEB_CONVERSATION_ID.test(id) : CONVERSATION_ID.test(id);
@@ -55,4 +56,15 @@ export function parseDecisionData(value: string): ChatDecision | null {
   const match = DECISION_DATA.exec(value);
   if (!match) return null;
   return { approved: match[1] === "approve", approvalId: match[2]! };
+}
+
+/** Discord/Telegram button payload for employee-tool exact-payload approvals. */
+export function buildEmployeeDecisionData(approved: boolean, approvalId: string): string {
+  return `${approved ? "emp-approve" : "emp-reject"}:${approvalId}`;
+}
+
+export function parseEmployeeDecisionData(value: string): ChatDecision | null {
+  const match = EMPLOYEE_DECISION_DATA.exec(value);
+  if (!match) return null;
+  return { approved: match[1] === "emp-approve", approvalId: match[2]! };
 }

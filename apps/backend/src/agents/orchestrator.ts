@@ -69,6 +69,7 @@ import { postToChatThread } from "../chat-lane.js";
 import { createRunCodeTool } from "../codemode.js";
 import { isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
 import { createEmployeeRunTools, employeeRunToolPolicyMode, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
+import { chatLaneActorId } from "../chat-employee.js";
 import { runWorkerEffect, toRunFailure, tryRunPromise } from "../effect/runtime.js";
 import {
   emailApprovalDraftRef,
@@ -961,7 +962,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         () => this.employeeToolProfileId(),
         () => this.name ?? null,
         () => this.employeeToolOrgId(),
-        () => initiatorUserIdFromOrchestratorName(this.name) ?? null,
+        () => chatLaneActorId(this.env, this.name) ?? initiatorUserIdFromOrchestratorName(this.name) ?? null,
       ),
     };
     const ownerMemoryId = isDashboardAgentName(this.name)
@@ -1003,7 +1004,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (mode === "legacy") {
       return { activeTools: Object.keys(ctx.tools).filter((name) => name !== "employee_tool_catalog" && name !== "employee_tool_call") };
     }
-    const actorId = initiatorUserIdFromOrchestratorName(this.name);
+    const actorId = chatLaneActorId(this.env, this.name) ?? initiatorUserIdFromOrchestratorName(this.name);
     const context = actorId ? await resolveEmployeeRunToolContext(this.env, employeeId, orgId, actorId) : null;
     const allowed = Boolean(context?.allowed.length);
     return {

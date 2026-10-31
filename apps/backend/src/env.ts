@@ -164,6 +164,12 @@ export interface Env {
   DISCORD_AGENT_HARNESS?: string;
   /** Optional. Harness for Slack-originated runs; defaults to AGENT_HARNESS, then "claude-code". */
   SLACK_AGENT_HARNESS?: string;
+  /** Default employee slug when chat text omits `bot:<slug>` (Slack/Discord/Telegram). */
+  CHAT_EMPLOYEE_DEFAULT?: string;
+  /** Org partition for chat-resolved employee profiles; defaults to self-hosted. */
+  CHAT_EMPLOYEE_ORG_ID?: string;
+  /** Dashboard actor id whose employee-tool grants apply to chat thread orchestrators. */
+  CHAT_EMPLOYEE_ACTOR?: string;
   /** "sandbox" (default), "computer" (preview-only refusal), or "local". */
   RUNTIME?: string;
   /**

@@ -33,6 +33,7 @@ import {
   resolveEmployeeConnectionGrant,
   resolveEmployeeToolPolicy,
 } from "./employee-tool-store.js";
+import { notifyEmployeeToolApprovalInChat } from "./chat-employee.js";
 
 const MAX_TOOLS = 50;
 const APPROVAL_TTL_MS = 15 * 60_000;
@@ -318,6 +319,15 @@ export async function dispatchEmployeeToolForPrincipal(
         ...(connection.accountId ? { accountId: connection.accountId } : {}), argumentDigest,
         payload: args, policyVersion: policy.version, expiresAt: Date.now() + APPROVAL_TTL_MS,
       });
+      await notifyEmployeeToolApprovalInChat(env, {
+        approvalId: pending.approvalId,
+        employeeId,
+        action: toolName,
+        payload: args,
+        executionContextId,
+        orgId: principal.orgId,
+        employeeLabel: employee.config.name?.trim() || employee.slug,
+      }).catch(() => undefined);
       return Response.json({ ok: true, status: "pending_approval", approvalId: pending.approvalId,
         employeeId, employeeVersion: employee.version, tool: toolName }, { status: 202, headers: { "cache-control": "no-store" } });
     }
