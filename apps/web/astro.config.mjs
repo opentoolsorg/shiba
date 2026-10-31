@@ -82,6 +82,7 @@ export default defineConfig({
 						{ label: 'Slack Integration', slug: 'docs/slack' },
 						{ label: 'Telegram Integration', slug: 'docs/telegram' },
 						{ label: 'Discord Interactions', slug: 'docs/discord' },
+						{ label: 'Microsoft Teams', slug: 'docs/teams' },
 						{ label: 'HTTP Triggers (iPhone)', slug: 'docs/triggers' },
 						{ label: 'GitHub Pull Requests', slug: 'docs/github' },
 						{ label: 'Pull request review', slug: 'docs/review' },

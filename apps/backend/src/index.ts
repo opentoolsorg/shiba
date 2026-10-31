@@ -60,6 +60,7 @@ import { handleSlackEvent } from "./slack-mention.js";
 import { ORCHESTRATOR_NAME, handleSlackCommand } from "./slack-routes.js";
 import { handleDiscordInteractions } from "./discord.js";
 import { handleTelegramWebhook } from "./telegram.js";
+import { handleTeamsWebhook } from "./teams.js";
 import { handleTrigger } from "./trigger.js";
 import { handleSandboxRoutes } from "./sandbox-routes.js";
 import { isOrgApiPath, isPublicRequest } from "./public-routes.js";
@@ -367,6 +368,12 @@ export default {
       const discordResponse = await handleDiscordInteractions(request, env, chatCtx);
       if (discordResponse) {
         return discordResponse;
+      }
+      const teamsResponse = await handleTeamsWebhook(request, env, chatCtx, {
+        dedupe: (activityId) => seenDelivery(env, `teams-activity:${activityId}`),
+      });
+      if (teamsResponse) {
+        return teamsResponse;
       }
       const slackEventsResponse = await handleSlackEvents(
         request,

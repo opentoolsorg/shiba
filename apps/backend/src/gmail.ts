@@ -11,7 +11,7 @@ const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const STATE_TTL_MS = 10 * 60_000;
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const PRINCIPAL = /^[a-z][a-z0-9_-]{0,63}$/;
-const SHARED_PRINCIPALS = new Set(["default", "orchestrator-agent", "orchestrator", "system", "admin", "web", "slack", "telegram", "discord", "automation"]);
+const SHARED_PRINCIPALS = new Set(["default", "orchestrator-agent", "orchestrator", "system", "admin", "web", "slack", "telegram", "discord", "teams", "automation"]);
 const BODY_BYTES = 20 * 1024;
 
 export class GmailError extends Error {

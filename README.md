@@ -111,7 +111,7 @@ What a live deploy does, secure by default:
 - `REQUIRE_ACCESS=1` is always set on live stages: no verified Access identity means 401 on the dashboard and API.
 - Without `REQUIRE_ACCESS` or `ACCESS_AUD`, only loopback hosts are served; requests to deployed hosts fail closed with 401.
 - With `ACCESS_EMAILS` and `WORKERS_SUBDOMAIN` set, it creates an Access app for the Worker host that allows only those emails, and the Worker verifies the `Cf-Access-Jwt-Assertion` JWT (`ACCESS_AUD`) instead of trusting the identity header.
-- A second Access app **bypasses** the machine callers, which the Worker authenticates itself: `/api/slack/events`, `/api/slack/command`, `/api/slack/interact`, `/api/github/webhook` (HMAC), `/api/telegram/webhook`, `/api/discord/interactions`, `/api/trigger`, `/mcp` (bearer token), `/api/automations/*/trigger` (shared secret).
+- A second Access app **bypasses** the machine callers, which the Worker authenticates itself: `/api/slack/events`, `/api/slack/command`, `/api/slack/interact`, `/api/github/webhook` (HMAC), `/api/telegram/webhook`, `/api/discord/interactions`, `/api/teams/webhook`, `/api/trigger`, `/mcp` (bearer token), `/api/automations/*/trigger` (shared secret).
 - Secrets come only from `.env` (see `.env.example`). Alchemy replaces the Worker's secrets on every deploy, so a secret missing from `.env` is removed — don't mix in `wrangler secret put`.
 
 Still manual: add a provider key (BYOK) to the `default` AI Gateway, create the Slack app from `slack-app-manifest.yaml`, and mint an MCP token for Claude Code (see [Use from Claude Code](#use-from-claude-code)). Inbound email needs a domain on Cloudflare with Email Routing sending to the Worker; workers.dev cannot receive mail.
@@ -127,7 +127,7 @@ Rollback to wrangler (same bindings): `npx wrangler deploy --config apps/backend
 | Web dashboard | `https://app.tryshiba.dev/app/` — Access login with an allowed email |
 | iPhone | Same URL in Safari → Share → **Add to Home Screen** (standalone app). Slack mobile works for approvals too. |
 | Slack | `@shiba` in a thread or `/shiba <repo> <task>`; approve on the card |
-| Telegram & Discord | Implemented webhook + approval-card bots (`/api/telegram/webhook`, `/api/discord/interactions`), gated by `TELEGRAM_APPROVERS`/`DISCORD_APPROVERS`; not yet verified against a live workspace |
+| Telegram, Discord & Teams | Implemented webhook + approval-card bots (`/api/telegram/webhook`, `/api/discord/interactions`, `/api/teams/webhook`), gated by `TELEGRAM_APPROVERS`/`DISCORD_APPROVERS`/`TEAMS_APPROVERS`; not yet verified against live workspaces |
 | Claude Code | MCP over `https://app.tryshiba.dev/mcp` with a bearer token — see below |
 
 ### Use from Claude Code

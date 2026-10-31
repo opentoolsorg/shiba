@@ -39,6 +39,7 @@ export const SIGNATURE_AUTHENTICATED = [
   "/api/slack/interact",
   "/api/telegram/webhook",
   "/api/discord/interactions",
+  "/api/teams/webhook",
   "/api/github/webhook",
   "/api/linear/webhook",
   // Sentry issue alerts self-authenticate with the shared secret — the

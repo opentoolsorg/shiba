@@ -1,22 +1,27 @@
 /**
  * Chat-lane wire shapes: one conversation is one CodingOrchestrator
  * conversation named `{platform}:{id}` — Telegram group, Discord channel,
- * or a dashboard web session. Only the naming/parse helpers live here;
+ * Microsoft Teams conversation, or a dashboard web session. Only the naming/
+ * parse helpers live here;
  * the bot-API plumbing stays in the backend.
  */
 
-export type ChatPlatform = "telegram" | "discord" | "web";
+export type ChatPlatform = "telegram" | "discord" | "teams" | "web";
 
 // Telegram group chat ids are negative; Discord ids are numeric snowflakes.
 const CONVERSATION_ID = /^-?\d{1,24}$/;
+// Bot Framework conversation ids (Teams channels, group chats, DMs).
+const TEAMS_CONVERSATION_ID = /^[A-Za-z0-9@:._-]{1,128}$/;
 // Web conversation ids are opaque but bounded: letters, digits, dash, and
 // underscore only, so a name can never smuggle a second colon.
 const WEB_CONVERSATION_ID = /^[A-Za-z0-9_-]{1,64}$/;
-const THREAD_NAME = /^(telegram|discord|web):(.+)$/;
+const THREAD_NAME = /^(telegram|discord|teams|web):(.+)$/;
 const DECISION_DATA = /^(approve|reject):([0-9a-f-]{36})$/;
 
 function isValidConversationId(platform: ChatPlatform, id: string): boolean {
-  return platform === "web" ? WEB_CONVERSATION_ID.test(id) : CONVERSATION_ID.test(id);
+  if (platform === "web") return WEB_CONVERSATION_ID.test(id);
+  if (platform === "teams") return TEAMS_CONVERSATION_ID.test(id);
+  return CONVERSATION_ID.test(id);
 }
 
 export function buildChatThreadName(platform: ChatPlatform, conversationId: string): string {

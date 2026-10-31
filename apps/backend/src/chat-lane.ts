@@ -1,7 +1,7 @@
 /**
- * Shared plumbing for the Telegram and Discord lanes. One Telegram chat or
- * Discord channel is one CodingOrchestrator conversation named
- * `{platform}:{id}`, so queueing, approval, and result post-back reuse the
+ * Shared plumbing for the Telegram, Discord, and Teams lanes. One Telegram chat,
+ * Discord channel, or Teams conversation is one CodingOrchestrator conversation
+ * named `{platform}:{id}`, so queueing, approval, and result post-back reuse the
  * DO paths the Slack lane already uses. Every request only queues a pending
  * approval; nothing here starts a container.
  */
@@ -10,6 +10,7 @@ import type { ChatPlatform, ChatTaskRequest } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
 import { extractGitHubRepoUrl, parseChannelRepoMap } from "./slack-context.js";
+import { getBotFrameworkConnectorToken } from "./teams-auth.js";
 
 export const TELEGRAM_API = "https://api.telegram.org";
 export const DISCORD_API = "https://discord.com/api/v10";
@@ -254,6 +255,25 @@ export function postToChatThread(env: Env, threadName: string, text: string): Pr
     const token = env.TELEGRAM_BOT_TOKEN?.trim();
     if (!token) return null;
     return telegramApi(token, "sendMessage", { chat_id: ids.conversationId, text: text.slice(0, 4000) }).then(() => undefined);
+  }
+  if (ids.platform === "teams") {
+    const appId = env.TEAMS_MICROSOFT_APP_ID?.trim();
+    const appPassword = env.TEAMS_MICROSOFT_APP_PASSWORD?.trim();
+    const serviceUrl = env.TEAMS_SERVICE_URL?.trim();
+    if (!appId || !appPassword || !serviceUrl) return null;
+    const base = serviceUrl.endsWith("/") ? serviceUrl : `${serviceUrl}/`;
+    return getBotFrameworkConnectorToken(appId, appPassword)
+      .then((token) =>
+        fetch(`${base}v3/conversations/${encodeURIComponent(ids.conversationId)}/activities`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "message", text: text.slice(0, 4000) }),
+          signal: AbortSignal.timeout(API_TIMEOUT_MS),
+        }),
+      )
+      .then((response) => {
+        if (!response.ok) throw new Error(`Teams post-back failed (${response.status}).`);
+      });
   }
   const token = env.DISCORD_BOT_TOKEN?.trim();
   if (!token) return null;
