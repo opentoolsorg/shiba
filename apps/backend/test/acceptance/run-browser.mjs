@@ -866,8 +866,16 @@ try {
   );
   assert.equal(reviewedHistory.versions?.[0]?.review.status, "changes_requested");
   assert.equal(reviewedHistory.versions?.[0]?.review.note, revisionNote);
+  assert.equal(reviewedHistory.versions?.[0]?.review.revision, 1);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByText(`Review: changes requested · ${revisionNote}`, { exact: true }).waitFor();
+  await page.getByText(`Current saved review: changes requested · ${revisionNote}`, { exact: true }).waitFor();
+  const reviewAfterReload = await apiJson(
+    page,
+    `/api/runs/${encodeURIComponent(completedRun.runId)}/deliverables/0/history`,
+  );
+  assert.equal(reviewAfterReload.versions?.[0]?.review.status, "changes_requested");
+  assert.equal(reviewAfterReload.versions?.[0]?.review.note, revisionNote);
+  assert.equal(reviewAfterReload.versions?.[0]?.review.revision, 1);
   const sourceTask = (await apiJson(page, "/api/tasks")).tasks?.find((task) =>
     task.attempts?.some((attempt) => attempt.runId === completedRun.runId),
   );
