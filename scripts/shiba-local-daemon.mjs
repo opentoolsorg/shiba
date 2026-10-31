@@ -179,6 +179,7 @@ function ownChild(child, detached, execution) {
 async function post(sub, body) {
   const res = await fetch(`${workerUrl}/api/local/${sub}`, {
     method: "POST",
+    redirect: "error",
     headers: { ...AUTH, "content-type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
@@ -188,7 +189,7 @@ async function post(sub, body) {
 }
 
 async function get(sub) {
-  const res = await fetch(`${workerUrl}/api/local/${sub}`, { headers: AUTH, signal: AbortSignal.timeout(10_000) });
+  const res = await fetch(`${workerUrl}/api/local/${sub}`, { headers: AUTH, redirect: "error", signal: AbortSignal.timeout(10_000) });
   const text = await res.text();
   return parseLocalApiResponse(sub, res, text);
 }
@@ -957,8 +958,19 @@ async function localMachineId() {
   return id;
 }
 
+function deploymentOrigin(value) {
+  let url;
+  try { url = new URL(value); } catch { fail("Worker URL must be an HTTPS origin (HTTP loopback is allowed for local development)."); }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
+      url.username || url.password || url.search || url.hash || /[^/]/.test(url.pathname)) {
+    fail("Worker URL must be an HTTPS origin (HTTP loopback is allowed for local development).");
+  }
+  return url.origin;
+}
+
 async function pair(url, pairingToken) {
-  workerUrl = url.replace(/\/+$/, "");
+  workerUrl = deploymentOrigin(url);
   let paired;
   try {
     paired = await post("pair", {
@@ -1035,8 +1047,14 @@ async function main() {
   if (args.connect) await pair(args.connect, args.pair);
   // Env vars win so the pre-pairing deployment-bearer setup keeps working unchanged.
   const config = await readConfig();
-  workerUrl = (process.env.SHIBA_WORKER_URL ?? config.workerUrl ?? "").replace(/\/+$/, "");
+  const configuredUrl = process.env.SHIBA_WORKER_URL ?? config.workerUrl ?? "";
+  workerUrl = configuredUrl ? deploymentOrigin(configuredUrl) : "";
   const adapterToken = process.env.LOCAL_ADAPTER_TOKEN ?? config.adapterToken ?? "";
+  // A saved machine credential belongs only to the deployment that issued it.
+  if (!process.env.LOCAL_ADAPTER_TOKEN && config.adapterToken &&
+      (!config.workerUrl || deploymentOrigin(config.workerUrl) !== workerUrl)) {
+    fail("Saved pairing belongs to another Worker URL; re-pair or provide LOCAL_ADAPTER_TOKEN explicitly.");
+  }
   if (reasonNetworkEnabled && !config.machineId)
     fail("Reason Network companion requires the paired per-machine daemon credential saved by Remote Access.");
   if (workerUrl === "")
