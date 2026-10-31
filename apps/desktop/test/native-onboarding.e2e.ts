@@ -48,6 +48,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
       chromiumSandbox: true,
       args: ["test/electron-bootstrap.cjs"],
       env: {
+        ...Object.fromEntries(["DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"].flatMap((key) => process.env[key] ? [[key, process.env[key]]] : [])),
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         HOME: userData,
         TMPDIR: tmpdir(),

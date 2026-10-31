@@ -127,6 +127,48 @@ describe("employee-run Gmail selected-resource policy", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each([false, true])("exposes only prepared source reads and retention without connector grants (explicit deny-all=%s)", async (explicitPolicy) => {
+    const env = makeEnv();
+    Object.defineProperty(env, "Sandbox", { get: () => { throw new Error("Sandbox must not start"); } });
+    const externalFetch = vi.fn(() => { throw new Error("No external calls expected"); });
+    vi.stubGlobal("fetch", externalFetch);
+    const employee = await createCustomAgent(env, "self-hosted", "owner@example.test", {
+      name: "Supplied facts writer", instructions: "Draft from supplied facts", harness: "opencode",
+      ...(explicitPolicy ? { toolScopes: [] } : {}),
+    });
+    const goal = await preparedGoal(env, "owner@example.test", employee.id, employee.version);
+    const session = createWebSession("owner@example.test", { metadata: { customAgentId: employee.id } });
+    sessionState.sessions = [session];
+    const reads = new Map<string, EmployeeReadReceipt>();
+    const draftStore: EmployeeDraftStore = {
+      getReadReceipt: (id) => reads.get(id) ?? null, saveReadReceipt: (read) => { reads.set(read.id, read); },
+      getDraft: () => null, listDrafts: () => [], saveDraft: () => { throw new Error("No draft requested"); },
+    };
+    const metadata = { shibaMode: "work", shibaWorkTarget: "app-tools", shibaDraftTaskId: goal.reference.draftTaskId, shibaDraftTaskVersion: goal.reference.draftTaskVersion };
+    const instance = Object.assign(Object.create(CodingOrchestrator.prototype), {
+      env, name: session.agentName, state: { runs: [] }, employeeDraftStore: () => draftStore,
+      messages: [{ role: "user", parts: [{ type: "text", text: goal.task }], metadata }],
+    }) as CodingOrchestrator;
+    const tools = instance.getTools();
+    const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
+    expect((await turn()).activeTools?.sort()).toEqual(["employee_context_read", "employee_retain_draft"]);
+    const read = await (tools.employee_context_read!.execute as (input: unknown, options: unknown) => Promise<{ sourceReadId: string }>)(
+      {}, { toolCallId: "supplied-context", messages: [] },
+    );
+    expect(reads.get(read.sourceReadId)?.selectedContext?.canonicalTask).toBe(goal.task);
+    expect(externalFetch).not.toHaveBeenCalled();
+    Object.assign(instance, { messages: [{ role: "user", parts: [{ type: "text", text: goal.task }], metadata: { shibaMode: "work", shibaWorkTarget: "app-tools" } }] });
+    expect((await turn()).activeTools).toEqual([]);
+    Object.assign(instance, { messages: [{ role: "user", parts: [{ type: "text", text: goal.task }], metadata: { ...metadata, shibaDraftTaskVersion: goal.reference.draftTaskVersion + 1 } }] });
+    await expect(turn()).rejects.toThrow(/changed|stale|version/i);
+    Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "work" } }] });
+    expect((await turn()).activeTools).not.toContain("employee_context_read");
+    if (!explicitPolicy) {
+      Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "work", shibaTask: { customAgentId: employee.id } } }] });
+      expect((await turn()).activeTools).not.toContain("employee_context_read");
+    }
+  });
+
   it.each([false, true])("reads a selected message and retains a reviewed draft (onboarding=%s)", async (withGoal) => {
     const env = makeEnv();
     if (withGoal) actorState.principal = "owner@example.test";
@@ -180,7 +222,7 @@ describe("employee-run Gmail selected-resource policy", () => {
     expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
     expect(sessionState.delegated).not.toHaveBeenCalled();
     const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
-    expect((await turn()).activeTools?.sort()).toEqual(["employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
+    expect((await turn()).activeTools?.sort()).toEqual([...(withGoal ? ["employee_context_read"] : []), "employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
     if (goal) expect((await turn()).instructions).toContain("SELECTED ONBOARDING SOURCES");
     const workMessages = instance.messages;
     Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }] });
