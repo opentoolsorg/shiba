@@ -13,6 +13,7 @@ interface Progress {
     goal: string;
     audience: string;
     acceptance: string;
+    contextAnswer: string;
     preparedAt: number | null;
     employeeId: string | null;
     employeeVersion: number | null;
@@ -208,10 +209,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
         exact: true,
       })
       .click();
-    await answer(page, "Context", "Fixture facts only. This answer grants no source access.");
-    await page
-      .getByRole("button", { name: "I will use supplied context first", exact: true })
-      .click();
+    await page.getByRole("region", { name: "First task draft review", exact: true }).waitFor();
+    expect((await progress(page)).draftTask.contextAnswer).toBe("Fixture facts only. This answer grants no source access.");
     await page.getByRole("button", { name: "Create first task draft", exact: true }).click();
     await page.getByRole("heading", { name: "First task draft saved", exact: true }).waitFor();
     const executable = await progress(page);

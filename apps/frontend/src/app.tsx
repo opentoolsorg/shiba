@@ -468,6 +468,7 @@ export function App(): React.JSX.Element {
     const view = viewFromUrl();
     return view && view !== "settings" ? view : "tasks";
   });
+  const [memoryInitialView, setMemoryInitialView] = useState<"facts" | "sources">("facts");
   // Settings is a Kosuke-style popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
   const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
@@ -2538,7 +2539,7 @@ export function App(): React.JSX.Element {
           {showFirstRun ? (
             <ConversationalOnboarding key={orchestratorName ?? "pending"} progress={firstRunProgress}
               onUpdate={updateFirstRunProgress} onResume={resumeFirstRunProgress} onRefresh={refreshFirstRunProgress}
-              onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={openView}
+              onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={(view) => { if (view === "memory") setMemoryInitialView("sources"); openView(view); }}
               onLegacyGuide={() => { setShowFirstRun(false); setShowLegacyFirstRun(true); }}
               onConfigureEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
               onUseDraft={applyOnboardingDraft} employees={customAgentRecords} draftScope={orchestratorName ?? undefined} />
@@ -3140,7 +3141,7 @@ export function App(): React.JSX.Element {
               </div>
               <div className="flex-1 overflow-y-auto p-4 lg:p-8">
                 <div className="max-w-6xl mx-auto">
-                  <MemoryTab />
+                  <MemoryTab initialViewMode={memoryInitialView} />
                 </div>
               </div>
             </div>

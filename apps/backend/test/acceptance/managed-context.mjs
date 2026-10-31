@@ -44,6 +44,7 @@ export async function runManagedContextProof({ page, origin, api, report, fixtur
   const wizard = page.getByRole("dialog", { name: "Welcome setup" });
   if (await wizard.isVisible()) await wizard.getByRole("button", { name: "Close setup" }).click();
   await page.goto(`${origin}/memory/`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Workspace Memory", exact: true }).click();
   await page.getByRole("region", { name: "Workspace memory sources" }).waitFor();
   const before = (await api("/api/memory/sources")).sources.map((item) => item.id).sort();
 
