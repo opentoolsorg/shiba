@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleCollaboration } from "../src/collaboration-routes.js";
+import { addCollaborationMember, COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID } from "../src/collaboration-store.js";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
 import { handleSlackEvents, clearSeenSlackEvents } from "../src/slack-events.js";
@@ -506,6 +507,42 @@ describe("signed Slack continuity through persistent collaboration rooms", () =>
     );
     expect(response?.status).toBe(409);
     expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it("preserves the human owner's pending intent when their agent membership is removed", async () => {
+    const f = fixture();
+    const room = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Agent removal" }));
+    const roomId = room.room.roomId;
+    await dispatchSignedEvent(f, event("EvAgentRemovalOwner01"));
+    const link = await json<{ link: { linkId: string } }>(await f.send(
+      `/rooms/${roomId}/slack-links`, "POST", { teamId: "T123", channelId: "C123", threadTs: "1710000000.000100" },
+    ));
+    f.env.SLACK_BOT_TOKEN = "xoxb-test-mock-only";
+    f.env.SLACK_APPROVALS_CHANNEL = "C123";
+    const message = await json<{ message: { messageId: string } }>(await f.send(
+      `/rooms/${roomId}/messages`, "POST", { body: "Keep this pending owner message." },
+    ));
+    const intent = await json<{ intent: { intentId: string } }>(await f.send(
+      `/rooms/${roomId}/messages/${message.message.messageId}/slack-delivery`, "POST", { linkId: link.link.linkId },
+    ));
+
+    const agentActorId = "agent:profile-owned-by-owner";
+    expect(await addCollaborationMember(f.env, {
+      tenantId: COLLAB_TENANT_ID,
+      workspaceId: COLLAB_WORKSPACE_ID,
+      userId: "owner@example.test",
+    }, roomId, {
+      userId: "owner@example.test",
+      displayName: "Owner's helper",
+      actorId: agentActorId,
+      kind: "agent",
+      profileVersion: 1,
+      createdAt: Date.now(),
+    })).toBe(true);
+
+    expect((await f.send(`/rooms/${roomId}/members/${encodeURIComponent(agentActorId)}`, "DELETE"))?.status).toBe(200);
+    expect(f.sqlite.prepare("SELECT status,delivery_status FROM collaboration_slack_delivery_intents WHERE intent_id=?").get(intent.intent.intentId))
+      .toEqual({ status: "pending", delivery_status: "awaiting_approval" });
   });
 
   it("reports unknown and prevents retry when Slack receipt persistence is rejected", async () => {
