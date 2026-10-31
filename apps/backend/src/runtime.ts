@@ -601,6 +601,7 @@ export interface LocalDispatchClient {
   dispatch(
     envelope: import("@shiba/shared").LocalRunEnvelope,
     targetMachineId?: string,
+    dashboardOwnerId?: string,
   ): Promise<void>;
   status(sandboxId: string): Promise<{
     status: "pending" | "claimed" | "settled" | "cancelled";
@@ -726,7 +727,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
       fraction: 0.05,
     });
     try {
-      await this.client.dispatch(envelope, input.targetMachineId);
+      await this.client.dispatch(envelope, input.targetMachineId, input.initiatorUserId);
     } catch (error) {
       return failureResult(`Local dispatch failed: ${shortError(error)}`, 0, "", signals);
     }

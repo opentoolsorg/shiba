@@ -239,7 +239,24 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       body: JSON.stringify({
         ...safeIntakeBody,
         orgId: DASHBOARD_ORG_ID,
-        ...(intakeKind === "run" ? { threadKey: targetAgentName } : {}),
+        ...(intakeKind === "run"
+          ? {
+              threadKey: (() => {
+                const commandId =
+                  typeof safeIntakeBody.commandId === "string" ? safeIntakeBody.commandId.trim() : "";
+                const requested =
+                  typeof safeIntakeBody.threadKey === "string" ? safeIntakeBody.threadKey.trim() : "";
+                if (
+                  requested.startsWith("acp:") &&
+                  /^acp:[A-Za-z0-9-]+$/.test(requested) &&
+                  commandId.startsWith(`${requested}:`)
+                ) {
+                  return requested;
+                }
+                return targetAgentName;
+              })(),
+            }
+          : {}),
         ...(trustedProfileVersion !== undefined ? { customAgentVersion: trustedProfileVersion } : {}),
         ...(trustedCollaborationHandoffId !== undefined ? { collaborationHandoffId: trustedCollaborationHandoffId } : {}),
       }),

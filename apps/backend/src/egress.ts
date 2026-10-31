@@ -6,6 +6,7 @@
  * `cloudflare:` builtins and cannot be loaded by the node test runner.
  */
 import type { Env as WorkerEnv } from "./env.js";
+import { claudeSubscriptionAuth } from "@shiba/auth";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
 import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
@@ -255,6 +256,20 @@ export async function forwardClaudeSubscription(
 ): Promise<Response> {
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
+  const tokens = (env as WorkerEnv).AGENT_TOKENS;
+  if (tokens) {
+    const authController = claudeSubscriptionAuth(
+      { AGENT_TOKENS: tokens },
+      `claude-sub:${account}`,
+      async () => new Response(null, { status: 403 }),
+    );
+    const snapshot = await authController.snapshot();
+    // Idle means no dashboard flow was started (legacy secret-only setups).
+    // Any other non-succeeded phase, including cleared, refuses egress.
+    if (snapshot.phase !== "succeeded" && snapshot.phase !== "idle") {
+      return new Response("Claude subscription authorization is not active.", { status: 403 });
+    }
+  }
   const secretName =
     account === "default"
       ? "CLAUDE_SUBSCRIPTION_TOKEN"
