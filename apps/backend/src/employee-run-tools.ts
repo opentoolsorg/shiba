@@ -5,7 +5,6 @@
  */
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import { getAgentByName } from "agents/routing";
 import type { TokenRecord } from "./agent-tokens.js";
 import type { Env } from "./env.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
@@ -21,7 +20,7 @@ import {
   employeeDraftInputSchema, employeeDraftLinks, recordEmployeeRead, retainEmployeeDraft,
   type EmployeeDraftBinding, type EmployeeDraftStore,
 } from "./employee-drafts.js";
-import { parseSessionAgentName, validateSessionRecordIntegrity, type WebSessionRecord } from "./web-sessions.js";
+import { resolveOwnedAppSession } from "./employee-app-session.js";
 import type { OnboardingRunFields } from "@shiba/shared";
 
 const ACTION_NAMES = Object.keys(EMPLOYEE_TOOL_ACTIONS) as Array<keyof typeof EMPLOYEE_TOOL_ACTIONS>;
@@ -60,27 +59,12 @@ export interface EmployeeRunToolContext {
 
 /** App-only Work turns use the owned registry selection, never composer-supplied profile identity. */
 export async function resolveAppToolsEmployeeContext(env: Env, executionContextId: string): Promise<EmployeeRunToolContext | null> {
-  try {
-    const parsed = parseSessionAgentName(executionContextId);
-    if (!parsed || !env.CodingOrchestrator) return null;
-    const base = await getAgentByName(env.CodingOrchestrator, parsed.userId);
-    const response = await base.fetch("https://internal/internal/web-sessions");
-    if (!response.ok) return null;
-    const body = await response.json() as { sessions?: unknown };
-    if (!Array.isArray(body.sessions)) return null;
-    const matches = body.sessions.filter((candidate) =>
-      validateSessionRecordIntegrity(candidate, parsed.userId) === null &&
-      (candidate as WebSessionRecord).id === parsed.sessionId && (candidate as WebSessionRecord).agentName === executionContextId);
-    if (matches.length !== 1) return null;
-    const session = matches[0] as WebSessionRecord;
-    if (session.deletingAt) return null;
-    const employeeId = session.metadata?.customAgentId;
-    const orgId = session.metadata?.orgId ?? "self-hosted";
-    if (typeof employeeId !== "string" || !employeeId.trim() || typeof orgId !== "string" || !orgId.trim()) return null;
-    return await resolveEmployeeRunToolContext(env, employeeId, orgId, parsed.userId);
-  } catch {
-    return null;
-  }
+  const session = await resolveOwnedAppSession(env, executionContextId);
+  if (!session) return null;
+  const employeeId = session.metadata?.customAgentId;
+  const orgId = session.metadata?.orgId ?? "self-hosted";
+  if (typeof employeeId !== "string" || !employeeId.trim() || typeof orgId !== "string" || !orgId.trim()) return null;
+  return resolveEmployeeRunToolContext(env, employeeId, orgId, session.userId);
 }
 
 /** Resolve employee, version, actor and grant intersection exclusively from Worker stores. */

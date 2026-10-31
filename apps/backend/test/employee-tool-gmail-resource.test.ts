@@ -336,6 +336,40 @@ describe("employee-run Gmail selected-resource policy", () => {
       .rejects.toThrow("unavailable under the current policy");
     expect(messageReads()).toBe(successfulReads);
 
+    // Historical owner access uses the saved non-default workspace, independent of composer/grants.
+    const currentDraft = draftStore.getDraft(saved.draft.id);
+    if (!currentDraft) throw new Error("Retained draft missing.");
+    retained.drafts = [{ ...currentDraft, orgId: "saved-workspace", source: { ...currentDraft.source, orgId: "saved-workspace" } }];
+    session.metadata = { ...session.metadata, orgId: "saved-workspace" };
+    const draftPath = `/api/employee-drafts/${saved.draft.id}`;
+    for (const metadata of [undefined, { shibaTask: { orgId: "forged-workspace" } }, { shibaTask: { reasoningEffort: { malformed: true } } }]) {
+      Object.assign(instance, { messages: [{ role: "user", metadata }] });
+      const listed = await instance.onRequest(new Request("https://internal/api/employee-drafts"));
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toMatchObject({ drafts: expect.arrayContaining([expect.objectContaining({ id: saved.draft.id })]) });
+      const historicalDownload = await instance.onRequest(new Request(`https://internal${draftPath}/download`));
+      expect(historicalDownload.status).toBe(200);
+      expect(await historicalDownload.text()).toBe(input.content);
+      const currentRevision = draftStore.getDraft(saved.draft.id)?.deliverable.review?.revision;
+      const historicalReview = await instance.onRequest(new Request(`https://internal${draftPath}/review`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "approved", expectedRevision: currentRevision }),
+      }));
+      expect(historicalReview.status).toBe(200);
+    }
+    const otherSession = createWebSession(actorState.principal, { metadata: { orgId: "saved-workspace" } });
+    sessionState.sessions = [session, otherSession];
+    Object.assign(instance, { name: otherSession.agentName });
+    expect((await instance.onRequest(new Request(`https://internal${draftPath}/download`))).status).toBe(404);
+    Object.assign(instance, { name: buildSessionAgentName("other-owner", session.id) });
+    expect((await instance.onRequest(new Request(`https://internal${draftPath}/review`, { method: "POST" }))).status).toBe(404);
+    Object.assign(instance, { name: session.agentName });
+    for (const sessions of [[], [{ ...session, deletingAt: Date.now() }], [session, session]]) {
+      sessionState.sessions = sessions;
+      expect((await instance.onRequest(new Request(`https://internal${draftPath}/download`))).status).toBe(404);
+    }
+    sessionState.sessions = [session];
+
     const contactedHosts = [...new Set(provider.calls.map((url) => url.host))].sort();
     expect(contactedHosts).toEqual(["gmail.googleapis.com", "oauth2.googleapis.com"]);
   });

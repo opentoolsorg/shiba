@@ -73,6 +73,7 @@ import { onboardingRunFields, onboardingSourceInstructions, type OnboardingRunFi
 import { readDraftTaskReference, resolveOnboardingTaskBinding, revalidateOnboardingBinding } from "../onboarding-task-binding.js";
 import { handleEmployeeDraftRequest, MAX_EMPLOYEE_DRAFTS, type EmployeeDraft, type EmployeeDraftStore, type EmployeeReadReceipt } from "../employee-drafts.js";
 import { chatLaneActorId } from "../chat-employee.js";
+import { resolveOwnedAppSession } from "../employee-app-session.js";
 import { runWorkerEffect, toRunFailure, tryRunPromise } from "../effect/runtime.js";
 import {
   emailApprovalDraftRef,
@@ -214,6 +215,7 @@ import { extractPullRequestUrl, messageText } from "../transcript.js";
 import {
   isDashboardAgentName,
   MAX_SESSIONS_PER_USER,
+  parseSessionAgentName,
   pruneExpiredWebSessions,
   sanitizeSessionMetadata,
   sanitizeSessionName,
@@ -5605,7 +5607,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (url.pathname.startsWith("/api/employee-drafts")) {
       const actorId = initiatorUserIdFromOrchestratorName(this.name);
       if (agentPrincipal !== null || !actorId || !this.name) return Response.json({ error: "Draft not found." }, { status: 404 });
-      const response = await handleEmployeeDraftRequest(request, this.env, this.employeeDraftStore(), { orgId: this.employeeToolOrgId(), actorId, executionContextId: this.name });
+      const namedSession = parseSessionAgentName(this.name);
+      const session = namedSession ? await resolveOwnedAppSession(this.env, this.name) : null;
+      if ((namedSession && !session) || this.sessionDeleted) return Response.json({ error: "Draft not found." }, { status: 404 });
+      const orgId = session?.metadata?.orgId ?? "self-hosted";
+      if (typeof orgId !== "string" || !orgId.trim() || orgId.length > 128) return Response.json({ error: "Draft not found." }, { status: 404 });
+      const response = await handleEmployeeDraftRequest(request, this.env, this.employeeDraftStore(), { orgId: orgId.trim(), actorId, executionContextId: this.name });
+      if (this.sessionDeleted) return Response.json({ error: "Draft not found." }, { status: 404 });
       if (response) return response;
     }
     if (url.pathname === "/api/tasks") {
