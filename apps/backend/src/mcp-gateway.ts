@@ -46,6 +46,7 @@ import {
   mcpIdempotencyKey,
 } from "./capability-invocations.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
+import { registerExternalMcpTools } from "./external-mcp.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 
@@ -398,11 +399,15 @@ export function visibleToolsForPrincipal(
  * injected principal from its own dispatch context (`ctx.http?.req`),
  * falling back to that same request.
  */
-function buildMcpServer(env: Env, mcpCtx: McpRequestContext): McpServer {
+async function buildMcpServer(env: Env, mcpCtx: McpRequestContext): Promise<McpServer> {
   const server = new McpServer({ name: "shiba", version: "0.1.0" });
   const registry = createToolRegistry(env);
   registerAllMcpTools(registry, env);
   const principal = principalFor(mcpCtx.requestInfo);
+  if (principal) {
+    try { await registerExternalMcpTools(registry, env, principal); }
+    catch { console.warn("External MCP capability catalog unavailable; upstream capabilities withheld."); }
+  }
   for (const tool of visibleToolsForPrincipal(registry.tools(), principal)) {
     server.registerTool(
       tool.name,

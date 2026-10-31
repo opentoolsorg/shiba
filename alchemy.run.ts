@@ -334,6 +334,8 @@ export const Worker = Cloudflare.Worker("Worker", {
     ...(DashboardAccess
       ? { REQUIRE_ACCESS: "1", ACCESS_AUD: DashboardAccess.pipe(Effect.map((app) => app.aud)) }
       : {}),
+    // Upstream MCP egress is deny-by-default; operators add exact public hosts explicitly.
+    MCP_TRUSTED_HOSTS: "",
     // T56 (PLAN.md §20): the shipped role pin, as a LITERAL env member — the
     // drift guard compares declared vars by value (scripts/check-alchemy-drift.mjs),
     // so a configVars() spread would read as an absent var. Model ids verified
