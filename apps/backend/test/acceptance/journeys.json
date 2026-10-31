@@ -112,6 +112,14 @@
       "browserCheckpoint": "reason-worker-queue-fake-companion-result"
     },
     {
+      "id": "external-mcp-reviewed-lifecycle",
+      "description": "Register a mock HTTPS Streamable HTTP server, discover and review its schema, enable a scoped principal capability, exercise read dispatch and exact-payload owner approval with durable receipts, then revoke access. All transport calls use a local fixture; no external MCP host or credential is configured.",
+      "tests": [
+        "apps/backend/test/external-mcp.test.ts",
+        "apps/frontend/src/components/ExternalMcpManagement.test.tsx"
+      ]
+    },
+    {
       "id": "skill-version-lifecycle",
       "description": "Create and reload a versioned skill draft, preserve immutable versions, review/activate exact text, and exercise the dashboard editor recovery paths.",
       "tests": [
