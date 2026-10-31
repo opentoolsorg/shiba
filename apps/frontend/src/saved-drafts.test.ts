@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readDraft, writeDraft } from "./saved";
+import { composerDraftScope, readDraft, writeDraft } from "./saved";
 
 const KEY = "shiba-composer-drafts-v1";
 let store: Map<string, string>;
@@ -21,6 +21,15 @@ describe("composer drafts", () => {
     expect(readDraft("a")).toBe("hello");
     expect(readDraft("b")).toBe("world");
     expect(readDraft("missing")).toBe("");
+  });
+
+  it("namespaces drafts by verified owner and session", () => {
+    const aliceDefault = composerDraftScope("alice@example.test", "default");
+    const bobDefault = composerDraftScope("bob@example.test", "default");
+    writeDraft(aliceDefault, "alice text");
+    writeDraft(bobDefault, "bob text");
+    expect(readDraft(aliceDefault)).toBe("alice text");
+    expect(readDraft(bobDefault)).toBe("bob text");
   });
 
   it("deletes the scope on an empty or whitespace write", () => {

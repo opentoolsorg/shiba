@@ -290,6 +290,10 @@ function readDrafts(): Drafts {
   }
 }
 
+export function composerDraftScope(owner: string, sessionId: string): string {
+  return `${owner}::${sessionId}`;
+}
+
 export function readDraft(scope: string): string {
   const text = readDrafts()[scope]?.text;
   return typeof text === "string" ? text : "";

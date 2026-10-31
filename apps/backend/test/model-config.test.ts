@@ -473,7 +473,7 @@ describe("/api/model-config auth gating", () => {
     expect(body.code).toBe("access_not_configured");
   });
 
-  it("401s without the Access email header and 200s with it when REQUIRE_ACCESS is set", async () => {
+  it("401s without the Access email header when REQUIRE_ACCESS is set without ACCESS_AUD", async () => {
     const { env, calls } = makeModelConfigEnv({
       "/connections": { connections: [{ id: "conn_1" }] },
       "/policy": { policy: EMPTY_POLICY },
@@ -482,16 +482,15 @@ describe("/api/model-config auth gating", () => {
     const denied = await worker.fetch(new Request("https://app.test/api/model-config"), env, ctx);
     expect(denied.status).toBe(401);
     expect(calls).toHaveLength(0);
-    const allowed = await worker.fetch(
+    const forged = await worker.fetch(
       new Request("https://app.test/api/model-config", {
         headers: { "CF-Access-Authenticated-User-Email": "dev@example.com" },
       }),
       env,
       ctx,
     );
-    expect(allowed.status).toBe(200);
-    const body = (await allowed.json()) as { purposes: unknown };
-    expect(body.purposes).toEqual(PURPOSES);
+    expect(forged.status).toBe(401);
+    expect(calls).toHaveLength(0);
   });
 });
 

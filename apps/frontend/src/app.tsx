@@ -23,7 +23,7 @@ import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId
 import { buildExecutionTargetFields } from "./execution-target-input";
 import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
-import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
+import { useSavedRepos, useSavedSkills, saveRepo, composerDraftScope, readDraft, writeDraft } from "./saved";
 import { useSocketLiveness } from "./socket-liveness";
 import {
   codingModelOptions,
@@ -408,15 +408,14 @@ export function App(): React.JSX.Element {
   const [baseBranch, setBaseBranch] = useState("main");
   // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
   const [task, setTask] = useState(() => {
-    const draft = readDraft("default");
-    if (typeof window === "undefined") return draft;
+    if (typeof window === "undefined") return "";
     const { prompt, nextSearch } = readPromptParam(window.location.search);
     if (prompt !== null) {
       const nextUrl = window.location.pathname + nextSearch + window.location.hash;
       window.history.replaceState(window.history.state, "", nextUrl);
-      if (!draft.trim()) return prompt;
+      return prompt;
     }
-    return draft;
+    return "";
   });
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
@@ -502,6 +501,7 @@ export function App(): React.JSX.Element {
   }, [selectedSessionId]);
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
+  const draftOwnerRef = useRef<string | null>(testAgentName());
   const draftScope = useRef<string | null>("default");
   const pendingDraft = useRef<{ scope: string; text: string } | null>(null);
   const flushDraft = useCallback(() => {
@@ -509,24 +509,18 @@ export function App(): React.JSX.Element {
     pendingDraft.current = null;
     if (pending) writeDraft(pending.scope, pending.text);
   }, []);
-  useEffect(() => {
-    if (draftScope.current !== selectedSessionId) {
-      flushDraft(); // the old scope's unwritten keystrokes land before switching
-      draftScope.current = selectedSessionId;
-      setTask(readDraft(selectedSessionId));
-      return;
-    }
-    pendingDraft.current = { scope: selectedSessionId, text: task };
-    // An emptied composer (submit or clear) flushes now; typing waits for 300 ms idle.
-    if (!task.trim()) return flushDraft();
-    const timer = window.setTimeout(flushDraft, 300);
-    return () => window.clearTimeout(timer);
-  }, [selectedSessionId, task, flushDraft]);
+  const draftScopeKey = useCallback(
+    (owner: string, sessionId: string) => composerDraftScope(owner, sessionId),
+    [],
+  );
   // A failed submit restores its text only into the session it came from.
-  const restoreDraft = useCallback((scope: string, text: string) => {
-    if (draftScope.current === scope) setTask((current) => (current === "" ? text : current));
+  const restoreDraft = useCallback((sessionId: string, text: string) => {
+    const owner = draftOwnerRef.current;
+    if (owner === null) return;
+    const scope = draftScopeKey(owner, sessionId);
+    if (draftScope.current === sessionId) setTask((current) => (current === "" ? text : current));
     else writeDraft(scope, text);
-  }, []);
+  }, [draftScopeKey]);
   // Local runs use the authenticated paired fleet in both web and desktop.
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
   const [executionTargetKind, setExecutionTargetKind] = useState<"repository" | "artifact-workspace">("repository");
@@ -623,6 +617,26 @@ export function App(): React.JSX.Element {
   const [orchestratorName, setOrchestratorName] = useState<string | null>(testAgentName);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [identityIssue, setIdentityIssue] = useState<IdentityIssue | null>(null);
+  useEffect(() => {
+    if (orchestratorName === null) return;
+    if (draftOwnerRef.current !== orchestratorName) {
+      flushDraft();
+      draftOwnerRef.current = orchestratorName;
+      draftScope.current = selectedSessionId;
+      setTask(readDraft(draftScopeKey(orchestratorName, selectedSessionId)));
+      return;
+    }
+    if (draftScope.current !== selectedSessionId) {
+      flushDraft();
+      draftScope.current = selectedSessionId;
+      setTask(readDraft(draftScopeKey(orchestratorName, selectedSessionId)));
+      return;
+    }
+    pendingDraft.current = { scope: draftScopeKey(orchestratorName, selectedSessionId), text: task };
+    if (!task.trim()) return flushDraft();
+    const timer = window.setTimeout(flushDraft, 300);
+    return () => window.clearTimeout(timer);
+  }, [orchestratorName, selectedSessionId, task, flushDraft, draftScopeKey]);
   // Which auth lane proved (or refused) the identity — drives the login
   // surface (better-auth form vs Access reload) and the sign-out control.
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
