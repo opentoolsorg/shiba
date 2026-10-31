@@ -2,7 +2,7 @@
   "name": "shiba",
   "version": "0.1.0",
   "private": true,
-  "description": "Self-hosted Cloudflare Workers app: approval-gated coding tasks delegated to isolated Sandbox containers running OpenCode.",
+  "description": "Self-hosted AI employees for marketing, coding, design and QA, with approval-gated repository-backed work.",
   "type": "module",
   "scripts": {
     "build": "turbo run build && node scripts/assemble-public.mjs && pnpm run docs:verify",
