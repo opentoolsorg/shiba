@@ -49,6 +49,7 @@ import { handleSkillLibrary } from "./skill-library-routes.js";
 import { handleSkills } from "./skills-routes.js";
 import { handleSpaces } from "./spaces-routes.js";
 import { Spaces } from "./spaces-do.js";
+import { handleFounderSkills } from "./founder-skills-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
@@ -299,6 +300,8 @@ export default {
       if (skillsResponse) return skillsResponse;
       const spacesResponse = await handleSpaces(request, env);
       if (spacesResponse) return spacesResponse;
+      const founderSkillsResponse = await handleFounderSkills(request, env);
+      if (founderSkillsResponse) return founderSkillsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
       if (orgSandboxResponse) return orgSandboxResponse;
       const orgModelKeysResponse = await handleOrgModelKeys(request, env);

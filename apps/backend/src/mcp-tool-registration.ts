@@ -5,6 +5,7 @@ import { registerEmailTools } from "./mcp-email-tools.js";
 import { registerGmailTools } from "./mcp-gmail-tools.js";
 import { registerMemoryTools } from "./mcp-memory-tools.js";
 import { registerRunTools } from "./mcp-run-tools.js";
+import { registerGrokbotBridgeTools } from "./mcp-grokbot-bridge-tools.js";
 import { registerScreenTools } from "./mcp-screen-tools.js";
 
 /** Register precisely the set of built-in handlers served on `/mcp`. */
@@ -13,5 +14,6 @@ export function registerAllMcpTools(registry: ToolRegistry, env: Env): void {
   registerGmailTools(registry);
   registerMemoryTools(registry, env);
   registerRunTools(registry, env);
+  registerGrokbotBridgeTools(registry, env);
   registerScreenTools(registry, env);
 }
