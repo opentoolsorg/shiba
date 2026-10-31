@@ -15,8 +15,9 @@
 import { buildChatThreadName, buildDecisionData, parseDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
 import { seenDelivery } from "./automations-stub.js";
 import {
+  CARD_TASK_LIMIT,
   chatApprovalText,
-  chatTaskFollowUpChunks,
+  chatTaskChunks,
   decideChatApproval,
   decisionLine,
   discordApi,
@@ -274,7 +275,7 @@ export async function handleDiscordInteractions(
         components: decisionButtons(queued.approvalId),
         allowed_mentions: NO_MENTIONS,
       });
-      for (const chunk of chatTaskFollowUpChunks(queueBody!.task, 1900)) {
+      for (const chunk of chatTaskChunks(queueBody!.task, CARD_TASK_LIMIT, 1900)) {
         await send("POST", webhook, { content: chunk, allowed_mentions: NO_MENTIONS });
       }
     });
