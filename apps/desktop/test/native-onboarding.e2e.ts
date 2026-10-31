@@ -368,11 +368,12 @@ test("actual native shared UI retains goal, thread, approved output and review a
       | undefined;
     await expect
       .poll(async () => {
-        run = (
-          await api<{ runs: NonNullable<typeof run>[] }>(page, `/api/runs${sessionQuery}`)
-        ).runs.find((item) => item.status === "completed");
+        const runs = await api<{ runs: NonNullable<typeof run>[] }>(page, `/api/runs${sessionQuery}`);
+        const failed = runs.runs.find((item) => ["error", "aborted", "unknown"].includes(item.status));
+        if (failed) throw new Error(`Native fixture run failed: ${JSON.stringify(failed)}`);
+        run = runs.runs.find((item) => item.status === "completed");
         return run?.runId;
-      })
+      }, { timeout: 15_000 })
       .toBeTruthy();
     if (!run) throw new Error("Native fixture run did not complete");
     await page.goto(`${fixture.origin}/`);
