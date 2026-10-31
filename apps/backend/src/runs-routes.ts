@@ -34,6 +34,13 @@ export async function resolveRunStoreTarget(
 ): Promise<{ agentName: string; userId: string } | { error: Response }> {
   // Local development shares the same fallback as the dashboard identity endpoint.
   const userId = (await resolveUserId(request, env)) ?? "default";
+  const executorPin = collaborationExecutorPins.get(request);
+  if (executorPin) {
+    if (executorPin.trim().toLowerCase() !== userId.trim().toLowerCase()) {
+      return { error: Response.json({ error: "Handoff owner changed." }, { status: 403 }) };
+    }
+    return { agentName: executorPin, userId };
+  }
   const sessionParam = url.searchParams.get("session") || url.searchParams.get("sessionId");
   if (sessionParam && sessionParam !== DEFAULT_SESSION_ID) {
     if (!isValidSessionId(sessionParam)) {
@@ -56,6 +63,7 @@ export async function resolveRunStoreTarget(
 
 type RunSummary = { runId: string; createdAt?: number };
 
+const collaborationExecutorPins = new WeakMap<Request, string>();
 const collaborationProfilePins = new WeakMap<Request, number>();
 const collaborationHandoffPins = new WeakMap<Request, string>();
 
@@ -108,7 +116,7 @@ export async function handleRuns(request: Request, env: Env): Promise<Response |
 export async function queueCollaborationRun(
   request: Request,
   env: Env,
-  input: { task: string; repoUrl?: string; executionTarget?: ExecutionTarget; customAgentId: string; profileVersion: number; commandId: string; collaborationHandoffId?: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
+  input: { task: string; repoUrl?: string; executionTarget?: ExecutionTarget; customAgentId: string; profileVersion: number; commandId: string; executorAgentName?: string; collaborationHandoffId?: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
 ): Promise<Response | null> {
   const headers = new Headers(request.headers);
   headers.delete("content-length");
@@ -117,6 +125,7 @@ export async function queueCollaborationRun(
     headers,
     body: JSON.stringify({ task: input.task, ...(input.repoUrl ? { repoUrl: input.repoUrl } : {}), ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}), customAgentId: input.customAgentId, commandId: input.commandId, ...(input.runtime ? { runtime: input.runtime } : {}), ...(input.targetMachineId ? { targetMachineId: input.targetMachineId } : {}) }),
   });
+  if (input.executorAgentName) collaborationExecutorPins.set(forwarded, input.executorAgentName);
   collaborationProfilePins.set(forwarded, input.profileVersion);
   if (input.collaborationHandoffId) collaborationHandoffPins.set(forwarded, input.collaborationHandoffId);
   return handleRuns(forwarded, env);

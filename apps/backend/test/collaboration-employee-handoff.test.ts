@@ -683,6 +683,7 @@ describe("approval-gated employee handoffs", () => {
         task: "Write the old report.",
       }),
     );
+    f.sqlite.prepare("UPDATE collaboration_handoffs SET created_at=0 WHERE handoff_id=?").run(old.handoff.handoffId);
     for (let index = 0; index < 105; index += 1) {
       const response = await f.send(`/rooms/${roomId}/handoffs`, "POST", {
         handoffId: `newer-root-${String(index).padStart(3, "0")}`,
@@ -723,6 +724,7 @@ describe("approval-gated employee handoffs", () => {
       }),
     );
     state.userId = "owner@example.test";
+    f.sqlite.prepare("UPDATE collaboration_handoffs SET created_at=0 WHERE handoff_id=?").run(old.handoff.handoffId);
     for (let index = 0; index < 105; index += 1) {
       expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
         handoffId: `member-newer-root-${String(index).padStart(3, "0")}`,
@@ -758,12 +760,12 @@ describe("approval-gated employee handoffs", () => {
           handoff_id,tenant_id,workspace_id,room_id,task_id,sender_user_id,sender_actor_id,
           recipient_user_id,recipient_actor_id,parent_handoff_id,root_handoff_id,depth,
           ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,profile_version,
-          status,created_at,cancelled_at,approval_id,run_id
+          status,created_at,cancelled_at,approval_id,run_id,executor_agent_name
         ) VALUES (
           'racing-linked-handoff','self-hosted','default','${roomId}','racing-task',
           'racing-member@example.test','human:racing-member@example.test',
           'owner@example.test','human:owner@example.test',NULL,'racing-linked-handoff',0,
-          '[]',0,'[]',NULL,'active',1,NULL,'approval-racing','agent-tool:approval-racing'
+          '[]',0,'[]',NULL,'active',1,NULL,'approval-racing','agent-tool:approval-racing','racing-member@example.test'
         );
       END;
     `);
