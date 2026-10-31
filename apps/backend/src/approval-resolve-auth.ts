@@ -15,10 +15,12 @@ export function approvalResolveForbidden(
     approved: boolean;
     decidedBy: string;
     source?: unknown;
+    /** Trusted DO context; never taken from the decision request body. */
+    ownedAcpApproval?: { orchestratorName: string; threadKey: string };
   },
 ): string | null {
   if (!input.approved) {
-    if (input.decidedBy === "task-cancel" || input.decidedBy.startsWith("system:")) {
+    if (input.decidedBy === "task-cancel" || input.decidedBy === "collaboration-cancellation" || input.decidedBy.startsWith("system:")) {
       return null;
     }
   }
@@ -33,8 +35,20 @@ export function approvalResolveForbidden(
       : "Not authorized to resolve shared approvals.";
   }
 
-  if (input.decidedBy === "task-cancel") {
-    return null;
+  if (input.source === "telegram" || input.source === "discord") {
+    const prefix = `${input.source}:`;
+    const allowlist = input.source === "telegram" ? env.TELEGRAM_APPROVERS : env.DISCORD_APPROVERS;
+    return input.decidedBy.startsWith(prefix) &&
+      isApprover(input.decidedBy.slice(prefix.length), parseApproverAllowlist(allowlist))
+      ? null
+      : "Not authorized to resolve shared approvals.";
+  }
+
+  if (input.threadKey.startsWith("acp:") && input.ownedAcpApproval) {
+    return input.ownedAcpApproval.threadKey === input.threadKey &&
+      isAuthorizedSessionAgent(input.ownedAcpApproval.orchestratorName, input.decidedBy)
+      ? null
+      : "Forbidden.";
   }
 
   // Personal dashboard runs stamp threadKey to the authenticated owner DO name.

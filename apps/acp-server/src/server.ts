@@ -300,7 +300,7 @@ export class ShibaAcpServer {
     const startedAt = this.now();
     let failures = 0;
     while (!session.cancelled) {
-      if (this.now() - startedAt > RUN_DISCOVERY_MAX_MS) {
+      if (runId === null && this.now() - startedAt > RUN_DISCOVERY_MAX_MS) {
         session.settle?.resolve("end_turn");
         session.settle = null;
         return;

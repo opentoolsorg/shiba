@@ -43,7 +43,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     if (request.method !== "GET" && !requireV1Write(auth.principal)) return v1Forbidden();
   }
   if (request.method !== "GET") {
-    const originBlock = rejectCrossOriginMutation(request);
+    const originBlock = auth.principal ? null : rejectCrossOriginMutation(request);
     if (originBlock) return originBlock;
     if (request.method !== "DELETE") {
       const jsonBlock = rejectNonJsonMutation(request);

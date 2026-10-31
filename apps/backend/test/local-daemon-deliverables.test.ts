@@ -146,6 +146,13 @@ describe("strict requested deliverable capture", () => {
     } finally { open.mockRestore(); }
   });
 
+  it("captures a regular changed file including empty content", async () => {
+    await put("changed.md", "Complete changed content\n");
+    expect(await readContainedChangedFile(repo, "changed.md")).toBe("Complete changed content\n");
+    await put("changed.md", "");
+    expect(await readContainedChangedFile(repo, "changed.md")).toBe("");
+  });
+
   it("rejects a changed-file symlink before reading its target", async () => {
     const outside = path.join(root, "outside-secret.txt");
     await writeFile(outside, "outside content");
@@ -245,6 +252,19 @@ console.log('agent claims success');`, ["zz-brief.md"]);
     expect(result?.status).toBe("error");
     expect(result?.exitCode).not.toBe(0);
     expect(result?.summary).toContain("Expected deliverable missing.md");
+    expect(result?.files).toEqual([]);
+  }, 40_000);
+
+  it("captures actual deleted paths with null content", async () => {
+    const result = await daemonRun("require('node:fs').unlinkSync('README.md');");
+    expect(result?.status).toBe("completed");
+    expect(result?.files).toEqual([{ path: "README.md", content: null, encoding: "utf8" }]);
+  }, 40_000);
+
+  it("fails changed-file collection for hard links instead of publishing a deletion", async () => {
+    const result = await daemonRun("require('node:fs').linkSync('README.md', 'linked.md');", undefined, 1);
+    expect(result?.status).toBe("error");
+    expect(result?.summary).toContain("could not be captured");
     expect(result?.files).toEqual([]);
   }, 40_000);
 

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { onboardingRunFields } from "@shiba/shared";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cloudflare/workers-types";
@@ -901,27 +902,35 @@ describe("worker authentication gate (T7)", () => {
     vi.mocked(routing.routeAgentRequest).mockResolvedValue(null);
   });
 
-  it("routes agent WebSocket through the decoded canonical agent name", async () => {
-    const routing = await import("agents/routing");
-    vi.mocked(proxyToSandbox).mockResolvedValue(null);
-    const routed: Request[] = [];
-    vi.mocked(routing.routeAgentRequest).mockImplementation(async (request) => {
-      routed.push(request);
-      return new Response("agent");
-    });
-    const worker = (await import("../src/index.js")).default;
-    await worker.fetch(
-      new Request("https://example.com/agents/coding-orchestrator/%61lice%40example.com/ws", {
-        headers: { "CF-Access-Authenticated-User-Email": "alice@example.com" },
-      }),
-      makeAccessEnv(),
-    );
-    expect(routed).toHaveLength(1);
-    expect(new URL(routed[0]!.url).pathname).toBe(
-      "/agents/coding-orchestrator/alice%40example.com/ws",
-    );
-    vi.mocked(routing.routeAgentRequest).mockResolvedValue(null);
-  });
+  it.each(["alice@example.com", "web:alice@example.com:12345678-1234-4123-8123-123456789abc"])(
+    "routes agent WebSocket to the decoded authorized object %s",
+    async (name) => {
+      vi.mocked(proxyToSandbox).mockResolvedValue(null);
+      const { publicKey, privateKey } = await generateKeyPair("RS256");
+      const jwk = { ...(await exportJWK(publicKey)), kid: "routing-key", alg: "RS256", use: "sig" };
+      vi.stubGlobal("fetch", vi.fn(async () => Response.json({ keys: [jwk] })));
+      const token = await new SignJWT({ email: "alice@example.com" })
+        .setProtectedHeader({ alg: "RS256", kid: "routing-key" })
+        .setIssuer(`https://routing-test-${name.startsWith("web") ? "session" : "base"}.cloudflareaccess.com`)
+        .setAudience("routing-aud").setIssuedAt().setExpirationTime("5m").sign(privateKey);
+      const stubFetch = vi.fn(async (_request: Request) => new Response("agent"));
+      vi.mocked(getAgentByName).mockClear();
+      vi.mocked(getAgentByName).mockResolvedValue({ fetch: stubFetch } as never);
+      const worker = (await import("../src/index.js")).default;
+      const env = { ...makeAccessEnv(), ACCESS_AUD: "routing-aud" };
+      const res = await worker.fetch(
+        new Request(`https://example.com/agents/coding-orchestrator/${encodeURIComponent(name).replace("a", "%61")}/ws`, {
+          headers: { "Cf-Access-Jwt-Assertion": token },
+        }), env,
+      );
+      expect(await res.text()).toBe("agent");
+      expect(getAgentByName).toHaveBeenCalledWith(env.CodingOrchestrator, name);
+      expect(stubFetch).toHaveBeenCalledTimes(name.startsWith("web:") ? 2 : 1);
+      expect(new URL(stubFetch.mock.calls.at(-1)![0]!.url).pathname).toBe(
+        `/agents/coding-orchestrator/${encodeURIComponent(name)}/ws`,
+      );
+    },
+  );
 
   it("serves public marketing assets but gates dashboard assets without verified Access identity", async () => {
     const routing = await import("agents/routing");

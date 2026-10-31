@@ -179,7 +179,7 @@ export function publicBootstrap(
   const requirements = bootstrapRequirements(env);
   return {
     ...requirements,
-    locked: !isLoopbackRequest(request) && !requirements.requiresToken && !requirements.requiresOwnerEmail,
+    locked: !isLoopbackRequest(request) && !requirements.requiresToken,
   };
 }
 
@@ -208,7 +208,7 @@ function assertOwnerBootstrap(
   if (!loopback || token) {
     if (!token) {
       throw new APIError("FORBIDDEN", {
-        message: "Sign-up is locked until a setup token or an allowlisted owner email is configured.",
+        message: "Sign-up is locked until a setup token is configured.",
       });
     }
     const provided = request?.headers.get(BETTER_AUTH_BOOTSTRAP_HEADER) ?? "";
@@ -217,11 +217,6 @@ function assertOwnerBootstrap(
         message: "A setup token is required to create the first account.",
       });
     }
-  }
-  if (!token && !owner && !loopback) {
-    throw new APIError("FORBIDDEN", {
-      message: "Sign-up is locked until a setup token or an allowlisted owner email is configured.",
-    });
   }
 }
 

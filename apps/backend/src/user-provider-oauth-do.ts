@@ -111,10 +111,14 @@ export class UserProviderOAuth extends DurableObject<Env> {
     await this.ctx.storage.put(oauthGenerationKey(provider), next);
   }
 
-  private async assertOAuthGeneration(provider: UserOAuthProvider, expected: number): Promise<void> {
+  private async assertOAuthGenerationOnly(provider: UserOAuthProvider, expected: number): Promise<void> {
     if ((await this.oauthGeneration(provider)) !== expected) {
       throw new Error("Not connected.");
     }
+  }
+
+  private async assertOAuthGeneration(provider: UserOAuthProvider, expected: number): Promise<void> {
+    await this.assertOAuthGenerationOnly(provider, expected);
     if ((await loadUserOAuthRecord(this.env, this.userId(), provider)) === null) {
       throw new Error("Not connected.");
     }
@@ -197,7 +201,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
           message: "Still waiting for Cursor approval in the browser. Finish sign-in again in a few seconds.",
         });
       }
-      await this.assertOAuthGeneration(provider, generation);
+      await this.assertOAuthGenerationOnly(provider, generation);
       await saveUserOAuthRecord(this.env, userId, provider, poll.record);
       await this.ctx.storage.delete(pendingKey(provider));
       return Response.json({
@@ -238,7 +242,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       return Response.json({ error: "Unknown provider." }, { status: 400 });
     }
 
-    await this.assertOAuthGeneration(provider, generation);
+    await this.assertOAuthGenerationOnly(provider, generation);
     await saveUserOAuthRecord(this.env, userId, provider, record);
     await this.ctx.storage.delete(pendingKey(provider));
     const label =

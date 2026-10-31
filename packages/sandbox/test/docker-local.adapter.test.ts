@@ -1,4 +1,4 @@
-import { describe, expect } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDockerLocalSandboxProvider, type DockerExecutor } from "../src/adapters/docker-local.js";
 import { describeSandboxProviderContract } from "../src/contract-suite.js";
 
@@ -18,7 +18,7 @@ function mockDocker(): DockerExecutor {
       if (args[0] === "run") {
         const nameIdx = args.indexOf("--name");
         const name = nameIdx >= 0 ? args[nameIdx + 1]! : "unknown";
-        const labelIdx = args.indexOf("shiba.instance_id=");
+        const labelIdx = args.findIndex((arg) => arg.startsWith("shiba.instance_id="));
         const instanceId = labelIdx >= 0 ? args[labelIdx]!.slice("shiba.instance_id=".length) : name;
         running.set(name, instanceId);
         return { stdout: "cid\n", stderr: "", exitCode: 0 };
@@ -57,3 +57,14 @@ describeSandboxProviderContract("docker-local (mock docker)", () =>
     dockerExec: mockDocker(),
   }),
 );
+
+it("reuses a running container with the matching instance label", async () => {
+  const docker = mockDocker();
+  const run = vi.spyOn(docker, "run");
+  const provider = createDockerLocalSandboxProvider({ image: "shiba-sandbox:mock", dockerExec: docker });
+  const instance = await provider.get("label-reuse-test");
+  await instance.exec("echo contract-ok");
+  await instance.exec("echo contract-ok");
+  expect(run.mock.calls.filter(([args]) => args[0] === "run")).toHaveLength(1);
+  expect(run.mock.calls.filter(([args]) => args[0] === "rm")).toHaveLength(0);
+});

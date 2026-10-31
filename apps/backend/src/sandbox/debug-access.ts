@@ -8,7 +8,9 @@ import { getAgentByName } from "agents/routing";
 import type { Env } from "../env.js";
 import { isApprover, parseApproverAllowlist } from "../slack-approval.js";
 import { ORCHESTRATOR_NAME } from "../slack-routes.js";
-import { resolveUserId } from "../request-auth.js";
+import { isAccessConfigured, isLoopbackRequest, resolveUserId } from "../request-auth.js";
+
+import { isBetterAuthConfigured } from "../better-auth.js";
 
 type RunRow = { sandboxId?: string };
 
@@ -27,7 +29,14 @@ export async function assertAuthorizedSandboxDebug(
   request: Request,
   sandboxId: string,
 ): Promise<Response | null> {
-  const userId = (await resolveUserId(request, env)) ?? "default";
+  const identity = await resolveUserId(request, env);
+  if (identity === null && (
+    request.headers.has("authorization") || isAccessConfigured(env) ||
+    isBetterAuthConfigured(env) || !isLoopbackRequest(request)
+  )) {
+    return Response.json({ error: "User identity required." }, { status: 403 });
+  }
+  const userId = identity ?? "default";
   const agents = new Set<string>([userId]);
   if (isApprover(userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS))) {
     agents.add(ORCHESTRATOR_NAME);

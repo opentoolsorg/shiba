@@ -3,6 +3,7 @@
  * execution when the seal is missing or wrong, so a nested chat message cannot
  * forge an approved run.
  */
+import { timingSafeEqualString } from "./security.js";
 import type { Env } from "./env.js";
 import type { CodingTaskInput } from "./opencode-input.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
@@ -61,7 +62,7 @@ export async function assertChildDispatchAuthorized(env: DispatchEnv, input: Cod
     throw new Error("Child dispatch verification is not configured.");
   }
   const expected = await hmacHex(key, canonical(dispatchApprovalId, sandboxId, dispatchInputHash));
-  if (expected !== dispatchSig) {
+  if (!timingSafeEqualString(expected, dispatchSig)) {
     throw new Error("Dispatch seal is invalid or expired.");
   }
 }

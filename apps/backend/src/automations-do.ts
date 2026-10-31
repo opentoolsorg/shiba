@@ -100,6 +100,7 @@ async function webhookBody(request: Request): Promise<string | null> {
   return new TextDecoder().decode(joined);
 }
 const DEDUPE_PREFIX = "dedupe:";
+const GITHUB_PAYLOAD_PREFIX = "github-payload-replay:";
 const DEDUPE_TTL_MS = 3_600_000;
 const DEDUPE_GC_INTERVAL_MS = 60_000;
 const DEDUPE_GC_STATE_KEY = "automation-dedupe-gc:last-success";
@@ -533,6 +534,14 @@ export class Automations {
       return;
     }
     const all = await this.ctx.storage.list<unknown>({ prefix: DEDUPE_PREFIX });
+    // Move legacy permanent replay keys out of the periodically scanned namespace.
+    const legacyPayloads = [...all.entries()]
+      .filter(([key]) => key.startsWith(`${DEDUPE_PREFIX}gh-payload:`))
+      .slice(0, DEDUPE_GC_DELETE_LIMIT);
+    for (const [key, seenAt] of legacyPayloads) {
+      await this.ctx.storage.put(GITHUB_PAYLOAD_PREFIX + key.slice(DEDUPE_PREFIX.length), seenAt);
+    }
+    if (legacyPayloads.length > 0) await this.ctx.storage.delete(legacyPayloads.map(([key]) => key));
     const stale = [...all.entries()]
       .filter(([key, seenAt]) => {
         // Signed GitHub bodies stay valid indefinitely; never forget payload hashes.
@@ -729,8 +738,12 @@ export class Automations {
       if (typeof key !== "string" || !key) {
         return Response.json({ error: "Missing dedupe key." }, { status: 400 });
       }
-      const storageKey = DEDUPE_PREFIX + key.slice(0, 200);
-      if (await this.ctx.storage.get<number>(storageKey)) {
+      const isGitHubPayload = key.startsWith("gh-payload:");
+      const storageKey = (isGitHubPayload ? GITHUB_PAYLOAD_PREFIX : DEDUPE_PREFIX) + key.slice(0, 200);
+      if (
+        await this.ctx.storage.get<number>(storageKey) ||
+        (isGitHubPayload && await this.ctx.storage.get<number>(DEDUPE_PREFIX + key.slice(0, 200)))
+      ) {
         return Response.json({ seen: true });
       }
       const now = Date.now();

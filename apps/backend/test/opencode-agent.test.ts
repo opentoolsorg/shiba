@@ -376,7 +376,7 @@ describe("createSandboxOps", () => {
     const calls: string[] = [];
     const approveRepoScope = vi.fn(async () => { calls.push("approve"); });
     const gitCheckout = vi.fn(async () => { calls.push("clone"); });
-    mocks.sandbox.mockReturnValue({ approveRepoScope, gitCheckout });
+    mocks.sandbox.mockReturnValue({ approveHarnessEgress: vi.fn(async () => undefined), approveRepoScope, gitCheckout });
     await createSandboxOps({} as never, INPUT.sandboxId)
       .gitCheckout("https://github.com/owner/repo", { branch: "main", targetDir: "/workspace" });
     expect(approveRepoScope).toHaveBeenCalledWith("/owner/repo");
@@ -422,5 +422,30 @@ describe("createSandboxOps", () => {
     const pending = ops.exec("command", { signal: midFlight.signal });
     midFlight.abort();
     await expect(pending).rejects.toThrow("Run cancelled.");
+  });
+});
+
+ describe("review result validation", () => {
+  it("fails instead of discarding malformed findings", async () => {
+    mocks.run.mockResolvedValue({ ...RESULT, findings: [{ title: "Lost security finding" }] });
+    const { result } = await responseFor(agent(await sealed({ role: "reviewer" })));
+    expect(result.status).toBe("error");
+    expect(result.summary).toMatch(/invalid structured findings/);
+  });
+
+  it("keeps a real empty findings array valid", async () => {
+    mocks.run.mockResolvedValue({ ...RESULT, findings: [] });
+    const { result } = await responseFor(agent(await sealed({ role: "reviewer" })));
+    expect(result.status).toBe("completed");
+    expect(result.findings).toEqual([]);
+  });
+
+  it("scrubs reviewer text before returning it", async () => {
+    const secret = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
+    mocks.run.mockResolvedValue({ ...RESULT, findings: [{ path: `src/${secret}.ts`, line: 1, category: "bug", severity: "high", confidence: "confirmed", title: secret, failureScenario: secret }] });
+    const { result } = await responseFor(agent(await sealed({ role: "reviewer" }), secret));
+    expect(result.status).toBe("completed");
+    expect(JSON.stringify(result.findings)).not.toContain(secret);
+    expect(result.findings).toHaveLength(1);
   });
 });

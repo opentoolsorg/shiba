@@ -120,10 +120,6 @@ export function guardRunEnvLeak(result: CodingTaskResult, values: Record<string,
   };
   // Text files show up in the diff's added lines; file bodies catch secrets
   // when Git attributes suppress textual hunks for valid UTF-8 paths.
-  const diffBaseline = result.diff
-    .split("\n")
-    .filter((line) => !line.startsWith("+"))
-    .join("\n");
   const leaked =
     runEnvDiffLeakName(result.diff, values) ??
     result.files
@@ -131,12 +127,8 @@ export function guardRunEnvLeak(result: CodingTaskResult, values: Record<string,
       .map((f) => {
         const body =
           f.encoding === "base64" ? atob(f.content as string) : (f.content as string);
-        const name = runEnvLeakName(body, values);
-        if (name === undefined) return undefined;
-        if (f.encoding === "utf8" && runEnvLeakName(diffBaseline, values) !== undefined) {
-          return undefined;
-        }
-        return name;
+        // File bodies have no trustworthy per-file baseline: fail closed.
+        return runEnvLeakName(body, values);
       })
       .find(Boolean);
   if (leaked === undefined) return scrubbed;

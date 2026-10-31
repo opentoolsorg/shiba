@@ -1,6 +1,5 @@
 import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
-import { initiatorUserIdFromOrchestratorName } from "./subscription-routing.js";
 import { authorizeV1Request, type V1Principal, v1Unauthorized } from "./v1-auth.js";
 import { isDashboardAgentName } from "./web-sessions.js";
 
@@ -35,13 +34,11 @@ export function orgIdFromIntake(input: Record<string, unknown>): string {
   return raw;
 }
 
-/** Dashboard/web sessions bind org scope to the authenticated owner, not composer metadata. */
+/** Dashboard resources use the dashboard API org; ownership stays on the verified initiator. */
 export function intakeOrgIdForOrchestrator(
   orchestratorName: string | null | undefined,
   input: Record<string, unknown>,
 ): string {
-  const initiator = initiatorUserIdFromOrchestratorName(orchestratorName ?? undefined);
-  if (initiator) return initiator;
   if (isDashboardAgentName(orchestratorName ?? undefined)) return DASHBOARD_ORG_ID;
   return orgIdFromIntake(input);
 }

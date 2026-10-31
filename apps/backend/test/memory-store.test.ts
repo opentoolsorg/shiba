@@ -393,6 +393,42 @@ describe("Memory DO routes", () => {
     expect(agents.agents).toEqual([]);
   });
 
+  it("restores retained fact searchability when registry deletion fails", async () => {
+    const h = makeHarness();
+    const owner = h.stub("intern");
+    const { body } = await bank(owner, "retained searchable fact");
+    const id = body.fact!.id;
+    const originalFetch = h.registry.fetch;
+    h.registry.fetch = (request) => request.method === "DELETE"
+      ? Promise.resolve(new Response("unavailable", { status: 503 }))
+      : originalFetch(request);
+    expect((await send(owner, "DELETE", `/facts/${id}`)).status).toBe(503);
+    expect(h.vectors.has(id)).toBe(true);
+    const recalled = await (await get(h.registry, "/facts/search?q=retained")).json() as { facts: Array<{ id: string }> };
+    expect(recalled.facts.map((fact) => fact.id)).toEqual([id]);
+    h.registry.fetch = originalFetch;
+    expect((await send(owner, "DELETE", `/facts/${id}`)).status).toBe(200);
+    expect(h.vectors.has(id)).toBe(false);
+  });
+
+  it("reconciles interrupted deletion after an index repair fails", async () => {
+    const h = makeHarness();
+    const owner = h.stub("intern");
+    const { body } = await bank(owner, "repair survives restart");
+    const id = body.fact!.id;
+    // Model a process interruption after vector deletion and before cleanup.
+    h.vectors.delete(id);
+    h.dbs.get("intern")!.prepare("INSERT INTO index_repair_pending (fact_id) VALUES (?)").run(id);
+    const originalFetch = h.registry.fetch;
+    h.registry.fetch = () => Promise.resolve(new Response("unavailable", { status: 503 }));
+    expect((await get(owner, `/facts/${id}`)).status).toBe(200);
+    expect(h.dbs.get("intern")!.prepare("SELECT * FROM index_repair_pending").all()).toHaveLength(1);
+    h.registry.fetch = originalFetch;
+    expect((await get(owner, `/facts/${id}`)).status).toBe(200);
+    expect(h.dbs.get("intern")!.prepare("SELECT * FROM index_repair_pending").all()).toHaveLength(0);
+    expect(h.vectors.has(id)).toBe(true);
+  });
+
   it("drops the registry row when the agent stub deletes the fact", async () => {
     const h = makeHarness();
     const { body } = await bank(h.stub("intern"), "doomed");
@@ -724,17 +760,15 @@ describe("Memory DO routes", () => {
     expect(scoped.facts).toHaveLength(1);
   });
 
-  it("skips a failing agent stub in cross-agent recall instead of failing the call", async () => {
+  it.each([true, false])("skips a failing agent stub in cross-agent recall (metadata: %s)", async (metadata) => {
     const h = makeHarness();
     await bank(h.stub("intern"), "alpha survives");
     const { body } = await bank(h.stub("flaky"), "beta unreachable");
     const id = body.fact?.id ?? "";
     expect(id).toBeTruthy();
-    // Metadata-backed hits answer without the stub; keep only the
-    // pre-metadata fallback under test by stripping flaky's metadata —
-    // then its dead stub is skipped like before.
+    // Exercise both metadata validation and the legacy join path.
     const vector = h.vectors.get(id);
-    if (vector) vector.metadata = { agent: "flaky" };
+    if (vector && !metadata) vector.metadata = { agent: "flaky" };
     const flaky = h.stubs.get("flaky");
     expect(flaky).toBeDefined();
     if (flaky) {
@@ -746,7 +780,7 @@ describe("Memory DO routes", () => {
     expect(facts.map((f) => f.agent)).toEqual(["intern"]);
   });
 
-  it("stores the fact row as vector metadata and recalls it with zero stub joins", async () => {
+  it("validates metadata-backed hits against the live owning stub", async () => {
     const h = makeHarness();
     const { body } = await bank(h.stub("intern"), "recalled off metadata");
     const id = body.fact?.id ?? "";
@@ -755,8 +789,7 @@ describe("Memory DO routes", () => {
       fact: "recalled off metadata",
       source: "run",
     });
-    // Metadata hits never reach the owning stub — break it and recall
-    // still answers.
+    // A failed live-row check must skip the hit rather than trust stale metadata.
     const intern = h.stubs.get("intern");
     if (intern) {
       intern.fetch = () => Promise.resolve(new Response("down", { status: 500 }));
@@ -765,8 +798,7 @@ describe("Memory DO routes", () => {
     expect(res.status).toBe(200);
     const facts = ((await res.json()) as { facts: Array<{ id: string; fact: string; agent: string }> })
       .facts;
-    expect(facts.map((f) => f.id)).toEqual([id]);
-    expect(facts[0]?.agent).toBe("intern");
+    expect(facts).toEqual([]);
   });
 
   it("dedupes a near-identical bank onto the existing fact", async () => {

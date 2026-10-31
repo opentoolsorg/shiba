@@ -60,4 +60,19 @@ describe("postReview", () => {
     expect(posted).toContain("<!-- shiba-review-round:run-1:abc -->");
     expect(posted).toContain("src/b.ts:9");
   });
+  it("publishes App reviews without /user and reuses only a recorded review ID", async () => {
+    const reviews = [{ id: 8, body: "<!-- shiba-review-round:run-1:abc -->", user: { login: "attacker" } }];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).not.toMatch(/\/user$/);
+      if (init?.method === "POST") return Response.json({ id: 9, html_url: "review-9" });
+      return Response.json(reviews);
+    });
+    expect(await postReview(round, "installation-token", { fetchImpl, credentialMode: "app" }))
+      .toEqual({ githubReviewId: 9, url: "review-9" });
+    reviews.push({ id: 9, body: "<!-- shiba-review-round:run-1:abc -->", user: { login: "app[bot]" } });
+    expect(await postReview({ ...round, githubReviewId: 9 }, "installation-token", { fetchImpl, credentialMode: "app" }))
+      .toEqual({ githubReviewId: 9, url: "" });
+    expect(fetchImpl.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
+  });
+
 });
