@@ -42,7 +42,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { copyOperatorAuth } from "./link-operator-auth.mjs";
-import { captureExpectedDeliverables } from "./local-deliverables.mjs";
+import { captureExpectedDeliverables, readContainedChangedFile } from "./local-deliverables.mjs";
 import { connectReasonNetworkStdio, createReasonNetworkCompanion } from "./reason-network-companion.mjs";
 
 const LOCAL_RUN_ROOT_TOKEN = "${SHIBA_LOCAL_RUN_ROOT}";
@@ -613,15 +613,10 @@ async function collectResult(envelope, root, execution) {
   const remainingFiles = changedFiles.filter((filePath) => !requestedPaths.has(filePath))
     .slice(0, Math.max(0, MAX_CAPTURED_FILES - files.length));
   for (const filePath of remainingFiles) {
-    const absolute = path.join(cloneDir, filePath);
     try {
-      const stat = await fs.stat(absolute);
-      if (!stat.isFile()) continue;
-      if (stat.size > MAX_FILE_CHARS * 2) {
-        files.push({ path: filePath, content: null, encoding: "utf8" });
-        continue;
-      }
-      const content = await fs.readFile(absolute, "utf8");
+      const content = await readContainedChangedFile(cloneDir, filePath, {
+        maxBytes: MAX_FILE_CHARS * 2,
+      });
       if (totalChars + content.length > MAX_TOTAL_FILE_CHARS) break;
       totalChars += content.length;
       files.push({ path: filePath, content, encoding: "utf8" });

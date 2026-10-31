@@ -50,6 +50,10 @@ const LOCAL_DAEMON_HARNESSES: Readonly<Record<string, string>> = {
 const PAIR_PREFIX = "pair:";
 /** Worker-vouched calling machine on /claim; local-routes strips any inbound copy. */
 export const LOCAL_MACHINE_HEADER = "X-Shiba-Machine-Id";
+/** Dashboard harness routes stamp the authenticated owner for run-scoped control. */
+export const LOCAL_DASHBOARD_OWNER_HEADER = "X-Shiba-Dashboard-Owner";
+/** Set when the caller may operate shared harness approvals (DASHBOARD_APPROVERS). */
+export const LOCAL_DASHBOARD_SHARED_HEADER = "X-Shiba-Dashboard-Shared";
 
 /** Stored machine record: the adapter token lives only as its sha256 — never readable back. */
 type ComputerRecord = Omit<ConnectedComputer, "status"> & { tokenHash?: string };
@@ -83,6 +87,17 @@ export class LocalDispatch extends DurableObject {
   }
 
   /** The claim token is the write credential for live session traffic. */
+  private harnessAllowed(
+    record: LocalDispatchRecord,
+    request: Request,
+  ): boolean {
+    const owner = record.dashboardOwnerId;
+    if (owner === undefined) return true;
+    const caller = request.headers.get(LOCAL_DASHBOARD_OWNER_HEADER)?.trim() ?? "";
+    if (caller === owner) return true;
+    return request.headers.get(LOCAL_DASHBOARD_SHARED_HEADER) === "1";
+  }
+
   private async claimedRecord(
     body: Record<string, unknown>,
   ): Promise<LocalDispatchRecord | Response> {
@@ -193,10 +208,15 @@ export class LocalDispatch extends DurableObject {
         // A live busy machine can claim this pending run after its current
         // run settles. Only availability and compatibility gate dispatch.
       }
+      const dashboardOwnerId =
+        typeof body.dashboardOwnerId === "string" && body.dashboardOwnerId.trim() !== ""
+          ? body.dashboardOwnerId.trim().slice(0, 200)
+          : undefined;
       const record: LocalDispatchRecord = {
         envelope: parsed.data,
         status: "pending",
         ...(target !== "" ? { targetMachineId: target } : {}),
+        ...(dashboardOwnerId !== undefined ? { dashboardOwnerId } : {}),
       };
       await this.putRecord(record);
       return Response.json({ ok: true });
@@ -489,6 +509,7 @@ export class LocalDispatch extends DurableObject {
       const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
       const runs = [...records.values()]
         .filter((record) => record.status === "claimed")
+        .filter((record) => this.harnessAllowed(record, request))
         .map((record) => ({
           sandboxId: record.envelope.sandboxId,
           events: record.sessionEvents ?? [],
@@ -519,6 +540,9 @@ export class LocalDispatch extends DurableObject {
           { status: 409 },
         );
       }
+      if (!this.harnessAllowed(record, request)) {
+        return Response.json({ error: "Forbidden." }, { status: 403 });
+      }
       const approvals = (record.harnessApprovals ?? []).map((item) =>
         item.requestId === requestId ? { ...item, decision } : item,
       );
@@ -536,6 +560,9 @@ export class LocalDispatch extends DurableObject {
       const record = await this.getRecord(sandboxId);
       if (record === null || record.status !== "claimed") {
         return Response.json({ error: "Run is not claimed." }, { status: 409 });
+      }
+      if (!this.harnessAllowed(record, request)) {
+        return Response.json({ error: "Forbidden." }, { status: 403 });
       }
       if (body.interrupt !== true)
         return Response.json({ error: "interrupt is required." }, { status: 400 });

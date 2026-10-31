@@ -177,14 +177,20 @@ export function createSandboxOps(
  * intra-deployment DO stub; the bearer-token front door is for the
  * operator daemon only, so these calls carry no credential.
  */
-function workerLocalDispatchClient(env: Env): LocalDispatchClient {
+function workerLocalDispatchClient(env: Env, dashboardOwnerId?: string): LocalDispatchClient {
   const stub = () => localDispatchStub(env);
   return {
-    async dispatch(envelope, targetMachineId) {
+    async dispatch(envelope, targetMachineId, ownerId) {
       const res = await stub().fetch(new Request("https://local-dispatch/dispatch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ envelope, ...(targetMachineId !== undefined ? { targetMachineId } : {}) }),
+        body: JSON.stringify({
+          envelope,
+          ...(targetMachineId !== undefined ? { targetMachineId } : {}),
+          ...((ownerId ?? dashboardOwnerId) !== undefined
+            ? { dashboardOwnerId: ownerId ?? dashboardOwnerId }
+            : {}),
+        }),
       }));
       if (!res.ok) throw new Error(`dispatch: ${res.status} ${await res.text()}`);
     },
@@ -277,7 +283,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                 throw new Error(LOCAL_DISPATCH_MESSAGE);
               }
               adapter = createRuntimeAdapter("local", harness, {
-                client: workerLocalDispatchClient(this.env),
+                client: workerLocalDispatchClient(
+                  this.env,
+                  input.initiatorUserId?.trim() || this.name,
+                ),
               });
             } else {
               adapter = createRuntimeAdapter(runtimeName, harness);
