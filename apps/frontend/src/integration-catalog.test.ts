@@ -8,6 +8,15 @@ import {
   searchIntegrationCatalog,
 } from "@shiba/shared";
 
+describe("parseIntegrationsProviderId", () => {
+  it("defaults to composio and accepts explicit ids", async () => {
+    const { parseIntegrationsProviderId } = await import("@shiba/shared");
+    expect(parseIntegrationsProviderId(undefined)).toBe("composio");
+    expect(parseIntegrationsProviderId("none")).toBe("none");
+    expect(parseIntegrationsProviderId(" GROKBOT ")).toBe("grokbot");
+  });
+});
+
 describe("integration catalog schema", () => {
   it("parses the seeded catalog and enforces unique ids", () => {
     const parsed = integrationCatalogSchema.parse(INTEGRATION_CATALOG);

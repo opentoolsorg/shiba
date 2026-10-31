@@ -495,4 +495,22 @@ export interface Env {
   SHIBA_ELEVATED_CONCURRENCY?: string;
   /** Phase 2b: optional UTC-day USD cap on summed run.usage.costUsd. */
   SHIBA_DAILY_CONTAINER_BUDGET_USD?: string;
+  /**
+   * SaaS integrations factory: composio (default) | none | grokbot.
+   * MCP and native Slack/GitHub paths are independent of this selector.
+   */
+  INTEGRATIONS_PROVIDER?: string;
+  /** Composio platform API key — Worker secret; never sent to sandboxes. */
+  COMPOSIO_API_KEY?: string;
+  /** Typo alias read by composioApiKey(); prefer COMPOSIO_API_KEY in wrangler secrets. */
+  COMPOSITO_API_KEY?: string;
+  /** Override Composio REST v3 base (toolkits, connected accounts). */
+  COMPOSIO_API_BASE_URL?: string;
+  /** Override Composio tool-router session base (default v3.1). */
+  COMPOSIO_SESSION_API_BASE_URL?: string;
+  /**
+   * Exact OAuth callback URL registered with Composio for connected-account linking.
+   * Defaults to `{origin}/api/integrations/provider/callback` when unset (loopback/dev).
+   */
+  INTEGRATIONS_CALLBACK_URI?: string;
 }
