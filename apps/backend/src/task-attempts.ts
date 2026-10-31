@@ -1,3 +1,4 @@
+import { onboardingRunFields } from "@shiba/shared";
 /** Durable logical-task lineage projected over the existing run registry.
  * A task is the stable conversation + frozen request identity; each attempt
  * owns a fresh approval and run ID. Legacy retained runs become one-attempt
@@ -204,6 +205,7 @@ export function taskVisibleToPrincipal(task: DurableTask, principal: string | nu
 /** Freeze the same post-default input hash that the run approval gate checks. */
 export function frozenTaskInputFromApproval(approval: PendingApproval): FrozenTaskInput {
   const input: RunInputFields = {
+    ...onboardingRunFields(approval),
     repoUrl: approval.repoUrl,
     ...(approval.executionTarget !== undefined ? { executionTarget: approval.executionTarget } : {}),
     task: approval.task,

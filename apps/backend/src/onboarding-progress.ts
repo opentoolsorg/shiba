@@ -245,20 +245,32 @@ export async function readAcceptedDeliverableEvidence(
       if (!runsResponse.ok) throw new Error("Run evidence unavailable.");
       const runsBody: unknown = await runsResponse.json();
       if (typeof runsBody !== "object" || runsBody === null || !Array.isArray((runsBody as { runs?: unknown }).runs)) throw new Error("Invalid run evidence.");
-      return (runsBody as { runs: unknown[] }).runs.some((run) => {
+      const approvedArtifact = (item: unknown) => {
+        if (typeof item !== "object" || item === null) return false;
+        const artifact = item as { artifactId?: unknown; version?: unknown; path?: unknown; sha256?: unknown; review?: { status?: unknown } };
+        return typeof artifact.artifactId === "string" && artifact.artifactId.length > 0 &&
+          Number.isSafeInteger(artifact.version) && Number(artifact.version) > 0 &&
+          typeof artifact.path === "string" && artifact.path.length > 0 &&
+          typeof artifact.sha256 === "string" && /^[a-f0-9]{64}$/i.test(artifact.sha256) && artifact.review?.status === "approved";
+      };
+      const acceptedRun = (runsBody as { runs: unknown[] }).runs.some((run) => {
         if (typeof run !== "object" || run === null) return false;
         const binding = run as { status?: unknown; draftTaskId?: unknown; draftTaskVersion?: unknown };
         if (binding.status !== "completed" || binding.draftTaskId !== draftTaskId || binding.draftTaskVersion !== draftTaskVersion) return false;
         const deliverables = (run as { deliverables?: unknown }).deliverables;
-        return Array.isArray(deliverables) && deliverables.some((item) => {
-          if (typeof item !== "object" || item === null) return false;
-          const artifact = item as { artifactId?: unknown; version?: unknown; path?: unknown; sha256?: unknown; review?: { status?: unknown } };
-          return typeof artifact.artifactId === "string" && artifact.artifactId.length > 0 &&
-            Number.isSafeInteger(artifact.version) && Number(artifact.version) > 0 &&
-            typeof artifact.path === "string" && artifact.path.length > 0 &&
-            typeof artifact.sha256 === "string" && /^[a-f0-9]{64}$/i.test(artifact.sha256) &&
-            artifact.review?.status === "approved";
-        });
+        return Array.isArray(deliverables) && deliverables.some(approvedArtifact);
+      });
+      if (acceptedRun) return true;
+      const draftResponse = await stub.fetch("https://internal/api/employee-drafts");
+      if (!draftResponse.ok) throw new Error("Draft evidence unavailable.");
+      const draftBody = await draftResponse.json() as { drafts?: unknown };
+      if (!Array.isArray(draftBody.drafts)) throw new Error("Invalid draft evidence.");
+      return draftBody.drafts.some((value) => {
+        if (!value || typeof value !== "object") return false;
+        const draft = value as { orgId?: unknown; actorId?: unknown; executionContextId?: unknown; draftTaskId?: unknown; draftTaskVersion?: unknown; source?: { draftTaskId?: unknown; draftTaskVersion?: unknown }; deliverable?: unknown };
+        return draft.orgId === DASHBOARD_ORG_ID && draft.actorId === ownerEmail && draft.executionContextId === name &&
+          draft.draftTaskId === draftTaskId && draft.draftTaskVersion === draftTaskVersion &&
+          draft.source?.draftTaskId === draftTaskId && draft.source?.draftTaskVersion === draftTaskVersion && approvedArtifact(draft.deliverable);
       });
     }));
     if (results.some((result) => result.status === "fulfilled" && result.value)) return true;

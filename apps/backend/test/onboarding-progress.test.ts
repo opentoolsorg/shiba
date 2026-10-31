@@ -130,7 +130,7 @@ describe("server-owned onboarding progress", () => {
     const read = async () => readAcceptedDeliverableEvidence(ctx.env, "a@example.test", async () => ({
       fetch: async (input) => String(input).endsWith("/internal/web-sessions")
         ? Response.json({ sessions: [] })
-        : Response.json({ runs: runRows }),
+        : String(input).endsWith("/api/employee-drafts") ? Response.json({ drafts: [] }) : Response.json({ runs: runRows }),
     }), "draft_current", 2);
     expect(await read()).toBe(false);
     primaryArtifact.review.status = "approved";

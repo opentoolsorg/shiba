@@ -9,8 +9,10 @@ import { capabilityId, EMPLOYEE_TOOL_POLICY_VERSION } from "./employee-tool-poli
 import { deliverableStorageKey, persistRunDeliverables, verifyExpectedDeliverables } from "./run-deliverables.js";
 import { artifactReviewRevision, parseArtifactReview } from "./artifact-metadata.js";
 import { parseSessionAgentName } from "./web-sessions.js";
+import type { OnboardingRunFields } from "@shiba/shared";
+import { revalidateOnboardingBinding } from "./onboarding-task-binding.js";
 
-export interface EmployeeDraftBinding {
+export interface EmployeeDraftBinding extends OnboardingRunFields {
   orgId: string;
   actorId: string;
   executionContextId: string;
@@ -63,7 +65,9 @@ async function sha256(value: string | ArrayBuffer): Promise<string> {
 
 function sameBinding(a: EmployeeDraftBinding, b: EmployeeDraftBinding): boolean {
   return a.orgId === b.orgId && a.actorId === b.actorId && a.executionContextId === b.executionContextId &&
-    a.employeeId === b.employeeId && a.employeeVersion === b.employeeVersion;
+    a.employeeId === b.employeeId && a.employeeVersion === b.employeeVersion &&
+    a.draftTaskId === b.draftTaskId && a.draftTaskVersion === b.draftTaskVersion &&
+    JSON.stringify(a.onboardingSourceSnapshot) === JSON.stringify(b.onboardingSourceSnapshot);
 }
 
 async function currentSourceGrant(env: Env, binding: EmployeeDraftBinding, messageIds: readonly string[]) {
@@ -86,6 +90,7 @@ async function currentSourceGrant(env: Env, binding: EmployeeDraftBinding, messa
     !await isGmailConnectionActive(env, first.accountId, first.connectionId)) {
     throw new Error("Draft source grant was revoked or changed.");
   }
+  await revalidateOnboardingBinding(env, binding.actorId, binding);
   return { connectionId: first.connectionId, accountId: first.accountId, connectionGeneration: first.generation };
 }
 
@@ -161,7 +166,12 @@ export async function retainEmployeeDraft(
   const draft: EmployeeDraft = {
     ...binding, id, createdAt: now, source: structuredClone(source),
     deliverable: { ...metadata, artifactId: id, version: 1,
-      provenance: { customAgent: { id: binding.employeeId, version: binding.employeeVersion } },
+      provenance: { customAgent: { id: binding.employeeId, version: binding.employeeVersion },
+        ...(binding.draftTaskId && binding.draftTaskVersion ? { onboarding: {
+          draftTaskId: binding.draftTaskId, version: binding.draftTaskVersion,
+          sources: (binding.onboardingSourceSnapshot?.sources ?? []).map(({ id, version, sha256 }) => ({ id, version, sha256 })),
+        } } : {}),
+      },
       review: { status: "pending_review", revision: 0, updatedAt: now } },
   };
   store.saveDraft(draft);

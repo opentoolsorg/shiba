@@ -22,6 +22,7 @@ import {
   type EmployeeDraftBinding, type EmployeeDraftStore,
 } from "./employee-drafts.js";
 import { parseSessionAgentName, validateSessionRecordIntegrity, type WebSessionRecord } from "./web-sessions.js";
+import type { OnboardingRunFields } from "@shiba/shared";
 
 const ACTION_NAMES = Object.keys(EMPLOYEE_TOOL_ACTIONS) as Array<keyof typeof EMPLOYEE_TOOL_ACTIONS>;
 /** True only for Worker-side app actions with reviewed policy and dispatch support. */
@@ -149,11 +150,12 @@ export function createEmployeeRunTools(
   resolveActorId: () => string | null = () => null,
   draftStore?: EmployeeDraftStore,
   resolveTrustedContext?: () => Promise<EmployeeRunToolContext | null>,
+  resolveGoal?: (employeeId: string) => Promise<OnboardingRunFields | undefined>,
 ): ToolSet {
-  const binding = (context: EmployeeRunToolContext, executionContextId: string): EmployeeDraftBinding => {
+  const binding = async (context: EmployeeRunToolContext, executionContextId: string): Promise<EmployeeDraftBinding> => {
     if (!context.principal.orgId) throw new Error("Employee workspace is unavailable.");
     return { orgId: context.principal.orgId, actorId: context.actorId, executionContextId,
-      employeeId: context.employeeId, employeeVersion: context.employeeVersion };
+      employeeId: context.employeeId, employeeVersion: context.employeeVersion, ...await resolveGoal?.(context.employeeId) };
   };
   const currentContext = async () => {
     if (resolveTrustedContext) return resolveTrustedContext();
@@ -170,7 +172,7 @@ export function createEmployeeRunTools(
           const executionContextId = resolveExecutionContextId();
           const context = await currentContext();
           if (!context || !executionContextId) throw new Error("Employee draft retention is unavailable under the current policy.");
-          const draft = await retainEmployeeDraft(env, draftStore, binding(context, executionContextId), options.toolCallId, input, options.abortSignal);
+          const draft = await retainEmployeeDraft(env, draftStore, await binding(context, executionContextId), options.toolCallId, input, options.abortSignal);
           return { status: draft.deliverable.review?.status ?? "pending_review", draft, ...employeeDraftLinks(draft) };
         },
       }),
@@ -201,13 +203,15 @@ export function createEmployeeRunTools(
         if (!context?.allowed.includes(capabilityId(toolName)) || !executionContextId) {
           throw new Error("Employee tool is unavailable under the current policy.");
         }
+        // Freeze and validate the latest human goal before any provider call.
+        const trustedBinding = await binding(context, executionContextId);
         const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId);
         const body = await response.json().catch(() => ({})) as Record<string, unknown>;
         if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Employee tool call failed (${response.status}).`);
         if (draftStore && toolName === "gmail_read") {
           const result = body.result as { isError?: boolean } | undefined;
           if (!result || result.isError) throw new Error("Source read did not succeed.");
-          const receipt = await recordEmployeeRead(env, draftStore, binding(context, executionContextId), options.toolCallId, args.messageIds as string[], result, options.abortSignal);
+          const receipt = await recordEmployeeRead(env, draftStore, trustedBinding, options.toolCallId, args.messageIds as string[], result, options.abortSignal);
           return { ...body, sourceReadId: receipt.id };
         }
         return body;

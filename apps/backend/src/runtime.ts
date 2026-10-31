@@ -1,3 +1,4 @@
+import { onboardingSourceInstructions } from "@shiba/shared";
 /**
  * Runtime adapter seam. The default adapter wraps the Sandbox SDK.
  * An experimental adapter for @cloudflare/computer exists only as a
@@ -1026,6 +1027,8 @@ function streamProgress(
 }
 
 function withDeliverableInstructions(input: CodingTaskInput): CodingTaskInput {
+  const sourceContext = onboardingSourceInstructions(input.onboardingSourceSnapshot);
+  if (sourceContext) input = { ...input, task: input.task + sourceContext };
   const expected = expectedDeliverablesSchema.parse(input.expectedDeliverables ?? []);
   if (!expected.length) return input;
   const workspace = input.executionTarget?.kind === "artifact-workspace"
