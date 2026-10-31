@@ -11,6 +11,7 @@ interface ExternalTool {
   effect: "unreviewed" | "read" | "approval_required";
   reviewedAt: number | null;
   enabled: boolean;
+  recommendedEffect?: "unreviewed" | "read" | "approval_required";
 }
 interface ExternalServer {
   id: string;
@@ -23,6 +24,10 @@ interface ExternalServer {
   healthStale: boolean;
   lastCheckedAt: number | null;
   lastErrorCode: string | null;
+  catalogId?: string | null;
+  connectionLabel?: string | null;
+  visibility?: "private" | "workspace";
+  authMode?: string;
   tools: ExternalTool[];
 }
 interface ExternalAccess {
@@ -276,6 +281,13 @@ export function ExternalMcpManagement(): JSX.Element {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h4 className="text-xs font-semibold text-[var(--fg)]">{server.name}</h4>
+              {server.catalogId ? (
+                <p className="font-mono text-[10px] text-[var(--muted-foreground-2)]">
+                  {server.catalogId}
+                  {server.connectionLabel ? `:${server.connectionLabel}` : ""} · {server.visibility ?? "private"} ·{" "}
+                  {server.authMode ?? "bearer_ref"}
+                </p>
+              ) : null}
               <code className="break-all text-[10px] text-[var(--muted-foreground-2)]">
                 {server.endpoint}
               </code>
@@ -376,7 +388,9 @@ export function ExternalMcpManagement(): JSX.Element {
                       aria-label={`Effect for ${tool.remoteName}`}
                       className={inputClass}
                       value={
-                        effectChoices[tool.id] ?? (tool.effect === "unreviewed" ? "" : tool.effect)
+                        effectChoices[tool.id] ??
+                          tool.recommendedEffect ??
+                          (tool.effect === "unreviewed" ? "" : tool.effect)
                       }
                       onChange={(event) => {
                         if (

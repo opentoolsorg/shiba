@@ -14,6 +14,9 @@ export type IntegrationBindingInputs = {
   gmailConnected: boolean | null;
   gmailLoading: boolean;
   externalMcpServerCount: number | undefined;
+  externalMcpCatalogConnections:
+    | Array<{ catalogId: string; connectionLabel: string | null; status: string }>
+    | undefined;
   externalMcpLoading: boolean;
 };
 
@@ -86,12 +89,25 @@ function phaseForBinding(
   }
 }
 
+function phaseForMcpCatalog(catalogId: string, inputs: IntegrationBindingInputs): IntegrationConnectionPhase {
+  if (inputs.externalMcpLoading) return "loading";
+  const matches = (inputs.externalMcpCatalogConnections ?? []).filter(
+    (connection) => connection.catalogId === catalogId && connection.status !== "disabled",
+  );
+  if (matches.length > 0) return "configured";
+  return "not_set_up";
+}
+
 export function buildIntegrationConnectionSnapshot(
   entries: IntegrationCatalogEntry[],
   inputs: IntegrationBindingInputs,
 ): IntegrationConnectionSnapshot {
   const snapshot: IntegrationConnectionSnapshot = {};
   for (const entry of entries) {
+    if (entry.kind === "mcp" && entry.id !== "external-mcp") {
+      snapshot[entry.id] = phaseForMcpCatalog(entry.id, inputs);
+      continue;
+    }
     if (entry.status === "catalog_only" && !entry.nativeBinding) {
       snapshot[entry.id] = "catalog_only";
       continue;
