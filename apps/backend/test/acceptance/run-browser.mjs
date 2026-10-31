@@ -1291,6 +1291,7 @@ try {
   await page.getByRole("button", { name: "Use", exact: true }).click();
   await composer.getByRole("button", { name: "Thread configuration" }).click();
   await page.getByRole("menuitemradio", { name: /Acceptance Researcher/ }).click();
+  await page.keyboard.press("Escape");
   await composer.getByRole("button", { name: "Run on: Cloud" }).click();
   await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).focus();
   await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).press("Enter");
