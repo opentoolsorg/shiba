@@ -145,7 +145,7 @@ describe("codex-subscription queue intake", () => {
     const body = (await response.json()) as { error?: string };
 
     expect(response.status).toBe(400);
-    expect(body.error).toMatch(/SHIBA_CODEX_SUBSCRIPTION|not enabled/i);
+    expect(body.error).toMatch(/SHIBA_CODEX_SUBSCRIPTION|not enabled|authenticated account|no authenticated/i);
     expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
   });
 

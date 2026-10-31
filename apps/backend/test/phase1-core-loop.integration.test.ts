@@ -74,6 +74,9 @@ function createMockGitHubFetch() {
     const json = (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+    if (url.endsWith("/user")) {
+      return json({ login: "shiba-bot" });
+    }
     if (url.endsWith("/git/ref/heads/main")) {
       return json({ object: { sha: "base-sha" } });
     }
@@ -107,6 +110,7 @@ function createMockGitHubFetch() {
         id: postedReviews.length + 1,
         html_url: `${PULL_URL}#pullrequestreview-${postedReviews.length + 1}`,
         body: body.body,
+        user: { login: "shiba-bot" },
       };
       postedReviews.push(review);
       return json(review);
@@ -117,6 +121,7 @@ function createMockGitHubFetch() {
           id: review.id,
           html_url: review.html_url,
           body: review.body,
+          user: { login: "shiba-bot" },
         })),
       );
     }

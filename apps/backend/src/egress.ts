@@ -39,6 +39,8 @@ export type EgressEnv = Pick<
 export interface OutboundHandlerCtx {
   params?: unknown;
   orgId?: string;
+  /** Run initiator — personal provider keys must match this user. */
+  initiatorUserId?: string;
 }
 
 function approvedPath(ctx?: OutboundHandlerCtx): string | undefined {
@@ -118,6 +120,7 @@ async function forwardProvider(
   env: EgressEnv,
   host: string,
   orgId?: string,
+  credentialUserId?: string,
 ): Promise<Response> {
   const source = new URL(request.url);
   if (source.protocol !== "https:" || source.hostname !== host) {
@@ -128,7 +131,7 @@ async function forwardProvider(
   }
   const kind = kindForHost(host);
   if (kind) {
-    const secret = await readProviderSecretForOrg(env, orgId, kind);
+    const secret = await readProviderSecretForOrg(env, orgId, kind, credentialUserId ?? orgId);
     if (secret) return fetchWithUserKey(request, host, kind, secret);
   }
   const slug = GATEWAY_PROVIDERS[host];
@@ -177,13 +180,18 @@ async function forwardProvider(
   }
 }
 
+function providerCredentialUser(ctx?: OutboundHandlerCtx | string): string | undefined {
+  if (typeof ctx === "string") return ctx;
+  return ctx?.initiatorUserId ?? ctx?.orgId;
+}
+
 export function forwardGoogle(
   request: Request,
   env: EgressEnv,
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
   const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "generativelanguage.googleapis.com", orgId);
+  return forwardProvider(request, env, "generativelanguage.googleapis.com", orgId, providerCredentialUser(ctx));
 }
 
 export function forwardAnthropic(
@@ -192,7 +200,7 @@ export function forwardAnthropic(
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
   const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "api.anthropic.com", orgId);
+  return forwardProvider(request, env, "api.anthropic.com", orgId, providerCredentialUser(ctx));
 }
 
 export function forwardOpenAI(
@@ -201,7 +209,7 @@ export function forwardOpenAI(
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
   const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "api.openai.com", orgId);
+  return forwardProvider(request, env, "api.openai.com", orgId, providerCredentialUser(ctx));
 }
 
 export function forwardXAI(
@@ -210,7 +218,7 @@ export function forwardXAI(
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
   const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "api.x.ai", orgId);
+  return forwardProvider(request, env, "api.x.ai", orgId, providerCredentialUser(ctx));
 }
 
 /**
@@ -226,7 +234,7 @@ export function forwardOpenCodeGo(
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
   const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "opencode.ai", orgId);
+  return forwardProvider(request, env, "opencode.ai", orgId, providerCredentialUser(ctx));
 }
 
 /** DeepSeek uses the same saved OpenCode key. There is no gateway slug. */
@@ -236,7 +244,7 @@ export function forwardDeepSeek(
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
   const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "api.deepseek.com", orgId);
+  return forwardProvider(request, env, "api.deepseek.com", orgId, providerCredentialUser(ctx));
 }
 
 /**
@@ -259,7 +267,7 @@ export async function forwardClaudeSubscription(
     account === "default"
       ? "CLAUDE_SUBSCRIPTION_TOKEN"
       : `CLAUDE_SUBSCRIPTION_TOKEN_${account.toUpperCase().replace(/-/g, "_")}`;
-  const saved = await readProviderSecretForOrg(env, ctx?.orgId, "claude-setup");
+  const saved = await readProviderSecretForOrg(env, ctx?.orgId, "claude-setup", ctx?.initiatorUserId ?? ctx?.orgId);
   const configured = (env as Record<string, unknown>)[secretName];
   const token = saved ?? (typeof configured === "string" ? configured : undefined);
   const target = new URL(request.url);

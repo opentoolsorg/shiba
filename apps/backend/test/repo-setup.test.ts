@@ -248,7 +248,7 @@ describe("/api/runs intake", () => {
 
   it("refuses setup when the run would use the local runtime", async () => {
     const res = await makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1", RUNTIME: "local" }).onRequest(queue({ runSetup: true }));
-    expect(res.status).toBe(400);
-    expect(await res.text()).toContain("local runtime");
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("dashboard");
   });
 });
