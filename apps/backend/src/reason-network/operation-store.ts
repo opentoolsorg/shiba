@@ -47,12 +47,12 @@ export interface ReasonNetworkOperationEnv { AGENT_AUDIT: D1Database }
 /** Upstream keeps idempotency keys for seven days; leave a one-day safety margin. */
 export const REASON_NETWORK_RECOVERY_WINDOW_MS = 6 * 24 * 60 * 60_000;
 
-// Keep queued, claimed, and cancelled in this additive column so legacy `state` CHECK constraints remain valid.
+// Queue state and terminal cancellation stay separate from the historical `state` CHECK constraint.
 export const REASON_NETWORK_OPERATION_SQL = [
   `CREATE TABLE IF NOT EXISTS reason_network_operations (
     owner_id TEXT NOT NULL, grant_id TEXT NOT NULL, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
     idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL, destination TEXT NOT NULL,
-    operation_id TEXT NOT NULL, approval_id TEXT, companion_machine_id TEXT, claim_token TEXT, cancel_requested INTEGER NOT NULL DEFAULT 0, first_attempt_at INTEGER, dispatch_state TEXT,
+    operation_id TEXT NOT NULL, approval_id TEXT, companion_machine_id TEXT, claim_token TEXT, cancel_requested INTEGER NOT NULL DEFAULT 0, first_attempt_at INTEGER, dispatch_state TEXT, cancelled_at INTEGER,
     state TEXT NOT NULL CHECK (state IN ('pending_approval','approved','accepted','unknown','rejected','cancelled')), remote_message_id TEXT,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY(owner_id, grant_id, conversation_id, session_id, idempotency_key)
@@ -61,7 +61,7 @@ export const REASON_NETWORK_OPERATION_SQL = [
 
 interface DbRow {
   owner_id: string; grant_id: string; conversation_id: string; session_id: string;
-  operation_id:string;approval_id:string|null;companion_machine_id:string|null;claim_token:string|null;cancel_requested:number;first_attempt_at:number|null;dispatch_state:"queued"|"claimed"|"cancelled"|null;
+  operation_id:string;approval_id:string|null;companion_machine_id:string|null;claim_token:string|null;cancel_requested:number;first_attempt_at:number|null;dispatch_state:"queued"|"claimed"|null;cancelled_at:number|null;
   idempotency_key: string; payload_digest: string; destination: string; state: ReasonOperationState;
   remote_message_id: string | null; updated_at: number;
 }
@@ -77,7 +77,7 @@ async function ensure(env: ReasonNetworkOperationEnv): Promise<void> {
   const names=new Set((columns.results??[]).map((column)=>column.name));
   const migrations:[string,string][]=[
     ["operation_id","TEXT"],["approval_id","TEXT"],["companion_machine_id","TEXT"],["claim_token","TEXT"],
-    ["cancel_requested","INTEGER NOT NULL DEFAULT 0"],["first_attempt_at","INTEGER"],["dispatch_state","TEXT"],
+    ["cancel_requested","INTEGER NOT NULL DEFAULT 0"],["first_attempt_at","INTEGER"],["dispatch_state","TEXT"],["cancelled_at","INTEGER"],
   ];
   for(const [name,type] of migrations)if(!names.has(name)){
     try{await db.prepare(`ALTER TABLE reason_network_operations ADD COLUMN ${name} ${type}`).run();}
@@ -89,6 +89,7 @@ async function ensure(env: ReasonNetworkOperationEnv): Promise<void> {
   await db.prepare("UPDATE reason_network_operations SET operation_id='rno-legacy-'||lower(hex(randomblob(16))) WHERE operation_id IS NULL").run();
   await db.prepare("UPDATE reason_network_operations SET dispatch_state=state,state='approved' WHERE state IN ('queued','claimed') AND dispatch_state IS NULL").run();
   await db.prepare("UPDATE reason_network_operations SET first_attempt_at=CASE WHEN state='unknown' THEN 0 WHEN dispatch_state='claimed' THEN updated_at ELSE NULL END WHERE first_attempt_at IS NULL AND (state='unknown' OR dispatch_state='claimed')").run();
+  await db.prepare("UPDATE reason_network_operations SET cancelled_at=COALESCE(cancelled_at,updated_at),dispatch_state=NULL WHERE dispatch_state='cancelled'").run();
   await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS reason_network_operations_operation_id ON reason_network_operations(operation_id)").run();
   initialized.add(env.AGENT_AUDIT);
 }
@@ -97,10 +98,10 @@ function fromRow(row: DbRow): ReasonOperation {
     scope: { ownerId: row.owner_id, grantId: row.grant_id, conversationId: row.conversation_id, sessionId: row.session_id },
     operationId:row.operation_id,...(row.approval_id?{approvalId:row.approval_id}:{}),...(row.companion_machine_id?{companionMachineId:row.companion_machine_id}:{}),...(row.claim_token?{claimToken:row.claim_token}:{}),...(row.cancel_requested?{cancelRequested:true}:{}),firstAttemptAt:row.first_attempt_at,
     idempotencyKey: row.idempotency_key, payloadDigest: row.payload_digest, destination: row.destination,
-    state: row.dispatch_state??row.state, ...(row.remote_message_id ? { remoteMessageId: row.remote_message_id } : {}), updatedAt: row.updated_at,
+    state: row.cancelled_at!==null?"cancelled":row.dispatch_state??row.state, ...(row.remote_message_id ? { remoteMessageId: row.remote_message_id } : {}), updatedAt: row.updated_at,
   };
 }
-const SELECT = `SELECT operation_id,approval_id,companion_machine_id,claim_token,cancel_requested,first_attempt_at,dispatch_state,owner_id,grant_id,conversation_id,session_id,idempotency_key,payload_digest,destination,state,remote_message_id,updated_at FROM reason_network_operations`;
+const SELECT = `SELECT operation_id,approval_id,companion_machine_id,claim_token,cancel_requested,first_attempt_at,dispatch_state,cancelled_at,owner_id,grant_id,conversation_id,session_id,idempotency_key,payload_digest,destination,state,remote_message_id,updated_at FROM reason_network_operations`;
 
 /** D1-backed store; the injected database is the durability boundary. */
 export class D1ReasonNetworkOperationStore implements ReasonNetworkOperationStore {
@@ -126,11 +127,12 @@ export class D1ReasonNetworkOperationStore implements ReasonNetworkOperationStor
     await ensure(this.env); const placeholders = expected.map(() => "?").join(",");
     const result = await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET
       state=CASE WHEN ? IN ('queued','claimed','cancelled') THEN state ELSE ? END,
-      dispatch_state=CASE WHEN ? IN ('queued','claimed','cancelled') THEN ? ELSE NULL END,
+      dispatch_state=CASE WHEN ? IN ('queued','claimed') THEN ? ELSE NULL END,
+      cancelled_at=CASE WHEN ?='cancelled' THEN COALESCE(cancelled_at,?) ELSE cancelled_at END,
       first_attempt_at=CASE WHEN ?='unknown' THEN COALESCE(first_attempt_at,?) ELSE first_attempt_at END,
       remote_message_id=COALESCE(?,remote_message_id),updated_at=?
-      WHERE owner_id=? AND grant_id=? AND conversation_id=? AND session_id=? AND idempotency_key=? AND COALESCE(dispatch_state,state) IN (${placeholders})`)
-      .bind(next,next,next,next,next,now,remoteMessageId ?? null,now,scope.ownerId,scope.grantId,scope.conversationId,scope.sessionId,key,...expected).run();
+      WHERE owner_id=? AND grant_id=? AND conversation_id=? AND session_id=? AND idempotency_key=? AND cancelled_at IS NULL AND COALESCE(dispatch_state,state) IN (${placeholders})`)
+      .bind(next,next,next,next,next,now,next,now,remoteMessageId ?? null,now,scope.ownerId,scope.grantId,scope.conversationId,scope.sessionId,key,...expected).run();
     return result.meta?.changes === 1;
   }
 
@@ -162,21 +164,21 @@ export class D1ReasonNetworkOperationStore implements ReasonNetworkOperationStor
     await ensure(this.env);const result=await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET state='unknown',dispatch_state=NULL,claim_token=NULL,updated_at=? WHERE operation_id=? AND companion_machine_id=? AND dispatch_state='claimed' AND first_attempt_at IS NOT NULL AND first_attempt_at<=?`).bind(now,operationId,machineId,now-REASON_NETWORK_RECOVERY_WINDOW_MS).run();return result.meta?.changes===1;
   }
   async settleClaim(machineId:string,operationId:string,claimToken:string,state:"accepted"|"unknown"|"rejected"|"cancelled",remoteMessageId?:string,now=this.now()):Promise<boolean>{
-    await ensure(this.env);const result=await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET state=CASE WHEN ?='cancelled' THEN state ELSE ? END,dispatch_state=CASE WHEN ?='cancelled' THEN 'cancelled' ELSE NULL END,remote_message_id=COALESCE(?,remote_message_id),claim_token=NULL,updated_at=? WHERE operation_id=? AND companion_machine_id=? AND claim_token=? AND dispatch_state='claimed'`).bind(state,state,state,remoteMessageId??null,now,operationId,machineId,claimToken).run();return result.meta?.changes===1;
+    await ensure(this.env);const result=await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET state=CASE WHEN ?='cancelled' THEN state ELSE ? END,dispatch_state=NULL,cancelled_at=CASE WHEN ?='cancelled' THEN COALESCE(cancelled_at,?) ELSE cancelled_at END,remote_message_id=COALESCE(?,remote_message_id),claim_token=NULL,updated_at=? WHERE operation_id=? AND companion_machine_id=? AND claim_token=? AND dispatch_state='claimed' AND cancelled_at IS NULL`).bind(state,state,state,now,remoteMessageId??null,now,operationId,machineId,claimToken).run();return result.meta?.changes===1;
   }
   async cancelOperation(ownerId:string,operationId:string,now=this.now()):Promise<"cancelled"|"cancel_requested"|"not_cancellable"|"not_found">{
     await ensure(this.env);const row=await this.getByOperationId(ownerId,operationId);if(!row)return "not_found";
-    if(["pending_approval","approved","queued"].includes(row.state)){const result=await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET dispatch_state='cancelled',updated_at=? WHERE owner_id=? AND operation_id=? AND COALESCE(dispatch_state,state) IN ('pending_approval','approved','queued')`).bind(now,ownerId,operationId).run();return result.meta?.changes===1?"cancelled":"not_cancellable";}
+    if(["pending_approval","approved","queued"].includes(row.state)){const result=await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET dispatch_state=NULL,cancelled_at=COALESCE(cancelled_at,?),updated_at=? WHERE owner_id=? AND operation_id=? AND cancelled_at IS NULL AND COALESCE(dispatch_state,state) IN ('pending_approval','approved','queued')`).bind(now,now,ownerId,operationId).run();return result.meta?.changes===1?"cancelled":"not_cancellable";}
     if(row.state==="claimed"){await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET cancel_requested=1,updated_at=? WHERE owner_id=? AND operation_id=? AND dispatch_state='claimed'`).bind(now,ownerId,operationId).run();return "cancel_requested";}
     return "not_cancellable";
   }
   async cancelGrant(ownerId:string,grantId:string,now=this.now()):Promise<void>{
     await ensure(this.env);
-    await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET dispatch_state='cancelled',updated_at=? WHERE owner_id=? AND grant_id=? AND COALESCE(dispatch_state,state) IN ('pending_approval','approved','queued')`).bind(now,ownerId,grantId).run();
+    await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET dispatch_state=NULL,cancelled_at=COALESCE(cancelled_at,?),updated_at=? WHERE owner_id=? AND grant_id=? AND cancelled_at IS NULL AND COALESCE(dispatch_state,state) IN ('pending_approval','approved','queued')`).bind(now,now,ownerId,grantId).run();
     await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET cancel_requested=1,updated_at=? WHERE owner_id=? AND grant_id=? AND dispatch_state='claimed'`).bind(now,ownerId,grantId).run();
   }
   async recover(ownerId:string,operationId:string,now=this.now()):Promise<boolean>{
-    await ensure(this.env);const result=await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET dispatch_state='queued',claim_token=NULL,cancel_requested=0,updated_at=? WHERE owner_id=? AND operation_id=? AND state='unknown' AND dispatch_state IS NULL AND companion_machine_id IS NOT NULL AND first_attempt_at IS NOT NULL AND first_attempt_at>?
+    await ensure(this.env);const result=await this.env.AGENT_AUDIT.prepare(`UPDATE reason_network_operations SET dispatch_state='queued',claim_token=NULL,cancel_requested=0,updated_at=? WHERE owner_id=? AND operation_id=? AND state='unknown' AND dispatch_state IS NULL AND cancelled_at IS NULL AND companion_machine_id IS NOT NULL AND first_attempt_at IS NOT NULL AND first_attempt_at>?
       AND EXISTS(SELECT 1 FROM reason_network_grants g WHERE g.owner_id=reason_network_operations.owner_id AND g.grant_id=reason_network_operations.grant_id AND g.status='active' AND g.companion_machine_id=reason_network_operations.companion_machine_id)`).bind(now,ownerId,operationId,now-REASON_NETWORK_RECOVERY_WINDOW_MS).run();return result.meta?.changes===1;
   }
 }
