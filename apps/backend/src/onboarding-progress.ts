@@ -226,7 +226,7 @@ async function readEvidence(env: Env, identity: OnboardingIdentity, deps: Onboar
 async function updateAction(db: D1Database, userId: string, expectedRevision: number, action: "step" | "dismiss" | "resume", currentStep: OnboardingStep | undefined, now: number): Promise<boolean> {
   const current = await readStored(db, userId);
   if (!current || current.revision !== expectedRevision) return false;
-  const step = action === "step" && currentStep ? currentStep : (isStep(current.current_step) ? current.current_step : "channels");
+  const step = action !== "resume" && currentStep ? currentStep : (isStep(current.current_step) ? current.current_step : "channels");
   const dismissedAt = action === "dismiss" ? now : null;
   const result = await db.prepare(`UPDATE user_onboarding_progress SET current_step=?,dismissed_at=?,revision=revision+1,updated_at=?
     WHERE user_id=? AND revision=?`).bind(step, dismissedAt, now, userId, expectedRevision).run();
