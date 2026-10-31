@@ -1,0 +1,250 @@
+---
+import MarketingPage from '../layouts/MarketingPage.astro';
+
+const agents = [
+  { mark: 'OC', logo: '/assets/harnesses/opencode.svg', name: 'OpenCode', lane: 'Default harness', description: 'The default coding harness for an approved sandbox run.', href: '/docs/agents/opencode/' },
+  { mark: 'CC', logo: '/assets/harnesses/claude.svg', name: 'Claude Code', lane: 'Harness adapter', description: 'Run the Claude Code CLI through Shiba’s configured provider-backed lane.', href: '/docs/agents/claude-code/' },
+  { mark: 'CX', logo: '/assets/harnesses/openai.svg', name: 'Codex', lane: 'Harness adapter', description: 'Choose the Codex CLI for a task without changing the approval workflow.', href: '/docs/agents/codex/' },
+  { mark: 'AC', name: 'ACP agents', lane: 'Registry configuration', description: 'Select an allowlisted ACP agent from your operator-pinned registry snapshot, with a supported distribution and matching credentials.', href: '/docs/claude-code/' },
+];
+const surfaces = [
+  { name: 'Dashboard', detail: 'Describe a task and review its run.', href: '/docs/dashboard/' },
+  { name: 'CLI', detail: 'Work from your terminal.', href: '/docs/local-development/' },
+  { name: 'Cron', detail: 'Queue work on a schedule.', href: '/docs/automations/' },
+  { name: 'GitHub', logo: '/assets/channels/github.svg', detail: 'Use configured repository events.', href: '/docs/github/' },
+  { name: 'Slack', logo: '/assets/channels/slack.svg', detail: 'Start from a mention or /shiba.', href: '/docs/slack/' },
+  { name: 'Telegram', logo: '/assets/channels/telegram.svg', detail: 'Send a task from a conversation.', href: '/docs/telegram/' },
+  { name: 'Discord', logo: '/assets/channels/discord.svg', detail: 'Use configured interactions.', href: '/docs/discord/' },
+  { name: 'MCP', detail: 'Call Shiba from an MCP client.', href: '/docs/mcp/' },
+];
+const faqs = [
+  { q: 'Is this a peer-to-peer agent network?', a: 'No. Today, Shiba coordinates work centrally: the orchestrator delegates a task to a selected coding harness. Direct agent-to-agent messaging is a design preview below, not a shipped feature.' },
+  { q: 'Do all the agents run on every task?', a: 'No. Each delegated sandbox run uses one selected harness. Different tasks can use different harnesses; this page does not promise a self-organizing swarm or shared agent memory.' },
+  { q: 'Does every entry point bypass the approval card?', a: 'No. Interactive delegated coding tasks require approval before sandbox execution. Automations require approval by default; narrowly configured unattended policies are an explicit opt-in. Review those policies before enabling schedules or webhooks.' },
+  { q: 'Can I use this with my team?', a: 'You can save custom-agent configurations for your organization, including harness, model and sandbox defaults. An agent configuration is not a new human teammate or an independently communicating agent. Configure identities, permissions and integration approvers for your installation.' },
+  { q: 'Is every integration proven in a live deployment?', a: 'No. The repository includes implementations and targeted tests, but the readiness documentation records gaps in provider-backed and cloud end-to-end verification. Check the current readiness notes and validate your own account before relying on a connection.' },
+];
+---
+
+<MarketingPage
+  title="Agent network — Shiba"
+  description="Connect coding harnesses to one approval-gated workflow. See how Shiba coordinates tasks today, which surfaces can reach it, and what is still planned."
+  path="/network/"
+  breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'Agent network', path: '/network/' }]}
+>
+  <div id="network-main" class="network shell">
+    <header class="network-hero">
+      <div class="eyebrow"><span class="signal" aria-hidden="true"></span> Harnesses and surfaces</div>
+      <h1>Different coding agents.<br /><em>One approval gate.</em></h1>
+      <div class="hero-bottom">
+        <p>Bring your coding harnesses into Shiba. Give them a task, review the handoff, and keep execution behind an approval gate.</p>
+        <a class="button primary" href="/docs/self-hosting/">Connect your first agent</a>
+      </div>
+      <div class="hero-index"><span>YOUR INFRASTRUCTURE. YOUR CALL.</span><a href="#today">See the handoff <span aria-hidden="true">↓</span></a></div>
+    </header>
+
+    <section id="today" class="chapter" aria-labelledby="today-title">
+      <div class="chapter-meta"><span>01 / THE HANDOFF</span><span class="badge today">Today</span></div>
+      <div class="section-heading"><h2 id="today-title">Coordination, without<br />giving up control.</h2><p>Shiba’s orchestrator prepares the delegation. You approve the exact task input. A selected harness does the coding in an isolated sandbox—not in the orchestrator.</p></div>
+
+      <figure class="network-map" aria-labelledby="map-caption">
+        <div class="map-topline"><span>SHIBA / DELEGATED CODING PATH</span><span>ONE HARNESS PER RUN</span></div>
+        <div class="map-grid" aria-hidden="true">
+          <div class="map-node human"><span class="node-id">01 / REQUEST</span><strong>You</strong><span>Task + repository</span></div>
+          <div class="map-link link-one">→</div>
+          <div class="map-node orchestrator"><span class="node-id">02 / COORDINATE</span><strong>Shiba orchestrator</strong><span>Prepare the handoff</span></div>
+          <div class="map-link link-two">→</div>
+          <div class="map-node gate"><span class="node-id">03 / YOUR DECISION</span><strong>Approval gate</strong><span>Review exact input</span><span class="gate-stamp">WAITING FOR YOU</span></div>
+          <div class="map-link link-three">↓</div>
+          <div class="map-node sandbox"><div class="sandbox-title"><span class="node-id">04 / ISOLATED SANDBOX</span><span class="sandbox-note">Choose one</span></div><div class="harness-nodes"><span>OpenCode</span><span>Claude Code</span><span>Codex</span><span>ACP registry</span></div><span class="sandbox-description">Clone → selected harness → collect changes</span></div>
+          <div class="map-link link-four">→</div>
+          <div class="map-node result"><span class="node-id">05 / REVIEW</span><strong>Diff → pull request</strong><span>When publication is configured</span></div>
+        </div>
+        <figcaption id="map-caption">You submit a task → Shiba’s orchestrator proposes a delegation → you approve its input → one selected harness runs inside an isolated sandbox → changes are collected, with optional pull request publication. This is a workflow diagram, not a live status display.</figcaption>
+      </figure>
+
+      <div class="how-grid">
+        <article><span class="step">01</span><h3>Describe the work.</h3><p>Point Shiba at a repository and a task. The orchestrator prepares a <code>delegate_coding_task</code> call.</p></article>
+        <article><span class="step">02</span><h3>Inspect the handoff.</h3><p>The delegation tool requires approval. Review the card before the coding sandbox starts.</p></article>
+        <article><span class="step">03</span><h3>Review the result.</h3><p>The harness works in the sandbox. Inspect changed files and the diff; configure GitHub publication when you want a PR.</p></article>
+      </div>
+      <aside class="readiness"><strong>Implemented ≠ live-verified.</strong> “Today” describes repository functionality, not a production-readiness guarantee. Provider-backed runs and account-owned integrations need validation in your deployment. <a href="/docs/readiness/">Read the evidence and gaps →</a></aside>
+    </section>
+
+    <section class="chapter" aria-labelledby="agents-title">
+      <div class="chapter-meta"><span>02 / THE AGENTS</span><span>SELECT THE HARNESS, KEEP THE WORKFLOW</span></div>
+      <div class="section-heading"><h2 id="agents-title">Agents you can connect.</h2><p>A harness is the coding CLI that executes a run. Shiba supplies the coordination around it. Connections need the matching credentials and deployment configuration.</p></div>
+      <div class="agent-list">{agents.map((agent) => <article class="agent-row"><span class={`agent-mark ${agent.logo ? 'brand-chip' : ''}`} aria-hidden="true">{agent.logo ? <img src={agent.logo} alt="" width="26" height="26" class="agent-logo" loading="lazy" decoding="async" /> : agent.mark}</span><div><h3>{agent.name}</h3><span class="agent-lane">{agent.lane}</span></div><p>{agent.description}</p><a href={agent.href} aria-label={`Read ${agent.name} configuration docs`}>Configuration</a></article>)}</div>
+      <div class="team-note"><span class="eyebrow">A setup your team can reuse</span><h3>Save the way an agent should work.</h3><p>Custom agents let your organization save harness, model and sandbox defaults rather than rebuild a configuration for every task. These are reusable configurations—not a claim that agents can message one another.</p><a class="text-link" href="/docs/overview/">Explore Shiba’s setup →</a></div>
+    </section>
+
+    <section class="chapter" aria-labelledby="surfaces-title">
+      <div class="chapter-meta"><span>03 / THE ENTRY POINTS</span><span>DIFFERENT SURFACES. SAME CONTROL PLANE.</span></div>
+      <div class="section-heading"><h2 id="surfaces-title">Reach it from anywhere<br />you already work.</h2><p>Start from the dashboard, your terminal, an automation or a connected conversation. Configure each surface’s authentication and permissions before using it.</p></div>
+      <div class="surfaces">
+        {surfaces.map((surface, i) => (
+          <a class="surface" href={surface.href}>
+            <div class="surface-top">
+              <span class="surface-index">0{i + 1}</span>
+              {surface.logo ? (
+                <span class={`surface-chip ${surface.logo ? 'brand-chip' : ''}`} aria-hidden="true">
+                  <img src={surface.logo} alt="" width="20" height="20" class="surface-logo" loading="lazy" decoding="async" />
+                </span>
+              ) : null}
+            </div>
+            <h3>{surface.name}</h3>
+            <p>{surface.detail}</p>
+          </a>
+        ))}
+      </div>
+      <div class="tool-strip"><span class="eyebrow">Small tool surface</span><div><code>delegate_coding_task</code><span>Orchestrator → approved coding run</span></div><a href="/docs/mcp/">MCP tools & setup →</a></div>
+    </section>
+
+    <section class="chapter" aria-labelledby="security-title">
+      <div class="chapter-meta"><span>04 / THE BOUNDARIES</span><span>SECURITY IS PART OF THE HANDOFF</span></div>
+      <div class="section-heading"><h2 id="security-title">More agents shouldn’t<br />mean more exposed keys.</h2><p>The provider-backed sandbox path keeps real model and GitHub credentials at the Worker boundary. It is an implemented design—not a blanket security guarantee.</p></div>
+      <div class="security-grid">
+        <article><span class="eyebrow">Worker-side credentials</span><h3>Real keys stay outside.</h3><p>Provider-backed harnesses receive dummy model keys. The Worker attaches configured credentials at egress; GitHub authorization is also handled outside the container. Other credential lanes have their own requirements.</p></article>
+        <article><span class="eyebrow">Per-run isolation</span><h3>A separate workspace.</h3><p>Delegated coding runs use isolated Sandbox containers. Egress is restricted by the selected harness’s allowed hosts. Review the security docs and your account configuration.</p></article>
+        <article><span class="eyebrow">Human approval</span><h3>The handoff stops here.</h3><p>Interactive delegation pauses for the approval card before sandbox execution. Automation approval is the default; unattended policies must be explicitly configured.</p></article>
+        <article><span class="eyebrow">Tool-call audit</span><h3>A fingerprint, not raw input.</h3><p>For serializable MCP gateway tool arguments, <code>args_hash</code> stores a SHA-256 fingerprint of sorted-key JSON, not raw arguments. Unhashable input records <code>&lt;unhashable&gt;</code>; OAuth audit events hash event-specific strings. Writes to <code>audit_log</code> are best-effort, not a guarantee that every action is recorded.</p></article>
+      </div>
+      <a class="text-link security-link" href="/docs/security/">Read the credential boundaries and limitations →</a>
+    </section>
+
+    <section class="chapter planned" aria-labelledby="planned-title">
+      <div class="chapter-meta"><span>05 / A POSSIBLE NEXT HANDOFF</span><span class="badge">Planned · design preview</span></div>
+      <div class="preview-grid"><div><h2 id="planned-title">What if agents could<br />hand each other context?</h2><p>Direct agent-to-agent messaging is not shipped. A future design could let an agent discover a team and send a scoped handoff, while keeping human control explicit.</p><p class="preview-caution">No available API. No delivery date. The names opposite illustrate an idea, not commands you can run.</p></div><div class="preview-terminal" role="group" aria-label="Non-executable design preview of planned agent messaging"><div class="terminal-label">DESIGN PREVIEW / NOT AVAILABLE</div><pre><code><span class="comment"># Proposed interaction, not a Shiba API</span>
+list_team()
+
+<span class="comment"># A scoped handoff to another agent</span>
+send_message(
+  to: "reviewer",
+  context: "Please review this change"
+)
+
+<span class="comment"># Not executable today.</span></code></pre></div></div>
+    </section>
+
+    <section class="chapter faq" aria-labelledby="faq-title"><div class="chapter-meta"><span>06 / A FEW CLEAR ANSWERS</span></div><div class="faq-grid"><h2 id="faq-title">Before you<br />connect.</h2><div>{faqs.map((faq) => <details><summary>{faq.q}<span aria-hidden="true">+</span></summary><p>{faq.a}</p></details>)}</div></div></section>
+
+    <section class="closing" aria-labelledby="cta-title"><span class="eyebrow">START WITH ONE APPROVED TASK</span><h2 id="cta-title">Your agents.<br /><em>Your final say.</em></h2><p>Self-host Shiba, configure a harness, and follow the documented verification steps before trusting a run.</p><div class="cta-actions"><a class="button primary" href="/docs/self-hosting/">Read the self-hosting guide</a><a class="button secondary" href="https://github.com/princepal9120/shiba">Explore on GitHub <span aria-hidden="true">↗</span></a></div></section>
+  </div>
+</MarketingPage>
+
+<style>
+  .network { color: var(--ink); }
+  .network-map, .team-note, .planned, .preview-terminal { border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-soft); }
+  .map-node, .surface, .security-grid article { border-radius: var(--r-md); box-shadow: var(--shadow-soft); }
+  .surfaces, .security-grid { gap: 16px; border: 0; }
+  .surface, .security-grid article { border: 1px solid var(--line-2); }
+  .badge, .agent-mark, .harness-nodes span, .gate-stamp, details { border-radius: var(--r-sm); }
+  details { padding-inline: 14px; background: var(--card); }
+  .signal { border-radius: 50%; }
+  .network-hero { padding: 76px 0 0; }
+  .eyebrow, .chapter-meta, .hero-index, .node-id, .map-topline, .agent-lane, .surface-index, .terminal-label { font-family: 'Geist Mono', monospace; font-size: 12px; letter-spacing: .09em; line-height: 1.6; text-transform: uppercase; color: var(--ink-2); }
+  .eyebrow { display: flex; gap: 9px; align-items: center; }
+  .signal { width: 7px; height: 7px; background: var(--ok); }
+  h1, h2, h3, p { margin: 0; }
+  h1 { max-width: 1050px; font-family: 'Instrument Serif', Georgia, serif; font-size: clamp(54px, 6.8vw, 90px); font-weight: 400; letter-spacing: -.035em; line-height: 1.02; margin: 26px 0 32px; }
+  h1 em, .closing em { color: var(--navy); font-weight: 400; }
+  h2 { font-family: 'Instrument Serif', Georgia, serif; font-size: clamp(35px, 4vw, 51px); line-height: 1.08; font-weight: 400; letter-spacing: -.025em; }
+  h3 { font-size: 18px; font-weight: 500; line-height: 1.35; }
+  p { font-size: 14px; line-height: 1.75; color: var(--ink-2); }
+  .hero-bottom { display: flex; justify-content: space-between; align-items: end; gap: 40px; }
+  .hero-bottom p { max-width: 570px; font-size: 17px; }
+  .button { display: inline-flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 48px; padding: 12px 19px; text-decoration: none; font-size: 12px; font-weight: 500; border: 1px solid var(--navy); }
+  .primary { background: var(--navy); color: var(--on-accent); }
+  .secondary { color: var(--ink); background: var(--paper); border-color: var(--line-2); }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--navy); outline-offset: 4px; }
+  .button:hover { background: var(--navy-2); color: var(--on-accent); }
+  .hero-index { display: flex; justify-content: space-between; border-top: 1px solid var(--line-2); margin-top: 45px; padding: 10px 0; }
+  .hero-index a { display: inline-flex; min-height: 44px; gap: 28px; align-items: center; color: var(--navy); text-decoration: none; }
+  .hero-index > span { align-self: center; }
+  .chapter { border-top: 1px solid var(--line-2); padding: 30px 0 64px; }
+  .chapter-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 34px; }
+  .badge { border: 1px solid var(--input-line); color: var(--ink); padding: 3px 8px; white-space: nowrap; }
+  .today { color: var(--ok); border-color: var(--ok); }
+  .section-heading { display: grid; grid-template-columns: 1.2fr 1fr; gap: 80px; margin-bottom: 34px; align-items: end; }
+  .section-heading > p { max-width: 420px; }
+  .network-map { margin: 0; border: 1px solid var(--line-2); background: var(--panel-2); }
+  .map-topline { display: flex; justify-content: space-between; gap: 16px; padding: 12px 18px; border-bottom: 1px solid var(--line-2); }
+  .map-grid { display: grid; grid-template-columns: 1fr 42px 1.3fr 42px 1.3fr; grid-template-rows: auto 35px auto; padding: 34px; align-items: center; }
+  .map-node { background: var(--card); border: 1px solid var(--input-line); min-height: 130px; display: flex; flex-direction: column; padding: 20px; gap: 9px; }
+  .map-node strong { font-size: 17px; font-weight: 500; }
+  .map-node > span:not(.node-id):not(.gate-stamp) { font-size: 12px; color: var(--ink-2); }
+  .map-link { text-align: center; color: var(--navy); font-size: 23px; }
+  .gate { border: 2px solid var(--navy); }
+  .gate-stamp { font-family: 'Geist Mono', monospace; color: var(--navy); font-size: 12px; letter-spacing: .09em; }
+  .link-three { grid-column: 5; grid-row: 2; }
+  .sandbox { grid-column: 3 / 6; grid-row: 3; border-style: dashed; min-height: 155px; }
+  .sandbox-title { display: flex; justify-content: space-between; gap: 16px; }
+  .sandbox-note { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--ink-2); }
+  .harness-nodes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 7px 0; }
+  .harness-nodes span { font-family: 'Geist Mono', monospace; padding: 12px 6px; border: 1px solid var(--line-2); background: var(--paper); text-align: center; font-size: 12px; color: var(--ink); }
+  .link-four { grid-column: 2; grid-row: 3; transform: rotate(180deg); }
+  .result { grid-column: 1; grid-row: 3; }
+  figcaption { padding: 15px 20px; border-top: 1px solid var(--line-2); font-size: 12px; line-height: 1.8; color: var(--ink-2); }
+  .how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 35px; margin: 30px 0; }
+  .step { font-family: 'Geist Mono', monospace; display: block; color: var(--navy); font-size: 12px; margin-bottom: 12px; }
+  .how-grid h3 { margin-bottom: 9px; }
+  code { font-family: 'Geist Mono', monospace; font-size: max(12px, .88em); overflow-wrap: anywhere; }
+  .readiness { border-left: 2px solid var(--input-line); padding: 9px 18px; color: var(--ink-2); font-size: 12px; line-height: 1.9; }
+  .readiness strong { color: var(--ink); font-weight: 500; }
+  .readiness a { color: var(--navy); display: inline-flex; align-items: center; min-height: 44px; }
+  .agent-list { border-top: 1px solid var(--line-2); }
+  .agent-row { display: grid; grid-template-columns: 48px 1fr 1.7fr 120px; gap: 24px; align-items: center; padding: 24px 0; border-bottom: 1px solid var(--line-2); }
+  .agent-mark { border: 1px solid var(--input-line); width: 44px; height: 44px; display: grid; place-items: center; font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--navy); background: var(--card); }
+  .agent-mark.brand-chip, .brand-chip { background: #ffffff !important; }
+  .agent-logo { width: 26px; height: 26px; object-fit: contain; }
+  .agent-row a { min-height: 44px; display: inline-flex; gap: 8px; align-items: center; font-size: 12px; color: var(--navy); text-decoration: none; }
+  .agent-row p { font-size: 13px; }
+  .agent-lane { font-size: 12px; }
+  .team-note { margin-top: 30px; padding: 28px; background: var(--panel-2); display: grid; grid-template-columns: 1fr 1.5fr; column-gap: 60px; }
+  .team-note .eyebrow { grid-column: 1 / -1; margin-bottom: 12px; }
+  .team-note h3 { font-family: 'Instrument Serif', Georgia, serif; font-size: 30px; font-weight: 400; }
+  .team-note .text-link { grid-column: 2; }
+  .text-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; color: var(--navy); }
+  .surfaces { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .surface { padding: 20px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); text-decoration: none; background: var(--card); }
+  .surface:hover { background: var(--panel-2); }
+  .surface-top { display: flex; justify-content: space-between; align-items: center; min-height: 28px; }
+  .surface-chip { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-sm); background: var(--panel-2); border: 1px solid var(--line-2); }
+  .surface-chip.brand-chip { background: #ffffff !important; }
+  .surface-logo { width: 16px; height: 16px; object-fit: contain; }
+  .surface h3 { display: flex; justify-content: space-between; margin: 16px 0 8px; }
+  .surface h3 span { color: var(--navy); font-size: 15px; }
+  .surface p { font-size: 12px; }
+  .tool-strip { margin-top: 22px; display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 14px 0; }
+  .tool-strip > div { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; }
+  .tool-strip > div span { color: var(--ink-2); }
+  .tool-strip > a { min-height: 44px; display: inline-flex; align-items: center; font-size: 12px; color: var(--navy); }
+  .security-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .security-grid article { padding: 28px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
+  .security-grid h3 { margin: 16px 0 9px; }
+  .security-link { margin-top: 15px; }
+  .planned { background: var(--panel-2); padding: 28px; border: 1px dashed var(--input-line); margin-bottom: 64px; }
+  .preview-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 65px; }
+  .preview-grid h2 { font-size: clamp(32px, 3.5vw, 44px); margin-bottom: 22px; }
+  .preview-caution { margin-top: 18px; font-size: 12px; }
+  .preview-terminal { border: 1px solid var(--input-line); background: var(--card); }
+  .terminal-label { padding: 12px 17px; border-bottom: 1px solid var(--line-2); color: var(--ink); }
+  pre { padding: 22px; margin: 0; color: var(--ink); white-space: pre-wrap; font-size: 12px; line-height: 1.9; }
+  .comment { color: var(--ink-2); }
+  .faq-grid { display: grid; grid-template-columns: 1fr 1.7fr; gap: 80px; }
+  details { border-top: 1px solid var(--line-2); }
+  details:last-child { border-bottom: 1px solid var(--line-2); }
+  summary { min-height: 64px; list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 0; font-size: 14px; }
+  summary::-webkit-details-marker { display: none; }
+  summary span { font-size: 20px; color: var(--navy); }
+  details[open] summary span { transform: rotate(45deg); }
+  details > p { padding: 0 25px 22px 0; font-size: 13px; }
+  .closing { border-top: 1px solid var(--line-2); text-align: center; padding: 64px 0 84px; }
+  .closing .eyebrow { justify-content: center; }
+  .closing h2 { font-size: clamp(55px, 6vw, 78px); margin: 24px 0; }
+  .closing > p { max-width: 460px; margin: 0 auto; }
+  .cta-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  @media (prefers-reduced-motion: no-preference) { .gate-stamp { animation: gate-breathe 4s ease-in-out infinite; } @keyframes gate-breathe { 50% { transform: translateX(3px); } } }
+  @media (max-width: 900px) { .section-heading { gap: 35px; } .hero-bottom { gap: 24px; } .hero-bottom p { font-size: 15px; } .map-grid { padding: 20px; grid-template-columns: 1fr 24px 1.2fr 24px 1.2fr; } .map-node { padding: 13px; } .map-node strong { font-size: 15px; } .harness-nodes { grid-template-columns: repeat(2, 1fr); } .agent-row { grid-template-columns: 44px 1fr 1.4fr; gap: 18px; } .agent-row a { grid-column: 2 / -1; } .tool-strip { flex-wrap: wrap; } .preview-grid { gap: 28px; } .faq-grid { gap: 35px; } }
+  @media (max-width: 620px) { .network { width: calc(100% - 32px); } .network-hero { padding-top: 46px; } h1 { font-size: 54px; } .hero-bottom { display: block; } .hero-bottom .button { margin-top: 24px; } .hero-index > span { max-width: 160px; } .chapter { padding: 24px 0 44px; } .chapter-meta { align-items: start; margin-bottom: 25px; } .chapter-meta > span { max-width: 60%; font-size: 12px; } .section-heading, .faq-grid, .preview-grid { grid-template-columns: 1fr; gap: 22px; } .map-topline { font-size: 12px; padding: 10px; } .map-topline > span { max-width: 50%; } .map-grid { display: flex; flex-direction: column; padding: 18px; gap: 8px; } .map-node { width: 100%; min-height: auto; padding: 17px; } .map-link { transform: rotate(90deg); line-height: 1; } .link-three { transform: none; } .sandbox { order: 6; } .link-four { order: 7; } .result { order: 8; } .how-grid { grid-template-columns: 1fr; gap: 24px; } .step { margin-bottom: 6px; } .agent-row { grid-template-columns: 44px 1fr; } .agent-row p { grid-column: 2; } .agent-row a { grid-column: 2; } .team-note { display: block; padding: 22px; } .team-note h3 { margin-bottom: 16px; } .surfaces { grid-template-columns: repeat(2, 1fr); } .surface { padding: 16px; } .surface h3 { font-size: 16px; } .security-grid { grid-template-columns: 1fr; } .security-grid article { padding: 23px; } .planned { padding: 22px; margin-bottom: 44px; } .planned .chapter-meta { flex-direction: column; gap: 12px; } .planned .chapter-meta > span { max-width: none; } .closing { padding: 44px 0 60px; } .cta-actions { flex-direction: column; align-items: stretch; } }
+</style>

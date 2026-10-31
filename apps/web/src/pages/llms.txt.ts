@@ -22,8 +22,8 @@ export async function GET() {
 
 - Who it is for: developers and teams who want a self-hosted, approval-gated alternative to managed cloud coding agents like Devin, running in their own Cloudflare account.
 - Pricing: free and open source (AGPL-3.0-only). You pay your own Cloudflare and model-provider costs.
-- Status: early prototype, not production-ready. The homepage roadmap lists what is not live-verified.
-- Supported harnesses: OpenCode, Claude Code, Codex, Devin CLI, Cursor, Antigravity, Grok.
+- Status: early prototype, not production-ready. Readiness and deployment blockers: ${SITE}/docs/readiness/. No cloud end-to-end run is recorded.
+- Harness catalog: OpenCode, Claude Code, Codex, Grok, Pi. Only OpenCode is locally exercised; other adapters are not live-run. Bare cursor/antigravity are registered-but-unrunnable until their runnability is proven.
 - Maintainer: Prince Pal (https://github.com/princepal9120)
 
 ## Links
@@ -31,9 +31,11 @@ export async function GET() {
 - Website: ${SITE}/
 - Docs: ${SITE}/docs/overview/
 - GitHub source (AGPL-3.0-only): https://github.com/princepal9120/shiba
-- Shiba vs Devin / managed cloud agents (comparison table): ${SITE}/#compare-title
+- Shiba vs Devin / managed cloud agents (comparison table): ${SITE}/open-source-devin-alternative/
 - Open-source Devin alternative guide: ${SITE}/open-source-devin-alternative/
 - Why I am building Shiba: ${SITE}/why-shiba/
+- Integrations (availability and configuration): ${SITE}/integrations/
+- Agent network (current handoff and planned agent-to-agent work): ${SITE}/network/
 - Journal (guides and engineering notes): ${SITE}/blog/
 - Join waitlist & contribute: ${SITE}/waitlist/
 - Privacy notice: ${SITE}/privacy/

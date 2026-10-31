@@ -16,6 +16,7 @@ interface Props {
   breadcrumbs?: Array<{ name: string; path: string }>;
   /** Overrides the default Open Graph card for this page. */
   ogImage?: string;
+  noindex?: boolean;
 }
 const {
   title,
@@ -27,7 +28,9 @@ const {
   schema,
   breadcrumbs = [{ name: 'Home', path: '/' }],
   ogImage = '/assets/og/shiba-og.png',
+  noindex = false,
 } = Astro.props;
+const morePage = [{ path: '/network/', label: 'Network' }, { path: '/docs/costs/', label: 'Cost' }, { path: '/blog/', label: 'Journal' }, { path: '/docs/architecture/', label: 'Architecture' }, { path: '/docs/security/', label: 'Security' }].find(item => path === item.path || (item.path === '/blog/' && path.startsWith('/blog/')));
 const canonical = new URL(path, 'https://tryshiba.dev').href;
 const ogImageUrl = new URL(ogImage, 'https://tryshiba.dev').href;
 // Organization logo must be square; the 1200x630 OG banner is rejected by Google.
@@ -64,26 +67,27 @@ const finalSchemas = schema
   : defaultSchemas;
 ---
 <!doctype html>
-<html lang="en" class="scroll-smooth" data-theme="dark">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
-    <link rel="canonical" href={canonical} />
+    {!noindex && <link rel="canonical" href={canonical} />}
     <link rel="sitemap" href="/sitemap.xml" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'} />
     <meta name="author" content="Prince Pal" />
-    <meta name="theme-color" content="#191a18" />
+    <meta name="theme-color" content="#f6f4ed" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#191a18" media="(prefers-color-scheme: dark)" />
 
     <!-- Open Graph -->
     <meta property="og:type" content={type} />
     <meta property="og:site_name" content="Shiba" />
     <meta property="og:locale" content="en_US" />
-    <meta property="og:url" content={canonical} />
+    {!noindex && <meta property="og:url" content={canonical} />}
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImageUrl} />
@@ -96,8 +100,6 @@ const finalSchemas = schema
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <!-- TODO: set to the real handle once one exists -->
-    <meta name="twitter:site" content="@shiba_dev" />
     <meta name="twitter:image:alt" content="Shiba: It asks before it writes code. A self-hosted AI software engineer on Cloudflare." />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
@@ -116,48 +118,86 @@ const finalSchemas = schema
     <!-- Instant Theme Initializer (No FOIT) -->
     <script is:inline>
       (function() {
-        try {
-          var stored = localStorage.getItem('shiba-theme') || 'dark';
-          document.documentElement.setAttribute('data-theme', stored === 'light' ? 'light' : 'dark');
-        } catch (_) {}
+        var stored;
+        try { stored = localStorage.getItem('shiba-theme'); } catch (_) {}
+        var manual = stored === 'light' || stored === 'dark';
+        var root = document.documentElement;
+        root.classList.add('nav-js');
+        root.dataset.themePreference = manual ? 'manual' : 'system';
+        var systemTheme = matchMedia('(prefers-color-scheme: dark)');
+        function applyTheme() {
+          var theme = root.dataset.themePreference === 'system' ? (systemTheme.matches ? 'dark' : 'light') : stored;
+          root.dataset.theme = theme;
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function(meta) {
+            meta.setAttribute('content', theme === 'dark' ? '#191a18' : '#f6f4ed');
+          });
+          document.querySelectorAll('source[data-theme-source]').forEach(function(source) {
+            source.media = theme === 'dark' ? 'all' : 'not all';
+          });
+          var btn = document.getElementById('theme-toggle-btn');
+          if (btn) {
+            var preference = root.dataset.themePreference === 'system' ? 'system' : theme;
+            var next = preference === 'system' ? 'light' : preference === 'light' ? 'dark' : 'system';
+            var label = 'Theme: ' + preference + '. Switch to ' + next + ' theme';
+            btn.setAttribute('aria-label', label);
+            btn.setAttribute('title', label);
+            btn.hidden = false;
+          }
+        }
+        applyTheme();
+        document.addEventListener('DOMContentLoaded', function() {
+          applyTheme();
+          var btn = document.getElementById('theme-toggle-btn');
+          if (btn) btn.addEventListener('click', function() {
+            var preference = root.dataset.themePreference === 'system' ? 'system' : stored;
+            stored = preference === 'system' ? 'light' : preference === 'light' ? 'dark' : 'system';
+            root.dataset.themePreference = stored === 'system' ? 'system' : 'manual';
+            try { localStorage.setItem('shiba-theme', stored); } catch (_) {}
+            applyTheme();
+          });
+        });
+        systemTheme.addEventListener('change', function() {
+          if (root.dataset.themePreference === 'system') applyTheme();
+        });
       })();
     </script>
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
     <header class="site-header sticky top-0 z-50">
       <div class="shell header-inner">
         <a class="wordmark" href="/" aria-label="Shiba home">
-          <img src="/assets/mascot/pet-logo.png" alt="Shiba Mascot" class="w-7 h-7 rounded-full bg-white object-contain border border-[#d3d2c8] p-0.5" />
+          <img src="/assets/mascot/pet-logo.png" alt="Shiba Mascot" class="w-7 h-7 rounded-full bg-[var(--logo-paper)] object-contain border border-[var(--line-2)] p-0.5" />
           <span class="wordmark-name">Shiba</span>
         </a>
+        <button type="button" id="nav-menu-btn" class="nav-menu-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="Open navigation menu"><span class="nav-ico menu-ico" aria-hidden="true">≡</span><span class="nav-ico close-ico" aria-hidden="true">×</span></button>
         <nav aria-label="Main navigation" class="nav-links" id="site-nav">
-          <a href="/why-shiba/" class={path === '/why-shiba/' ? 'nav-link nav-active' : 'nav-link'}>Why Shiba</a>
-          <a href="/#harnesses" class="nav-link">Agents</a>
-          <a href="/docs/costs/" class="nav-link">Cost</a>
-          <a href="/blog/" class={path.startsWith('/blog') ? 'nav-link nav-active' : 'nav-link'}>Journal</a>
-          <a href="/docs/overview/" class={path.startsWith('/docs') ? 'nav-link nav-active' : 'nav-link'}>Docs</a>
-          <a href="/docs/architecture/" class="nav-link">Architecture</a>
-          <a href="/docs/security/" class="nav-link">Security</a>
+          <a href="/why-shiba/" class="nav-link" aria-current={path === '/why-shiba/' ? 'page' : undefined}>Why Shiba</a>
+          <a href="/#employees" class="nav-link">Agents</a>
+          <a href="/integrations/" class="nav-link" aria-current={path === '/integrations/' ? 'page' : undefined}>Integrations</a>
+          <a href="/docs/overview/" class="nav-link" aria-current={path === '/docs/overview/' ? 'page' : undefined}>Docs</a>
+          <a href="https://github.com/princepal9120/shiba" class="nav-link" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+          <div class="nav-more">
+            <button type="button" id="nav-more-btn" class="nav-link nav-more-btn" aria-expanded="false" aria-controls="nav-more-panel" class:list={{ 'has-current': !!morePage }} hidden>{morePage ? `More · ${morePage.label}` : 'More'} <span aria-hidden="true">⌄</span></button>
+            <div id="nav-more-panel" class="nav-more-panel" hidden>
+              <a href="/network/" aria-current={path === '/network/' ? 'page' : undefined}>Network</a>
+              <a href="/docs/costs/" aria-current={path === '/docs/costs/' ? 'page' : undefined}>Cost</a>
+              <a href="/blog/" aria-current={path.startsWith('/blog') ? 'page' : undefined}>Journal</a>
+              <a href="/docs/architecture/" aria-current={path === '/docs/architecture/' ? 'page' : undefined}>Architecture</a>
+              <a href="/docs/security/" aria-current={path === '/docs/security/' ? 'page' : undefined}>Security</a>
+            </div>
+          </div>
         </nav>
         <div class="nav-actions">
           <button
             type="button"
-            id="nav-menu-btn"
-            class="nav-menu-toggle"
-            aria-expanded="false"
-            aria-controls="site-nav"
-            aria-label="Open navigation menu"
-          >
-            <span class="nav-ico menu-ico" aria-hidden="true">≡</span>
-            <span class="nav-ico close-ico" aria-hidden="true">×</span>
-          </button>
-          <button
-            type="button"
             id="theme-toggle-btn"
-            aria-label="Toggle light or dark theme"
-            title="Toggle light or dark theme"
+            hidden
+            aria-label="Theme: system. Switch to light theme"
+            title="Theme: system. Switch to light theme"
             class="nav-theme-toggle"
           >
+            <svg class="icon-system size-3.5" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></svg>
             <svg class="icon-sun size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
             </svg>
@@ -165,53 +205,50 @@ const finalSchemas = schema
               <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
             </svg>
           </button>
-          <a class="nav-gh" href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer" aria-label="Shiba on GitHub" id="nav-gh">
-            <svg class="nav-gh-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-            </svg>
-            <span class="nav-gh-count" id="nav-gh-count" hidden>★ <span id="nav-gh-num"></span></span>
-          </a>
-          <a class="nav-cta" href="/waitlist/">
-            <span class="nav-cta-prompt" aria-hidden="true">▸</span>
-            <span>RUN IT ON YOUR REPO</span>
-          </a>
+          <a class="nav-cta" href="/docs/self-hosting/">Self-host</a>
         </div>
       </div>
     </header>
-    <main><slot /></main>
+    <main id="main" tabindex="-1"><slot /></main>
     <footer class="border-t border-[var(--line)] bg-[var(--paper)] mt-24 pt-16 pb-12">
       <div class="shell">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
           <div class="md:col-span-2 space-y-4">
             <div class="flex items-center gap-2.5">
-              <img src="/assets/mascot/pet-logo.png" alt="Shiba Mascot" class="w-7 h-7 rounded-full bg-white object-contain border border-[var(--line-2)] p-0.5" />
+              <img src="/assets/mascot/pet-logo.png" alt="Shiba Mascot" class="w-7 h-7 rounded-full bg-[var(--logo-paper)] object-contain border border-[var(--line-2)] p-0.5" />
               <span class="wordmark-name text-lg text-[var(--ink)]">Shiba</span>
             </div>
-            <p class="text-xs text-[var(--ink-2)] max-w-sm leading-relaxed font-mono">
-              The self-hosted AI software engineer that runs in your own Cloudflare account. Approval-gated coding agents delegated to isolated Sandbox containers.
+            <p class="text-xs text-[var(--ink-2)] max-w-sm leading-relaxed">
+              A self-hosted AI workspace for tasks across your team. Role templates shape the work; standard sandbox execution requires your approval and a connected repository.
             </p>
-            <div class="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--ink-2)]">
+            <div class="flex items-center gap-2 text-[11px] text-[var(--ink-2)]">
               <span class="w-1.5 h-1.5 footer-ok-dot"></span>
               <span>Open source (AGPL-3.0-only) · Cloudflare Native</span>
             </div>
           </div>
-          <div class="space-y-3 font-mono text-xs">
+          <div class="space-y-3 text-xs">
             <div class="footer-h text-[var(--ink)]">Product &amp; Story</div>
             <ul class="space-y-2 text-[var(--ink-2)]">
               <li><a href="/why-shiba/" class="hover:text-[var(--navy)] transition-colors">Why I'm building Shiba</a></li>
               <li><a href="/blog/" class="hover:text-[var(--navy)] transition-colors">Journal</a></li>
+              <li><a href="/open-source-devin-alternative/">Hosted alternatives</a></li>
+              <li><a href="/integrations/" class="hover:text-[var(--navy)] transition-colors">Integrations</a></li>
+              <li><a href="/network/" class="hover:text-[var(--navy)] transition-colors">Network</a></li>
               <li><a href="/waitlist/" class="hover:text-[var(--navy)] transition-colors">Join Waitlist &amp; Contribute</a></li>
               <li><a href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer" class="hover:text-[var(--navy)] transition-colors">GitHub Repository ↗</a></li>
             </ul>
           </div>
-          <div class="space-y-3 font-mono text-xs">
+          <div class="space-y-3 text-xs">
             <div class="footer-h text-[var(--ink)]">Technical Docs</div>
             <ul class="space-y-2 text-[var(--ink-2)]">
               <li><a href="/docs/overview/" class="hover:text-[var(--navy)] transition-colors">Overview</a></li>
               <li><a href="/docs/getting-started/" class="hover:text-[var(--navy)] transition-colors">Quickstart</a></li>
               <li><a href="/docs/architecture/" class="hover:text-[var(--navy)] transition-colors">Architecture Spec</a></li>
               <li><a href="/docs/security/" class="hover:text-[var(--navy)] transition-colors">Security &amp; Egress Gates</a></li>
-              <li><a href="/docs/contributing/" class="hover:text-[var(--navy)] transition-colors">Contributor Guide</a></li>
+              <li><a href="/docs/contributing/" class="hover:text-[var(--navy)] transition-colors">Contributor guide</a></li>
+              <li><a href="/docs/costs/">Costs</a></li>
+              <li><a href="/docs/sandbox-providers/">Sandbox providers</a></li>
+              <li><a href="/docs/readiness/">Readiness</a></li>
             </ul>
           </div>
         </div>
@@ -229,79 +266,47 @@ const finalSchemas = schema
     </footer>
 
     <script>
-      var storedTheme = 'dark';
-      try {
-        storedTheme = localStorage.getItem('shiba-theme') || 'dark';
-      } catch (_) {}
-      document.documentElement.setAttribute('data-theme', storedTheme === 'light' ? 'light' : 'dark');
-
-      var btn = document.getElementById('theme-toggle-btn');
-      var themeColorMeta = document.querySelector('meta[name="theme-color"]');
-      btn?.addEventListener('click', function() {
-        var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', next);
-        themeColorMeta?.setAttribute('content', next === 'dark' ? '#191a18' : '#f6f4ed');
-        try {
-          localStorage.setItem('shiba-theme', next);
-        } catch (_) {}
-      });
-
-      // Mobile nav: explicit hamburger collapse. Links live in a dropdown panel
-      // under the header on narrow screens; Escape, a link pick, or widening the
-      // viewport closes it.
-      // const, not var: TS keeps the null-narrowing inside the closures below.
       const menuBtn = document.getElementById('nav-menu-btn');
       const siteNav = document.getElementById('site-nav');
-      if (menuBtn && siteNav) {
-        var setMenu = function(open: boolean) {
-          menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      const moreBtn = document.getElementById('nav-more-btn');
+      const morePanel = document.getElementById('nav-more-panel');
+      if (menuBtn && siteNav && moreBtn && morePanel) {
+        moreBtn.hidden = false;
+        const setMore = (open: boolean) => {
+          moreBtn.setAttribute('aria-expanded', String(open));
+          morePanel.hidden = !open;
+        };
+        const setMenu = (open: boolean) => {
+          menuBtn.setAttribute('aria-expanded', String(open));
           menuBtn.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
           siteNav.classList.toggle('nav-open', open);
+          if (!open) setMore(false);
         };
-        menuBtn.addEventListener('click', function() {
-          setMenu(menuBtn.getAttribute('aria-expanded') !== 'true');
+        menuBtn.addEventListener('click', () => setMenu(menuBtn.getAttribute('aria-expanded') !== 'true'));
+        moreBtn.addEventListener('click', () => setMore(morePanel.hidden));
+        moreBtn.addEventListener('keydown', event => {
+          if (event.key === 'ArrowDown') { event.preventDefault(); setMore(true); morePanel.querySelector('a')?.focus(); }
         });
-        document.addEventListener('keydown', function(e) {
-          if (e.key === 'Escape' && menuBtn.getAttribute('aria-expanded') === 'true') {
-            setMenu(false);
-            menuBtn.focus();
-          }
+        document.addEventListener('keydown', event => {
+          if (event.key !== 'Escape') return;
+          if (!morePanel.hidden) { setMore(false); moreBtn.focus(); }
+          else if (menuBtn.getAttribute('aria-expanded') === 'true') { setMenu(false); menuBtn.focus(); }
         });
-        siteNav.addEventListener('click', function(e) {
-          if (e.target && (e.target as HTMLElement).closest('a')) setMenu(false);
+        siteNav.addEventListener('click', event => {
+          if ((event.target as HTMLElement).closest('a')) { setMore(false); setMenu(false); }
         });
-        window.addEventListener('resize', function() {
-          if (window.innerWidth > 960) setMenu(false);
+        document.addEventListener('pointerdown', event => {
+          const target = event.target as Node;
+          if (!moreBtn.parentElement?.contains(target)) setMore(false);
+          if (!siteNav.contains(target) && !menuBtn.contains(target)) setMenu(false);
         });
-      }
-
-      // GitHub stars cell: cached in sessionStorage (30 min), silent on failure.
-      var ghLink = document.getElementById('nav-gh');
-      var ghCount = document.getElementById('nav-gh-count');
-      var ghNum = document.getElementById('nav-gh-num');
-      if (ghLink && ghCount && ghNum) {
-        var showStars = function(n: number) {
-          if (!ghLink || !ghCount || !ghNum) return;
-          ghNum.textContent = n >= 1000 ? (Math.round(n / 100) / 10) + 'k' : String(n);
-          ghCount.hidden = false;
-          ghLink.setAttribute('aria-label', 'Shiba on GitHub (' + n + ' stars)');
-        };
-        try {
-          var cached = sessionStorage.getItem('shiba-gh-stars');
-          if (cached) {
-            var c = JSON.parse(cached);
-            if (c && typeof c.n === 'number' && Date.now() - c.t < 1800000) showStars(c.n);
-          }
-        } catch (_) {}
-        fetch('https://api.github.com/repos/princepal9120/shiba', { headers: { Accept: 'application/vnd.github+json' } })
-          .then(function(r) { return r.ok ? r.json() : null; })
-          .then(function(d) {
-            if (d && typeof d.stargazers_count === 'number') {
-              showStars(d.stargazers_count);
-              try { sessionStorage.setItem('shiba-gh-stars', JSON.stringify({ n: d.stargazers_count, t: Date.now() })); } catch (_) {}
-            }
-          })
-          .catch(function() {});
+        siteNav.addEventListener('focusout', () => {
+          requestAnimationFrame(() => {
+            if (!moreBtn.parentElement?.contains(document.activeElement)) setMore(false);
+            if (!siteNav.contains(document.activeElement) && document.activeElement !== menuBtn) setMenu(false);
+          });
+        });
+        matchMedia('(max-width: 800px)').addEventListener('change', () => setMenu(false));
       }
 
     </script>
@@ -321,7 +326,7 @@ const finalSchemas = schema
     --ink-2: #585d50;
     --line: #e0ded5;
     --line-2: #d3d2c8;
-    --input-line: #a5a69b;
+    --input-line: #7d7e73;
     --navy: #0000a8;
     --navy-2: #1c1cc8;
     --paper-title: #0000a8;
@@ -329,12 +334,23 @@ const finalSchemas = schema
     --paper-shadow: #2527261c;
     --paper-dot: #24272919;
     --ok: #227146;
-    --pending: #976400;
-    --danger: #b52b2b;
+    --pending: #8a5a00;
+    --danger: #b3261e;
+    --on-accent: #ffffff;
+    /* Brand artwork has dark marks baked in; retain its neutral backing in both themes. */
+    --logo-paper: #ffffff;
+    --mask-opaque: #000000;
+    --window-button: #bdbdbd;
+    --window-edge: #444444;
+    --window-highlight: #f5f5f5;
     --surface: var(--card);
     --text: var(--ink);
     --muted: var(--ink-2);
     --teal: var(--navy);
+    --r-sm: 8px;
+    --r-md: 12px;
+    --r-lg: 18px;
+    --shadow-soft: 0 3px 6px #00000008, 0 14px 38px #00000014;
     --dur-fast: 150ms;
     --dur-med: 300ms;
     --ease-out: cubic-bezier(.22, 1, .36, 1);
@@ -349,7 +365,7 @@ const finalSchemas = schema
     --ink-2: #aaa99f;
     --line: #3b3d36;
     --line-2: #4a4c44;
-    --input-line: #55564e;
+    --input-line: #85877b;
     --navy: #9cbce2;
     --navy-2: #b4cde9;
     --paper-title: #222320;
@@ -364,9 +380,45 @@ const finalSchemas = schema
     --muted: var(--ink-2);
     --teal: var(--navy);
     --on-accent: #152335;
+    --window-button: #4a4d46;
+    --window-edge: #1a1a18;
+    --window-highlight: #6c7066;
+  }
+
+  /* CSS fallback also honors the OS when scripts or storage are unavailable. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      color-scheme: dark;
+      --paper: #191a18;
+      --card: #222320;
+      --panel-2: #272824;
+      --ink: #eae8e1;
+      --ink-2: #aaa99f;
+      --line: #3b3d36;
+      --line-2: #4a4c44;
+      --input-line: #85877b;
+      --navy: #9cbce2;
+      --navy-2: #b4cde9;
+      --paper-title: #222320;
+      --paper-title-fg: #eae8e1;
+      --paper-shadow: rgba(0, 0, 0, 0.5);
+      --paper-dot: rgba(255, 255, 255, 0.08);
+      --ok: #8fbc6f;
+      --pending: #ebc04b;
+      --danger: #e26d5a;
+      --on-accent: #152335;
+      --window-button: #4a4d46;
+      --window-edge: #1a1a18;
+      --window-highlight: #6c7066;
+    }
+    :root:not([data-theme='light']) .icon-sun { display: block; }
+    :root:not([data-theme='light']) .icon-moon { display: none; }
   }
 
   /* theme toggle icon swap (tailwind dark: is media-mode; use attr) */
+  .icon-system { display: none; }
+  html[data-theme-preference='system'] #theme-toggle-btn :is(.icon-sun, .icon-moon) { display: none; }
+  html[data-theme-preference='system'] #theme-toggle-btn .icon-system { display: block; }
   .icon-sun { display: none; }
   .icon-moon { display: block; }
   html[data-theme='dark'] .icon-sun { display: block; }
@@ -380,73 +432,58 @@ const finalSchemas = schema
   .nav-menu-toggle[aria-expanded='true'] .menu-ico { display: none; }
   .nav-menu-toggle[aria-expanded='true'] .close-ico { display: block; }
 
-  .footer-ok-dot { background: #227146; }
-  html[data-theme='dark'] .footer-ok-dot { background: #8fbc6f; }
-  .status-ok { color: #227146; }
-  .status-err { color: #b52b2b; }
-  html[data-theme='dark'] .status-ok { color: #8fbc6f; }
-  html[data-theme='dark'] .status-err { color: #e26d5a; }
+  .footer-ok-dot { background: var(--ok); }
+  .status-ok { color: var(--ok); }
+  .status-err { color: var(--danger); }
 
   /* TaskForm (React island) theme tokens */
   :root {
-    --tf-input-bg: #fffef8;
-    --tf-line: #d3d2c8;
-    --tf-ink: #222320;
-    --tf-muted: #6a6f63;
-    --tf-accent: #0000a8;
-    --tf-accent-hover: #1c1cc8;
-    --tf-on-accent: #ffffff;
-    --tf-hover: #f1efe6;
-  }
-  html[data-theme='dark'] {
-    --tf-input-bg: #191a18;
-    --tf-line: #3b3d36;
-    --tf-ink: #eae8e1;
-    --tf-muted: #aaa99f;
-    --tf-accent: #9cbce2;
-    --tf-accent-hover: #b4cde9;
-    --tf-on-accent: #152335;
-    --tf-hover: #272824;
+    --tf-input-bg: var(--card);
+    --tf-line: var(--input-line);
+    --tf-ink: var(--ink);
+    --tf-muted: var(--ink-2);
+    --tf-accent: var(--navy);
+    --tf-accent-hover: var(--navy-2);
+    --tf-on-accent: var(--on-accent);
+    --tf-hover: var(--panel-2);
   }
 
-  * { box-sizing: border-box; border-radius: 0 !important; }
+  * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
   @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
-  /* html carries Tailwind's unguarded .scroll-smooth; override it for reduced motion. */
+  /* Keep reduced-motion navigation instant, including in-page anchors. */
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto !important; } }
   body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif; line-height: 1.55; overscroll-behavior-x: none; }
-  ::selection { background: var(--navy); color: #fff; }
-  html[data-theme='dark'] ::selection { background: var(--navy); color: #152335; }
+  ::selection { background: var(--navy); color: var(--on-accent); }
+  html[data-theme='dark'] ::selection { background: var(--navy); color: var(--on-accent); }
   a { color: inherit; }
   a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
   .shell { width: min(1160px, calc(100% - 40px)); margin-inline: auto; }
   .pixelated { image-rendering: pixelated; }
+  [hidden] { display: none !important; }
+  .skip-link { position: fixed; top: 8px; left: 20px; z-index: 100; padding: 10px 16px; background: var(--card); color: var(--navy); transform: translateY(-160%); }
+  .skip-link:focus { transform: translateY(0); }
 
-  /* ---------- top nav ----------
-     Ruled strip, same idiom as the footer statusbar: one hairline row, mono
-     indexed links, actions as cells. Index numbers carry position so the
-     labels stay short; active page gets the accent + a left marker. */
-  .site-header { position: relative; z-index: 2; border-bottom: 1px solid var(--line); background: var(--paper); }
-  .header-inner { min-height: 60px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: clamp(18px, 3vw, 40px); }
-  .wordmark { display: flex; align-items: center; gap: 10px; text-decoration: none; white-space: nowrap; }
-  .wordmark-name { font-family: 'Instrument Serif', Georgia, serif; font-size: 24px; letter-spacing: -0.01em; color: var(--ink); }
-  .nav-links { display: flex; align-items: stretch; justify-content: center; gap: clamp(8px, 1.4vw, 18px); min-width: 0; white-space: nowrap; }
-  .nav-link { display: inline-flex; align-items: center; gap: 6px; padding-block: 6px; font-family: 'Geist Mono', monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; color: var(--ink-2); border-bottom: 1px solid transparent; }
-  .nav-active { color: var(--navy); font-weight: 600; }
-  .nav-actions { display: flex; align-items: center; gap: 0; flex: none; border: 1px solid var(--line-2); background: var(--card); box-shadow: 2px 2px 0 var(--paper-shadow); }
-  .nav-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-right: 1px solid var(--line-2); background: transparent; color: var(--ink); cursor: pointer; transition: background 120ms ease; }
-  .nav-gh { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-right: 1px solid var(--line-2); color: var(--ink); text-decoration: none; font-family: 'Geist Mono', monospace; font-size: 10.5px; letter-spacing: 0.04em; transition: background 120ms ease; }
-  .nav-gh-mark { width: 15px; height: 15px; flex: none; }
-  .nav-gh-count { color: var(--ink-2); }
-  .nav-cta { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; background: var(--navy); color: #fff; text-decoration: none; font-family: 'Geist Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; }
-  .nav-cta-prompt { font-size: 10px; }
-  html[data-theme='dark'] .nav-cta { color: #152335; }
+  /* Compact disclosure navigation; the page stays visible behind the header. */
+  .site-header { position: sticky; top: 0; z-index: 50; border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent); background: color-mix(in srgb, var(--paper) 93%, transparent); backdrop-filter: blur(12px); }
+  .header-inner { min-height: 76px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 28px; }
+  .wordmark { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; text-decoration: none; white-space: nowrap; }
+  .wordmark-name { font-family: 'Instrument Serif', Georgia, serif; font-size: 26px; letter-spacing: -.02em; color: var(--ink); }
+  .nav-links { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; white-space: nowrap; }
+  .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px; font: 12px/1.5 'Geist', sans-serif; text-decoration: none; color: var(--ink-2); border: 0; background: transparent; cursor: pointer; border-radius: 7px; }
+  .nav-link[aria-current='page'], .nav-more-panel a[aria-current='page'] { color: var(--navy); font-weight: 600; }
+  .nav-actions { display: flex; align-items: center; gap: 10px; }
+  .nav-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; }
+  .nav-cta { display: inline-flex; align-items: center; justify-content: center; gap: 14px; min-height: 44px; padding: 10px 16px; border-radius: 8px; background: var(--navy); color: var(--on-accent); text-decoration: none; font: 500 11px/1.5 'Geist', sans-serif; white-space: nowrap; }
+  .nav-more { position: relative; min-width: 58px; }
+  .nav-more-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 190px; padding: 7px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: 0 14px 45px color-mix(in srgb, var(--ink) 13%, transparent); }
+  .nav-more-panel a { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; font: 12px/1.5 'Geist', sans-serif; color: var(--ink-2); text-decoration: none; border-radius: 6px; }
+  .nav-more-panel a:hover, .nav-link:hover { background: var(--panel-2); color: var(--ink); }
   footer a { text-decoration: none; }
-  .footer-h { font-family: 'Geist Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; font-weight: 600; }
-  .statusbar { display: flex; flex-wrap: wrap; border: 1px solid var(--line-2); background: var(--card); box-shadow: 2px 2px 0 var(--paper-shadow); }
-  .statuscell { font-family: 'Geist Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); padding: 8px 12px; border-right: 1px solid var(--line); }
-  .statuscell:last-child { border-right: none; }
-  .status-links { margin-left: auto; display: flex; gap: 14px; }
+  .footer-h { font: 500 13px/1.6 'Geist', sans-serif; }
+  .statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 18px; background: var(--card); box-shadow: var(--shadow-soft); }
+  .statuscell { font: 10px/1.7 'Geist', sans-serif; color: var(--ink-2); padding: 8px 0; }
+  .status-links { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
 
   /* ---------- shared primitives ---------- */
   .eyebrow, .micro { font-family: 'Geist Mono', monospace; text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; color: var(--navy); font-weight: 500; }
@@ -456,52 +493,46 @@ const finalSchemas = schema
   p { color: var(--ink-2); }
   .lead { font-size: 15px; line-height: 1.65; max-width: 760px; color: var(--ink-2); }
 
-  /* bezalel buttons: square, hard 2px shadow, active translate */
-  .button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 0 18px; height: 36px; border: 1px solid var(--navy); background: var(--navy); color: #fff; text-decoration: none; font-weight: 600; font-family: 'Geist Mono', monospace; font-size: 13px; cursor: pointer; box-shadow: 2px 2px 0 var(--paper-shadow); transition: background 120ms ease, border-color 120ms ease, transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
-  .button:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--paper-shadow); transition-duration: 60ms; }
-  .button:disabled { opacity: .6; cursor: progress; transform: none; }
+  /* Shared rounded surfaces and soft elevation across marketing pages. */
+  .button, input, select, textarea, details, .badge, .statuscell, .status, .monogram, .agent-mark, .harness-nodes span, .gate-stamp { border-radius: var(--r-sm); }
+  table { border-radius: var(--r-md); border-collapse: separate; border-spacing: 0; overflow: hidden; }
+  .truth-box, .network-map, .map-node, .team-note, .surface, .security-grid article, .planned, .preview-terminal, .readiness, .integration-card, .empty-state { border-radius: var(--r-md); box-shadow: var(--shadow-soft); }
+  /* Older editorial pages still carry hard-shadow utility classes. */
+  #main [class*='shadow-[2px_2px_0_'], #main :is(.truth-box, .form-card, .feature-card, .contrib-card, .pull-quote, .friction-row, .pillar-row, .route-table, .compare-matrix, .watch-link) { border-radius: var(--r-md); box-shadow: var(--shadow-soft); }
+  #main :is(.route-table, .compare-table, .compare-matrix, .data-list) { border-radius: var(--r-md); overflow: hidden; }
+  #main :is(.watch-link, .friction-num, .pillar-icon, .check-list li) { border-radius: var(--r-sm); }
+  .nav-more-btn.has-current { color: var(--navy); font-weight: 600; }
+  .button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 0 18px; height: 36px; border: 1px solid var(--navy); background: var(--navy); color: var(--on-accent); text-decoration: none; font-weight: 600; font-family: 'Geist Mono', monospace; font-size: 13px; cursor: pointer; box-shadow: var(--shadow-soft); transition: background 120ms ease, border-color 120ms ease, transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+  .button:active { transform: translate(1px, 1px); box-shadow: none; transition-duration: 60ms; }
+  .button:disabled { background: var(--panel-2); color: var(--ink-2); border-color: var(--input-line); cursor: progress; transform: none; }
   .button-outline { background: var(--card); color: var(--navy); border-color: var(--navy); }
-  html[data-theme='dark'] .button:not(.button-outline) { color: #152335; }
   @media (hover: hover) and (pointer: fine) {
     .nav-link:hover, .status-links a:hover { color: var(--navy); }
-    .nav-theme-toggle:hover, .nav-gh:hover { background: var(--panel-2); color: var(--navy); }
-    .nav-gh:hover .nav-gh-count { color: var(--navy); }
-    .nav-cta:hover, .button:hover { background: var(--navy-2); border-color: var(--navy-2); }
-    .button-outline:hover { background: var(--panel-2); color: var(--navy); border-color: var(--navy-2); }
+    .nav-theme-toggle:hover { background: var(--panel-2); color: var(--navy); }
+    .nav-cta:hover, .button:not(:disabled):hover { background: var(--navy-2); border-color: var(--navy-2); }
+    .button-outline:not(:disabled):hover { background: var(--panel-2); color: var(--navy); border-color: var(--navy-2); }
   }
-  @media (max-width: 960px) {
-    /* One row: brand + actions. Links collapse behind the hamburger into a
-       paper-OS dropdown cell; no more implicit horizontal scroll strip. */
-    .header-inner { grid-template-columns:minmax(0,1fr) auto; grid-template-areas:'brand actions'; align-items:center; padding-block:10px; }
-    .wordmark { grid-area:brand; }
-    .nav-actions { grid-area:actions; justify-self:end; }
-    .nav-menu-toggle { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-right: 1px solid var(--line-2); background: transparent; color: var(--ink); cursor: pointer; transition: background 120ms ease; }
-    .nav-links { position: absolute; top: 100%; left: 0; right: 0; display: none; flex-direction: column; align-items: stretch; gap: 0; padding: 6px 10px; background: var(--paper); border-bottom: 1px solid var(--line-2); box-shadow: 3px 3px 0 var(--paper-shadow); }
-    .nav-links.nav-open { display: flex; }
-    .nav-link { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 11px; }
-    .nav-link:last-child { border-bottom: 0; }
+  @media (max-width: 1000px) { .header-inner { gap: 16px; } .nav-links { gap: 2px; } .nav-link { font-size: 11px; padding-inline: 6px; } }
+  @media (max-width: 800px) {
+    .header-inner { grid-template-columns: minmax(0, 1fr) auto auto; min-height: 68px; gap: 4px; }
+    .wordmark { grid-column: 1; grid-row: 1; }
+    .nav-menu-toggle { grid-column: 2; grid-row: 1; }
+    .nav-actions { grid-column: 3; grid-row: 1; gap: 4px; }
+    .nav-js .nav-menu-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer; }
+    .nav-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; padding-block: 10px; justify-content: flex-start; }
+    .nav-js .nav-links { position: absolute; top: 100%; left: 0; right: 0; display: none; max-height: calc(100svh - 70px); overflow-y: auto; flex-direction: column; align-items: stretch; gap: 2px; padding: 12px 20px 20px; background: var(--paper); border-bottom: 1px solid var(--line); box-shadow: 0 15px 30px color-mix(in srgb, var(--ink) 7%, transparent); }
+    .nav-js .nav-links.nav-open { display: flex; }
+    .nav-link { font-size: 14px; justify-content: flex-start; padding-inline: 12px; }
+    .nav-more { min-width: 0; }
+    .nav-more-btn { width: 100%; }
+    .nav-more-panel { position: static; margin: 3px 0 5px 12px; border: 0; border-left: 1px solid var(--line); border-radius: 0; box-shadow: none; background: transparent; padding: 0 0 0 8px; }
+    .nav-more-panel a { font-size: 13px; }
   }
-  @media (hover: hover) and (pointer: fine) {
-    .nav-menu-toggle:hover { background: var(--panel-2); color: var(--navy); }
-  }
-  /* The GitHub star chip crowds the actions cell on narrow screens; the repo
-     link still lives in the footer. */
-  @media (max-width: 560px) {
-    .nav-gh { display: none; }
-  }
-  /* Below 400px the two actions cannot share a row with the wordmark at 44px
-     touch targets, so the brand row drops the wordmark and keeps the mark. */
-  @media (max-width: 400px) {
-    .wordmark-name { font-size: 21px; }
-    .nav-cta { padding: 0 10px; }
-  }
-  @media (pointer: coarse) {
-    .nav-link, .nav-theme-toggle, .nav-menu-toggle, .nav-cta, .button,
-    footer li a, .status-links a, .watch-link { min-height:44px; }
-    .nav-link, .status-links a { display:inline-flex; align-items:center; }
-    .nav-theme-toggle, .nav-menu-toggle { width:44px; }
-    .button { padding-inline:18px; }
-  }
+  @media (max-width: 400px) { .wordmark-name { font-size: 24px; } .nav-cta { padding-inline: 12px; font-size: 10px; } }
+  .button, footer li a, .status-links a, .watch-link { min-height: 44px; }
+  footer li a, .status-links a { display: inline-flex; align-items: center; }
+  footer a[aria-current='page'] { color: var(--navy); font-weight: 600; }
+
   /* theme.css (docs) already ships this net; the marketing layout has its own
      animations, so it needs the same guard for reduced-motion users. */
   @media (prefers-reduced-motion: reduce) {

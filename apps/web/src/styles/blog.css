@@ -1,7 +1,12 @@
-/* Journal (/blog) styles. design.md is canonical: retro paper-OS, cream paper +
-   navy accent, border-radius 0, hard offset shadows, Instrument Serif display +
-   Geist body + Geist Mono micro-labels. No new tokens are introduced here —
-   every value is read from theme.css. */
+/* Journal shares the marketing layout's rounded surfaces and soft elevation. */
+.blog-filter, .chip, .prose code { border-radius: var(--r-sm); }
+.blog-hero-window, .blog-hero-side, .article-hero, .prose pre, .callout, .blog-empty { border-radius: var(--r-md); overflow: hidden; }
+.prose pre { overflow-x: auto; }
+.article-hero img { border-radius: inherit; }
+.post-card, .article-next-link { border-radius: var(--r-md); }
+.post-card { padding-inline: 18px; }
+.prose table { border-collapse: separate; border-spacing: 0; border-radius: var(--r-md); overflow: hidden; }
+
 
 /* ---------- index: post list ---------- */
 
@@ -61,8 +66,7 @@
 	list-style: none;
 }
 
-/* Square chip: 1px border, mono 10px uppercase, no radius. Same idiom as the
-   capability chips on the landing page. */
+/* Compact rounded filters share the site's surface tokens. */
 .blog-filter {
 	display: inline-flex;
 	align-items: center;
@@ -77,7 +81,7 @@
 	text-transform: uppercase;
 	letter-spacing: 0.12em;
 	text-decoration: none;
-	box-shadow: 2px 2px 0 var(--paper-shadow);
+	box-shadow: var(--shadow-soft);
 }
 
 .blog-filter-count {
@@ -299,7 +303,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 .article-hero {
 	margin: clamp(24px, 3.5vw, 40px) 0 0;
 	border: 1px solid var(--line-2);
-	box-shadow: 3px 3px 0 var(--paper-shadow);
+	box-shadow: var(--shadow-soft);
 }
 
 .article-hero img {
@@ -524,7 +528,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 	overflow-x: auto;
 	border: 1px solid var(--line-2);
 	background: var(--card);
-	box-shadow: 2px 2px 0 var(--paper-shadow);
+	box-shadow: var(--shadow-soft);
 }
 
 .prose pre code {
@@ -538,7 +542,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 
 .prose table {
 	width: 100%;
-	border-collapse: collapse;
+	border-collapse: separate;
 	margin: 1.5em 0;
 	font-size: 13px;
 }
@@ -568,14 +572,13 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 	margin: 2.4em 0;
 }
 
-/* Standard callout, used for the standing prototype-status disclosure. Square
-   card, hard shadow, amber rail — same language as the dashboard status chips. */
+/* Prototype-status disclosure retains its amber rail on a softly elevated card. */
 .callout {
 	margin: 1.8em 0;
 	border: 1px solid var(--line-2);
 	border-left: 3px solid var(--pending);
 	background: var(--card);
-	box-shadow: 2px 2px 0 var(--paper-shadow);
+	box-shadow: var(--shadow-soft);
 	padding: 14px 16px;
 }
 
@@ -671,7 +674,7 @@ html[data-theme='dark'] .blog-filter[aria-current='true'] {
 	margin-top: 40px;
 	border: 1px solid var(--line-2);
 	background: var(--card);
-	box-shadow: 3px 3px 0 var(--paper-shadow);
+	box-shadow: var(--shadow-soft);
 	padding: 28px;
 	max-width: 42rem;
 }
