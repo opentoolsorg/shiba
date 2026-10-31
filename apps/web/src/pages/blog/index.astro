@@ -19,7 +19,7 @@ const collectionSchema = {
 	'@type': 'Blog',
 	name: 'Shiba Journal',
 	description:
-		'Guides and engineering notes on running approval-gated coding agents in your own Cloudflare account.',
+		'Notes on building AI employees for company work, with clear briefs, approval, and results to review.',
 	url: 'https://tryshiba.dev/blog/',
 	blogPost: posts.map((p) => ({
 		'@type': 'BlogPosting',
@@ -32,7 +32,7 @@ const collectionSchema = {
 
 <MarketingPage
 	title="Journal — Shiba"
-	description="Guides and engineering notes on running approval-gated coding agents in your own Cloudflare account: credential boundaries, sandbox isolation, harness choice, and honest run evidence."
+	description="Notes on building AI employees for company work—from engineering and design to marketing, sales, operations, finance and revenue planning."
 	path="/blog/"
 	schema={collectionSchema}
 	breadcrumbs={[
@@ -43,12 +43,11 @@ const collectionSchema = {
 	<div class="shell">
 		<header class="blog-index-hero">
 			<div class="micro">Journal</div>
-			<h1>Notes on running coding agents you can actually inspect</h1>
+			<h1>Building an AI team,<br />one useful task at a time</h1>
 			<p class="blog-lede">
-				Shiba is an open-source, self-hosted coding coworker. It runs each task in an
-				isolated Cloudflare Sandbox container inside your own account, behind a human
-				approval gate. This journal is where the reasoning behind that design lives —
-				what the boundaries buy, what they cost, and what is not verified yet.
+				Shiba is being built for the work behind a company: product and code, marketing
+				and sales, operations and finance. This journal shares the decisions, experiments,
+				and lessons behind it. Older articles reflect the product at the time they were written.
 			</p>
 			<ul class="blog-filters">
 				<li>
@@ -97,8 +96,8 @@ const collectionSchema = {
 			<div class="blog-empty">
 				<h2>No posts published yet</h2>
 				<p>
-					The first entries are being written. In the meantime, the technical
-					reference covers the same ground with more precision.
+					The first entries are being written. In the meantime, the docs
+					can help you start a task and review its result.
 				</p>
 				<a class="button" href="/docs/overview/">
 					<span>Read the docs</span>

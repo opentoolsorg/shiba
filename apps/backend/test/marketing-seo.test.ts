@@ -29,10 +29,12 @@ describe.skipIf(!built)("marketing SEO (built dist)", () => {
 	it("custom sitemap lists every public HTML page with trailing-slash canonicals", () => {
 		const sitemap = page("sitemap.xml");
 		const locs = [...sitemap.matchAll(/<loc>https:\/\/tryshiba\.dev([^<]*)<\/loc>/g)].map((m) => m[1]);
-		// `/docs/` is a redirect to `/docs/overview/`; the overview URL is canonical in the sitemap.
-		const skip = new Set(["/docs/"]);
-		const htmlPaths = walkHtml(dist).map((p) => (p === "/" ? "/" : p));
-		const missing = htmlPaths.filter((p) => !skip.has(p) && !locs.includes(p));
+		// Redirects and private design previews are deliberately noindex.
+		const htmlPaths = walkHtml(dist).filter((path) => {
+			const html = page(join(path.slice(1), "index.html"));
+			return !/<meta\b[^>]*name="robots"[^>]*content="[^"]*\bnoindex\b/i.test(html);
+		});
+		const missing = htmlPaths.filter((path) => !locs.includes(path));
 		expect(missing).toEqual([]);
 		for (const loc of locs) {
 			expect(loc).toBeDefined();
