@@ -634,7 +634,9 @@ function onBeforeQuit(event: Electron.Event): void {
   void (controller?.stop() ?? Promise.resolve()).finally(() => {
     controller?.dispose();
     tray?.destroy();
-    app.exit(0);
+    // Finish Electron's normal shutdown so renderer storage and session cookies
+    // are flushed. app.exit() can discard a just-written unsent draft.
+    app.quit();
   });
 }
 

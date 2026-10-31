@@ -1261,8 +1261,9 @@ try {
   const groundedFacts = "Prepare a reviewable report from the selected private source. Do not send or publish.";
   await contextAnswer.fill(groundedFacts);
   const selectedSource = page.getByRole("checkbox", { name: `${managedContext.sourceTitle} · v3 · ready`, exact: true });
-  await selectedSource.check();
+  await selectedSource.click();
   await waitFor("source id saved in the goal", async () => (await apiJson(page, "/api/onboarding/progress")).draftTask.sourceIds.includes(managedContext.source.id));
+  await waitFor("saved source selection is reflected in the picker", () => selectedSource.isChecked());
   assert.equal(await contextAnswer.inputValue(), groundedFacts, "Selecting sources preserves the unsent answer.");
   await page.getByRole("button", { name: "Upload or manage sources, then return", exact: true }).click();
   await page.getByRole("region", { name: "Workspace memory sources" }).waitFor();
