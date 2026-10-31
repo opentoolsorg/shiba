@@ -213,7 +213,7 @@ function ownChild(child, detached, execution) {
 async function post(sub, body) {
   const res = await fetch(`${workerUrl}/api/local/${sub}`, {
     method: "POST",
-    redirect: "error",
+    redirect: "manual",
     headers: { ...AUTH, "content-type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
@@ -223,18 +223,21 @@ async function post(sub, body) {
 }
 
 async function get(sub) {
-  const res = await fetch(`${workerUrl}/api/local/${sub}`, { headers: AUTH, redirect: "error", signal: AbortSignal.timeout(10_000) });
+  const res = await fetch(`${workerUrl}/api/local/${sub}`, { headers: AUTH, redirect: "manual", signal: AbortSignal.timeout(10_000) });
   const text = await res.text();
   return parseLocalApiResponse(sub, res, text);
 }
 
 function looksLikeHtml(text) {
   const sample = text.trimStart().slice(0, 256).toLowerCase();
-  return sample.startsWith("<!doctype") || sample.startsWith("<html") || sample.includes("cloudflare access");
+  return sample.startsWith("<!doctype") || sample.startsWith("<html") || (sample.startsWith("<") && sample.includes("cloudflare access"));
 }
 
 /** Turn Worker responses into JSON or operator-actionable errors (Access HTML, runtime off). */
 function parseLocalApiResponse(sub, res, text) {
+  if (res.status >= 300 && res.status < 400) {
+    throw Object.assign(new Error(`${sub}: HTTP ${res.status} redirected instead of JSON — check the Cloudflare Access bypass for ${workerUrl}/api/local/*. Credentials were not forwarded.`), { status: res.status, accessHtml: true });
+  }
   if (!res.ok) {
     if (res.status === 404) {
       throw Object.assign(
@@ -257,17 +260,12 @@ function parseLocalApiResponse(sub, res, text) {
     });
   }
   if (text === "") return {};
-  if (looksLikeHtml(text)) {
-    throw Object.assign(
-      new Error(
-        `${sub}: got an HTML login page instead of JSON — bypass Cloudflare Access for ${workerUrl}/api/local/*.`,
-      ),
-      { status: res.status, accessHtml: true },
-    );
-  }
   try {
     return JSON.parse(text);
   } catch {
+    if (looksLikeHtml(text)) {
+      throw Object.assign(new Error(`${sub}: got an HTML login page instead of JSON — bypass Cloudflare Access for ${workerUrl}/api/local/*.`), { status: res.status, accessHtml: true });
+    }
     throw Object.assign(
       new Error(`${sub}: response was not JSON (${text.slice(0, 120)}…)`),
       { status: res.status, badJson: true },
@@ -311,11 +309,11 @@ async function refreshReasonNetworkCapability({ strict = false } = {}) {
 }
 
 /** Only an explicitly enabled daemon may spawn the already-installed Reason MCP executable. */
-async function sendReasonNetworkMessage(operation) {
+async function sendReasonNetworkMessage(operation, onSendAttempt) {
   const executablePath = process.env.SHIBA_REASON_NETWORK_EXECUTABLE ?? "";
   if (!executablePath.startsWith("/")) throw new Error("SHIBA_REASON_NETWORK_EXECUTABLE must be an absolute path to the user-installed reason-network binary.");
   return createReasonNetworkCompanion({
-    connect: () => connectReasonNetworkStdio({ executablePath }),
+    connect: () => connectReasonNetworkStdio({ executablePath, onSendAttempt }),
     // MCP initialization and tools/list can take time. Revalidate the claim only
     // after setup, immediately before the outbound send call.
     beforeSend: async (claimedOperation) => {
@@ -330,6 +328,7 @@ async function processReasonNetworkClaim(claim) {
   const operation = claim.operation;
   if (!operation) return false;
   const settle = async (state, messageId) => post("reason-network/v1/result", { operationId: operation.operationId, claimToken: operation.claimToken, state, ...(messageId ? { messageId } : {}) });
+  let attempted = false;
   try {
     const current = await get(`reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`);
     if (current.state === "unknown") return true;
@@ -338,14 +337,14 @@ async function processReasonNetworkClaim(claim) {
     const latest = await get(`reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`);
     if (latest.state === "unknown") return true;
     if (latest.state !== "claimed" || latest.cancelRequested || latest.sendAllowed !== true) { await settle("cancelled"); return true; }
-    const result = await sendReasonNetworkMessage(operation);
+    const result = await sendReasonNetworkMessage(operation, () => { attempted = true; });
     if (result.state === "expired") return true;
     await settle(result.state, result.messageId);
   } catch (error) {
-    // Once a send might have crossed the process boundary, preserve uncertainty for same-key recovery.
+    // Only the send_message RPC write can make delivery uncertain, not connection or discovery.
+    console.error(`shiba-local: Reason Network operation ${operation.operationId} ${attempted ? "outcome is unknown" : "was not sent"}: ${error.message}`);
     if (error.status === 401) revoked();
-    await settle("unknown").catch(() => {});
-    console.error(`shiba-local: Reason Network operation ${operation.operationId} outcome is unknown: ${error.message}`);
+    await settle(attempted ? "unknown" : "rejected").catch(() => {});
   }
   return true;
 }
