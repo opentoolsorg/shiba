@@ -462,7 +462,8 @@ export async function handleCollaboration(
         })),
         slackSources,
         slackDeliveryIntents,
-        canApproveSlackOutbox: isApprover(scope.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS)),
+        canApproveSlackOutbox: access.membership.actorKind === "human" &&
+          isApprover(scope.userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS)),
         slackOutboxEnabled: env.SLACK_ROOM_OUTBOX_ENABLED?.trim() === "true" &&
           Boolean(env.SLACK_BOT_TOKEN?.trim() && env.SLACK_APPROVALS_CHANNEL?.trim()),
       });
@@ -594,6 +595,9 @@ export async function handleCollaboration(
         env, scope, roomId, intentId, Date.now(),
       );
       if (!intent) return json({ error: "Slack delivery intent not found." }, 404);
+      if (intent.status === "blocked" || intent.deliveryStatus === "blocked" ||
+        intent.deliveryStatus === "failed" || intent.deliveryStatus === "awaiting_approval")
+        return json({ error: "This intent is no longer eligible for delivery." }, 409);
       const delivery = await deliverApprovedSlackRoomIntent(
         env, scope, roomId, intentId, deps.slackOutbox,
       );
