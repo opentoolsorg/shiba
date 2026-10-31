@@ -100,6 +100,8 @@ const codingTaskInputSchema = z.object({
   runSetup: z.boolean().optional(),
   envSealed: z.string().min(1).optional(),
   envDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  /** Orchestrator that owns every artifact, including runs without sealed env. */
+  accessAgent: z.string().min(1).max(200).optional(),
   envOwner: z.string().min(1).max(200).optional(),
   /**
    * T51: the approved runtime. `"local"` runs on the operator's machine
@@ -109,6 +111,10 @@ const codingTaskInputSchema = z.object({
   runtime: runtimeSelectionSchema.optional(),
   /** Pins a local run to one paired machine (hashed into the approved run). */
   targetMachineId: z.string().min(1).max(128).optional(),
+  /** HMAC seal proving the orchestrator parent dispatched this envelope. */
+  dispatchApprovalId: z.string().min(1).max(512).optional(),
+  dispatchInputHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  dispatchSig: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input, ctx) => {
@@ -216,6 +222,8 @@ const codingTaskResultSchema = z.object({
       costUsd: z.number().nonnegative().optional(),
     })
     .optional(),
+  /** Reviewer-only structured findings (frozen on the result envelope). */
+  findings: z.array(z.unknown()).optional(),
 });
 
 export type CodingTaskResult = z.infer<typeof codingTaskResultSchema>;

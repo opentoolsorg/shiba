@@ -27,7 +27,7 @@ import { registerMemoryTools, registerOwnerMemoryTools } from "./mcp-memory-tool
 import { registerRunTools } from "./mcp-run-tools.js";
 
 /** The shared cross-user principal must never inherit personal Gmail access. */
-const ORCHESTRATOR_SCOPES: Scope[] = SCOPES.filter((s) => s !== "admin:tokens" && s !== "gmail:read");
+export const ORCHESTRATOR_SCOPES: Scope[] = SCOPES.filter((s) => s !== "admin:tokens" && s !== "gmail:read");
 
 export const ORCHESTRATOR_PRINCIPAL: TokenRecord = {
   principal: "orchestrator-agent",
@@ -43,14 +43,14 @@ function resultText(result: CallToolResult): string {
 }
 
 /** Adapt each registered MCP tool into an AI SDK tool the executor can RPC to. */
-export function gatewayToolSet(env: Env, registry: ToolRegistry): ToolSet {
+export function gatewayToolSet(env: Env, registry: ToolRegistry, principal: TokenRecord = ORCHESTRATOR_PRINCIPAL): ToolSet {
   const set: ToolSet = {};
   for (const t of registry.tools()) {
     set[t.name] = tool({
       description: t.meta.description ?? t.name,
       inputSchema: z.object(t.meta.inputSchema ?? {}),
       execute: async (args) => {
-        const result = await registry.invoke(t.name, args, ORCHESTRATOR_PRINCIPAL);
+        const result = await registry.invoke(t.name, args, principal);
         if (result.isError) throw new Error(resultText(result));
         return resultText(result);
       },
@@ -73,14 +73,15 @@ function buildRegistry(env: Env, ownerMemoryId?: string): ToolRegistry {
  * calls `codemode.<tool>(args)` and returns/log()s only the fields it needs.
  * Requires the `LOADER` worker_loaders binding in wrangler.jsonc.
  */
-export function createRunCodeTool(env: Env, ownerMemoryId?: string) {
+export function createRunCodeTool(env: Env, ownerMemoryId?: string, principal?: TokenRecord) {
   if (!env.LOADER) return null;
   const executor = new DynamicWorkerExecutor({
     loader: env.LOADER,
     globalOutbound: null,
   });
+  const toolPrincipal = principal ?? ORCHESTRATOR_PRINCIPAL;
   return createCodeTool({
-    tools: [{ name: "codemode", tools: gatewayToolSet(env, buildRegistry(env, ownerMemoryId)) }],
+    tools: [{ name: "codemode", tools: gatewayToolSet(env, buildRegistry(env, ownerMemoryId), toolPrincipal) }],
     executor,
     description:
       "Execute JavaScript in an isolated sandbox to use the coworker's tools.\n\nAvailable:\n{{types}}\n\n" +

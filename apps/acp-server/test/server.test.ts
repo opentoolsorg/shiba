@@ -11,6 +11,8 @@ function harness(opts: {
   queueResult?: Record<string, unknown>;
   queueStatus?: number;
   resolveStatus?: number;
+  now?: () => number;
+  onSleep?: () => void;
 }) {
   const sent: Array<Record<string, unknown>> = [];
   const peer = new JsonRpcPeer((msg) => sent.push(msg));
@@ -36,8 +38,8 @@ function harness(opts: {
   const server = new ShibaAcpServer({
     client,
     peer,
-    now: () => 1234,
-    sleep: () => new Promise((r) => setImmediate(r)),
+    now: opts.now ?? (() => 1234),
+    sleep: () => { opts.onSleep?.(); return new Promise((r) => setImmediate(r)); },
     execGitRemote: () => "git@github.com:owner/repo.git",
   });
   return { peer, server, sent, calls };
@@ -104,6 +106,7 @@ describe("shiba-acp server", () => {
     expect(h.calls.find((c) => c.method === "POST" && c.path === "/api/runs")?.body).toMatchObject({
       repoUrl: "https://github.com/owner/repo",
       task: "fix the bug",
+      threadKey: `acp:${sessionId}`,
     });
     expect(h.calls.find((c) => c.path === "/api/approvals")?.body).toMatchObject({
       approvalId: "appr-1",
@@ -116,6 +119,26 @@ describe("shiba-acp server", () => {
     // Progress text became an agent_message_chunk.
     const chunks = h.sent.filter((m) => m.method === "session/update");
     expect(chunks.some((m) => JSON.stringify(m).includes("working…"))).toBe(true);
+  });
+
+  it("keeps following a discovered run beyond the discovery deadline", async () => {
+    let elapsed = 0;
+    const h = harness({
+      now: () => elapsed,
+      onSleep: () => { elapsed = 16 * 60 * 1000; },
+      runs: [{ runId: "run-1", approval: { approvalId: "appr-1" } }],
+      run: { runId: "run-1", status: "completed", summary: "long run finished", pullUrl: "https://github.com/owner/repo/pull/1" },
+    });
+    await handle(h, '{"id":1,"method":"initialize","params":{}}');
+    await handle(h, '{"id":2,"method":"session/new","params":{"cwd":"/repo","mcpServers":[]}}');
+    const sessionId = (h.sent[1] as { result: { sessionId: string } }).result.sessionId;
+    const done = handle(h, JSON.stringify({ id: 3, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "x" }] } }));
+    await new Promise((r) => setImmediate(r));
+    const perm = h.sent.find((m) => m.method === "session/request_permission")!;
+    await handle(h, JSON.stringify({ id: perm.id, result: { outcome: { outcome: "selected", optionId: "approve" } } }));
+    await done;
+    expect(h.sent.some((m) => JSON.stringify(m).includes("long run finished"))).toBe(true);
+    expect(h.sent.some((m) => JSON.stringify(m).includes("Pull request:"))).toBe(true);
   });
 
   it("rejected permission resolves the approval rejected and returns refusal", async () => {

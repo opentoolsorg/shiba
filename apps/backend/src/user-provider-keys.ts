@@ -59,8 +59,6 @@ export async function putUserProviderSecret(
   const cipher = await encryptAuthJson(secret, env.MODEL_CREDENTIAL_KEY!, WORKSPACE, userId, kind);
   await env.AGENT_TOKENS.put(secretKey(userId, kind), cipher);
   await env.AGENT_TOKENS.put(ownerKey(userId, kind), userId);
-  await env.AGENT_TOKENS.put(ownerKey("self-hosted", kind), userId);
-  await env.AGENT_TOKENS.put(ownerKey("default", kind), userId);
 }
 
 export async function readUserProviderSecret(
@@ -83,13 +81,22 @@ export async function readProviderSecretForOrg(
   env: KeyEnv,
   orgId: string | undefined,
   kind: UserSecretKind,
+  credentialUserId?: string,
 ): Promise<string | null> {
   const org = orgId?.trim() || "self-hosted";
+  // Self-hosted runs use the authenticated initiator’s own saved key.
+  if (org === "self-hosted" && credentialUserId?.trim()) {
+    const personal = await readUserProviderSecret(env, credentialUserId.trim(), kind);
+    if (personal) return personal;
+  }
   const direct = await readUserProviderSecret(env, org, kind);
   if (direct) return direct;
   if (!env.AGENT_TOKENS) return null;
   const owner = await env.AGENT_TOKENS.get(ownerKey(org, kind), { type: "text" });
   if (!owner || owner === org) return null;
+  if (credentialUserId !== undefined && credentialUserId.trim() !== "" && owner !== credentialUserId.trim()) {
+    return null;
+  }
   return readUserProviderSecret(env, owner, kind);
 }
 

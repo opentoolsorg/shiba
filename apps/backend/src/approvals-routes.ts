@@ -117,6 +117,24 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
       const ownedSession = stubs[names.indexOf(body.threadKey)];
       if (!ownedSession) return Response.json({ error: "Session not found." }, { status: 404 });
       decisionStubs = [ownedSession];
+    } else if (body.threadKey.startsWith("acp:")) {
+      // ACP keys are opaque. Prove the exact persisted approval belongs to an
+      // authenticated owner DO rather than trusting the caller's thread key.
+      decisionStubs = [];
+      for (let index = 0; index < names.length; index++) {
+        const name = names[index]!;
+        if (name === ORCHESTRATOR_NAME || !isAuthorizedSessionAgent(name, decidedBy)) continue;
+        const stub = stubs[index]!;
+        const response = await stub.fetch("https://internal/api/approvals");
+        if (!response.ok) return Response.json({ error: "Approval lookup failed." }, { status: 503 });
+        const stored = await response.json() as { approvals?: PendingApproval[]; decided?: PendingApproval[] };
+        if ([...(stored.approvals ?? []), ...(stored.decided ?? [])].some(
+          (approval) => approval.approvalId === body.approvalId && approval.threadKey === body.threadKey,
+        )) decisionStubs.push(stub);
+      }
+      if (decisionStubs.length === 0) {
+        return Response.json({ error: "Approval not found." }, { status: 404 });
+      }
     } else if (!isApprover(decidedBy, parseApproverAllowlist(env.DASHBOARD_APPROVERS))) {
       return Response.json(
         { error: "Not authorized to resolve shared approvals." },

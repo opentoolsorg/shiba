@@ -419,9 +419,9 @@ export function App(): React.JSX.Element {
     if (prompt !== null) {
       const nextUrl = window.location.pathname + nextSearch + window.location.hash;
       window.history.replaceState(window.history.state, "", nextUrl);
-      if (!draft.trim()) return prompt;
+      return prompt;
     }
-    return draft;
+    return "";
   });
   const latestComposerTask = useRef(task);
   latestComposerTask.current = task;
@@ -626,13 +626,14 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (draftScope.current !== composerScope) {
       flushDraft(); // the old scope's unwritten keystrokes land before switching
+      const keepCurrentTask = draftScope.current === null && composerScope !== null && task !== "";
       draftScope.current = composerScope;
       setRestoredComposerScope(composerScope);
-      const restored = composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
+      const restored = keepCurrentTask ? task : composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
       if (composerScope) initialComposerPrompt.current = "";
       selectedOnboardingTaskText.current = restored;
       setTask(restored);
-      setSelectedOnboardingDraftRef(composerScope ? readDraftReference(composerScope) : null);
+      setSelectedOnboardingDraftRef(composerScope && !keepCurrentTask ? readDraftReference(composerScope) : null);
       return;
     }
     if (!composerScope) return;

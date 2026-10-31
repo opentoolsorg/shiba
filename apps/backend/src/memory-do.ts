@@ -470,7 +470,7 @@ export class Memory {
     // Best-effort: a failed vector delete leaves one un-joinable id — the
     // registry lookup for recall/delete already returned absent.
     try {
-      await this.env.MEMORY_VECTORS.deleteByIds([factId]);
+      await this.deleteVectorStrict(factId);
     } catch (error) {
       console.warn(
         `memory_vector_delete_failed ${JSON.stringify({
@@ -479,6 +479,10 @@ export class Memory {
         })}`,
       );
     }
+  }
+
+  private async deleteVectorStrict(factId: string): Promise<void> {
+    await this.env.MEMORY_VECTORS.deleteByIds([factId]);
   }
 
   /**
@@ -511,17 +515,7 @@ export class Memory {
    */
   private async dropRegistryEntry(factId: string): Promise<void> {
     try {
-      const res = await memoryRegistryStub(this.env).fetch(
-        new Request(
-          `https://internal${ROUTE_PREFIX}/registry/${encodeURIComponent(factId)}`,
-          { method: "DELETE" },
-        ),
-      );
-      if (!res.ok) {
-        console.warn(
-          `memory_registry_unregister_failed ${JSON.stringify({ factId, status: res.status })}`,
-        );
-      }
+      await this.dropRegistryEntryStrict(factId);
     } catch (error) {
       console.warn(
         `memory_registry_unregister_failed ${JSON.stringify({
@@ -529,6 +523,18 @@ export class Memory {
           error: error instanceof Error ? error.message : String(error),
         })}`,
       );
+    }
+  }
+
+  private async dropRegistryEntryStrict(factId: string): Promise<void> {
+    const res = await memoryRegistryStub(this.env).fetch(
+      new Request(
+        `https://internal${ROUTE_PREFIX}/registry/${encodeURIComponent(factId)}`,
+        { method: "DELETE" },
+      ),
+    );
+    if (!res.ok) {
+      throw new Error(`Memory registry unregister failed (${res.status}).`);
     }
   }
 
@@ -603,6 +609,7 @@ export class Memory {
     if (!memoryEnabled(this.env.MEMORY_ENABLED)) {
       return;
     }
+    await this.repairFactIndexes();
     await this.collectPurged(this.store.purgeExpiredFacts());
     // Oldest first — a later near-duplicate merges away, never the original.
     const facts = this.store.listFacts({ nowMs: Date.now() }).reverse();
@@ -858,11 +865,24 @@ export class Memory {
         await this.deleteVector(factId);
         continue;
       }
-      // Vectors banked after metadata landed carry the whole fact row —
-      // the registry answers straight off it instead of spending one
-      // sequential stub fetch per hit (up to ~100 subrequests before).
+      // Validate that metadata-backed hits still belong to a live fact.
+      // A failing owner is skipped just like the legacy join below.
       const meta = match.metadata as FactMetadata | undefined;
       if (recallableMetadata(meta) && meta.agent === agent) {
+        let live: FactRecord | null;
+        try {
+          live = await this.fetchFact(agent, factId);
+        } catch (error) {
+          console.warn(`memory_recall_fetch_failed ${JSON.stringify({
+            factId, agent, error: error instanceof Error ? error.message : String(error),
+          })}`);
+          continue;
+        }
+        if (live === null) {
+          await this.deleteVector(factId);
+          this.store.unregisterFact(factId);
+          continue;
+        }
         // The row join used to filter expiry and then collect the dead
         // vector; the stored ttl serves the same contract here — an
         // expired fact's vector and registry row drop now rather than
@@ -1023,6 +1043,24 @@ export class Memory {
     return json({ facts: facts.slice(0, cap) });
   }
 
+  /** Restore indexes for facts retained after incomplete external cleanup. */
+  private async repairFactIndexes(): Promise<void> {
+    for (const id of this.store.pendingIndexRepairs()) {
+      try {
+        const fact = this.store.getFact(id);
+        if (fact !== null) {
+          await this.upsertVector(id, this.agent, await this.embed(fact.fact), factMetadata(this.agent, fact));
+          await this.registerFact(id, this.agent);
+        }
+        this.store.clearIndexRepair(id);
+      } catch (error) {
+        console.warn(`memory_index_repair_failed ${JSON.stringify({
+          id, error: error instanceof Error ? error.message : String(error),
+        })}`);
+      }
+    }
+  }
+
   /**
    * `DELETE /facts/:id` — on an agent stub: row + vector. On the registry:
    * resolve the owner through `fact_registry`, delegate the row delete to
@@ -1030,11 +1068,29 @@ export class Memory {
    */
   private async forget(id: string): Promise<Response> {
     if (!this.isRegistry) {
+      if (this.store.getFact(id) === null) {
+        return notFound("Fact not found.");
+      }
+      // Persist before external mutations so interrupted deletions can repair
+      // the retained row's indexes, even across Durable Object restarts.
+      this.store.markIndexRepair(id);
+      try {
+        await this.deleteVectorStrict(id);
+        await this.dropRegistryEntryStrict(id);
+      } catch (error) {
+        console.error(
+          `memory_forget_incomplete ${JSON.stringify({
+            id,
+            error: error instanceof Error ? error.message : String(error),
+          })}`,
+        );
+        await this.repairFactIndexes();
+        return json({ error: "Could not fully delete this fact; try again." }, { status: 503 });
+      }
       if (!this.store.forgetFact(id)) {
         return notFound("Fact not found.");
       }
-      await this.deleteVector(id);
-      await this.dropRegistryEntry(id);
+      this.store.clearIndexRepair(id);
       return json({ ok: true, id });
     }
     const agent = this.store.factOwner(id);
@@ -1326,6 +1382,7 @@ export class Memory {
     // A stub that slept through its scheduled alarm re-arms on the next
     // request — the constructor only covers fresh instances.
     await this.ensureSweepScheduled();
+    await this.repairFactIndexes();
     const url = new URL(request.url);
     if (url.pathname !== ROUTE_PREFIX && !url.pathname.startsWith(`${ROUTE_PREFIX}/`)) {
       return notFound();

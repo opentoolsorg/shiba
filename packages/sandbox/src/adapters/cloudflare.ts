@@ -15,6 +15,8 @@ export interface CloudflareSandboxRpc {
   ): Promise<void>;
   approveRepoScope(allowedPath: string): Promise<void>;
   setOutboundOrgId?(orgId: string): Promise<void>;
+  setOutboundInitiatorUserId?(userId: string): Promise<void>;
+  setOutboundGatewayByokAlias?(alias: string): Promise<void>;
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
   writeFile(path: string, content: string): Promise<void>;
   exec(
@@ -69,9 +71,7 @@ function wrapRpc(
 
     async pinEgress(pin: SandboxEgressPin) {
       const hosts = [...new Set([...pin.allowedHosts, ...(settings.extraEgressHosts ?? [])])];
-      if (hosts.length > 0) {
-        await rpc.approveHarnessEgress(hosts);
-      }
+      await rpc.approveHarnessEgress(hosts);
       if (pin.outboundByHost) {
         const overrides = Object.entries(pin.outboundByHost).map(([host, spec]) => ({
           host,
@@ -87,6 +87,12 @@ function wrapRpc(
       }
       if (pin.orgId && rpc.setOutboundOrgId) {
         await rpc.setOutboundOrgId(pin.orgId);
+      }
+      if (pin.initiatorUserId && rpc.setOutboundInitiatorUserId) {
+        await rpc.setOutboundInitiatorUserId(pin.initiatorUserId);
+      }
+      if (pin.gatewayByokAlias && rpc.setOutboundGatewayByokAlias) {
+        await rpc.setOutboundGatewayByokAlias(pin.gatewayByokAlias);
       }
     },
 

@@ -507,6 +507,16 @@ export default {
         if (route[2]?.startsWith("api/") || route[2]?.startsWith("internal/")) {
           return Response.json({ error: "Not found." }, { status: 404 });
         }
+        const suffix = route[2];
+        const canonicalAgentPath = `/agents/coding-orchestrator/${encodeURIComponent(name)}${
+          suffix ? `/${suffix}` : ""
+        }`;
+        const agentRequest =
+          canonicalAgentPath === url.pathname
+            ? request
+            : new Request(new URL(`${canonicalAgentPath}${url.search}`, url.origin), request);
+        const agent = await getAgentByName(env.CodingOrchestrator, name);
+        return agent.fetch(agentRequest);
       }
       const agentResponse = await routeAgentRequest(request, {
         CodingOrchestrator: env.CodingOrchestrator,
