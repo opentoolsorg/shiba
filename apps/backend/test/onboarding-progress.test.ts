@@ -47,9 +47,10 @@ describe("server-owned onboarding progress", () => {
     const moved = await call(ctx, "POST", { action: "step", currentStep: "models", expectedRevision: 0 });
     expect(await moved.json()).toMatchObject({ currentStep: "models", revision: 1, activatedAt: null });
     ctx.setNow(300);
-    expect(await (await call(ctx, "POST", { action: "dismiss", currentStep: "models", expectedRevision: 1 })).json()).toMatchObject({ currentStep: "models", dismissedAt: 300 });
-    expect(await (await call(ctx, "POST", { action: "resume", expectedRevision: 2 })).json()).toMatchObject({ currentStep: "models", dismissedAt: null });
-    expect(ctx.sqlite.prepare("SELECT current_step FROM user_onboarding_progress WHERE user_id='auth-user-a'").get()).toEqual({ current_step: "models" });
+    ctx.setEvidence(null, null, null);
+    expect(await (await call(ctx, "POST", { action: "dismiss", currentStep: "employee", expectedRevision: 1 })).json()).toMatchObject({ currentStep: "employee", dismissedAt: 300, revision: 2, activatedAt: null });
+    expect(await (await call(ctx, "POST", { action: "resume", expectedRevision: 2 })).json()).toMatchObject({ currentStep: "employee", dismissedAt: null });
+    expect(ctx.sqlite.prepare("SELECT current_step FROM user_onboarding_progress WHERE user_id='auth-user-a'").get()).toEqual({ current_step: "employee" });
   });
 
   it("isolates by immutable Better Auth id and activates only from both server evidence checks", async () => {

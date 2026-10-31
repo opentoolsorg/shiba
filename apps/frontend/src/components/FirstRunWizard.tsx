@@ -181,6 +181,7 @@ export function FirstRunWizard({
   const [savingProgress, setSavingProgress] = useState(false);
   const [progressError, setProgressError] = useState<string | null>(null);
   const progressRequestGeneration = useRef(0);
+  const progressAction = useRef(false);
   const [providers, setProviders] = useState<AcpProviderCard[] | null>(null);
   const [providersError, setProvidersError] = useState(false);
   const [routingRetried, setRoutingRetried] = useState(false);
@@ -265,29 +266,39 @@ export function FirstRunWizard({
 
   const currentStep = STEPS[step]?.id ?? "channels";
   const dismiss = async (afterDismiss?: () => void) => {
-    if (savingProgress) return;
-    progressRequestGeneration.current += 1;
+    if (progressAction.current) return;
+    progressAction.current = true;
+    const generation = ++progressRequestGeneration.current;
     setSavingProgress(true);
-    try { await onDismiss?.(currentStep); }
-    catch { /* The saved step remains available when account storage returns. */ }
-    finally {
-      setSavingProgress(false);
+    setProgressError(null);
+    try {
+      await onDismiss?.(currentStep);
+      if (generation !== progressRequestGeneration.current) return;
       onClose();
       afterDismiss?.();
+    }
+    catch {
+      if (generation === progressRequestGeneration.current) setProgressError("Setup progress could not be saved. Try again, or close without saving your place.");
+    }
+    finally {
+      progressAction.current = false;
+      setSavingProgress(false);
     }
   };
   const changeStep = (nextStep: number) => {
     const next = STEPS[nextStep];
-    if (!next) return;
+    if (!next || progressAction.current) return;
+    progressAction.current = true;
+    const generation = ++progressRequestGeneration.current;
     setSavingProgress(true);
     setProgressError(null);
     void (async () => {
       try {
         await onStepChange?.(next.id);
-        setStep(nextStep);
+        if (generation === progressRequestGeneration.current) setStep(nextStep);
       } catch {
-        setProgressError("Setup progress could not be saved. Your last saved step is still available.");
-      } finally { setSavingProgress(false); }
+        if (generation === progressRequestGeneration.current) setProgressError("Setup progress could not be saved. Your last saved step is still available.");
+      } finally { progressAction.current = false; setSavingProgress(false); }
     })();
   };
 
@@ -303,6 +314,7 @@ export function FirstRunWizard({
             <p className="mt-3 border-t border-[var(--border-1)]/60 pt-3">
               <button
                 type="button"
+                disabled={savingProgress}
                 onClick={() => {
                   void dismiss(onOpenChecklist);
                 }}
@@ -339,7 +351,10 @@ export function FirstRunWizard({
           <span>Accepted deliverable: {!progress ? "checking" : progress.evidence.acceptedDeliverable === null ? "not verified" : progress.evidence.acceptedDeliverable ? "confirmed" : "not confirmed"}</span>
           {progress?.activatedAt ? <strong>Activated</strong> : null}
         </div>
-        {progressError ? <p className="mt-2 text-[var(--destructive)]" role="alert">{progressError}</p> : null}
+        {progressError ? <div className="mt-2">
+          <p className="text-[var(--destructive)]" role="alert">{progressError}</p>
+          <button type="button" disabled={savingProgress} onClick={onClose} className="mt-2 underline">Close without saving</button>
+        </div> : null}
       </section>
       {step > 0 ? (
         <div role="status" className="mb-3 space-y-1.5">
@@ -360,6 +375,8 @@ export function FirstRunWizard({
       ) : null}
       {step === 0 ? (
         <div>
+          <p className="mb-2 text-[11px] text-[var(--muted-foreground-2)]">Start with a role and one task. Channels and model routing can wait.</p>
+          <button type="button" disabled={savingProgress} onClick={() => changeStep(3)} className="mb-3 rounded-[var(--radius-button)] bg-[var(--primary)] px-3 py-2 text-xs font-semibold text-[var(--primary-text)]">Choose a role →</button>
           <ChannelRow
             name="GitHub"
             status={
@@ -430,6 +447,7 @@ export function FirstRunWizard({
           {onNavigate ? (
             <button
               type="button"
+              disabled={savingProgress}
               onClick={() => {
                 void dismiss(() => onNavigate("integrations"));
               }}
@@ -480,6 +498,7 @@ export function FirstRunWizard({
         {onNavigate ? (
           <button
             type="button"
+            disabled={savingProgress}
             onClick={() => {
               void dismiss(() => onNavigate("providers"));
             }}
@@ -547,6 +566,7 @@ export function FirstRunWizard({
           {onOpenModels ? (
             <button
               type="button"
+              disabled={savingProgress}
               onClick={() => {
                 void dismiss(onOpenModels);
               }}
@@ -583,7 +603,7 @@ export function FirstRunWizard({
                   onClick={() => {
                     void dismiss(() => onStartEmployeeSetup?.(template));
                   }}
-                  disabled={!onStartEmployeeSetup}
+                  disabled={!onStartEmployeeSetup || savingProgress}
                   className="mt-3 border border-[var(--primary)] px-2.5 py-1.5 font-mono text-[10px] font-semibold text-[var(--primary)] disabled:opacity-50"
                 >
                   Set up {template.label.toLowerCase()} →
@@ -597,6 +617,7 @@ export function FirstRunWizard({
           {onNavigate ? (
             <button
               type="button"
+              disabled={savingProgress}
               onClick={() => {
                 void dismiss(() => onNavigate("custom-agents"));
               }}

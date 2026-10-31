@@ -86,7 +86,7 @@ let shutdownStarted = false;
 let diffPatch = "";
 let diffWindow: BrowserWindow | null = null;
 let desktopActions: ReturnType<typeof registerDesktopIpc> | null = null;
-const pendingLinks: string[] = [];
+const pendingLinks: string[] = process.argv.filter((arg) => arg.startsWith("shiba:"));
 
 const log = (line: string) => mainLog?.line(line);
 
@@ -169,7 +169,8 @@ function guardNavigation(win: BrowserWindow, allowFileUrl?: string): void {
   wc.on("will-redirect", (event) => gate(event, event.url));
   wc.on("will-attach-webview", (event) => event.preventDefault());
   wc.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https:")) void shell.openExternal(url);
+    if (url.startsWith("https:") && decideNavigation(url, configuredOrigin(), authHosts()) !== "deny")
+      void shell.openExternal(url);
     return { action: "deny" };
   });
   wc.on("did-fail-load", (_e, code, description, validatedUrl, isMainFrame) => {
@@ -638,14 +639,9 @@ function onBeforeQuit(event: Electron.Event): void {
 }
 
 function registerProtocol(): void {
+  if (!app.isPackaged) return;
   try {
-    if (app.isPackaged) {
-      app.setAsDefaultProtocolClient("shiba");
-      return;
-    }
-    const entry = process.argv[1];
-    if (!entry) return;
-    app.setAsDefaultProtocolClient("shiba", process.execPath, [path.resolve(entry)]);
+    app.setAsDefaultProtocolClient("shiba");
   } catch (error) {
     log(`protocol registration failed: ${error instanceof Error ? error.message : String(error)}`);
   }

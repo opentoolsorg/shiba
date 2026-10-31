@@ -8,6 +8,8 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../../..");
 const planPath = path.join(scriptDir, "journeys.json");
 const plan = JSON.parse(readFileSync(planPath, "utf8"));
+const revision = () => spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).stdout.trim();
+const sourceRevision = revision();
 const runId = new Date().toISOString().replaceAll(":", "-");
 const outputDir = path.join(tmpdir(), "shiba-e2e-acceptance");
 mkdirSync(outputDir, { recursive: true });
@@ -112,16 +114,18 @@ const dirtyHarnessFiles = spawnSync("git", ["status", "--porcelain"], {
   .filter(Boolean)
   .filter((entry) => entry.slice(3).replaceAll("\\", "/") !== "apps/backend/test/acceptance/evidence.latest.json");
 
-const sourceRevision = spawnSync("git", ["rev-parse", "HEAD"], {
-  cwd: repoRoot,
-  encoding: "utf8",
-}).stdout.trim();
+const finishedRevision = revision();
+if (finishedRevision !== sourceRevision) {
+  failed = true;
+  console.error("Source revision changed during acceptance; rerun on a stable checkout.");
+}
 const evidence = {
   ...plan,
   target: { ...plan.target, head: sourceRevision },
   runId,
   executedAt: new Date().toISOString(),
   sourceRevision,
+  finishedRevision,
   dirtyHarnessChangesIncluded: dirtyHarnessFiles.length > 0,
   result: failed ? "failed" : "passed_with_blockers",
   journeys: journeys.map((journey) =>

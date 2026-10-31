@@ -243,7 +243,9 @@ try {
   const { chromium } = desktopRequire("playwright-core");
   browser = await chromium.launch({
     headless: true,
-    executablePath: "/usr/bin/chromium",
+    executablePath: process.env.SHIBA_BROWSER_EXECUTABLE ?? (process.platform === "darwin"
+      ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      : "/usr/bin/chromium"),
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
@@ -293,7 +295,40 @@ try {
     currentStep: afterDismiss.currentStep,
     revision: afterDismiss.revision,
   });
-  await page.getByRole("button", { name: "Close setup" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("heading", { name: "Model routing" }).waitFor();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("heading", { name: "Your first employee" }).waitFor();
+  await page.getByRole("button", { name: "Set up research →" }).evaluate((button) => { button.click(); button.click(); });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  const interruptedName = "Interrupted onboarding research draft";
+  await page.getByLabel("Name", { exact: true }).fill(interruptedName);
+  const advancedSettings = page.getByText("Advanced settings", { exact: true });
+  assert.equal(await advancedSettings.evaluate((summary) => summary.closest("details").open), false);
+  await advancedSettings.focus();
+  await advancedSettings.press("Enter");
+  assert.equal(await advancedSettings.evaluate((summary) => summary.closest("details").open), true);
+  assert.equal(await advancedSettings.evaluate((summary) => document.activeElement === summary), true);
+  await page.getByLabel("Default repository").fill("https://github.com/example/onboarding-draft");
+  await nav(page, "providers");
+  await page.getByRole("heading", { name: /Providers/ }).first().waitFor();
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), interruptedName);
+  await page.goForward({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: /Providers/ }).first().waitFor();
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), interruptedName);
+  assert.equal(await page.getByLabel("Default repository").inputValue(), "https://github.com/example/onboarding-draft");
+  const beforeCreate = await apiJson(page, "/api/custom-agents");
+  assert.equal(beforeCreate.agents.length, 0, "Onboarding and draft recovery must not create a bot.");
+  const roleProgress = await apiJson(page, "/api/onboarding/progress");
+  assert.equal(roleProgress.currentStep, "employee");
+  assert.equal(roleProgress.activatedAt, null);
+  checkpoints.push({ id: "onboarding-role-draft-back-forward-reload", status: "passed", draftRestored: true, botsCreated: 0, activated: false });
+  await page.getByRole("button", { name: "Discard draft" }).click();
 
   await nav(page, "skills");
   await page.getByRole("heading", { name: "Skills" }).waitFor();
@@ -518,6 +553,7 @@ try {
 
   await nav(page, "custom-agents");
   await page.getByRole("heading", { name: /Bots|Custom agents/ }).waitFor();
+  await page.getByText("Advanced settings", { exact: true }).click();
   await page.getByPlaceholder("security-reviewer").fill("acceptance-researcher");
   await page.getByPlaceholder("Security reviewer").fill("Acceptance Researcher");
   await page

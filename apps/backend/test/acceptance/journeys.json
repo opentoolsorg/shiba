@@ -63,6 +63,17 @@
       ]
     },
     {
+      "id": "employee-internal-draft",
+      "description": "Use the explicit app-tools Work marker with a server-bound employee session, read chosen Gmail IDs through mocked provider HTTP, retain immutable private draft bytes without constructing a coding delegate, then exercise authenticated download and human review CAS. Frontend transport and review controls are component tested; this is not a live model or browser-backed Gmail journey.",
+      "tests": [
+        "apps/backend/test/conversation-mode.test.ts",
+        "apps/backend/test/employee-tool-gmail-resource.test.ts",
+        "apps/backend/test/run-deliverables-routes.test.ts",
+        "apps/frontend/src/components/TaskComposerAppTools.test.tsx",
+        "apps/frontend/src/components/RetainedDraftCard.test.tsx"
+      ]
+    },
+    {
       "id": "project-context-approval-dispatch",
       "description": "Persist an owner-scoped project and selected source, attach the project to Work intake, freeze a provenance-framed snapshot at approval, edit the project, then prove dispatch and reload retain the approved text. Cross-owner sources and disabled, expired, or deleted sources are denied.",
       "tests": [

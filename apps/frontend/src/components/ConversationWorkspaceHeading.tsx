@@ -5,6 +5,7 @@ import type { ConversationMode } from "../conversation-mode";
 export interface ConversationWorkspaceHeadingProps {
   title: string;
   mode?: ConversationMode;
+  appToolsWork?: boolean;
   executionTargetKind: "repository" | "artifact-workspace";
   runTarget: "sandbox" | "local";
   repoUrl: string;
@@ -21,6 +22,7 @@ function repositoryLabel(repoUrl: string): string {
 export function ConversationWorkspaceHeading({
   title,
   mode = "work",
+  appToolsWork = false,
   executionTargetKind,
   runTarget,
   repoUrl,
@@ -52,6 +54,12 @@ export function ConversationWorkspaceHeading({
           <span aria-hidden="true">·</span>
           <MessageCircle aria-hidden="true" className="size-3 shrink-0" />
           <span className="truncate">Conversation · no task tools</span>
+        </div>
+      ) : appToolsWork ? (
+        <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-mono text-[var(--muted-foreground-2)]" role="status" aria-label="Next task target: Connected app tools">
+          <span className="shrink-0 uppercase tracking-[0.08em]">Next task</span>
+          <span aria-hidden="true">·</span>
+          <span className="truncate">Connected app tools · granted resources</span>
         </div>
       ) : <div
         className="flex min-w-0 items-center gap-1.5 text-[10px] font-mono text-[var(--muted-foreground-2)]"

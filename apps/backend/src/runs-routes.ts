@@ -128,6 +128,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // live on the same DO, behind the same dashboard auth and session scope.
   const isSpine = url.pathname === "/api/spine";
   const taskPath = /^\/api\/tasks(?:\/[^/]+\/(?:retry|cancel))?$/.test(url.pathname);
+  const employeeDraftPath = /^\/api\/employee-drafts(?:\/draft_[a-f0-9]{64}(?:\/(?:download|review))?)?$/.test(url.pathname);
   const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)$/);
   const artifactActionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)\/(review|history|revision)$/);
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
@@ -136,6 +137,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     !deliverableMatch &&
     !artifactActionMatch &&
     !taskPath &&
+    !employeeDraftPath &&
     !/^\/api\/runs(?:\/[^/]+(?:\/(?:fork|screen|archive|steer|subagents))?|\/subagents\/spawn)?$/.test(
       url.pathname,
     )
@@ -144,6 +146,17 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   }
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
+  }
+  if (employeeDraftPath) {
+    const review = url.pathname.endsWith("/review");
+    if (request.method !== (review ? "POST" : "GET")) {
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
+    }
+  }
+  if (request.method === "POST" && (employeeDraftPath || artifactActionMatch)) {
+    if (request.headers.get("origin") !== url.origin) {
+      return Response.json({ error: "Same-origin request required." }, { status: 403 });
+    }
   }
   if ((isSpine || deliverableMatch || artifactActionMatch?.[3] === "history") && request.method !== "GET") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
@@ -185,7 +198,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // recovery (releaseRestartedDraftClaim, sweepStaleDrafts, Slack resolve)
   // assumes they live on the one shared instance queueEmailApproval pins —
   // minting them on a per-user DO leaves a record no sweep can see.
-  if (request.method === "POST") {
+  if (request.method === "POST" && url.pathname === "/api/runs") {
     const parsed: unknown = await request.clone().json().catch(() => null);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) intakeBody = parsed as Record<string, unknown>;
     if (typeof intakeBody?.kind === "string" && intakeBody.kind.trim()) intakeKind = intakeBody.kind.trim();
@@ -262,6 +275,9 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // Edge identity: sign the stamped intake voucher so the DO can verify the
   // Worker minted it (no-op until INTERNAL_SIGNING_KEY is configured).
   await signInternalRequest(rewritten, env);
+  // Internal drafts belong only to this authenticated owner/session. Never
+  // search the shared registry or another session for missing artifacts.
+  if (employeeDraftPath) return stub.fetch(rewritten);
   if (artifactActionMatch) {
     let runId: string;
     let rawIndex: string;

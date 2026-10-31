@@ -92,9 +92,13 @@ it.each(["claim-revoked", "deadline", "receipts-reset"])("enforces the real daem
       expect(results[0]?.signals?.some((signal) => signal.kind === "exec.settled")).toBe(true);
       expect(results[1]?.signals?.some((signal) => signal.kind === "exec.settled")).toBe(false);
     } else {
-      expect(exit, output).toBe(1);
+      if (exit === 70) {
+        expect(result, output).toMatchObject({ status: "error", summary: expect.stringContaining("termination unconfirmed (SIGKILL: EPERM)") });
+      } else {
+        expect(exit, output).toBe(1);
+        expect(result).toMatchObject({ status: "error", summary: expect.stringContaining(mode === "deadline" ? "deadline" : "revoked or cancelled") });
+      }
       expect(existsSync(path.join(work, ".git/cli-stopped"))).toBe(true);
-      expect(result).toMatchObject({ status: "error", summary: expect.stringContaining(mode === "deadline" ? "deadline" : "revoked or cancelled") });
       const sentinel = path.join(work, ".git/grandchild-sentinel");
       const before = await readFile(sentinel, "utf8");
       await new Promise((resolve) => setTimeout(resolve, 250));

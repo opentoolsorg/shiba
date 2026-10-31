@@ -60,6 +60,8 @@ const PROBED_HARNESSES = ["claude", "codex", "opencode", "agy"];
 const EXIT_USAGE = 64;
 // EX_TEMPFAIL: a second daemon over the same run root exits fast.
 const EXIT_LOCKED = 75;
+// EX_SOFTWARE: execution may still be alive; require operator intervention.
+const EXIT_TERMINATION_UNKNOWN = 70;
 // Cloudflare Access (or similar) returned HTML instead of JSON.
 const EXIT_ACCESS = 76;
 // Pairing token rejected (expired, reused, or malformed server-side).
@@ -86,6 +88,7 @@ Exit codes:
   0   success (--once with no work, or completed run)
   1   run failed or transient claim/network error
   64  invalid CLI arguments
+  70  process termination unconfirmed — stop remaining tools before retrying
   75  another daemon holds the lock on this run root
   76  HTML login page instead of JSON — bypass Access for /api/local/*
   77  pairing token expired, reused, or invalid
@@ -139,38 +142,63 @@ let harnesses = [];
 let activeRunId;
 let activeHarnessChild;
 let heldClaim;
+let stopActiveExecution;
+let terminationFailure;
+let onTerminationFailure;
 const groupedChildren = new WeakSet();
-const terminatingChildren = new WeakSet();
+const ownedChildren = new Set();
+const childTerminations = new WeakMap();
+
+function unconfirmedTermination(detail) {
+  terminationFailure ??= new Error(`Local process termination unconfirmed (${detail}); child processes may still be running. Stop them before restarting the daemon.`);
+  console.error(`shiba-local: ${terminationFailure.message}`);
+  onTerminationFailure?.(terminationFailure);
+}
 
 /** Signal only a group that this daemon explicitly created for this child. */
 function signalOwnedChild(child, signal) {
   if (!child) return;
-  if (groupedChildren.has(child) && Number.isInteger(child.pid) && child.pid > 1 && child.pid !== process.pid) {
-    try { process.kill(-child.pid, signal); } catch (error) { if (error.code !== "ESRCH") throw error; }
-  } else {
-    child.kill(signal);
+  try {
+    if (groupedChildren.has(child) && Number.isInteger(child.pid) && child.pid > 1 && child.pid !== process.pid) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch (error) {
+    if (error.code === "ESRCH") return;
+    unconfirmedTermination(`${signal}: ${error.code ?? "signal failed"}`);
+    return false;
   }
 }
 
 function terminateOwnedChild(child) {
-  // The execution deadline and command timeout may fire in the same turn.
-  // One termination owns escalation; a second timer could signal a dead group.
-  if (terminatingChildren.has(child)) return;
-  terminatingChildren.add(child);
-  signalOwnedChild(child, "SIGTERM");
-  const escalation = setTimeout(() => signalOwnedChild(child, "SIGKILL"), 1500);
-  escalation.unref();
-  child.once("exit", () => clearTimeout(escalation));
-  child.once("error", () => clearTimeout(escalation));
+  // One termination owns escalation when deadline and command timeout coincide.
+  if (childTerminations.has(child)) return childTerminations.get(child);
+  const termination = new Promise((resolve) => {
+    const escalation = setTimeout(() => signalOwnedChild(child, "SIGKILL"), 1500);
+    const confirmation = setTimeout(() => {
+      if (!terminationFailure) unconfirmedTermination("SIGKILL: exit not observed");
+      resolve(false);
+    }, 1700);
+    child.once("close", () => {
+      clearTimeout(escalation);
+      clearTimeout(confirmation);
+      resolve(true);
+    });
+    signalOwnedChild(child, "SIGTERM");
+  });
+  childTerminations.set(child, termination);
+  return termination;
 }
 
 function ownChild(child, detached, execution) {
+  ownedChildren.add(child);
+  child.once("close", () => ownedChildren.delete(child));
   if (detached) {
     groupedChildren.add(child);
     // A CLI must not leave its tools running after its own process exits.
     child.once("exit", () => {
-      signalOwnedChild(child, "SIGKILL");
-      groupedChildren.delete(child);
+      if (signalOwnedChild(child, "SIGKILL") !== false) groupedChildren.delete(child);
     });
   }
   if (execution) {
@@ -497,7 +525,7 @@ function childEnvironment(harness) {
 function runProcess(argv, opts = {}) {
   const execution = opts.execution;
   if (execution && Date.now() >= execution.deadlineAt) execution.stop("Local run deadline exceeded.");
-  if (stopping || execution?.signal.aborted || execution?.finished()) {
+  if (stopping || terminationFailure || execution?.signal.aborted || execution?.finished()) {
     return Promise.resolve({ stdout: "", stderr: "Local execution was stopped before spawning a command.", exitCode: -2, timedOut: true });
   }
   return new Promise((resolve) => {
@@ -573,7 +601,7 @@ function errorResult(summary, exitCode = -1) {
   return {
     status: "error",
     exitCode,
-    summary: boundTail(summary, 16_384),
+    summary: boundTail(terminationFailure ? `${summary} ${terminationFailure.message}` : summary, 16_384),
     stderrTail: "",
     changedFiles: [],
     diff: "",
@@ -658,6 +686,7 @@ async function execute(envelope, claimToken) {
     stopReason = reason;
     abortController.abort();
   };
+  stopActiveExecution = stopExecution;
   const execution = { signal: abortController.signal, deadlineAt: envelope.deadlineAt,
     stop: stopExecution, finished: () => executionFinished };
   const stopped = () => {
@@ -767,6 +796,7 @@ async function execute(envelope, claimToken) {
       const texts = [];
       const session = envelope.session;
       const outcome = await runSessionJob({
+        signal: execution.signal,
         provider: session.provider,
         model: session.model,
         ...(session.reasoningEffort ? { reasoningEffort: session.reasoningEffort } : {}),
@@ -926,6 +956,8 @@ async function execute(envelope, claimToken) {
     abortController.abort();
     clearInterval(controlTimer);
     clearTimeout(deadlineTimer);
+    await Promise.all([...ownedChildren].map(terminateOwnedChild));
+    stopActiveExecution = undefined;
     await releaseLease(envelope.sandboxId);
   }
 }
@@ -1137,13 +1169,14 @@ async function main() {
     let result;
     activeRunId = envelope.sandboxId;
     heldClaim = { sandboxId: envelope.sandboxId, claimToken: claim.claimToken };
+    const failedTermination = new Promise((_, reject) => { onTerminationFailure = reject; });
     try {
-      result = await execute(envelope, claim.claimToken);
+      result = await Promise.race([execute(envelope, claim.claimToken), failedTermination]);
     } catch (error) {
-      result = errorResult(
-        `daemon error: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      result = errorResult(terminationFailure ? "Local execution failed." :
+        `daemon error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
+      onTerminationFailure = undefined;
       activeRunId = undefined;
     }
     if (stopping) return new Promise(() => {});
@@ -1173,6 +1206,8 @@ async function main() {
       // The DO holds the claim stale-window; the record reaps at 45min.
     }
     heldClaim = undefined;
+    // Termination is unknown: report the error, then refuse all further claims.
+    if (terminationFailure) process.exit(EXIT_TERMINATION_UNKNOWN);
     if (args.once) process.exit(result.status === "completed" ? 0 : 1);
   }
 }
@@ -1187,9 +1222,10 @@ let stopping = false;
 async function gracefulStop(code) {
   if (stopping) return;
   stopping = true;
+  stopActiveExecution?.("daemon stopped");
   const held = heldClaim;
   if (held === undefined) process.exit(code);
-  signalOwnedChild(activeHarnessChild, "SIGTERM");
+  await Promise.all([...ownedChildren].map(terminateOwnedChild));
   try {
     await Promise.race([
       post("result", {
@@ -1203,8 +1239,7 @@ async function gracefulStop(code) {
     ]);
   } catch {}
   await releaseLease(held.sandboxId).catch(() => {});
-  if (activeHarnessChild?.exitCode === null) signalOwnedChild(activeHarnessChild, "SIGKILL");
-  process.exit(code);
+  process.exit(terminationFailure ? EXIT_TERMINATION_UNKNOWN : code);
 }
 process.on("SIGINT", () => void gracefulStop(130));
 process.on("SIGTERM", () => void gracefulStop(143));

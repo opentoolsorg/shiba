@@ -20,7 +20,8 @@ This repository intentionally has **two deploy entrypoints** that must declare t
 - **Workers Paid** (Containers + Durable Objects)
 - **Docker** (or OrbStack) for Sandbox image build unless `SANDBOX_IMAGE` points at a pre-pushed `registry.cloudflare.com/...` ref
 - Cloudflare account with Workers, DO, Containers, Workers AI, KV, R2, D1, Vectorize enabled
-- `npx wrangler login` **or** `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in gitignored root `.env` (validated by `pnpm env:load`)
+- `npx wrangler login` **or** `CLOUDFLARE_API_TOKEN`; Alchemy additionally requires an explicit `CLOUDFLARE_ACCOUNT_ID` in the deploy environment
+- Verify that account owns the intended custom domain, workers.dev subdomain, existing resource IDs and container image. Preflight checks account syntax and image-account agreement; it cannot prove remote ownership. Checked-in resource IDs and domain describe one installation and must be reviewed before using another account.
 
 ---
 
@@ -60,9 +61,10 @@ Use an isolated Alchemy stage so live hostnames and stores are never touched.
 
    Do **not** pass a conflicting `--stage` CLI flag; resource names are derived from `$ALCHEMY_STAGE` at module load (`alchemy.run.ts`).
 
-3. Staging gets **suffixed** worker, container, and datastore names and **workers.dev** enabled. It does **not** attach `app.tryshiba.dev` or managed Access apps.
-4. Smoke on the printed URL: `/app/`, `/api/setup/status` (JSON, not SPA HTML).
-5. When satisfied, deploy **live** (unset `ALCHEMY_STAGE` or use a `live*` stage per `alchemy.run.ts`) with the same `.env` secret set.
+3. Staging gets **suffixed** worker, container, and datastore names and **workers.dev** enabled with version preview URLs disabled. Set `WORKERS_SUBDOMAIN` to the target account's subdomain. `WORKER_HOSTNAME` and `BETTER_AUTH_URL` derive from that stage's workers.dev origin; remove inherited production overrides or set them to that exact host/origin. Staging never attaches the live custom domain.
+4. Every public stage requires authentication: `ACCESS_EMAILS` creates managed Access at the stage's actual hostname, including staging. Alternatively, unset `ACCESS_EMAILS` and set a >=32-character `BETTER_AUTH_SECRET` plus either `BETTER_AUTH_BOOTSTRAP_TOKEN` or `BETTER_AUTH_OWNER_EMAIL`. Use stage-specific secrets. Runtime session/authentication behavior is unchanged. Do not export `ACCESS_AUD`; it derives from the managed application. `REQUIRE_ACCESS` may only be `1` with managed Access and cannot override the binding.
+5. Smoke on the printed URL: `/app/`, `/api/setup/status` (JSON, not SPA HTML).
+6. When satisfied, deploy **live** (unset `ALCHEMY_STAGE` or use exactly `live`) with live credentials and `WORKER_HOSTNAME` explicitly matching the checked-in custom domain. Other valid stage names remain isolated; underscores and empty stage names are rejected.
 
 ---
 
@@ -72,7 +74,7 @@ Use an isolated Alchemy stage so live hostnames and stores are never touched.
 
    ```sh
    cp .env.example .env
-   # Edit: CLOUDFLARE_*, ACCESS_EMAILS, WORKERS_SUBDOMAIN, integration secrets
+   # Edit: CLOUDFLARE_*, WORKER_HOSTNAME, ACCESS_EMAILS or built-in auth, integration secrets
    pnpm env:load
    ```
 
@@ -102,9 +104,38 @@ Every name in `apps/backend/worker-secrets.json` may be bound; only configure wh
 | `GITHUB_TOKEN` | Worker-side git/PR operations |
 | `AI_GATEWAY_TOKEN` | Only if your AI Gateway requires auth |
 | `DASHBOARD_APPROVERS` | Emails allowed to resolve shared approvals |
-| `ACCESS_AUD` | Set automatically on live Alchemy deploy when Access is managed; otherwise set manually with `REQUIRE_ACCESS=1` |
+| `BETTER_AUTH_SECRET` | Required for built-in dashboard sign-in when managed Access is absent; >=32 characters |
+| `BETTER_AUTH_BOOTSTRAP_TOKEN` / `BETTER_AUTH_OWNER_EMAIL` | At least one required alongside built-in auth on a public stage |
+| `ACCESS_AUD` | Derived automatically from the stage's managed Access app; manual configuration is for the wrangler-only path |
 
 Provider model keys belong in **AI Gateway BYOK**, not Worker secrets. Full operator tables: [Self-hosting](https://tryshiba.dev/docs/self-hosting/) and `apps/backend/.dev.vars.example`.
+
+### Binding and secret inventory (names only)
+
+All declared infrastructure bindings must be available for deployment even when the feature using them is idle. Secrets remain optional unless their feature/authentication lane is selected. `apps/backend/worker-secrets.json` remains the canonical secret-name list; no values belong in this inventory.
+
+| Category | Binding names |
+| --- | --- |
+| Core state and sandbox | `CodingOrchestrator`, `OpenCodeAgent`, `Sandbox`, `Automations`, `Mailbox`, `Memory`, `Waitlist`, `ModelConfig`, `LocalDispatch`, `ChatGptAuth`, `UserProviderOAuth` |
+| Assets and compute | `ASSETS`, `AI`, `LOADER`, `BROWSER` |
+| Storage and limits | `AGENT_TOKENS`, `AGENT_AUDIT`, `ATTACHMENTS`, `MEMORY_VECTORS`, `MCP_RATE_LIMIT` |
+| Email transport | `SEND_EMAIL` |
+
+| Feature/lane | Secret names |
+| --- | --- |
+| Built-in dashboard authentication | `BETTER_AUTH_SECRET`, `BETTER_AUTH_BOOTSTRAP_TOKEN`, `BETTER_AUTH_OWNER_EMAIL` |
+| GitHub operations (token or App credentials); webhook verification | `GITHUB_TOKEN`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_REPO_INSTALLATIONS`, `GITHUB_WEBHOOK_SECRET` |
+| Shared approval authorization | `DASHBOARD_APPROVERS` |
+| Gateway/model and provider connections | `AI_GATEWAY_TOKEN`, `MODEL_CREDENTIAL_KEY`, `TYPESAFE_API_KEY`, `GOOGLE_ANTIGRAVITY_CLIENT_SECRET` |
+| Deployment subscription lanes | `CLAUDE_SUBSCRIPTION_TOKEN`, `CODEX_SUBSCRIPTION_AUTH_JSON`, `CURSOR_SUBSCRIPTION_TOKEN` |
+| Local runtime/pairing/internal identity | `LOCAL_ADAPTER_TOKEN`, `PAIRING_SECRET`, `INTERNAL_SIGNING_KEY` |
+| Slack | `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, `SLACK_APPROVERS`, `SLACK_CHANNEL_REPOS` |
+| Telegram and Discord | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `DISCORD_PUBLIC_KEY` |
+| Linear | `LINEAR_WEBHOOK_SECRET`, `LINEAR_API_KEY`, `LINEAR_OAUTH_ACCESS_TOKEN`, `LINEAR_DEFAULT_REPO_URL` |
+| Gmail | `GMAIL_CLIENT_SECRET`, `GMAIL_TOKEN_KEY` |
+| Automation triggers | `TRIGGER_TOKEN` |
+
+Per-account subscription suffix secrets and per-MCP credential secrets are runtime-resolved names outside the base manifest. Provision them only for enabled connections. `SANDBOX_IMAGE`, when supplied, must use `registry.cloudflare.com/<CLOUDFLARE_ACCOUNT_ID>/...`; cross-account image overrides fail preflight.
 
 ---
 
