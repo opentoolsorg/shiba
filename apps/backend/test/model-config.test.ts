@@ -121,7 +121,11 @@ describe("GET /api/model-config (handleMeta)", () => {
     const response = await handleMeta(
       new Request("https://app.test/api/model-config/connections?limit=10", {
         method: "POST",
-        headers: { "content-type": "application/json", "X-Agent-Principal": "runner" },
+        headers: {
+          "content-type": "application/json",
+          Origin: "https://app.test",
+          "X-Agent-Principal": "runner",
+        },
         body: payload,
       }),
       env,
@@ -139,7 +143,10 @@ describe("GET /api/model-config (handleMeta)", () => {
   it("forwards DELETE on connection ids and surfaces the store's status", async () => {
     const { env, calls } = makeModelConfigEnv({ "/connections/conn_9": { error: "nope" } }, 404);
     const response = await handleMeta(
-      new Request("https://app.test/api/model-config/connections/conn_9", { method: "DELETE" }),
+      new Request("https://app.test/api/model-config/connections/conn_9", {
+        method: "DELETE",
+        headers: { Origin: "https://app.test" },
+      }),
       env,
     );
     expect((response as Response).status).toBe(404);

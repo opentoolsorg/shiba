@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   boundTail,
+  parseGitHubPullNumber,
+  parseGitHubRepoSegment,
   parseGitHubRepoUrl,
   redactSecrets,
   shellJoin,
@@ -75,6 +77,26 @@ describe("verifyGitHubWebhookSignature", () => {
     expect(
       await verifyGitHubWebhookSignature({ secret: SECRET, payload: PAYLOAD, signature: good.slice(0, 20) }),
     ).toBe(false);
+  });
+});
+
+describe("parseGitHubRepoSegment", () => {
+  it("accepts canonical names", () => {
+    expect(parseGitHubRepoSegment("acme-corp", "owner")).toBe("acme-corp");
+    expect(parseGitHubRepoSegment("my.repo_name", "repository")).toBe("my.repo_name");
+  });
+
+  it("rejects path metacharacters", () => {
+    expect(() => parseGitHubRepoSegment("evil/extra", "owner")).toThrow(InputError);
+    expect(() => parseGitHubRepoSegment("..", "repository")).toThrow(InputError);
+  });
+});
+
+describe("parseGitHubPullNumber", () => {
+  it("requires a positive integer", () => {
+    expect(parseGitHubPullNumber(42)).toBe(42);
+    expect(() => parseGitHubPullNumber(0)).toThrow(InputError);
+    expect(() => parseGitHubPullNumber(1.5)).toThrow(InputError);
   });
 });
 

@@ -32,6 +32,24 @@ export interface GitHubRepo {
   repo: string;
 }
 
+const GITHUB_REPO_SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
+
+/** Canonical GitHub owner or repository name — safe as a single URL path segment. */
+export function parseGitHubRepoSegment(raw: string, label: "owner" | "repository"): string {
+  if (typeof raw !== "string" || raw === "" || raw === "." || raw === ".." || !GITHUB_REPO_SEGMENT_RE.test(raw)) {
+    throw new InputError(`Invalid GitHub ${label} name.`);
+  }
+  return raw;
+}
+
+/** Positive integer pull number for merge/review APIs. */
+export function parseGitHubPullNumber(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) {
+    throw new InputError("Pull request number must be a positive integer.");
+  }
+  return raw;
+}
+
 /**
  * Accept only HTTPS GitHub repository URLs. Anything else throws.
  * Returned names are validated against GitHub's naming rules so they are
@@ -60,19 +78,12 @@ export function parseGitHubRepoUrl(raw: string): GitHubRepo {
   if (segments.length !== 2) {
     throw new InputError("Repository URL must look like https://github.com/owner/repo.");
   }
-  const namePattern = /^[A-Za-z0-9_.-]+$/;
   const owner = segments[0] as string;
   let repo = segments[1] as string;
   if (repo.toLowerCase().endsWith(".git")) {
     repo = repo.slice(0, -4);
   }
-  if (owner === "" || repo === "" || owner === "." || owner === ".." || repo === "." || repo === "..") {
-    throw new InputError("Repository URL has an invalid owner or repo name.");
-  }
-  if (!namePattern.test(owner) || !namePattern.test(repo)) {
-    throw new InputError("Repository URL has an invalid owner or repo name.");
-  }
-  return { owner, repo };
+  return { owner: parseGitHubRepoSegment(owner, "owner"), repo: parseGitHubRepoSegment(repo, "repository") };
 }
 
 /**

@@ -9,6 +9,8 @@ import {
   isAcpProviderId,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
+import { chatGptAuthStub } from "./chatgpt-auth-do.js";
+import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
 import { userProviderOAuthReady } from "./user-provider-oauth-store.js";
 import { ACP_LANES, HARNESS_DEFAULT_MODELS, HARNESSES } from "./harness/index.js";
@@ -698,6 +700,9 @@ export async function disconnectProvider(
   const pasteKind = pasteProviderKind(provider.id);
   if (pasteKind) await deleteUserProviderSecret(env, org, pasteKind);
   if (provider.id === "claude") await deleteUserProviderSecret(env, org, "claude-setup");
+  if (provider.id === "codex" && env.ChatGptAuth && modelCredentialKeyConfigured(env)) {
+    await chatGptAuthStub(env, org).fetch("https://chatgpt-auth.internal/logout", { method: "DELETE" });
+  }
   if (userProviderOAuthReady(env)) {
     const oauth =
       provider.id === "gemini"

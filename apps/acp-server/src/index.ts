@@ -51,6 +51,16 @@ async function serve(): Promise<void> {
   });
 }
 
+async function readPasswordFromTty(): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
+  return new Promise((resolve) => {
+    rl.question("Password: ", (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
 async function login(): Promise<void> {
   const baseUrl = process.env.SHIBA_URL;
   if (baseUrl === undefined || baseUrl.trim() === "") {
@@ -58,13 +68,20 @@ async function login(): Promise<void> {
     process.exit(2);
   }
   const email = process.env.SHIBA_EMAIL ?? process.argv[3];
-  const password = process.env.SHIBA_PASSWORD ?? process.argv[4];
-  if (email === undefined || password === undefined) {
+  if (email === undefined || email.trim() === "") {
     process.stderr.write(
-      "usage: SHIBA_URL=<origin> shiba-acp login <email> <password>\n" +
+      "usage: SHIBA_URL=<origin> shiba-acp login <email>\n" +
         "   or: SHIBA_EMAIL=… SHIBA_PASSWORD=… shiba-acp login\n",
     );
     process.exit(2);
+  }
+  let password = process.env.SHIBA_PASSWORD;
+  if (password === undefined) {
+    if (!process.stdin.isTTY) {
+      process.stderr.write("shiba-acp: set SHIBA_PASSWORD or run login from an interactive terminal\n");
+      process.exit(2);
+    }
+    password = await readPasswordFromTty();
   }
   const client = new ShibaClient({ baseUrl, token: "" });
   const token = await client.login(email, password);

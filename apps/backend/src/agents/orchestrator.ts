@@ -197,7 +197,7 @@ import {
   runScreenAction,
   ScopedExecRefusal,
 } from "../screen-control.js";
-import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
+import { InputError, makeSandboxId, parseGitHubPullNumber, parseGitHubRepoSegment, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
 import { postSlackMessage } from "../slack.js";
@@ -3633,11 +3633,23 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (!isJsonObject(payload)) {
       return Response.json({ error: "pr_merge requires a JSON object payload." }, { status: 400 });
     }
-    const owner = typeof payload.owner === "string" ? payload.owner : "";
-    const repo = typeof payload.repo === "string" ? payload.repo : "";
-    const number = typeof payload.number === "number" ? payload.number : 0;
+    const ownerRaw = typeof payload.owner === "string" ? payload.owner : "";
+    const repoRaw = typeof payload.repo === "string" ? payload.repo : "";
+    let owner: string;
+    let repo: string;
+    let number: number;
+    try {
+      owner = parseGitHubRepoSegment(ownerRaw, "owner");
+      repo = parseGitHubRepoSegment(repoRaw, "repository");
+      number = parseGitHubPullNumber(payload.number);
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Invalid merge target." },
+        { status: 400 },
+      );
+    }
     const expectedHeadSha = typeof payload.expectedHeadSha === "string" ? payload.expectedHeadSha : "";
-    if (!owner || !repo || !number || !/^[a-fA-F0-9]{40,64}$/.test(expectedHeadSha)) {
+    if (!/^[a-fA-F0-9]{40,64}$/.test(expectedHeadSha)) {
       return Response.json({ error: "payload requires owner, repo, number, expectedHeadSha." }, { status: 400 });
     }
     const mergeMethod = payload.mergeMethod;
