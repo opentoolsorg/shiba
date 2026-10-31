@@ -305,8 +305,14 @@ export const EMPTY_SUBJECT = "(no subject)";
  * then collapses whitespace and lowercases. Two messages normalize equal iff
  * a human mail client would fold them into one conversation.
  */
+/** Inbound subjects above this are truncated before prefix stripping (ReDoS guard). */
+export const MAX_SUBJECT_NORMALIZE_LEN = 8192;
+
 export function normalizeSubject(subject: string): string {
-  let out = subject.trim();
+  let out = subject.length > MAX_SUBJECT_NORMALIZE_LEN
+    ? subject.slice(0, MAX_SUBJECT_NORMALIZE_LEN)
+    : subject;
+  out = out.trim();
   for (;;) {
     const next = out
       .replace(/^\s*\[[^\]]*\]\s*/g, "")
@@ -1378,8 +1384,11 @@ export interface ExtractedLink extends FlaggedLink {
  */
 export function extractLinks(content: string): ExtractedLink[] {
   const links: ExtractedLink[] = [];
-  let text = content;
+  const stripped: string[] = [];
+  let lastIndex = 0;
   for (const match of content.matchAll(ANCHOR_RE)) {
+    const index = match.index ?? 0;
+    stripped.push(content.slice(lastIndex, index), " ");
     const href = match[1] ?? match[2] ?? match[3] ?? "";
     const anchorText = (match[4] ?? "").replace(TAG_RE, " ").trim();
     links.push({
@@ -1387,9 +1396,10 @@ export function extractLinks(content: string): ExtractedLink[] {
       anchor_text: anchorText === "" ? null : anchorText,
       flags: flagsForUrl(href, anchorText),
     });
-    text = text.replace(match[0], " ");
+    lastIndex = index + match[0].length;
   }
-  text = text.replace(TAG_RE, " ");
+  stripped.push(content.slice(lastIndex));
+  let text = stripped.join("").replace(TAG_RE, " ");
   for (const match of text.matchAll(BARE_URL_RE)) {
     const raw = match[0].replace(/[.,;:!?]+$/, "");
     links.push({ url: raw, anchor_text: null, flags: flagsForUrl(raw) });

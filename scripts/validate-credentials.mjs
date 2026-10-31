@@ -18,7 +18,7 @@
  * Usage: node scripts/validate-credentials.mjs [--wrangler=<path>]
  *          [--env=<path>] [--dev-vars=<path>] [--src=<dir>] [--offline]
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -190,12 +190,27 @@ function collectEnvFields(text) {
   return fields;
 }
 
-function* walk(dir) {
+function* walk(dir, seen = new Set()) {
   for (const entry of readdirSync(dir)) {
     const p = join(dir, entry);
-    const st = statSync(p);
-    if (st.isDirectory()) yield* walk(p);
-    else if (/\.(ts|tsx|mts|js|mjs)$/.test(entry)) yield p;
+    let st;
+    try {
+      st = lstatSync(p);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) continue;
+    if (st.isDirectory()) {
+      let canonical;
+      try {
+        canonical = realpathSync(p);
+      } catch {
+        continue;
+      }
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      yield* walk(p, seen);
+    } else if (/\.(ts|tsx|mts|js|mjs)$/.test(entry)) yield p;
   }
 }
 
