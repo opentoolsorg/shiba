@@ -701,7 +701,14 @@ try {
   await page.getByRole("menuitemradio", { name: /Acceptance Researcher/ }).click();
   await composer.getByRole("button", { name: "Run on: Cloud" }).click();
   await page.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }).click();
-  await page.getByRole("button", { name: "Refresh paired computers" }).click();
+  const refreshPairedComputers = page.getByRole("button", { name: "Refresh paired computers" });
+  // The target menu intentionally closes when Local is selected and only one
+  // compatible computer is visible. Reopen it before refreshing; the fixture
+  // may have one or two live paired machines depending on heartbeat timing.
+  if (!(await refreshPairedComputers.isVisible().catch(() => false))) {
+    await composer.getByRole("button", { name: "Run on: Local" }).click();
+  }
+  await refreshPairedComputers.click();
   const localComputer = composer.getByLabel("Local computer");
   await waitFor("fixture machine appears in the Work target selector", async () =>
     (await localComputer.locator(`option[value="${machineId}"]`).count()) > 0 &&
