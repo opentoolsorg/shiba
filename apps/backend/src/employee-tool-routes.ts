@@ -7,9 +7,10 @@ import { gmailOwner } from "./gmail-routes.js";
 import { isGmailConnectionActive, readGmailForEmployee, resolveGmailResourceCandidates } from "./gmail.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import { getCustomAgentById, updateCustomAgent } from "./custom-agents-store.js";
-import { createToolRegistry, hashToolArgs } from "./mcp-gateway.js";
+import { createToolRegistry, hashToolArgs, type ToolRegistry } from "./mcp-gateway.js";
 import {
   EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX,
+  claimEmployeeActionInvocation,
   getCapabilityInvocationByIdempotencyKey,
 } from "./capability-invocations.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
@@ -35,7 +36,9 @@ import {
 
 const MAX_TOOLS = 50;
 const APPROVAL_TTL_MS = 15 * 60_000;
+const EMPLOYEE_CLAIM_META = "com.shiba/employee-action-claim";
 const ROLES: readonly EmployeeRole[] = ["owner", "admin", "operator", "member", "viewer"];
+type EmployeeToolResult = Awaited<ReturnType<ToolRegistry["invoke"]>>;
 
 /** Only actions with a reviewed input shape and known side-effect contract are dispatchable. */
 export const EMPLOYEE_TOOL_ACTIONS = {
@@ -86,6 +89,24 @@ function connectionPolicy(toolName: keyof typeof EMPLOYEE_TOOL_ACTIONS) {
       requiredProviderScopes: [], resourceRequired: action.resourceRequired,
       resourceArgument: action.resourceArgument, requiresLiveVerification: action.requiresLiveVerification,
     }],
+  };
+}
+
+function employeeClaimFailure(reason: string): EmployeeToolResult {
+  return {
+    content: [{ type: "text", text: `Employee action was not dispatched: ${reason}.` }],
+    isError: true,
+    _meta: { [EMPLOYEE_CLAIM_META]: { reason } },
+  };
+}
+
+function employeeReceiptReplay(receipt: { invocationId: string; status: string; approvalId?: string }): EmployeeToolResult {
+  return {
+    content: [{ type: "text", text: `Request replay suppressed; inspect invocation ${receipt.invocationId} for its recorded status.` }],
+    _meta: { "com.shiba/invocation": {
+      invocationId: receipt.invocationId, status: receipt.status,
+      ...(receipt.approvalId ? { approvalId: receipt.approvalId } : {}), replayed: true,
+    } },
   };
 }
 
@@ -285,7 +306,8 @@ export async function dispatchEmployeeToolForPrincipal(
     const saved = await findEmployeeActionApproval(env, {
       orgId, employeeId, employeeVersion: employee.version, actorId,
       capabilityId: id, action: toolName, argumentDigest, resourceId,
-      connectionGeneration: connection.generation, ...(executionContextId ? { executionContextId } : {}),
+      connectionGeneration: connection.generation, now: Date.now(),
+      ...(executionContextId ? { executionContextId } : {}),
     });
     if (!saved || saved.status === "denied" || saved.status === "expired") {
       const pending = await requestEmployeeActionApproval(env, {
@@ -305,7 +327,9 @@ export async function dispatchEmployeeToolForPrincipal(
       const receipt = await getCapabilityInvocationByIdempotencyKey(env, {
         orgId, principal: actorId, idempotencyKey,
       });
-      if (!receipt) return jsonError("expired_approval_dispatch_state_unavailable", 503);
+      if (!receipt) return jsonError(saved.consumedAt !== undefined || saved.consumedInvocationId
+        ? "employee_invocation_receipt_pruned_no_replay"
+        : "employee_approval_expired_retry_for_consent", 409);
       if (receipt.tool !== toolName || receipt.argsHash !== await hashToolArgs(args)) {
         return jsonError("employee_invocation_payload_conflict", 409);
       }
@@ -322,8 +346,8 @@ export async function dispatchEmployeeToolForPrincipal(
     }
     approval = asEmployeeActionApproval(saved);
   }
-  const dispatchRegistry = toolName === "gmail_read" ? { invoke: async (_name: string, toolArgs: Record<string, unknown>) => {
-    const currentIds = toolArgs.messageIds as string[];
+  const registeredDispatchRegistry: Pick<ToolRegistry, "invoke"> = toolName === "gmail_read" ? { invoke: async (_name, toolArgs) => {
+    const currentIds = (toolArgs as Record<string, unknown>).messageIds as string[];
     const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
     if (!freshEmployee || freshEmployee.version !== employee.version) throw new Error("Employee policy changed.");
     const data = await readGmailForEmployee(env, connection.accountId!, connection.connectionId, actorId, currentIds, async (selectedId) => {
@@ -334,6 +358,24 @@ export async function dispatchEmployeeToolForPrincipal(
     });
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
   } } : registry;
+  const approvedAction = approval;
+  const dispatchRegistry: Pick<ToolRegistry, "invoke"> = approvedAction ? {
+    invoke: async (name, toolArgs, callPrincipal, options) => {
+      const idempotencyKey = options?.idempotencyKey;
+      if (!idempotencyKey) return employeeClaimFailure("missing idempotency key");
+      const claim = await claimEmployeeActionInvocation(env, {
+        approvalId: approvedAction.approvalId, orgId, principal: actorId, tool: name,
+        argsHash: await hashToolArgs(toolArgs), idempotencyKey,
+      });
+      if (claim.kind === "claimed") {
+        return registeredDispatchRegistry.invoke(name, toolArgs, callPrincipal, {
+          ...options, idempotencyKey, claimedInvocation: claim.receipt,
+        });
+      }
+      if (claim.kind === "replay") return employeeReceiptReplay(claim.receipt);
+      return employeeClaimFailure(claim.kind);
+    },
+  } : registeredDispatchRegistry;
   const result = await dispatchEmployeeTool({
     registry: dispatchRegistry, authority, selection, toolName, args, connection,
     connectionPolicy: policy, ...(approval ? { approval } : {}),
@@ -341,6 +383,17 @@ export async function dispatchEmployeeToolForPrincipal(
     ...(approval ? { idempotencyKey: `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${approval.approvalId}` } : {}),
   });
   if (!result.allowed) return jsonError(result.reason, result.reason === "approval_required" ? 202 : 403);
+  const claimMeta = result.result._meta && typeof result.result._meta === "object"
+    ? (result.result._meta as Record<string, unknown>)[EMPLOYEE_CLAIM_META]
+    : undefined;
+  if (claimMeta && typeof claimMeta === "object" && "reason" in claimMeta && typeof claimMeta.reason === "string") {
+    const reason = claimMeta.reason;
+    return jsonError(reason === "expired" ? "employee_action_approval_expired"
+      : reason === "consumed_receipt_missing" ? "employee_invocation_receipt_pruned_no_replay"
+      : reason === "payload_conflict" ? "employee_invocation_payload_conflict"
+      : reason === "failed" ? "employee_invocation_claim_failed"
+      : "employee_action_approval_not_dispatchable", reason === "failed" ? 503 : 409);
+  }
   return Response.json({ ok: true, result: result.result }, { headers: { "cache-control": "no-store" } });
 }
 
