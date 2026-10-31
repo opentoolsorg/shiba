@@ -76,10 +76,12 @@ describe("run registry", () => {
     });
     expect(next).toEqual(before);
     if (!queueInput) throw new Error("Missing replay input");
+    const skillPin = QUEUE_METADATA.skillPins[0];
+    if (!skillPin) throw new Error("Missing fixture skill pin");
     expect(Object.keys(queueInput).sort()).toEqual(Object.keys({ ...INPUT, ...QUEUE_METADATA, sandboxId: run.sandboxId }).sort());
     const changes: Partial<QueuedRunInput>[] = [
       { executionTarget: { ...QUEUE_METADATA.executionTarget, workspaceName: "Different" } },
-      { employeeToolPolicyVersion: 3 }, { skillPins: [{ ...QUEUE_METADATA.skillPins[0], version: 2 }] },
+      { employeeToolPolicyVersion: 3 }, { skillPins: [{ ...skillPin, version: 2 }] },
       { collaborationHandoffId: "other-handoff" }, { orgId: "other-org" }, { customAgentVersion: 3 },
       { continuationKey: "other-account" }, { authAccount: "other" }, { targetMachineId: "other-laptop" },
       { testCommand: ["pnpm", "lint"] }, { expectedDeliverables: ["other.md"] }, { envDigest: "b".repeat(64) },
