@@ -15,6 +15,8 @@ import { sealRunEnv } from "./run-env-seal.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 import { resolveSkillPins } from "./skills-store.js";
+import { onboardingRunFields } from "@shiba/shared";
+import { resolveOnboardingTaskBinding } from "./onboarding-task-binding.js";
 import {
   buildSessionAgentName,
   DEFAULT_SESSION_ID,
@@ -218,6 +220,20 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   const stub = await getAgentByName(env.CodingOrchestrator, targetAgentName);
   let rewritten = new Request(new URL(url.pathname + url.search, request.url), request);
   if (request.method === "POST" && url.pathname === "/api/runs" && intakeBody) {
+    if (intakeBody.onboardingSourceSnapshot !== undefined || intakeBody.onboardingTask !== undefined) {
+      return Response.json({ error: "Onboarding source context is server-owned." }, { status: 400 });
+    }
+    let isOnboardingTask = false;
+    try {
+      const goal = await resolveOnboardingTaskBinding(env, resolved.userId, intakeBody.task, intakeBody, intakeBody.customAgentId);
+      if (goal) {
+        if (intakeKind !== "run") throw new Error("An onboarding goal can only bind a task run.");
+        isOnboardingTask = true;
+        intakeBody = { ...intakeBody, ...onboardingRunFields(goal), customAgentId: goal.customAgentId };
+      }
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : "Invalid onboarding goal." }, { status: 409 });
+    }
     if (Object.prototype.hasOwnProperty.call(intakeBody, "skillPins")) {
       const rawPins = intakeBody.skillPins;
       if (!Array.isArray(rawPins) || rawPins.length > 5 || rawPins.some((pin) =>
@@ -237,7 +253,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
         return Response.json({ error: "A selected skill is unavailable or no longer active. Reload the Skills view and try again." }, { status: 409 });
       }
       const task = typeof intakeBody.task === "string" ? intakeBody.task.trim() : "";
-      const effectiveTask = resolvedSkills.instructions ? `${task}\n\n${resolvedSkills.instructions}` : task;
+      const effectiveTask = resolvedSkills.instructions && !isOnboardingTask ? `${task}\n\n${resolvedSkills.instructions}` : task;
       if (effectiveTask.length > 4000) {
         return Response.json(
           { error: "The complete task and selected skill instructions exceed the 4000-character limit. Shorten the task or deselect skills." },

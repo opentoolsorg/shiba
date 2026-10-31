@@ -96,6 +96,7 @@ export interface ModelRoutingControl {
 }
 
 export interface TaskComposerProps {
+  blockedReason?: string | null;
   appToolsWork?: boolean;
   onAppToolsWorkChange?: (value: boolean) => void;
   appToolsWorkIssue?: string | null;
@@ -283,6 +284,7 @@ const inputClass =
   "bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-sm)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] placeholder-[var(--muted-foreground-3)] transition-colors";
 
 export function TaskComposer({
+  blockedReason = null,
   appToolsWork = false,
   onAppToolsWorkChange,
   appToolsWorkIssue = null,
@@ -347,7 +349,7 @@ export function TaskComposer({
     localTargetBlocked || Boolean(
     customAgentId && (customAgentsLoading || !customAgents.some((agent) => agent.id === customAgentId)),
   );
-  const sendDisabled = busy || isSubmitting || clearing || !hasComposerInput({ task, repoUrl, executionTargetKind, appToolsWork }) || (appToolsWork ? appToolsWorkIssue !== null : computerTaskBlocked);
+  const sendDisabled = busy || isSubmitting || clearing || Boolean(blockedReason) || !hasComposerInput({ task, repoUrl, executionTargetKind, appToolsWork }) || (appToolsWork ? appToolsWorkIssue !== null : computerTaskBlocked);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hero = variant === "hero";
 
@@ -592,7 +594,7 @@ export function TaskComposer({
           onChange={(event) => onTaskChange(event.target.value)} onKeyDown={handleKeyDown}
           placeholder="Describe the outcome using the app resources granted to this bot"
           className="min-h-24 w-full resize-y bg-transparent text-sm text-[var(--fg)] focus:outline-none" />
-        {appToolsWorkIssue ? <p role="status" className="text-xs text-[var(--warning-fg)]">{appToolsWorkIssue}</p> : null}
+        {blockedReason || appToolsWorkIssue ? <p role="status" className="text-xs text-[var(--warning-fg)]">{blockedReason ?? appToolsWorkIssue}</p> : null}
         <div className="flex items-center justify-between gap-3">
           {onOpenEmployeeTools ? <button type="button" onClick={onOpenEmployeeTools} className="text-xs text-[var(--primary)]">Review app permissions</button> : <span />}
           <button type="submit" aria-label={isSubmitting ? "Sending…" : "Send task"} disabled={sendDisabled || isSubmitting || clearing}
@@ -614,6 +616,7 @@ export function TaskComposer({
       }`}
     >
       {/* Top Chips Row: Project (Repo) + Run Target */}
+      {blockedReason ? <p role="status" className="text-xs text-[var(--warning-fg)]">{blockedReason}</p> : null}
       <div className="flex items-center gap-1.5 flex-wrap">
         {workTargetPicker}
         {!onAppToolsWorkChange && onExecutionTargetKindChange ? (

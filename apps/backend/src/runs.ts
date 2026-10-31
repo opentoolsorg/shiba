@@ -1,3 +1,4 @@
+import { onboardingRunFields, type OnboardingRunFields } from "@shiba/shared";
 /**
  * Durable run registry helpers. The orchestrator keeps these records in
  * Durable Object state; the Worker gates drill-in routes on them.
@@ -51,7 +52,7 @@ export {
   RUN_DEADLINE_MS,
 } from "@shiba/shared";
 
-export function createRun(args: {
+export function createRun(args: OnboardingRunFields & {
   runId: string;
   sandboxId: string;
   repoUrl: string;
@@ -107,6 +108,7 @@ export function createRun(args: {
     commandId: `queue:${args.runId}`,
     runId: args.runId,
     input: {
+      ...onboardingRunFields(args),
       sandboxId: args.sandboxId,
       repoUrl: args.repoUrl,
       ...(args.executionTarget !== undefined ? { executionTarget: args.executionTarget } : {}),
@@ -179,6 +181,7 @@ function commandForStatus(
         runId: run.runId,
         // continuesKey is consumed at first queue; continuationKey retains its identity.
         input: {
+          ...onboardingRunFields(run),
           sandboxId: run.sandboxId,
           repoUrl: run.repoUrl,
           ...(run.executionTarget !== undefined ? { executionTarget: structuredClone(run.executionTarget) } : {}),

@@ -1,3 +1,4 @@
+import { onboardingRunFields, type OnboardingRunFields } from "./onboarding.js";
 /**
  * Pure run-lifecycle decider (PLAN.md §18.1, T40). Transition legality is a
  * pure function of the run record, the approval pointer, and the command —
@@ -31,7 +32,7 @@ import type { DelegatedRun, ForkLineage, RunPatch } from "./runs.js";
 import { isActiveStatus, isTerminalStatus, normalizeRun } from "./runs.js";
 
 /** The creation payload a `queue` command carries — createRun's args. */
-export interface QueuedRunInput {
+export interface QueuedRunInput extends OnboardingRunFields {
   sandboxId: string;
   repoUrl: string;
   executionTarget?: ExecutionTarget;
@@ -156,6 +157,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
   return (
     evidence.inputHash ===
     runInputHash({
+      ...onboardingRunFields(run),
       repoUrl: run.repoUrl,
       ...(run.executionTarget !== undefined ? { executionTarget: run.executionTarget } : {}),
       task: run.task,
@@ -225,6 +227,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
         const queued: DelegatedRun = {
           runId: command.runId,
           sandboxId: command.input.sandboxId,
+          ...onboardingRunFields(command.input),
           repoUrl: command.input.repoUrl,
           ...(command.input.executionTarget !== undefined ? { executionTarget: command.input.executionTarget } : {}),
           task: command.input.task,
@@ -302,6 +305,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.collaborationHandoffId === command.input.collaborationHandoffId &&
           run.customAgentVersion === command.input.customAgentVersion &&
           run.employeeToolPolicyVersion === command.input.employeeToolPolicyVersion &&
+          JSON.stringify(onboardingRunFields(run)) === JSON.stringify(onboardingRunFields(command.input)) &&
           JSON.stringify(run.skillPins ?? []) === JSON.stringify(command.input.skillPins ?? []) &&
           sameRoute &&
           run.continuationKey === command.input.continuationKey &&

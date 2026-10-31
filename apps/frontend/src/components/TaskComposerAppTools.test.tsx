@@ -34,6 +34,14 @@ function Harness({ binding = context, sendMessage, submitting = false }: {
 const chooseAppTools = () => fireEvent.change(screen.getByRole("combobox", { name: "Work target" }), { target: { value: "app-tools" } });
 
 describe("explicit Worker app-tools Work path", () => {
+  it("carries only a validated goal reference beside the exact app-tools marker", async () => {
+    const sendMessage = vi.fn(async () => {});
+    const reference = { draftTaskId: "draft_00000000-0000-4000-8000-000000000001", version: 2 };
+    await sendAppToolsWork(context, "Canonical prepared brief", sendMessage, reference);
+    expect(sendMessage).toHaveBeenCalledWith({ text: "Canonical prepared brief", metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", shibaDraftTaskId: reference.draftTaskId, shibaDraftTaskVersion: 2 } });
+    await expect(sendAppToolsWork(context, "brief", sendMessage, { draftTaskId: "foreign", version: 2 })).rejects.toMatchObject({ message: "Review the saved first task draft before sending." });
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
   it("sends one server-bound employee turn without a repository, artifact paths, or computer request", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);

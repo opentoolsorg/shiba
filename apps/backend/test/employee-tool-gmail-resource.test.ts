@@ -32,11 +32,13 @@ import type { Env } from "../src/env.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { createEmployeeRunTools } from "../src/employee-run-tools.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
-import { createWebSession } from "../src/web-sessions.js";
+import { createWebSession, buildSessionAgentName } from "../src/web-sessions.js";
 import { handleEmployeeDraftRequest, type EmployeeDraft, type EmployeeDraftStore, type EmployeeReadReceipt } from "../src/employee-drafts.js";
 import { ensureGmailSchema, encryptGmailToken, GMAIL_SCOPE } from "../src/gmail.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { preparedGoal } from "./fixtures/onboarding-goal.js";
+import { handleOnboardingProgress, readAcceptedDeliverableEvidence } from "../src/onboarding-progress.js";
 
 const OWNER = '["better-auth","stable-owner-id"]';
 const TOKEN_KEY = "b2".repeat(32);
@@ -125,8 +127,9 @@ describe("employee-run Gmail selected-resource policy", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("reads a selected message, retains a reviewable immutable internal draft, and rechecks revoked grants", async () => {
+  it.each([false, true])("reads a selected message and retains a reviewed draft (onboarding=%s)", async (withGoal) => {
     const env = makeEnv();
+    if (withGoal) actorState.principal = "owner@example.test";
     let retained: { reads: EmployeeReadReceipt[]; drafts: EmployeeDraft[] } = { reads: [], drafts: [] };
     const draftStore: EmployeeDraftStore = {
       getReadReceipt: (id) => retained.reads.find((receipt) => receipt.id === id) ?? null,
@@ -165,18 +168,20 @@ describe("employee-run Gmail selected-resource policy", () => {
     });
     authState.dashboard = false;
 
+    const goal = withGoal ? await preparedGoal(env, actorState.principal, employee.id, 2) : undefined;
     const session = { ...createWebSession(actorState.principal, { metadata: { customAgentId: employee.id } }),
-      id: "11111111-1111-4111-8111-111111111111", agentName: "web:employee-mail-reader:11111111-1111-4111-8111-111111111111" };
+      id: "11111111-1111-4111-8111-111111111111", agentName: buildSessionAgentName(actorState.principal, "11111111-1111-4111-8111-111111111111") };
     sessionState.sessions = [session];
     const instance = Object.assign(Object.create(CodingOrchestrator.prototype), {
       env, name: session.agentName, state: { runs: [] }, employeeDraftStore: () => draftStore,
-      messages: [{ role: "user", metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", shibaTask: { customAgentId: "forged-composer-profile", orgId: "forged-composer-org" } } }],
+      messages: [{ role: "user", parts: [{ type: "text", text: goal?.task ?? "Review the message" }], metadata: { ...(goal ? { shibaDraftTaskId: goal.reference.draftTaskId, shibaDraftTaskVersion: goal.reference.draftTaskVersion } : {}), shibaMode: "work", shibaWorkTarget: "app-tools", shibaTask: { customAgentId: "forged-composer-profile", orgId: "forged-composer-org" } } }],
     }) as CodingOrchestrator;
     const tools = instance.getTools();
     expect(Object.keys(tools).sort()).toEqual(["employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
     expect(sessionState.delegated).not.toHaveBeenCalled();
     const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
     expect((await turn()).activeTools?.sort()).toEqual(Object.keys(tools).sort());
+    if (goal) expect((await turn()).instructions).toContain("SELECTED ONBOARDING SOURCES");
     const workMessages = instance.messages;
     Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }] });
     expect(instance.getTools()).toEqual({});
@@ -235,7 +240,7 @@ describe("employee-run Gmail selected-resource policy", () => {
 
     // Rehydrate the DO metadata independently of the private object bytes.
     retained = JSON.parse(JSON.stringify(retained));
-    const owner = { orgId: "self-hosted", actorId: actorState.principal, executionContextId: "web:employee-mail-reader:11111111-1111-4111-8111-111111111111" };
+    const owner = { orgId: "self-hosted", actorId: actorState.principal, executionContextId: session.agentName };
     const download = await handleEmployeeDraftRequest(new Request(`https://shiba.test${saved.downloadUrl}`), env, draftStore, owner);
     expect(download?.status).toBe(200);
     expect(await download?.text()).toBe(input.content);
@@ -249,6 +254,41 @@ describe("employee-run Gmail selected-resource policy", () => {
     expect((await review())?.status).toBe(200);
     expect((await review())?.status).toBe(409);
     expect(draftStore.getDraft(saved.draft.id)?.deliverable.review).toMatchObject({ status: "approved", revision: 1 });
+    if (goal) {
+      expect(saved.draft).toMatchObject({ ...goal.reference, source: goal.reference });
+      const evidence = (reference = goal.reference) => readAcceptedDeliverableEvidence(env, actorState.principal, async (_env, name) => ({ fetch: async (input) => {
+        if (String(input).endsWith("/internal/web-sessions")) return Response.json({ sessions: [session] });
+        if (String(input).endsWith("/api/runs")) return Response.json({ runs: [] });
+        const response = await handleEmployeeDraftRequest(new Request(String(input)), env, draftStore, { ...owner, executionContextId: name });
+        if (!response) throw new Error("Missing owned draft response");
+        return response;
+      } }), reference.draftTaskId, reference.draftTaskVersion);
+      expect(await evidence()).toBe(true);
+      expect(await evidence({ ...goal.reference, draftTaskVersion: goal.reference.draftTaskVersion + 1 })).toBe(false);
+      expect(await evidence({ ...goal.reference, draftTaskId: "unrelated-goal" })).toBe(false);
+      const activated = await handleOnboardingProgress(new Request("https://shiba.test/api/onboarding/progress"), env, {
+        ...goal.deps, readProviders: async () => [], readAcceptedDeliverable: async () => evidence(),
+      });
+      expect(await activated?.json()).toMatchObject({ activatedAt: expect.any(Number), acceptedArtifactAt: expect.any(Number), connectionVerifiedAt: null, evidence: { connectedProvider: false } });
+      const current = await goal.update();
+      await goal.update({ action: "save-draft", expectedRevision: current.revision, draftTask: { goal: "A different outcome" } });
+      expect(await goal.update()).toMatchObject({ activatedAt: null, acceptedArtifactAt: null });
+      await expect(retain.execute(input, { toolCallId: "old-goal-after-edit" })).rejects.toThrow("changed");
+      // Restore fixture's prepared goal to continue ordinary grant/retention checks.
+      const changed = await goal.update();
+      await goal.update({ action: "save-draft", expectedRevision: changed.revision, draftTask: { goal: "Write a sourced reply draft" } });
+      const restored = await goal.update();
+      const prepared = await goal.update({ action: "prepare-task", expectedRevision: restored.revision });
+      const oldMessages = instance.messages;
+      Object.assign(instance, { messages: [{ role: "user", parts: [{ type: "text", text: goal.task }], metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", shibaDraftTaskId: goal.reference.draftTaskId, shibaDraftTaskVersion: prepared.draftTask?.version } }] });
+      await expect(retain.execute(input, { toolCallId: "relabel-old-read" })).rejects.toThrow("Read the selected source");
+      Object.assign(instance, { messages: oldMessages });
+      // This branch has deliberately invalidated its original goal; ordinary
+      // retention retry checks below are covered by the no-goal variant.
+      expect(sessionState.delegated).not.toHaveBeenCalled();
+      return;
+    }
+
     expect([...objects.values()]).toEqual([input.content]);
     const objectKey = [...objects.keys()][0];
     if (!objectKey) throw new Error("Draft body not stored.");
@@ -295,6 +335,40 @@ describe("employee-run Gmail selected-resource policy", () => {
     await expect(call.execute({ tool: "gmail_read", args: { messageIds: [MESSAGE_ID] } }))
       .rejects.toThrow("unavailable under the current policy");
     expect(messageReads()).toBe(successfulReads);
+
+    // Historical owner access uses the saved non-default workspace, independent of composer/grants.
+    const currentDraft = draftStore.getDraft(saved.draft.id);
+    if (!currentDraft) throw new Error("Retained draft missing.");
+    retained.drafts = [{ ...currentDraft, orgId: "saved-workspace", source: { ...currentDraft.source, orgId: "saved-workspace" } }];
+    session.metadata = { ...session.metadata, orgId: "saved-workspace" };
+    const draftPath = `/api/employee-drafts/${saved.draft.id}`;
+    for (const metadata of [undefined, { shibaTask: { orgId: "forged-workspace" } }, { shibaTask: { reasoningEffort: { malformed: true } } }]) {
+      Object.assign(instance, { messages: [{ role: "user", metadata }] });
+      const listed = await instance.onRequest(new Request("https://internal/api/employee-drafts"));
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toMatchObject({ drafts: expect.arrayContaining([expect.objectContaining({ id: saved.draft.id })]) });
+      const historicalDownload = await instance.onRequest(new Request(`https://internal${draftPath}/download`));
+      expect(historicalDownload.status).toBe(200);
+      expect(await historicalDownload.text()).toBe(input.content);
+      const currentRevision = draftStore.getDraft(saved.draft.id)?.deliverable.review?.revision;
+      const historicalReview = await instance.onRequest(new Request(`https://internal${draftPath}/review`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "approved", expectedRevision: currentRevision }),
+      }));
+      expect(historicalReview.status).toBe(200);
+    }
+    const otherSession = createWebSession(actorState.principal, { metadata: { orgId: "saved-workspace" } });
+    sessionState.sessions = [session, otherSession];
+    Object.assign(instance, { name: otherSession.agentName });
+    expect((await instance.onRequest(new Request(`https://internal${draftPath}/download`))).status).toBe(404);
+    Object.assign(instance, { name: buildSessionAgentName("other-owner", session.id) });
+    expect((await instance.onRequest(new Request(`https://internal${draftPath}/review`, { method: "POST" }))).status).toBe(404);
+    Object.assign(instance, { name: session.agentName });
+    for (const sessions of [[], [{ ...session, deletingAt: Date.now() }], [session, session]]) {
+      sessionState.sessions = sessions;
+      expect((await instance.onRequest(new Request(`https://internal${draftPath}/download`))).status).toBe(404);
+    }
+    sessionState.sessions = [session];
 
     const contactedHosts = [...new Set(provider.calls.map((url) => url.host))].sort();
     expect(contactedHosts).toEqual(["gmail.googleapis.com", "oauth2.googleapis.com"]);

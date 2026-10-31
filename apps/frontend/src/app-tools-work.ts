@@ -1,5 +1,6 @@
 import { threadAgentId, type WebThread } from "./agent-threads";
 import type { CustomAgentWire } from "./components/CustomAgentsView";
+import { isOnboardingDraftRef, type OnboardingDraftRef } from "./onboarding-draft";
 
 export interface AppToolsWorkContext {
   sessionId: string;
@@ -25,10 +26,12 @@ export function appToolsWorkIssue(context: AppToolsWorkContext): string | null {
 export async function sendAppToolsWork(
   context: AppToolsWorkContext,
   text: string,
-  sendMessage: (message: { text: string; metadata: { shibaMode: "work"; shibaWorkTarget: "app-tools" } }) => Promise<unknown>,
+  sendMessage: (message: { text: string; metadata: { shibaMode: "work"; shibaWorkTarget: "app-tools"; shibaDraftTaskId?: string; shibaDraftTaskVersion?: number } }) => Promise<unknown>,
+  draftRef?: OnboardingDraftRef | null,
 ): Promise<void> {
   const issue = appToolsWorkIssue(context);
   if (issue) throw new Error(issue);
   if (!text.trim()) throw new Error("Enter a task first.");
-  await sendMessage({ text: text.trim(), metadata: { shibaMode: "work", shibaWorkTarget: "app-tools" } });
+  if (draftRef !== undefined && draftRef !== null && !isOnboardingDraftRef(draftRef)) throw new Error("Review the saved first task draft before sending.");
+  await sendMessage({ text: text.trim(), metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", ...(draftRef ? { shibaDraftTaskId: draftRef.draftTaskId, shibaDraftTaskVersion: draftRef.version } : {}) } });
 }
