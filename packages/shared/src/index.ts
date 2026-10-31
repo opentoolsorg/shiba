@@ -35,6 +35,7 @@ export * from "./local-fleet.js";
 export * from "./security.js";
 export * from "./sandbox-do-id.js";
 export * from "./desktop-bridge.js";
+export * from "./desktop-connection-label.js";
 export * from "./swarm-desk.js";
 export * from "./swarm-share.js";
 export * from "./subagent.js";

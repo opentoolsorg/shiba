@@ -178,7 +178,11 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
       const child = deps.supervisor.forkDaemon(["--connect", origin, "--pair", token]);
       const result = await waitForPair(child, deps.pairTimeoutMs ?? PAIR_TIMEOUT_MS);
       // Only after the new pairing lands: a failed re-pair must not leave the old token revoked.
-      if (result.ok) await revokeStaleMachine(origin, staleId);
+      if (result.ok) {
+        await revokeStaleMachine(origin, staleId);
+        // Re-read config and refresh tray/bridge status if the polling message raced IPC return.
+        void deps.supervisor.probe?.();
+      }
       return result;
     });
   });
