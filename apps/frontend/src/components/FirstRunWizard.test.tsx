@@ -32,6 +32,44 @@ function setupFetch() {
 }
 
 describe("FirstRunWizard persisted progress", () => {
+  it("opens the useful role step directly without requiring optional setup", async () => {
+    setupFetch();
+    const onStepChange = vi.fn(async () => {});
+    render(<FirstRunWizard open progress={progress} onClose={() => {}} onStepChange={onStepChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose a role →" }));
+    await screen.findByRole("heading", { name: "Your first employee" });
+    expect(onStepChange).toHaveBeenCalledExactlyOnceWith("employee");
+    expect(screen.getByText(/exact task for approval before any sandbox starts/)).toBeTruthy();
+  });
+
+  it("retains context on failed dismissal and offers an explicit unsaved exit", async () => {
+    setupFetch();
+    const onClose = vi.fn();
+    const onDismiss = vi.fn(async () => { throw new Error("Offline"); });
+    render(<FirstRunWizard open progress={progress} onClose={onClose} onDismiss={onDismiss} />);
+    fireEvent.click(screen.getByRole("button", { name: "Close setup" }));
+    await screen.findByRole("alert");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Your channels" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close without saving" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("ignores repeated actions until the current progress write settles", async () => {
+    setupFetch();
+    let finish: (() => void) | undefined;
+    const onStepChange = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const onDismiss = vi.fn(async () => {});
+    render(<FirstRunWizard open progress={progress} onClose={() => {}} onNavigate={() => {}} onStepChange={onStepChange} onDismiss={onDismiss} />);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Integrations →" }));
+    expect(onStepChange).toHaveBeenCalledOnce();
+    expect(onDismiss).not.toHaveBeenCalled();
+    finish?.();
+    await screen.findByRole("heading", { name: "Your agent" });
+  });
+
   it("saves navigation and resumes the persisted step after close and reopen", async () => {
     setupFetch();
     const onStepChange = vi.fn(async () => {});

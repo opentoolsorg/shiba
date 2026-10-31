@@ -15,6 +15,8 @@ import { sealRunEnv } from "./run-env-seal.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
 import { resolveSkillPins } from "./skills-store.js";
+import { onboardingRunFields } from "@shiba/shared";
+import { resolveOnboardingTaskBinding } from "./onboarding-task-binding.js";
 import {
   buildSessionAgentName,
   DEFAULT_SESSION_ID,
@@ -34,6 +36,13 @@ export async function resolveRunStoreTarget(
 ): Promise<{ agentName: string; userId: string } | { error: Response }> {
   // Local development shares the same fallback as the dashboard identity endpoint.
   const userId = (await resolveUserId(request, env)) ?? "default";
+  const executorPin = collaborationExecutorPins.get(request);
+  if (executorPin) {
+    if (executorPin.trim().toLowerCase() !== userId.trim().toLowerCase()) {
+      return { error: Response.json({ error: "Handoff owner changed." }, { status: 403 }) };
+    }
+    return { agentName: executorPin, userId };
+  }
   const sessionParam = url.searchParams.get("session") || url.searchParams.get("sessionId");
   if (sessionParam && sessionParam !== DEFAULT_SESSION_ID) {
     if (!isValidSessionId(sessionParam)) {
@@ -56,6 +65,7 @@ export async function resolveRunStoreTarget(
 
 type RunSummary = { runId: string; createdAt?: number };
 
+const collaborationExecutorPins = new WeakMap<Request, string>();
 const collaborationProfilePins = new WeakMap<Request, number>();
 const collaborationHandoffPins = new WeakMap<Request, string>();
 
@@ -108,7 +118,7 @@ export async function handleRuns(request: Request, env: Env): Promise<Response |
 export async function queueCollaborationRun(
   request: Request,
   env: Env,
-  input: { task: string; repoUrl?: string; executionTarget?: ExecutionTarget; customAgentId: string; profileVersion: number; commandId: string; collaborationHandoffId?: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
+  input: { task: string; repoUrl?: string; executionTarget?: ExecutionTarget; customAgentId: string; profileVersion: number; commandId: string; executorAgentName?: string; collaborationHandoffId?: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
 ): Promise<Response | null> {
   const headers = new Headers(request.headers);
   headers.delete("content-length");
@@ -117,6 +127,7 @@ export async function queueCollaborationRun(
     headers,
     body: JSON.stringify({ task: input.task, ...(input.repoUrl ? { repoUrl: input.repoUrl } : {}), ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}), customAgentId: input.customAgentId, commandId: input.commandId, ...(input.runtime ? { runtime: input.runtime } : {}), ...(input.targetMachineId ? { targetMachineId: input.targetMachineId } : {}) }),
   });
+  if (input.executorAgentName) collaborationExecutorPins.set(forwarded, input.executorAgentName);
   collaborationProfilePins.set(forwarded, input.profileVersion);
   if (input.collaborationHandoffId) collaborationHandoffPins.set(forwarded, input.collaborationHandoffId);
   return handleRuns(forwarded, env);
@@ -128,6 +139,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // live on the same DO, behind the same dashboard auth and session scope.
   const isSpine = url.pathname === "/api/spine";
   const taskPath = /^\/api\/tasks(?:\/[^/]+\/(?:retry|cancel))?$/.test(url.pathname);
+  const employeeDraftPath = /^\/api\/employee-drafts(?:\/draft_[a-f0-9]{64}(?:\/(?:download|review))?)?$/.test(url.pathname);
   const deliverableMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)$/);
   const artifactActionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([^/]+)\/(review|history|revision)$/);
   // The DO serves two-segment subroutes under /api/runs/<id>/: fork, screen.
@@ -136,6 +148,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     !deliverableMatch &&
     !artifactActionMatch &&
     !taskPath &&
+    !employeeDraftPath &&
     !/^\/api\/runs(?:\/[^/]+(?:\/(?:fork|screen|archive|steer|subagents))?|\/subagents\/spawn)?$/.test(
       url.pathname,
     )
@@ -144,6 +157,17 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   }
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
+  }
+  if (employeeDraftPath) {
+    const review = url.pathname.endsWith("/review");
+    if (request.method !== (review ? "POST" : "GET")) {
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
+    }
+  }
+  if (request.method === "POST" && (employeeDraftPath || artifactActionMatch)) {
+    if (request.headers.get("origin") !== url.origin) {
+      return Response.json({ error: "Same-origin request required." }, { status: 403 });
+    }
   }
   if ((isSpine || deliverableMatch || artifactActionMatch?.[3] === "history") && request.method !== "GET") {
     return Response.json({ error: "Method not allowed." }, { status: 405 });
@@ -185,7 +209,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // recovery (releaseRestartedDraftClaim, sweepStaleDrafts, Slack resolve)
   // assumes they live on the one shared instance queueEmailApproval pins —
   // minting them on a per-user DO leaves a record no sweep can see.
-  if (request.method === "POST") {
+  if (request.method === "POST" && url.pathname === "/api/runs") {
     const parsed: unknown = await request.clone().json().catch(() => null);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) intakeBody = parsed as Record<string, unknown>;
     if (typeof intakeBody?.kind === "string" && intakeBody.kind.trim()) intakeKind = intakeBody.kind.trim();
@@ -196,6 +220,20 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   const stub = await getAgentByName(env.CodingOrchestrator, targetAgentName);
   let rewritten = new Request(new URL(url.pathname + url.search, request.url), request);
   if (request.method === "POST" && url.pathname === "/api/runs" && intakeBody) {
+    if (intakeBody.onboardingSourceSnapshot !== undefined || intakeBody.onboardingTask !== undefined) {
+      return Response.json({ error: "Onboarding source context is server-owned." }, { status: 400 });
+    }
+    let isOnboardingTask = false;
+    try {
+      const goal = await resolveOnboardingTaskBinding(env, resolved.userId, intakeBody.task, intakeBody, intakeBody.customAgentId);
+      if (goal) {
+        if (intakeKind !== "run") throw new Error("An onboarding goal can only bind a task run.");
+        isOnboardingTask = true;
+        intakeBody = { ...intakeBody, ...onboardingRunFields(goal), customAgentId: goal.customAgentId };
+      }
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : "Invalid onboarding goal." }, { status: 409 });
+    }
     if (Object.prototype.hasOwnProperty.call(intakeBody, "skillPins")) {
       const rawPins = intakeBody.skillPins;
       if (!Array.isArray(rawPins) || rawPins.length > 5 || rawPins.some((pin) =>
@@ -215,7 +253,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
         return Response.json({ error: "A selected skill is unavailable or no longer active. Reload the Skills view and try again." }, { status: 409 });
       }
       const task = typeof intakeBody.task === "string" ? intakeBody.task.trim() : "";
-      const effectiveTask = resolvedSkills.instructions ? `${task}\n\n${resolvedSkills.instructions}` : task;
+      const effectiveTask = resolvedSkills.instructions && !isOnboardingTask ? `${task}\n\n${resolvedSkills.instructions}` : task;
       if (effectiveTask.length > 4000) {
         return Response.json(
           { error: "The complete task and selected skill instructions exceed the 4000-character limit. Shorten the task or deselect skills." },
@@ -262,6 +300,9 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // Edge identity: sign the stamped intake voucher so the DO can verify the
   // Worker minted it (no-op until INTERNAL_SIGNING_KEY is configured).
   await signInternalRequest(rewritten, env);
+  // Internal drafts belong only to this authenticated owner/session. Never
+  // search the shared registry or another session for missing artifacts.
+  if (employeeDraftPath) return stub.fetch(rewritten);
   if (artifactActionMatch) {
     let runId: string;
     let rawIndex: string;

@@ -87,6 +87,7 @@ async function pending() {
 
 try {
   await directory();
+  await page.getByText("Advanced settings", { exact: true }).click();
   await page.getByLabel("Slug", { exact: true }).fill(slug);
   await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel(/^Instructions/).fill(instructions(1));
@@ -125,6 +126,7 @@ try {
   const { session } = await sessionCreated.json();
   sessionId = session.id;
   assert.equal(session.metadata.customAgentId, agentId);
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
   await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
   await page.getByLabel("Task description", { exact: true }).fill(task);
   await directory();

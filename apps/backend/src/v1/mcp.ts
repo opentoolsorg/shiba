@@ -126,7 +126,9 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
     if (!approval) return response({ ok: false, error: "approval_not_found" }, 404);
     const decided = await decideApproval(ctx.env, { orgId: server.orgId, employeeId: server.id, approvalId, approved: input.approved, decidedBy: ctx.principal.principal });
     if (!decided) return response({ ok: false, error: "approval_not_found" }, 404);
-    await resolveCapabilityInvocationApproval(ctx.env, { approvalId, status: input.approved ? "approved" : "denied" });
+    const status = input.approved ? "approved" : "denied";
+    if (decided.status !== status) return response({ ok: false, error: "approval_decision_conflict" }, 409);
+    await resolveCapabilityInvocationApproval(ctx.env, { approvalId, status });
     const dispatch = input.approved ? await executeApprovedExternalMcpAction(ctx.env, server, decided) : { status: "denied" };
     return response({ ok: true, approval: decided, dispatch });
   }

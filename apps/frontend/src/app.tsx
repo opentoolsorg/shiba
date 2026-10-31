@@ -5,7 +5,7 @@
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { expectedDeliverablesSchema, HARNESS_REASONING_EFFORTS, type ReasoningEffort } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, onboardingTaskText, type ReasoningEffort } from "@shiba/shared";
 import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
@@ -20,10 +20,12 @@ import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from ".
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
-import { buildExecutionTargetFields } from "./execution-target-input";
+import { useProjectContexts } from "./project-contexts";
+import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables } from "./execution-target-input";
+import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
 import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
-import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
+import { useSavedRepos, useSavedSkills, saveRepo, composerDraftScope, readDraft, readDraftReference, writeDraft } from "./saved";
 import { useSocketLiveness } from "./socket-liveness";
 import {
   codingModelOptions,
@@ -34,7 +36,9 @@ import {
 import { DashboardView } from "./components/DashboardView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
 import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
-import { OnboardingProgressClient } from "./onboarding-progress-client";
+import { OnboardingProgressClient, type FirstRunProgressUpdate } from "./onboarding-progress-client";
+import { ConversationalOnboarding } from "./components/ConversationalOnboarding";
+import type { OnboardingDraftRef, SelectedOnboardingDraft } from "./onboarding-draft";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
 import { ConversationWorkspaceHeading } from "./components/ConversationWorkspaceHeading";
 import { ConversationModeSwitch } from "./components/ConversationModeSwitch";
@@ -408,7 +412,7 @@ export function App(): React.JSX.Element {
   const [baseBranch, setBaseBranch] = useState("main");
   // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
   const [task, setTask] = useState(() => {
-    const draft = readDraft("default");
+    const draft = "";
     if (typeof window === "undefined") return draft;
     const { prompt, nextSearch } = readPromptParam(window.location.search);
     if (prompt !== null) {
@@ -418,13 +422,20 @@ export function App(): React.JSX.Element {
     }
     return draft;
   });
+  const latestComposerTask = useRef(task);
+  latestComposerTask.current = task;
+  const [selectedOnboardingDraftRef, setSelectedOnboardingDraftRef] = useState<OnboardingDraftRef | null>(null);
+  const latestSelectedDraftRef = useRef(selectedOnboardingDraftRef);
+  latestSelectedDraftRef.current = selectedOnboardingDraftRef;
+  const selectedOnboardingTaskText = useRef<string | null>(null);
+  const initialComposerPrompt = useRef(task);
+  const [pendingOnboardingDraft, setPendingOnboardingDraft] = useState<SelectedOnboardingDraft | null>(null);
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
   const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
   const [projectContextId, setProjectContextId] = useState("");
-  const [projectContexts, setProjectContexts] = useState<Array<{ id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }>>([]);
   const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
@@ -448,17 +459,6 @@ export function App(): React.JSX.Element {
     document.title = "Shiba Dashboard · Self-Hosted AI Software Engineer";
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    const load = () => void fetch("/api/memory/projects", { credentials: "same-origin", cache: "no-store" })
-      .then(async (response) => response.ok ? await response.json() as { projects?: typeof projectContexts } : { projects: [] })
-      .then((body) => { if (active) setProjectContexts(Array.isArray(body.projects) ? body.projects : []); })
-      .catch(() => { if (active) setProjectContexts([]); });
-    load();
-    window.addEventListener("shiba:projects-updated", load);
-    return () => { active = false; window.removeEventListener("shiba:projects-updated", load); };
-  }, []);
-
   // Surface transient notices through the toast channel (aria-live inside sonner).
   useEffect(() => {
     if (notice) toast(notice);
@@ -468,6 +468,7 @@ export function App(): React.JSX.Element {
     const view = viewFromUrl();
     return view && view !== "settings" ? view : "tasks";
   });
+  const [memoryInitialView, setMemoryInitialView] = useState<"facts" | "sources">("facts");
   // Settings is a Kosuke-style popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
   const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
@@ -475,6 +476,7 @@ export function App(): React.JSX.Element {
   // where they left off; deep links (e.g. the wizard's Models step) override it.
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>("account");
   const openView = useCallback((view: AppNavView) => {
+    setShowFirstRun(false);
     // Settings is a popup, not a routable view — every nav path opens the modal.
     if (view === "settings") {
       setSettingsModalOpen(true);
@@ -500,35 +502,9 @@ export function App(): React.JSX.Element {
     setConversationModeState(mode);
     writeConversationMode(selectedSessionId, mode);
   }, [selectedSessionId]);
-  // Per-session composer draft: a scope change loads that scope's draft
-  // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
-  const draftScope = useRef<string | null>("default");
-  const pendingDraft = useRef<{ scope: string; text: string } | null>(null);
-  const flushDraft = useCallback(() => {
-    const pending = pendingDraft.current;
-    pendingDraft.current = null;
-    if (pending) writeDraft(pending.scope, pending.text);
-  }, []);
-  useEffect(() => {
-    if (draftScope.current !== selectedSessionId) {
-      flushDraft(); // the old scope's unwritten keystrokes land before switching
-      draftScope.current = selectedSessionId;
-      setTask(readDraft(selectedSessionId));
-      return;
-    }
-    pendingDraft.current = { scope: selectedSessionId, text: task };
-    // An emptied composer (submit or clear) flushes now; typing waits for 300 ms idle.
-    if (!task.trim()) return flushDraft();
-    const timer = window.setTimeout(flushDraft, 300);
-    return () => window.clearTimeout(timer);
-  }, [selectedSessionId, task, flushDraft]);
-  // A failed submit restores its text only into the session it came from.
-  const restoreDraft = useCallback((scope: string, text: string) => {
-    if (draftScope.current === scope) setTask((current) => (current === "" ? text : current));
-    else writeDraft(scope, text);
-  }, []);
   // Local runs use the authenticated paired fleet in both web and desktop.
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
+  const [appToolsWork, setAppToolsWork] = useState(false);
   const [executionTargetKind, setExecutionTargetKind] = useState<"repository" | "artifact-workspace">("repository");
   const [artifactWorkspaceName, setArtifactWorkspaceName] = useState("My workspace");
   const [artifactDeliverables, setArtifactDeliverables] = useState("deliverables/brief.md");
@@ -543,6 +519,7 @@ export function App(): React.JSX.Element {
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
+  const [sessionRegistryOwner, setSessionRegistryOwner] = useState<string | null>(null);
   // Persistent workspace panel removed from tasks view; functionality promoted to standalone views.
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -631,6 +608,52 @@ export function App(): React.JSX.Element {
   const identityFailures = useRef(0);
   const retryIdentity = useCallback(() => setIdentityAttempt((n) => n + 1), []);
   const signedIn = orchestratorName !== null && identityIssue === null;
+  const projectContexts = useProjectContexts(signedIn ? orchestratorName : null);
+  useEffect(() => setProjectContextId(""), [signedIn, orchestratorName]);
+  // Per-session composer draft: a scope change loads that scope's draft
+  // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
+  const composerScope = signedIn && orchestratorName ? composerDraftScope(orchestratorName, selectedSessionId) : null;
+  const draftScope = useRef<string | null>(null);
+  const [restoredComposerScope, setRestoredComposerScope] = useState<string | null>(null);
+  const composerVisible = composerScope !== null && restoredComposerScope === composerScope;
+  const pendingDraft = useRef<{ scope: string; text: string; onboardingDraft: OnboardingDraftRef | null } | null>(null);
+  const flushDraft = useCallback(() => {
+    const pending = pendingDraft.current;
+    pendingDraft.current = null;
+    if (pending) writeDraft(pending.scope, pending.text, pending.onboardingDraft);
+  }, []);
+  useEffect(() => {
+    if (draftScope.current !== composerScope) {
+      flushDraft(); // the old scope's unwritten keystrokes land before switching
+      draftScope.current = composerScope;
+      setRestoredComposerScope(composerScope);
+      const restored = composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
+      if (composerScope) initialComposerPrompt.current = "";
+      selectedOnboardingTaskText.current = restored;
+      setTask(restored);
+      setSelectedOnboardingDraftRef(composerScope ? readDraftReference(composerScope) : null);
+      return;
+    }
+    if (!composerScope) return;
+    const linked = task === selectedOnboardingTaskText.current ? selectedOnboardingDraftRef : null;
+    if (selectedOnboardingDraftRef && !linked) setSelectedOnboardingDraftRef(null);
+    pendingDraft.current = { scope: composerScope, text: task, onboardingDraft: linked };
+    // An emptied composer (submit or clear) flushes now; typing waits for 300 ms idle.
+    if (!task.trim()) return flushDraft();
+    const timer = window.setTimeout(flushDraft, 300);
+    return () => window.clearTimeout(timer);
+  }, [composerScope, task, selectedOnboardingDraftRef, flushDraft]);
+  // A failed submit restores its text only into the session it came from.
+  const restoreDraft = useCallback((scope: string, text: string, reference?: OnboardingDraftRef | null) => {
+    if (draftScope.current === scope) {
+      if (latestComposerTask.current !== "" && latestComposerTask.current !== text) return;
+      const selected = latestSelectedDraftRef.current;
+      if (selected && (selected.draftTaskId !== reference?.draftTaskId || selected.version !== reference?.version)) return;
+      selectedOnboardingTaskText.current = text;
+      setSelectedOnboardingDraftRef(reference ?? null);
+      setTask((current) => (current === "" ? text : current));
+    } else if (!readDraft(scope)) writeDraft(scope, text, reference);
+  }, []);
   const {
     agents: customAgentRecords,
     refresh: refreshCustomAgents,
@@ -712,7 +735,10 @@ export function App(): React.JSX.Element {
   // First-run progress belongs to the authenticated account; activation also
   // requires an explicitly approved artifact, not just setup dismissal/run completion.
   const [showFirstRun, setShowFirstRun] = useState(false);
-  const [firstRunProgress, setFirstRunProgress] = useState<FirstRunProgressSnapshot | null>(null);
+  const [showLegacyFirstRun, setShowLegacyFirstRun] = useState(false);
+  const [storedFirstRunProgress, setFirstRunProgress] = useState<FirstRunProgressSnapshot | null>(null);
+  const [firstRunProgressOwner, setFirstRunProgressOwner] = useState<string | null>(null);
+  const firstRunProgress = firstRunProgressOwner === orchestratorName ? storedFirstRunProgress : null;
   const firstRunProgressClient = useRef<OnboardingProgressClient | null>(null);
   if (!firstRunProgressClient.current) {
     firstRunProgressClient.current = new OnboardingProgressClient((input, init) => fetch(input, init), setFirstRunProgress);
@@ -720,25 +746,77 @@ export function App(): React.JSX.Element {
   const refreshFirstRunProgress = useCallback(async (): Promise<void> => {
     await firstRunProgressClient.current?.read();
   }, []);
-  const updateFirstRunProgress = useCallback((body: { action: "step" | "dismiss" | "resume"; currentStep?: FirstRunStepId }): Promise<void> => {
+  const updateFirstRunProgress = useCallback((body: FirstRunProgressUpdate): Promise<void> => {
     return firstRunProgressClient.current?.update(body) ?? Promise.reject(new Error("Onboarding progress client is unavailable."));
   }, []);
   const resumeFirstRunProgress = useCallback(() => updateFirstRunProgress({ action: "resume" }), [updateFirstRunProgress]);
   const saveFirstRunStep = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "step", currentStep }), [updateFirstRunProgress]);
   const dismissFirstRunProgress = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "dismiss", currentStep }), [updateFirstRunProgress]);
+  const dismissOutcomeSetup = useCallback(() => updateFirstRunProgress({ action: "dismiss" }), [updateFirstRunProgress]);
+  const openFirstRun = useCallback(() => {
+    setMainView("tasks");
+    if (authMode === "better-auth") setShowFirstRun(true);
+    else setShowLegacyFirstRun(true);
+  }, [authMode]);
+  const canonicalOnboardingDraft = firstRunProgress?.draftTask;
+  const preparedOnboardingSelection: SelectedOnboardingDraft | null = firstRunProgress?.draftTaskId && canonicalOnboardingDraft?.preparedAt
+    ? { draftTaskId: firstRunProgress.draftTaskId, version: canonicalOnboardingDraft.version, draftTask: canonicalOnboardingDraft } : null;
+  const activeOnboardingRef = selectedOnboardingDraftRef && task === selectedOnboardingTaskText.current &&
+    firstRunProgress?.draftTaskId === selectedOnboardingDraftRef.draftTaskId && canonicalOnboardingDraft?.version === selectedOnboardingDraftRef.version && canonicalOnboardingDraft.preparedAt
+    ? selectedOnboardingDraftRef : null;
+  const onboardingExecutionIssue = selectedOnboardingDraftRef && !activeOnboardingRef
+    ? "The linked first task draft is unavailable or changed. Review and select its saved version, or remove the link before sending."
+    : activeOnboardingRef && canonicalOnboardingDraft
+    ? !canonicalOnboardingDraft.employeeId
+      ? "Configure an employee, then choose it in the saved setup draft before starting this goal."
+      : canonicalOnboardingDraft.employeeId !== customAgentId
+        ? "Launch the employee selected in this goal before starting work."
+        : customAgentRecords.find((profile) => profile.id === customAgentId)?.version !== canonicalOnboardingDraft.employeeVersion
+          ? "The employee changed. Review its saved version in setup before starting this goal."
+          : null
+    : null;
+  const applyOnboardingDraft = useCallback((selection: SelectedOnboardingDraft, replace = false) => {
+    if (firstRunProgress?.draftTaskId !== selection.draftTaskId || firstRunProgress.draftTask?.version !== selection.version || !firstRunProgress.draftTask.preparedAt) {
+      setNotice("The first task draft changed. Review its saved version before using it.");
+      openFirstRun();
+      return;
+    }
+    if (!composerScope) { setNotice("Sign in before selecting a task draft."); return; }
+    const text = onboardingTaskText(firstRunProgress.draftTask);
+    if (!replace && task.trim() && task !== text) {
+      setPendingOnboardingDraft(selection); setShowFirstRun(false); setMainView("tasks"); setConversationMode("work"); return;
+    }
+    const reference = { draftTaskId: selection.draftTaskId, version: selection.version };
+    selectedOnboardingTaskText.current = text;
+    setSelectedOnboardingDraftRef(reference);
+    setTask(text);
+    writeDraft(composerScope, text, reference);
+    setPendingOnboardingDraft(null);
+    setShowFirstRun(false);
+    setMainView("tasks");
+    setConversationMode("work");
+  }, [firstRunProgress, task, composerScope, openFirstRun, setConversationMode]);
   useEffect(() => {
     if (authMode !== "better-auth" || orchestratorName === null) {
       firstRunProgressClient.current?.reset();
+      setFirstRunProgressOwner(null);
       setShowFirstRun(false);
       return;
     }
+    firstRunProgressClient.current?.reset();
+    setFirstRunProgressOwner(orchestratorName);
     let cancelled = false;
     void firstRunProgressClient.current!.read().then((progress) => {
-      if (!cancelled && progress) setShowFirstRun(progress.activatedAt === null && progress.dismissedAt === null);
+      if (!cancelled && progress) {
+        const show = progress.activatedAt === null && progress.dismissedAt === null && !progress.draftTask?.preparedAt;
+        setShowFirstRun(show);
+        if (show) setMainView("tasks");
+      }
     }).catch(() => {
       if (!cancelled) {
         setFirstRunProgress(null);
         setShowFirstRun(true);
+        setMainView("tasks");
       }
     });
     return () => { cancelled = true; };
@@ -748,13 +826,16 @@ export function App(): React.JSX.Element {
   // whoami — the 401 that follows lands on AuthScreen again.
   const handleSignOut = useCallback(async () => {
     setSettingsModalOpen(false);
+    flushDraft();
     await authClient.signOut().catch(() => {});
     firstRunProgressClient.current?.reset();
+    setTask(""); setSelectedOnboardingDraftRef(null); setPendingOnboardingDraft(null);
+    setWebSessions([]); setSessionRegistryOwner(null);
     setOrchestratorName(null);
     setAuthMode(null);
     setIdentityIssue("signin");
     retryIdentity();
-  }, [retryIdentity]);
+  }, [retryIdentity, flushDraft]);
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
@@ -848,6 +929,17 @@ export function App(): React.JSX.Element {
     },
   });
   const { runsById } = useAgentToolEvents({ agent });
+  const appToolsContext = useMemo(() => ({
+    sessionId: selectedSessionId,
+    session: activeWebSession,
+    sessionAvailable: sessionApiAvailable && sessionsLoaded && sessionRegistryOwner === orchestratorName,
+    employeeId: customAgentId,
+    profile: customAgentRecords.find((profile) => profile.id === customAgentId),
+    profilesUnavailable: customAgentsLoading || Boolean(customAgentsError),
+    socketName: agent.name,
+    connected: orchestratorName !== null && agent.identified && !agent.connectionError && agent.readyState === 1,
+    hasPreparedContext: Boolean(activeOnboardingRef && !onboardingExecutionIssue),
+  }), [selectedSessionId, activeWebSession, sessionApiAvailable, sessionsLoaded, sessionRegistryOwner, orchestratorName, customAgentId, customAgentRecords, customAgentsLoading, customAgentsError, agent.name, agent.identified, agent.connectionError, agent.readyState, activeOnboardingRef, onboardingExecutionIssue]);
 
   useEffect(() => {
     if (!signedIn) {
@@ -870,6 +962,7 @@ export function App(): React.JSX.Element {
           sessions?: WebThread[];
         };
         if (!cancelled) {
+          setSessionRegistryOwner(orchestratorName);
           setSessionApiAvailable(true);
           const nextSessions = Array.isArray(body.sessions) ? body.sessions : [];
           setWebSessions(nextSessions);
@@ -890,7 +983,7 @@ export function App(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [signedIn]);
+  }, [signedIn, orchestratorName]);
   // Ordinary views read the lean summary projection; only the diff
   // inspector pulls the full run payload (diff/receipts/signals/steering).
   const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
@@ -1133,6 +1226,7 @@ export function App(): React.JSX.Element {
     async (event?: React.FormEvent) => {
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current) return;
+      if (!composerScope || !composerVisible) { setNotice("Wait for your conversation draft to reconnect before sending."); return; }
       if (conversationMode === "chat") {
         if (!task.trim()) {
           setNotice("Enter a message first.");
@@ -1149,7 +1243,7 @@ export function App(): React.JSX.Element {
           return;
         }
         const draft = task;
-        const draftSession = selectedSessionId;
+        const draftSession = composerScope;
         setNotice(null);
         setTask("");
         submitInFlight.current = true;
@@ -1160,8 +1254,42 @@ export function App(): React.JSX.Element {
           // The failed user turn remains in the transcript; retrying it must
           // regenerate that turn rather than append a duplicate user message.
         } catch (error) {
-          restoreDraft(draftSession, draft);
+          restoreDraft(draftSession, draft, activeOnboardingRef);
           setNotice(`Message could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+        }
+        return;
+      }
+      if (selectedOnboardingDraftRef && !activeOnboardingRef) {
+        setNotice("The linked first task draft is unavailable or changed. Review its saved version before sending.");
+        return;
+      }
+      if (onboardingExecutionIssue) { setNotice(onboardingExecutionIssue); return; }
+      if (appToolsWork) {
+        if (chat.isStreaming || chat.status === "streaming" || chat.status === "submitted") {
+          setNotice("Wait for the current app task to finish before sending another.");
+          return;
+        }
+        const issue = appToolsWorkIssue(appToolsContext);
+        if (issue || !task.trim()) {
+          setNotice(issue ?? "Enter a task first.");
+          return;
+        }
+        const draft = task;
+        const draftSession = composerScope;
+        submitInFlight.current = true;
+        submitFailed.current = false;
+        setIsSubmitting(true);
+        setNotice(null);
+        setTask("");
+        try {
+          await sendAppToolsWork(appToolsContext, draft, (message) => chat.sendMessage(message), activeOnboardingRef);
+          if (submitFailed.current) restoreDraft(draftSession, draft, activeOnboardingRef);
+        } catch (error) {
+          restoreDraft(draftSession, draft, activeOnboardingRef);
+          setNotice(`App task could not be sent: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
           submitInFlight.current = false;
           setIsSubmitting(false);
@@ -1182,9 +1310,7 @@ export function App(): React.JSX.Element {
         setNotice("Repository URL must be a GitHub URL like https://github.com/owner/repo.");
         return;
       }
-      const parsedArtifactDeliverables = expectedDeliverablesSchema.safeParse(
-        artifactDeliverables.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
-      );
+      const parsedArtifactDeliverables = parseArtifactDeliverables(artifactDeliverables);
       if (executionTargetKind === "artifact-workspace" && !parsedArtifactDeliverables.success) {
         setNotice("Use 1–8 safe relative .md, .txt, .json, or .csv output paths.");
         return;
@@ -1230,6 +1356,7 @@ export function App(): React.JSX.Element {
         const fields = {
           ...targetFields,
           task: task.trim(),
+          ...(activeOnboardingRef ? { draftTaskId: activeOnboardingRef.draftTaskId, draftTaskVersion: activeOnboardingRef.version } : {}),
           skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
           ...(harness ? { harness } : {}),
           ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
@@ -1251,7 +1378,7 @@ export function App(): React.JSX.Element {
         if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID() };
         const commandId = runCommand.current.id;
         const draft = task;
-        const draftSession = selectedSessionId;
+        const draftSession = composerScope;
         setTask("");
         submitInFlight.current = true;
         setIsSubmitting(true);
@@ -1286,7 +1413,7 @@ export function App(): React.JSX.Element {
               : "Bot task queued — review and approve the run card to launch it.");
           refreshRuns();
         } catch (error) {
-          restoreDraft(draftSession, draft);
+          restoreDraft(draftSession, draft, activeOnboardingRef);
           setNotice(
             `Run could not be queued: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -1388,7 +1515,7 @@ export function App(): React.JSX.Element {
         `Task: ${task.trim()}`,
       ].join("\n");
       const draft = task;
-      const draftSession = selectedSessionId;
+      const draftSession = composerScope;
       setTask("");
       submitInFlight.current = true;
       submitFailed.current = false;
@@ -1403,6 +1530,7 @@ export function App(): React.JSX.Element {
             shibaTask: {
               repoUrl: repoUrl.trim(),
               task: task.trim(),
+              ...(activeOnboardingRef ? { draftTaskId: activeOnboardingRef.draftTaskId, draftTaskVersion: activeOnboardingRef.version } : {}),
               skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
               baseBranch: branch,
               harness,
@@ -1420,14 +1548,14 @@ export function App(): React.JSX.Element {
         });
         // onError already surfaces chat.error in the notice banner.
         if (submitFailed.current) {
-          restoreDraft(draftSession, draft);
+          restoreDraft(draftSession, draft, activeOnboardingRef);
         } else {
           saveRepo(repoUrl.trim());
           setEnvVars([]);
           refreshRuns();
         }
       } catch (error) {
-        restoreDraft(draftSession, draft);
+        restoreDraft(draftSession, draft, activeOnboardingRef);
         setNotice(
           `Task could not be sent: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -1441,6 +1569,13 @@ export function App(): React.JSX.Element {
       baseBranch,
       task,
       conversationMode,
+      appToolsWork,
+      appToolsContext,
+      activeOnboardingRef,
+      composerScope,
+      composerVisible,
+      selectedOnboardingDraftRef,
+      onboardingExecutionIssue,
       publishPullRequest,
       reviewAfterPublish,
       runSetup,
@@ -1657,7 +1792,7 @@ export function App(): React.JSX.Element {
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        if (!isSubmitting && repoUrl.trim() && task.trim()) {
+        if (!isSubmitting && hasComposerInput({ task, repoUrl, executionTargetKind, conversationMode, appToolsWork })) {
           e.preventDefault();
           submitTask();
         }
@@ -1700,6 +1835,9 @@ export function App(): React.JSX.Element {
     repoUrl,
     task,
     submitTask,
+    executionTargetKind,
+    conversationMode,
+    appToolsWork,
     toggleSessionsCollapsed,
     toggleTheme,
     settingsModalOpen,
@@ -2049,6 +2187,7 @@ export function App(): React.JSX.Element {
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     const session = await createAgentThread(profile);
+    setSessionRegistryOwner(orchestratorName);
     setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
     setSessionApiAvailable(true);
     setSelectedSessionId(session.id);
@@ -2063,7 +2202,7 @@ export function App(): React.JSX.Element {
     window.setTimeout(() => {
       document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
     }, 0);
-  }, [refreshCustomAgents, applyThreadProfile]);
+  }, [refreshCustomAgents, applyThreadProfile, orchestratorName]);
 
   const activeSandboxCount = useMemo(() => {
     return (
@@ -2112,7 +2251,7 @@ export function App(): React.JSX.Element {
     {
       id: "setup-guide",
       label: "Open setup guide",
-      run: () => setShowFirstRun(true),
+      run: openFirstRun,
     },
     {
       id: "shortcuts",
@@ -2202,7 +2341,7 @@ export function App(): React.JSX.Element {
         activeSandboxCount={activeSandboxCount}
         setupDone={setupDone}
         setupTotal={SETUP_TOTAL_STEPS}
-        onOpenSetup={() => setShowFirstRun(true)}
+        onOpenSetup={openFirstRun}
         onOpenShortcuts={() => setShowShortcutsModal(true)}
         accountEmail={orchestratorName}
         onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
@@ -2248,7 +2387,7 @@ export function App(): React.JSX.Element {
               setupTotal={SETUP_TOTAL_STEPS}
               onOpenSetup={() => {
                 setMobileNavOpen(false);
-                setShowFirstRun(true);
+                openFirstRun();
               }}
               onOpenShortcuts={() => {
                 setMobileNavOpen(false);
@@ -2397,7 +2536,14 @@ export function App(): React.JSX.Element {
               </div>
             </div>
           ) : null}
-          {mainView === "inbox" ? null : mainView === "dashboard" ? (
+          {showFirstRun ? (
+            <ConversationalOnboarding key={orchestratorName ?? "pending"} progress={firstRunProgress}
+              onUpdate={updateFirstRunProgress} onResume={resumeFirstRunProgress} onRefresh={refreshFirstRunProgress}
+              onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={(view) => { if (view === "memory") setMemoryInitialView("sources"); openView(view); }}
+              onLegacyGuide={() => { setShowFirstRun(false); setShowLegacyFirstRun(true); }}
+              onConfigureEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
+              onUseDraft={applyOnboardingDraft} employees={customAgentRecords} draftScope={orchestratorName ?? undefined} />
+          ) : mainView === "inbox" ? null : mainView === "dashboard" ? (
             <DashboardView
               runs={retainedRuns}
               pendingApprovals={pendingApprovals}
@@ -2450,7 +2596,7 @@ export function App(): React.JSX.Element {
                       setupTotal={SETUP_TOTAL_STEPS}
                       onOpenSetup={() => {
                         setMobileSessionsOpen(false);
-                        setShowFirstRun(true);
+                        openFirstRun();
                       }}
                       isMobileDrawer={true}
                       onToggleCollapse={() => setMobileSessionsOpen(false)}
@@ -2539,8 +2685,9 @@ export function App(): React.JSX.Element {
                       />
                     </Tooltip>
                     <ConversationWorkspaceHeading
-                      title={liveSession ? liveSession.title : "New coding task"}
+                      title={appToolsWork && conversationMode === "work" ? activeWebSession?.name ?? "New app task" : liveSession ? liveSession.title : "New coding task"}
                       mode={conversationMode}
+                      appToolsWork={appToolsWork}
                       executionTargetKind={executionTargetKind}
                       runTarget={runTarget}
                       repoUrl={repoUrl}
@@ -2791,6 +2938,15 @@ export function App(): React.JSX.Element {
                     onChange={setConversationMode}
                     disabled={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
                   />
+                  {firstRunProgress?.draftTask ? <section aria-label="Saved first task draft" className="mx-3 mt-3 rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs text-[var(--fg)]">
+                    <strong>{firstRunProgress.draftTask.preparedAt ? "First task draft saved" : "First task setup saved"}</strong>
+                    <p className="mt-1 break-words">{firstRunProgress.draftTask.goal || "Continue shaping your first outcome."}</p>
+                    <div className="mt-2 flex flex-wrap gap-3"><button type="button" onClick={openFirstRun} className="text-[var(--primary)]">Review setup draft</button>{preparedOnboardingSelection ? <button type="button" onClick={() => applyOnboardingDraft(preparedOnboardingSelection)} className="text-[var(--primary)]">Use first task draft</button> : null}</div>
+                    <p className="mt-2 text-[var(--muted-foreground-2)]">Saved brief only. Employee configuration and access are checked before work starts.</p>
+                    {firstRunProgress.draftTask.employeeTemplateId && !firstRunProgress.draftTask.employeeId ? <button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { setInitialEmployeeTemplateId(firstRunProgress.draftTask?.employeeTemplateId ?? null); openView("custom-agents"); }}>Configure suggested employee</button> : null}
+                  </section> : null}
+                  {composerVisible && selectedOnboardingDraftRef ? <div role="group" aria-label="Selected first-task goal" className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--fg)]"><span>First-task goal · v{selectedOnboardingDraftRef.version}{!activeOnboardingRef ? " · saved version needs review" : ""}</span><button type="button" onClick={() => setSelectedOnboardingDraftRef(null)} className="text-[var(--primary)]">Remove first-task goal link</button></div> : null}
+                  {pendingOnboardingDraft ? <section role="alertdialog" aria-modal="false" aria-label="Replace unsent task" className="mx-3 mt-3 border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs text-[var(--fg)]"><p>Replace the unsent task with your saved first task draft?</p><div className="mt-2 flex gap-3"><button type="button" onClick={() => setPendingOnboardingDraft(null)}>Keep current task</button><button type="button" onClick={() => applyOnboardingDraft(pendingOnboardingDraft, true)}>Replace with saved draft</button></div></section> : null}
                   {conversationMode === "chat" && chat.messages.length > 0 ? (
                     <div className="flex justify-end px-3 sm:px-5 xl:px-8 pt-2">
                       <button
@@ -2818,7 +2974,7 @@ export function App(): React.JSX.Element {
                         </div>
                       ) : null}
                       <ChatMessageComposer
-                        value={task}
+                        value={composerVisible ? task : ""}
                         onChange={setTask}
                         onSubmit={submitTask}
                         onStop={() => { void chat.stop(); }}
@@ -2830,8 +2986,13 @@ export function App(): React.JSX.Element {
                     </div>
                   ) : (
                   <TaskComposer
+                    blockedReason={onboardingExecutionIssue}
+                    appToolsWork={appToolsWork}
+                    onAppToolsWorkChange={setAppToolsWork}
+                    appToolsWorkIssue={appToolsWorkIssue(appToolsContext)}
+                    onOpenEmployeeTools={() => openView("employee-tools")}
                     repoUrl={repoUrl}
-                    task={task}
+                    task={composerVisible ? task : ""}
                     baseBranch={baseBranch}
                     publishPullRequest={publishPullRequest}
                     reviewAfterPublish={reviewAfterPublish}
@@ -2980,7 +3141,7 @@ export function App(): React.JSX.Element {
               </div>
               <div className="flex-1 overflow-y-auto p-4 lg:p-8">
                 <div className="max-w-6xl mx-auto">
-                  <MemoryTab />
+                  <MemoryTab initialViewMode={memoryInitialView} />
                 </div>
               </div>
             </div>
@@ -3026,7 +3187,11 @@ export function App(): React.JSX.Element {
           ) : mainView === "skills" ? (
             <SkillsView />
           ) : mainView === "custom-agents" ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              {firstRunProgress?.draftTask ? <section aria-label="Return to first task setup" className="border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-3 text-xs text-[var(--fg)]"><p>Configure and save an employee here. Then choose its saved version for your first task.</p><button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { void updateFirstRunProgress({ action: "save-draft", draftTask: { currentStep: "employee" } }).then(openFirstRun).catch(() => setNotice("Setup could not be opened. Retry from your saved first task draft.")); }}>Choose saved employee in setup</button></section> : null}
             <CustomAgentsView
+              key={orchestratorName ?? "manual"}
+              draftScope={orchestratorName ?? undefined}
               onStartThread={handleStartAgentThread}
               initialTemplateId={initialEmployeeTemplateId}
               onInitialTemplateApplied={() => setInitialEmployeeTemplateId(null)}
@@ -3037,6 +3202,7 @@ export function App(): React.JSX.Element {
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
+            </div>
           ) : mainView === "employee-tools" ? (
             <EmployeeToolPolicyView />
           ) : mainView === "agents" ? (
@@ -3117,8 +3283,8 @@ export function App(): React.JSX.Element {
 
           {/* ONBOARDING SETUP MODAL */}
           <FirstRunWizard
-            open={showFirstRun}
-            onClose={() => setShowFirstRun(false)}
+            open={showLegacyFirstRun}
+            onClose={() => setShowLegacyFirstRun(false)}
             progress={authMode === "better-auth" ? firstRunProgress : null}
             onRefresh={authMode === "better-auth" ? refreshFirstRunProgress : undefined}
             onResume={authMode === "better-auth" ? resumeFirstRunProgress : undefined}
@@ -3127,7 +3293,7 @@ export function App(): React.JSX.Element {
             onNavigate={openView}
             onStartEmployeeSetup={(template) => {
               setInitialEmployeeTemplateId(template.id);
-              setShowFirstRun(false);
+              setShowLegacyFirstRun(false);
               openView("custom-agents");
             }}
             onOpenModels={() => {

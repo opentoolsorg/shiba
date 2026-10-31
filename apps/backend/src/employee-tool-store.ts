@@ -5,6 +5,58 @@ import { expireUnusedEmployeeActionApproval } from "./capability-invocations.js"
 import type { EmployeeRole } from "./employee-tool-policy.js";
 import type { EmployeeActionApproval } from "./employee-tool-policy.js";
 import type { CapabilityRef, ConnectionGrant } from "./connection-policy.js";
+import type { Env } from "./env.js";
+import { getCustomAgentById } from "./custom-agents-store.js";
+import { resolveOwnedAppSession } from "./employee-app-session.js";
+import type { OnboardingRunFields, SkillExecutionPin } from "@shiba/shared";
+import { revalidateOnboardingBinding } from "./onboarding-task-binding.js";
+import { areSkillPinsActive } from "./skills-store.js";
+
+export interface EmployeeExternalMcpBinding extends OnboardingRunFields {
+  orgId: string; actorId: string; employeeId: string; employeeVersion: number; executionContextId: string;
+  skillPins?: SkillExecutionPin[];
+}
+export interface EmployeeExternalMcpApprovalContext extends EmployeeExternalMcpBinding {
+  capabilityId: string; schemaVersion: string; resourceArgument: string; resourceIds: string[];
+}
+
+export function employeeExternalPolicyVersion(generation: number, schemaVersion: string, resourceArgument: string): string {
+  return `external-mcp:${generation}:${schemaVersion}:${resourceArgument}`;
+}
+
+/** Resolve the current named-session selection before applying the normal employee grant intersection. */
+export async function resolveEmployeeExternalMcpPolicy(env: Env, binding: EmployeeExternalMcpBinding) {
+  try {
+    if (!env.AGENT_AUDIT) return null;
+    const session = await resolveOwnedAppSession(env, binding.executionContextId);
+    if (!session || session.userId !== binding.actorId) return null;
+    if (session.deletingAt || session.metadata?.customAgentId !== binding.employeeId || (session.metadata?.orgId ?? "self-hosted") !== binding.orgId) return null;
+    const profile = await getCustomAgentById(env, binding.orgId, binding.employeeId);
+    if (!profile || profile.version !== binding.employeeVersion || !Array.isArray(profile.config.toolScopes)) return null;
+    if (!await areSkillPinsActive(env, binding.orgId, binding.skillPins ?? [])) return null;
+    await revalidateOnboardingBinding(env, binding.actorId, binding);
+    const membership = await resolveCurrentEmployeeToolMembership(env, binding);
+    if (!membership || membership.actorId !== binding.actorId) return null;
+    const policy = await resolveEmployeeToolPolicy(env, binding);
+    return policy && policy.role === membership.role ? { profile, policy } : null;
+  } catch { return null; }
+}
+
+/** Persisted exact-write approvals must retain current session/profile/resource authority. */
+export async function isEmployeeExternalMcpApprovalCurrent(
+  env: Env, context: EmployeeExternalMcpApprovalContext, serverId: string, generation: number, schemaVersion: string,
+): Promise<boolean> {
+  if (context.schemaVersion !== schemaVersion || !/^mcp:shiba:ext_[a-f0-9]{12}_[a-f0-9]{16}$/.test(context.capabilityId) ||
+    !/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(context.resourceArgument) || !Array.isArray(context.resourceIds) ||
+    context.resourceIds.length !== 1 || context.resourceIds.some((id) => typeof id !== "string" || !id.trim() || id.length > 200)) return false;
+  const current = await resolveEmployeeExternalMcpPolicy(env, context);
+  if (!current?.profile.config.toolScopes?.includes(context.capabilityId)) return false;
+  const resourceId = context.resourceIds[0];
+  if (!resourceId) return false;
+  const grant = await resolveEmployeeConnectionGrant(env, { ...context, resourceId });
+  return Boolean(grant && grant.connectionId === serverId && grant.accountId === serverId && grant.generation === generation &&
+    grant.policyVersion === employeeExternalPolicyVersion(generation, schemaVersion, context.resourceArgument));
+}
 
 export type EmployeeGrantSubjectType = "workspace" | "actor" | "role";
 export interface EmployeeToolGrantRecord {
@@ -33,6 +85,7 @@ export interface EmployeeApprovalRecord {
   actorId: string;
   /** Worker-side run/session; external MCP approvals omit this value. */
   executionContextId?: string;
+  employeeContext?: EmployeeExternalMcpApprovalContext;
   /** Durable one-shot claim, retained after the capability receipt is pruned. */
   consumedAt?: number;
   consumedInvocationId?: string;
@@ -127,22 +180,22 @@ async function ensureTables(env: AuditEnv): Promise<void> {
   await initAudit(env);
   for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
   const approvalColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(employee_tool_approvals)").all<{ name: string }>();
-  if (!(approvalColumns.results ?? []).some((column) => column.name === "execution_context_id")) {
-    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN execution_context_id TEXT").run();
-  }
-  if (!(approvalColumns.results ?? []).some((column) => column.name === "consumed_at")) {
-    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN consumed_at INTEGER").run();
-  }
-  if (!(approvalColumns.results ?? []).some((column) => column.name === "consumed_invocation_id")) {
-    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN consumed_invocation_id TEXT").run();
+  for (const [name, type] of [["execution_context_id", "TEXT"], ["consumed_at", "INTEGER"], ["consumed_invocation_id", "TEXT"], ["employee_context_json", "TEXT"]]) {
+    if ((approvalColumns.results ?? []).some((column) => column.name === name)) continue;
+    try {
+      await env.AGENT_AUDIT.prepare(`ALTER TABLE employee_tool_approvals ADD COLUMN ${name} ${type}`).run();
+    } catch (error) {
+      if (!new RegExp(`duplicate column name:\\s*${name}\\b`, "i").test(error instanceof Error ? error.message : String(error))) throw error;
+    }
   }
   // Migrate the prior uniqueness key so identical payloads in separate run
-  // contexts receive separate approval records.
-  await env.AGENT_AUDIT.prepare("DROP INDEX IF EXISTS employee_tool_approval_active_payload").run();
-  await env.AGENT_AUDIT.prepare(`CREATE UNIQUE INDEX employee_tool_approval_active_payload
+  // contexts receive separate approval records. Install its replacement first;
+  // cold starts must never drop the live constraint or race to recreate it.
+  await env.AGENT_AUDIT.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS employee_tool_approval_active_payload_v2
     ON employee_tool_approvals(org_id, employee_id, employee_version, actor_id, IFNULL(execution_context_id, ''), capability_id, action,
       argument_digest, IFNULL(resource_id, ''), connection_generation)
     WHERE status IN ('pending','approved')`).run();
+  await env.AGENT_AUDIT.prepare("DROP INDEX IF EXISTS employee_tool_approval_active_payload").run();
   initialized.add(env.AGENT_AUDIT);
 }
 
@@ -153,6 +206,8 @@ export async function replaceEmployeeToolGrants(
     capabilityIds: readonly string[]; resourcesByCapability: Readonly<Record<string, readonly string[]>>;
     resourceConnectionsByCapability?: Readonly<Record<string, Readonly<Record<string, string>>>>;
     resourceAccountsByCapability?: Readonly<Record<string, Readonly<Record<string, string>>>>; now?: number;
+    resourcePolicyVersionsByCapability?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+    resourceGenerationsByCapability?: Readonly<Record<string, Readonly<Record<string, number>>>>;
   },
 ): Promise<void> {
   await ensureTables(env);
@@ -178,14 +233,17 @@ export async function replaceEmployeeToolGrants(
       if (typeof resourceId !== "string" || !resourceId.trim() || resourceId.length > 200) throw new Error("Invalid employee resource grant.");
       const connectionId = input.resourceConnectionsByCapability?.[capabilityId]?.[resourceId] ?? `shiba:${input.employeeId}:${capabilityId}`;
       const accountId = input.resourceAccountsByCapability?.[capabilityId]?.[resourceId] ?? null;
+      const policyVersion = input.resourcePolicyVersionsByCapability?.[capabilityId]?.[resourceId] ?? "employee-policy-current";
+      const generation = input.resourceGenerationsByCapability?.[capabilityId]?.[resourceId] ?? 1;
+      if (!policyVersion || policyVersion.length > 200 || !Number.isSafeInteger(generation) || generation < 1) throw new Error("Invalid employee connection version.");
       if (!connectionId || connectionId.length > 200 || (accountId !== null && (!accountId || accountId.length > 254))) throw new Error("Invalid employee connection grant.");
       for (const [subjectType, subjectId] of [["workspace", input.orgId], ["actor", input.actorId], ["role", input.role]] as const) {
         statements.push(env.AGENT_AUDIT.prepare(`INSERT INTO employee_tool_grants
           (org_id, employee_id, employee_version, subject_type, subject_id, capability_id, connection_id, resource_id,
            lifecycle, provider_scopes_json, account_id, policy_version, generation, created_by, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', '[]', ?, ?, 1, ?, ?)`)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', '[]', ?, ?, ?, ?, ?)`)
           .bind(input.orgId, input.employeeId, input.employeeVersion, subjectType, subjectId, capabilityId,
-            connectionId, resourceId, accountId, "employee-policy-current", input.actorId, now));
+            connectionId, resourceId, accountId, policyVersion, generation, input.actorId, now));
       }
     }
   }
@@ -323,10 +381,26 @@ function approvalFromRow(row: Record<string, unknown>): EmployeeApprovalRecord |
   const executionContextId = row.execution_context_id;
   if (executionContextId !== null && executionContextId !== undefined &&
       (typeof executionContextId !== "string" || !executionContextId || executionContextId.length > 200 || hasControlCharacters(executionContextId))) return null;
+  let employeeContext: EmployeeExternalMcpApprovalContext | undefined;
+  if (row.employee_context_json !== undefined && row.employee_context_json !== null) {
+    let value: unknown;
+    try { value = JSON.parse(String(row.employee_context_json)); } catch { return null; }
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const context = value as Record<string, unknown>;
+    if (context.orgId !== row.org_id || context.actorId !== row.actor_id ||
+      typeof context.employeeId !== "string" || !context.employeeId || !Number.isSafeInteger(context.employeeVersion) || Number(context.employeeVersion) < 1 ||
+      typeof context.executionContextId !== "string" || !context.executionContextId || context.executionContextId.length > 200 ||
+      typeof context.capabilityId !== "string" || !/^mcp:shiba:ext_[a-f0-9]{12}_[a-f0-9]{16}$/.test(context.capabilityId) ||
+      typeof context.schemaVersion !== "string" || !/^[a-f0-9]{64}$/.test(context.schemaVersion) ||
+      typeof context.resourceArgument !== "string" || !/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(context.resourceArgument) ||
+      !Array.isArray(context.resourceIds) || context.resourceIds.length !== 1 || context.resourceIds.some((id) => typeof id !== "string" || !id.trim() || id.length > 200)) return null;
+    employeeContext = context as unknown as EmployeeExternalMcpApprovalContext;
+  }
   return {
     approvalId: String(row.approval_id), orgId: String(row.org_id), employeeId: String(row.employee_id),
     employeeVersion: Number(row.employee_version), actorId: String(row.actor_id),
     ...(typeof executionContextId === "string" ? { executionContextId } : {}),
+    ...(employeeContext ? { employeeContext } : {}),
     ...(typeof row.consumed_at === "number" ? { consumedAt: row.consumed_at } : {}),
     ...(typeof row.consumed_invocation_id === "string" ? { consumedInvocationId: row.consumed_invocation_id } : {}),
     connectionId: String(row.connection_id),
@@ -352,11 +426,12 @@ export async function requestEmployeeActionApproval(
   await env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO employee_tool_approvals
     (approval_id, org_id, employee_id, employee_version, actor_id, execution_context_id, connection_id, connection_generation,
      capability_kind, capability_id, action, resource_id, account_id, argument_digest, payload_json,
-     policy_version, status, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+     policy_version, status, created_at, expires_at, employee_context_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`)
     .bind(approvalId, input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? null, input.connectionId,
       input.connectionGeneration, input.capability.kind, input.capability.id, input.action, input.resourceId ?? null,
-      input.accountId ?? null, input.argumentDigest, JSON.stringify(input.payload), input.policyVersion, now, input.expiresAt).run();
+      input.accountId ?? null, input.argumentDigest, JSON.stringify(input.payload), input.policyVersion, now, input.expiresAt,
+      input.employeeContext ? JSON.stringify(input.employeeContext) : null).run();
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT}
     WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND execution_context_id IS ? AND capability_id = ? AND action = ?
       AND argument_digest = ? AND resource_id IS ? AND connection_generation = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)

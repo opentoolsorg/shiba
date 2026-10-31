@@ -1,4 +1,19 @@
-import type { ArtifactWorkspaceExecutionTarget, RepositoryExecutionTarget } from "@shiba/shared";
+import { artifactWorkspaceExecutionTargetSchema, type ArtifactWorkspaceExecutionTarget, type RepositoryExecutionTarget } from "@shiba/shared";
+
+export function parseArtifactDeliverables(text: string) {
+  return artifactWorkspaceExecutionTargetSchema.shape.expectedDeliverables.safeParse(text.split(/\r?\n/).map((value) => value.trim()).filter(Boolean));
+}
+
+/** Input presence shared by the composer and the global submit shortcut. */
+export function hasComposerInput(input: {
+  task: string;
+  repoUrl: string;
+  executionTargetKind: "repository" | "artifact-workspace";
+  conversationMode?: "chat" | "work";
+  appToolsWork?: boolean;
+}): boolean {
+  return Boolean(input.task.trim() && (input.conversationMode === "chat" || input.appToolsWork || input.executionTargetKind === "artifact-workspace" || input.repoUrl.trim()));
+}
 
 export type DashboardExecutionTargetFields =
   | {
