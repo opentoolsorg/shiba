@@ -130,7 +130,7 @@ describe("screenActionArgv", () => {
   it("type keeps metacharacters literal as one argv element", () => {
     const argv = screenActionArgv({ type: "type", text: "a; rm -rf / && $(x)" });
     expect(argv).toHaveLength(1);
-    expect(argv[0]![4]).toBe("a; rm -rf / && $(x)");
+    expect(argv[0]![5]).toBe("a; rm -rf / && $(x)");
   });
 
   it("scroll maps to wheel-button clicks", () => {
@@ -151,6 +151,7 @@ describe("screenActionArgv", () => {
       { type: "key", keys: "a; rm -rf /" },
       { type: "key", keys: "ctrl+s && x" },
       { type: "key", keys: "$(whoami)" },
+      { type: "key", keys: "exec" },
     ];
     for (const action of bad) {
       expect(() => screenActionArgv(action as never)).toThrow(ScreenActionError);
