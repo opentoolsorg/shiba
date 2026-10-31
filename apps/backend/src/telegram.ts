@@ -16,6 +16,7 @@
  */
 import { buildChatThreadName, buildDecisionData, parseDecisionData } from "@shiba/shared";
 import {
+  CARD_TASK_LIMIT,
   chatApprovalText,
   chatTaskChunks,
   createSeenRing,
@@ -137,7 +138,7 @@ async function handleMessage(message: TelegramMessage, env: Env, call: TelegramC
   });
   // Telegram's message cap is 4096; a task over the card limit posts in full
   // right after the card so Approve never signs off on hidden text.
-  for (const chunk of chatTaskChunks(parsed.task, 3900)) {
+  for (const chunk of chatTaskChunks(parsed.task, CARD_TASK_LIMIT, 3900)) {
     await call("sendMessage", { chat_id: chatId, text: chunk });
   }
 }
@@ -170,14 +171,18 @@ async function handleCallback(query: TelegramCallbackQuery, env: Env, call: Tele
     await answer(result.error, true);
     return;
   }
-  await answer(decision.approved ? "Approved — run starting." : "Rejected — no run started.");
+  const { approved, requestedApproved } = result;
+  await answer(approved ? "Approved — run starting." : "Rejected — no run started.");
   const messageId = query.message?.message_id;
   if (typeof messageId !== "number") return;
-  // No reply_markup: the edit retires the buttons so the card can't be pressed again.
+  const who =
+    approved === requestedApproved
+      ? displayName(query.from)
+      : "an earlier decision";
   await call("editMessageText", {
     chat_id: chatId,
     message_id: messageId,
-    text: `${query.message?.text ?? "Approval"}\n\n${decisionLine(decision.approved, displayName(query.from))}`,
+    text: `${query.message?.text ?? "Approval"}\n\n${decisionLine(approved, who)}`,
   }).catch((error: unknown) => {
     console.error("Telegram approval card update failed", redactSecrets(String(error)));
   });

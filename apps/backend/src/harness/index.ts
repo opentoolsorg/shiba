@@ -75,8 +75,6 @@ export const ACP_LANES = {
         ...(configPath ? { OPENCODE_CONFIG: configPath } : {}),
         OPENCODE_DISABLE_AUTOUPDATE: "true",
       }),
-      // Same saved key is attached at api.deepseek.com when a run calls it.
-      extraEgress: ["api.deepseek.com"],
     },
     mirrorOf: "opencode",
   },

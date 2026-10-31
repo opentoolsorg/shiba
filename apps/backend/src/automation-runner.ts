@@ -392,12 +392,23 @@ async function commitAutomationFire(
         );
         return { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? "unattended missing seam" };
       }
-      await deps.resolveApproval({
-        threadKey,
-        approvalId: queued.approvalId,
-        approved: true,
-        decidedBy: `automation:${automation.id}`,
-      });
+      try {
+        await deps.resolveApproval({
+          threadKey,
+          approvalId: queued.approvalId,
+          approved: true,
+          decidedBy: `automation:${automation.id}`,
+        });
+      } catch (resolveError) {
+        const detail = resolveError instanceof Error ? resolveError.message : String(resolveError);
+        const skipped = recordSkip(automation, `Approval resolution failed: ${detail}`, nowMs);
+        return {
+          fired: false,
+          automation: next,
+          reason: skipped.lastSkip?.reason ?? detail,
+          approvalId: queued.approvalId,
+        };
+      }
     }
     const queuedOccurrence = occurrence("queued", "approval-pending", nowMs, queued.approvalId);
     return {

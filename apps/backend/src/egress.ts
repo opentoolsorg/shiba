@@ -6,6 +6,7 @@
  * `cloudflare:` builtins and cannot be loaded by the node test runner.
  */
 import type { Env as WorkerEnv } from "./env.js";
+import { authFlowPermitsSubscriptionEgress } from "@shiba/auth";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
 import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "./codex-subscription-credential.js";
@@ -39,6 +40,23 @@ export type EgressEnv = Pick<
 export interface OutboundHandlerCtx {
   params?: unknown;
   orgId?: string;
+  /** Run initiator — personal provider keys must match this user. */
+  initiatorUserId?: string;
+  /** Frozen AI Gateway BYOK alias from the approved model connection. */
+  gatewayByokAlias?: string;
+}
+
+function credentialExchangeAllowed(ctx?: OutboundHandlerCtx): boolean {
+  const params = ctx?.params;
+  if (typeof params !== "object" || params === null) return false;
+  return (params as { allowCredentialExchange?: unknown }).allowCredentialExchange === "1";
+}
+
+function denyCredentialExchangePath(request: Request, ctx?: OutboundHandlerCtx): Response | null {
+  const target = new URL(request.url);
+  if (target.pathname !== "/auth/exchange_user_api_key") return null;
+  if (credentialExchangeAllowed(ctx)) return null;
+  return new Response("Credential exchange is not available through sandbox egress.", { status: 403 });
 }
 
 function approvedPath(ctx?: OutboundHandlerCtx): string | undefined {
@@ -117,8 +135,10 @@ async function forwardProvider(
   request: Request,
   env: EgressEnv,
   host: string,
-  orgId?: string,
+  ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
+  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
+  const gatewayByokAlias = typeof ctx === "object" && ctx ? ctx.gatewayByokAlias : undefined;
   const source = new URL(request.url);
   if (source.protocol !== "https:" || source.hostname !== host) {
     return new Response("Invalid provider destination.", { status: 403 });
@@ -127,8 +147,31 @@ async function forwardProvider(
     return new Response("Method not allowed.", { status: 405 });
   }
   const kind = kindForHost(host);
+  if (gatewayByokAlias) {
+    const slug = GATEWAY_PROVIDERS[host];
+    if (!slug) {
+      return new Response("Approved connection cannot reach this provider host.", { status: 403 });
+    }
+    try {
+      const base = await env.AI.gateway(env.GATEWAY_ID || "default").getUrl(slug);
+      const target = new URL(base);
+      target.pathname = `${target.pathname.replace(/\/+$/, "")}${source.pathname}`;
+      target.search = stripCredentialParams(source.search);
+      const headers = outboundHeaders(request);
+      if (env.AI_GATEWAY_TOKEN) headers.set("cf-aig-authorization", `Bearer ${env.AI_GATEWAY_TOKEN}`);
+      headers.set("cf-aig-byok-alias", gatewayByokAlias);
+      return await fetch(target, {
+        method: request.method,
+        headers,
+        body: request.method === "POST" ? request.body : undefined,
+        redirect: "manual",
+      });
+    } catch {
+      return new Response("Provider gateway request failed.", { status: 502 });
+    }
+  }
   if (kind) {
-    const secret = await readProviderSecretForOrg(env, orgId, kind);
+    const secret = await readProviderSecretForOrg(env, orgId, kind, providerCredentialUser(ctx));
     if (secret) return fetchWithUserKey(request, host, kind, secret);
   }
   const slug = GATEWAY_PROVIDERS[host];
@@ -177,13 +220,17 @@ async function forwardProvider(
   }
 }
 
+function providerCredentialUser(ctx?: OutboundHandlerCtx | string): string | undefined {
+  if (typeof ctx === "string") return ctx;
+  return ctx?.initiatorUserId ?? ctx?.orgId;
+}
+
 export function forwardGoogle(
   request: Request,
   env: EgressEnv,
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
-  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "generativelanguage.googleapis.com", orgId);
+  return forwardProvider(request, env, "generativelanguage.googleapis.com", ctx);
 }
 
 export function forwardAnthropic(
@@ -191,8 +238,7 @@ export function forwardAnthropic(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
-  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "api.anthropic.com", orgId);
+  return forwardProvider(request, env, "api.anthropic.com", ctx);
 }
 
 export function forwardOpenAI(
@@ -200,8 +246,7 @@ export function forwardOpenAI(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
-  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "api.openai.com", orgId);
+  return forwardProvider(request, env, "api.openai.com", ctx);
 }
 
 export function forwardXAI(
@@ -209,8 +254,7 @@ export function forwardXAI(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
-  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "api.x.ai", orgId);
+  return forwardProvider(request, env, "api.x.ai", ctx);
 }
 
 /**
@@ -225,8 +269,7 @@ export function forwardOpenCodeGo(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
-  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "opencode.ai", orgId);
+  return forwardProvider(request, env, "opencode.ai", ctx);
 }
 
 /** DeepSeek uses the same saved OpenCode key. There is no gateway slug. */
@@ -235,8 +278,7 @@ export function forwardDeepSeek(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx | string,
 ): Promise<Response> {
-  const orgId = typeof ctx === "string" ? ctx : ctx?.orgId;
-  return forwardProvider(request, env, "api.deepseek.com", orgId);
+  return forwardProvider(request, env, "api.deepseek.com", ctx);
 }
 
 /**
@@ -255,11 +297,25 @@ export async function forwardClaudeSubscription(
 ): Promise<Response> {
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
+  if (env.AGENT_TOKENS) {
+    const instanceId = `claude-sub:${account}`;
+    if (!(await authFlowPermitsSubscriptionEgress({ AGENT_TOKENS: env.AGENT_TOKENS }, instanceId))) {
+      return new Response("Subscription sign-in is not active.", { status: 403 });
+    }
+  }
   const secretName =
     account === "default"
       ? "CLAUDE_SUBSCRIPTION_TOKEN"
       : `CLAUDE_SUBSCRIPTION_TOKEN_${account.toUpperCase().replace(/-/g, "_")}`;
-  const saved = await readProviderSecretForOrg(env, ctx?.orgId, "claude-setup");
+  const saved =
+    account === "default"
+      ? await readProviderSecretForOrg(
+          env,
+          ctx?.orgId,
+          "claude-setup",
+          ctx?.initiatorUserId ?? ctx?.orgId,
+        )
+      : undefined;
   const configured = (env as Record<string, unknown>)[secretName];
   const token = saved ?? (typeof configured === "string" ? configured : undefined);
   const target = new URL(request.url);
@@ -447,6 +503,8 @@ export async function forwardCursorSubscription(
       : `CURSOR_SUBSCRIPTION_TOKEN_${account.toUpperCase().replace(/-/g, "_")}`;
   const token = (env as Record<string, unknown>)[secretName];
   const target = new URL(request.url);
+  const denied = denyCredentialExchangePath(request, ctx);
+  if (denied) return denied;
   if (
     target.protocol !== "https:" ||
     (target.hostname !== "api2.cursor.sh" && target.hostname !== "repo2.cursor.sh") ||
@@ -573,9 +631,14 @@ export async function forwardCursorUser(
     return new Response("Invalid Cursor destination.", { status: 403 });
   }
   if (!auth) {
+    if (userId !== "") {
+      return new Response("Cursor OAuth access is unavailable.", { status: 503 });
+    }
     const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
     return forwardCursorSubscription(request, env, { ...ctx, params: { account } });
   }
+  const denied = denyCredentialExchangePath(request, ctx);
+  if (denied) return denied;
   target.search = stripCredentialParams(target.search);
   const headers = outboundHeaders(request);
   headers.set("Authorization", `Bearer ${auth.accessToken}`);

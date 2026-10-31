@@ -6,11 +6,17 @@
 import { getAgentByName } from "agents/routing";
 import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, isSafeDeliverablePath, MAX_DELIVERABLE_BYTES, type ExecutionTarget } from "@shiba/shared";
 import type { Env } from "./env.js";
+import { isBetterAuthConfigured } from "./better-auth.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
 import { signInternalRequest } from "./edge-identity.js";
 
-import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import {
+  isAccessConfigured,
+  isAuthorizedRequest,
+  isLoopbackRequest,
+  resolveUserId,
+} from "./request-auth.js";
 import { sealRunEnv } from "./run-env-seal.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
@@ -32,14 +38,22 @@ export async function resolveRunStoreTarget(
   env: Env,
   url: URL,
 ): Promise<{ agentName: string; userId: string } | { error: Response }> {
-  // Local development shares the same fallback as the dashboard identity endpoint.
-  const userId = (await resolveUserId(request, env)) ?? "default";
+  const userId = await resolveUserId(request, env);
+  const localAnonymous =
+    userId === null &&
+    !isAccessConfigured(env) &&
+    !isBetterAuthConfigured(env) &&
+    isLoopbackRequest(request);
+  if (userId === null && !localAnonymous) {
+    return { error: Response.json({ error: "Authentication required." }, { status: 401 }) };
+  }
+  const effectiveUserId = userId ?? "default";
   const sessionParam = url.searchParams.get("session") || url.searchParams.get("sessionId");
   if (sessionParam && sessionParam !== DEFAULT_SESSION_ID) {
     if (!isValidSessionId(sessionParam)) {
       return { error: Response.json({ error: "Invalid session id." }, { status: 400 }) };
     }
-    const userStub = await getAgentByName(env.CodingOrchestrator, userId);
+    const userStub = await getAgentByName(env.CodingOrchestrator, effectiveUserId);
     const sessionCheck = await userStub.fetch(
       `https://internal/internal/web-sessions/${encodeURIComponent(sessionParam)}`,
     );
@@ -49,9 +63,9 @@ export async function resolveRunStoreTarget(
     if (!sessionCheck.ok) {
       return { error: Response.json({ error: "Failed to verify session." }, { status: sessionCheck.status }) };
     }
-    return { agentName: buildSessionAgentName(userId, sessionParam), userId };
+    return { agentName: buildSessionAgentName(effectiveUserId, sessionParam), userId: effectiveUserId };
   }
-  return { agentName: userId, userId };
+  return { agentName: effectiveUserId, userId: effectiveUserId };
 }
 
 type RunSummary = { runId: string; createdAt?: number };
@@ -189,7 +203,10 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     const parsed: unknown = await request.clone().json().catch(() => null);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) intakeBody = parsed as Record<string, unknown>;
     if (typeof intakeBody?.kind === "string" && intakeBody.kind.trim()) intakeKind = intakeBody.kind.trim();
-    if (intakeKind === "email_send" || intakeKind === "email_delete") {
+    if (
+      url.pathname === "/api/runs" &&
+      (intakeKind === "email_send" || intakeKind === "email_delete")
+    ) {
       targetAgentName = ORCHESTRATOR_NAME;
     }
   }
@@ -239,7 +256,24 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       body: JSON.stringify({
         ...safeIntakeBody,
         orgId: DASHBOARD_ORG_ID,
-        ...(intakeKind === "run" ? { threadKey: targetAgentName } : {}),
+        ...(intakeKind === "run"
+          ? {
+              threadKey: (() => {
+                const commandId =
+                  typeof safeIntakeBody.commandId === "string" ? safeIntakeBody.commandId.trim() : "";
+                const requested =
+                  typeof safeIntakeBody.threadKey === "string" ? safeIntakeBody.threadKey.trim() : "";
+                if (
+                  requested.startsWith("acp:") &&
+                  /^acp:[A-Za-z0-9-]+$/.test(requested) &&
+                  commandId.startsWith(`${requested}:`)
+                ) {
+                  return requested;
+                }
+                return targetAgentName;
+              })(),
+            }
+          : {}),
         ...(trustedProfileVersion !== undefined ? { customAgentVersion: trustedProfileVersion } : {}),
         ...(trustedCollaborationHandoffId !== undefined ? { collaborationHandoffId: trustedCollaborationHandoffId } : {}),
       }),

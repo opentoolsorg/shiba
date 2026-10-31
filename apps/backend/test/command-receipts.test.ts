@@ -125,6 +125,7 @@ describe("approval.resolve command receipt", () => {
     const instance = agent();
     const queued = await instance.onRequest(queueBody("fix"));
     const { approvalId } = (await queued.json()) as { approvalId: string };
+    mocks.execute.mockClear();
     await instance.onRequest(resolveBody(approvalId));
     await vi.waitFor(() => { expect(mocks.execute).toHaveBeenCalledOnce(); });
     const before = JSON.stringify(instance.state.runs);

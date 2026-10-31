@@ -335,8 +335,11 @@ describe("end-to-end session flow", () => {
     expect(created?.headers.get("set-cookie")).toContain("better-auth.session_token=");
   });
 
-  it("accepts only the allowlisted owner email", async () => {
-    const env = makeEnv({ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" });
+  it("accepts only the allowlisted owner email when a bootstrap token is supplied", async () => {
+    const env = makeEnv({
+      BETTER_AUTH_OWNER_EMAIL: "owner@example.com",
+      BETTER_AUTH_BOOTSTRAP_TOKEN: "setup-token-value",
+    });
     const denied = await handleBetterAuth(
       new Request("https://app.example/api/auth/sign-up/email", {
         method: "POST",
@@ -346,8 +349,29 @@ describe("end-to-end session flow", () => {
       env,
     );
     expect(denied?.status).toBe(403);
-    const created = await signUp(env, "owner@example.com");
-    expect(created).toContain("better-auth.session_token=");
+    const withoutToken = await handleBetterAuth(
+      new Request("https://app.example/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://app.example" },
+        body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
+      }),
+      env,
+    );
+    expect(withoutToken?.status).toBe(403);
+    const created = await handleBetterAuth(
+      new Request("https://app.example/api/auth/sign-up/email", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://app.example",
+          "x-shiba-bootstrap-token": "setup-token-value",
+        },
+        body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
+      }),
+      env,
+    );
+    expect(created?.status).toBe(200);
+    expect(created?.headers.get("set-cookie")).toContain("better-auth.session_token=");
   });
 
   it("describes the bootstrap rules without echoing the secret", async () => {

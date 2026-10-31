@@ -6,7 +6,7 @@ import { Files } from "@cloudflare/sandbox";
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "../env.js";
 import type { EgressOverride } from "../harness/types.js";
-import { redactSecrets } from "../security.js";
+import { boundTail, redactSecrets } from "../security.js";
 import {
   defaultOutboundConfig,
   loadOutboundConfig,
@@ -26,6 +26,13 @@ import {
 
 const INACTIVITY_TIMEOUT_MS = 60_000;
 const KEEPALIVE_ALARM_MS = 30_000;
+/** Max stdout/stderr retained in the DO while a process runs (before scopedExec caps). */
+const EXEC_COLLECT_CAP = 512_000;
+
+function appendExecOutput(current: string, chunk: string): string {
+  const next = current + chunk;
+  return next.length <= EXEC_COLLECT_CAP ? next : boundTail(next, EXEC_COLLECT_CAP);
+}
 const CA_PATH = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
 const TRUST_ENV: Record<string, string> = {
   CURL_CA_BUNDLE: CA_PATH,
@@ -86,6 +93,18 @@ export class Sandbox extends DurableObject<Env> {
     }
     if (config.orgId === normalizedOrgId) return;
     config.orgId = normalizedOrgId;
+    this.persistOutbound(config);
+  }
+
+  async setOutboundGatewayByokAlias(alias: string): Promise<void> {
+    const normalized = alias.trim();
+    if (!normalized) throw new Error("Gateway BYOK alias is required.");
+    const config = this.getOutboundConfig();
+    if (config.gatewayByokAlias && config.gatewayByokAlias !== normalized) {
+      throw new Error("Sandbox is already bound to a different gateway credential.");
+    }
+    if (config.gatewayByokAlias === normalized) return;
+    config.gatewayByokAlias = normalized;
     this.persistOutbound(config);
   }
 
@@ -177,43 +196,36 @@ export class Sandbox extends DurableObject<Env> {
       });
       let stdout = "";
       let stderr = "";
-      if (options?.stream && options.onOutput) {
-        const decoder = new TextDecoder();
-        const readStream = async (stream: ReadableStream<Uint8Array>, onChunk: (t: string) => void) => {
-          const reader = stream.getReader();
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const text = decoder.decode(value, { stream: true });
-              onChunk(text);
-            }
-          } finally {
-            reader.releaseLock();
-          }
-        };
-        await Promise.all([
-          readStream(proc.stdout ?? new ReadableStream(), (chunk) => {
-            stdout += chunk;
-            options.onOutput!("stdout", chunk);
-          }),
-          readStream(proc.stderr ?? new ReadableStream(), (chunk) => {
-            stderr += chunk;
-            options.onOutput!("stderr", chunk);
-          }),
-        ]);
-        const out = await proc.output();
-        return {
-          stdout,
-          stderr,
-          exitCode: out.exitCode,
-        };
-      }
-      const out = await proc.output();
       const decoder = new TextDecoder();
+      const readStream = async (
+        stream: ReadableStream<Uint8Array> | undefined,
+        onChunk: (t: string) => void,
+      ) => {
+        const reader = (stream ?? new ReadableStream()).getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            onChunk(decoder.decode(value, { stream: true }));
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      };
+      await Promise.all([
+        readStream(proc.stdout ?? undefined, (chunk) => {
+          stdout = appendExecOutput(stdout, chunk);
+          options?.onOutput?.("stdout", chunk);
+        }),
+        readStream(proc.stderr ?? undefined, (chunk) => {
+          stderr = appendExecOutput(stderr, chunk);
+          options?.onOutput?.("stderr", chunk);
+        }),
+      ]);
+      const out = await proc.output();
       return {
-        stdout: decoder.decode(out.stdout),
-        stderr: decoder.decode(out.stderr),
+        stdout,
+        stderr,
         exitCode: out.exitCode,
       };
     } finally {

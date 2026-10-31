@@ -468,7 +468,13 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       let overlap: string[] = [];
       if (setupCommit !== null) {
         try {
-          overlap = await setupOverlap(ops, workdir, setupCommit, collection.changedFiles, {
+          const overlapPaths = [
+            ...new Set([
+              ...collection.changedFiles,
+              ...(input.expectedDeliverables ?? []),
+            ]),
+          ];
+          overlap = await setupOverlap(ops, workdir, setupCommit, overlapPaths, {
             signals,
             signal: opts?.signal,
           });
@@ -601,6 +607,7 @@ export interface LocalDispatchClient {
   dispatch(
     envelope: import("@shiba/shared").LocalRunEnvelope,
     targetMachineId?: string,
+    dashboardOwnerId?: string,
   ): Promise<void>;
   status(sandboxId: string): Promise<{
     status: "pending" | "claimed" | "settled" | "cancelled";
@@ -726,7 +733,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
       fraction: 0.05,
     });
     try {
-      await this.client.dispatch(envelope, input.targetMachineId);
+      await this.client.dispatch(envelope, input.targetMachineId, input.initiatorUserId);
     } catch (error) {
       return failureResult(`Local dispatch failed: ${shortError(error)}`, 0, "", signals);
     }

@@ -16,6 +16,7 @@ import {
 } from "../src/exec-allowlist.js";
 import { SandboxRuntimeAdapter, type SandboxOps } from "../src/runtime.js";
 import { resolveHarness } from "../src/harness/index.js";
+import { verifyRunOutcome } from "../src/harness/types.js";
 import type { CodingTaskInput } from "../src/opencode-input.js";
 
 const ALLOWLIST = [["git"], ["pnpm", "test"], ["opencode"]] as const;
@@ -176,6 +177,30 @@ describe("adapter integration", () => {
     // …and the refusal was receipted, not silently dropped.
     const refused = (result.signals ?? []).find((s) => s.detail?.includes('"refused":true'));
     expect(refused).toBeDefined();
+  });
+
+  it("does not treat an unrelated successful exec as the declared testCommand", () => {
+    const verdict = verifyRunOutcome(
+      { ...INPUT, testCommand: ["pnpm", "test"] },
+      {
+        status: "completed",
+        exitCode: 0,
+        changedFiles: ["x.ts"],
+        diff: "+x",
+        files: [],
+        summary: "ok",
+        stderrTail: "",
+        signals: [
+          {
+            kind: "exec.settled",
+            at: 1,
+            detail: JSON.stringify({ command: "git add pnpm test/x.ts", exit: 0 }),
+          },
+        ],
+      },
+      { canRunTests: true },
+    );
+    expect(verdict.ok).toBe(false);
   });
 
   it("a nonzero testCommand exit fails verify — completed requires tests to pass", async () => {

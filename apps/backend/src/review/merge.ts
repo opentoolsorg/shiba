@@ -1,4 +1,4 @@
-import { redactSecrets } from "../security.js";
+import { redactSecrets, parseGitHubPullNumber, parseGitHubRepoSegment } from "../security.js";
 
 export type MergeMethod = "merge" | "squash" | "rebase";
 
@@ -25,7 +25,10 @@ export async function mergePullRequest(
 ): Promise<{ merged: boolean; sha?: string }> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const apiBase = (deps.apiBase ?? "https://api.github.com").replace(/\/$/, "");
-  const path = `/repos/${input.owner}/${input.repo}/pulls/${input.number}/merge`;
+  const owner = parseGitHubRepoSegment(input.owner, "owner");
+  const repo = parseGitHubRepoSegment(input.repo, "repository");
+  const number = parseGitHubPullNumber(input.number);
+  const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}/merge`;
   try {
     const response = await fetchImpl(`${apiBase}${path}`, {
       method: "PUT",

@@ -41,6 +41,7 @@ function makeDeps(): CaptureDeps & {
     goto: ReturnType<typeof vi.fn>;
     screenshot: ReturnType<typeof vi.fn>;
     setRequestInterception: ReturnType<typeof vi.fn>;
+    evaluateOnNewDocument: ReturnType<typeof vi.fn>;
     on: ReturnType<typeof vi.fn>;
   };
   sandbox: {
@@ -57,6 +58,7 @@ function makeDeps(): CaptureDeps & {
     goto: vi.fn(async () => ({})),
     screenshot: vi.fn(async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47])),
     setRequestInterception: vi.fn(async () => undefined),
+    evaluateOnNewDocument: vi.fn(async () => undefined),
     on: vi.fn((_event: string, handler: (request: MockInterceptedRequest) => void) => {
       requestHandler = handler;
     }),

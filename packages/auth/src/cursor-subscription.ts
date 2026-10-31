@@ -67,7 +67,7 @@ async function probeCursorSubscription<Env extends AuthControllerEnv>(
   try {
     // The forwarder reads only the named secret off env; pass the same
     // object the admission gate got — the token itself is never touched here.
-    const response = await forward(request, env, { params: { account } });
+    const response = await forward(request, env, { params: { account, allowCredentialExchange: "1" } });
     if (response.status === 200) return { ok: true, message: "API key reached the Cursor API." };
     if (response.status === 401 || response.status === 403) {
       return { ok: false, message: `credential rejected (${response.status}) — issue a new Cursor Agent API key and re-store the secret.` };

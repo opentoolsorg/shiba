@@ -14,6 +14,7 @@ import {
   parseBrowserE2ePlan,
 } from "@shiba/shared";
 import type { Env } from "../env.js";
+import { artifactAccessAgentMetadata } from "../artifact-access.js";
 import { gotoPreview, withStaticPreview, type StaticPreviewDeps } from "../preview/with-static-preview.js";
 import type { PreviewPuppeteerPage, PreviewSandbox } from "../preview/types.js";
 import { e2eFrameKey, e2eFrameUrlFor, e2eManifestKey, e2eManifestUrlFor } from "./evidence-urls.js";
@@ -93,7 +94,7 @@ async function runStep(
 
 export async function captureBrowserE2eEvidence(
   env: Env,
-  input: { sandboxId: string; workdir?: string; plan?: BrowserE2ePlan },
+  input: { sandboxId: string; workdir?: string; plan?: BrowserE2ePlan; accessAgent?: string },
   deps: BrowserE2eCaptureDeps = {},
 ): Promise<BrowserE2eCapture | null> {
   if (!env.ATTACHMENTS) return null;
@@ -173,8 +174,10 @@ export async function captureBrowserE2eEvidence(
   if (!result) return null;
 
   const manifestKey = e2eManifestKey(input.sandboxId);
+  const accessMeta = input.accessAgent ? artifactAccessAgentMetadata(input.accessAgent) : {};
   await env.ATTACHMENTS.put(manifestKey, JSON.stringify(result), {
     httpMetadata: { contentType: "application/json" },
+    ...(Object.keys(accessMeta).length ? { customMetadata: accessMeta } : {}),
   });
 
   return {

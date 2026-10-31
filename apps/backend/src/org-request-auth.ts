@@ -1,6 +1,8 @@
 import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
+import { initiatorUserIdFromOrchestratorName } from "./subscription-routing.js";
 import { authorizeV1Request, type V1Principal, v1Unauthorized } from "./v1-auth.js";
+import { isDashboardAgentName } from "./web-sessions.js";
 
 export const DASHBOARD_ORG_ID = "self-hosted";
 
@@ -31,4 +33,24 @@ export function orgIdFromIntake(input: Record<string, unknown>): string {
   const raw = typeof input.orgId === "string" ? input.orgId.trim() : "";
   if (!raw || raw.length > 128) return DASHBOARD_ORG_ID;
   return raw;
+}
+
+/** Dashboard/web sessions bind org scope to the authenticated owner, not composer metadata. */
+export function intakeOrgIdForOrchestrator(
+  orchestratorName: string | null | undefined,
+  input: Record<string, unknown>,
+): string {
+  const initiator = initiatorUserIdFromOrchestratorName(orchestratorName ?? undefined);
+  if (initiator) return initiator;
+  if (isDashboardAgentName(orchestratorName ?? undefined)) return DASHBOARD_ORG_ID;
+  return orgIdFromIntake(input);
+}
+
+/** Dashboard orchestrators ignore client org overrides; other lanes keep intake orgId. */
+export function trustedIntakeOrgId(
+  orchestratorName: string | undefined,
+  input: Record<string, unknown>,
+): string {
+  if (isDashboardAgentName(orchestratorName)) return DASHBOARD_ORG_ID;
+  return orgIdFromIntake(input);
 }

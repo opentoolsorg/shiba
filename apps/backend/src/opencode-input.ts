@@ -105,6 +105,10 @@ const codingTaskInputSchema = z.object({
   runtime: runtimeSelectionSchema.optional(),
   /** Pins a local run to one paired machine (hashed into the approved run). */
   targetMachineId: z.string().min(1).max(128).optional(),
+  /** HMAC seal proving the orchestrator parent dispatched this envelope. */
+  dispatchApprovalId: z.string().min(1).max(128).optional(),
+  dispatchInputHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  dispatchSig: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input, ctx) => {
@@ -208,6 +212,8 @@ const codingTaskResultSchema = z.object({
       costUsd: z.number().nonnegative().optional(),
     })
     .optional(),
+  /** Reviewer-only structured findings (frozen on the result envelope). */
+  findings: z.array(z.unknown()).optional(),
 });
 
 export type CodingTaskResult = z.infer<typeof codingTaskResultSchema>;
