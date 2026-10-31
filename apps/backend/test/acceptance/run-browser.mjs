@@ -293,7 +293,34 @@ try {
     currentStep: afterDismiss.currentStep,
     revision: afterDismiss.revision,
   });
-  await page.getByRole("button", { name: "Close setup" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("heading", { name: "Model routing" }).waitFor();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("heading", { name: "Your first employee" }).waitFor();
+  await page.getByRole("button", { name: "Set up research →" }).evaluate((button) => { button.click(); button.click(); });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  const interruptedName = "Interrupted onboarding research draft";
+  await page.getByLabel("Name", { exact: true }).fill(interruptedName);
+  await page.getByLabel("Default repository").fill("https://github.com/example/onboarding-draft");
+  await nav(page, "providers");
+  await page.getByRole("heading", { name: /Providers/ }).first().waitFor();
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), interruptedName);
+  await page.goForward({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: /Providers/ }).first().waitFor();
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), interruptedName);
+  assert.equal(await page.getByLabel("Default repository").inputValue(), "https://github.com/example/onboarding-draft");
+  const beforeCreate = await apiJson(page, "/api/custom-agents");
+  assert.equal(beforeCreate.agents.length, 0, "Onboarding and draft recovery must not create a bot.");
+  const roleProgress = await apiJson(page, "/api/onboarding/progress");
+  assert.equal(roleProgress.currentStep, "employee");
+  assert.equal(roleProgress.activatedAt, null);
+  checkpoints.push({ id: "onboarding-role-draft-back-forward-reload", status: "passed", draftRestored: true, botsCreated: 0, activated: false });
+  await page.getByRole("button", { name: "Discard draft" }).click();
 
   await nav(page, "skills");
   await page.getByRole("heading", { name: "Skills" }).waitFor();

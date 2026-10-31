@@ -3027,6 +3027,8 @@ export function App(): React.JSX.Element {
             <SkillsView />
           ) : mainView === "custom-agents" ? (
             <CustomAgentsView
+              key={orchestratorName ?? "manual"}
+              draftScope={orchestratorName ?? undefined}
               onStartThread={handleStartAgentThread}
               initialTemplateId={initialEmployeeTemplateId}
               onInitialTemplateApplied={() => setInitialEmployeeTemplateId(null)}

@@ -33,6 +33,19 @@ const EMPTY_FORM = {
   expectedDeliverables: "",
 };
 
+function readRoleDraft(scope?: string): typeof EMPTY_FORM {
+  if (!scope) return EMPTY_FORM;
+  try {
+    const draft = JSON.parse(localStorage.getItem(`shiba-role-draft-v1:${scope}`) ?? "null");
+    if (draft && Object.keys(EMPTY_FORM).every((key) => typeof draft[key] === "string")) {
+      return Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, draft[key]])) as typeof EMPTY_FORM;
+    }
+  } catch { /* Storage unavailable or invalid: keep the editor usable. */ }
+  return EMPTY_FORM;
+}
+
+const hasDraft = (form: typeof EMPTY_FORM) => Object.entries(EMPTY_FORM).some(([key, value]) => form[key as keyof typeof EMPTY_FORM] !== value);
+
 export function CustomAgentsView({
   onStartThread,
   threads = [],
@@ -43,6 +56,7 @@ export function CustomAgentsView({
   modelSuggestions = [],
   initialTemplateId = null,
   onInitialTemplateApplied,
+  draftScope,
 }: {
   onStartThread?: (agent: CustomAgentWire) => Promise<void>;
   threads?: WebThread[];
@@ -53,6 +67,7 @@ export function CustomAgentsView({
   modelSuggestions?: string[];
   initialTemplateId?: EmployeeTemplate["id"] | null;
   onInitialTemplateApplied?: () => void;
+  draftScope?: string;
 }): JSX.Element {
   const [agents, setAgents] = useState<CustomAgentWire[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -60,7 +75,8 @@ export function CustomAgentsView({
   const [busy, setBusy] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(() => readRoleDraft(draftScope));
+  const [draftStorageAvailable, setDraftStorageAvailable] = useState(true);
   const [expectedVersion, setExpectedVersion] = useState<number | undefined>(undefined);
   const [startingAgentId, setStartingAgentId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -68,12 +84,23 @@ export function CustomAgentsView({
   const [conflict, setConflict] = useState(false);
   const directoryRequest = useRef(0);
   const startingThread = useRef(false);
+  const savingAgent = useRef(false);
   const [pendingTemplate, setPendingTemplate] = useState<EmployeeTemplate | null>(null);
   const appliedInitialTemplate = useRef<EmployeeTemplate["id"] | null>(null);
   const templateTrigger = useRef<HTMLButtonElement | null>(null);
   const keepDraftButton = useRef<HTMLButtonElement | null>(null);
   const templateTitleId = useId();
   const templateDescriptionId = useId();
+
+  useEffect(() => {
+    if (!draftScope || editingId) return;
+    try {
+      const key = `shiba-role-draft-v1:${draftScope}`;
+      if (hasDraft(form)) localStorage.setItem(key, JSON.stringify(form));
+      else localStorage.removeItem(key);
+      setDraftStorageAvailable(true);
+    } catch { setDraftStorageAvailable(false); }
+  }, [draftScope, editingId, form]);
 
   useEffect(() => {
     if (pendingTemplate) keepDraftButton.current?.focus();
@@ -146,14 +173,15 @@ export function CustomAgentsView({
     const template = EMPLOYEE_TEMPLATES.find((item) => item.id === initialTemplateId);
     if (!template) return;
     appliedInitialTemplate.current = initialTemplateId;
-    applyTemplate(template);
+    if (hasDraft(form)) setPendingTemplate(template);
+    else applyTemplate(template);
     onInitialTemplateApplied?.();
-  }, [initialTemplateId, editingId, busy, applyTemplate, onInitialTemplateApplied]);
+  }, [initialTemplateId, editingId, busy, applyTemplate, onInitialTemplateApplied, form]);
 
-  const resetForm = () => {
+  const resetForm = (discardDraft = false) => {
     setPendingTemplate(null);
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    setForm(discardDraft ? EMPTY_FORM : readRoleDraft(draftScope));
     setExpectedVersion(undefined);
     setEditingConfig(null);
     setConflict(false);
@@ -180,6 +208,7 @@ export function CustomAgentsView({
   };
 
   const saveAgent = async () => {
+    if (savingAgent.current || busy) return;
     if (pendingTemplate) {
       setNotice({ tone: "err", text: "Keep your current draft or confirm its replacement before saving." });
       return;
@@ -196,6 +225,7 @@ export function CustomAgentsView({
       setNotice({ tone: "err", text: "Use at most 8 required deliverable paths, one per line." });
       return;
     }
+    savingAgent.current = true;
     setBusy(true);
     setNotice(null);
     const config: CustomAgentConfig = {
@@ -240,12 +270,13 @@ export function CustomAgentsView({
           return [saved, ...rest];
         });
         setNotice({ tone: "ok", text: editingId ? "Bot updated." : "Bot created." });
-        resetForm();
+        resetForm(!editingId);
         refresh();
       }
     } catch {
       setNotice({ tone: "err", text: "Save failed: the backend could not be reached." });
     } finally {
+      savingAgent.current = false;
       setBusy(false);
     }
   };
@@ -344,11 +375,14 @@ export function CustomAgentsView({
                 {editingId ? "Edit bot" : "New bot"}
               </div>
               {editingId ? (
-                <button type="button" onClick={resetForm} className="text-[11px] text-[var(--primary)]">
+                <button type="button" onClick={() => resetForm()} className="text-[11px] text-[var(--primary)]">
                   Cancel edit
                 </button>
-              ) : null}
+              ) : hasDraft(form) ? <button type="button" disabled={busy} onClick={() => resetForm(true)} className="text-[11px] text-[var(--primary)]">Discard draft</button> : null}
             </div>
+            {!editingId && draftScope ? <p role="status" className="text-xs text-[var(--muted-foreground-2)]">
+              {draftStorageAvailable ? "Draft saved only on this browser for your account. Return here after setup or reload to continue." : "Browser storage is unavailable. Keep this page open to retain your draft."}
+            </p> : null}
             <fieldset className="flex flex-col gap-2">
               <legend className="mb-1 text-xs font-semibold text-[var(--fg)]">Start from a role</legend>
               <p className="text-xs text-[var(--muted-foreground-2)]">
