@@ -1186,11 +1186,15 @@ export function App(): React.JSX.Element {
         const draft = task;
         const draftSession = selectedSessionId;
         submitInFlight.current = true;
+        submitFailed.current = false;
         setIsSubmitting(true);
         setNotice(null);
         setTask("");
         try {
           await sendAppToolsWork(appToolsContext, draft, (message) => chat.sendMessage(message));
+          if (submitFailed.current) {
+            restoreDraft(draftSession, draft);
+          }
         } catch (error) {
           restoreDraft(draftSession, draft);
           setNotice(`App task could not be sent: ${error instanceof Error ? error.message : String(error)}`);

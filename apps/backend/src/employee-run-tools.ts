@@ -57,22 +57,38 @@ export interface EmployeeRunToolContext {
   resources: Record<string, string[]>;
 }
 
+async function loadTrustedWebSession(env: Env, executionContextId: string): Promise<WebSessionRecord | null> {
+  const parsed = parseSessionAgentName(executionContextId);
+  if (!parsed || !env.CodingOrchestrator) return null;
+  const base = await getAgentByName(env.CodingOrchestrator, parsed.userId);
+  const response = await base.fetch("https://internal/internal/web-sessions");
+  if (!response.ok) return null;
+  const body = await response.json() as { sessions?: unknown };
+  if (!Array.isArray(body.sessions)) return null;
+  const matches = body.sessions.filter((candidate) =>
+    validateSessionRecordIntegrity(candidate, parsed.userId) === null &&
+    (candidate as WebSessionRecord).id === parsed.sessionId && (candidate as WebSessionRecord).agentName === executionContextId);
+  if (matches.length !== 1) return null;
+  const session = matches[0] as WebSessionRecord;
+  if (session.deletingAt) return null;
+  return session;
+}
+
+/** Workspace scope from the validated web session record, not composer pin metadata. */
+export async function trustedSessionOrgId(env: Env, executionContextId: string): Promise<string | null> {
+  const session = await loadTrustedWebSession(env, executionContextId);
+  if (!session) return null;
+  const orgId = session.metadata?.orgId ?? "self-hosted";
+  return typeof orgId === "string" && orgId.trim() ? orgId.trim() : "self-hosted";
+}
+
 /** App-only Work turns use the owned registry selection, never composer-supplied profile identity. */
 export async function resolveAppToolsEmployeeContext(env: Env, executionContextId: string): Promise<EmployeeRunToolContext | null> {
   try {
+    const session = await loadTrustedWebSession(env, executionContextId);
+    if (!session) return null;
     const parsed = parseSessionAgentName(executionContextId);
-    if (!parsed || !env.CodingOrchestrator) return null;
-    const base = await getAgentByName(env.CodingOrchestrator, parsed.userId);
-    const response = await base.fetch("https://internal/internal/web-sessions");
-    if (!response.ok) return null;
-    const body = await response.json() as { sessions?: unknown };
-    if (!Array.isArray(body.sessions)) return null;
-    const matches = body.sessions.filter((candidate) =>
-      validateSessionRecordIntegrity(candidate, parsed.userId) === null &&
-      (candidate as WebSessionRecord).id === parsed.sessionId && (candidate as WebSessionRecord).agentName === executionContextId);
-    if (matches.length !== 1) return null;
-    const session = matches[0] as WebSessionRecord;
-    if (session.deletingAt) return null;
+    if (!parsed) return null;
     const employeeId = session.metadata?.customAgentId;
     const orgId = session.metadata?.orgId ?? "self-hosted";
     if (typeof employeeId !== "string" || !employeeId.trim() || typeof orgId !== "string" || !orgId.trim()) return null;

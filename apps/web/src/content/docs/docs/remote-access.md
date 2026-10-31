@@ -144,7 +144,7 @@ Quit the app, delete Shiba from Applications, and remove `~/.shiba-local` to dro
 | **Connect this computer** fails immediately | Mint a fresh pairing token (15-minute TTL, single use). Ensure `PAIRING_SECRET` or `LOCAL_ADAPTER_TOKEN` is set so pairing-token does not return 503. |
 | Pairing command or daemon logs show HTML | Add an Access **Bypass** (or equivalent) for `<your-host>/api/local/*` so the daemon reaches the Worker API, not the IdP login page. |
 | Fleet list empty but tray says connected | Wait for the next heartbeat (up to ~30s) and fleet poll (10s). Revoke stale rows if you reinstalled without revoking. |
-| Local run queued but never starts | Pair only one machine for testing; pick **This computer** in the composer so `targetMachineId` matches. Approve on the dashboard card — notifications only open Approvals. |
+| Local run queued but never starts | Pair only one machine for testing; choose **Local (Paired computer)** and the correct hostname in the composer so `targetMachineId` matches. Approve on the dashboard card — notifications only open Approvals. |
 | **Another daemon is running** | Stop a CLI `shiba-local-daemon.mjs` or another Shiba Desktop instance; only one process may hold `daemon.lock`. |
 
 For the full manual acceptance checklist (signing, fuses, notifications), see `VERIFICATION/desktop.md` at the repository root.

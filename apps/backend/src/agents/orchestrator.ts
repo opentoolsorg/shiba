@@ -68,7 +68,7 @@ import { z } from "zod";
 import { postToChatThread } from "../chat-lane.js";
 import { createRunCodeTool } from "../codemode.js";
 import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
-import { createEmployeeRunTools, employeeRunToolPolicyMode, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
+import { createEmployeeRunTools, employeeRunToolPolicyMode, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext, trustedSessionOrgId } from "../employee-run-tools.js";
 import { handleEmployeeDraftRequest, MAX_EMPLOYEE_DRAFTS, type EmployeeDraft, type EmployeeDraftStore, type EmployeeReadReceipt } from "../employee-drafts.js";
 import { chatLaneActorId } from "../chat-employee.js";
 import { runWorkerEffect, toRunFailure, tryRunPromise } from "../effect/runtime.js";
@@ -5521,7 +5521,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (url.pathname.startsWith("/api/employee-drafts")) {
       const actorId = initiatorUserIdFromOrchestratorName(this.name);
       if (agentPrincipal !== null || !actorId || !this.name) return Response.json({ error: "Draft not found." }, { status: 404 });
-      const response = await handleEmployeeDraftRequest(request, this.env, this.employeeDraftStore(), { orgId: this.employeeToolOrgId(), actorId, executionContextId: this.name });
+      const orgId = await trustedSessionOrgId(this.env, this.name);
+      if (!orgId) return Response.json({ error: "Draft not found." }, { status: 404 });
+      const response = await handleEmployeeDraftRequest(request, this.env, this.employeeDraftStore(), { orgId, actorId, executionContextId: this.name });
       if (response) return response;
     }
     if (url.pathname === "/api/tasks") {

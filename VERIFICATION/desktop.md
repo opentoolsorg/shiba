@@ -54,7 +54,7 @@ VERIFY_DESKTOP=1 node .cursor/skills/verify-shiba/scripts/drive-local-runtime.mj
 1. Worker: `SHIBA_LOCAL_RUNTIME=1`, `LocalDispatch` bound, `PAIRING_SECRET` or `LOCAL_ADAPTER_TOKEN` set.
 2. **Access-fronted deploys:** bypass policy on `<host>/api/local/*` (alchemy `MachineBypass` or manual equivalent). Without it, pairing gets HTML login pages, not JSON.
 3. **Better-auth deploys:** `BETTER_AUTH_URL` must match the Shiba URL configured in the desktop app.
-4. Dev loop (no Access): `wrangler dev` with `SHIBA_LOCAL_RUNTIME=1` in `.dev.vars`; use `--local-upstream localhost:8788 --enable-containers=false` when custom domain routes break loopback auth (see `DESKTOP-PLAN.md` §7 notes).
+4. Dev loop (no Access): `wrangler dev --port 8788` with `SHIBA_LOCAL_RUNTIME=1` in `.dev.vars`; use `--local-upstream localhost:8788 --enable-containers=false` when custom domain routes break loopback auth (see `DESKTOP-PLAN.md` §7 notes).
 5. Pair **one** computer for acceptance ( `/claim` is oldest-first with no machine filter when multiple daemons exist).
 
 ---
@@ -65,9 +65,9 @@ Record a dated pass/fail in `VERIFICATION.md` when complete. Do **not** claim th
 
 | # | Action | Pass when |
 | --- | --- | --- |
-| 1 | Install unsigned `.dmg` or `pnpm --filter @shiba/desktop dist:local`; first launch via right-click → Open | Setup URL → sign in → dashboard loads |
+| 1 | On Apple silicon, build and ad-hoc sign locally: `pnpm --filter @shiba/desktop dist:local` (runs `scripts/adhoc-sign.sh`); on Intel macOS or CI artifacts, use the same command or an unsigned `.dmg` with right-click → Open | Setup URL → sign in → dashboard loads |
 | 2 | Remote Access → **Connect this computer** | Connections row shows **This computer · idle**; fleet row has **This computer** badge + harness pills; tray **Connected · idle** |
-| 3 | Hide app; queue task with **Run on: This computer** (claude-code or codex) | Approval notification within ~30s; click opens Approvals |
+| 3 | Hide app; queue task with **Local (Paired computer)** and the paired hostname in the composer (claude-code or codex) | Approval notification within ~30s; click opens Approvals |
 | 4 | Approve | Tray **Running · owner/repo**; then **Local run finished**; diff/PR in dashboard when verify completes |
 | 5 | Revoke machine in fleet | Tray **Revoked · reconnect**; daemon does not auto-restart; reconnect works |
 | 6 | Start CLI daemon while app daemon runs | Second process exits **75** (lock) |
