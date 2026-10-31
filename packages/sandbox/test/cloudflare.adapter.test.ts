@@ -56,4 +56,16 @@ describe("cloudflare pinEgress", () => {
     });
     expect(calls).toEqual(["hosts:api.anthropic.com", "repo:/o/r"]);
   });
+
+  it("applies an explicit empty host allowlist (deny-all)", async () => {
+    const calls: string[][] = [];
+    const rpc = mockRpc();
+    rpc.approveHarnessEgress = async (hosts) => {
+      calls.push(hosts);
+    };
+    const provider = createCloudflareSandboxProvider({ resolveRpc: () => rpc });
+    const instance = await provider.get("empty-pin");
+    await instance.pinEgress?.({ allowedHosts: [] });
+    expect(calls).toEqual([[]]);
+  });
 });
