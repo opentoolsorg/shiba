@@ -6,6 +6,7 @@ import type { Env } from "../src/env.js";
 import { handleRuns, queueCollaborationRun } from "../src/runs-routes.js";
 import type { ExecutionTarget } from "@shiba/shared";
 import { cancelCollaborationHandoff, COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, isCollaborationHandoffDispatchable, listCollaborationHandoffs } from "../src/collaboration-store.js";
+import { replaceEmployeeToolGrants } from "../src/employee-tool-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const state = vi.hoisted(() => ({
@@ -527,6 +528,24 @@ describe("approval-gated employee handoffs", () => {
     });
     expect(denied?.status).toBe(403);
     expect(state.queued).toBeNull();
+    await replaceEmployeeToolGrants(f.env, {
+      orgId: "self-hosted",
+      employeeId: supported.id,
+      employeeVersion: supported.version,
+      actorId: state.userId,
+      role: "operator",
+      capabilityIds: ["mcp:shiba:run_status"],
+      resourcesByCapability: { "mcp:shiba:run_status": ["agent-tool:existing-run"] },
+    });
+    const permitted = await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+      handoffId: "policy-with-current-grants",
+      taskId: "policy-task-granted",
+      recipientActorId: supportedMemberBody.member.actorId,
+      task: "Read this run status.",
+      repoUrl: "https://github.com/example/repo",
+    });
+    expect(permitted?.status).toBe(201);
+    expect(state.queued?.customAgentId).toBe(supported.id);
     expect((await f.send(`/rooms/${roomId}/agents`, "POST", {
       profileId: unsupported.id,
       profileVersion: unsupported.version,
