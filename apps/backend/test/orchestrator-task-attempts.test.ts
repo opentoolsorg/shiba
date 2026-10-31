@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { createRun } from "../src/runs.js";
-import { AGENT_PRINCIPAL_HEADER } from "@shiba/shared";
+import { AGENT_PRINCIPAL_HEADER, runInputHash } from "@shiba/shared";
+import { frozenTaskInputFromApproval } from "../src/task-attempts.js";
 
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => fn()) }));
 vi.mock("@cloudflare/think", () => ({ Think: class {
@@ -35,6 +36,34 @@ function post(url: string, body: unknown) {
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe("orchestrator durable task-attempt routes", () => {
+  it("freezes room and employee-policy authority into the exact approved input hash", () => {
+    const approval = {
+      threadKey: "room-owner",
+      approvalId: "room-approval",
+      repoUrl: "",
+      task: "Write the approved report",
+      baseBranch: "main",
+      publishPullRequest: false,
+      collaborationHandoffId: "room-handoff-123",
+      employeeToolPolicyVersion: 9,
+      status: "pending" as const,
+      createdAt: 123,
+    };
+    const frozen = frozenTaskInputFromApproval(approval);
+    expect(frozen.body).toMatchObject({
+      collaborationHandoffId: approval.collaborationHandoffId,
+      employeeToolPolicyVersion: approval.employeeToolPolicyVersion,
+    });
+    expect(frozen.inputHash).toBe(runInputHash({
+      repoUrl: "",
+      task: approval.task,
+      baseBranch: "main",
+      publishPullRequest: false,
+      collaborationHandoffId: approval.collaborationHandoffId,
+      employeeToolPolicyVersion: approval.employeeToolPolicyVersion,
+    }));
+  });
+
   it("queues, retries the exact frozen approval, reloads, and cancels without executing a provider", async () => {
     const original = host();
     const queued = await original.onRequest(post("/api/runs", {
@@ -116,6 +145,26 @@ describe("orchestrator durable task-attempt routes", () => {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ commandId: "retry-task-0003" }),
     }));
     expect(hidden.status).toBe(404);
+  });
+
+  it("requires a new room handoff instead of minting a retry bound to an old approval id", async () => {
+    const owner = host();
+    const queued = await owner.onRequest(post("/api/runs", {
+      repoUrl: "https://github.com/o/r", task: "Room task", publishPullRequest: false,
+    }));
+    const { approvalId } = await queued.json() as { approvalId: string };
+    const taskId = `task_${approvalId}`;
+    await owner.onRequest(post(`/api/tasks/${taskId}/cancel`, { attempt: 1 }));
+    const record = owner.state.tasks?.[0];
+    const attempt = record?.attempts[0];
+    if (!attempt) throw new Error("Expected the frozen task attempt.");
+    (attempt.frozen.body as Record<string, unknown>).collaborationHandoffId = "room-old-handoff";
+    const existingApprovalCount = owner.state.pendingApprovals?.length ?? 0;
+
+    const retry = await owner.onRequest(post(`/api/tasks/${taskId}/retry`, { commandId: "retry-room-task-0001" }));
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ error: expect.stringContaining("requested again in the room") });
+    expect(owner.state.pendingApprovals).toHaveLength(existingApprovalCount);
   });
 
   it("preserves queued and updated task attempts when run cleanup is held during cancellation", async () => {

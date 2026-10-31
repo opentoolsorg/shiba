@@ -721,6 +721,64 @@ export async function listCollaborationHandoffs(
   return (rows.results ?? []).map(rowHandoff);
 }
 
+/** Fetch every record in one bounded handoff tree, independent of the UI's recent-history cap. */
+export async function listCollaborationHandoffsForRoot(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  roomId: string,
+  rootHandoffId: string,
+): Promise<CollaborationHandoffRow[]> {
+  await ensureCollaborationSchema(env);
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT * FROM collaboration_handoffs h
+     WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND h.root_handoff_id=?
+       AND EXISTS (SELECT 1 FROM collaboration_memberships reader
+         WHERE reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id
+           AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active')
+     ORDER BY h.depth ASC,h.created_at ASC,h.handoff_id ASC`,
+  ).bind(scope.tenantId, scope.workspaceId, roomId, rootHandoffId, scope.userId)
+    .all<Record<string, unknown>>();
+  return (rows.results ?? []).map(rowHandoff);
+}
+
+/** Page all root lineages involving an actor so removal cleanup cannot skip older work. */
+export async function listActiveCollaborationHandoffRootsForActor(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  roomId: string,
+  actorId: string,
+  afterRootId: string | null = null,
+  limit = 100,
+): Promise<{ rootHandoffIds: string[]; nextCursor: string | null }> {
+  await ensureCollaborationSchema(env);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 250)
+    throw new CollaborationStoreError("Invalid handoff cleanup page size.");
+  const query = afterRootId === null
+    ? `SELECT DISTINCT h.root_handoff_id FROM collaboration_handoffs h
+       WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND h.status='active'
+         AND (h.sender_actor_id=? OR h.recipient_actor_id=?)
+         AND EXISTS (SELECT 1 FROM collaboration_memberships reader
+           WHERE reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id
+             AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active')
+       ORDER BY h.root_handoff_id ASC LIMIT ?`
+    : `SELECT DISTINCT h.root_handoff_id FROM collaboration_handoffs h
+       WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND h.status='active'
+         AND (h.sender_actor_id=? OR h.recipient_actor_id=?) AND h.root_handoff_id>?
+         AND EXISTS (SELECT 1 FROM collaboration_memberships reader
+           WHERE reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id
+             AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active')
+       ORDER BY h.root_handoff_id ASC LIMIT ?`;
+  const values = afterRootId === null
+    ? [scope.tenantId, scope.workspaceId, roomId, actorId, actorId, scope.userId, limit]
+    : [scope.tenantId, scope.workspaceId, roomId, actorId, actorId, afterRootId, scope.userId, limit];
+  const rows = await env.AGENT_AUDIT.prepare(query).bind(...values).all<{ root_handoff_id: string }>();
+  const rootHandoffIds = (rows.results ?? []).map((row) => row.root_handoff_id);
+  return {
+    rootHandoffIds,
+    nextCursor: rootHandoffIds.length === limit ? rootHandoffIds.at(-1) ?? null : null,
+  };
+}
+
 export async function addCollaborationMember(
   env: Pick<Env, "AGENT_AUDIT">,
   scope: CollaborationScope,

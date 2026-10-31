@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   approvalStatus: "",
   onQueue: null as null | (() => Promise<void>),
   cancelledHandoffs: [] as string[],
+  executorCancellationPending: false,
   run: null as null | {
     runId?: string;
     status: string;
@@ -92,7 +93,11 @@ vi.mock("agents/routing", () => ({
           if (body.handoffId) state.cancelledHandoffs.push(body.handoffId);
         }
         if (state.approvalStatus === "pending") state.approvalStatus = "rejected";
-        return Response.json({ cancelled: true, outcomeUnknown: false });
+        return Response.json({
+          cancelled: !state.executorCancellationPending,
+          executorCancellationPending: state.executorCancellationPending,
+          outcomeUnknown: false,
+        });
       }
       if (url.pathname === "/api/approvals") {
         const item = { approvalId: "approval-employee-1", status: state.approvalStatus };
@@ -144,6 +149,7 @@ beforeEach(() => {
   state.approvalStatus = "";
   state.onQueue = null;
   state.cancelledHandoffs = [];
+  state.executorCancellationPending = false;
   state.run = null;
   state.queued = null;
   vi.mocked(queueCollaborationRun).mockClear();
@@ -365,6 +371,7 @@ describe("approval-gated employee handoffs", () => {
       name: "Report Writer",
       instructions: "Write the requested report.",
       harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/default-repo",
     });
     const room = await json<{ room: { roomId: string } }>(
       await f.send("/rooms", "POST", { title: "Repo-free report" }),
@@ -656,6 +663,81 @@ describe("approval-gated employee handoffs", () => {
       employeeId: employee.id,
       employeeVersion: employee.version,
     })).toBe(false);
+  });
+
+  it("cancels an old root's linked executor even when newer room history exceeds the UI page", async () => {
+    const f = fixture();
+    const employee = await createCustomAgent(f.env, "self-hosted", "writer", {
+      name: "Old Root Writer", instructions: "Write a report.", harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const room = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "History bound" }));
+    const roomId = room.room.roomId;
+    expect((await f.send(`/rooms/${roomId}/members`, "POST", { userId: "other@example.test" }))?.status).toBe(201);
+    const member = await json<{ member: { actorId: string } }>(
+      await f.send(`/rooms/${roomId}/agents`, "POST", { profileId: employee.id, profileVersion: employee.version }),
+    );
+    const old = await json<{ handoff: { handoffId: string; approvalId: string } }>(
+      await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+        handoffId: "old-linked-root", taskId: "old-linked-task", recipientActorId: member.member.actorId,
+        task: "Write the old report.",
+      }),
+    );
+    for (let index = 0; index < 105; index += 1) {
+      const response = await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+        handoffId: `newer-root-${String(index).padStart(3, "0")}`,
+        taskId: `newer-task-${index}`,
+        recipientActorId: "human:other@example.test",
+      });
+      expect(response?.status).toBe(201);
+    }
+    expect((await listCollaborationHandoffs(f.env, {
+      tenantId: "self-hosted", workspaceId: "default", userId: state.userId,
+    }, roomId)).some((handoff) => handoff.handoffId === old.handoff.handoffId)).toBe(false);
+
+    state.executorCancellationPending = true;
+    const response = await f.send(`/handoffs/${old.handoff.handoffId}/cancel`, "POST", {});
+    expect(response?.status).toBe(202);
+    expect(await response?.json()).toMatchObject({ cancelled: false, executorCancellationPending: true });
+    expect(state.cancelledHandoffs).toContain(old.handoff.handoffId);
+  });
+
+  it("removal cleanup reaches a pending executor behind more than 100 newer roots", async () => {
+    const f = fixture();
+    const employee = await createCustomAgent(f.env, "self-hosted", "writer", {
+      name: "Old Member Writer", instructions: "Write a report.", harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const room = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Removal history bound" }));
+    const roomId = room.room.roomId;
+    expect((await f.send(`/rooms/${roomId}/members`, "POST", { userId: "old-member@example.test" }))?.status).toBe(201);
+    expect((await f.send(`/rooms/${roomId}/members`, "POST", { userId: "other@example.test" }))?.status).toBe(201);
+    const member = await json<{ member: { actorId: string } }>(
+      await f.send(`/rooms/${roomId}/agents`, "POST", { profileId: employee.id, profileVersion: employee.version }),
+    );
+    state.userId = "old-member@example.test";
+    const old = await json<{ handoff: { handoffId: string; approvalId: string } }>(
+      await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+        handoffId: "old-member-linked-root", taskId: "old-member-linked-task",
+        recipientActorId: member.member.actorId, task: "Write the pending report.",
+      }),
+    );
+    state.userId = "owner@example.test";
+    for (let index = 0; index < 105; index += 1) {
+      expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+        handoffId: `member-newer-root-${String(index).padStart(3, "0")}`,
+        taskId: `member-newer-task-${index}`,
+        recipientActorId: "human:other@example.test",
+      }))?.status).toBe(201);
+    }
+    expect((await listCollaborationHandoffs(f.env, {
+      tenantId: "self-hosted", workspaceId: "default", userId: state.userId,
+    }, roomId)).some((handoff) => handoff.handoffId === old.handoff.handoffId)).toBe(false);
+
+    const response = await f.send(`/rooms/${roomId}/members/${encodeURIComponent("human:old-member@example.test")}`, "DELETE");
+    expect(response?.status).toBe(200);
+    expect(state.cancelledHandoffs).toContain(old.handoff.handoffId);
+    expect(state.approvalStatus).toBe("rejected");
   });
 
   it("cancels a waiting employee approval when its requesting human is removed", async () => {

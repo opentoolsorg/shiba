@@ -35,7 +35,9 @@ import {
   humanActorId,
   createCollaborationAgentReply,
   linkCollaborationHandoffRun,
+  listActiveCollaborationHandoffRootsForActor,
   listCollaborationHandoffs,
+  listCollaborationHandoffsForRoot,
   listCollaborationMemberships,
   listCollaborationMessages,
   listCollaborationRooms,
@@ -135,13 +137,54 @@ async function cancelLinkedHandoffExecutors(
       await signInternalRequest(internal, env);
       const response = await stub.fetch(internal);
       if (!response.ok) executorCancellationPending = true;
-      const body = (await response.json().catch(() => ({}))) as { outcomeUnknown?: boolean };
+      const body = (await response.json().catch(() => ({}))) as {
+        executorCancellationPending?: boolean;
+        outcomeUnknown?: boolean;
+      };
+      if (body.executorCancellationPending) executorCancellationPending = true;
       if (body.outcomeUnknown) outcomeUnknown = true;
     } catch {
       executorCancellationPending = true;
     }
   }
   return { executorCancellationPending, outcomeUnknown };
+}
+
+/** Enumerate every affected lineage, independent of the room history UI's 100-row cap. */
+async function collectActiveHandoffRootsForActor(
+  env: Env,
+  scope: CollaborationScope,
+  roomId: string,
+  actorId: string,
+): Promise<string[]> {
+  const roots: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const page = await listActiveCollaborationHandoffRootsForActor(
+      env,
+      scope,
+      roomId,
+      actorId,
+      cursor,
+      100,
+    );
+    roots.push(...page.rootHandoffIds);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return roots;
+}
+
+async function collectHandoffsForRoots(
+  env: Env,
+  scope: CollaborationScope,
+  roomId: string,
+  rootIds: readonly string[],
+): Promise<CollaborationHandoffRow[]> {
+  const handoffs: CollaborationHandoffRow[] = [];
+  for (const rootId of new Set(rootIds)) {
+    handoffs.push(...await listCollaborationHandoffsForRoot(env, scope, roomId, rootId));
+  }
+  return handoffs;
 }
 
 function actorFor(
@@ -729,9 +772,7 @@ export async function handleCollaboration(
       if (access.membership.role !== "owner")
         return json({ error: "Only room owners can remove members." }, 403);
       const actorId = path[3] ?? "";
-      const priorHandoffs = (await listCollaborationHandoffs(env, scope, roomId))
-        .filter((handoff) => handoff.status === "active" &&
-          (handoff.senderActorId === actorId || handoff.recipientActorId === actorId));
+      const affectedRoots = await collectActiveHandoffRootsForActor(env, scope, roomId, actorId);
       const changed = await removeCollaborationMember(
         env,
         scope,
@@ -740,9 +781,7 @@ export async function handleCollaboration(
         Date.now(),
       );
       if (!changed) return json({ error: "Member not found or cannot be removed." }, 404);
-      const roots = new Set(priorHandoffs.map((handoff) => handoff.rootHandoffId));
-      const cancelledRows = (await listCollaborationHandoffs(env, scope, roomId))
-        .filter((handoff) => roots.has(handoff.rootHandoffId));
+      const cancelledRows = await collectHandoffsForRoots(env, scope, roomId, affectedRoots);
       const cancellation = await cancelLinkedHandoffExecutors(env, cancelledRows);
       return json({ removed: true, ...cancellation }, cancellation.executorCancellationPending || cancellation.outcomeUnknown ? 202 : 200);
     }
@@ -1085,11 +1124,13 @@ export async function handleCollaboration(
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Artifact-workspace employee work currently requires the cloud sandbox.");
         }
-        const repoUrl = requestedTarget?.kind === "repository"
-          ? requestedTarget.repoUrl
-          : typeof body.repoUrl === "string" && body.repoUrl.trim()
-            ? body.repoUrl.trim()
-            : (profile.config.defaultRepoUrl ?? "");
+        const repoUrl = requestedTarget?.kind === "artifact-workspace"
+          ? ""
+          : requestedTarget?.kind === "repository"
+            ? requestedTarget.repoUrl
+            : typeof body.repoUrl === "string" && body.repoUrl.trim()
+              ? body.repoUrl.trim()
+              : (profile.config.defaultRepoUrl ?? "");
         if (requestedTarget?.kind === "artifact-workspace" && (typeof body.repoUrl === "string" && body.repoUrl.trim())) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose either a repository or an artifact workspace, not both.");
@@ -1204,8 +1245,12 @@ export async function handleCollaboration(
       const changed = await cancelCollaborationHandoff(env, scope, handoffId, Date.now());
       if (!changed && target.status !== "cancelled")
         return json({ error: "Handoff could not be cancelled." }, 409);
-      const lineage = (await listCollaborationHandoffs(env, scope, target.roomId))
-        .filter((handoff) => handoff.rootHandoffId === target.rootHandoffId);
+      const lineage = await listCollaborationHandoffsForRoot(
+        env,
+        scope,
+        target.roomId,
+        target.rootHandoffId,
+      );
       const { executorCancellationPending, outcomeUnknown } = await cancelLinkedHandoffExecutors(env, lineage);
       if (executorCancellationPending || outcomeUnknown) {
         return json({ cancelled: !executorCancellationPending && !outcomeUnknown, executorCancellationPending, outcomeUnknown }, 202);

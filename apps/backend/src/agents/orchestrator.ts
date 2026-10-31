@@ -4222,7 +4222,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     for (const run of runs) await this.guardCleanup(() => this.cancelRun(run.runId));
   }
 
-  private async guardCleanup(step: () => Promise<unknown>): Promise<void> {
+  private async guardCleanup(step: () => Promise<unknown>): Promise<boolean> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
@@ -4231,8 +4231,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           timer = setTimeout(() => reject(new Error("cleanup timed out")), CLEANUP_TIMEOUT_MS);
         }),
       ]);
+      return true;
     } catch (error) {
       console.error("Run cleanup step failed", redactSecrets(String(error)));
+      return false;
     } finally {
       clearTimeout(timer);
     }
@@ -5133,6 +5135,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return Response.json({ error: "This task attempt is not safely retryable." }, { status: 409 });
     }
     const frozen = previous.frozen.body as unknown as PendingApproval;
+    if (frozen.collaborationHandoffId) {
+      return Response.json({
+        error: "Room handoff work must be requested again in the room so its current membership and approval can be bound to a new handoff.",
+      }, { status: 409 });
+    }
     const approvalId = crypto.randomUUID();
     const now = Date.now();
     const nextApproval = createPendingApproval(this.approvals, {
@@ -5241,6 +5248,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           status: "approved" as const,
           createdAt: sourceRun.createdAt,
         };
+    if (priorApproval.collaborationHandoffId) {
+      return Response.json({
+        error: "A room handoff artifact revision must be requested as a new room handoff so current membership is checked and the approval is bound to that new handoff.",
+      }, { status: 409 });
+    }
     const revisionTaskText = `${priorApproval.task}\n\nRequested artifact revision for ${deliverable.path} (version ${deliverable.version ?? 1}, source run ${runId}):\n${review.note}`;
     if (revisionTaskText.length > MAX_APPROVED_TASK_CHARS) {
       return Response.json({ error: "The revision note makes the approved task too long. Shorten it and save the review again." }, { status: 400 });
@@ -5387,10 +5399,25 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           decidedBy: "collaboration-cancellation",
         });
       }
-      let uncertain = false;
-      const linkedRuns = this.store.list().filter((run) =>
-        run.collaborationHandoffId === handoffId && isActiveStatus(run.status));
-      for (const run of linkedRuns) {
+      let outcomeUnknown = false;
+      let executorCancellationPending = false;
+      const runIds = new Set<string>();
+      for (const linked of this.store.list().filter((run) => run.collaborationHandoffId === handoffId)) {
+        runIds.add(linked.runId);
+        for (const dependent of this.dependentRuns(linked.runId)) runIds.add(dependent.runId);
+      }
+
+      // Fence the full run tree before awaiting cleanup, including active
+      // descendants under terminal intermediaries.
+      const fenced: DelegatedRun[] = [];
+      for (const runId of runIds) {
+        const run = this.store.get(runId);
+        if (!run) continue;
+        if (run.status === "unknown") {
+          outcomeUnknown = true;
+          continue;
+        }
+        if (!isActiveStatus(run.status)) continue;
         if (run.checkpoint === "executing" || run.checkpoint === "settling") {
           const updated = this.store.transition(run.runId, "unknown", {
             error: "Room handoff was cancelled after execution began; inspect the result before retrying.",
@@ -5399,14 +5426,27 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           if (updated) {
             this.runControllers.get(run.runId)?.abort();
             this.stampCheckpoint(run.runId, "terminal");
-            await this.guardCleanup(() => this.releaseSandboxForRun(updated));
+            fenced.push(updated);
           }
-          uncertain = true;
+          outcomeUnknown = true;
         } else {
-          await this.cancelRun(run.runId);
+          const cancelled = this.cancelRunRecord(run.runId);
+          if (cancelled) fenced.push(cancelled);
         }
       }
-      return Response.json({ cancelled: !uncertain, outcomeUnknown: uncertain });
+      const released = new Set<string>();
+      for (const run of fenced) {
+        if (released.has(run.sandboxId)) continue;
+        released.add(run.sandboxId);
+        if (!await this.guardCleanup(() => this.releaseSandboxForRun(run))) {
+          executorCancellationPending = true;
+        }
+      }
+      return Response.json({
+        cancelled: !outcomeUnknown && !executorCancellationPending,
+        executorCancellationPending,
+        outcomeUnknown,
+      }, executorCancellationPending ? { status: 202 } : undefined);
     }
     if (url.pathname.startsWith("/internal/web-sessions")) {
       return this.handleInternalWebSessions(request, url);

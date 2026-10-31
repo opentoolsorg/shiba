@@ -318,8 +318,80 @@ describe("room handoff dispatch fences", () => {
       body: JSON.stringify({ handoffId: "handoff-in-flight" }),
     }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ cancelled: false, outcomeUnknown: true });
+    expect(await response.json()).toEqual({ cancelled: false, executorCancellationPending: false, outcomeUnknown: true });
     expect(instance.state.runs[0]?.status).toBe("unknown");
+    const replay = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-in-flight" }),
+    }));
+    expect(await replay.json()).toEqual({ cancelled: false, executorCancellationPending: false, outcomeUnknown: true });
+  });
+
+  it("fences descendants below a terminal intermediary and preserves in-flight uncertainty", async () => {
+    const instance = agent();
+    const root = createRun({
+      runId: "room-root-completed", sandboxId: "room-root-box", repoUrl: "https://github.com/o/r",
+      task: "Root", baseBranch: "main", publishPullRequest: false,
+      collaborationHandoffId: "handoff-tree-cancel",
+    });
+    const intermediary = {
+      ...createRun({
+      runId: "room-intermediary-completed", sandboxId: "room-intermediary-box", repoUrl: "https://github.com/o/r",
+      task: "Intermediary", baseBranch: "main", publishPullRequest: false,
+      parentRunId: root.runId,
+      }),
+      status: "completed" as const,
+    };
+    const descendant = createRun({
+      runId: "room-grandchild-active", sandboxId: "room-grandchild-box", repoUrl: "https://github.com/o/r",
+      task: "Grandchild", baseBranch: "main", publishPullRequest: false,
+      parentRunId: intermediary.runId,
+    });
+    const inFlight = {
+      ...createRun({
+        runId: "room-grandchild-in-flight", sandboxId: "room-grandchild-live-box", repoUrl: "https://github.com/o/r",
+        task: "In-flight grandchild", baseBranch: "main", publishPullRequest: false,
+        parentRunId: intermediary.runId,
+      }),
+      checkpoint: "executing" as const,
+    };
+    const release = vi.fn(async () => {});
+    instance.setState({ runs: [root, intermediary, descendant, inFlight] });
+    Object.assign(instance, { releaseSandboxForRun: release });
+
+    const response = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-tree-cancel" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ cancelled: false, executorCancellationPending: false, outcomeUnknown: true });
+    expect(instance.state.runs?.find((run) => run.runId === "room-grandchild-active")?.status).toBe("cancelled");
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ runId: "room-grandchild-active" }));
+    expect(instance.state.runs?.find((run) => run.runId === "room-grandchild-in-flight")?.status).toBe("unknown");
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ runId: "room-grandchild-in-flight" }));
+    expect(instance.state.runs?.find((run) => run.runId === root.runId)?.status).toBe("cancelled");
+    expect(instance.state.runs?.find((run) => run.runId === intermediary.runId)?.status).toBe("completed");
+  });
+
+  it("reports executor cleanup failures as pending instead of claiming room cancellation completed", async () => {
+    const instance = agent();
+    const run = createRun({
+      runId: "room-cleanup-pending", sandboxId: "room-cleanup-pending-box", repoUrl: "https://github.com/o/r",
+      task: "Room run", baseBranch: "main", publishPullRequest: false,
+      collaborationHandoffId: "handoff-cleanup-pending",
+    });
+    instance.setState({ runs: [run] });
+    Object.assign(instance, {
+      releaseSandboxForRun: vi.fn(async () => { throw new Error("sandbox still reachable"); }),
+    });
+
+    const response = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-cleanup-pending" }),
+    }));
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ cancelled: false, executorCancellationPending: true, outcomeUnknown: false });
+    expect(instance.state.runs?.[0]?.status).toBe("cancelled");
   });
 
   it("rejects the linked pending approval when the Worker propagates lineage cancellation", async () => {
@@ -527,6 +599,44 @@ describe("durable artifact review state", () => {
     expect(reloadRetry).toMatchObject({ approvalId: payload.approvalId, deduped: true });
     expect(instance.state.pendingApprovals).toHaveLength(1);
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("requires a new room handoff instead of carrying an old handoff into a revision approval", async () => {
+    const instance = agent();
+    const source: DelegatedRun = {
+      ...retained("completed"), runId: "room-artifact-source", repoUrl: "",
+      task: "Create a room report", collaborationHandoffId: "room-source-handoff",
+      expectedDeliverables: ["reports/room.md"],
+      deliverables: [{
+        path: "reports/room.md", mediaType: "text/markdown", bytes: 4, sha256: "b".repeat(64),
+        version: 1, sourceRunId: "room-artifact-source",
+        review: { status: "changes_requested" as const, revision: 1, updatedAt: 20, note: "Add one detail" },
+      }],
+    };
+    const approvalBody = {
+      threadKey: "default", approvalId: "room-source-approval", repoUrl: "", task: "Create a room report",
+      baseBranch: "main", publishPullRequest: false, expectedDeliverables: ["reports/room.md"],
+      collaborationHandoffId: "room-source-handoff", status: "approved" as const, createdAt: 10,
+    };
+    const sourceTask = updateTaskAttempt(createDurableTask({
+      taskId: "task-room-source", ownerId: "default", title: "Create a room report", commandId: "room-source-command",
+      approvalId: "room-source-approval", frozen: { body: approvalBody, inputHash: "room-source-hash", threadKey: "default" }, now: 10,
+    }), 1, { runId: source.runId, status: "completed", updatedAt: 20 });
+    sourceTask.artifactLineageId = sourceTask.taskId;
+    const artifact = source.deliverables?.[0];
+    if (!artifact) throw new Error("Expected the room artifact.");
+    artifact.artifactId = await artifactIdentity(source, artifact.path, sourceTask.taskId);
+    instance.setState({ ...instance.state, runs: [source], tasks: [sourceTask] });
+
+    const response = await instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        commandId: "artifact-revision:room-source-1", artifactId: artifact.artifactId,
+        artifactVersion: 1, reviewRevision: 1,
+      }),
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("new room handoff") });
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
   });
 });
 

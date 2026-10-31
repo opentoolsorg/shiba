@@ -228,6 +228,12 @@ export function frozenTaskInputFromApproval(approval: PendingApproval): FrozenTa
     ...(approval.envDigest !== undefined ? { envDigest: approval.envDigest } : {}),
     ...(approval.runSetup === true ? { runSetup: true } : {}),
     ...(approval.customAgentVersion !== undefined ? { customAgentVersion: approval.customAgentVersion } : {}),
+    ...(approval.employeeToolPolicyVersion !== undefined
+      ? { employeeToolPolicyVersion: approval.employeeToolPolicyVersion }
+      : {}),
+    ...(approval.collaborationHandoffId !== undefined
+      ? { collaborationHandoffId: approval.collaborationHandoffId }
+      : {}),
     ...(approval.skillPins !== undefined ? { skillPins: approval.skillPins } : {}),
     ...(approval.role !== undefined ? { role: approval.role } : {}),
     ...(approval.subagentBudget !== undefined ? { subagentBudget: approval.subagentBudget } : {}),
