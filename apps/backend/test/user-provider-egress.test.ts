@@ -76,6 +76,10 @@ describe("user provider key egress", () => {
     const deployment = env(kv);
     const secret = "sk-ant-setup-token-value";
     await putUserProviderSecret(deployment, "self-hosted", "claude-setup", secret);
+    await kv.put(
+      "auth_flow_claude-sub:default",
+      JSON.stringify({ phase: "succeeded", ownerSessionId: "self-hosted" }),
+    );
     let auth: string | null = null;
     const original = globalThis.fetch;
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -93,5 +97,21 @@ describe("user provider key egress", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+
+  it("refuses Claude subscription egress after the auth flow is cleared", async () => {
+    const kv = new FakeKV();
+    const deployment = env(kv);
+    await kv.put(
+      "auth_flow_claude-sub:default",
+      JSON.stringify({ phase: "cleared", ownerSessionId: null, generation: 2 }),
+    );
+    await putUserProviderSecret(deployment, "self-hosted", "claude-setup", "sk-ant-setup-token-value");
+    const response = await forwardClaudeSubscription(
+      new Request("https://api.anthropic.com/v1/messages", { method: "POST", body: "{}" }),
+      deployment,
+      { orgId: "self-hosted" },
+    );
+    expect(response.status).toBe(403);
   });
 });

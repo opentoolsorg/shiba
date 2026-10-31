@@ -79,6 +79,8 @@ export class AuthFlowError extends Error {
 interface FlowRecord {
   phase: AuthPhase;
   ownerSessionId: string | null;
+  /** Bumps on begin/clear so async verify cannot overwrite a replaced flow. */
+  generation?: number;
   message?: string;
   expiresAt?: number;
   /** T50: the operator-opened sign-in URL while `waiting`. */
@@ -127,6 +129,25 @@ async function writeFlow<Env extends AuthKvEnv>(env: Env, instanceId: string, re
     console.warn(`auth: KV put failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     throw new AuthFlowError("store_unavailable", "auth state store is unreachable.");
   }
+}
+
+function flowGeneration(record: FlowRecord): number {
+  return typeof record.generation === "number" && Number.isFinite(record.generation) ? record.generation : 0;
+}
+
+function nextFlowGeneration(record: FlowRecord): number {
+  return flowGeneration(record) + 1;
+}
+
+const SUBSCRIPTION_EGRESS_PHASES: readonly AuthPhase[] = ["succeeded", "verifying"];
+
+/** Whether subscription egress may attach credentials for this provider instance. */
+export async function authFlowPermitsSubscriptionEgress<Env extends AuthKvEnv>(
+  env: Env,
+  instanceId: string,
+): Promise<boolean> {
+  const record = await readFlow(env, instanceId);
+  return SUBSCRIPTION_EGRESS_PHASES.includes(record.phase);
 }
 
 /**
@@ -178,7 +199,8 @@ export function createAuthController<Env extends AuthKvEnv>(
         }
       }
       requireOwner(record, ownerSessionId, "begin");
-      const started: FlowRecord = { phase: "starting", ownerSessionId };
+      const generation = nextFlowGeneration(record);
+      const started: FlowRecord = { phase: "starting", ownerSessionId, generation };
       await writeFlow(env, instanceId, started);
       // Provider begin work (e.g. record the credential) may elect to wait
       // for an out-of-band artifact — only T50's flow returns `wait`.
@@ -190,11 +212,15 @@ export function createAuthController<Env extends AuthKvEnv>(
         // flow parked — the dashboard would show "Connecting" forever. Roll to
         // failed with the real reason, then surface the throw to the caller.
         const message = error instanceof Error ? error.message : String(error);
-        await writeFlow(env, instanceId, { phase: "failed", ownerSessionId, message });
+        await writeFlow(env, instanceId, {
+          phase: "failed", ownerSessionId, generation, message,
+        });
         throw error;
       }
       if (outcome?.wait !== undefined) {
-        const waiting: FlowRecord = { phase: "waiting", ownerSessionId, message: outcome.wait };
+        const waiting: FlowRecord = {
+          phase: "waiting", ownerSessionId, generation, message: outcome.wait,
+        };
         if (outcome.authorizationUrl !== undefined) waiting.authorizationUrl = outcome.authorizationUrl;
         if (outcome.pending !== undefined) waiting.pending = outcome.pending;
         await writeFlow(env, instanceId, waiting);
@@ -207,17 +233,22 @@ export function createAuthController<Env extends AuthKvEnv>(
       if (record.phase === "idle" || record.phase === "cleared") {
         throw new AuthFlowError("invalid_phase", "nothing to verify — begin() first.");
       }
-      await writeFlow(env, instanceId, { ...record, phase: "verifying" });
+      const verifyGeneration = flowGeneration(record);
+      await writeFlow(env, instanceId, { ...record, phase: "verifying", generation: verifyGeneration });
       try {
         const verdict = await hooks.probe(env, instanceId);
+        const latest = await readFlow(env, instanceId);
+        if (flowGeneration(latest) !== verifyGeneration) {
+          throw new AuthFlowError("invalid_phase", "auth flow changed during verification.");
+        }
         const next: FlowRecord = verdict.ok
           ? {
-              phase: "succeeded", ownerSessionId,
+              phase: "succeeded", ownerSessionId, generation: verifyGeneration,
               ...(verdict.message !== undefined ? { message: verdict.message } : {}),
               ...(verdict.expiresAt !== undefined ? { expiresAt: verdict.expiresAt } : {}),
             }
           : {
-              phase: "failed", ownerSessionId,
+              phase: "failed", ownerSessionId, generation: verifyGeneration,
               message: verdict.message ?? "capability probe failed.",
             };
         await writeFlow(env, instanceId, next);
@@ -227,8 +258,15 @@ export function createAuthController<Env extends AuthKvEnv>(
           ...(next.expiresAt !== undefined ? { expiresAt: next.expiresAt } : {}),
         };
       } catch (error) {
+        if (error instanceof AuthFlowError) throw error;
         const message = `probe threw: ${error instanceof Error ? error.message : String(error)}`;
-        await writeFlow(env, instanceId, { phase: "failed", ownerSessionId, message });
+        const latest = await readFlow(env, instanceId);
+        if (flowGeneration(latest) !== verifyGeneration) {
+          throw new AuthFlowError("invalid_phase", "auth flow changed during verification.");
+        }
+        await writeFlow(env, instanceId, {
+          phase: "failed", ownerSessionId, generation: verifyGeneration, message,
+        });
         return { phase: "failed", ownerSessionId, message };
       }
     },
@@ -272,7 +310,11 @@ export function createAuthController<Env extends AuthKvEnv>(
       // a credential whose flow already claims to be gone.
       await hooks.closeAdmission?.(env, instanceId);
       await hooks.stopInFlight?.(env, instanceId);
-      await writeFlow(env, instanceId, { phase: "cleared", ownerSessionId: null });
+      await writeFlow(env, instanceId, {
+        phase: "cleared",
+        ownerSessionId: null,
+        generation: nextFlowGeneration(record),
+      });
       await hooks.onCleared?.(env, instanceId);
     },
   };
