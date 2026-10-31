@@ -178,7 +178,10 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                     const begin = await request<{ authorizationUrl: string }>(
                       `/api/v1/mcp/servers/${created.server.id}/oauth/begin`,
                       { method: "POST", body: JSON.stringify({ redirectUri }) },
-                    );
+                    ).catch(async (cause: unknown) => {
+                      await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" });
+                      throw cause;
+                    });
                     window.open(begin.authorizationUrl, "_blank", "noopener,noreferrer");
                   },
                   "OAuth sign-in opened — finish in the vendor window, then refresh.",
@@ -213,6 +216,9 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                     await request(`/api/v1/mcp/servers/${created.server.id}/bearer`, {
                       method: "POST",
                       body: JSON.stringify({ token: bearer[vendor.catalogId] }),
+                    }).catch(async (cause: unknown) => {
+                      await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" });
+                      throw cause;
                     });
                     await request(`/api/v1/mcp/servers/${created.server.id}/discover`, { method: "POST", body: "{}" });
                   },

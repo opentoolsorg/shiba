@@ -9,7 +9,6 @@ import {
   discoverExternalMcpOAuth,
   exchangeExternalMcpOAuthCode,
   readDeploymentOAuthClientId,
-  revokeExternalMcpOAuth,
   saveExternalMcpBearerToken,
 } from "../external-mcp-oauth.js";
 import { CURATED_MCP_VENDORS, curatedMcpVendorByCatalogId } from "@shiba/shared";
@@ -50,9 +49,9 @@ function safeError(error: unknown): Response {
     invalid_credential_reference: 400, auth_reference_missing: 409, schema_invalid: 502, redirect_rejected: 502,
     schema_version_changed: 409, tool_not_reviewed_or_schema_changed: 409, invalid_effect_review: 400,
     server_limit: 409, server_not_found: 404, tool_disabled: 409, approval_not_found: 404,
-    invalid_catalog_id: 400, connection_label_required: 400, invalid_connection_label: 400,
+    invalid_catalog_id: 400, connection_label_required: 400, connection_label_taken: 409, invalid_connection_label: 400,
     oauth_discovery_failed: 502, oauth_storage_unavailable: 503, oauth_state_invalid: 400, oauth_token_exchange_failed: 502,
-    oauth_client_not_configured: 503, invalid_bearer: 400 };
+    oauth_refresh_in_progress: 503, oauth_client_not_configured: 503, invalid_bearer: 400 };
   const allowed = new Set(Object.keys(statuses));
   return response({ ok: false, error: allowed.has(code) ? code : "external_mcp_unavailable" }, statuses[code] ?? 503);
 }
@@ -74,7 +73,7 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
     const code = ctx.url.searchParams.get("code") ?? "";
     if (!state || !code) return response({ ok: false, error: "invalid_request" }, 400);
     try {
-      const result = await exchangeExternalMcpOAuthCode(ctx.env, { state, code });
+      const result = await exchangeExternalMcpOAuthCode(ctx.env, { state, code, principal: ctx.principal });
       const server = await getExternalMcpServer(ctx.env, result.orgId, result.ownerId, result.serverId);
       if (server) await discoverExternalMcpServer(ctx.env, server).catch(() => {});
       return response({ ok: true, serverId: result.serverId });
@@ -129,7 +128,6 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
   if (action === "" && ctx.request.method === "DELETE") { await disableExternalMcpServer(ctx.env, server); return response({ ok: true, disabled: true }); }
   if (action === "revoke" && ctx.request.method === "POST") {
     try {
-      await revokeExternalMcpOAuth(ctx.env, { orgId: server.orgId, ownerId: server.ownerId, serverId: server.id });
       await disableExternalMcpServer(ctx.env, server);
       return response({ ok: true, revoked: true });
     } catch (error) { return safeError(error); }

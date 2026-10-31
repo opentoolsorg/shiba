@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import {
   createExternalMcpServer,
+  disableExternalMcpServer,
   discoverExternalMcpServer,
   getExternalMcpServer,
   listExternalMcpCatalogConnections,
@@ -14,7 +15,9 @@ import {
   beginExternalMcpOAuthConnect,
   discoverExternalMcpOAuth,
   exchangeExternalMcpOAuthCode,
-  revokeExternalMcpOAuth,
+  loadExternalMcpOAuthTokens,
+  saveExternalMcpOAuthTokens,
+  resolveExternalMcpBearer,
 } from "../src/external-mcp-oauth.js";
 import { curatedMcpVendorByCatalogId, recommendedExternalMcpToolEffect } from "@shiba/shared";
 import { createToolRegistry, visibleToolsForPrincipal } from "../src/mcp-gateway.js";
@@ -115,9 +118,83 @@ describe("external MCP OAuth + multi-account", () => {
     });
     expect(begin.authorizationUrl).toContain("code_challenge=");
     const state = new URL(begin.authorizationUrl).searchParams.get("state")!;
-    await exchangeExternalMcpOAuthCode(env, { state, code: "vendor-code" }, discoveryFetch);
+    for (const principal of [{ ...owner, orgId: "other-org" }, { ...owner, principal: "other-owner" }]) {
+      await expect(exchangeExternalMcpOAuthCode(env, { state, code: "vendor-code", principal }, discoveryFetch)).rejects.toThrow("oauth_state_invalid");
+    }
+    expect(discoveryFetch).toHaveBeenCalledTimes(2);
+    await exchangeExternalMcpOAuthCode(env, { state, code: "vendor-code", principal: owner }, discoveryFetch);
+    expect(await loadExternalMcpOAuthTokens(env, owner.orgId, owner.principal, prod!.id)).toMatchObject({
+      tokenEndpoint: "https://auth.vendor.test/oauth/token", clientId: "shiba_test_stripe_client",
+      revocationEndpoint: "https://auth.vendor.test/oauth/revoke",
+    });
     const audit = await listAuditEntries(env, { limit: 5 });
     expect(audit.some((row) => row.tool === "external_mcp.connect")).toBe(true);
+  });
+
+  it("refreshes expired credentials once for concurrent callers and persists rotation", async () => {
+    const { env } = environment();
+    const stored = { accessToken: "expired", refreshToken: "refresh-1", expiresAt: 0, tokenType: "Bearer",
+      tokenEndpoint: "https://auth.vendor.test/oauth/token", clientId: "client", revocationEndpoint: "https://auth.vendor.test/oauth/revoke" };
+    await saveExternalMcpOAuthTokens(env, owner.orgId, owner.principal, "server", stored);
+    const refresh = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(init?.body)).toBe("grant_type=refresh_token&refresh_token=refresh-1&client_id=client");
+      return Response.json({ access_token: "new-access", refresh_token: "refresh-2", expires_in: 3600 });
+    });
+    const resolve = () => resolveExternalMcpBearer(env, owner.orgId, owner.principal, "server", refresh);
+    expect(await Promise.all([resolve(), resolve(), resolve()])).toEqual(["new-access", "new-access", "new-access"]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(await resolve()).toBe("new-access");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    const rotated = await loadExternalMcpOAuthTokens(env, owner.orgId, owner.principal, "server");
+    expect(rotated).toMatchObject({ refreshToken: "refresh-2", clientId: "client", revocationEndpoint: stored.revocationEndpoint });
+    await saveExternalMcpOAuthTokens(env, owner.orgId, owner.principal, "server", { ...rotated!, expiresAt: 0 });
+    const withoutRotation = vi.fn(async () => Response.json({ access_token: "next-access" }));
+    expect(await resolveExternalMcpBearer(env, owner.orgId, owner.principal, "server", withoutRotation)).toBe("next-access");
+    expect((await loadExternalMcpOAuthTokens(env, owner.orgId, owner.principal, "server"))?.refreshToken).toBe("refresh-2");
+  });
+
+  it("serializes rotation across independent binding objects sharing D1", async () => {
+    const { env } = environment();
+    const otherEnv = { ...env, AGENT_AUDIT: { ...env.AGENT_AUDIT } } as Env;
+    await saveExternalMcpOAuthTokens(env, owner.orgId, owner.principal, "shared-server", {
+      accessToken: "expired", refreshToken: "refresh", expiresAt: 0, tokenType: "Bearer",
+      tokenEndpoint: "https://auth.vendor.test/oauth/token", clientId: "client",
+    });
+    const refresh = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return Response.json({ access_token: "rotated", refresh_token: "next" });
+    });
+    const results = await Promise.all([env, otherEnv].map((binding) =>
+      resolveExternalMcpBearer(binding, owner.orgId, owner.principal, "shared-server", refresh)));
+    expect(results).toEqual(["rotated", "rotated"]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases failed refreshes for retry without overwriting stored credentials", async () => {
+    const { env } = environment();
+    const stored = { accessToken: "expired", refreshToken: "refresh", expiresAt: 0, tokenType: "Bearer",
+      tokenEndpoint: "https://auth.vendor.test/oauth/token", clientId: "client" };
+    await saveExternalMcpOAuthTokens(env, owner.orgId, owner.principal, "server", stored);
+    const refresh = vi.fn(async () => new Response(null, { status: 400 }));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(resolveExternalMcpBearer(env, owner.orgId, owner.principal, "server", refresh)).rejects.toThrow("oauth_token_exchange_failed");
+    }
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(await loadExternalMcpOAuthTokens(env, owner.orgId, owner.principal, "server")).toEqual(stored);
+  });
+
+  it("returns a conflict for duplicate active catalog labels and frees disabled labels", async () => {
+    const { env } = environment();
+    const input = { orgId: owner.orgId, ownerId: owner.principal, name: "Stripe", endpoint: stripeEndpoint,
+      credentialRef: null, catalogId: "stripe", connectionLabel: "prod", authMode: "oauth" as const };
+    const server = (await createExternalMcpServer(env, input))!;
+    const url = new URL("https://shiba.test/api/v1/mcp/servers");
+    const response = await handleMcpV1({ request: new Request(url, { method: "POST", body: JSON.stringify({ catalogId: "stripe", connectionLabel: "prod" }) }),
+      url, env, principal: owner } as V1Context);
+    expect(response?.status).toBe(409);
+    expect(await response?.json()).toMatchObject({ error: "connection_label_taken" });
+    await disableExternalMcpServer(env, server);
+    expect((await createExternalMcpServer(env, input))?.id).not.toBe(server.id);
   });
 
   it("keeps two Stripe accounts separate by connection label", async () => {
@@ -163,7 +240,7 @@ describe("external MCP OAuth + multi-account", () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
   });
 
-  it("revokes OAuth storage and writes audit rows", async () => {
+  it.each(["ok", "network", "http"])("revokes at the vendor and deletes local storage (vendor response: %s)", async (vendorResponse) => {
     const { env } = environment();
     const vendor = curatedMcpVendorByCatalogId("stripe")!;
     const discoveryFetch = mockDiscoveryFetch();
@@ -177,10 +254,23 @@ describe("external MCP OAuth + multi-account", () => {
       redirectUri: "https://app.test/cb", clientId: "shiba_test_stripe_client", scopes: "openid", discovery,
     });
     const state = new URL(begin.authorizationUrl).searchParams.get("state")!;
-    await exchangeExternalMcpOAuthCode(env, { state, code: "code" }, discoveryFetch);
-    await revokeExternalMcpOAuth(env, { orgId: "org-a", ownerId: owner.principal, serverId: server!.id, revocationEndpoint: "https://auth.vendor.test/oauth/revoke" }, discoveryFetch);
+    await exchangeExternalMcpOAuthCode(env, { state, code: "code", principal: owner }, discoveryFetch);
+    const revokeFetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(init?.body)).toContain("client_id=shiba_test_stripe_client");
+      if (vendorResponse === "network") throw new Error("vendor unavailable");
+      return new Response(null, { status: vendorResponse === "http" ? 500 : 200 });
+    });
+    vi.stubGlobal("fetch", revokeFetch);
+    const url = new URL(`https://shiba.test/api/v1/mcp/servers/${server.id}/revoke`);
+    const response = await handleMcpV1({ request: new Request(url, { method: "POST" }), url, env, principal: owner } as V1Context);
+    expect(response?.status).toBe(200);
+    expect(revokeFetch).toHaveBeenCalledTimes(1);
+    expect(revokeFetch.mock.calls[0]?.[0]).toBe("https://auth.vendor.test/oauth/revoke");
+    expect(await loadExternalMcpOAuthTokens(env, owner.orgId, owner.principal, server.id)).toBeNull();
     const audit = await listAuditEntries(env, { limit: 10 });
-    expect(audit.some((row) => row.tool === "external_mcp.revoke")).toBe(true);
+    const revocations = audit.filter((row) => row.tool === "external_mcp.revoke");
+    expect(revocations).toHaveLength(1);
+    expect(revocations[0]?.outcome).toBe(vendorResponse === "ok" ? "ok" : "error");
   });
 
   it("exposes vendor catalog over the v1 MCP API", async () => {
