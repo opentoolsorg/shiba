@@ -5,7 +5,7 @@
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { expectedDeliverablesSchema, HARNESS_REASONING_EFFORTS, type ReasoningEffort } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, type ReasoningEffort } from "@shiba/shared";
 import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
@@ -20,7 +20,8 @@ import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from ".
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
-import { buildExecutionTargetFields } from "./execution-target-input";
+import { useProjectContexts } from "./project-contexts";
+import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables } from "./execution-target-input";
 import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
 import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
@@ -425,7 +426,6 @@ export function App(): React.JSX.Element {
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
   const [projectContextId, setProjectContextId] = useState("");
-  const [projectContexts, setProjectContexts] = useState<Array<{ id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }>>([]);
   const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
@@ -447,17 +447,6 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     document.title = "Shiba Dashboard · Self-Hosted AI Software Engineer";
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    const load = () => void fetch("/api/memory/projects", { credentials: "same-origin", cache: "no-store" })
-      .then(async (response) => response.ok ? await response.json() as { projects?: typeof projectContexts } : { projects: [] })
-      .then((body) => { if (active) setProjectContexts(Array.isArray(body.projects) ? body.projects : []); })
-      .catch(() => { if (active) setProjectContexts([]); });
-    load();
-    window.addEventListener("shiba:projects-updated", load);
-    return () => { active = false; window.removeEventListener("shiba:projects-updated", load); };
   }, []);
 
   // Surface transient notices through the toast channel (aria-live inside sonner).
@@ -634,6 +623,8 @@ export function App(): React.JSX.Element {
   const identityFailures = useRef(0);
   const retryIdentity = useCallback(() => setIdentityAttempt((n) => n + 1), []);
   const signedIn = orchestratorName !== null && identityIssue === null;
+  const projectContexts = useProjectContexts(signedIn ? orchestratorName : null);
+  useEffect(() => setProjectContextId(""), [signedIn, orchestratorName]);
   const {
     agents: customAgentRecords,
     refresh: refreshCustomAgents,
@@ -1223,9 +1214,7 @@ export function App(): React.JSX.Element {
         setNotice("Repository URL must be a GitHub URL like https://github.com/owner/repo.");
         return;
       }
-      const parsedArtifactDeliverables = expectedDeliverablesSchema.safeParse(
-        artifactDeliverables.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
-      );
+      const parsedArtifactDeliverables = parseArtifactDeliverables(artifactDeliverables);
       if (executionTargetKind === "artifact-workspace" && !parsedArtifactDeliverables.success) {
         setNotice("Use 1–8 safe relative .md, .txt, .json, or .csv output paths.");
         return;
@@ -1700,7 +1689,7 @@ export function App(): React.JSX.Element {
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        if (!isSubmitting && repoUrl.trim() && task.trim()) {
+        if (!isSubmitting && hasComposerInput({ task, repoUrl, executionTargetKind, conversationMode, appToolsWork })) {
           e.preventDefault();
           submitTask();
         }
@@ -1743,6 +1732,9 @@ export function App(): React.JSX.Element {
     repoUrl,
     task,
     submitTask,
+    executionTargetKind,
+    conversationMode,
+    appToolsWork,
     toggleSessionsCollapsed,
     toggleTheme,
     settingsModalOpen,

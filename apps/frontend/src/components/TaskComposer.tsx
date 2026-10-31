@@ -36,7 +36,8 @@ import {
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import type { SavedSkill } from "../saved";
-import { expectedDeliverablesSchema, HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
+import { hasComposerInput, parseArtifactDeliverables } from "../execution-target-input";
 
 // Ambient types for browser Web Speech API.
 interface SpeechRecognitionResultItem {
@@ -340,16 +341,13 @@ export function TaskComposer({
   const localTargetBlocked = runTarget === "local" && (
     !localRunAvailable || !targetMachineId || localComputersLoading || localComputersError !== null
   );
-  const artifactPathsValid = expectedDeliverablesSchema.safeParse(
-    artifactDeliverables.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
-  ).success;
+  const artifactPathsValid = parseArtifactDeliverables(artifactDeliverables).success;
   const computerTaskBlocked =
-    (executionTargetKind === "repository" && repoUrl.trim() === "") ||
     (executionTargetKind === "artifact-workspace" && !artifactPathsValid) ||
     localTargetBlocked || Boolean(
     customAgentId && (customAgentsLoading || !customAgents.some((agent) => agent.id === customAgentId)),
   );
-  const sendDisabled = busy || isSubmitting || clearing || task.trim() === "" || (appToolsWork ? appToolsWorkIssue !== null : computerTaskBlocked);
+  const sendDisabled = busy || isSubmitting || clearing || !hasComposerInput({ task, repoUrl, executionTargetKind, appToolsWork }) || (appToolsWork ? appToolsWorkIssue !== null : computerTaskBlocked);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hero = variant === "hero";
 
