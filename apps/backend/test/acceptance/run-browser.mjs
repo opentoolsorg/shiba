@@ -301,6 +301,12 @@ try {
   await page.getByRole("heading", { name: "Bots", exact: true }).waitFor();
   const interruptedName = "Interrupted onboarding research draft";
   await page.getByLabel("Name", { exact: true }).fill(interruptedName);
+  const advancedSettings = page.getByText("Advanced settings", { exact: true });
+  assert.equal(await advancedSettings.evaluate((summary) => summary.closest("details").open), false);
+  await advancedSettings.focus();
+  await advancedSettings.press("Enter");
+  assert.equal(await advancedSettings.evaluate((summary) => summary.closest("details").open), true);
+  assert.equal(await advancedSettings.evaluate((summary) => document.activeElement === summary), true);
   await page.getByLabel("Default repository").fill("https://github.com/example/onboarding-draft");
   await nav(page, "providers");
   await page.getByRole("heading", { name: /Providers/ }).first().waitFor();
@@ -545,6 +551,7 @@ try {
 
   await nav(page, "custom-agents");
   await page.getByRole("heading", { name: /Bots|Custom agents/ }).waitFor();
+  await page.getByText("Advanced settings", { exact: true }).click();
   await page.getByPlaceholder("security-reviewer").fill("acceptance-researcher");
   await page.getByPlaceholder("Security reviewer").fill("Acceptance Researcher");
   await page

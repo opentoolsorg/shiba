@@ -38,6 +38,50 @@ const value = (label: string | RegExp) => (screen.getByLabelText(label) as HTMLI
 const connections = [{ id: "conn-openai", label: "Approved OpenAI", service: "openai", status: "ready" as const }];
 
 describe("role drafts in the Bots directory", () => {
+  it("creates from the primary fields using the keyboard and leaves optional settings collapsed", async () => {
+    const server = stubDirectory();
+    render(<CustomAgentsView />);
+    const advanced = screen.getByText("Advanced settings").closest("details");
+    const templates = screen.getByText("Use a role template").closest("details");
+    expect(advanced?.open).toBe(false);
+    expect(templates?.open).toBe(false);
+    expect(screen.getByLabelText("Name").closest("details")).toBeNull();
+    expect(screen.getByLabelText(/^Instructions/).closest("details")).toBeNull();
+    change("Name", "My Research Helper");
+    change(/^Instructions/, "Review the supplied sources and write a brief.");
+    fireEvent.keyDown(screen.getByLabelText(/^Instructions/), { key: "Enter", ctrlKey: true });
+    await screen.findByText("Bot created.");
+    expect(server.writes).toEqual([{ method: "POST", url: "/api/custom-agents", body: {
+      slug: "my-research-helper", config: { name: "My Research Helper", instructions: "Review the supplied sources and write a brief.", harness: "opencode" },
+    } }]);
+  });
+
+  it("expands native advanced controls and restores their values from the account draft", () => {
+    stubDirectory();
+    const view = render(<CustomAgentsView draftScope="owner-a" connections={connections} />);
+    const summary = screen.getByText("Advanced settings");
+    expect(summary.tagName).toBe("SUMMARY");
+    fireEvent.click(summary);
+    expect(summary.closest("details")?.open).toBe(true);
+    change("Name", "Research helper");
+    change(/^Instructions/, "Keep these instructions");
+    change("Harness", "codex"); change("Model", "openai/gpt-6-sol");
+    change(/^Model connection/, "conn-openai"); change(/^Sandbox/, "docker-local");
+    change("Default repository", "https://github.com/example/research");
+    view.unmount();
+    render(<CustomAgentsView draftScope="owner-a" connections={connections} />);
+    const restoredSummary = screen.getByText("Advanced settings");
+    expect(restoredSummary.closest("details")?.open).toBe(false);
+    fireEvent.click(restoredSummary);
+    expect(restoredSummary.closest("details")?.open).toBe(true);
+    expect(value("Harness")).toBe("codex");
+    expect(value("Model")).toBe("openai/gpt-6-sol");
+    expect(value(/^Model connection/)).toBe("conn-openai");
+    expect(value(/^Sandbox/)).toBe("docker-local");
+    expect(value("Default repository")).toBe("https://github.com/example/research");
+    expect(value(/^Instructions/)).toBe("Keep these instructions");
+  });
+
   it("restores a browser draft after remount, isolates owners, and clears it only after creation", async () => {
     const server = stubDirectory();
     const view = render(<CustomAgentsView draftScope="owner-a" />);
@@ -185,6 +229,7 @@ describe("role drafts in the Bots directory", () => {
     const server = stubDirectory([bot]);
     render(<CustomAgentsView connections={connections} />);
     fireEvent.click(await screen.findByRole("button", { name: "Edit bot" }));
+    expect(screen.getByText("Advanced settings").closest("details")?.open).toBe(true);
     for (const template of EMPLOYEE_TEMPLATES) {
       const button = screen.getByRole("button", { name: template.label }) as HTMLButtonElement;
       expect(button.disabled).toBe(true);
