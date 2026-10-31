@@ -96,7 +96,7 @@ import { mailboxDirectoryStub, mailboxStub, registeredMailbox } from "../mailbox
 import { ownerMemoryStub } from "../memory-do.js";
 import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
-import { orgIdFromIntake } from "../org-request-auth.js";
+import { orgIdFromIntake, trustedIntakeOrgId } from "../org-request-auth.js";
 import { openRunEnv } from "../run-env-seal.js";
 import { resolveRuntimeName } from "../runtime.js";
 import { assertRunPreflight } from "../run-preflight.js";
@@ -395,7 +395,6 @@ const composerPinSchema = z.object({
   reasoningEffort: z.enum(REASONING_EFFORTS).optional().catch(undefined),
   customAgentId: z.string().min(1).max(128).optional().catch(undefined),
   projectContextId: z.string().regex(/^memproj_[a-f0-9]{24}$/).optional().catch(undefined),
-  orgId: z.string().min(1).max(128).optional().catch(undefined),
   skillPins: z.array(z.object({
     skillId: z.string().min(1).max(100),
     version: z.number().int().positive(),
@@ -1156,7 +1155,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         repoUrl: input.repoUrl,
         executionTarget: input.executionTarget,
         publishPullRequest: input.publishPullRequest,
-        orgId: orgIdFromIntake(input as Record<string, unknown>),
+        orgId: trustedIntakeOrgId(this.name, input as Record<string, unknown>),
         initiatorUserId: initiatorUserIdFromOrchestratorName(this.name),
         runtime: input.runtime,
         sandboxProvider: input.sandboxProvider,
@@ -1986,7 +1985,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
       }
     }
-    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    const intakeOrgId = trustedIntakeOrgId(this.name, input as Record<string, unknown>);
     if (input.expectedCustomAgentVersion !== undefined &&
       (!Number.isSafeInteger(input.expectedCustomAgentVersion) || Number(input.expectedCustomAgentVersion) < 1)) {
       return Response.json({ error: "Invalid expected custom-agent version." }, { status: 400 });
@@ -2993,7 +2992,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let codingModel = input.codingModel;
     let connectionId = input.connectionId;
     let sandboxProvider: string | undefined;
-    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    const intakeOrgId = trustedIntakeOrgId(this.name, input as Record<string, unknown>);
     let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> | undefined;
     if (input.skillPins !== undefined && input.skillPins.length > 0) {
       const skillOwnerId = initiatorUserIdFromOrchestratorName(this.name);

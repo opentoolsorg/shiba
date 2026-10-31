@@ -15,6 +15,7 @@ export interface CloudflareSandboxRpc {
   ): Promise<void>;
   approveRepoScope(allowedPath: string): Promise<void>;
   setOutboundOrgId?(orgId: string): Promise<void>;
+  setOutboundGatewayByokAlias?(alias: string): Promise<void>;
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
   writeFile(path: string, content: string): Promise<void>;
   exec(
@@ -87,6 +88,9 @@ function wrapRpc(
       }
       if (pin.orgId && rpc.setOutboundOrgId) {
         await rpc.setOutboundOrgId(pin.orgId);
+      }
+      if (pin.gatewayByokAlias && rpc.setOutboundGatewayByokAlias) {
+        await rpc.setOutboundGatewayByokAlias(pin.gatewayByokAlias);
       }
     },
 
