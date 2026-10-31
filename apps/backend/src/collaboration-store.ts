@@ -819,9 +819,9 @@ export async function removeCollaborationMember(
          SET status='blocked',delivery_status='blocked',outcome_detail='A message author or approver was removed from this room.'
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND status='pending'
          AND delivery_status IN ('awaiting_approval','approved')
-         AND EXISTS (SELECT 1 FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.status='removed' AND removed.removed_at=?)
-         AND (created_by_user_id=(SELECT user_id FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.status='removed' AND removed.removed_at=?)
-           OR approved_by_user_id=(SELECT user_id FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.status='removed' AND removed.removed_at=?))`,
+         AND EXISTS (SELECT 1 FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.actor_kind='human' AND removed.status='removed' AND removed.removed_at=?)
+         AND (created_by_user_id=(SELECT user_id FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.actor_kind='human' AND removed.status='removed' AND removed.removed_at=?)
+           OR approved_by_user_id=(SELECT user_id FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.actor_kind='human' AND removed.status='removed' AND removed.removed_at=?))`,
     ).bind(
       scope.tenantId, scope.workspaceId, roomId,
       scope.tenantId, scope.workspaceId, roomId, actorId, removedAt,
