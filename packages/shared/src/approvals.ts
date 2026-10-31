@@ -3,6 +3,7 @@
  * and the pure list transforms the orchestrator applies to DO state.
  */
 import type { RuntimeSelection } from "./local-runtime.js";
+import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import type { AgentRole } from "./roles.js";
 import type { ForkLineage } from "./runs.js";
@@ -45,6 +46,14 @@ export interface JsonObject {
  */
 export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
 
+/** Stable provenance pointer for reviewed skill text frozen into an approval. */
+export interface SkillExecutionPin {
+  skillId: string;
+  version: number;
+  name: string;
+  sourceUrl?: string;
+}
+
 /** Runtime check that `value` is JSON-serializable — the shape a JSON body parse produces. */
 export function isJsonValue(value: unknown): value is JsonValue {
   if (value === null) return true;
@@ -75,6 +84,8 @@ export interface PendingApproval {
   threadKey: string;
   approvalId: string;
   repoUrl: string;
+  /** Explicit target for new runs; absent on legacy repository approvals. */
+  executionTarget?: ExecutionTarget;
   task: string;
   /** Exact delegation input frozen at queue time; executed verbatim on approve. */
   baseBranch?: string;
@@ -134,6 +145,12 @@ export interface PendingApproval {
   runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  /** Profile version that supplied the selected employee app-tool policy, if enabled. */
+  employeeToolPolicyVersion?: number;
+  /** Room handoff whose live membership/cancellation state fences this approval. */
+  collaborationHandoffId?: string;
+  /** Reviewed skill versions resolved by the authenticated Worker at intake. */
+  skillPins?: SkillExecutionPin[];
   orgId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
@@ -175,6 +192,7 @@ export interface CreateApprovalInput {
   threadKey: string;
   approvalId: string;
   repoUrl: string;
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch?: string;
   publishPullRequest?: boolean;
@@ -202,6 +220,10 @@ export interface CreateApprovalInput {
   runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  /** Profile version that supplied the selected employee app-tool policy, if enabled. */
+  employeeToolPolicyVersion?: number;
+  collaborationHandoffId?: string;
+  skillPins?: SkillExecutionPin[];
   orgId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
@@ -226,6 +248,7 @@ export function createPendingApproval(
       threadKey: input.threadKey,
       approvalId: input.approvalId,
       repoUrl: input.repoUrl,
+      ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget } : {}),
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
@@ -251,6 +274,9 @@ export function createPendingApproval(
       ...(input.envSealed !== undefined ? { envSealed: input.envSealed } : {}),
       ...(input.runSetup === true ? { runSetup: true } : {}),
       ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+      ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
+      ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
+      ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
@@ -375,6 +401,8 @@ export interface ApprovalEvidence {
 /** The fields the human approves — the input-hash surface. */
 export interface RunInputFields {
   repoUrl: string;
+  /** Included in the approval hash; absent on legacy repository runs. */
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
@@ -410,6 +438,11 @@ export interface RunInputFields {
   runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  /** Profile version that supplied the selected employee app-tool policy, if enabled. */
+  employeeToolPolicyVersion?: number;
+  /** Room handoff whose live membership/cancellation state fences this run. */
+  collaborationHandoffId?: string;
+  skillPins?: SkillExecutionPin[];
   role?: AgentRole;
 }
 
@@ -501,6 +534,7 @@ export function runInputHash(input: RunInputFields): string {
   const tc = input.testCommand;
   return stableHash({
     repoUrl: input.repoUrl,
+    ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget as unknown as JsonValue } : {}),
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,
@@ -526,6 +560,9 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
     ...(input.runSetup === true ? { runSetup: true } : {}),
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+    ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
+    ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
+    ...(input.skillPins !== undefined ? { skillPins: input.skillPins as unknown as JsonValue } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });

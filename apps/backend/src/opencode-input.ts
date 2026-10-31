@@ -4,7 +4,7 @@
  * parseAgentToolInput. The child never scrapes arbitrary prose.
  */
 import { z } from "zod";
-import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, isSafeDeliverablePath } from "@shiba/shared";
+import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, testCommandSchema, expectedDeliverablesSchema, executionTargetSchema, isSafeDeliverablePath } from "@shiba/shared";
 import { isApprovedRoute, type ApprovedRoute } from "./model-connections.js";
 import { parseGitHubRepoUrl } from "./security.js";
 
@@ -12,7 +12,9 @@ export const TOOL_INPUT_MARKER = "SHIBA_AI_COWORKER_CODING_TASK_JSON";
 export const RESULT_MARKER = "SHIBA_AI_COWORKER_CODING_RESULT_JSON";
 
 const codingTaskInputSchema = z.object({
-  repoUrl: z.string().min(1),
+  // Empty only for an explicitly selected artifact-workspace target. The
+  // historical repository route still requires and validates a GitHub URL.
+  repoUrl: z.string().max(2048),
   task: z.string().min(1),
   baseBranch: z.string().min(1),
   publishPullRequest: z.boolean(),
@@ -23,6 +25,12 @@ const codingTaskInputSchema = z.object({
   sandboxProvider: z.string().min(1).max(64).optional(),
   customAgentId: z.string().min(1).max(128).optional(),
   customAgentVersion: z.number().int().positive().optional(),
+  skillPins: z.array(z.object({
+    skillId: z.string().regex(/^skill-[a-f0-9]{24}$/),
+    version: z.number().int().positive(),
+    name: z.string().min(1).max(100),
+    sourceUrl: z.string().url().startsWith("https://").optional(),
+  }).strict()).max(5).optional(),
   codingModel: z.string().min(1),
   /** Which coding agent runs the task. Validated at approval time, never in the container. */
   harness: z.enum(HARNESS_IDS).optional(),
@@ -71,6 +79,7 @@ const codingTaskInputSchema = z.object({
    */
   testCommand: testCommandSchema.optional(),
   expectedDeliverables: expectedDeliverablesSchema.optional(),
+  executionTarget: executionTargetSchema.optional(),
   /**
    * Run-fork lineage: `refs/shiba/checkpoints/<parentSandboxId>/<seq>` in
    * the parent worktree this run resumes from. The executor restores that
@@ -101,6 +110,25 @@ const codingTaskInputSchema = z.object({
 const codingTaskInputWithRouteSchema = codingTaskInputSchema.superRefine((input, ctx) => {
   if (input.route !== undefined && !isApprovedRoute(input.route)) {
     ctx.addIssue({ code: "custom", message: "route must be an ApprovedRoute (connection/model/harness ids only)." });
+  }
+  const target = input.executionTarget;
+  if (target?.kind === "repository") {
+    if (input.repoUrl !== target.repoUrl || input.baseBranch !== target.baseBranch) {
+      ctx.addIssue({ code: "custom", message: "Repository executionTarget must match repoUrl and baseBranch." });
+    }
+  } else if (target?.kind === "artifact-workspace") {
+    if (input.repoUrl !== "") ctx.addIssue({ code: "custom", message: "Artifact-workspace runs must not name a repository." });
+    if (input.publishPullRequest) ctx.addIssue({ code: "custom", message: "Artifact-workspace runs cannot publish a pull request." });
+    if (input.runtime !== undefined && input.runtime !== "sandbox") {
+      ctx.addIssue({ code: "custom", message: "Artifact-workspace runs require the isolated sandbox runtime." });
+    }
+    if (JSON.stringify(input.expectedDeliverables ?? []) !== JSON.stringify(target.expectedDeliverables)) {
+      ctx.addIssue({ code: "custom", message: "Artifact-workspace deliverables must match the frozen execution target." });
+    }
+  } else if (target?.kind === "connected-app") {
+    ctx.addIssue({ code: "custom", message: "Connected-app execution is not available until a permissioned adapter is implemented." });
+  } else if (input.repoUrl.length === 0) {
+    ctx.addIssue({ code: "custom", message: "Repository runs require repoUrl." });
   }
 });
 
@@ -187,7 +215,7 @@ export type CodingTaskResult = z.infer<typeof codingTaskResultSchema>;
 export function formatAgentToolInput(input: CodingTaskInput): string {
   const parsed = codingTaskInputWithRouteSchema.parse(input);
   // Validate the repo URL eagerly so a bad URL fails before approval.
-  parseGitHubRepoUrl(parsed.repoUrl);
+  if (parsed.executionTarget?.kind !== "artifact-workspace") parseGitHubRepoUrl(parsed.repoUrl);
   return `${TOOL_INPUT_MARKER}\n${JSON.stringify(parsed)}`;
 }
 
@@ -209,7 +237,9 @@ export function parseAgentToolInput(messages: ChatTextMessage[]): CodingTaskInpu
     for (const candidate of candidatePayloads(message.text)) {
       const parsed = codingTaskInputWithRouteSchema.safeParse(candidate);
       if (parsed.success) {
-        parseGitHubRepoUrl(parsed.data.repoUrl);
+        if (parsed.data.executionTarget?.kind !== "artifact-workspace") {
+          parseGitHubRepoUrl(parsed.data.repoUrl);
+        }
         return parsed.data as CodingTaskInput;
       }
     }

@@ -43,15 +43,19 @@ import type { Env } from "../src/env.js";
 
 function makeDo(env: Partial<Env> = {}) {
   const storage = new Map<string, unknown>();
+  const storageApi = {
+    get: async (key: string) => storage.get(key),
+    put: async (key: string, value: unknown) => void storage.set(key, value),
+    list: async (opts?: { prefix?: string }) =>
+      new Map([...storage.entries()].filter(([k]) => (opts?.prefix ? k.startsWith(opts.prefix) : true))),
+    delete: async (keys: string[]) => {
+      for (const k of keys) storage.delete(k);
+    },
+  };
   const ctx = {
     storage: {
-      get: async (key: string) => storage.get(key),
-      put: async (key: string, value: unknown) => void storage.set(key, value),
-      list: async (opts?: { prefix?: string }) =>
-        new Map([...storage.entries()].filter(([k]) => (opts?.prefix ? k.startsWith(opts.prefix) : true))),
-      delete: async (keys: string[]) => {
-        for (const k of keys) storage.delete(k);
-      },
+      ...storageApi,
+      transaction: async (callback: (transaction: typeof storageApi) => Promise<unknown>) => callback(storageApi),
     },
   } as unknown as DurableObjectState;
   const fullEnv = {

@@ -17,18 +17,25 @@ The Slack integration is powered by the Orchestrator Worker and Durable Objects:
 4. **Approval card**: Slash-command responses and mentions can present approval/rejection controls. Mentions require `SLACK_BOT_TOKEN`; an empty token means no mention card and no run. An approval queues execution; successful coding or PR creation is not guaranteed.
 5. **Repo resolution**: GitHub URL in the mention/thread, else `SLACK_CHANNEL_REPOS`, else an in-thread ask — never a guessed repo.
 
+Task rooms can mirror a specific thread after the Worker has observed a signed Slack event for it. A room owner maps the exact workspace/channel/thread from the Collaboration view; only later signed messages in that thread are copied into the room. Slack user IDs remain Slack identities and are not linked to Shiba accounts. Revoking the mapping stops new room writes.
+
+Outbound room delivery is disabled by default. An operator must set `SLACK_ROOM_OUTBOX_ENABLED=true`, configure `SLACK_BOT_TOKEN` and the exact target `SLACK_APPROVALS_CHANNEL`, and configure `DASHBOARD_APPROVERS`. Each intent needs approval from a user on that allowlist who is also an active human member of the room. The author must remain an active human room member through approval and the pre-send check. Before sending, the Worker calls Slack `auth.test` with the configured token and requires its workspace ID to match the signed, mapped thread; it then rechecks both memberships, the active link, and exact message content before using `chat.postMessage`. Removing the author or approver blocks an unsent intent. Revoking a link blocks future sends while preserving an already-started attempt's eventual receipt or unknown outcome. A successful Slack receipt is persisted. A network failure after the request begins is recorded as **unknown** and is never automatically retried.
+
+Adding `message.channels` / `message.groups` subscriptions or the required history scopes changes the Slack app installation. A Slack workspace admin must review and approve the app manifest and reinstall or update the app. No channel mapping, app installation, scope grant, or real Slack send is performed by the code tests.
+
 ## Setup Instructions
 
 <Steps>
 
 1. **Create a Slack App**
-   Fastest: at [api.slack.com/apps](https://api.slack.com/apps) choose **Create New App → From a manifest** and paste `slack-app-manifest.yaml` from the repository root — it declares the scopes, `app_mention` event, `/shiba-ai-coworker` command, and interactivity below. Edit the two `your-worker.workers.dev` URLs to your Worker hostname. Manual alternative:
+   Fastest: at [api.slack.com/apps](https://api.slack.com/apps) choose **Create New App → From a manifest** and paste `slack-app-manifest.yaml` from the repository root — it declares the scopes, mention and thread-message events, `/shiba-ai-coworker` command, and interactivity below. Edit the two `your-worker.workers.dev` URLs to your Worker hostname. Manual alternative:
 
 2. **Configure Bot Token Scopes**
-   Under **OAuth & Permissions**, add the following Bot Token Scopes:
+   Under **OAuth & Permissions**, add the following Bot Token Scopes (a workspace admin must approve the updated app installation):
    - `chat:write` (post messages and replies)
    - `app_mentions:read` (listen for @AI Coworker mentions)
    - `channels:history` (read thread context)
+   - `groups:history` (read private-channel thread context)
    - `im:history` (read and reply to direct messages)
 
 3. **Enable Event Subscriptions**
@@ -36,7 +43,7 @@ The Slack integration is powered by the Orchestrator Worker and Durable Objects:
    ```
    https://your-worker.workers.dev/api/slack/events
    ```
-   Subscribe to bot events: `app_mention` and `message.im` (the second one powers DM conversations with the coworker).
+   Subscribe to bot events: `app_mention`, `message.channels`, `message.groups`, and `message.im`. Thread mirroring still requires a room owner to map the verified source in the Collaboration view.
 
 4. **Enable Interactivity**
    Under **Interactivity & Shortcuts**, enable interactivity and set the Request URL:

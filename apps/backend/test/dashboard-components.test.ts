@@ -211,7 +211,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
         task: "Refactor router to standalone views",
         baseBranch: "main",
         publishPullRequest: true,
-        status: "completed",
+        status: "completed" as const,
         createdAt: Date.now() - 5000,
         updatedAt: Date.now(),
         diff: `diff --git a/routes.ts b/routes.ts

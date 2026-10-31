@@ -193,7 +193,13 @@ describe("custom agent frozen-input approval boundary", () => {
     await vi.waitFor(() => expect(f.instance.state.runs[0]?.status).toBe("completed"));
     const run = f.instance.state.runs[0]!;
     expect(run.expectedDeliverables).toEqual(["brief.md"]);
-    expect(run.deliverables).toEqual([metadata]);
+    expect(run.deliverables).toHaveLength(1);
+    expect(run.deliverables?.[0]).toMatchObject(metadata);
+    expect(run.deliverables?.[0]).toMatchObject({
+      sourceRunId: run.runId,
+      version: 1,
+      review: { status: "pending_review" },
+    });
     expect(run.customAgentVersion).toBe(1);
     const dispatched = parseAgentToolInput([{ role: "user", text: String(mocks.execute.mock.calls[0]?.[0]) }]);
     expect(dispatched.expectedDeliverables).toEqual(["brief.md"]);
@@ -242,13 +248,13 @@ describe("custom agent frozen-input approval boundary", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it("rejects legacy nonempty tool scopes on HTTP and chat instead of running unrestricted", async () => {
+  it("rejects nonempty scopes without an authoritative employee policy on HTTP and chat", async () => {
     mocks.resolveCustom.mockResolvedValue({ ...PROFILE, config: { ...PROFILE.config, toolScopes: ["files:read"] } });
     const f = fixture();
     const response = await f.queue();
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining("toolScopes are not supported") });
-    await expect(f.gate()).rejects.toThrow("toolScopes are not supported");
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("tool policy is unavailable") });
+    await expect(f.gate()).rejects.toThrow("tool policy is unavailable");
     expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
     expect(mocks.execute).not.toHaveBeenCalled();
   });

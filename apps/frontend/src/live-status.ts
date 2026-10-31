@@ -378,10 +378,36 @@ export type OutboxEntryWire = OutboxEntry;
 export interface SpineWire {
   events: SpineEventWire[];
   outbox: OutboxEntryWire[];
+  executionBudget?: {
+    accounting: "harness_reported";
+    spentUsd: number;
+    reportedRuns: number;
+    unreportedRuns: number;
+    dailyLimitUsd?: number;
+    limitReached: boolean;
+    activeRuns: number;
+    maxConcurrentRuns: number;
+    dispatchAvailable: boolean;
+  };
   /** Log-window markers the since-parameterized route adds. */
   earliestSeq?: number;
   latestSeq?: number;
   totalEvents?: number;
+}
+
+/** Merge an incremental or replayed page without duplicating/staling sequence entries. */
+export function mergeSpineEvents(
+  current: SpineEventWire[],
+  incoming: SpineEventWire[],
+  maxEvents = MAX_SPINE_EVENTS,
+): SpineEventWire[] {
+  const bySeq = new Map<number, SpineEventWire>();
+  for (const event of current) bySeq.set(event.seq, event);
+  for (const event of incoming) {
+    const prior = bySeq.get(event.seq);
+    if (prior === undefined || event.at >= prior.at) bySeq.set(event.seq, event);
+  }
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq).slice(-maxEvents);
 }
 
 /**
@@ -431,14 +457,10 @@ export function useSpine(
         const latest =
           body.latestSeq ??
           (body.events.length > 0 ? body.events[body.events.length - 1]!.seq : (since ?? 0));
-        const seen = new Set(buffer.current.events.map((event) => event.seq));
         buffer.current = {
           base,
           seq: latest,
-          events: [
-            ...buffer.current.events,
-            ...body.events.filter((event) => !seen.has(event.seq)),
-          ].slice(-MAX_SPINE_EVENTS),
+          events: mergeSpineEvents(buffer.current.events, body.events),
         };
         setState({ kind: "data", data: { ...body, events: buffer.current.events } });
       })

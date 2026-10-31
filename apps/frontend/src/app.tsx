@@ -5,20 +5,23 @@
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HARNESS_REASONING_EFFORTS, type ReasoningEffort } from "@shiba/shared";
-import type { VMRun } from "./types";
+import { expectedDeliverablesSchema, HARNESS_REASONING_EFFORTS, type ReasoningEffort } from "@shiba/shared";
+import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
 import { SwarmDeskView } from "./components/SwarmDeskView";
+import { CollaborationView } from "./components/CollaborationView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
+import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
-import { formatSkillInstructions, taskWithSkillInstructions } from "./skill-prompt";
+import { buildExecutionTargetFields } from "./execution-target-input";
+import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
 import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
 import { useSocketLiveness } from "./socket-liveness";
@@ -30,8 +33,20 @@ import {
 } from "./live-status";
 import { DashboardView } from "./components/DashboardView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
-import { FirstRunWizard, ONBOARDING_STORAGE_KEY } from "./components/FirstRunWizard";
+import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
+import { OnboardingProgressClient } from "./onboarding-progress-client";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
+import { ConversationWorkspaceHeading } from "./components/ConversationWorkspaceHeading";
+import { ConversationModeSwitch } from "./components/ConversationModeSwitch";
+import { ChatMessageComposer } from "./components/ChatMessageComposer";
+import {
+  readConversationMode,
+  readRememberedSessionId,
+  resolveRememberedSessionId,
+  writeConversationMode,
+  writeRememberedSessionId,
+  type ConversationMode,
+} from "./conversation-mode";
 import { StepTimeline } from "./components/StepTimeline";
 import { DiffView } from "./components/DiffView";
 import { ApprovalsView } from "./components/ApprovalsView";
@@ -41,6 +56,7 @@ import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
 import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
+import { TaskHistory, type TaskHistoryItem } from "./components/TaskHistory";
 import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
 import { RunUsageCard } from "./components/RunUsageSummary";
@@ -388,6 +404,7 @@ export function App(): React.JSX.Element {
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const savedRepos = useSavedRepos();
   const savedSkills = useSavedSkills();
+  const selectableSkills = savedSkills.skills.filter((skill) => skill.status === "active");
   const [baseBranch, setBaseBranch] = useState("main");
   // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
   const [task, setTask] = useState(() => {
@@ -406,6 +423,9 @@ export function App(): React.JSX.Element {
   const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
+  const [projectContextId, setProjectContextId] = useState("");
+  const [projectContexts, setProjectContexts] = useState<Array<{ id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }>>([]);
+  const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
   const [envVars, setEnvVars] = useState<{ name: string; value: string }[]>([]);
@@ -414,6 +434,8 @@ export function App(): React.JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
+  const cancellingRunRef = useRef<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
@@ -424,6 +446,17 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     document.title = "Shiba Dashboard · Self-Hosted AI Software Engineer";
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const load = () => void fetch("/api/memory/projects", { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => response.ok ? await response.json() as { projects?: typeof projectContexts } : { projects: [] })
+      .then((body) => { if (active) setProjectContexts(Array.isArray(body.projects) ? body.projects : []); })
+      .catch(() => { if (active) setProjectContexts([]); });
+    load();
+    window.addEventListener("shiba:projects-updated", load);
+    return () => { active = false; window.removeEventListener("shiba:projects-updated", load); };
   }, []);
 
   // Surface transient notices through the toast channel (aria-live inside sonner).
@@ -456,6 +489,17 @@ export function App(): React.JSX.Element {
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
+  const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
+  const [taskHistoryError, setTaskHistoryError] = useState<string | null>(null);
+  const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
+  const [conversationMode, setConversationModeState] = useState<ConversationMode>(() => readConversationMode("default"));
+  useEffect(() => {
+    setConversationModeState(readConversationMode(selectedSessionId));
+  }, [selectedSessionId]);
+  const setConversationMode = useCallback((mode: ConversationMode) => {
+    setConversationModeState(mode);
+    writeConversationMode(selectedSessionId, mode);
+  }, [selectedSessionId]);
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
   const draftScope = useRef<string | null>("default");
@@ -485,13 +529,17 @@ export function App(): React.JSX.Element {
   }, []);
   // Local runs use the authenticated paired fleet in both web and desktop.
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
+  const [executionTargetKind, setExecutionTargetKind] = useState<"repository" | "artifact-workspace">("repository");
+  const [artifactWorkspaceName, setArtifactWorkspaceName] = useState("My workspace");
+  const [artifactDeliverables, setArtifactDeliverables] = useState("deliverables/brief.md");
   const { status: desktopStatus } = useDesktopStatus();
   // Only these harnesses run locally; anything else would show as a
   // deployment pin the backend then refuses.
   useEffect(() => {
-    if (runTarget === "local" && !customAgentId && !["opencode", "claude-code", "codex"].includes(harness))
+    if (executionTargetKind === "artifact-workspace" && runTarget === "local") setRunTarget("sandbox");
+    if (runTarget === "local" && executionTargetKind === "repository" && !customAgentId && !["opencode", "claude-code", "codex"].includes(harness))
       setHarness("opencode");
-  }, [runTarget, harness, customAgentId]);
+  }, [runTarget, harness, customAgentId, executionTargetKind]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
@@ -661,18 +709,39 @@ export function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [showOnboardingModal, signedIn]);
-  // First-run wizard: opens once per browser after the first authenticated
-  // session on the better-auth lane (Access identities are operators, not
-  // the signup path the wizard serves).
+  // First-run progress belongs to the authenticated account; activation also
+  // requires an explicitly approved artifact, not just setup dismissal/run completion.
   const [showFirstRun, setShowFirstRun] = useState(false);
+  const [firstRunProgress, setFirstRunProgress] = useState<FirstRunProgressSnapshot | null>(null);
+  const firstRunProgressClient = useRef<OnboardingProgressClient | null>(null);
+  if (!firstRunProgressClient.current) {
+    firstRunProgressClient.current = new OnboardingProgressClient((input, init) => fetch(input, init), setFirstRunProgress);
+  }
+  const refreshFirstRunProgress = useCallback(async (): Promise<void> => {
+    await firstRunProgressClient.current?.read();
+  }, []);
+  const updateFirstRunProgress = useCallback((body: { action: "step" | "dismiss" | "resume"; currentStep?: FirstRunStepId }): Promise<void> => {
+    return firstRunProgressClient.current?.update(body) ?? Promise.reject(new Error("Onboarding progress client is unavailable."));
+  }, []);
+  const resumeFirstRunProgress = useCallback(() => updateFirstRunProgress({ action: "resume" }), [updateFirstRunProgress]);
+  const saveFirstRunStep = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "step", currentStep }), [updateFirstRunProgress]);
+  const dismissFirstRunProgress = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "dismiss", currentStep }), [updateFirstRunProgress]);
   useEffect(() => {
-    if (authMode !== "better-auth" || orchestratorName === null) return;
-    try {
-      if (localStorage.getItem(ONBOARDING_STORAGE_KEY) === "done") return;
-    } catch {
-      // private mode — show it anyway
+    if (authMode !== "better-auth" || orchestratorName === null) {
+      firstRunProgressClient.current?.reset();
+      setShowFirstRun(false);
+      return;
     }
-    setShowFirstRun(true);
+    let cancelled = false;
+    void firstRunProgressClient.current!.read().then((progress) => {
+      if (!cancelled && progress) setShowFirstRun(progress.activatedAt === null && progress.dismissedAt === null);
+    }).catch(() => {
+      if (!cancelled) {
+        setFirstRunProgress(null);
+        setShowFirstRun(true);
+      }
+    });
+    return () => { cancelled = true; };
   }, [authMode, orchestratorName]);
 
   // Better-auth lane sign-out: clears the session cookie, then re-runs
@@ -680,6 +749,7 @@ export function App(): React.JSX.Element {
   const handleSignOut = useCallback(async () => {
     setSettingsModalOpen(false);
     await authClient.signOut().catch(() => {});
+    firstRunProgressClient.current?.reset();
     setOrchestratorName(null);
     setAuthMode(null);
     setIdentityIssue("signin");
@@ -801,7 +871,11 @@ export function App(): React.JSX.Element {
         };
         if (!cancelled) {
           setSessionApiAvailable(true);
-          setWebSessions(Array.isArray(body.sessions) ? body.sessions : []);
+          const nextSessions = Array.isArray(body.sessions) ? body.sessions : [];
+          setWebSessions(nextSessions);
+          const restoredSessionId = resolveRememberedSessionId(readRememberedSessionId(), nextSessions);
+          setSelectedSessionId(restoredSessionId);
+          writeRememberedSessionId(restoredSessionId);
           // The mount-time fetch can run pre-auth (e.g. AuthScreen up); once a
           // later attempt succeeds, drop the failure it toasted.
           setNotice((n) => (n?.startsWith("Sessions request failed") ? null : n));
@@ -827,6 +901,35 @@ export function App(): React.JSX.Element {
       mainView === "diff",
       signedIn,
     );
+  useEffect(() => {
+    if (!signedIn || mainView !== "tasks") return;
+    let cancelled = false;
+    let generation = 0;
+    setTaskHistoryLoading(true);
+    const scopeQuery = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    const load = async () => {
+      const current = ++generation;
+      try {
+        const refreshQuery = scopeQuery ? `${scopeQuery}&refresh=${refreshToken}` : `?refresh=${refreshToken}`;
+        const response = await fetch(`/api/tasks${refreshQuery}`);
+        const body = await response.json().catch(() => ({})) as { tasks?: TaskHistoryItem[]; error?: string };
+        if (!response.ok) throw new Error(body.error ?? `Task history request failed: ${response.status}`);
+        if (!cancelled && current === generation) {
+          setTaskHistoryItems(Array.isArray(body.tasks) ? body.tasks : []);
+          setTaskHistoryError(null);
+        }
+      } catch (error: unknown) {
+        if (!cancelled && current === generation) setTaskHistoryError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (!cancelled && current === generation) setTaskHistoryLoading(false);
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 5_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [refreshToken, selectedSessionId, sessionApiAvailable, signedIn, mainView]);
   const {
     approvals: storedApprovals,
     decided: decidedStoredApprovals,
@@ -1030,18 +1133,60 @@ export function App(): React.JSX.Element {
     async (event?: React.FormEvent) => {
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current) return;
+      if (conversationMode === "chat") {
+        if (!task.trim()) {
+          setNotice("Enter a message first.");
+          return;
+        }
+        if (!orchestratorName || agent.connectionError || !agent.identified) {
+          setNotice(
+            `Message not sent: ${agent.connectionError
+              ? `connection error: ${agent.connectionError.message ?? "unknown"}`
+              : !orchestratorName
+                ? "still resolving your agent identity"
+                : "still connecting to the orchestrator"}.`,
+          );
+          return;
+        }
+        const draft = task;
+        const draftSession = selectedSessionId;
+        setNotice(null);
+        setTask("");
+        submitInFlight.current = true;
+        submitFailed.current = false;
+        setIsSubmitting(true);
+        try {
+          await chat.sendMessage({ text: draft.trim(), metadata: { shibaMode: "chat" } });
+          // The failed user turn remains in the transcript; retrying it must
+          // regenerate that turn rather than append a duplicate user message.
+        } catch (error) {
+          restoreDraft(draftSession, draft);
+          setNotice(`Message could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+        }
+        return;
+      }
       if (customAgentId && (customAgentsLoading || customAgentsError || !customAgentRecords.some((profile) => profile.id === customAgentId))) {
         setNotice(customAgentsLoading
           ? "Wait for the selected bot to load before sending."
           : "The selected bot is unavailable. Choose an available bot before sending.");
         return;
       }
-      if (!repoUrl.trim() || !task.trim()) {
-        setNotice("Enter a repository URL and a task first.");
+      if (!task.trim() || (executionTargetKind === "repository" && !repoUrl.trim())) {
+        setNotice(executionTargetKind === "repository" ? "Enter a repository URL and a task first." : "Enter a task first.");
         return;
       }
-      if (!repoUrl.trim().startsWith("https://github.com/")) {
+      if (executionTargetKind === "repository" && !repoUrl.trim().startsWith("https://github.com/")) {
         setNotice("Repository URL must be a GitHub URL like https://github.com/owner/repo.");
+        return;
+      }
+      const parsedArtifactDeliverables = expectedDeliverablesSchema.safeParse(
+        artifactDeliverables.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+      );
+      if (executionTargetKind === "artifact-workspace" && !parsedArtifactDeliverables.success) {
+        setNotice("Use 1–8 safe relative .md, .txt, .json, or .csv output paths.");
         return;
       }
       const branch = baseBranch.trim() || "main";
@@ -1049,8 +1194,8 @@ export function App(): React.JSX.Element {
         reasoningEffort && (HARNESS_REASONING_EFFORTS[harness] ?? []).includes(reasoningEffort)
           ? reasoningEffort
           : "";
-      const attachedSkills = savedSkills.filter((skill) => selectedSkillIds.includes(skill.id));
-      if (runTarget === "local" || customAgentId) {
+      const attachedSkills = selectableSkills.filter((skill) => selectedSkillIds.includes(skill.id));
+      if (runTarget === "local" || customAgentId || executionTargetKind === "artifact-workspace") {
         if (runTarget === "local" && (!selectedLocalMachineId || localComputersLoading || localComputersError)) {
           setNotice(localComputersError ?? (localComputersLoading
             ? "Wait for paired computers to be checked before sending."
@@ -1061,7 +1206,7 @@ export function App(): React.JSX.Element {
           setNotice("This conversation cannot queue tasks until its session connection is available. Retry after reconnecting.");
           return;
         }
-        const directTarget = runTarget === "local" ? "runs on this computer" : "bot runs";
+        const directTarget = runTarget === "local" ? "runs on this computer" : "cloud runs";
         if (envVars.some((v) => v.name.trim() !== "")) {
           setNotice(`Environment variables aren't supported for ${directTarget} yet.`);
           return;
@@ -1075,10 +1220,17 @@ export function App(): React.JSX.Element {
         // directly, just like a local task, without a separate planner call.
         // The Worker resolves its saved profile and requires human approval
         // of the frozen task before dispatching either runtime.
+        const targetFields = executionTargetKind === "repository"
+          ? buildExecutionTargetFields({ kind: "repository", repoUrl: repoUrl.trim(), baseBranch: branch })
+          : buildExecutionTargetFields({
+              kind: "artifact-workspace",
+              workspaceName: artifactWorkspaceName,
+              expectedDeliverables: parsedArtifactDeliverables.success ? parsedArtifactDeliverables.data : [],
+            });
         const fields = {
-          repoUrl: repoUrl.trim(),
-          task: taskWithSkillInstructions(task, attachedSkills),
-          baseBranch: branch,
+          ...targetFields,
+          task: task.trim(),
+          skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
           ...(harness ? { harness } : {}),
           ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
           ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
@@ -1086,6 +1238,7 @@ export function App(): React.JSX.Element {
           publishPullRequest,
           ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
           ...(customAgentId ? { customAgentId } : {}),
+          ...(projectContextId ? { projectContextId } : {}),
         };
         const body = {
           ...fields,
@@ -1125,10 +1278,12 @@ export function App(): React.JSX.Element {
             throw new Error(detail || `Run request failed with ${res.status}`);
           }
           runCommand.current = null;
-          saveRepo(repoUrl.trim());
+          if (executionTargetKind === "repository") saveRepo(repoUrl.trim());
           setNotice(runTarget === "local"
             ? "Queued — approve the run card to execute on this computer."
-            : "Bot task queued — review and approve the run card to launch it.");
+            : executionTargetKind === "artifact-workspace"
+              ? "Draft queued — review and approve the run card before the cloud sandbox starts."
+              : "Bot task queued — review and approve the run card to launch it.");
           refreshRuns();
         } catch (error) {
           restoreDraft(draftSession, draft);
@@ -1229,9 +1384,6 @@ export function App(): React.JSX.Element {
         ...(publishPullRequest
           ? [`Read-only review after the PR opens: ${reviewAfterPublish ? "yes" : "no"}`]
           : []),
-        ...(attachedSkills.length > 0
-          ? [formatSkillInstructions(attachedSkills)]
-          : []),
         "",
         `Task: ${task.trim()}`,
       ].join("\n");
@@ -1247,9 +1399,11 @@ export function App(): React.JSX.Element {
         await chat.sendMessage({
           text,
           metadata: {
+            shibaMode: "work",
             shibaTask: {
               repoUrl: repoUrl.trim(),
-              task: taskWithSkillInstructions(task, attachedSkills),
+              task: task.trim(),
+              skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
               baseBranch: branch,
               harness,
               publishPullRequest,
@@ -1260,6 +1414,7 @@ export function App(): React.JSX.Element {
               ...(sealedEnv ? { environment: { sealed: sealedEnv.sealed, digest: sealedEnv.digest } } : {}),
               ...(runSetup ? { runSetup: true } : {}),
               ...(customAgentId ? { customAgentId } : {}),
+              ...(projectContextId ? { projectContextId } : {}),
             },
           },
         });
@@ -1285,11 +1440,13 @@ export function App(): React.JSX.Element {
       repoUrl,
       baseBranch,
       task,
+      conversationMode,
       publishPullRequest,
       reviewAfterPublish,
       runSetup,
       harness,
       customAgentId,
+      projectContextId,
       customAgentRecords,
       customAgentsLoading,
       customAgentsError,
@@ -1302,9 +1459,12 @@ export function App(): React.JSX.Element {
       orchestratorName,
       identityError,
       refreshRuns,
-      savedSkills,
+      selectableSkills,
       selectedSkillIds,
       runTarget,
+      executionTargetKind,
+      artifactWorkspaceName,
+      artifactDeliverables,
       sessionApiAvailable,
       selectedSessionId,
       selectedLocalMachineId,
@@ -1348,6 +1508,7 @@ export function App(): React.JSX.Element {
             current.filter((session) => session.id !== selectedSessionId),
           );
           setSelectedSessionId("default");
+          writeRememberedSessionId("default");
           setNotice(
             "That session no longer exists — it was removed from the list. Conversation history cleared; run registry is unchanged.",
           );
@@ -1377,6 +1538,9 @@ export function App(): React.JSX.Element {
 
   const cancelRun = useCallback(
     async (runId: string) => {
+      if (cancellingRunRef.current !== null) return;
+      cancellingRunRef.current = runId;
+      setCancellingRunId(runId);
       try {
         let url = sessionApiAvailable
           ? `/api/runs/${encodeURIComponent(runId)}?session=${encodeURIComponent(selectedSessionId)}`
@@ -1393,6 +1557,7 @@ export function App(): React.JSX.Element {
               current.filter((session) => session.id !== selectedSessionId),
             );
             setSelectedSessionId("default");
+            writeRememberedSessionId("default");
             setNotice("That session no longer exists — it was removed from the list.");
             refreshRuns();
             return;
@@ -1408,10 +1573,51 @@ export function App(): React.JSX.Element {
         setNotice(
           `Cancellation could not be requested: ${error instanceof Error ? error.message : String(error)}`,
         );
+      } finally {
+        cancellingRunRef.current = null;
+        setCancellingRunId(null);
       }
     },
     [refreshRuns, selectedSessionId, sessionApiAvailable],
   );
+
+  const retryTaskHistory = useCallback(async (taskId: string) => {
+    const query = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/retry${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commandId: crypto.randomUUID() }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `Retry request failed: ${response.status}`);
+      setNotice("Retry queued for approval. Review the new approval card before it runs.");
+      refreshRuns();
+    } catch (error) {
+      setNotice(`Task retry could not be queued: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [refreshRuns, selectedSessionId, sessionApiAvailable]);
+
+  const cancelTaskHistory = useCallback(async (taskId: string, attempt: number) => {
+    const query = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ attempt }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `Cancellation failed: ${response.status}`);
+      setNotice("Task cancellation recorded.");
+      refreshRuns();
+    } catch (error) {
+      setNotice(`Task cancellation could not be completed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [refreshRuns, selectedSessionId, sessionApiAvailable]);
 
   // Keyboard shortcut listener: Cmd/Ctrl+Enter submits, Escape closes modals
   useEffect(() => {
@@ -1519,18 +1725,6 @@ export function App(): React.JSX.Element {
     return at;
   }, []);
 
-  const reviewThreadId = useMemo(() => {
-    const newest = [...retainedRuns].sort((a, b) => b.updatedAt - a.updatedAt);
-    return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
-  }, [retainedRuns]);
-
-  const reviewRun = useMemo(() => {
-    if (!reviewThreadId) return undefined;
-    return retainedRuns.find((run) => run.runId === reviewThreadId);
-  }, [retainedRuns, reviewThreadId]);
-
-  const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
-
   const allRuns: VMRun[] = useMemo(() => {
     const map = new Map<string, VMRun>();
     for (const r of retainedRuns) {
@@ -1541,6 +1735,12 @@ export function App(): React.JSX.Element {
         task: r.task,
         baseBranch: r.baseBranch,
         publishPullRequest: r.publishPullRequest,
+        ...(r.pullUrl !== undefined ? { pullUrl: r.pullUrl } : {}),
+        ...(r.reviewAfterPublish !== undefined ? { reviewAfterPublish: r.reviewAfterPublish } : {}),
+        ...(r.customAgentVersion !== undefined ? { customAgentVersion: r.customAgentVersion } : {}),
+        ...(r.expectedDeliverables !== undefined ? { expectedDeliverables: r.expectedDeliverables } : {}),
+        ...(r.deliverables !== undefined ? { deliverables: r.deliverables } : {}),
+        ...(r.executionTarget !== undefined ? { executionTarget: r.executionTarget } : {}),
         status: r.status,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
@@ -1554,7 +1754,7 @@ export function App(): React.JSX.Element {
       const existing = map.get(tr.runId);
       const completedDiff = extractCompletedDiff(tr);
       if (existing) {
-        existing.status = tr.status || existing.status;
+        existing.status = normalizeRunStatus(tr.status || existing.status);
         if (!existing.diff?.trim() && completedDiff) existing.diff = completedDiff;
         if (tr.summary) existing.summary = tr.summary;
         if (tr.error) existing.error = tr.error;
@@ -1569,7 +1769,7 @@ export function App(): React.JSX.Element {
             typeof input.task === "string" ? input.task : `Delegated run ${tr.runId.slice(0, 8)}`,
           baseBranch: typeof input.baseBranch === "string" ? input.baseBranch : "main",
           publishPullRequest: input.publishPullRequest === true,
-          status: tr.status || "running",
+          status: normalizeRunStatus(tr.status || "running"),
           createdAt: at,
           updatedAt: at,
           summary: tr.summary,
@@ -1580,6 +1780,28 @@ export function App(): React.JSX.Element {
     }
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
+
+  const reviewThreadId = useMemo(() => {
+    if (selectedRunId && allRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
+    // Retained runs are already scoped to the selected conversation. Their
+    // update timestamps are authoritative; delegated tool runs from other
+    // conversations receive a local first-seen timestamp and must not steal
+    // the task screen's review panels from the active thread.
+    const selectedSessionRuns = retainedRuns
+      .map((run) => allRuns.find((candidate) => candidate.runId === run.runId))
+      .filter((run): run is VMRun => run !== undefined)
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+    if (selectedSessionRuns[0]) return selectedSessionRuns[0].runId;
+    const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
+    return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
+  }, [allRuns, retainedRuns, selectedRunId]);
+
+  const reviewRun = useMemo(() => {
+    if (!reviewThreadId) return undefined;
+    return allRuns.find((run) => run.runId === reviewThreadId);
+  }, [allRuns, reviewThreadId]);
+
+  const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
   // Model-by-purpose config: connections + the coding-purpose suggestion list.
   const modelConfig = useModelConfig();
   const agentsDirectory = useAgentsDirectory();
@@ -1730,6 +1952,7 @@ export function App(): React.JSX.Element {
               // sessions API unavailable or select the dead session.
               setWebSessions((current) => current.filter((item) => item.id !== id));
               setSelectedSessionId("default");
+              writeRememberedSessionId("default");
               setMobileSessionsOpen(false);
               setSelectedRunId(null);
               setMainView("tasks");
@@ -1748,6 +1971,7 @@ export function App(): React.JSX.Element {
         }
       }
       setSelectedSessionId(id);
+      writeRememberedSessionId(id);
       setCustomAgentId(threadAgentId(session));
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
@@ -1765,6 +1989,7 @@ export function App(): React.JSX.Element {
   const handleNewTask = useCallback(async () => {
     if (!sessionApiAvailable) {
       setSelectedSessionId("default");
+      writeRememberedSessionId("default");
       setCustomAgentId("");
       setMobileSessionsOpen(false);
       setMainView("tasks");
@@ -1786,6 +2011,7 @@ export function App(): React.JSX.Element {
       if (response.status === 404 || response.status === 405) {
         setSessionApiAvailable(false);
         setSelectedSessionId("default");
+        writeRememberedSessionId("default");
         setCustomAgentId("");
         setMobileSessionsOpen(false);
         setMainView("tasks");
@@ -1807,6 +2033,7 @@ export function App(): React.JSX.Element {
         ...current.filter((session) => session.id !== body.session.id),
       ]);
       setSelectedSessionId(body.session.id);
+      writeRememberedSessionId(body.session.id);
       setCustomAgentId("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -1825,6 +2052,7 @@ export function App(): React.JSX.Element {
     setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
     setSessionApiAvailable(true);
     setSelectedSessionId(session.id);
+    writeRememberedSessionId(session.id);
     setSelectedRunId(null);
     setCustomAgentId(profile.id);
     applyThreadProfile(profile);
@@ -2310,9 +2538,15 @@ export function App(): React.JSX.Element {
                         className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
                       />
                     </Tooltip>
-                    <h1 className="text-base text-[var(--fg)] tracking-tight truncate">
-                      {liveSession ? liveSession.title : "New coding task"}
-                    </h1>
+                    <ConversationWorkspaceHeading
+                      title={liveSession ? liveSession.title : "New coding task"}
+                      mode={conversationMode}
+                      executionTargetKind={executionTargetKind}
+                      runTarget={runTarget}
+                      repoUrl={repoUrl}
+                      artifactWorkspaceName={artifactWorkspaceName}
+                      machineName={localComputers.find((computer) => computer.machineId === selectedLocalMachineId)?.hostname}
+                    />
                     {sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? (
                       <ThreadTitleEditor
                         key={selectedSessionId}
@@ -2322,9 +2556,11 @@ export function App(): React.JSX.Element {
                       />
                     ) : null}
                     <span
-                      className={`text-[10px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 shrink-0 ${statusChipClass(liveSession?.status ?? "ready")}`}
+                      className={conversationMode === "chat"
+                        ? "text-[10px] font-mono font-bold uppercase tracking-wider border border-[var(--primary)]/40 text-[var(--primary)] px-2 py-0.5 shrink-0"
+                        : `text-[10px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 shrink-0 ${statusChipClass(liveSession?.status ?? "ready")}`}
                     >
-                      {statusLabel(liveSession?.status ?? "ready")}
+                      {conversationMode === "chat" ? "Chat only" : statusLabel(liveSession?.status ?? "ready")}
                     </span>
                   </div>
 
@@ -2476,6 +2712,25 @@ export function App(): React.JSX.Element {
                   </div>
                 ) : null}
 
+                <details className="mx-3 mt-3 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)]/70 px-3 py-2 sm:mx-5 xl:mx-8">
+                  <summary className="cursor-pointer select-none text-xs font-medium text-[var(--muted-foreground-1)]">
+                    Task history · {taskHistoryItems.length}
+                  </summary>
+                  <div className="mt-3 max-h-[35vh] overflow-y-auto">
+                    <TaskHistory
+                      tasks={taskHistoryItems}
+                      loading={taskHistoryLoading}
+                      error={taskHistoryError}
+                      onRetry={retryTaskHistory}
+                      onCancel={cancelTaskHistory}
+                      onSelectRun={(runId) => {
+                        setSelectedRunId(runId);
+                        setMainView("analytics");
+                      }}
+                    />
+                  </div>
+                </details>
+
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
                   className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
@@ -2497,7 +2752,16 @@ export function App(): React.JSX.Element {
                   ) : null}
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
-                      <RunProgressCard run={reviewRun} sessionId={selectedSessionId} />
+                      <RunProgressCard
+                        run={reviewRun}
+                        sessionId={selectedSessionId}
+                        onCancel={
+                          reviewRun && retainedRuns.some((run) => run.runId === reviewRun.runId)
+                            ? cancelRun
+                            : undefined
+                        }
+                        cancelling={cancellingRunId === reviewRun?.runId}
+                      />
                       <RunUsageCard runs={retainedRuns} />
                       <PullRequestCard
                         threadId={reviewThreadId}
@@ -2522,6 +2786,49 @@ export function App(): React.JSX.Element {
                       : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
+                  <ConversationModeSwitch
+                    value={conversationMode}
+                    onChange={setConversationMode}
+                    disabled={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
+                  />
+                  {conversationMode === "chat" && chat.messages.length > 0 ? (
+                    <div className="flex justify-end px-3 sm:px-5 xl:px-8 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowClearModal(true)}
+                        disabled={clearing || isSubmitting}
+                        className="text-[10px] font-mono text-[var(--muted-foreground-3)] hover:text-[var(--fg)] disabled:opacity-50"
+                      >
+                        Clear conversation
+                      </button>
+                    </div>
+                  ) : null}
+                  {conversationMode === "chat" ? (
+                    <div className={
+                      chat.messages.length === 0 && !reviewThreadId
+                        ? "flex-1 min-h-0 flex flex-col items-center justify-center gap-5 px-3 sm:px-5 xl:px-8 py-5"
+                        : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                    }>
+                      {chat.messages.length === 0 ? (
+                        <div className="max-w-2xl text-center">
+                          <h2 className="font-sans text-3xl text-[var(--fg)] mb-2">What should we explore?</h2>
+                          <p className="text-sm text-[var(--muted-foreground-2)]">
+                            Ask a question here. Chat mode has no task tools; switch to Work to delegate an approval-gated task.
+                          </p>
+                        </div>
+                      ) : null}
+                      <ChatMessageComposer
+                        value={task}
+                        onChange={setTask}
+                        onSubmit={submitTask}
+                        onStop={() => { void chat.stop(); }}
+                        onRetry={() => { void chat.regenerate(); }}
+                        busy={isSubmitting || clearing}
+                        streaming={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
+                        failed={Boolean(chat.error)}
+                      />
+                    </div>
+                  ) : (
                   <TaskComposer
                     repoUrl={repoUrl}
                     task={task}
@@ -2531,7 +2838,7 @@ export function App(): React.JSX.Element {
                     harness={harness}
                     busy={busy}
                     repoSuggestions={repoSuggestions}
-                    skills={savedSkills}
+                    skills={selectableSkills}
                     selectedSkillIds={selectedSkillIds}
                     onToggleSkill={(id) =>
                       setSelectedSkillIds((current) =>
@@ -2542,6 +2849,19 @@ export function App(): React.JSX.Element {
                     }
                     isSubmitting={isSubmitting}
                     clearing={clearing}
+                    executionTargetKind={executionTargetKind}
+                    onExecutionTargetKindChange={(value) => {
+                      setExecutionTargetKind(value);
+                      if (value === "artifact-workspace") {
+                        setRunTarget("sandbox");
+                        setPublishPullRequest(false);
+                        setRunSetup(false);
+                      }
+                    }}
+                    artifactWorkspaceName={artifactWorkspaceName}
+                    onArtifactWorkspaceNameChange={setArtifactWorkspaceName}
+                    artifactDeliverables={artifactDeliverables}
+                    onArtifactDeliverablesChange={setArtifactDeliverables}
                     runTarget={runTarget}
                     onRunTargetChange={setRunTarget}
                     localRunAvailable={localRunAvailable}
@@ -2564,6 +2884,13 @@ export function App(): React.JSX.Element {
                     onHarnessChange={setHarness}
                     customAgents={customAgentPickerOptions}
                     customAgentId={customAgentId}
+                    projects={projectContexts}
+                    projectContextId={projectContextId}
+                    onProjectContextChange={setProjectContextId}
+                    onApplyProjectDefaults={(project) => {
+                      if (project.defaultCustomAgentId) setCustomAgentId(project.defaultCustomAgentId);
+                      if (project.defaultHarness) setHarness(project.defaultHarness);
+                    }}
                     customAgentsLoading={customAgentsLoading}
                     onCustomAgentChange={setCustomAgentId}
                     routing={{
@@ -2582,6 +2909,7 @@ export function App(): React.JSX.Element {
                     onSubmit={submitTask}
                     onClear={() => setShowClearModal(true)}
                   />
+                  )}
                 </div>
               </main>
             </div>
@@ -2646,7 +2974,7 @@ export function App(): React.JSX.Element {
                     <span>Agent Memory</span>
                   </h2>
                   <p className="text-xs text-[var(--muted-foreground-2)]">
-                    Vectorize long-term semantic memory, extracted facts, and session context.
+                    Private workspace sources with local keyword recall, plus legacy agent facts and sessions.
                   </p>
                 </div>
               </div>
@@ -2691,6 +3019,8 @@ export function App(): React.JSX.Element {
                 return body.url;
               }}
             />
+          ) : mainView === "collaboration" ? (
+            <CollaborationView />
           ) : mainView === "providers" ? (
             <ProvidersView />
           ) : mainView === "skills" ? (
@@ -2698,6 +3028,8 @@ export function App(): React.JSX.Element {
           ) : mainView === "custom-agents" ? (
             <CustomAgentsView
               onStartThread={handleStartAgentThread}
+              initialTemplateId={initialEmployeeTemplateId}
+              onInitialTemplateApplied={() => setInitialEmployeeTemplateId(null)}
               connections={modelConnections}
               modelSuggestions={agentsDirectory.state.kind === "data" ? agentsDirectory.state.data.agents.map((agent) => agent.defaultModel).filter((model): model is string => typeof model === "string" && model.includes("/")) : []}
               threads={webSessions}
@@ -2705,6 +3037,8 @@ export function App(): React.JSX.Element {
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
+          ) : mainView === "employee-tools" ? (
+            <EmployeeToolPolicyView />
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
@@ -2785,7 +3119,17 @@ export function App(): React.JSX.Element {
           <FirstRunWizard
             open={showFirstRun}
             onClose={() => setShowFirstRun(false)}
+            progress={authMode === "better-auth" ? firstRunProgress : null}
+            onRefresh={authMode === "better-auth" ? refreshFirstRunProgress : undefined}
+            onResume={authMode === "better-auth" ? resumeFirstRunProgress : undefined}
+            onStepChange={authMode === "better-auth" ? saveFirstRunStep : undefined}
+            onDismiss={authMode === "better-auth" ? dismissFirstRunProgress : undefined}
             onNavigate={openView}
+            onStartEmployeeSetup={(template) => {
+              setInitialEmployeeTemplateId(template.id);
+              setShowFirstRun(false);
+              openView("custom-agents");
+            }}
             onOpenModels={() => {
               setSettingsInitialSection("models");
               setSettingsModalOpen(true);

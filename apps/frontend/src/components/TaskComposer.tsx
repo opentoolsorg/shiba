@@ -19,6 +19,7 @@ import {
   Cpu,
   Eraser,
   FolderGit2,
+  FileText,
   Gauge,
   GitBranch,
   GitPullRequest,
@@ -35,7 +36,7 @@ import {
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import type { SavedSkill } from "../saved";
-import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
+import { expectedDeliverablesSchema, HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
 
 // Ambient types for browser Web Speech API.
 interface SpeechRecognitionResultItem {
@@ -103,6 +104,12 @@ export interface TaskComposerProps {
   onRunSetupChange?: (value: boolean) => void;
   harness: string;
   /** Paired local computers are verified through the authenticated fleet API. */
+  executionTargetKind?: "repository" | "artifact-workspace";
+  onExecutionTargetKindChange?: (value: "repository" | "artifact-workspace") => void;
+  artifactWorkspaceName?: string;
+  onArtifactWorkspaceNameChange?: (value: string) => void;
+  artifactDeliverables?: string;
+  onArtifactDeliverablesChange?: (value: string) => void;
   runTarget?: "sandbox" | "local";
   onRunTargetChange?: (value: "sandbox" | "local") => void;
   localRunAvailable?: boolean;
@@ -133,6 +140,10 @@ export interface TaskComposerProps {
   /** Org custom agents from /api/custom-agents */
   customAgents?: { id: string; name: string; slug: string; emoji?: string; expectedDeliverables?: readonly string[] }[];
   customAgentId?: string;
+  projects?: { id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }[];
+  projectContextId?: string;
+  onProjectContextChange?: (id: string) => void;
+  onApplyProjectDefaults?: (project: { defaultCustomAgentId: string | null; defaultHarness: string | null }) => void;
   customAgentsLoading?: boolean;
   onCustomAgentChange?: (id: string) => void;
   /** "docked" = compact bar under the timeline; "hero" = centered empty-state card. */
@@ -171,7 +182,7 @@ const LOCAL_HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = 
   { value: "codex", label: "Codex", desc: "OpenAI Codex CLI" },
 ];
 
-type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "effort" | "access" | "config" | "env" | null;
+type PopoverKind = "menu" | "repo" | "branch" | "harness" | "model" | "effort" | "access" | "target" | "config" | "env" | null;
 
 function formatEffort(level: string): string {
   return level ? level.charAt(0).toUpperCase() + level.slice(1) : "";
@@ -275,6 +286,12 @@ export function TaskComposer({
   runSetup = false,
   harness,
   runTarget = "sandbox",
+  executionTargetKind = "repository",
+  onExecutionTargetKindChange,
+  artifactWorkspaceName = "My workspace",
+  onArtifactWorkspaceNameChange,
+  artifactDeliverables = "deliverables/brief.md",
+  onArtifactDeliverablesChange,
   onRunTargetChange,
   localRunAvailable = false,
   localComputers = [],
@@ -303,6 +320,10 @@ export function TaskComposer({
   customAgents = [],
   customAgentId = "",
   customAgentsLoading = false,
+  projects = [],
+  projectContextId = "",
+  onProjectContextChange,
+  onApplyProjectDefaults,
   onCustomAgentChange,
   variant = "docked",
   envVars = [],
@@ -311,7 +332,13 @@ export function TaskComposer({
   const localTargetBlocked = runTarget === "local" && (
     !localRunAvailable || !targetMachineId || localComputersLoading || localComputersError !== null
   );
-  const sendDisabled = busy || task.trim() === "" || repoUrl.trim() === "" || localTargetBlocked || Boolean(
+  const artifactPathsValid = expectedDeliverablesSchema.safeParse(
+    artifactDeliverables.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+  ).success;
+  const sendDisabled = busy || task.trim() === "" ||
+    (executionTargetKind === "repository" && repoUrl.trim() === "") ||
+    (executionTargetKind === "artifact-workspace" && !artifactPathsValid) ||
+    localTargetBlocked || Boolean(
     customAgentId && (customAgentsLoading || !customAgents.some((agent) => agent.id === customAgentId)),
   );
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -542,8 +569,45 @@ export function TaskComposer({
     >
       {/* Top Chips Row: Project (Repo) + Run Target */}
       <div className="flex items-center gap-1.5 flex-wrap">
+        {onExecutionTargetKindChange ? (
+          <div className="relative">
+            <Tooltip content="Choose where this task produces its work" side="top">
+              <button
+                type="button"
+                id={idFor("target-button")}
+                aria-haspopup="menu"
+                aria-expanded={open === "target"}
+                aria-label={`Work in: ${executionTargetKind === "repository" ? "Repository" : "Artifact workspace"}`}
+                onClick={() => toggle("target")}
+                className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans text-[var(--fg)]`}
+              >
+                {executionTargetKind === "repository" ? <FolderGit2 aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" /> : <FileText aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />}
+                <span className={pillLabelClass}>{executionTargetKind === "repository" ? "Repository" : "Artifact workspace"}</span>
+                {chevron}
+              </button>
+            </Tooltip>
+            <Popover kind="target" open={open === "target"} onClose={close} labelledBy={idFor("target-button")} className="left-0 w-72">
+              <div className="py-1">
+                <button type="button" role="menuitemradio" aria-checked={executionTargetKind === "repository"} className={menuRowClass} onClick={() => { onExecutionTargetKindChange("repository"); setOpen(null); }}>
+                  <FolderGit2 aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1 min-w-0"><span className="block font-medium">Repository</span><span className="block text-[10px] text-[var(--muted-foreground-2)]">Work in an approved GitHub repository</span></span>
+                  {executionTargetKind === "repository" ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                </button>
+                <button type="button" role="menuitemradio" aria-checked={executionTargetKind === "artifact-workspace"} className={menuRowClass} onClick={() => { onExecutionTargetKindChange("artifact-workspace"); setOpen(null); }}>
+                  <FileText aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1 min-w-0"><span className="block font-medium">Artifact workspace</span><span className="block text-[10px] text-[var(--muted-foreground-2)]">Create reviewable files without a repository</span></span>
+                  {executionTargetKind === "artifact-workspace" ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
+                </button>
+                <div className={`${menuRowClass} cursor-not-allowed opacity-60`} aria-disabled="true">
+                  <Lock aria-hidden="true" className={menuIconClass} />
+                  <span className="flex-1 min-w-0"><span className="block font-medium">Connected app</span><span className="block text-[10px] text-[var(--muted-foreground-2)]">Unavailable — no permissioned write adapter</span></span>
+                </div>
+              </div>
+            </Popover>
+          </div>
+        ) : null}
         {/* Project Selector (Home / Repo Picker) */}
-        <div className="relative">
+        {executionTargetKind === "repository" ? <div className="relative">
           <Tooltip content="Target GitHub repository (Project)" side="top">
             <button
               type="button"
@@ -635,7 +699,12 @@ export function TaskComposer({
               </div>
             </div>
           </Popover>
-        </div>
+        </div> : (
+          <div className="flex items-center gap-2 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--secondary)] px-2.5 py-1.5 text-xs text-[var(--fg)]">
+            <span className="text-[var(--muted-foreground-2)]">Workspace</span>
+            <input aria-label="Artifact workspace name" maxLength={100} value={artifactWorkspaceName} onChange={(event) => onArtifactWorkspaceNameChange?.(event.target.value)} className="w-28 bg-transparent font-medium focus:outline-none" />
+          </div>
+        )}
 
         {/* Run Target Selector (Cloud / This computer) */}
         {onRunTargetChange ? (
@@ -694,7 +763,7 @@ export function TaskComposer({
                   type="button"
                   role="menuitemradio"
                   aria-checked={runTarget === "local"}
-                  disabled={!localRunAvailable || localComputersLoading}
+                  disabled={executionTargetKind === "artifact-workspace" || !localRunAvailable || localComputersLoading}
                   className={menuRowClass}
                   onClick={() => {
                     onRunTargetChange("local");
@@ -705,7 +774,8 @@ export function TaskComposer({
                   <span className="flex-1 min-w-0">
                     <span className="block font-medium">Local (Paired computer)</span>
                     <span className="block text-[10px] text-[var(--muted-foreground-2)]">
-                      {localComputersLoading ? "Checking paired computers…" : localRunAvailable
+                      {executionTargetKind === "artifact-workspace" ? "Artifact files require the cloud sandbox"
+                        : localComputersLoading ? "Checking paired computers…" : localRunAvailable
                         ? "Run on a paired computer"
                         : "Pair a computer in Remote Access first"}
                     </span>
@@ -742,6 +812,24 @@ export function TaskComposer({
         ) : null}
       </div>
 
+      {executionTargetKind === "artifact-workspace" ? (
+        <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)]/60 p-2.5 flex flex-col gap-1.5">
+          <label htmlFor={idFor("artifact-deliverables")} className={sectionLabelClass}>Required output files (one path per line)</label>
+          <textarea
+            id={idFor("artifact-deliverables")}
+            aria-label="Artifact deliverables"
+            value={artifactDeliverables}
+            onChange={(event) => onArtifactDeliverablesChange?.(event.target.value)}
+            rows={2}
+            className={`${inputClass} resize-y font-mono`}
+            placeholder="deliverables/brief.md"
+          />
+          <p className="text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">
+            Drafts are saved as workspace artifacts after approval. Connected-app writes are unavailable until a permissioned adapter exists.
+          </p>
+        </div>
+      ) : null}
+
       {runTarget === "local" ? <p role="status" className={`text-[10px] font-mono ${localTargetBlocked ? "text-[var(--warning-fg)]" : "text-[var(--muted-foreground-2)]"}`}>
         {localComputersLoading ? "Checking paired computers before sending…" : localComputersError
           ?? (targetMachineId ? `Local: ${localComputers.find((computer) => computer.machineId === targetMachineId)?.hostname ?? "Selected computer"}`
@@ -749,13 +837,24 @@ export function TaskComposer({
       </p> : null}
 
       {/* Main Textarea */}
+      {onProjectContextChange ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="text-[var(--muted-foreground-2)]" htmlFor={idFor("project-context")}>Project context</label>
+          <select id={idFor("project-context")} aria-label="Project context" value={projectContextId} onChange={(event) => onProjectContextChange(event.target.value)} className="max-w-64 bg-[var(--secondary)] px-2 py-1 text-[var(--fg)]">
+            <option value="">No project context</option>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          {projectContextId && onApplyProjectDefaults ? <button type="button" className="underline text-[var(--muted-foreground-1)]" onClick={() => { const project = projects.find((item) => item.id === projectContextId); if (project) onApplyProjectDefaults({ defaultCustomAgentId: project.defaultCustomAgentId, defaultHarness: project.defaultHarness }); }}>Apply project defaults</button> : null}
+          {projectContextId ? <span className="text-[var(--muted-foreground-2)]">Snapshot freezes for approval; source text is untrusted.</span> : null}
+        </div>
+      ) : null}
       <input type="checkbox" checked={publishPullRequest} onChange={(e) => onPublishPullRequestChange(e.target.checked)} className="sr-only" aria-label="Create pull request" tabIndex={-1} /><span className="sr-only">Create PR OpenCode {harness}</span>
       <textarea
         ref={textareaRef}
         value={task}
         onChange={(event) => onTaskChange(event.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={selectedCustomAgent?.expectedDeliverables?.length ? "Describe the outcome and facts this bot should use" : "Describe the change in this repository"}
+        placeholder={executionTargetKind === "artifact-workspace" ? "Describe the document or files to draft" : selectedCustomAgent?.expectedDeliverables?.length ? "Describe the outcome and facts this bot should use" : "Describe the change in this repository"}
         rows={1}
         className={`w-full resize-none bg-transparent text-base lg:text-sm text-[var(--fg)] placeholder-[var(--muted-foreground-2)] focus:outline-none overflow-y-auto leading-relaxed ${
           hero ? "min-h-[96px] max-h-64" : "min-h-[72px] max-h-48"
@@ -1066,7 +1165,7 @@ export function TaskComposer({
             <div className="py-2 px-3 flex flex-col gap-3">
               <span className={sectionLabelClass}>Thread Options</span>
               {/* Branch setting */}
-              <div className="flex flex-col gap-1.5">
+              {executionTargetKind === "repository" ? <div className="flex flex-col gap-1.5">
                 <label htmlFor={idFor("config-branch-input")} className="text-xs text-[var(--muted-foreground-1)]">
                   Base branch
                 </label>
@@ -1093,10 +1192,10 @@ export function TaskComposer({
                     Set
                   </button>
                 </div>
-              </div>
+              </div> : null}
 
               {/* PR Toggle */}
-              <button
+              {executionTargetKind === "repository" ? <button
                 type="button"
                 role="menuitemcheckbox"
                 aria-checked={publishPullRequest}
@@ -1108,8 +1207,8 @@ export function TaskComposer({
                 {publishPullRequest ? (
                   <Check aria-hidden="true" className={menuCheckClass} />
                 ) : null}
-              </button>
-              {publishPullRequest ? (
+              </button> : null}
+              {executionTargetKind === "repository" && publishPullRequest ? (
                 <button
                   type="button"
                   role="menuitemcheckbox"
@@ -1123,7 +1222,7 @@ export function TaskComposer({
                 </button>
               ) : null}
 
-              <button
+              {executionTargetKind === "repository" ? <button
                 type="button"
                 role="menuitemcheckbox"
                 aria-checked={runSetup}
@@ -1138,7 +1237,7 @@ export function TaskComposer({
                   </span>
                 </span>
                 {runSetup ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
-              </button>
+              </button> : null}
 
               {onCustomAgentChange && customAgents.length > 0 ? (
                 <div className="border-t border-[var(--border-1)] pt-2 flex flex-col gap-1.5">

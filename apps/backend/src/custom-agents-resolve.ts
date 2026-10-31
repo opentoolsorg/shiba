@@ -1,6 +1,10 @@
 import type { CustomAgentApprovalPolicy, CustomAgentRecord } from "@shiba/shared";
+import {
+  getCustomAgentById,
+  getCustomAgentBySlug,
+  getCustomAgentVersion,
+} from "./custom-agents-store.js";
 import type { Env } from "./env.js";
-import { getCustomAgentById, getCustomAgentBySlug } from "./custom-agents-store.js";
 
 export interface CustomAgentRunOverrides {
   harness?: string;
@@ -19,8 +23,12 @@ export async function resolveCustomAgentForRun(
   env: Pick<Env, "AGENT_AUDIT">,
   orgId: string,
   agentRef: string,
+  profileVersion?: number,
 ): Promise<CustomAgentRecord | null> {
   if (!env.AGENT_AUDIT) return null;
+  if (profileVersion !== undefined) {
+    return getCustomAgentVersion(env, orgId, agentRef, profileVersion);
+  }
   const byId = await getCustomAgentById(env, orgId, agentRef);
   if (byId) return byId;
   return getCustomAgentBySlug(env, orgId, agentRef);
@@ -37,7 +45,9 @@ export function overridesFromCustomAgent(agent: CustomAgentRecord): CustomAgentR
     ...(cfg.defaultRepoUrl ? { repoUrl: cfg.defaultRepoUrl } : {}),
     ...(cfg.sandboxProvider ? { sandboxProvider: cfg.sandboxProvider } : {}),
     ...(cfg.instructions ? { instructions: cfg.instructions } : {}),
-    ...(cfg.expectedDeliverables !== undefined ? { expectedDeliverables: [...cfg.expectedDeliverables] } : {}),
+    ...(cfg.expectedDeliverables !== undefined
+      ? { expectedDeliverables: [...cfg.expectedDeliverables] }
+      : {}),
     ...(cfg.approvalPolicy ? { approvalPolicy: cfg.approvalPolicy } : {}),
   };
 }

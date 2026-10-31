@@ -1,13 +1,14 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, renderHook, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-import { CustomAgentsView, useCustomAgentOptions } from "./CustomAgentsView";
+import { CustomAgentsView, type CustomAgentWire, useCustomAgentOptions } from "./CustomAgentsView";
+import { createAgentThread } from "../agent-threads";
 
 describe("CustomAgentsView", () => {
   it("skips fetching when disabled and loads bots when enabled", async () => {
@@ -155,6 +156,75 @@ describe("CustomAgentsView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
     expect(screen.getByDisplayValue("Reviewer")).toBeTruthy();
+  });
+
+  it("loads an onboarding role, saves it, launches a conversation, and restores its persisted thread", async () => {
+    let savedAgent: { id: string; slug: string; version: number; config: { name: string; instructions: string; harness: string; expectedDeliverables: string[] } } | null = null;
+    let savedSession: { id: string; name: string; agentName: string; updatedAt: number; metadata: { customAgentId: string } } | null = null;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/custom-agents" && init?.method === "POST") {
+        savedAgent = {
+          id: "research-1", slug: "research-bot", version: 1,
+          config: { name: "Research bot", instructions: JSON.parse(String(init.body)).config.instructions, harness: "opencode", expectedDeliverables: ["research/report.md", "research/sources.json"] },
+        };
+        return Response.json({ agent: savedAgent });
+      }
+      if (url === "/api/sessions" && init?.method === "POST") {
+        const requestBody = JSON.parse(String(init.body)) as { metadata: { customAgentId: string } };
+        savedSession = { id: "research-session", name: "Research bot", agentName: "web:owner:research-session", updatedAt: 8, metadata: requestBody.metadata };
+        return Response.json({ session: savedSession }, { status: 201 });
+      }
+      return Response.json({ agents: savedAgent ? [savedAgent] : [] });
+    });
+    const onApplied = vi.fn();
+    const onOpenThread = vi.fn();
+    const onStartThread = vi.fn(async (profile: CustomAgentWire) => { await createAgentThread(profile); });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const props = { initialTemplateId: "research" as const, onInitialTemplateApplied: onApplied, onStartThread, onOpenThread };
+    const view = render(<CustomAgentsView {...props} />);
+
+    await waitFor(() => expect(screen.getByDisplayValue("Research bot")).toBeTruthy());
+    expect(screen.getByDisplayValue("research-bot")).toBeTruthy();
+    expect(screen.getByDisplayValue(/Create research\/report\.md/)).toBeTruthy();
+    expect(onApplied).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    await waitFor(() => expect(screen.getByText("Bot created.")).toBeTruthy());
+    const createCall = fetchMock.mock.calls.find((call) => call[0] === "/api/custom-agents" && call[1]?.method === "POST");
+    expect(createCall).toBeTruthy();
+    const body = JSON.parse(String(createCall?.[1]?.body)) as { slug: string; config: { expectedDeliverables: string[]; instructions: string } };
+    expect(body.slug).toBe("research-bot");
+    expect(body.config.expectedDeliverables).toEqual(["research/report.md", "research/sources.json"]);
+    expect(body.config.instructions).toContain("Answer the user's research question");
+
+    const launch = await screen.findByRole("button", { name: "Launch bot Research bot" });
+    fireEvent.click(launch);
+    await waitFor(() => expect(onStartThread).toHaveBeenCalledOnce());
+    expect(onStartThread).toHaveBeenCalledWith(savedAgent);
+    expect(savedSession).toMatchObject({ metadata: { customAgentId: "research-1" }, id: "research-session" });
+
+    view.rerender(<CustomAgentsView {...props} threads={[savedSession!]} />);
+    const thread = within(screen.getByRole("list", { name: "Research bot threads" })).getByRole("button", { name: /Research bot/ });
+    fireEvent.click(thread);
+    expect(onOpenThread).toHaveBeenCalledWith("research-session");
+  });
+
+  it("ignores repeated launch clicks while a conversation request is pending", async () => {
+    let release!: () => void;
+    const request = new Promise<void>((resolve) => { release = resolve; });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ agents: [{
+      id: "agent-1", slug: "research-bot", version: 1,
+      config: { name: "Research bot", instructions: "Research", harness: "opencode" },
+    }] })));
+    const onStartThread = vi.fn(() => request);
+    render(<CustomAgentsView onStartThread={onStartThread} />);
+    const launch = await screen.findByRole("button", { name: "Launch bot Research bot" });
+    fireEvent.click(launch);
+    fireEvent.click(launch);
+    expect(onStartThread).toHaveBeenCalledOnce();
+    release();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Launch bot Research bot" }) as HTMLButtonElement).disabled).toBe(false));
   });
 
   it("shows a skeleton, then an error with retry", async () => {

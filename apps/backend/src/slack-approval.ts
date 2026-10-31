@@ -19,11 +19,14 @@ import type { Env } from "./env.js";
 import type { ApprovalKind } from "./pending-approvals.js";
 import { redactSecrets } from "./security.js";
 import { verifySlackRequest } from "./slack.js";
+import { buildSlackThreadName } from "./slack-thread.js";
 
 export const SLACK_INTERACT_PATH = "/api/slack/interact";
 
 export const APPROVE_ACTION_ID = "approve";
 export const REJECT_ACTION_ID = "reject";
+export const EMPLOYEE_APPROVE_ACTION_ID = "employee_approve";
+export const EMPLOYEE_REJECT_ACTION_ID = "employee_reject";
 
 export interface ApprovalPointer {
   threadKey: string;
@@ -104,6 +107,8 @@ export interface ApprovalCardInput extends ApprovalPointer {
   task: string;
   /** PendingApproval kind — "email_send" / "email_delete" get email copy. */
   kind?: ApprovalKind;
+  /** Saved employee profile label for run cards. */
+  employeeLabel?: string;
   /**
    * Human-readable requester for email kinds (e.g. the mailbox's agent
    * label). Falls back to the mailbox address the record already carries.
@@ -152,6 +157,7 @@ export function approvalCardText(input: ApprovalCardInput): string {
   return isEmail
     ? `${escapeMrkdwn(input.agent ?? input.repoUrl)} requests ${escapeMrkdwn(input.task)}`
     : `Approval requested\nRepo: ${escapeMrkdwn(input.repoUrl)}\nTask: ${escapeMrkdwn(clipTask(input.task))}` +
+        (input.employeeLabel ? `\nBot: ${escapeMrkdwn(input.employeeLabel)}` : "") +
         (input.harness ? `\nAgent: ${escapeMrkdwn(input.harness)}` : "") +
         testCommand;
 }
@@ -177,6 +183,7 @@ export function buildApprovalBlocks(input: ApprovalCardInput): unknown[] {
   const headline = isEmail
     ? `*${escapeMrkdwn(input.agent ?? input.repoUrl)}* requests ${escapeMrkdwn(input.task)}`
     : `*Approval requested*\n*Repo:* ${escapeMrkdwn(input.repoUrl)}\n*Task:* ${escapeMrkdwn(clipTask(input.task))}` +
+        (input.employeeLabel ? `\n*Bot:* ${escapeMrkdwn(input.employeeLabel)}` : "") +
         (input.harness ? `\n*Agent:* ${escapeMrkdwn(input.harness)}` : "") +
         testCommand;
   return [
@@ -201,10 +208,104 @@ export function buildApprovalBlocks(input: ApprovalCardInput): unknown[] {
   ];
 }
 
+export interface EmployeeToolApprovalPointer {
+  kind: "employee_tool";
+  threadKey: string;
+  approvalId: string;
+  employeeId: string;
+  orgId: string;
+}
+
+export function buildEmployeeToolApprovalValue(pointer: EmployeeToolApprovalPointer): string {
+  return JSON.stringify(pointer);
+}
+
+export function parseEmployeeToolApprovalValue(value: string): EmployeeToolApprovalPointer {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("Invalid employee approval value: not JSON.");
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("Invalid employee approval value: not a pointer.");
+  }
+  const record = parsed as Record<string, unknown>;
+  if (
+    record.kind !== "employee_tool" ||
+    typeof record.threadKey !== "string" ||
+    record.threadKey === "" ||
+    typeof record.approvalId !== "string" ||
+    record.approvalId === "" ||
+    typeof record.employeeId !== "string" ||
+    record.employeeId === "" ||
+    typeof record.orgId !== "string" ||
+    record.orgId === ""
+  ) {
+    throw new Error("Invalid employee approval value: pointer requires threadKey, approvalId, employeeId, and orgId.");
+  }
+  return {
+    kind: "employee_tool",
+    threadKey: record.threadKey,
+    approvalId: record.approvalId,
+    employeeId: record.employeeId,
+    orgId: record.orgId,
+  };
+}
+
+export function buildEmployeeToolApprovalBlocks(input: {
+  threadKey: string;
+  approvalId: string;
+  employeeId: string;
+  orgId: string;
+  tool: string;
+  employeeLabel: string;
+  payloadPreview: string;
+}): unknown[] {
+  const value = buildEmployeeToolApprovalValue({
+    kind: "employee_tool",
+    threadKey: input.threadKey,
+    approvalId: input.approvalId,
+    employeeId: input.employeeId,
+    orgId: input.orgId,
+  });
+  const headline =
+    `*Employee action approval*\n*Bot:* ${escapeMrkdwn(input.employeeLabel)}\n*Tool:* ${escapeMrkdwn(input.tool)}\n` +
+    `*Payload:* ${escapeMrkdwn(clipTask(input.payloadPreview))}`;
+  return [
+    { type: "section", text: { type: "mrkdwn", text: headline } },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `thread \`${input.threadKey}\` · approval \`${input.approvalId}\`` }],
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Approve" },
+          style: "primary",
+          action_id: EMPLOYEE_APPROVE_ACTION_ID,
+          value,
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Reject" },
+          style: "danger",
+          action_id: EMPLOYEE_REJECT_ACTION_ID,
+          value,
+        },
+      ],
+    },
+  ];
+}
+
 interface BlockActionPayload {
   userId: string;
   actionId: string;
-  pointer: ApprovalPointer;
+  pointer?: ApprovalPointer;
+  employeePointer?: EmployeeToolApprovalPointer;
+  employeeThreadKey?: string;
   responseUrl: string;
   /** Blocks of the clicked card — kept so the decision can replace it in place. */
   blocks: unknown[];
@@ -231,13 +332,29 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
   const actionId = typeof first?.action_id === "string" ? first.action_id : "";
   const value = typeof first?.value === "string" ? first.value : "";
   const responseUrl = typeof record["response_url"] === "string" ? (record["response_url"] as string) : "";
-  const message = record["message"] as { blocks?: unknown } | undefined;
+  const message = record["message"] as { blocks?: unknown; thread_ts?: string; ts?: string } | undefined;
   const blocks = Array.isArray(message?.blocks) ? (message.blocks as unknown[]) : [];
   if (userId === "" || actionId === "" || value === "" || responseUrl === "") {
     throw new Error("Interaction payload is missing user, action, value, or response_url.");
   }
   if (!isSlackResponseUrl(responseUrl)) {
     throw new Error("Invalid Slack response URL.");
+  }
+  const employeeAction = actionId === EMPLOYEE_APPROVE_ACTION_ID || actionId === EMPLOYEE_REJECT_ACTION_ID;
+  if (employeeAction) {
+    const team = record["team"] as { id?: string } | undefined;
+    const channel = record["channel"] as { id?: string } | undefined;
+    const threadKey = buildSlackThreadName(team?.id ?? "", channel?.id ?? "", message?.thread_ts ?? message?.ts ?? "");
+    const employeePointer = parseEmployeeToolApprovalValue(value);
+    if (employeePointer.threadKey !== threadKey) throw new Error("Employee approval does not belong to this chat thread.");
+    return {
+      userId,
+      actionId,
+      employeePointer,
+      employeeThreadKey: threadKey,
+      responseUrl,
+      blocks,
+    };
   }
   return { userId, actionId, pointer: parseApprovalValue(value), responseUrl, blocks };
 }
@@ -396,6 +513,45 @@ export async function handleSlackInteract(
     return Response.json({ response_type: "ephemeral", text: "You are not on the approver list." });
   }
 
+  const approved =
+    interaction.actionId === APPROVE_ACTION_ID || interaction.actionId === EMPLOYEE_APPROVE_ACTION_ID;
+
+  if (interaction.employeePointer) {
+    const { decideChatEmployeeToolApproval } = await import("./chat-employee.js");
+    const pointer = interaction.employeePointer;
+    const work = (async () => {
+      const result = await decideChatEmployeeToolApproval(env, {
+        orgId: pointer.orgId,
+        threadKey: interaction.employeeThreadKey ?? "",
+        approvalId: pointer.approvalId,
+        approved,
+        decidedBy: `slack:${interaction.userId}`,
+      });
+      if (!result.ok) {
+        await respondEphemeral(interaction.responseUrl, result.error, deps.respond);
+        return;
+      }
+      await replaceCardWithDecision(interaction, approved, deps.replaceCard).catch((error: unknown) => {
+        console.error("Slack employee approval card update failed", redactSecrets(String(error)));
+      });
+    })();
+    const reported = work.catch((error: unknown) => {
+      console.error("Slack employee approval dispatch failed", redactSecrets(String(error)));
+      return respondEphemeral(
+        interaction.responseUrl,
+        "The decision could not be recorded. Contact the installation administrator.",
+        deps.respond,
+      );
+    });
+    if (ctx) ctx.waitUntil(reported);
+    else await reported;
+    return new Response("", { status: 200 });
+  }
+
+  if (!interaction.pointer) {
+    return Response.json({ error: "Missing run approval pointer." }, { status: 400 });
+  }
+
   // Re-resolve the pointer server-side; stale/replayed clicks resolve nothing.
   const isUnresolved = deps.isUnresolved ?? (async () => true);
   if (!(await isUnresolved(interaction.pointer))) {
@@ -412,7 +568,7 @@ export async function handleSlackInteract(
     return Response.json({ response_type: "ephemeral", text: "This approval is already resolved." });
   }
 
-  const approved = interaction.actionId === APPROVE_ACTION_ID;
+  const approvedRun = interaction.actionId === APPROVE_ACTION_ID;
   const stubFor = async (pointer: ApprovalPointer) => {
     if (deps.resolveOrchestrator) return deps.resolveOrchestrator(pointer.threadKey);
     if (deps.orchestratorStub) return deps.orchestratorStub;
@@ -425,11 +581,11 @@ export async function handleSlackInteract(
     (async (pointer: ApprovalPointer, userId: string) =>
       dispatchToOrchestrator(await stubFor(pointer), pointer, false, userId));
   const work = (async () => {
-    const dispatch = approved ? dispatchApprove : dispatchReject;
-    await dispatch(interaction.pointer, interaction.userId);
+    const dispatch = approvedRun ? dispatchApprove : dispatchReject;
+    await dispatch(interaction.pointer!, interaction.userId);
     // The dispatch landed — retire the buttons so the card can't be
     // clicked again, and show who decided plus what happens next.
-    await replaceCardWithDecision(interaction, approved, deps.replaceCard).catch((error: unknown) => {
+    await replaceCardWithDecision(interaction, approvedRun, deps.replaceCard).catch((error: unknown) => {
       console.error("Slack approval card update failed", redactSecrets(String(error)));
     });
   })();
@@ -439,7 +595,7 @@ export async function handleSlackInteract(
     console.error("Slack approval dispatch failed", redactSecrets(String(error)));
     return respondEphemeral(
       interaction.responseUrl,
-      `The ${approved ? "approval" : "rejection"} could not be recorded. Contact the installation administrator.`,
+      `The ${approvedRun ? "approval" : "rejection"} could not be recorded. Contact the installation administrator.`,
       deps.respond,
     );
   });
