@@ -16,6 +16,7 @@ import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
+import { SpacesView } from "./components/SpacesView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
@@ -3025,6 +3026,8 @@ export function App(): React.JSX.Element {
             <ProvidersView />
           ) : mainView === "skills" ? (
             <SkillsView />
+          ) : mainView === "spaces" ? (
+            <SpacesView />
           ) : mainView === "custom-agents" ? (
             <CustomAgentsView
               onStartThread={handleStartAgentThread}
