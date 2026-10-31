@@ -16,7 +16,7 @@ node scripts/mint-token.mjs --agent claude-code --scopes sandbox:exec,runs:read 
 | Flag | Meaning |
 | --- | --- |
 | `--agent <name>` | Principal recorded on every audit row. No whitespace, max 128 chars. |
-| `--scopes <a,b>` | Comma list from: `email:read`, `email:draft`, `email:send`, `email:delete`, `memory:read`, `memory:write`, `runs:read`, `sandbox:exec`, `admin:tokens`. |
+| `--scopes <a,b>` | Comma list from: `email:read`, `email:draft`, `email:send`, `email:delete`, `memory:read`, `memory:write`, `runs:read`, `sandbox:exec`, `mcp:external`, `admin:tokens`. |
 | `--ttl-days N` | Optional. The KV entry expires after N days, and the token stops working then. |
 | `--host <host>` | Your Worker host, used in the printed `claude mcp add` line. |
 | `--write` | Also runs the printed `wrangler kv key put … --remote` for you. Without it, nothing is written. |
@@ -47,6 +47,14 @@ Run `claude mcp list` to confirm that `shiba` connects. A 401 means the token is
 | `delete_email` | `email:delete` | Queue a delete for human approval. |
 | `memory_recall`, `memory_sessions` | `memory:read` | Read memory banked by this verified token principal. |
 | `memory_bank`, `memory_forget` | `memory:write` | Write or forget facts in this verified token principal's memory partition. |
+
+### Add an owner-reviewed external MCP server
+
+In **Agents & MCP → External MCP servers**, create a draft with an HTTPS Streamable HTTP endpoint and, when needed, the name of an already provisioned `MCP_CREDENTIAL_*` Worker secret. Shiba stores only that reference. No secret value is entered in the dashboard, sent to a model, or copied into the capability catalog. The deployment operator must explicitly set `MCP_TRUSTED_HOSTS` to comma-separated exact public hostnames before Shiba will contact them; an empty list is disabled by default.
+
+Use **Discover / retry** to fetch a bounded tool schema snapshot. Read each remote description as untrusted text. For each namespaced capability, explicitly review its effect as either read-only or “may mutate” (which requires approval for every exact call), then enable it. Grant each enabled capability only to an active MCP principal that has the `mcp:external` scope. A changed schema disables the affected capability and clears its principal grants until it is reviewed and enabled again. A server health error disables its capabilities; retry discovery before reconnecting.
+
+The inbound `/mcp` gateway lists only currently enabled capabilities granted to its verified bearer principal. Policy is reloaded at invocation, and the normal durable tool receipt records the result. Calls classified as potentially mutating first create an exact-argument human approval, visible on the external-server card. The owner's **Approve and dispatch** action executes only that frozen payload and settles its invocation receipt; a model retry never dispatches a write. The tool response is marked untrusted. Shiba supports HTTPS Streamable HTTP with no redirects and optional bearer authentication from a preprovisioned secret reference. OAuth setup, SSE-only and stdio servers, private/local/metadata destinations, custom auth headers and self-hosted private transport are unsupported. No server is contacted unless an authenticated owner explicitly starts discovery or an enabled tool is invoked (or the owner approves a frozen write).
 
 ### Memory ownership and legacy compatibility
 
