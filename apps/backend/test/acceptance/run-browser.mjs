@@ -1317,8 +1317,14 @@ try {
   boundGoal.runId = goalRun.runId;
   await verifyManagedContextDraft({ page, api: (url, init) => apiJson(page, url, init), report: (checkpoint) => checkpoints.push(checkpoint), context: managedContext, goal: boundGoal });
   await nav(page, "tasks");
+  const goalDownload = `/api/runs/${encodeURIComponent(goalRun.runId)}/deliverables/0${goalQuery}`;
+  await waitFor("the owning thread's exact goal output is visible", async () => (await page.getByRole("link", { name: "Download reports/acceptance.md", exact: true }).getAttribute("href")) === goalDownload);
   await page.getByLabel("Review decision for reports/acceptance.md").selectOption("approved");
+  const goalReviewed = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/runs/${encodeURIComponent(goalRun.runId)}/deliverables/0/review` && response.request().method() === "POST");
   await page.getByRole("button", { name: "Save review", exact: true }).click();
+  const reviewedGoalResponse = await goalReviewed;
+  assert.equal(reviewedGoalResponse.status(), 200);
+  assert.equal((await reviewedGoalResponse.json()).deliverable.review.status, "approved");
   await waitFor("the exact current goal activates after human acceptance", async () => (await apiJson(page, "/api/onboarding/progress")).activatedAt !== null);
   checkpoints.push({ id: "onboarding-source-goal-configure-return-accept", status: "passed", ...boundGoal, employeeId: employee.id, sourceRefs: managedContext.sourceRefs, explicitPrepare: true, explicitApproval: true, explicitAcceptance: true, automaticExternalActions: false });
 
