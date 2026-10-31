@@ -100,9 +100,11 @@ import { mailboxDirectoryStub, mailboxStub, registeredMailbox } from "../mailbox
 import { ownerMemoryStub } from "../memory-do.js";
 import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
-import { orgIdFromIntake } from "../org-request-auth.js";
+import { approvalResolveForbidden } from "../approval-resolve-auth.js";
+import { DASHBOARD_ORG_ID, orgIdFromIntake } from "../org-request-auth.js";
 import { openRunEnv } from "../run-env-seal.js";
 import { resolveRuntimeName } from "../runtime.js";
+import { freezeRuntimeForApproval } from "../runtime-intake.js";
 import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
 import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
@@ -405,7 +407,6 @@ const composerPinSchema = z.object({
   reasoningEffort: z.enum(REASONING_EFFORTS).optional().catch(undefined),
   customAgentId: z.string().min(1).max(128).optional().catch(undefined),
   projectContextId: z.string().regex(/^memproj_[a-f0-9]{24}$/).optional().catch(undefined),
-  orgId: z.string().min(1).max(128).optional().catch(undefined),
   skillPins: z.array(z.object({
     skillId: z.string().min(1).max(100),
     version: z.number().int().positive(),
@@ -1010,10 +1011,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return typeof id === "string" && id.trim() ? id.trim() : null;
   }
 
-  /** The authenticated workspace scope pinned by the dashboard composer. */
+  /** Workspace scope for employee tool policy — server-derived, not client metadata. */
   private employeeToolOrgId(): string {
-    const orgId = this.composerPin().orgId;
-    return typeof orgId === "string" && orgId.trim() ? orgId.trim() : "self-hosted";
+    return DASHBOARD_ORG_ID;
   }
 
   private employeeDraftStore(): EmployeeDraftStore {
@@ -2092,7 +2092,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
       }
     }
-    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    const intakeOrgId =
+      input.intake !== LOCAL_INTAKE_DASHBOARD && typeof input.orgId === "string"
+        ? orgIdFromIntake(input as Record<string, unknown>)
+        : DASHBOARD_ORG_ID;
     if (input.expectedCustomAgentVersion !== undefined &&
       (!Number.isSafeInteger(input.expectedCustomAgentVersion) || Number(input.expectedCustomAgentVersion) < 1)) {
       return Response.json({ error: "Invalid expected custom-agent version." }, { status: 400 });
@@ -2292,11 +2295,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (executionTarget?.kind === "artifact-workspace" && runtimeRawEarly === "local") {
       return Response.json({ error: "Artifact-workspace runs require the isolated sandbox runtime." }, { status: 400 });
     }
-    const runtimeForPreflight = runtimeRawEarly === "local"
-      ? ("local" as const)
-      : executionTarget?.kind === "artifact-workspace"
-        ? ("sandbox" as const)
-        : undefined;
+    const runtimeForPreflight = freezeRuntimeForApproval(this.env, {
+      runtime: input.runtime,
+      intake: input.intake,
+      executionTarget,
+    });
+    if (runtimeForPreflight === "local" && runtimeRawEarly !== "local") {
+      return Response.json(
+        { error: 'runtime "local" is admitted only through an explicit dashboard selection.' },
+        { status: 403 },
+      );
+    }
     try {
       const resolved = await this.resolveRoute({
         repoUrl,
@@ -2398,7 +2407,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (executionTarget?.kind === "artifact-workspace" && runSetup) {
       return Response.json({ error: "Repo setup is only available for repository runs." }, { status: 400 });
     }
-    if (runSetup && (runtime ?? resolveRuntimeName(this.env.RUNTIME)) === "local") {
+    if (runSetup && runtime === "local") {
       return Response.json({ error: "Repo setup isn't supported on the local runtime yet." }, { status: 400 });
     }
     let runEnv: FrozenRunEnv | undefined;
@@ -2451,7 +2460,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             ? { authAccount: input.authAccount.trim().slice(0, 32) }
             : {}),
           // T51: the approved runtime rides the hashed frozen input.
-          ...(runtime !== undefined ? { runtime } : {}),
+          runtime,
           ...(runtime === "local" && targetMachineId !== undefined ? { targetMachineId } : {}),
           ...(testCommand !== undefined ? { testCommand } : {}),
           ...(expectedDeliverables !== undefined ? { expectedDeliverables } : {}),
@@ -2906,8 +2915,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     approvalId?: unknown;
     approved?: unknown;
     decidedBy?: unknown;
+    source?: unknown;
   }): Promise<Response> {
-    const { threadKey, approvalId, approved, decidedBy: rawDecidedBy } = body;
+    const { threadKey, approvalId, approved, decidedBy: rawDecidedBy, source } = body;
     if (
       typeof threadKey !== "string" ||
       typeof approvalId !== "string" ||
@@ -2919,6 +2929,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       typeof rawDecidedBy === "string" && rawDecidedBy.trim()
         ? rawDecidedBy.slice(0, 200)
         : "unknown";
+    const forbidden = approvalResolveForbidden(this.env, {
+      threadKey,
+      approved,
+      decidedBy,
+      source,
+    });
+    if (forbidden !== null) {
+      return Response.json({ error: forbidden }, { status: 403 });
+    }
     // A retried resolve (double-clicked card, redelivered callback) reads
     // the durable command receipt and learns the original answer instead
     // of re-litigating the decision — the receipt, the pointer update,
@@ -3116,7 +3135,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     let codingModel = input.codingModel;
     let connectionId = input.connectionId;
     let sandboxProvider: string | undefined;
-    const intakeOrgId = orgIdFromIntake(input as Record<string, unknown>);
+    const intakeOrgId = DASHBOARD_ORG_ID;
     let skillPins: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }> | undefined;
     if (input.skillPins !== undefined && input.skillPins.length > 0) {
       const skillOwnerId = initiatorUserIdFromOrchestratorName(this.name);
@@ -3173,9 +3192,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       connectionId,
       ...(sandboxProvider ? { sandboxProvider } : {}),
     });
-    const runEnv = await this.intakeRunEnv(this.composerEnv(), input.runtime);
+    const chatRuntime = freezeRuntimeForApproval(this.env, { runtime: input.runtime });
+    const runEnv = await this.intakeRunEnv(this.composerEnv(), chatRuntime);
     const runSetup = this.composerRunSetup();
-    if (runSetup && (input.runtime ?? resolveRuntimeName(this.env.RUNTIME)) === "local") {
+    if (runSetup && chatRuntime === "local") {
       throw new Error("Repo setup isn't supported on the local runtime yet.");
     }
     const pendingApprovals = createPendingApproval(this.approvals, {
@@ -3197,7 +3217,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(typeof input.authAccount === "string" && input.authAccount.trim()
           ? { authAccount: input.authAccount.trim().slice(0, 32) }
           : {}),
-        ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
+        runtime: chatRuntime,
         ...(expectedDeliverables !== undefined ? { expectedDeliverables } : {}),
         ...(skillPins !== undefined ? { skillPins } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
@@ -3459,7 +3479,26 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       publishPullRequest: false,
       reviewOf: parent.runId,
       ...(parent.route ? { route: parent.route } : {}),
+      ...(parent.runtime !== undefined ? { runtime: parent.runtime } : {}),
+      ...(parent.orgId ? { orgId: parent.orgId } : {}),
+      ...(parent.authAccount ? { authAccount: parent.authAccount } : {}),
+      ...(parent.sandboxProvider !== undefined ? { sandboxProvider: parent.sandboxProvider } : {}),
+      ...(parent.targetMachineId !== undefined ? { targetMachineId: parent.targetMachineId } : {}),
     };
+    if (!this.canScheduleRun()) {
+      this.writeRound({
+        roundId,
+        codingRunId: parent.runId,
+        reviewRunId: `pending:${roundId}`,
+        pull: { ...pull, headSha, url: parent.pullUrl },
+        status: "failed",
+        findings: [],
+        summary: "",
+        generation,
+        error: "Daily spend or concurrency budget exhausted; retry when capacity is available.",
+      });
+      return;
+    }
     const reviewRun = createRun({
       runId: `agent-tool:${callId}`,
       sandboxId: makeSandboxId(parent.repoUrl, task, callId),
@@ -3755,7 +3794,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const pull = parent?.pullUrl ? this.parsePull(parent.pullUrl) : null;
     const roundId = run.reviewRoundId ?? `${run.reviewOf ?? run.runId}:head`;
     const envelope = parseReviewEnvelope(output);
-    const headSha = pull ? await this.pullHeadSha(pull.owner, pull.repo, pull.number) : "head";
+    const reserved = (this.state.reviewRounds ?? []).find((item) => item.roundId === roundId);
+    const headSha =
+      reserved?.pull.headSha && reserved.pull.headSha !== "head"
+        ? reserved.pull.headSha
+        : pull
+          ? await this.pullHeadSha(pull.owner, pull.repo, pull.number)
+          : "head";
     const round: ReviewRound = {
       roundId,
       codingRunId: parent?.runId ?? run.reviewOf ?? run.runId,

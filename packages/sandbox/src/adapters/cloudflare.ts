@@ -69,9 +69,7 @@ function wrapRpc(
 
     async pinEgress(pin: SandboxEgressPin) {
       const hosts = [...new Set([...pin.allowedHosts, ...(settings.extraEgressHosts ?? [])])];
-      if (hosts.length > 0) {
-        await rpc.approveHarnessEgress(hosts);
-      }
+      await rpc.approveHarnessEgress(hosts);
       if (pin.outboundByHost) {
         const overrides = Object.entries(pin.outboundByHost).map(([host, spec]) => ({
           host,
