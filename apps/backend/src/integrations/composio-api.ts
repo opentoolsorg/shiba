@@ -42,6 +42,9 @@ export function parseComposioToolkitPage(data: unknown, limit: number): Composio
   if (Array.isArray(data)) {
     return { items, nextCursor: null, hasMore: items.length >= limit };
   }
+  if (typeof data !== "object" || data === null) {
+    return { items: [], nextCursor: null, hasMore: false };
+  }
   const record = data as Record<string, unknown>;
   const nextCursor = firstString(record.nextCursor, record.next_cursor, record.cursor);
   const hasMoreFlag = record.hasMore ?? record.has_more;
@@ -67,6 +70,7 @@ export async function composioFetchJson(
       ...(init?.headers ?? {}),
     },
     cache: "no-store",
+    signal: init?.signal ?? AbortSignal.timeout(15_000),
   });
   let data: unknown = null;
   try {

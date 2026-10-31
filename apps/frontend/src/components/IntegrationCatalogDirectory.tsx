@@ -358,7 +358,9 @@ export function IntegrationCatalogDirectory({
       if (!response.ok || !body.ok || !body.redirectUrl) {
         throw new Error(body.error ?? "Connect unavailable.");
       }
-      window.open(body.redirectUrl, "shiba-composio-oauth", "width=520,height=720");
+      const target = new URL(body.redirectUrl);
+      if (target.protocol !== "https:") throw new Error("Connect returned an unsafe redirect URL.");
+      window.open(target.href, "shiba-composio-oauth", "width=520,height=720,noopener,noreferrer");
       await refreshProvider();
     } catch (error) {
       setConnectError(error instanceof Error ? error.message : String(error));

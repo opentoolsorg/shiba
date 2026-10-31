@@ -405,7 +405,7 @@ export async function createExternalMcpServer(env: Env, input: {
   catalogId?: string | null; connectionLabel?: string | null; visibility?: ExternalMcpVisibility; authMode?: ExternalMcpAuthMode;
 }) {
   await ensure(env);
-  const total = await env.AGENT_AUDIT.prepare("SELECT COUNT(*) AS count FROM external_mcp_servers WHERE org_id = ? AND owner_id = ?").bind(input.orgId, input.ownerId).first<{ count: number }>();
+  const total = await env.AGENT_AUDIT.prepare("SELECT COUNT(*) AS count FROM external_mcp_servers WHERE org_id = ? AND owner_id = ? AND status <> 'disabled'").bind(input.orgId, input.ownerId).first<{ count: number }>();
   if ((total?.count ?? 0) >= MAX_EXTERNAL_MCP_SERVERS) throw new Error("server_limit");
   let endpoint = input.endpoint;
   let name = input.name.trim();

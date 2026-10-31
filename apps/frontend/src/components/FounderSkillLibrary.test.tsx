@@ -1,12 +1,18 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { reloadSavedSkills } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
 
-afterEach(() => cleanup());
+vi.mock("../saved", () => ({ reloadSavedSkills: vi.fn() }));
+
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 describe("FounderSkillLibrary", () => {
-  it("lists library skills and installs a draft", async () => {
+  it.each([false, true])("reloads skills after installation and keeps success if reload fails (%s)", async (reloadFails) => {
+    vi.mocked(reloadSavedSkills).mockImplementation(async () => {
+      if (reloadFails) throw new Error("reload failed");
+    });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/founder-skills") && !init?.method) {
@@ -26,8 +32,9 @@ describe("FounderSkillLibrary", () => {
       return Response.json({ error: "not_found" }, { status: 404 });
     }));
     render(<FounderSkillLibrary />);
-    await waitFor(() => expect(screen.getByText("Stripe revenue pulse")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Stripe revenue pulse")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Install draft" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/skill-abc/));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/skill-abc/));
+    expect(reloadSavedSkills).toHaveBeenCalledOnce();
   });
 });

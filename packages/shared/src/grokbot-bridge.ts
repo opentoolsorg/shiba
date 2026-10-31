@@ -32,12 +32,12 @@ export type GrokbotBridgeTaskStatus = z.infer<typeof grokbotBridgeTaskStatusSche
 
 export const queueGrokbotBridgeTaskInputSchema = z.object({
   founderSkillId: z.string().trim().min(1).max(64).describe("Founder skill library id, e.g. founder-stripe-revenue-pulse."),
-  automationId: z.string().trim().min(1).max(64).optional().describe("Optional linked automation id."),
+  automationId: z.string().trim().min(1).max(64).optional().describe("Ignored for caller-created tasks; cron linkage is server-assigned."),
   payload: z.record(z.string(), z.unknown()).optional().describe("Opaque JSON for Grok Bot; never interpreted by Shiba."),
 });
 
 export const grokbotBridgeStatusInputSchema = z.object({
-  taskId: z.string().trim().min(1).max(64).describe("Bridge task id returned from queue_grokbot_bridge_task."),
+  taskId: z.string().trim().min(1).max(64).optional().describe("Bridge task id; omit to list pending caller tasks and same-org cron tasks."),
 });
 
 export const completeGrokbotBridgeTaskInputSchema = z.object({

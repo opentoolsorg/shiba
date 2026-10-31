@@ -5,8 +5,8 @@ import {
   resetIntegrationProviderCacheForTests,
 } from "../src/integrations/runtime.js";
 import type { Env } from "../src/env.js";
-import { ComposioIntegrationProviderError } from "../src/integrations/composio-provider.js";
-import { parseComposioToolkitPage } from "../src/integrations/composio-api.js";
+import { ComposioIntegrationProvider, ComposioIntegrationProviderError } from "../src/integrations/composio-provider.js";
+import { composioFetchJson, parseComposioToolkitPage } from "../src/integrations/composio-api.js";
 
 function env(partial: Partial<Env> = {}): Env {
   return {
@@ -205,5 +205,53 @@ describe("ComposioIntegrationProvider configured fetch", () => {
     expect(result.status).toBe("completed");
     expect(result.sessionId).toBe("sess-1");
     expect(fetchImpl.mock.calls.some(([u]) => String(u).includes("/tool_router/session/sess-1/execute"))).toBe(true);
+  });
+});
+
+
+describe("Composio response boundaries", () => {
+  const configured = env({ COMPOSIO_API_KEY: "test-key" });
+  const context = { userId: "owner-1", providerKey: "hubspot", callbackOrigin: "https://app.example.test" };
+
+  it.each([null, undefined, "not-json", 7, false])("treats primitive catalog payload %s as an empty page", (data) => {
+    expect(parseComposioToolkitPage(data, 20)).toEqual({ items: [], nextCursor: null, hasMore: false });
+  });
+
+  it.each(["not-json", "null", '{"items":[null]}', '{"items":[{"toolkit":"hubspot"}]}']) (
+    "rejects malformed account responses: %s", async (body) => {
+      const provider = new ComposioIntegrationProvider({ env: configured, fetchImpl: async () => new Response(body) });
+      await expect(provider.listConnections({ userId: "owner-1" })).rejects.toBeInstanceOf(ComposioIntegrationProviderError);
+      await expect(provider.disconnect(context)).rejects.toBeInstanceOf(ComposioIntegrationProviderError);
+    },
+  );
+
+  it("rejects failed account lookup instead of reporting a successful disconnect", async () => {
+    const fetchImpl = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    const provider = new ComposioIntegrationProvider({ env: configured, fetchImpl });
+    await expect(provider.disconnect(context)).rejects.toThrow("account lookup failed");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks every disconnect response and applies fetch timeouts", async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      if (init?.method === "DELETE") return new Response("unavailable", { status: 503 });
+      return Response.json({ items: [{ id: "account-1", toolkit: { slug: "hubspot" }, status: "ACTIVE" }] });
+    });
+    const provider = new ComposioIntegrationProvider({ env: configured, fetchImpl });
+    await expect(provider.disconnect(context)).rejects.toThrow("disconnect failed");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    await provider.health();
+  });
+
+  it("bounds JSON requests while retaining an explicitly supplied signal", async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return Response.json({});
+    });
+    await composioFetchJson(fetchImpl, "https://example.test", "key");
+    const signal = new AbortController().signal;
+    await composioFetchJson(fetchImpl, "https://example.test", "key", { signal });
+    expect(fetchImpl.mock.calls[1]?.[1]?.signal).toBe(signal);
   });
 });

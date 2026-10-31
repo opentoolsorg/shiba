@@ -5,13 +5,16 @@ import {
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
-import { resolveUserId } from "./request-auth.js";
+import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
-import { methodNotAllowed } from "./route-utils.js";
+import { hasSameOriginIntent, methodNotAllowed } from "./route-utils.js";
 import { createAutomation, type Automation } from "./automations.js";
 import { createSkill } from "./skills-store.js";
 import { getAgentByName } from "agents/routing";
 import { AUTOMATIONS_DO_NAME } from "./automation-runner.js";
+
+import { listGrokbotBridgeTasks, publicBridgeTask } from "./grokbot-bridge-store.js";
+import { resolveBridgeApproval } from "./grokbot-bridge-runner.js";
 
 const automationsPath = /^\/api\/founder-skills(?:\/([^/]+)(?:\/(install|deploy))?)?\/?$/;
 
@@ -37,6 +40,27 @@ function buildBridgeAutomation(skillId: string): Automation {
 export async function handleFounderSkills(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/founder-skills")) return null;
+  const approvalMatch = url.pathname.match(/^\/api\/founder-skills\/bridge-approvals(?:\/([^/]+))?$/);
+  if (approvalMatch) {
+    // Connector tokens may submit results, but only a dashboard operator may
+    // release a sensitive frozen digest. Dashboard tenancy is self-hosted.
+    if (request.headers.has("authorization") || !await isAuthorizedRequest(request, env)) return Response.json({ error: "Dashboard authentication required." }, { status: 401 });
+    if (!env.AGENT_AUDIT) return Response.json({ error: "Bridge storage unavailable." }, { status: 503 });
+    if (request.method === "GET" && !approvalMatch[1]) {
+      const tasks = await listGrokbotBridgeTasks(env, "self-hosted", undefined, "awaiting_approval");
+      return Response.json({ approvals: tasks.map((task) => ({ ...publicBridgeTask(task), slackText: task.slackText })) }, { headers: { "cache-control": "no-store" } });
+    }
+    if (request.method !== "POST" || !approvalMatch[1]) return methodNotAllowed();
+    if (!hasSameOriginIntent(request)) return Response.json({ error: "Same-origin request required." }, { status: 403 });
+    const body = await request.json().catch(() => null) as { approved?: unknown } | null;
+    if (typeof body?.approved !== "boolean") return Response.json({ error: "approved must be boolean." }, { status: 400 });
+    try {
+      const task = await resolveBridgeApproval(env, "self-hosted", approvalMatch[1], body.approved);
+      return Response.json({ task: task ? publicBridgeTask(task) : null });
+    } catch {
+      return Response.json({ error: "Bridge approval is not pending." }, { status: 409 });
+    }
+  }
   const match = url.pathname.match(automationsPath);
   if (!match) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
 

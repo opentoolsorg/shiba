@@ -19,40 +19,44 @@ function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" } });
 }
 
-function html(body: string, status = 200): Response {
+function html(body: string, nonce: string, status = 200): Response {
   return new Response(body, {
     status,
     headers: {
       "content-type": "text/html; charset=utf-8",
+      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; base-uri 'none'; frame-ancestors 'none'`,
       "cache-control": "no-store",
       "referrer-policy": "no-referrer",
     },
   });
 }
 
-function oauthCallbackPage(origin: string, ok: boolean, detail: Record<string, unknown>): string {
-  const payload = JSON.stringify({
+function scriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
+
+function oauthCallbackPage(origin: string, ok: boolean, nonce: string): string {
+  const payload = scriptJson({
     type: SHIBA_INTEGRATIONS_OAUTH_CHANNEL,
     ok,
     provider: "composio",
-    ...detail,
   });
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Shiba integrations</title></head>
 <body>
 <p>${ok ? "Connection complete. Returning to Shiba…" : "Connection did not complete. Returning to Shiba…"}</p>
-<script>
+<script nonce="${nonce}">
 (function () {
   var payload = ${payload};
   try {
-    var bc = new BroadcastChannel(${JSON.stringify(SHIBA_INTEGRATIONS_OAUTH_CHANNEL)});
+    var bc = new BroadcastChannel(${scriptJson(SHIBA_INTEGRATIONS_OAUTH_CHANNEL)});
     bc.postMessage(payload);
     bc.close();
   } catch (e) {}
   try {
     if (window.opener && !window.opener.closed) {
-      window.opener.postMessage(payload, ${JSON.stringify(origin)});
+      window.opener.postMessage(payload, ${scriptJson(origin)});
     }
   } catch (e2) {}
   setTimeout(function () { window.close(); }, 400);
@@ -122,11 +126,8 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
       url.searchParams.has("connectedAccountId") ||
       url.searchParams.get("success") === "true";
     const origin = url.origin;
-    return html(
-      oauthCallbackPage(origin, ok, {
-        query: Object.fromEntries(url.searchParams.entries()),
-      }),
-    );
+    const nonce = crypto.randomUUID();
+    return html(oauthCallbackPage(origin, ok, nonce), nonce);
   }
 
   if (!(await isAuthorizedRequest(request, env))) {
@@ -144,8 +145,12 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   }
 
   if (suffix === "/connections" && request.method === "GET") {
-    const connections = await provider.listConnections({ userId: owner });
-    return json({ ok: true, provider: selectedId, connections });
+    try {
+      const connections = await provider.listConnections({ userId: owner });
+      return json({ ok: true, provider: selectedId, connections });
+    } catch (error) {
+      return json({ ok: false, error: error instanceof ComposioIntegrationProviderError ? error.message : "Integration connections unavailable." }, 503);
+    }
   }
 
   if (suffix === "/catalog" && request.method === "GET") {

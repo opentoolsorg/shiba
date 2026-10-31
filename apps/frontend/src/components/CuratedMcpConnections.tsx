@@ -57,6 +57,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
       onChanged?.();
       setNotice(success);
     } catch (cause) {
+      await refresh().catch(() => {});
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(null);
@@ -179,7 +180,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                       `/api/v1/mcp/servers/${created.server.id}/oauth/begin`,
                       { method: "POST", body: JSON.stringify({ redirectUri }) },
                     ).catch(async (cause: unknown) => {
-                      await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" });
+                      await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" }).catch(() => {});
                       throw cause;
                     });
                     window.open(begin.authorizationUrl, "_blank", "noopener,noreferrer");
@@ -217,7 +218,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                       method: "POST",
                       body: JSON.stringify({ token: bearer[vendor.catalogId] }),
                     }).catch(async (cause: unknown) => {
-                      await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" });
+                      await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" }).catch(() => {});
                       throw cause;
                     });
                     await request(`/api/v1/mcp/servers/${created.server.id}/discover`, { method: "POST", body: "{}" });

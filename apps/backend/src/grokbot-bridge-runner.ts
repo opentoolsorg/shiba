@@ -7,9 +7,12 @@ import {
   type FounderSkillLibraryEntry,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
-import { postSlackMessage } from "./slack.js";
+import { postSlackMessage, SlackPostRejectedError } from "./slack.js";
 import {
   createGrokbotBridgeTask,
+  createBridgeApproval,
+  getBridgeApproval,
+  getGrokbotBridgeTask,
   publicBridgeTask,
   updateGrokbotBridgeTask,
   type GrokbotBridgeTask,
@@ -19,7 +22,6 @@ import { recordSkip, recordTrigger } from "./automations.js";
 import type { FireAutomationDeps, FireAutomationResult } from "./automation-runner.js";
 import { automationThreadKey } from "./automation-runner.js";
 import { automationCommandId } from "./pending-approvals.js";
-import type { GrokbotBridgeTaskStatus } from "@shiba/shared";
 
 export interface GrokbotBridgeEnv extends Pick<Env, "AGENT_AUDIT" | "SLACK_BOT_TOKEN" | "SLACK_APPROVALS_CHANNEL" | "GROKBOT_BRIDGE_SIMULATE"> {}
 
@@ -83,26 +85,62 @@ export async function completeBridgeTaskAndMaybeSlack(
   if (!env.AGENT_AUDIT) return null;
   const entry = getFounderSkillLibraryEntry(task.founderSkillId);
   const slackText = entry ? formatFounderSkillSlackDigest(entry, result) : JSON.stringify(result);
-  let status: GrokbotBridgeTaskStatus = options.requiresSensitiveApproval ? "awaiting_approval" : "completed";
-  let slackPostedAt: number | null = null;
-  if (options.postSlack && !options.requiresSensitiveApproval) {
-    const post = await postFounderSkillSlack(env, options.slackChannel, slackText);
-    if (post.posted) {
-      slackPostedAt = now;
-      status = "completed";
-    } else {
-      status = "failed";
-    }
-  } else if (options.postSlack && options.requiresSensitiveApproval) {
-    status = "awaiting_approval";
+  if (!["queued", "running", "failed"].includes(task.status)) throw new Error("Bridge task cannot be completed in its current state.");
+  if (task.approvalId) throw new Error("Resolve the existing bridge approval instead of replacing its result.");
+  const sensitive = Boolean(entry?.requiresSensitiveApproval || task.requiresSensitiveApproval || options.requiresSensitiveApproval);
+  if (sensitive && orgId !== "self-hosted") throw new Error("Sensitive bridge approvals are supported only in the self-hosted organization.");
+  const slackChannel = task.slackChannel ?? options.slackChannel;
+  if (sensitive) {
+    const pending = await createBridgeApproval(env, task, JSON.stringify(result), slackText, { ...options, slackChannel }, now);
+    if (!pending) throw new Error("Bridge task changed; re-read its status before retrying.");
+    return pending;
   }
-  return updateGrokbotBridgeTask(env, orgId, principal, task.id, {
-    status,
-    resultJson: JSON.stringify(result),
-    slackText,
-    slackPostedAt,
-    ...(status === "failed" ? { error: "Slack post failed or channel unset." } : {}),
-  }, now);
+  // Claim completion before any network side effect. A retry cannot replace the
+  // frozen result or post a second digest, even when callers race.
+  const claimed = await updateGrokbotBridgeTask(env, orgId, principal, task.id, {
+    status: "completed",
+    resultJson: JSON.stringify(result), slackText, slackPostedAt: null, approvalId: null, error: null,
+  }, now, task.status);
+  if (!claimed) throw new Error("Bridge task changed; re-read its status before retrying.");
+  if (!options.postSlack) return claimed;
+  return postClaimedBridgeDigest(env, claimed, slackChannel, now);
+}
+
+async function postClaimedBridgeDigest(env: GrokbotBridgeEnv, task: GrokbotBridgeTask, channel: string | undefined, now: number, sensitive = false) {
+  if (!task.slackText) throw new Error("Bridge digest missing.");
+  try {
+    const post = await postFounderSkillSlack(env, channel, task.slackText);
+    return await updateGrokbotBridgeTask(env, task.orgId, task.principal, task.id, {
+      status: post.posted ? "completed" : sensitive ? "awaiting_approval" : "failed", slackPostedAt: post.posted ? now : null,
+      error: post.posted ? null : post.reason,
+    }, now, "completed");
+  } catch (error) {
+    if (error instanceof SlackPostRejectedError && error.outcomeKnown) {
+      return updateGrokbotBridgeTask(env, task.orgId, task.principal, task.id, {
+        status: sensitive ? "awaiting_approval" : "failed",
+        error: "Slack rejected the digest; check bot permissions and channel configuration before retrying.",
+      }, now, "completed");
+    }
+    // Delivery is uncertain after a network failure: retain the terminal claim
+    // so an automatic retry cannot duplicate a possibly delivered digest.
+    return updateGrokbotBridgeTask(env, task.orgId, task.principal, task.id, {
+      error: "Slack delivery uncertain; check Slack before taking further action.",
+    }, now, "completed");
+  }
+}
+
+/** Dashboard-only caller authorization lives in handleFounderSkills. */
+export async function resolveBridgeApproval(env: GrokbotBridgeEnv, orgId: string, approvalId: string, approved: boolean, now = Date.now()) {
+  const approval = await getBridgeApproval(env, orgId, approvalId);
+  if (!approval) throw new Error("Bridge approval not pending.");
+  const task = await getGrokbotBridgeTask(env, orgId, approval.principal, approval.task_id);
+  if (!task || task.approvalId !== approvalId || task.status !== "awaiting_approval" || !task.slackText) throw new Error("Bridge approval not pending.");
+  const claimed = await updateGrokbotBridgeTask(env, orgId, task.principal, task.id, {
+    status: "completed", error: approved ? null : "Sensitive digest rejected by operator.",
+  }, now, "awaiting_approval");
+  if (!claimed) throw new Error("Bridge approval already resolved.");
+  if (!approved || !approval.post_slack) return claimed;
+  return postClaimedBridgeDigest(env, claimed, approval.slack_channel ?? undefined, now, true);
 }
 
 export async function runFounderSkillBridgeCron(
@@ -123,10 +161,11 @@ export async function runFounderSkillBridgeCron(
     principal: `automation:${automation.id}`,
     founderSkillId: target.founderSkillId,
     automationId: automation.id,
+    delivery: { requiresSensitiveApproval: Boolean(target.requiresSensitiveApproval || entry.requiresSensitiveApproval), slackChannel: target.slackChannel },
     payload: { scheduledAt: nowMs, bridgeCatalogIds: target.bridgeCatalogIds ?? entry.bridgeCatalogIds },
   }, nowMs);
-  await updateGrokbotBridgeTask(env, orgId, task.principal, task.id, { status: "running" }, nowMs);
-  const result = bridgeSimulateEnabled(env) ? await simulateGrokbotBridgeResult(entry) : {};
+  if (!bridgeSimulateEnabled(env)) return { task, slackPosted: false };
+  const result = await simulateGrokbotBridgeResult(entry);
   const sensitive = target.requiresSensitiveApproval ?? entry.requiresSensitiveApproval;
   const updated = await completeBridgeTaskAndMaybeSlack(
     env,

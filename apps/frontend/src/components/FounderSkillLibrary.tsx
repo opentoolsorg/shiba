@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type JSX } from "react";
+import { reloadSavedSkills } from "../saved";
 
 interface LibrarySkill {
   id: string;
@@ -42,7 +43,10 @@ export function FounderSkillLibrary(): JSX.Element {
       const response = await fetch(`/api/founder-skills/${encodeURIComponent(id)}/install`, { method: "POST" });
       const body = await response.json().catch(() => ({})) as { error?: string; skill?: { id?: string } };
       if (!response.ok) setNotice(body.error ?? `Install failed (${response.status}).`);
-      else setNotice(`Installed "${id}" as draft skill ${body.skill?.id ?? ""}. Review it in your skill list below.`);
+      else {
+        setNotice(`Installed "${id}" as draft skill ${body.skill?.id ?? ""}. Review it in your skill list below.`);
+        void reloadSavedSkills().catch(() => {});
+      }
     } catch {
       setNotice("Install failed: the backend could not be reached.");
     } finally {
