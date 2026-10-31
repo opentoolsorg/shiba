@@ -2,7 +2,9 @@ import type {
   IntegrationProviderBeginConnectResponse,
   IntegrationProviderCatalogItem,
   IntegrationProviderConnection,
+  IntegrationProviderExecuteResponse,
   IntegrationProviderHealth,
+  IntegrationProviderSessionResponse,
 } from "@shiba/shared";
 import type { Env } from "../env.js";
 import type {
@@ -10,11 +12,19 @@ import type {
   IntegrationCatalogPage,
   IntegrationCatalogQuery,
   IntegrationConnectContext,
+  IntegrationExecuteContext,
   IntegrationProvider,
 } from "./contracts.js";
 import { staticCatalogHasMore, staticCatalogPage } from "./static-catalog.js";
-
-const COMPOSIO_API_BASE_URL = "https://backend.composio.dev/api/v3";
+import {
+  composioApiKey,
+  composioFetchJson,
+  composioSessionBase,
+  composioV3Base,
+  firstString,
+  normalizeSlug,
+  parseComposioToolkitPage,
+} from "./composio-api.js";
 
 type ComposioToolkitRecord = {
   slug?: string;
@@ -31,17 +41,6 @@ type ComposioConnectedAccountRecord = {
   status?: string;
   toolkit?: { slug?: string };
 };
-
-function firstString(...values: unknown[]): string | null {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
-function normalizeSlug(value: string): string {
-  return value.trim().toLowerCase();
-}
 
 function displayName(slug: string): string {
   return slug
@@ -66,6 +65,16 @@ function mapToolkit(record: ComposioToolkitRecord): IntegrationProviderCatalogIt
   };
 }
 
+export class ComposioIntegrationProviderError extends Error {
+  constructor(
+    message: string,
+    readonly status = 503,
+  ) {
+    super(message);
+    this.name = "ComposioIntegrationProviderError";
+  }
+}
+
 export interface ComposioIntegrationProviderOptions {
   env: Env;
   fetchImpl?: FetchImpl;
@@ -82,8 +91,18 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
   }
 
   private apiKey(): string | null {
-    const key = this.env.COMPOSIO_API_KEY?.trim();
-    return key ? key : null;
+    return composioApiKey(this.env);
+  }
+
+  private requireApiKey(): string {
+    const key = this.apiKey();
+    if (!key) {
+      throw new ComposioIntegrationProviderError(
+        "Composio is not configured. Set COMPOSIO_API_KEY (wrangler secret put COMPOSIO_API_KEY).",
+        503,
+      );
+    }
+    return key;
   }
 
   async health(): Promise<IntegrationProviderHealth> {
@@ -97,7 +116,8 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
         message: "Set COMPOSIO_API_KEY (wrangler secret put COMPOSIO_API_KEY) to enable Composio connectors.",
       };
     }
-    const response = await this.fetchImpl(`${COMPOSIO_API_BASE_URL}/toolkits?limit=1`, {
+    const base = composioV3Base(this.env);
+    const response = await this.fetchImpl(`${base}/toolkits?limit=1`, {
       headers: { "x-api-key": apiKey },
       cache: "no-store",
     }).catch(() => null);
@@ -120,7 +140,7 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
   private async connectedAccounts(userId: string): Promise<ComposioConnectedAccountRecord[]> {
     const apiKey = this.apiKey();
     if (!apiKey) return [];
-    const url = new URL(`${COMPOSIO_API_BASE_URL}/connected_accounts`);
+    const url = new URL(`${composioV3Base(this.env)}/connected_accounts`);
     url.searchParams.set("user_ids", userId);
     url.searchParams.set("limit", "100");
     const response = await this.fetchImpl(url, {
@@ -169,69 +189,37 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
     const connections = await this.listConnections({ userId: query.userId });
     const connected = new Map(connections.map((item) => [item.providerKey, item]));
 
-    const url = new URL(`${COMPOSIO_API_BASE_URL}/toolkits`);
-    if (query.query) url.searchParams.set("search", query.query);
+    const url = new URL(`${composioV3Base(this.env)}/toolkits`);
+    if (query.query?.trim()) url.searchParams.set("search", query.query.trim());
     if (query.cursor) url.searchParams.set("cursor", query.cursor);
     url.searchParams.set("limit", String(query.limit));
 
-    const response = await this.fetchImpl(url, {
-      headers: { "x-api-key": apiKey },
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      const items = staticCatalogPage({
-        query: query.query,
-        cursor: query.cursor,
-        limit: query.limit,
-        source: "static",
-        connectable: false,
-      });
-      const paging = staticCatalogHasMore({
-        query: query.query,
-        cursor: query.cursor,
-        limit: query.limit,
-      });
-      return { items, ...paging, fallbackCatalog: true };
+    const result = await composioFetchJson(this.fetchImpl, url, apiKey);
+    if (!result.ok) {
+      throw new ComposioIntegrationProviderError(
+        `Composio catalog unavailable (HTTP ${result.status}).`,
+        result.status >= 400 && result.status < 500 ? result.status : 503,
+      );
     }
 
-    const data = (await response.json()) as
-      | {
-          items?: ComposioToolkitRecord[];
-          nextCursor?: string;
-          next_cursor?: string;
-        }
-      | ComposioToolkitRecord[];
-
-    const rows = Array.isArray(data) ? data : (data.items ?? []);
-    const normalizedQuery = query.query?.trim().toLowerCase();
-    const items = rows
-      .map((row) => {
-        const item = mapToolkit(row);
+    const page = parseComposioToolkitPage(result.data, query.limit);
+    const items = page.items
+      .map((row) => mapToolkit(row as ComposioToolkitRecord))
+      .filter((item) => item.providerKey)
+      .map((item) => {
         const connection = connected.get(item.providerKey);
         return {
           ...item,
           isConnected: Boolean(connection),
           connectionId: connection?.id ?? null,
         };
-      })
-      .filter(
-        (item) =>
-          item.providerKey &&
-          (!normalizedQuery ||
-            `${item.providerKey} ${item.name} ${item.description}`.toLowerCase().includes(normalizedQuery)),
-      );
+      });
 
-    const nextCursor = Array.isArray(data)
-      ? null
-      : firstString(
-          !Array.isArray(data) ? data.nextCursor : null,
-          !Array.isArray(data) ? data.next_cursor : null,
-        );
     return {
       items,
-      nextCursor,
-      hasMore: nextCursor !== null,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      fallbackCatalog: false,
     };
   }
 
@@ -250,31 +238,26 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
         error: "Composio is not configured. Add COMPOSIO_API_KEY before connecting SaaS integrations.",
       };
     }
-
     const toolkit = normalizeSlug(context.providerKey);
     const callbackUrl = this.callbackUrl(context.callbackOrigin);
+    const base = composioV3Base(this.env);
 
-    const authListUrl = new URL(`${COMPOSIO_API_BASE_URL}/auth_configs`);
+    const authListUrl = new URL(`${base}/auth_configs`);
     authListUrl.searchParams.set("toolkit_slug", toolkit);
-    const authListResponse = await this.fetchImpl(authListUrl, {
-      headers: { "x-api-key": apiKey },
-      cache: "no-store",
-    });
+    const authList = await composioFetchJson(this.fetchImpl, authListUrl, apiKey);
 
     let authConfigId: string | null = null;
-    if (authListResponse.ok) {
-      const authList = (await authListResponse.json()) as { items?: Array<{ id?: string }> } | Array<{ id?: string }>;
-      const rows = Array.isArray(authList) ? authList : (authList.items ?? []);
+    if (authList.ok) {
+      const rows = Array.isArray(authList.data)
+        ? authList.data
+        : ((authList.data as { items?: Array<{ id?: string }> })?.items ?? []);
       authConfigId = firstString(rows[0]?.id);
     }
 
     if (!authConfigId) {
-      const createResponse = await this.fetchImpl(`${COMPOSIO_API_BASE_URL}/auth_configs`, {
+      const createResponse = await composioFetchJson(this.fetchImpl, `${base}/auth_configs`, apiKey, {
         method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "content-type": "application/json",
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           toolkit_slug: toolkit,
           auth_scheme: "OAUTH2",
@@ -288,20 +271,16 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
           error: `Could not create Composio auth config (HTTP ${createResponse.status}).`,
         };
       }
-      const created = (await createResponse.json()) as { id?: string };
-      authConfigId = firstString(created.id);
+      authConfigId = firstString((createResponse.data as { id?: string })?.id);
     }
 
     if (!authConfigId) {
       return { ok: false, provider: this.id, error: "Composio auth config id missing." };
     }
 
-    const linkResponse = await this.fetchImpl(`${COMPOSIO_API_BASE_URL}/connected_accounts/link`, {
+    const linkResponse = await composioFetchJson(this.fetchImpl, `${base}/connected_accounts/link`, apiKey, {
       method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "content-type": "application/json",
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         auth_config_id: authConfigId,
         user_id: context.userId,
@@ -317,7 +296,7 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
       };
     }
 
-    const linkBody = (await linkResponse.json()) as {
+    const linkBody = linkResponse.data as {
       redirect_url?: string;
       redirectUrl?: string;
       id?: string;
@@ -332,8 +311,7 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
   }
 
   async disconnect(context: IntegrationConnectContext): Promise<void> {
-    const apiKey = this.apiKey();
-    if (!apiKey) throw new Error("Composio is not configured.");
+    const apiKey = this.requireApiKey();
     const providerKey = normalizeSlug(context.providerKey);
     const rows = await this.connectedAccounts(context.userId);
     const targets = rows.filter(
@@ -341,11 +319,97 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
     );
     await Promise.all(
       targets.map((row) =>
-        this.fetchImpl(`${COMPOSIO_API_BASE_URL}/connected_accounts/${encodeURIComponent(row.id!)}`, {
+        this.fetchImpl(`${composioV3Base(this.env)}/connected_accounts/${encodeURIComponent(row.id!)}`, {
           method: "DELETE",
           headers: { "x-api-key": apiKey },
         }),
       ),
     );
+  }
+
+  inferToolkitSlug(toolSlug: string, explicit?: string): string {
+    if (explicit?.trim()) return normalizeSlug(explicit);
+    const prefix = toolSlug.split("_")[0];
+    return prefix ? normalizeSlug(prefix) : normalizeSlug(toolSlug);
+  }
+
+  async createToolRouterSession(args: {
+    userId: string;
+    toolkitSlugs: string[];
+  }): Promise<IntegrationProviderSessionResponse> {
+    const apiKey = this.requireApiKey();
+    const unique = [...new Set(args.toolkitSlugs.map(normalizeSlug).filter(Boolean))];
+    if (unique.length === 0) {
+      return { ok: false, error: "At least one toolkit slug is required." };
+    }
+    const sessionBase = composioSessionBase(this.env);
+    const result = await composioFetchJson(this.fetchImpl, `${sessionBase}/tool_router/session`, apiKey, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        user_id: args.userId,
+        toolkits: { enable: unique },
+      }),
+    });
+    if (!result.ok) {
+      return { ok: false, error: `Composio session create failed (HTTP ${result.status}).` };
+    }
+    const sessionId = firstString(
+      (result.data as { session_id?: string })?.session_id,
+      (result.data as { sessionId?: string })?.sessionId,
+      (result.data as { id?: string })?.id,
+    );
+    if (!sessionId) return { ok: false, error: "Composio session id missing in response." };
+    return { ok: true, sessionId };
+  }
+
+  async executeTool(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse> {
+    const apiKey = this.requireApiKey();
+    const toolkitSlug = this.inferToolkitSlug(context.toolSlug, context.toolkitSlug);
+    let sessionId = context.sessionId?.trim() ?? null;
+    if (!sessionId) {
+      const created = await this.createToolRouterSession({
+        userId: context.userId,
+        toolkitSlugs: [toolkitSlug],
+      });
+      if (!created.ok || !created.sessionId) {
+        return { ok: false, status: "failed", error: created.error ?? "Could not create Composio session." };
+      }
+      sessionId = created.sessionId;
+    }
+
+    const sessionBase = composioSessionBase(this.env);
+    const executeBody: Record<string, unknown> = {
+      tool_slug: context.toolSlug,
+      arguments: context.arguments ?? {},
+    };
+    if (context.connectedAccountId) executeBody.account = context.connectedAccountId;
+
+    const result = await composioFetchJson(
+      this.fetchImpl,
+      `${sessionBase}/tool_router/session/${encodeURIComponent(sessionId)}/execute`,
+      apiKey,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(executeBody),
+      },
+    );
+
+    if (!result.ok) {
+      return {
+        ok: false,
+        status: "failed",
+        sessionId,
+        error: `Composio tool execute failed (HTTP ${result.status}).`,
+      };
+    }
+
+    return {
+      ok: true,
+      status: "completed",
+      sessionId,
+      output: result.data,
+    };
   }
 }
