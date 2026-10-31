@@ -12,6 +12,7 @@ import { parseResolvedCodexCredential, resolveCodexSubscriptionAuthJson } from "
 import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gateway.js";
 import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
 import { kindForHost, readProviderSecretForOrg, type UserSecretKind } from "./user-provider-keys.js";
+import { authFlowPermitsSubscriptionEgress } from "@shiba/auth";
 
 export type EgressEnv = Pick<
   WorkerEnv,
@@ -255,6 +256,12 @@ export async function forwardClaudeSubscription(
 ): Promise<Response> {
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
+  if (env.AGENT_TOKENS) {
+    const instanceId = `claude-sub:${account}`;
+    if (!(await authFlowPermitsSubscriptionEgress({ AGENT_TOKENS: env.AGENT_TOKENS }, instanceId))) {
+      return new Response("Subscription sign-in is not active.", { status: 403 });
+    }
+  }
   const secretName =
     account === "default"
       ? "CLAUDE_SUBSCRIPTION_TOKEN"
