@@ -38,12 +38,17 @@ async function api(env: Env, path: string, method = "GET", value?: unknown, prin
 
 function mockMcp() {
   const calls: string[] = [];
-  let tools = structuredClone(remoteTools);
+  let tools: unknown[] = structuredClone(remoteTools);
   let fail = false;
   let toolCallGate: Promise<void> | null = null;
   let releaseToolCall: (() => void) | null = null;
   let markToolCallStarted: () => void = () => {};
   const toolCallStarted = new Promise<void>((resolve) => { markToolCallStarted = resolve; });
+  let toolListGate: Promise<void> | null = null;
+  let releaseToolList: (() => void) | null = null;
+  let markToolListStarted: () => void = () => {};
+  let toolListStarted = Promise.resolve();
+  let failToolLists = false;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     if (url.href !== endpoint) throw new Error(`untrusted destination ${url.href}`);
@@ -56,7 +61,12 @@ function mockMcp() {
       protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" },
     } });
     if (request.method === "notifications/initialized") return new Response(null, { status: 202 });
-    if (request.method === "tools/list") return Response.json({ jsonrpc: "2.0", id: request.id, result: { tools } });
+    if (request.method === "tools/list") {
+      markToolListStarted();
+      if (failToolLists) throw new Error("fixture tools/list failure");
+      if (toolListGate) await toolListGate;
+      return Response.json({ jsonrpc: "2.0", id: request.id, result: { tools } });
+    }
     if (request.method === "tools/call") {
       markToolCallStarted();
       if (toolCallGate) await toolCallGate;
@@ -65,8 +75,15 @@ function mockMcp() {
     throw new Error(`unexpected MCP method ${request.method}`);
   });
   return { calls, fetchMock, waitForToolCall: () => toolCallStarted,
+    waitForToolList: () => toolListStarted,
     holdToolCalls() { toolCallGate = new Promise<void>((resolve) => { releaseToolCall = resolve; }); },
     releaseToolCalls() { releaseToolCall?.(); toolCallGate = null; },
+    holdToolLists() {
+      toolListStarted = new Promise<void>((resolve) => { markToolListStarted = resolve; });
+      toolListGate = new Promise<void>((resolve) => { releaseToolList = resolve; });
+    },
+    releaseToolLists() { releaseToolList?.(); toolListGate = null; },
+    set failToolLists(value: boolean) { failToolLists = value; },
     get tools() { return tools; }, set tools(next) { tools = next; }, set fail(value: boolean) { fail = value; } };
 }
 
@@ -178,6 +195,29 @@ describe("owner-scoped external MCP registry", () => {
     expect((await registry.invoke(count.gatewayName, { a: 1, b: 1 }, agent)).isError).toBe(true);
   });
 
+  it("rechecks read grants and capability state after a paused schema refresh", async () => {
+    for (const revoke of [true, false]) {
+      const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
+      const { server, tool } = await discoveredServer(env, fixture.fetchMock);
+      await reviewExternalMcpTool(env, server, tool.id, "read", tool.schemaVersion);
+      const reviewed = (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!;
+      await setExternalMcpToolEnabled(env, reviewed, tool.id, true, tool.schemaVersion);
+      await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
+      const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
+      fixture.holdToolLists();
+      const attempt = registry.invoke(tool.gatewayName, { a: 2, b: 3 }, agent, { idempotencyKey: `paused-read-${revoke}` });
+      await fixture.waitForToolList();
+      if (revoke) {
+        await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: false });
+      } else {
+        await setExternalMcpToolEnabled(env, (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!, tool.id, false, tool.schemaVersion);
+      }
+      fixture.releaseToolLists();
+      expect((await attempt).isError).toBe(true);
+      expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(0);
+    }
+  });
+
   it("queues unknown effects for exact owner approval, then dispatches only the frozen payload and settles its receipt", async () => {
     const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
     const { server, tool } = await discoveredServer(env, fixture.fetchMock);
@@ -202,7 +242,7 @@ describe("owner-scoped external MCP registry", () => {
     expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
   });
 
-  it("creates a new approval for a new identical intent while replaying the same idempotency key", async () => {
+  it("creates a fresh approval after an identical write succeeds while replaying the original operation", async () => {
     const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
     const { server, tool } = await discoveredServer(env, fixture.fetchMock);
     await reviewExternalMcpTool(env, server, tool.id, "approval_required", tool.schemaVersion);
@@ -212,37 +252,77 @@ describe("owner-scoped external MCP registry", () => {
     const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
     const first = await registry.invoke(tool.gatewayName, { a: 4, b: 9 }, agent, { idempotencyKey: "same-operation" });
     const firstApproval = (first.structuredContent as { approvalId: string }).approvalId;
+    const approved = await api(env, `/${server.id}/approvals/${firstApproval}`, "POST", { approved: true });
+    expect(await approved!.json()).toMatchObject({ dispatch: { status: "succeeded" } });
     const replay = await registry.invoke(tool.gatewayName, { a: 4, b: 9 }, agent, { idempotencyKey: "same-operation" });
-    expect(replay._meta).toMatchObject({ "com.shiba/invocation": { replayed: true } });
+    expect(replay._meta).toMatchObject({ "com.shiba/invocation": { replayed: true, status: "succeeded" } });
     const second = await registry.invoke(tool.gatewayName, { a: 4, b: 9 }, agent, { idempotencyKey: "new-operation" });
     const secondApproval = (second.structuredContent as { approvalId: string }).approvalId;
     expect(secondApproval).not.toBe(firstApproval);
-    expect((await listEmployeeActionApprovals(env, { orgId: "org-a", status: "pending" })).map((item) => item.approvalId))
-      .toEqual(expect.arrayContaining([firstApproval, secondApproval]));
-    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(0);
+    expect((await listEmployeeActionApprovals(env, { orgId: "org-a", status: "pending" })).map((item) => item.approvalId)).toEqual([secondApproval]);
+    expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([
+      { tool: tool.gatewayName, status: "pending_approval", approvalId: secondApproval },
+      { tool: tool.gatewayName, status: "succeeded", approvalId: firstApproval },
+    ]);
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
   });
 
   it("does not let a duplicate concurrent approval overwrite the in-flight receipt", async () => {
-    const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
-    const { server, tool } = await discoveredServer(env, fixture.fetchMock);
-    await reviewExternalMcpTool(env, server, tool.id, "approval_required", tool.schemaVersion);
-    const reviewed = (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!;
-    await setExternalMcpToolEnabled(env, reviewed, tool.id, true, tool.schemaVersion);
-    await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
-    const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
-    const pendingResult = await registry.invoke(tool.gatewayName, { a: 6, b: 2 }, agent);
-    const approvalId = (pendingResult.structuredContent as { approvalId: string }).approvalId;
-    fixture.holdToolCalls();
-    const firstDispatch = api(env, `/${server.id}/approvals/${approvalId}`, "POST", { approved: true });
-    await fixture.waitForToolCall();
-    const duplicateResponse = await api(env, `/${server.id}/approvals/${approvalId}`, "POST", { approved: true });
-    expect(await duplicateResponse!.json()).toMatchObject({ dispatch: { status: "in_progress" } });
-    expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([{ status: "approved", approvalId }]);
-    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
-    fixture.releaseToolCalls();
-    expect(await (await firstDispatch)!.json()).toMatchObject({ dispatch: { status: "succeeded" } });
-    expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([{ status: "succeeded", approvalId }]);
-    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
+    for (const disableServer of [false, true]) {
+      const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
+      const { server, tool } = await discoveredServer(env, fixture.fetchMock);
+      await reviewExternalMcpTool(env, server, tool.id, "approval_required", tool.schemaVersion);
+      const reviewed = (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!;
+      await setExternalMcpToolEnabled(env, reviewed, tool.id, true, tool.schemaVersion);
+      await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
+      const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
+      const pendingResult = await registry.invoke(tool.gatewayName, { a: 6, b: 2 }, agent);
+      const approvalId = (pendingResult.structuredContent as { approvalId: string }).approvalId;
+      fixture.holdToolCalls();
+      const firstDispatch = api(env, `/${server.id}/approvals/${approvalId}`, "POST", { approved: true });
+      await fixture.waitForToolCall();
+      if (disableServer) {
+        await disableExternalMcpServer(env, (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!);
+      } else {
+        fixture.failToolLists = true;
+      }
+      const listCallsBeforeDuplicate = fixture.calls.filter((method) => method === "tools/list").length;
+      const duplicateResponse = await api(env, `/${server.id}/approvals/${approvalId}`, "POST", { approved: true });
+      expect(await duplicateResponse!.json()).toMatchObject({ dispatch: { status: "in_progress" } });
+      expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([{ status: "approved", approvalId }]);
+      expect(fixture.calls.filter((method) => method === "tools/list")).toHaveLength(listCallsBeforeDuplicate);
+      expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
+      fixture.releaseToolCalls();
+      expect(await (await firstDispatch)!.json()).toMatchObject({ dispatch: { status: "succeeded" } });
+      expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([{ status: "succeeded", approvalId }]);
+      expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
+    }
+  });
+
+  it("rechecks owner approval and grants after paused write preflight before dispatch", async () => {
+    for (const disableCapability of [true, false]) {
+      const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
+      const { server, tool } = await discoveredServer(env, fixture.fetchMock);
+      await reviewExternalMcpTool(env, server, tool.id, "approval_required", tool.schemaVersion);
+      const reviewed = (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!;
+      await setExternalMcpToolEnabled(env, reviewed, tool.id, true, tool.schemaVersion);
+      await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
+      const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
+      const pending = await registry.invoke(tool.gatewayName, { a: 5, b: 2 }, agent);
+      const approvalId = (pending.structuredContent as { approvalId: string }).approvalId;
+      fixture.holdToolLists();
+      const dispatch = api(env, `/${server.id}/approvals/${approvalId}`, "POST", { approved: true });
+      await fixture.waitForToolList();
+      if (disableCapability) {
+        await setExternalMcpToolEnabled(env, (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!, tool.id, false, tool.schemaVersion);
+      } else {
+        await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: false });
+      }
+      fixture.releaseToolLists();
+      expect(await (await dispatch)!.json()).toMatchObject({ dispatch: { status: "failed", errorCode: "approval_stale" } });
+      expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(0);
+      expect(await listCapabilityInvocations(env, { orgId: "org-a" })).toMatchObject([{ status: "failed", approvalId }]);
+    }
   });
 
   it("fails closed on schema drift, disables grants after transport errors, and reports recovery on retry", async () => {
@@ -276,6 +356,38 @@ describe("owner-scoped external MCP registry", () => {
       expect(() => validateExternalMcpEndpoint(value, env)).toThrow();
     }
     expect(validateExternalMcpEndpoint(endpoint, env).href).toBe(endpoint);
+  });
+
+  it("enforces supported JSON Schema ranges and rejects unsupported assertion keywords", async () => {
+    const { env } = environment(); const fixture = mockMcp();
+    fixture.tools = [{ name: "bounded", description: "Validated range fixture", inputSchema: {
+      type: "object", properties: { count: { type: "integer", minimum: 1, maximum: 3 }, label: { type: "string", minLength: 2, maxLength: 5 } },
+      required: ["count", "label"], additionalProperties: false,
+    } }];
+    vi.stubGlobal("fetch", fixture.fetchMock);
+    const draft = await addServer(env);
+    await discoverExternalMcpServer(env, draft);
+    const server = (await getExternalMcpServer(env, "org-a", owner.principal, draft.id))!;
+    const tool = (await listExternalMcpServers(env, "org-a", owner.principal))[0]!.tools[0]!;
+    await reviewExternalMcpTool(env, server, tool.id, "read", tool.schemaVersion);
+    await setExternalMcpToolEnabled(env, (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!, tool.id, true, tool.schemaVersion);
+    await setExternalMcpAccess(env, { orgId: "org-a", ownerId: owner.principal, serverId: server.id, toolId: tool.id, principal: agent.principal, enabled: true });
+    const registry = createToolRegistry(env); await registerExternalMcpTools(registry, env, agent);
+    expect((await registry.invoke(tool.gatewayName, { count: 4, label: "ok" }, agent)).isError).toBe(true);
+    expect((await registry.invoke(tool.gatewayName, { count: 2, label: "x" }, agent)).isError).toBe(true);
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(0);
+    expect((await registry.invoke(tool.gatewayName, { count: 3, label: "okay" }, agent)).isError).not.toBe(true);
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(1);
+
+    const { env: unsupportedEnv } = environment(); const unsupported = mockMcp();
+    unsupported.tools = [{ name: "patterned", description: "Unsupported pattern", inputSchema: {
+      type: "object", properties: { slug: { type: "string", pattern: "^[a-z]+$" } }, required: ["slug"], additionalProperties: false,
+    } }];
+    vi.stubGlobal("fetch", unsupported.fetchMock);
+    const unsupportedDraft = await addServer(unsupportedEnv);
+    await expect(discoverExternalMcpServer(unsupportedEnv, unsupportedDraft)).rejects.toThrow("schema_invalid");
+    expect((await getExternalMcpServer(unsupportedEnv, "org-a", owner.principal, unsupportedDraft.id))?.health).toBe("error");
+    expect(unsupported.calls.filter((method) => method === "tools/call")).toHaveLength(0);
   });
 
   it("bounds discovery, namespaces same-name tools across servers, and refuses stale health on enable", async () => {
