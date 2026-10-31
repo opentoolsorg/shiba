@@ -11,8 +11,9 @@ import { LOCAL_RUN_ROOT_TOKEN } from "@shiba/shared";
 
 interface CapturedFile { path: string; content: string; encoding: "utf8" }
 const helperUrl = new URL("../../../scripts/local-deliverables.mjs", import.meta.url);
-const { captureExpectedDeliverables } = await import(helperUrl.href) as {
+const { captureExpectedDeliverables, readContainedChangedFile } = await import(helperUrl.href) as {
   captureExpectedDeliverables: (root: string, paths?: unknown) => Promise<CapturedFile[]>;
+  readContainedChangedFile: (root: string, path: string, limits?: { maxBytes?: number }) => Promise<string>;
 };
 const exec = promisify(execFile);
 let root: string;
@@ -143,6 +144,13 @@ describe("strict requested deliverable capture", () => {
     try {
       await expect(captureExpectedDeliverables(repo, ["report.txt"])).rejects.toThrow("hard-linked files are not allowed");
     } finally { open.mockRestore(); }
+  });
+
+  it("rejects a changed-file symlink before reading its target", async () => {
+    const outside = path.join(root, "outside-secret.txt");
+    await writeFile(outside, "outside content");
+    await symlink(outside, path.join(repo, "linked.md"), "file");
+    await expect(readContainedChangedFile(repo, "linked.md")).rejects.toThrow("symlink");
   });
 
   it.each([

@@ -104,6 +104,7 @@ describe("shiba-acp server", () => {
     expect(h.calls.find((c) => c.method === "POST" && c.path === "/api/runs")?.body).toMatchObject({
       repoUrl: "https://github.com/owner/repo",
       task: "fix the bug",
+      threadKey: `acp:${sessionId}`,
     });
     expect(h.calls.find((c) => c.path === "/api/approvals")?.body).toMatchObject({
       approvalId: "appr-1",

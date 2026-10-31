@@ -17,10 +17,15 @@ import {
   type PairingTokenResponse,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
-import { localDispatchStub } from "./local-dispatch.js";
+import {
+  LOCAL_DASHBOARD_OWNER_HEADER,
+  LOCAL_DASHBOARD_SHARED_HEADER,
+  localDispatchStub,
+} from "./local-dispatch.js";
 import { randomHex } from "./mailbox-store.js";
-import { isAuthorizedRequest } from "./request-auth.js";
+import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
+import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 
 /** PAIRING_SECRET, else the deployment's daemon bearer — single-tenant acceptable. */
 export function pairingSecret(env: Env): string | undefined {
@@ -153,6 +158,13 @@ export async function handleComputers(request: Request, env: Env): Promise<Respo
     return Response.json({ error: "Not found." }, { status: 404 });
   }
   const stub = localDispatchStub(env);
+  const dashboardOwner = (await resolveUserId(request, env)) ?? "default";
+  const sharedHarness =
+    isApprover(dashboardOwner, parseApproverAllowlist(env.DASHBOARD_APPROVERS));
+  const harnessHeaders = (): Record<string, string> => ({
+    [LOCAL_DASHBOARD_OWNER_HEADER]: dashboardOwner,
+    ...(sharedHarness ? { [LOCAL_DASHBOARD_SHARED_HEADER]: "1" } : {}),
+  });
 
   if (url.pathname === "/api/computers") {
     if (request.method !== "GET") return methodNotAllowed();
@@ -176,7 +188,9 @@ export async function handleComputers(request: Request, env: Env): Promise<Respo
 
   if (url.pathname === "/api/computers/harness") {
     if (request.method !== "GET") return methodNotAllowed();
-    return stub.fetch(new Request("https://local-dispatch/harness"));
+    return stub.fetch(
+      new Request("https://local-dispatch/harness", { headers: harnessHeaders() }),
+    );
   }
 
   if (url.pathname === "/api/computers/harness/decide") {
@@ -189,7 +203,7 @@ export async function handleComputers(request: Request, env: Env): Promise<Respo
     return stub.fetch(
       new Request("https://local-dispatch/harness-decide", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...harnessHeaders() },
         body: JSON.stringify({
           sandboxId: body?.sandboxId,
           requestId: body?.requestId,
@@ -208,7 +222,7 @@ export async function handleComputers(request: Request, env: Env): Promise<Respo
     return stub.fetch(
       new Request("https://local-dispatch/harness-control", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...harnessHeaders() },
         body: JSON.stringify({ sandboxId: body?.sandboxId, interrupt: body?.interrupt }),
       }),
     );

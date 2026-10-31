@@ -208,6 +208,24 @@ describe("automation fire path", () => {
     });
   });
 
+  it("charges the daily budget when unattended resolution fails after queueing", async () => {
+    const automation = scheduleAutomation({
+      unattended: true,
+      unattendedRepos: ["owner/repo"],
+      runsToday: 0,
+      runDayStartedAt: Date.UTC(2026, 0, 1, 0, 0, 0),
+    });
+    const d = deps({
+      resolveApproval: vi.fn(async () => {
+        throw new Error("resolve failed");
+      }),
+    });
+    const result = await fireAutomation(automation, { kind: "schedule", nowMs: d.nowMs! }, d);
+    expect(result.fired).toBe(false);
+    expect(result.automation.runsToday).toBe(1);
+    expect(result.approvalId).toBe("appr_1");
+  });
+
   it("records a queue failure instead of throwing", async () => {
     const d = deps({
       queueRun: vi.fn(async () => {

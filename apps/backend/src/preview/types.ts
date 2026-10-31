@@ -34,6 +34,10 @@ export interface PreviewPuppeteerPage {
   ): Promise<unknown>;
   evaluate<T>(fn: () => T): Promise<T>;
   evaluate<T, A>(fn: (arg: A) => T, arg: A): Promise<T>;
+  evaluateOnNewDocument<Args extends unknown[]>(
+    pageFunction: (...args: Args) => void,
+    ...args: Args
+  ): Promise<void>;
 }
 
 export interface PreviewPuppeteerBrowser {
