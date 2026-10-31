@@ -815,6 +815,7 @@ async function openLoggedSession(spec) {
   // Never the worktree: `git add -A` would otherwise record the JSONL as a change.
   const logDir = spec.logDir || path.join(os.tmpdir(), "shiba-sessions");
   await fs.mkdir(logDir, { recursive: true });
+  spec.signal?.throwIfAborted();
   const logPath = path.join(logDir, `${id.replace(/[^A-Za-z0-9_-]/g, "_")}.jsonl`);
   /** @type {Array<{ seq: number, at: number, event: SessionEvent }>} */
   const records = [];

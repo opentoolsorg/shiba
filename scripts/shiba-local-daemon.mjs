@@ -142,6 +142,7 @@ let harnesses = [];
 let activeRunId;
 let activeHarnessChild;
 let heldClaim;
+let stopActiveExecution;
 let terminationFailure;
 let onTerminationFailure;
 const groupedChildren = new WeakSet();
@@ -682,6 +683,7 @@ async function execute(envelope, claimToken) {
     stopReason = reason;
     abortController.abort();
   };
+  stopActiveExecution = stopExecution;
   const execution = { signal: abortController.signal, deadlineAt: envelope.deadlineAt,
     stop: stopExecution, finished: () => executionFinished };
   const stopped = () => {
@@ -791,6 +793,7 @@ async function execute(envelope, claimToken) {
       const texts = [];
       const session = envelope.session;
       const outcome = await runSessionJob({
+        signal: execution.signal,
         provider: session.provider,
         model: session.model,
         ...(session.reasoningEffort ? { reasoningEffort: session.reasoningEffort } : {}),
@@ -951,6 +954,7 @@ async function execute(envelope, claimToken) {
     clearInterval(controlTimer);
     clearTimeout(deadlineTimer);
     await Promise.all([...ownedChildren].map(terminateOwnedChild));
+    stopActiveExecution = undefined;
     await releaseLease(envelope.sandboxId);
   }
 }
@@ -1198,6 +1202,7 @@ let stopping = false;
 async function gracefulStop(code) {
   if (stopping) return;
   stopping = true;
+  stopActiveExecution?.("daemon stopped");
   const held = heldClaim;
   if (held === undefined) process.exit(code);
   await Promise.all([...ownedChildren].map(terminateOwnedChild));
