@@ -2,7 +2,9 @@ import type {
   IntegrationProviderBeginConnectResponse,
   IntegrationProviderCatalogItem,
   IntegrationProviderConnection,
+  IntegrationProviderExecuteResponse,
   IntegrationProviderHealth,
+  IntegrationProviderSessionResponse,
   IntegrationsProviderId,
 } from "@shiba/shared";
 
@@ -26,6 +28,15 @@ export interface IntegrationConnectContext {
   userId: string;
 }
 
+export interface IntegrationExecuteContext {
+  userId: string;
+  toolSlug: string;
+  arguments: Record<string, unknown>;
+  toolkitSlug?: string;
+  sessionId?: string;
+  connectedAccountId?: string;
+}
+
 export interface IntegrationProvider {
   readonly id: IntegrationsProviderId;
   health(): Promise<IntegrationProviderHealth>;
@@ -33,6 +44,11 @@ export interface IntegrationProvider {
   listConnections(args: { userId: string }): Promise<IntegrationProviderConnection[]>;
   beginConnect(context: IntegrationConnectContext): Promise<IntegrationProviderBeginConnectResponse>;
   disconnect(context: IntegrationConnectContext): Promise<void>;
+  createToolRouterSession?(args: {
+    userId: string;
+    toolkitSlugs: string[];
+  }): Promise<IntegrationProviderSessionResponse>;
+  executeTool?(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse>;
 }
 
 export type FetchImpl = typeof fetch;

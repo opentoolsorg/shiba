@@ -3,6 +3,7 @@ import {
   filterIntegrationCatalogByDomain,
   integrationCatalogDomains,
   searchIntegrationCatalog,
+  SHIBA_INTEGRATIONS_OAUTH_CHANNEL,
   type IntegrationCatalogEntry,
   type IntegrationConnectionPhase,
   type IntegrationDomain,
@@ -246,12 +247,40 @@ export function IntegrationCatalogDirectory({
   const [providerHealth, setProviderHealth] = useState<IntegrationProviderHealth | null>(null);
   const [providerItems, setProviderItems] = useState<IntegrationProviderCatalogItem[]>([]);
   const [connectedKeys, setConnectedKeys] = useState<Set<string>>(() => new Set());
+  const [catalogCursor, setCatalogCursor] = useState<string | null>(null);
+  const [catalogHasMore, setCatalogHasMore] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+
+  const loadProviderCatalogPage = useCallback(async (opts: { reset: boolean; cursor?: string | null }) => {
+    setCatalogLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "20");
+      if (!opts.reset && opts.cursor) params.set("cursor", opts.cursor);
+      const catalogRes = await fetch(`/api/integrations/provider/catalog?${params.toString()}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!catalogRes.ok) return;
+      const catalog = (await catalogRes.json()) as {
+        items?: IntegrationProviderCatalogItem[];
+        nextCursor?: string | null;
+        hasMore?: boolean;
+        fallbackCatalog?: boolean;
+      };
+      const pageItems = Array.isArray(catalog.items) ? catalog.items : [];
+      setProviderItems((prev) => (opts.reset ? pageItems : [...prev, ...pageItems]));
+      setCatalogCursor(catalog.nextCursor ?? null);
+      setCatalogHasMore(Boolean(catalog.hasMore));
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
 
   const refreshProvider = useCallback(async () => {
     try {
-      const [metaRes, catalogRes, connectionsRes] = await Promise.all([
+      const [metaRes, connectionsRes] = await Promise.all([
         fetch("/api/integrations/provider/meta", { credentials: "same-origin", cache: "no-store" }),
-        fetch("/api/integrations/provider/catalog?limit=50", { credentials: "same-origin", cache: "no-store" }),
         fetch("/api/integrations/provider/connections", { credentials: "same-origin", cache: "no-store" }),
       ]);
       if (metaRes.ok) {
@@ -259,21 +288,41 @@ export function IntegrationCatalogDirectory({
         if (meta.provider) setProviderId(meta.provider);
         if (meta.health) setProviderHealth(meta.health);
       }
-      if (catalogRes.ok) {
-        const catalog = (await catalogRes.json()) as { items?: IntegrationProviderCatalogItem[] };
-        setProviderItems(Array.isArray(catalog.items) ? catalog.items : []);
-      }
       if (connectionsRes.ok) {
         const body = (await connectionsRes.json()) as { connections?: Array<{ providerKey: string }> };
         setConnectedKeys(new Set((body.connections ?? []).map((row) => row.providerKey)));
       }
+      await loadProviderCatalogPage({ reset: true });
     } catch {
       // Provider panel degrades to native Viktor catalog only.
     }
-  }, []);
+  }, [loadProviderCatalogPage]);
 
   useEffect(() => {
     void refreshProvider();
+  }, [refreshProvider]);
+
+  useEffect(() => {
+    const onOAuthComplete = () => {
+      void refreshProvider();
+    };
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(SHIBA_INTEGRATIONS_OAUTH_CHANNEL);
+      channel.onmessage = onOAuthComplete;
+    } catch {
+      channel = null;
+    }
+    const onWindowMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as { type?: string } | null;
+      if (data?.type === SHIBA_INTEGRATIONS_OAUTH_CHANNEL) onOAuthComplete();
+    };
+    window.addEventListener("message", onWindowMessage);
+    return () => {
+      channel?.close();
+      window.removeEventListener("message", onWindowMessage);
+    };
   }, [refreshProvider]);
 
   const filteredCatalog = useMemo(() => {
@@ -388,6 +437,16 @@ export function IntegrationCatalogDirectory({
           >
             Refresh connections
           </button>
+          {catalogHasMore ? (
+            <button
+              type="button"
+              disabled={catalogLoading}
+              onClick={() => void loadProviderCatalogPage({ reset: false, cursor: catalogCursor })}
+              className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--card-hover)] disabled:opacity-50"
+            >
+              {catalogLoading ? "Loading…" : "Load more Composio apps"}
+            </button>
+          ) : null}
         </div>
         <p className="text-[11px] text-[var(--muted-foreground-2)]">
           {connectedRows.length} connected · {availableRows.length} available · {filteredCatalog.length} of{" "}
