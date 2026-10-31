@@ -10,7 +10,12 @@ afterEach(() => {
 });
 
 describe("ExternalMcpManagement persisted state", () => {
-  it.each(["read", "approval_required"])("submits the displayed %s recommendation without changing the selection", async (recommendedEffect) => {
+  it.each([
+    { effect: "unreviewed", recommendedEffect: "read", expected: "read" },
+    { effect: "unreviewed", recommendedEffect: "approval_required", expected: "approval_required" },
+    { effect: "read", recommendedEffect: "approval_required", expected: "read" },
+    { effect: "approval_required", recommendedEffect: "read", expected: "approval_required" },
+  ])("submits displayed $expected for stored $effect and recommendation $recommendedEffect", async ({ effect, recommendedEffect, expected }) => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/v1/mcp/servers") return Response.json({ servers: [{
@@ -21,7 +26,7 @@ describe("ExternalMcpManagement persisted state", () => {
       if (path.endsWith("/tools")) return Response.json({ tools: [{
         id: "recommended-tool", remoteName: "lookup", gatewayName: "ext_lookup",
         capabilityId: "cap-1", description: "Lookup", schemaVersion: "schema-1",
-        effect: "unreviewed", recommendedEffect, enabled: false,
+        effect, recommendedEffect, enabled: false,
       }], access: [] });
       if (path.endsWith("/approvals")) return Response.json({ approvals: [] });
       if (path.endsWith("/review") && init?.method === "POST") return Response.json({ ok: true });
@@ -30,12 +35,12 @@ describe("ExternalMcpManagement persisted state", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<ExternalMcpManagement />);
     const select = await screen.findByLabelText("Effect for lookup");
-    expect((select as HTMLSelectElement).value).toBe(recommendedEffect);
+    expect((select as HTMLSelectElement).value).toBe(expected);
     const review = screen.getByRole("button", { name: "Review effect" });
     expect((review as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(review);
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
-      String(input).endsWith("/review") && init?.body === JSON.stringify({ effect: recommendedEffect, schemaVersion: "schema-1" }),
+      String(input).endsWith("/review") && init?.body === JSON.stringify({ effect: expected, schemaVersion: "schema-1" }),
     )).toBe(true));
   });
 

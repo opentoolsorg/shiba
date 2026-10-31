@@ -10,6 +10,50 @@ afterEach(() => {
 });
 
 describe("CuratedMcpConnections", () => {
+  it.each(["OAuth", "bearer"])("keeps the original %s error when draft cleanup fails", async (failureMode) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/catalog-connections")) return Response.json({ connections: [] });
+      if (path === "/api/v1/mcp/servers") return Response.json({ server: { id: "draft" } });
+      if (init?.method === "DELETE") throw new Error("cleanup unavailable");
+      return Response.json({ error: "original failure" }, { status: 503 });
+    }));
+    render(<CuratedMcpConnections />);
+    const label = screen.getAllByLabelText("Label")[0];
+    const bearer = screen.getAllByLabelText("Bearer fallback (optional)")[0];
+    const action = screen.getAllByRole("button", { name: failureMode === "OAuth" ? "Connect with OAuth" : "Save bearer fallback" })[0];
+    if (!label || !bearer || !action) throw new Error("Missing connection controls");
+    fireEvent.change(label, { target: { value: "prod" } });
+    fireEvent.change(bearer, { target: { value: "token" } });
+    fireEvent.click(action);
+    expect(await screen.findByText("original failure")).toBeTruthy();
+    expect(screen.queryByText("cleanup unavailable")).toBeNull();
+  });
+
+  it("refreshes saved connections after discovery fails", async () => {
+    let saved = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/catalog-connections")) return Response.json({ connections: saved ? [{
+        id: "saved", catalogId: "stripe", connectionLabel: "prod", status: "draft", visibility: "private",
+      }] : [] });
+      if (path === "/api/v1/mcp/servers") return Response.json({ server: { id: "saved" } });
+      if (path.endsWith("/bearer")) { saved = true; return Response.json({ ok: true }); }
+      return Response.json({ error: "transport_unavailable" }, { status: 503 });
+    }));
+    render(<CuratedMcpConnections />);
+    const label = screen.getAllByLabelText("Label")[0];
+    const bearer = screen.getAllByLabelText("Bearer fallback (optional)")[0];
+    const save = screen.getAllByRole("button", { name: "Save bearer fallback" })[0];
+    if (!label || !bearer || !save) throw new Error("Missing connection controls");
+    fireEvent.change(label, { target: { value: "prod" } });
+    fireEvent.change(bearer, { target: { value: "token" } });
+    fireEvent.click(save);
+    expect(await screen.findByText("transport_unavailable")).toBeTruthy();
+    expect(await screen.findByText("draft")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();
+  });
+
   it.each(["OAuth", "bearer"])("releases a failed %s draft so bearer fallback can use the same label", async (failureMode) => {
     let activeDraft: string | null = null;
     let nextId = 0;

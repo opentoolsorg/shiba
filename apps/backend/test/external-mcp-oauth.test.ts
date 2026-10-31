@@ -197,6 +197,21 @@ describe("external MCP OAuth + multi-account", () => {
     expect((await createExternalMcpServer(env, input))?.id).not.toBe(server.id);
   });
 
+  it("does not count rolled-back drafts against active server slots", async () => {
+    const { env } = environment();
+    const input = { orgId: owner.orgId, ownerId: owner.principal, name: "Stripe", endpoint: stripeEndpoint,
+      credentialRef: null, catalogId: "stripe", connectionLabel: "prod", authMode: "oauth" as const };
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const draft = await createExternalMcpServer(env, input);
+      if (!draft) throw new Error("Expected created draft");
+      await disableExternalMcpServer(env, draft);
+    }
+    for (let active = 0; active < 20; active++) {
+      expect(await createExternalMcpServer(env, { ...input, connectionLabel: `account-${active}` })).toBeTruthy();
+    }
+    await expect(createExternalMcpServer(env, { ...input, connectionLabel: "overflow" })).rejects.toThrow("server_limit");
+  });
+
   it("keeps two Stripe accounts separate by connection label", async () => {
     const { env } = environment();
     const vendor = curatedMcpVendorByCatalogId("stripe")!;

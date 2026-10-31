@@ -358,8 +358,8 @@ export function ExternalMcpManagement(): JSX.Element {
           </form>
           {server.tools.map((tool) => {
             const recommendation = tool.recommendedEffect === "unreviewed" ? undefined : tool.recommendedEffect;
-            const effectiveEffect = effectChoices[tool.id] ?? recommendation ??
-              (tool.effect === "unreviewed" ? "" : tool.effect);
+            const effectiveEffect = effectChoices[tool.id] ??
+              (tool.effect === "unreviewed" ? (recommendation ?? "") : tool.effect);
             const principalGrants = (access[server.id] ?? [])
               .filter((grant) => grant.capabilityId === tool.capabilityId && grant.enabled)
               .map((grant) => grant.principal);

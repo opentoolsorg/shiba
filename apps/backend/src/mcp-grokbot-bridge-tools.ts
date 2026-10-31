@@ -15,6 +15,7 @@ import {
 import {
   createGrokbotBridgeTask,
   getGrokbotBridgeTask,
+  listGrokbotBridgeTasks,
 } from "./grokbot-bridge-store.js";
 
 function jsonResult(payload: Record<string, unknown>): CallToolResult {
@@ -28,8 +29,10 @@ export function registerGrokbotBridgeTools(registry: ToolRegistry, env: Env): vo
     async (args, ctx) => {
       if (!env.AGENT_AUDIT) throw new Error("Bridge storage unavailable.");
       const founderSkillId = String(args.founderSkillId);
-      if (!getFounderSkillLibraryEntry(founderSkillId)) throw new Error("Unknown founder skill id.");
+      const entry = getFounderSkillLibraryEntry(founderSkillId);
+      if (!entry) throw new Error("Unknown founder skill id.");
       const orgId = orgIdForRecord(ctx.principal);
+      if (entry.requiresSensitiveApproval && orgId !== "self-hosted") throw new Error("Sensitive bridge approvals are supported only in the self-hosted organization.");
       const payload = typeof args.payload === "object" && args.payload !== null && !Array.isArray(args.payload)
         ? args.payload as Record<string, unknown>
         : {};
@@ -38,7 +41,6 @@ export function registerGrokbotBridgeTools(registry: ToolRegistry, env: Env): vo
         ownerId: ctx.principal.principal,
         principal: ctx.principal.principal,
         founderSkillId,
-        automationId: typeof args.automationId === "string" ? args.automationId : undefined,
         payload,
       });
       return jsonResult({
@@ -61,12 +63,13 @@ export function registerGrokbotBridgeTools(registry: ToolRegistry, env: Env): vo
     async (args, ctx) => {
       if (!env.AGENT_AUDIT) throw new Error("Bridge storage unavailable.");
       const orgId = orgIdForRecord(ctx.principal);
+      if (!args.taskId) return jsonResult({ tasks: (await listGrokbotBridgeTasks(env, orgId, ctx.principal.principal)).map(publicBridgeTask) });
       const task = await getGrokbotBridgeTask(env, orgId, ctx.principal.principal, String(args.taskId));
       if (!task) throw new Error("Bridge task not found.");
       return jsonResult(publicBridgeTask(task));
     },
     {
-      description: "Read Grok Bot bridge task status for the calling MCP principal.",
+      description: "Read one task, or omit taskId to list pending tasks for the caller and same-org cron automations.",
       inputSchema: grokbotBridgeStatusInputSchema.shape,
       annotations: { readOnlyHint: true, destructiveHint: false },
     },

@@ -22,6 +22,9 @@ describe("grokbot bridge MCP tools", () => {
     const ctx = { env, principal };
     const byName = (name: string) => registry.tools().find((tool) => tool.name === name)!;
 
+    await expect(byName("queue_grokbot_bridge_task").handler({ founderSkillId: "founder-hubspot-stripe-reconcile" }, { env, principal: { ...principal, orgId: "other-org" } })).rejects.toThrow("self-hosted");
+    const spoofed = await byName("queue_grokbot_bridge_task").handler({ founderSkillId: "founder-stripe-revenue-pulse", automationId: "spoofed" }, { env, principal: { ...principal, principal: "automation:spoofed" } });
+    await expect(byName("grokbot_bridge_status").handler({ taskId: spoofed.structuredContent?.taskId }, ctx)).rejects.toThrow("not found");
     const queued = await byName("queue_grokbot_bridge_task").handler({
       founderSkillId: "founder-stripe-revenue-pulse",
       payload: { smoke: true },
@@ -29,6 +32,11 @@ describe("grokbot bridge MCP tools", () => {
     const queuedPayload = (queued.structuredContent ?? JSON.parse(String((queued.content[0] as { text: string }).text))) as { taskId: string; status: string };
     expect(queuedPayload.status).toBe("queued");
     expect(queuedPayload.taskId).toMatch(/^gbt-/);
+
+    const otherCtx = { env, principal: { ...principal, principal: "another-bot" } };
+    await expect(byName("grokbot_bridge_status").handler({ taskId: queuedPayload.taskId }, otherCtx)).rejects.toThrow("not found");
+    const pendingList = await byName("grokbot_bridge_status").handler({}, ctx);
+    expect(pendingList.structuredContent).toMatchObject({ tasks: [{ taskId: queuedPayload.taskId }] });
 
     const statusQueued = await byName("grokbot_bridge_status").handler({ taskId: queuedPayload.taskId }, ctx);
     expect(statusQueued.structuredContent ?? JSON.parse(String((statusQueued.content[0] as { text: string }).text))).toMatchObject({ status: "queued", taskId: queuedPayload.taskId });
@@ -42,6 +50,7 @@ describe("grokbot bridge MCP tools", () => {
     expect(done.status).toBe("completed");
     expect(done.result.mrrUsd).toBe(99_000);
 
+    await expect(byName("complete_grokbot_bridge_task").handler({ taskId: queuedPayload.taskId, result: { replacement: true }, postSlack: false }, ctx)).rejects.toThrow("current state");
     const statusDone = await byName("grokbot_bridge_status").handler({ taskId: queuedPayload.taskId }, ctx);
     expect(statusDone.structuredContent ?? JSON.parse(String((statusDone.content[0] as { text: string }).text))).toMatchObject({ status: "completed" });
   });

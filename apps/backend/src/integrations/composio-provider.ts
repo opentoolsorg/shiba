@@ -6,6 +6,7 @@ import type {
   IntegrationProviderHealth,
   IntegrationProviderSessionResponse,
 } from "@shiba/shared";
+import { z } from "zod";
 import type { Env } from "../env.js";
 import type {
   FetchImpl,
@@ -35,12 +36,15 @@ type ComposioToolkitRecord = {
   meta?: { description?: string; logo?: string };
 };
 
-type ComposioConnectedAccountRecord = {
-  id?: string;
-  appName?: string;
-  status?: string;
-  toolkit?: { slug?: string };
-};
+const connectedAccountsSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().optional(),
+    appName: z.string().optional(),
+    status: z.string().optional(),
+    toolkit: z.object({ slug: z.string().optional() }).optional(),
+  })),
+});
+type ComposioConnectedAccountRecord = z.infer<typeof connectedAccountsSchema>["items"][number];
 
 function displayName(slug: string): string {
   return slug
@@ -120,6 +124,7 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
     const response = await this.fetchImpl(`${base}/toolkits?limit=1`, {
       headers: { "x-api-key": apiKey },
       cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
     }).catch(() => null);
     if (!response) {
       return {
@@ -146,10 +151,16 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
     const response = await this.fetchImpl(url, {
       headers: { "x-api-key": apiKey },
       cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
     });
-    if (!response.ok) return [];
-    const data = (await response.json()) as { items?: ComposioConnectedAccountRecord[] };
-    return Array.isArray(data.items) ? data.items : [];
+    if (!response.ok) {
+      throw new ComposioIntegrationProviderError(`Composio account lookup failed (HTTP ${response.status}).`);
+    }
+    const parsed = connectedAccountsSchema.safeParse(await response.json().catch(() => null));
+    if (!parsed.success) {
+      throw new ComposioIntegrationProviderError("Composio account lookup returned an invalid response.");
+    }
+    return parsed.data.items;
   }
 
   async listConnections(args: { userId: string }): Promise<IntegrationProviderConnection[]> {
@@ -317,14 +328,19 @@ export class ComposioIntegrationProvider implements IntegrationProvider {
     const targets = rows.filter(
       (row) => normalizeSlug(firstString(row.toolkit?.slug, row.appName) ?? "") === providerKey && row.id,
     );
-    await Promise.all(
+    const results = await Promise.all(
       targets.map((row) =>
         this.fetchImpl(`${composioV3Base(this.env)}/connected_accounts/${encodeURIComponent(row.id!)}`, {
           method: "DELETE",
           headers: { "x-api-key": apiKey },
+          signal: AbortSignal.timeout(15_000),
         }),
       ),
     );
+    const failed = results.find((response) => !response.ok);
+    if (failed) {
+      throw new ComposioIntegrationProviderError(`Composio disconnect failed (HTTP ${failed.status}).`);
+    }
   }
 
   inferToolkitSlug(toolSlug: string, explicit?: string): string {
