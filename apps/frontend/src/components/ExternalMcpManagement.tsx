@@ -11,6 +11,7 @@ interface ExternalTool {
   effect: "unreviewed" | "read" | "approval_required";
   reviewedAt: number | null;
   enabled: boolean;
+  recommendedEffect?: "unreviewed" | "read" | "approval_required";
 }
 interface ExternalServer {
   id: string;
@@ -23,6 +24,10 @@ interface ExternalServer {
   healthStale: boolean;
   lastCheckedAt: number | null;
   lastErrorCode: string | null;
+  catalogId?: string | null;
+  connectionLabel?: string | null;
+  visibility?: "private" | "workspace";
+  authMode?: string;
   tools: ExternalTool[];
 }
 interface ExternalAccess {
@@ -276,6 +281,13 @@ export function ExternalMcpManagement(): JSX.Element {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h4 className="text-xs font-semibold text-[var(--fg)]">{server.name}</h4>
+              {server.catalogId ? (
+                <p className="font-mono text-[10px] text-[var(--muted-foreground-2)]">
+                  {server.catalogId}
+                  {server.connectionLabel ? `:${server.connectionLabel}` : ""} · {server.visibility ?? "private"} ·{" "}
+                  {server.authMode ?? "bearer_ref"}
+                </p>
+              ) : null}
               <code className="break-all text-[10px] text-[var(--muted-foreground-2)]">
                 {server.endpoint}
               </code>
@@ -345,6 +357,9 @@ export function ExternalMcpManagement(): JSX.Element {
             </div>
           </form>
           {server.tools.map((tool) => {
+            const recommendation = tool.recommendedEffect === "unreviewed" ? undefined : tool.recommendedEffect;
+            const effectiveEffect = effectChoices[tool.id] ??
+              (tool.effect === "unreviewed" ? (recommendation ?? "") : tool.effect);
             const principalGrants = (access[server.id] ?? [])
               .filter((grant) => grant.capabilityId === tool.capabilityId && grant.enabled)
               .map((grant) => grant.principal);
@@ -375,9 +390,7 @@ export function ExternalMcpManagement(): JSX.Element {
                     <select
                       aria-label={`Effect for ${tool.remoteName}`}
                       className={inputClass}
-                      value={
-                        effectChoices[tool.id] ?? (tool.effect === "unreviewed" ? "" : tool.effect)
-                      }
+                      value={effectiveEffect}
                       onChange={(event) => {
                         if (
                           event.target.value === "read" ||
@@ -399,7 +412,7 @@ export function ExternalMcpManagement(): JSX.Element {
                   <button
                     type="button"
                     className={buttonClass}
-                    disabled={busy !== null || !effectChoices[tool.id]}
+                    disabled={busy !== null || !effectiveEffect}
                     onClick={() =>
                       void run(
                         `review:${tool.id}`,
@@ -407,7 +420,7 @@ export function ExternalMcpManagement(): JSX.Element {
                           await request(`${base}/${server.id}/tools/${tool.id}/review`, {
                             method: "POST",
                             body: JSON.stringify({
-                              effect: effectChoices[tool.id],
+                              effect: effectiveEffect,
                               schemaVersion: tool.schemaVersion,
                             }),
                           });

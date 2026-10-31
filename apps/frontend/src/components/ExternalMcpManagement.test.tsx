@@ -10,6 +10,60 @@ afterEach(() => {
 });
 
 describe("ExternalMcpManagement persisted state", () => {
+  it.each([
+    { effect: "unreviewed", recommendedEffect: "read", expected: "read" },
+    { effect: "unreviewed", recommendedEffect: "approval_required", expected: "approval_required" },
+    { effect: "read", recommendedEffect: "approval_required", expected: "read" },
+    { effect: "approval_required", recommendedEffect: "read", expected: "approval_required" },
+  ])("submits displayed $expected for stored $effect and recommendation $recommendedEffect", async ({ effect, recommendedEffect, expected }) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/v1/mcp/servers") return Response.json({ servers: [{
+        id: "recommended-server", name: "Recommended MCP", tools: [],
+        endpoint: "https://mcp.example.com/mcp", status: "draft", health: "unknown",
+      }] });
+      if (path === "/api/agents") return Response.json({ principals: [] });
+      if (path.endsWith("/tools")) return Response.json({ tools: [{
+        id: "recommended-tool", remoteName: "lookup", gatewayName: "ext_lookup",
+        capabilityId: "cap-1", description: "Lookup", schemaVersion: "schema-1",
+        effect, recommendedEffect, enabled: false,
+      }], access: [] });
+      if (path.endsWith("/approvals")) return Response.json({ approvals: [] });
+      if (path.endsWith("/review") && init?.method === "POST") return Response.json({ ok: true });
+      return Response.json({ error: "unexpected request" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ExternalMcpManagement />);
+    const select = await screen.findByLabelText("Effect for lookup");
+    expect((select as HTMLSelectElement).value).toBe(expected);
+    const review = screen.getByRole("button", { name: "Review effect" });
+    expect((review as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(review);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith("/review") && init?.body === JSON.stringify({ effect: expected, schemaVersion: "schema-1" }),
+    )).toBe(true));
+  });
+
+  it("requires an explicit choice when the recommendation is unreviewed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/mcp/servers") return Response.json({ servers: [{
+        id: "custom-server", name: "Custom MCP", tools: [], endpoint: "https://mcp.example.com/mcp",
+        status: "draft", health: "unknown",
+      }] });
+      if (path === "/api/agents") return Response.json({ principals: [] });
+      if (path.endsWith("/tools")) return Response.json({ tools: [{
+        id: "custom-tool", remoteName: "lookup", gatewayName: "ext_lookup", capabilityId: "cap-1",
+        description: "Lookup", schemaVersion: "schema-1", effect: "unreviewed",
+        recommendedEffect: "unreviewed", enabled: false,
+      }], access: [] });
+      return Response.json({ approvals: [] });
+    }));
+    render(<ExternalMcpManagement />);
+    expect(((await screen.findByLabelText("Effect for lookup")) as HTMLSelectElement).value).toBe("");
+    expect((screen.getByRole("button", { name: "Review effect" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("reloads saved grants and pending approvals without requiring a mutation", async () => {
     const server = {
       id: "server-1",

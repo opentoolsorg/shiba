@@ -1,13 +1,26 @@
 /** Owner-configured upstream MCP registry. The Worker supports HTTPS Streamable HTTP only. */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  curatedMcpTrustedHosts,
+  curatedMcpVendorByCatalogId,
+  recommendedExternalMcpToolEffect,
+  type ExternalMcpAuthMode,
+  type ExternalMcpVisibility,
+} from "@shiba/shared";
 import { z, type ZodType } from "zod";
 import { initAudit, audit } from "./audit.js";
+import {
+  deleteExternalMcpOAuthTokens,
+  resolveExternalMcpBearer,
+  revokeExternalMcpOAuth,
+} from "./external-mcp-oauth.js";
 import type { Env } from "./env.js";
 import { wrapUntrusted } from "./mailbox-store.js";
 import { sha256Hex } from "./agent-tokens.js";
 import { orgIdForRecord, type TokenRecord } from "./agent-tokens.js";
 import { decideConnectionDispatch, type ConnectionGrant, type CapabilityPolicy } from "./connection-policy.js";
+import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { asEmployeeActionApproval, findEmployeeActionApproval, getEmployeeActionApproval, isEmployeeExternalMcpApprovalCurrent, requestEmployeeActionApproval, type EmployeeApprovalRecord, type EmployeeExternalMcpApprovalContext } from "./employee-tool-store.js";
 import { finishCapabilityInvocationApproval } from "./capability-invocations.js";
 
@@ -27,12 +40,14 @@ export interface ExternalMcpServer {
   id: string; orgId: string; ownerId: string; name: string; transport: "streamable_http"; endpoint: string;
   credentialRef: string | null; status: ExternalMcpStatus; generation: number; schemaVersion: string | null;
   health: "unknown" | "healthy" | "error"; lastCheckedAt: number | null; lastErrorCode: string | null;
+  catalogId: string | null; connectionLabel: string | null; visibility: ExternalMcpVisibility; authMode: ExternalMcpAuthMode;
   createdAt: number; updatedAt: number;
 }
 export interface ExternalMcpTool {
   id: string; serverId: string; remoteName: string; capabilityId: string; gatewayName: string;
   description: string; inputSchema: Record<string, unknown>; schemaVersion: string;
   effect: ExternalMcpEffect; reviewedAt: number | null; enabled: boolean;
+  recommendedEffect: ExternalMcpEffect;
 }
 export interface ExternalMcpAccess { capabilityId: string; principal: string; enabled: boolean; updatedAt: number }
 
@@ -82,6 +97,25 @@ async function ensure(env: Env) {
   if (initialized.has(env.AGENT_AUDIT)) return;
   await initAudit(env);
   for (const statement of SCHEMA) await env.AGENT_AUDIT.prepare(statement).run();
+  const serverColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(external_mcp_servers)").all<{ name: string }>();
+  const names = new Set((serverColumns.results ?? []).map((column) => column.name));
+  if (!names.has("catalog_id")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE external_mcp_servers ADD COLUMN catalog_id TEXT").run();
+  }
+  if (!names.has("connection_label")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE external_mcp_servers ADD COLUMN connection_label TEXT").run();
+  }
+  if (!names.has("visibility")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE external_mcp_servers ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'").run();
+  }
+  if (!names.has("auth_mode")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE external_mcp_servers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'bearer_ref'").run();
+  }
+  await env.AGENT_AUDIT.prepare(
+    `CREATE UNIQUE INDEX IF NOT EXISTS external_mcp_catalog_label
+     ON external_mcp_servers(org_id, owner_id, catalog_id, connection_label)
+     WHERE catalog_id IS NOT NULL AND connection_label IS NOT NULL AND status <> 'disabled'`,
+  ).run();
   const approvalUseColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(external_mcp_approval_uses)").all<{ name: string }>();
   if (!(approvalUseColumns.results ?? []).some((column) => column.name === "status")) {
     await env.AGENT_AUDIT.prepare("ALTER TABLE external_mcp_approval_uses ADD COLUMN status TEXT NOT NULL DEFAULT 'dispatching'").run();
@@ -106,10 +140,14 @@ function serverRow(row: Record<string, unknown> | null): ExternalMcpServer | nul
     credentialRef: row.credential_ref as string | null, status: row.status as ExternalMcpStatus, generation: row.generation as number,
     schemaVersion: row.schema_version as string | null, health: row.health as ExternalMcpServer["health"],
     lastCheckedAt: row.last_checked_at as number | null, lastErrorCode: row.last_error_code as string | null,
+    catalogId: typeof row.catalog_id === "string" ? row.catalog_id : null,
+    connectionLabel: typeof row.connection_label === "string" ? row.connection_label : null,
+    visibility: row.visibility === "workspace" ? "workspace" : "private",
+    authMode: row.auth_mode === "oauth" || row.auth_mode === "none" ? row.auth_mode : "bearer_ref",
     createdAt: row.created_at as number, updatedAt: row.updated_at as number };
 }
 
-function toolRow(row: Record<string, unknown> | null): ExternalMcpTool | null {
+function toolRow(row: Record<string, unknown> | null, catalogId: string | null = null): ExternalMcpTool | null {
   if (!row || typeof row.id !== "string" || typeof row.server_id !== "string" || typeof row.remote_name !== "string" ||
       typeof row.capability_id !== "string" || typeof row.gateway_name !== "string" || typeof row.description !== "string" ||
       typeof row.input_schema_json !== "string" || typeof row.schema_version !== "string" ||
@@ -118,9 +156,12 @@ function toolRow(row: Record<string, unknown> | null): ExternalMcpTool | null {
   let inputSchema: unknown;
   try { inputSchema = JSON.parse(row.input_schema_json); } catch { return null; }
   if (!isRecord(inputSchema)) return null;
-  return { id: row.id, serverId: row.server_id, remoteName: row.remote_name, capabilityId: row.capability_id,
+  const recommended = catalogId ? recommendedExternalMcpToolEffect(catalogId, row.remote_name as string) : "unreviewed";
+  return { id: row.id, serverId: row.server_id, remoteName: row.remote_name,
+    capabilityId: row.capability_id,
     gatewayName: row.gateway_name, description: row.description, inputSchema, schemaVersion: row.schema_version,
-    effect: row.effect as ExternalMcpEffect, reviewedAt: row.reviewed_at as number | null, enabled: row.enabled === 1 };
+    effect: row.effect as ExternalMcpEffect, reviewedAt: row.reviewed_at as number | null, enabled: row.enabled === 1,
+    recommendedEffect: recommended };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -128,7 +169,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function configuredHosts(env: Env): Set<string> {
-  return new Set((env.MCP_TRUSTED_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean));
+  const hosts = (env.MCP_TRUSTED_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
+  for (const host of curatedMcpTrustedHosts()) hosts.push(host.toLowerCase());
+  return new Set(hosts);
 }
 
 export function validateExternalMcpEndpoint(endpoint: string, env: Env): URL {
@@ -156,6 +199,23 @@ function credential(env: Env, ref: string | null): string | undefined {
   const value = (env as unknown as Record<string, unknown>)[ref];
   if (typeof value !== "string" || !value.trim() || value.length > 8_192) throw new Error("auth_reference_missing");
   return value;
+}
+
+async function authToken(env: Env, server: ExternalMcpServer): Promise<string | undefined> {
+  if (server.authMode === "oauth" || server.authMode === "none") {
+    const oauth = await resolveExternalMcpBearer(env, server.orgId, server.ownerId, server.id);
+    if (oauth) return oauth;
+  }
+  return credential(env, server.credentialRef);
+}
+
+const CONNECTION_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,47}$/;
+
+function normalizeConnectionLabel(value: string | null | undefined): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  const trimmed = value.trim();
+  if (!CONNECTION_LABEL.test(trimmed)) throw new Error("invalid_connection_label");
+  return trimmed;
 }
 
 function canonicalize(value: unknown): unknown {
@@ -275,7 +335,7 @@ async function normalizeTools(remoteTools: unknown) {
 
 async function withClient<T>(env: Env, server: ExternalMcpServer, action: (client: Client) => Promise<T>, fetchImpl?: typeof fetch): Promise<T> {
   const endpoint = validateExternalMcpEndpoint(server.endpoint, env);
-  const token = credential(env, server.credentialRef);
+  const token = await authToken(env, server);
   const safeFetch: typeof fetch = async (input, init) => {
     const requestUrl = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     if (requestUrl.href !== endpoint.href) throw new Error("destination_not_trusted");
@@ -297,9 +357,12 @@ async function discovered(env: Env, server: ExternalMcpServer) {
 
 async function toolsForServer(env: Env, serverId: string) {
   await ensure(env);
+  const server = await env.AGENT_AUDIT.prepare("SELECT catalog_id FROM external_mcp_servers WHERE id = ?")
+    .bind(serverId).first<{ catalog_id: string | null }>();
+  const catalogId = server?.catalog_id ?? null;
   const result = await env.AGENT_AUDIT.prepare("SELECT * FROM external_mcp_tools WHERE server_id = ? AND lifecycle = 'active' ORDER BY remote_name LIMIT ?")
     .bind(serverId, MAX_EXTERNAL_MCP_TOOLS).all<Record<string, unknown>>();
-  return (result.results ?? []).map(toolRow).filter((row): row is ExternalMcpTool => row !== null);
+  return (result.results ?? []).map((row) => toolRow(row, catalogId)).filter((row): row is ExternalMcpTool => row !== null);
 }
 
 export async function listExternalMcpServers(env: Env, orgId: string, ownerId: string) {
@@ -337,16 +400,45 @@ async function reconcileExternalMcpStatus(env: Env, server: ExternalMcpServer, n
     .bind(status, now, server.id, server.orgId, server.ownerId, server.generation).run();
 }
 
-export async function createExternalMcpServer(env: Env, input: { orgId: string; ownerId: string; name: string; endpoint: string; credentialRef: string | null }) {
+export async function createExternalMcpServer(env: Env, input: {
+  orgId: string; ownerId: string; name: string; endpoint: string; credentialRef: string | null;
+  catalogId?: string | null; connectionLabel?: string | null; visibility?: ExternalMcpVisibility; authMode?: ExternalMcpAuthMode;
+}) {
   await ensure(env);
-  const total = await env.AGENT_AUDIT.prepare("SELECT COUNT(*) AS count FROM external_mcp_servers WHERE org_id = ? AND owner_id = ?").bind(input.orgId, input.ownerId).first<{ count: number }>();
+  const total = await env.AGENT_AUDIT.prepare("SELECT COUNT(*) AS count FROM external_mcp_servers WHERE org_id = ? AND owner_id = ? AND status <> 'disabled'").bind(input.orgId, input.ownerId).first<{ count: number }>();
   if ((total?.count ?? 0) >= MAX_EXTERNAL_MCP_SERVERS) throw new Error("server_limit");
-  validatePublicHttpsEndpoint(input.endpoint);
-  if (!input.name.trim() || input.name.length > 80 || (input.credentialRef && !CREDENTIAL_REF.test(input.credentialRef))) throw new Error("invalid_registration");
+  let endpoint = input.endpoint;
+  let name = input.name.trim();
+  const catalogId = input.catalogId ?? null;
+  const connectionLabel = normalizeConnectionLabel(input.connectionLabel);
+  const visibility = input.visibility === "workspace" ? "workspace" : "private";
+  const authMode: ExternalMcpAuthMode = input.authMode === "oauth" || input.authMode === "none" ? input.authMode : "bearer_ref";
+  if (catalogId) {
+    const vendor = curatedMcpVendorByCatalogId(catalogId);
+    if (!vendor) throw new Error("invalid_catalog_id");
+    if (!endpoint) endpoint = vendor.endpoint;
+    if (!name) name = vendor.name;
+    validatePublicHttpsEndpoint(endpoint);
+    if (!connectionLabel) throw new Error("connection_label_required");
+  } else {
+    validatePublicHttpsEndpoint(endpoint);
+  }
+  if (!name || name.length > 80 || (input.credentialRef && !CREDENTIAL_REF.test(input.credentialRef))) throw new Error("invalid_registration");
   const now = Date.now(); const id = crypto.randomUUID().replaceAll("-", "");
-  await env.AGENT_AUDIT.prepare(`INSERT INTO external_mcp_servers (id, org_id, owner_id, name, transport, endpoint, credential_ref,
-    status, generation, health, created_at, updated_at) VALUES (?, ?, ?, ?, 'streamable_http', ?, ?, 'draft', 1, 'unknown', ?, ?)`)
-    .bind(id, input.orgId, input.ownerId, input.name.trim(), input.endpoint, input.credentialRef, now, now).run();
+  try {
+    await env.AGENT_AUDIT.prepare(`INSERT INTO external_mcp_servers (id, org_id, owner_id, name, transport, endpoint, credential_ref,
+    status, generation, health, catalog_id, connection_label, visibility, auth_mode, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'streamable_http', ?, ?, 'draft', 1, 'unknown', ?, ?, ?, ?, ?, ?)`)
+      .bind(id, input.orgId, input.ownerId, name, endpoint, input.credentialRef, catalogId, connectionLabel, visibility, authMode, now, now).run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/UNIQUE constraint failed/i.test(message) &&
+        (message.includes("external_mcp_catalog_label") ||
+         ["org_id", "owner_id", "catalog_id", "connection_label"].every((column) => message.includes(`external_mcp_servers.${column}`)))) {
+      throw new Error("connection_label_taken");
+    }
+    throw error;
+  }
   return getExternalMcpServer(env, input.orgId, input.ownerId, id);
 }
 
@@ -480,6 +572,10 @@ export async function listExternalMcpAccess(env: Env, orgId: string, serverId: s
 
 export async function disableExternalMcpServer(env: Env, server: ExternalMcpServer) {
   const now = Date.now();
+  if (modelCredentialKeyConfigured(env)) {
+    await revokeExternalMcpOAuth(env, { orgId: server.orgId, ownerId: server.ownerId, serverId: server.id }).catch(() =>
+      deleteExternalMcpOAuthTokens(env, server.orgId, server.ownerId, server.id));
+  }
   await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare("UPDATE external_mcp_servers SET status = 'disabled', generation = generation + 1, updated_at = ? WHERE id = ? AND org_id = ? AND owner_id = ?")
       .bind(now, server.id, server.orgId, server.ownerId),
@@ -553,17 +649,18 @@ export async function registerExternalMcpTools(registry: { registerTool(name: st
   const principalOrgId = orgIdForRecord(principal);
   if (employee && (!employee.toolNames.length || employee.toolNames.length > MAX_EXTERNAL_MCP_TOOLS ||
     employee.toolNames.some((name) => !/^ext_[a-f0-9]{12}_[a-f0-9]{16}$/.test(name)))) return;
-  const rows = employee ? await env.AGENT_AUDIT.prepare(`SELECT t.*, s.id AS sid, s.org_id AS server_org_id, s.owner_id AS owner_id
+  const rows = employee ? await env.AGENT_AUDIT.prepare(`SELECT t.*, s.id AS sid, s.org_id AS server_org_id, s.owner_id AS owner_id, s.catalog_id AS catalog_id
     FROM external_mcp_tools t JOIN external_mcp_servers s ON s.id = t.server_id
     WHERE s.org_id = ? AND t.gateway_name IN (${employee.toolNames.map(() => "?").join(",")}) AND t.enabled = 1 AND t.lifecycle = 'active' AND t.effect IN ('read','approval_required')
       AND s.status = 'enabled' AND s.health = 'healthy' ORDER BY t.gateway_name LIMIT ?`)
-    .bind(principalOrgId, ...employee.toolNames, MAX_EXTERNAL_MCP_TOOLS).all<Record<string, unknown>>() : await env.AGENT_AUDIT.prepare(`SELECT t.*, s.id AS sid, s.org_id AS server_org_id, s.owner_id AS owner_id FROM external_mcp_tools t JOIN external_mcp_servers s ON s.id = t.server_id
+    .bind(principalOrgId, ...employee.toolNames, MAX_EXTERNAL_MCP_TOOLS).all<Record<string, unknown>>() : await env.AGENT_AUDIT.prepare(`SELECT t.*, s.id AS sid, s.org_id AS server_org_id, s.owner_id AS owner_id, s.catalog_id AS catalog_id FROM external_mcp_tools t JOIN external_mcp_servers s ON s.id = t.server_id
     JOIN external_mcp_access a ON a.server_id = s.id AND a.capability_id = t.capability_id AND a.org_id = s.org_id
     WHERE s.org_id = ? AND a.principal = ? AND a.enabled = 1 AND t.enabled = 1 AND t.lifecycle = 'active'
       AND t.effect IN ('read','approval_required') AND s.status = 'enabled' ORDER BY t.gateway_name LIMIT ?`)
     .bind(principalOrgId, principal.principal, MAX_EXTERNAL_MCP_TOOLS).all<Record<string, unknown>>();
   for (const row of rows.results ?? []) {
-    const tool = toolRow(row);
+    const catalogId = typeof row.catalog_id === "string" ? row.catalog_id : null;
+    const tool = toolRow(row, catalogId);
     const server = await getExternalMcpServer(env, String(row.server_org_id ?? ""), String(row.owner_id ?? ""), String(row.sid ?? ""));
     if (!tool || !server || server.ownerId !== String(row.owner_id ?? "") || tool.enabled !== true) continue;
     if (employee && !await employee.allowTool(server, tool)) continue;
@@ -733,4 +830,22 @@ export async function executeApprovedExternalMcpAction(env: Env, server: Externa
     if (code !== "schema_version_changed") await recordHealth(env, server, code);
     return failed("unknown_outcome", code);
   }
+}
+
+export async function listExternalMcpCatalogConnections(env: Env, orgId: string, ownerId: string) {
+  await ensure(env);
+  const rows = await env.AGENT_AUDIT.prepare(`SELECT id, catalog_id, connection_label, status, auth_mode, visibility, name, endpoint
+    FROM external_mcp_servers WHERE org_id = ? AND owner_id = ? AND catalog_id IS NOT NULL AND status <> 'disabled'
+    ORDER BY catalog_id, connection_label, created_at DESC LIMIT ?`)
+    .bind(orgId, ownerId, MAX_EXTERNAL_MCP_SERVERS).all<Record<string, unknown>>();
+  return (rows.results ?? []).map((row) => ({
+    id: String(row.id),
+    catalogId: String(row.catalog_id),
+    connectionLabel: typeof row.connection_label === "string" ? row.connection_label : null,
+    status: String(row.status),
+    authMode: String(row.auth_mode),
+    visibility: row.visibility === "workspace" ? "workspace" as const : "private" as const,
+    name: String(row.name),
+    endpoint: String(row.endpoint),
+  }));
 }
