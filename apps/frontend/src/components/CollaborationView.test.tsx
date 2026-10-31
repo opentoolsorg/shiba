@@ -78,6 +78,49 @@ describe("CollaborationView room access polling", () => {
     expect(messages).toHaveLength(1);
   });
 
+  it("submits an explicit repo-free artifact workspace for a room employee request", async () => {
+    let submitted: Record<string, unknown> | null = null;
+    const detail = {
+      ...roomDetail,
+      currentUserId: "owner@example.test",
+      members: [
+        { actorId: "human:owner@example.test", userId: "owner@example.test", role: "owner", actorKind: "human", displayName: "Owner" },
+        { actorId: "agent:writer-profile", userId: "owner@example.test", role: "agent", actorKind: "agent", displayName: "Report Writer" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/custom-agents") return jsonResponse({ agents: [{ id: "writer-profile", version: 2, slug: "report-writer", config: { name: "Report Writer" } }] });
+      if (path === "/api/computers") return jsonResponse({ computers: [] });
+      if (path === "/api/collaboration/rooms") return jsonResponse({ rooms: [{ roomId: "room-1", title: "Shared room", visibility: "private" }] });
+      if (path === "/api/collaboration/rooms/room-1/handoffs" && init?.method === "POST") {
+        submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse({ handoff: { handoffId: "handoff-1", taskId: submitted.taskId, status: "active" } }, 201);
+      }
+      if (path === "/api/collaboration/rooms/room-1") return jsonResponse(detail);
+      throw new Error(`Unexpected request ${path}`);
+    }));
+
+    render(<CollaborationView />);
+    await screen.findByRole("heading", { name: "Shared room" });
+    fireEvent.change(screen.getByLabelText("Task ID"), { target: { value: "meeting-summary" } });
+    fireEvent.change(screen.getByLabelText("Employee task request"), { target: { value: "Summarize these meeting notes." } });
+    fireEvent.change(screen.getByLabelText("Employee work destination"), { target: { value: "artifact-workspace" } });
+    fireEvent.change(screen.getByLabelText("Expected deliverable paths"), { target: { value: "reports/meeting-summary.md" } });
+    fireEvent.change(screen.getByLabelText("Handoff recipient"), { target: { value: "agent:writer-profile" } });
+    fireEvent.click(screen.getByRole("button", { name: "Request / create handoff" }));
+
+    await waitFor(() => expect(submitted).toMatchObject({
+      taskId: "meeting-summary",
+      task: "Summarize these meeting notes.",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["reports/meeting-summary.md"] },
+      runtime: "sandbox",
+      recipientActorId: "agent:writer-profile",
+    }));
+    const submittedBody = submitted as Record<string, unknown> | null;
+    expect(submittedBody?.repoUrl).toBeUndefined();
+  });
+
   it("renders a persisted employee reply with its completed run and artifact references", async () => {
     const employeeReplyRoom = {
       ...roomDetail,

@@ -66,6 +66,7 @@ export function createRun(args: {
   orgId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  collaborationHandoffId?: string;
   customAgentVersion?: number;
   employeeToolPolicyVersion?: number;
   skillPins?: SkillExecutionPin[];
@@ -119,6 +120,7 @@ export function createRun(args: {
       ...(args.orgId !== undefined ? { orgId: args.orgId } : {}),
       ...(args.sandboxProvider !== undefined ? { sandboxProvider: args.sandboxProvider } : {}),
       ...(args.customAgentId !== undefined ? { customAgentId: args.customAgentId } : {}),
+      ...(args.collaborationHandoffId !== undefined ? { collaborationHandoffId: args.collaborationHandoffId } : {}),
       ...(args.customAgentVersion !== undefined ? { customAgentVersion: args.customAgentVersion } : {}),
       ...(args.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: args.employeeToolPolicyVersion } : {}),
       ...(args.skillPins !== undefined ? { skillPins: args.skillPins.map((pin) => ({ ...pin })) } : {}),

@@ -4,7 +4,7 @@
  * Extracted from index.ts; the per-surface Access gate stays here.
  */
 import { getAgentByName } from "agents/routing";
-import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, isSafeDeliverablePath, MAX_DELIVERABLE_BYTES } from "@shiba/shared";
+import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, isSafeDeliverablePath, MAX_DELIVERABLE_BYTES, type ExecutionTarget } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
@@ -57,6 +57,7 @@ export async function resolveRunStoreTarget(
 type RunSummary = { runId: string; createdAt?: number };
 
 const collaborationProfilePins = new WeakMap<Request, number>();
+const collaborationHandoffPins = new WeakMap<Request, string>();
 
 /**
  * Automations, the review lane, Sentry and Slash runs live on the shared
@@ -107,16 +108,17 @@ export async function handleRuns(request: Request, env: Env): Promise<Response |
 export async function queueCollaborationRun(
   request: Request,
   env: Env,
-  input: { task: string; repoUrl: string; customAgentId: string; profileVersion: number; commandId: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
+  input: { task: string; repoUrl?: string; executionTarget?: ExecutionTarget; customAgentId: string; profileVersion: number; commandId: string; collaborationHandoffId?: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
 ): Promise<Response | null> {
   const headers = new Headers(request.headers);
   headers.delete("content-length");
   const forwarded = new Request(new URL("/api/runs", request.url), {
     method: "POST",
     headers,
-    body: JSON.stringify({ task: input.task, repoUrl: input.repoUrl, customAgentId: input.customAgentId, commandId: input.commandId, ...(input.runtime ? { runtime: input.runtime } : {}), ...(input.targetMachineId ? { targetMachineId: input.targetMachineId } : {}) }),
+    body: JSON.stringify({ task: input.task, ...(input.repoUrl ? { repoUrl: input.repoUrl } : {}), ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}), customAgentId: input.customAgentId, commandId: input.commandId, ...(input.runtime ? { runtime: input.runtime } : {}), ...(input.targetMachineId ? { targetMachineId: input.targetMachineId } : {}) }),
   });
   collaborationProfilePins.set(forwarded, input.profileVersion);
+  if (input.collaborationHandoffId) collaborationHandoffPins.set(forwarded, input.collaborationHandoffId);
   return handleRuns(forwarded, env);
 }
 
@@ -230,13 +232,16 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     // never a client-provided key naming another or the shared DO's queue.
     const safeIntakeBody = { ...intakeBody };
     delete safeIntakeBody.customAgentVersion;
+    delete safeIntakeBody.collaborationHandoffId;
     const trustedProfileVersion = collaborationProfilePins.get(request);
+    const trustedCollaborationHandoffId = collaborationHandoffPins.get(request);
     rewritten = new Request(rewritten, {
       body: JSON.stringify({
         ...safeIntakeBody,
         orgId: DASHBOARD_ORG_ID,
         ...(intakeKind === "run" ? { threadKey: targetAgentName } : {}),
         ...(trustedProfileVersion !== undefined ? { customAgentVersion: trustedProfileVersion } : {}),
+        ...(trustedCollaborationHandoffId !== undefined ? { collaborationHandoffId: trustedCollaborationHandoffId } : {}),
       }),
     });
     rewritten.headers.set("content-type", "application/json");

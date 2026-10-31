@@ -45,6 +45,7 @@ export interface QueuedRunInput {
   orgId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  collaborationHandoffId?: string;
   customAgentVersion?: number;
   employeeToolPolicyVersion?: number;
   skillPins?: SkillExecutionPin[];
@@ -179,6 +180,7 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.runSetup === true ? { runSetup: true } : {}),
       ...(run.sandboxProvider !== undefined ? { sandboxProvider: run.sandboxProvider } : {}),
       ...(run.customAgentId !== undefined ? { customAgentId: run.customAgentId } : {}),
+      ...(run.collaborationHandoffId !== undefined ? { collaborationHandoffId: run.collaborationHandoffId } : {}),
       ...(run.customAgentVersion !== undefined ? { customAgentVersion: run.customAgentVersion } : {}),
       ...(run.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: run.employeeToolPolicyVersion } : {}),
       ...(run.skillPins !== undefined ? { skillPins: run.skillPins } : {}),
@@ -235,6 +237,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.orgId !== undefined ? { orgId: command.input.orgId } : {}),
           ...(command.input.sandboxProvider !== undefined ? { sandboxProvider: command.input.sandboxProvider } : {}),
           ...(command.input.customAgentId !== undefined ? { customAgentId: command.input.customAgentId } : {}),
+          ...(command.input.collaborationHandoffId !== undefined ? { collaborationHandoffId: command.input.collaborationHandoffId } : {}),
           ...(command.input.customAgentVersion !== undefined ? { customAgentVersion: command.input.customAgentVersion } : {}),
           ...(command.input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: command.input.employeeToolPolicyVersion } : {}),
           ...(command.input.skillPins !== undefined ? { skillPins: command.input.skillPins.map((pin) => ({ ...pin })) } : {}),

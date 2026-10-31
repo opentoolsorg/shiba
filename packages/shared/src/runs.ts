@@ -166,6 +166,8 @@ export interface DelegatedRun {
   /** Sandbox provider id for this run (task override frozen at queue time). */
   sandboxProvider?: string;
   customAgentId?: string;
+  /** Room handoff whose live membership/cancellation state fences this run. */
+  collaborationHandoffId?: string;
   /** T68: env names + digest (approval-hashed); values only inside `envSealed`. */
   envNames?: string[];
   envDigest?: string;

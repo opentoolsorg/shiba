@@ -163,6 +163,8 @@ export function CollaborationView(): JSX.Element {
   const [taskId, setTaskId] = useState("");
   const [task, setTask] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
+  const [workDestination, setWorkDestination] = useState<"repository" | "artifact-workspace">("repository");
+  const [deliverablePath, setDeliverablePath] = useState("reports/employee-summary.md");
   const [recipientActorId, setRecipientActorId] = useState("");
   const [parentHandoffId, setParentHandoffId] = useState("");
   const [profiles, setProfiles] = useState<EmployeeProfile[]>([]);
@@ -393,6 +395,14 @@ export function CollaborationView(): JSX.Element {
   const createHandoff = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !taskId.trim() || !recipientActorId) return;
+    const expectedDeliverables = deliverablePath
+      .split("\n")
+      .map((path) => path.trim())
+      .filter(Boolean);
+    if (workDestination === "artifact-workspace" && expectedDeliverables.length === 0) {
+      setError("Add at least one requested deliverable path.");
+      return;
+    }
     const handoffId = handoffRequestId || `ho_${crypto.randomUUID()}`;
     if (!handoffRequestId) setHandoffRequestId(handoffId);
     void mutate(async () => {
@@ -403,16 +413,28 @@ export function CollaborationView(): JSX.Element {
           taskId: taskId.trim(),
           recipientActorId,
           task: task.trim(),
+          ...(workDestination === "artifact-workspace"
+            ? {
+                executionTarget: {
+                  kind: "artifact-workspace",
+                  expectedDeliverables,
+                },
+              }
+            : {}),
           ...(executionTarget === "sandbox"
             ? { runtime: "sandbox" }
             : { runtime: "local", targetMachineId: executionTarget.slice("local:".length) }),
-          ...(repoUrl.trim() ? { repoUrl: repoUrl.trim() } : {}),
+          ...(workDestination === "repository" && repoUrl.trim()
+            ? { repoUrl: repoUrl.trim() }
+            : {}),
           ...(parentHandoffId ? { parentHandoffId } : {}),
         }),
       );
       setTaskId("");
       setTask("");
       setRepoUrl("");
+      setWorkDestination("repository");
+      setDeliverablePath("reports/employee-summary.md");
       setParentHandoffId("");
       setHandoffRequestId("");
     });
@@ -801,27 +823,62 @@ export function CollaborationView(): JSX.Element {
                           placeholder="Describe the work to request"
                           className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
                         />
-                        <input
-                          aria-label="Repository URL"
-                          value={repoUrl}
-                          onChange={(event) => { setRepoUrl(event.target.value); setHandoffRequestId(""); }}
-                          maxLength={500}
-                          placeholder="Repository URL (uses employee default when blank)"
-                          className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
-                        />
                         <select
-                          aria-label="Employee execution target"
-                          value={executionTarget}
-                          onChange={(event) => setExecutionTarget(event.target.value)}
+                          aria-label="Employee work destination"
+                          value={workDestination}
+                          onChange={(event) => {
+                            const next = event.target.value as "repository" | "artifact-workspace";
+                            setWorkDestination(next);
+                            setHandoffRequestId("");
+                            if (next === "artifact-workspace") setExecutionTarget("sandbox");
+                          }}
                           className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
                         >
-                          <option value="sandbox">Cloud sandbox</option>
-                          {computers.map((computer) => (
-                            <option key={computer.machineId} value={`local:${computer.machineId}`}>
-                              Local · {computer.hostname}{computer.status === "busy" ? " (busy)" : ""}
-                            </option>
-                          ))}
+                          <option value="repository">Repository</option>
+                          <option value="artifact-workspace">Artifact workspace (no repository)</option>
                         </select>
+                        {workDestination === "artifact-workspace" ? (
+                          <>
+                            <textarea
+                              aria-label="Expected deliverable paths"
+                              value={deliverablePath}
+                              onChange={(event) => { setDeliverablePath(event.target.value); setHandoffRequestId(""); }}
+                              rows={2}
+                              placeholder="One safe .md, .txt, .json or .csv output path per line"
+                              className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                            />
+                            <p className="text-[10px] text-[var(--muted-foreground-2)]">
+                              Repo-free work runs in the cloud sandbox and must produce the listed files.
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <input
+                              aria-label="Repository URL"
+                              value={repoUrl}
+                              onChange={(event) => { setRepoUrl(event.target.value); setHandoffRequestId(""); }}
+                              maxLength={500}
+                              placeholder="Repository URL (uses employee default when blank)"
+                              className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                            />
+                            <select
+                              aria-label="Employee execution target"
+                              value={executionTarget}
+                              onChange={(event) => setExecutionTarget(event.target.value)}
+                              className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                            >
+                              <option value="sandbox">Cloud sandbox</option>
+                              {computers.map((computer) => (
+                                <option key={computer.machineId} value={`local:${computer.machineId}`}>
+                                  Local · {computer.hostname}{computer.status === "busy" ? " (busy)" : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+                        <p className="text-[10px] text-[var(--muted-foreground-2)]">
+                          Employee app-tool grants cover only supported Shiba Worker actions. Coding harness shell and CLI access are separate and are not restricted by those app-tool grants.
+                        </p>
                         <select
                           aria-label="Parent handoff"
                           value={parentHandoffId}

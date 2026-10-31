@@ -6,12 +6,12 @@ import {
   type CollaborationRoom,
   childHandoffLineage,
   MAX_HANDOFF_BUDGET,
+  executionTargetSchema,
   validateCollaborationHandoff,
   validateCollaborationMessage,
   validateHandoffCancellation,
 } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
-import { handleApprovals } from "./approvals-routes.js";
 import { randomHex } from "./mailbox-store.js";
 import {
   addCollaborationMember,
@@ -51,7 +51,9 @@ import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import type { Env } from "./env.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
-import { handleRuns, queueCollaborationRun } from "./runs-routes.js";
+import { queueCollaborationRun } from "./runs-routes.js";
+import { isSupportedEmployeeToolScope, resolveEmployeeRunToolContext } from "./employee-run-tools.js";
+import { signInternalRequest } from "./edge-identity.js";
 
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
@@ -113,6 +115,33 @@ function scopeFor(userId: string): CollaborationScope {
     workspaceId: COLLAB_WORKSPACE_ID,
     userId: userId.trim().toLowerCase(),
   };
+}
+
+async function cancelLinkedHandoffExecutors(
+  env: Env,
+  handoffs: readonly CollaborationHandoffRow[],
+): Promise<{ executorCancellationPending: boolean; outcomeUnknown: boolean }> {
+  let executorCancellationPending = false;
+  let outcomeUnknown = false;
+  for (const item of handoffs) {
+    if (!item.approvalId && !item.runId) continue;
+    try {
+      const stub = await getAgentByName(env.CodingOrchestrator, item.senderUserId);
+      const internal = new Request("https://internal/internal/collaboration-handoff-cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handoffId: item.handoffId }),
+      });
+      await signInternalRequest(internal, env);
+      const response = await stub.fetch(internal);
+      if (!response.ok) executorCancellationPending = true;
+      const body = (await response.json().catch(() => ({}))) as { outcomeUnknown?: boolean };
+      if (body.outcomeUnknown) outcomeUnknown = true;
+    } catch {
+      executorCancellationPending = true;
+    }
+  }
+  return { executorCancellationPending, outcomeUnknown };
 }
 
 function actorFor(
@@ -228,21 +257,6 @@ function envelopeForHandoff(row: CollaborationHandoffRow): CollaborationHandoffE
 
 function invalidBody(message: string): Response {
   return json({ error: message }, 400);
-}
-
-function forwardedRequest(
-  request: Request,
-  pathname: string,
-  method: string,
-  body?: unknown,
-): Request {
-  const headers = new Headers(request.headers);
-  headers.delete("content-length");
-  return new Request(new URL(pathname, request.url), {
-    method,
-    headers,
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
 }
 
 /** Internal Shiba task rooms. Identity and workspace scope are derived server-side. */
@@ -673,9 +687,9 @@ export async function handleCollaboration(
       );
       if (!profile)
         return json({ error: "Employee profile or pinned version is unavailable." }, 404);
-      if (profile.config.toolScopes?.length)
+      if (profile.config.toolScopes?.some((scope) => !isSupportedEmployeeToolScope(scope)))
         return json(
-          { error: "Employee profiles with unsupported tool scopes cannot join rooms." },
+          { error: "This employee has an unsupported app-tool scope and cannot join a room." },
           409,
         );
       const actorId = `agent:${profile.id}`;
@@ -714,16 +728,23 @@ export async function handleCollaboration(
       if ("response" in access && access.response) return access.response;
       if (access.membership.role !== "owner")
         return json({ error: "Only room owners can remove members." }, 403);
+      const actorId = path[3] ?? "";
+      const priorHandoffs = (await listCollaborationHandoffs(env, scope, roomId))
+        .filter((handoff) => handoff.status === "active" &&
+          (handoff.senderActorId === actorId || handoff.recipientActorId === actorId));
       const changed = await removeCollaborationMember(
         env,
         scope,
         roomId,
-        path[3] ?? "",
+        actorId,
         Date.now(),
       );
-      return changed
-        ? json({ removed: true })
-        : json({ error: "Member not found or cannot be removed." }, 404);
+      if (!changed) return json({ error: "Member not found or cannot be removed." }, 404);
+      const roots = new Set(priorHandoffs.map((handoff) => handoff.rootHandoffId));
+      const cancelledRows = (await listCollaborationHandoffs(env, scope, roomId))
+        .filter((handoff) => roots.has(handoff.rootHandoffId));
+      const cancellation = await cancelLinkedHandoffExecutors(env, cancelledRows);
+      return json({ removed: true, ...cancellation }, cancellation.executorCancellationPending || cancellation.outcomeUnknown ? 202 : 200);
     }
 
     if (
@@ -1022,25 +1043,65 @@ export async function handleCollaboration(
                 customAgentId,
                 recipient.profileVersion,
               );
-        if (!profile || profile.config.toolScopes?.length) {
+        if (!profile) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "Pinned employee profile is no longer available." }, 409);
+        }
+        const configuredScopes = profile.config.toolScopes ?? [];
+        if (configuredScopes.some((toolScope) => !isSupportedEmployeeToolScope(toolScope))) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return json({ error: "This employee has an unsupported app-tool scope. Update its policy before requesting work." }, 409);
+        }
+        if (configuredScopes.length > 0) {
+          const toolPolicy = await resolveEmployeeRunToolContext(
+            env,
+            profile.id,
+            DASHBOARD_ORG_ID,
+            scope.userId,
+          );
+          if (!toolPolicy || configuredScopes.some((toolScope) => !toolPolicy.allowed.includes(toolScope))) {
+            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+            return json({ error: "The requesting room member does not have the employee's active app-tool grants. Update policy before requesting work." }, 403);
+          }
         }
         if (body.runtime !== undefined && body.runtime !== "sandbox" && body.runtime !== "local") {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Employee execution target must be cloud sandbox or a paired computer.");
         }
-        const repoUrl =
-          typeof body.repoUrl === "string" && body.repoUrl.trim()
-            ? body.repoUrl.trim()
-            : (profile.config.defaultRepoUrl ?? "");
-        if (!repoUrl) {
+        const targetResult = body.executionTarget === undefined
+          ? null
+          : executionTargetSchema.safeParse(body.executionTarget);
+        if (body.executionTarget !== undefined && !targetResult?.success) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
-          return invalidBody(
-            "Choose a repository or configure a default repository on the employee profile.",
-          );
+          return invalidBody("Employee work destination is invalid.");
+        }
+        const requestedTarget = targetResult?.success ? targetResult.data : undefined;
+        if (requestedTarget?.kind === "connected-app") {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody("Connected-app room work is not supported yet.");
         }
         const runtime = body.runtime === "local" ? "local" : "sandbox";
+        if (requestedTarget?.kind === "artifact-workspace" && runtime === "local") {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody("Artifact-workspace employee work currently requires the cloud sandbox.");
+        }
+        const repoUrl = requestedTarget?.kind === "repository"
+          ? requestedTarget.repoUrl
+          : typeof body.repoUrl === "string" && body.repoUrl.trim()
+            ? body.repoUrl.trim()
+            : (profile.config.defaultRepoUrl ?? "");
+        if (requestedTarget?.kind === "artifact-workspace" && (typeof body.repoUrl === "string" && body.repoUrl.trim())) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody("Choose either a repository or an artifact workspace, not both.");
+        }
+        if (requestedTarget?.kind !== "artifact-workspace" && !repoUrl) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody("Choose a repository, an artifact workspace, or configure a default repository on the employee profile.");
+        }
+        if (requestedTarget?.kind === "repository" && typeof body.repoUrl === "string" && body.repoUrl.trim() && body.repoUrl.trim() !== requestedTarget.repoUrl) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody("Repository URL must match the explicit repository destination.");
+        }
         const targetMachineId = typeof body.targetMachineId === "string" ? body.targetMachineId.trim() : "";
         if (runtime === "local" && !targetMachineId) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
@@ -1048,10 +1109,12 @@ export async function handleCollaboration(
         }
         const queued = await queueCollaborationRun(request, env, {
           task,
-          repoUrl,
+          ...(repoUrl ? { repoUrl } : {}),
+          ...(requestedTarget ? { executionTarget: requestedTarget } : {}),
           customAgentId,
           profileVersion: profile.version,
           commandId: saved.handoffId,
+          collaborationHandoffId: saved.handoffId,
           runtime,
           ...(runtime === "local" ? { targetMachineId } : {}),
         });
@@ -1075,16 +1138,31 @@ export async function handleCollaboration(
             approval.approvalId,
             runId,
           ))
-        )
+        ) {
+          // Cancellation/removal can win while queueCollaborationRun is
+          // awaiting the orchestrator. The D1 row is already fenced, but the
+          // approval/run identity was not available when the cancellation
+          // callback first ran. Now that it is known, propagate cancellation
+          // directly so the durable pending approval cannot be stranded.
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now()).catch(() => false);
+          const cleanup = await cancelLinkedHandoffExecutors(env, [{
+            ...saved,
+            status: "cancelled",
+            approvalId: approval.approvalId,
+            runId,
+          }]);
           return json(
             {
-              error:
-                "Approval was queued but could not be linked to the room.",
+              error: cleanup.executorCancellationPending || cleanup.outcomeUnknown
+                ? "Room access changed while the approval was being queued; executor cancellation is still pending."
+                : "Room access changed while the approval was being queued; the approval was cancelled.",
               handoffId: saved.handoffId,
-              retryable: true,
+              retryable: false,
+              ...cleanup,
             },
-            503,
+            cleanup.executorCancellationPending || cleanup.outcomeUnknown ? 202 : 409,
           );
+        }
         saved.approvalId = approval.approvalId;
         saved.runId = runId;
       } else if (recipient.actorKind === "agent" && saved.approvalId) {
@@ -1126,39 +1204,13 @@ export async function handleCollaboration(
       const changed = await cancelCollaborationHandoff(env, scope, handoffId, Date.now());
       if (!changed && target.status !== "cancelled")
         return json({ error: "Handoff could not be cancelled." }, 409);
-      if (target.approvalId) {
-        const resolved = await handleApprovals(
-          forwardedRequest(request, "/api/approvals", "POST", {
-            threadKey: target.senderUserId,
-            approvalId: target.approvalId,
-            approved: false,
-          }),
-          env,
-        );
-        if (!resolved?.ok) return json({ cancelled: true, executorCancellationPending: true }, 202);
+      const lineage = (await listCollaborationHandoffs(env, scope, target.roomId))
+        .filter((handoff) => handoff.rootHandoffId === target.rootHandoffId);
+      const { executorCancellationPending, outcomeUnknown } = await cancelLinkedHandoffExecutors(env, lineage);
+      if (executorCancellationPending || outcomeUnknown) {
+        return json({ cancelled: !executorCancellationPending && !outcomeUnknown, executorCancellationPending, outcomeUnknown }, 202);
       }
-      if (target.runId) {
-        const existing = await handleRuns(
-          forwardedRequest(request, `/api/runs/${encodeURIComponent(target.runId)}`, "GET"),
-          env,
-        );
-        if (existing?.ok) {
-          const runBody = (await existing.json().catch(() => ({}))) as {
-            run?: { status?: string };
-          };
-          if (runBody.run?.status === "pending" || runBody.run?.status === "running") {
-            const cancelled = await handleRuns(
-              forwardedRequest(request, `/api/runs/${encodeURIComponent(target.runId)}`, "DELETE"),
-              env,
-            );
-            if (!cancelled?.ok)
-              return json({ cancelled: true, executorCancellationPending: true }, 202);
-          }
-        } else if (existing && existing.status !== 404) {
-          return json({ cancelled: true, executorCancellationPending: true }, 202);
-        }
-      }
-      return json({ cancelled: true });
+      return json({ cancelled: true, executorCancellationPending: false, outcomeUnknown: false });
     }
 
     return json({ error: "Collaboration route or method not found." }, 404);

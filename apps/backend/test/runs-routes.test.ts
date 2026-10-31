@@ -24,13 +24,48 @@ vi.mock("../src/request-auth.js", async (importOriginal) => {
 
 import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_HEADER } from "@shiba/shared";
 import type { Env } from "../src/env.js";
-import { handleRuns } from "../src/runs-routes.js";
+import { handleRuns, queueCollaborationRun } from "../src/runs-routes.js";
 import { activateSkill, createSkill, reviewSkill } from "../src/skills-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const env = { CodingOrchestrator: {} } as unknown as Env;
 
 describe("handleRuns voucher hygiene", () => {
+  it("forwards a repo-free room handoff through the normal Worker approval intake with a trusted handoff fence", async () => {
+    forwarded.requests.length = 0;
+    const executionTarget = {
+      kind: "artifact-workspace" as const,
+      expectedDeliverables: ["reports/room.md"],
+    };
+    const response = await queueCollaborationRun(
+      new Request("https://shiba.test/api/collaboration/rooms/room-1/handoffs", {
+        method: "POST", headers: { "content-type": "application/json" },
+      }),
+      env,
+      {
+        task: "Write a room report.",
+        executionTarget,
+        customAgentId: "employee-1",
+        profileVersion: 3,
+        commandId: "handoff-1",
+        collaborationHandoffId: "handoff-1",
+        runtime: "sandbox",
+      },
+    );
+    expect(response?.status).toBe(200);
+    const forwardedBody = await forwarded.requests[0]?.json() as Record<string, unknown>;
+    expect(forwardedBody).toMatchObject({
+      task: "Write a room report.",
+      executionTarget,
+      customAgentId: "employee-1",
+      customAgentVersion: 3,
+      collaborationHandoffId: "handoff-1",
+      orgId: "self-hosted",
+      threadKey: "devin",
+    });
+    expect(forwardedBody.repoUrl).toBeUndefined();
+  });
+
   it("rejects an oversized task after resolving active skill text before forwarding", async () => {
     forwarded.requests.length = 0;
     const db = customAgentD1();

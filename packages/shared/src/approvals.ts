@@ -147,6 +147,8 @@ export interface PendingApproval {
   customAgentVersion?: number;
   /** Profile version that supplied the selected employee app-tool policy, if enabled. */
   employeeToolPolicyVersion?: number;
+  /** Room handoff whose live membership/cancellation state fences this approval. */
+  collaborationHandoffId?: string;
   /** Reviewed skill versions resolved by the authenticated Worker at intake. */
   skillPins?: SkillExecutionPin[];
   orgId?: string;
@@ -220,6 +222,7 @@ export interface CreateApprovalInput {
   customAgentVersion?: number;
   /** Profile version that supplied the selected employee app-tool policy, if enabled. */
   employeeToolPolicyVersion?: number;
+  collaborationHandoffId?: string;
   skillPins?: SkillExecutionPin[];
   orgId?: string;
   role?: AgentRole;
@@ -272,6 +275,7 @@ export function createPendingApproval(
       ...(input.runSetup === true ? { runSetup: true } : {}),
       ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
       ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
+      ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
       ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
@@ -436,6 +440,8 @@ export interface RunInputFields {
   customAgentVersion?: number;
   /** Profile version that supplied the selected employee app-tool policy, if enabled. */
   employeeToolPolicyVersion?: number;
+  /** Room handoff whose live membership/cancellation state fences this run. */
+  collaborationHandoffId?: string;
   skillPins?: SkillExecutionPin[];
   role?: AgentRole;
 }
@@ -555,6 +561,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.runSetup === true ? { runSetup: true } : {}),
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
     ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
+    ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
     ...(input.skillPins !== undefined ? { skillPins: input.skillPins as unknown as JsonValue } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),

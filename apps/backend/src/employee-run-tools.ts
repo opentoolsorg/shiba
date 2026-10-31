@@ -18,6 +18,10 @@ import {
 import { dispatchEmployeeToolForPrincipal, EMPLOYEE_TOOL_ACTIONS } from "./employee-tool-routes.js";
 
 const ACTION_NAMES = Object.keys(EMPLOYEE_TOOL_ACTIONS) as Array<keyof typeof EMPLOYEE_TOOL_ACTIONS>;
+/** True only for Worker-side app actions with reviewed policy and dispatch support. */
+export function isSupportedEmployeeToolScope(scope: string): boolean {
+  return ACTION_NAMES.some((name) => capabilityId(name) === scope);
+}
 const inputSchema = z.object({
   tool: z.enum(ACTION_NAMES),
   args: z.record(z.string(), z.unknown()),
@@ -54,7 +58,7 @@ export async function resolveEmployeeRunToolContext(
   if (!env.AGENT_AUDIT || !employeeId) return null;
   const employee = await getCustomAgentById(env, orgId, employeeId);
   if (!employee || !Array.isArray(employee.config.toolScopes) || employee.config.toolScopes.length === 0) return null;
-  if (employee.config.toolScopes.some((id) => !ACTION_NAMES.some((name) => capabilityId(name) === id))) return null;
+  if (employee.config.toolScopes.some((id) => !isSupportedEmployeeToolScope(id))) return null;
 
   const membership = await resolveCurrentEmployeeToolMembership(env, {
     orgId, employeeId, employeeVersion: employee.version,

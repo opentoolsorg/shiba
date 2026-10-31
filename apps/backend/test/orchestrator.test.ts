@@ -13,6 +13,16 @@ import { artifactIdentity, prepareRunArtifacts } from "../src/artifact-metadata.
 import { createDurableTask, updateTaskAttempt } from "../src/task-attempts.js";
 import { approveDirect } from "./seeding.js";
 import {
+  addCollaborationMember,
+  cancelCollaborationHandoff,
+  COLLAB_TENANT_ID,
+  COLLAB_WORKSPACE_ID,
+  createCollaborationRoom,
+  createRootCollaborationHandoff,
+  humanActorId,
+  linkCollaborationHandoffRun,
+} from "../src/collaboration-store.js";
+import {
   destroyManagedContainer,
   forgetLeaked,
   leakedContainers,
@@ -245,6 +255,92 @@ describe("local run cleanup", () => {
     expect(leakedContainers().some((leak) => leak.sandboxId === run.sandboxId)).toBe(false);
     expect(instance.state.leakedContainers?.unknown).toBeDefined();
     expect(instance.state.leakedContainers?.["real-cloud"]).toBeUndefined();
+  });
+});
+
+describe("room handoff dispatch fences", () => {
+  it("does not dispatch an approval after the linked room lineage was cancelled", async () => {
+    const instance = agent();
+    const db = customAgentD1();
+    Object.assign(instance.env, { AGENT_AUDIT: db.database });
+    const collaborationEnv = { AGENT_AUDIT: db.database };
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, userId: "owner@example.test" };
+    const roomId = "room-dispatch-fence";
+    const handoffId = "handoff-dispatch-fence";
+    const employeeId = "employee-dispatch-fence";
+    await createCollaborationRoom(collaborationEnv, scope, {
+      roomId, title: "Dispatch fence", visibility: "private", createdAt: Date.now(),
+    });
+    await addCollaborationMember(collaborationEnv, scope, roomId, {
+      userId: scope.userId, displayName: "Employee", actorId: `agent:${employeeId}`,
+      kind: "agent", profileVersion: 1, createdAt: Date.now(),
+    });
+    await createRootCollaborationHandoff(collaborationEnv, scope, {
+      handoffId, tenantId: scope.tenantId, workspaceId: scope.workspaceId, roomId,
+      taskId: "task-fence", senderUserId: scope.userId, senderActorId: humanActorId(scope.userId),
+      recipientUserId: scope.userId, recipientActorId: `agent:${employeeId}`, parentHandoffId: null,
+      rootHandoffId: handoffId, depth: 0, ancestorHandoffIds: [], remainingBudget: 1,
+      grantedCapabilities: ["room.read", "handoff.create"], profileVersion: 1,
+      status: "active", createdAt: Date.now(), cancelledAt: null,
+    });
+    await linkCollaborationHandoffRun(collaborationEnv, scope, handoffId, "approval-fence", "agent-tool:approval-fence");
+    const run = createRun({
+      runId: "agent-tool:approval-fence", sandboxId: "sandbox-fence", repoUrl: "",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["reports/out.md"] },
+      task: "Write a report", baseBranch: "main", publishPullRequest: false,
+      customAgentId: employeeId, customAgentVersion: 1, collaborationHandoffId: handoffId,
+    });
+    instance.setState({ runs: [run] });
+    await cancelCollaborationHandoff(collaborationEnv, scope, handoffId, Date.now());
+    const dispatch = Reflect.get(instance, "dispatchApprovedRun") as (
+      run: DelegatedRun,
+      approval: Record<string, unknown>,
+      approvalId: string,
+    ) => void;
+    dispatch.call(instance, run, { approvalId: "approval-fence", status: "approved", threadKey: scope.userId }, "approval-fence");
+    await vi.waitFor(() => expect(instance.state.runs[0]?.status).toBe("cancelled"));
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("reports an in-flight linked run as unknown after room cancellation", async () => {
+    const instance = agent();
+    const run = createRun({
+      runId: "agent-tool:in-flight-room", sandboxId: "sandbox-in-flight-room", repoUrl: "https://github.com/o/r",
+      task: "Work", baseBranch: "main", publishPullRequest: false,
+      customAgentId: "employee", customAgentVersion: 1, collaborationHandoffId: "handoff-in-flight",
+    });
+    instance.setState({ runs: [{ ...run, checkpoint: "executing" }] });
+    Object.assign(instance, { runControllersMap: new Map(), releaseSandboxForRun: vi.fn(async () => {}) });
+    const response = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-in-flight" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ cancelled: false, outcomeUnknown: true });
+    expect(instance.state.runs[0]?.status).toBe("unknown");
+  });
+
+  it("rejects the linked pending approval when the Worker propagates lineage cancellation", async () => {
+    const instance = agent();
+    const pendingApprovals = createPendingApproval([], {
+      threadKey: "owner@example.test",
+      approvalId: "approval-pending-room",
+      repoUrl: "https://github.com/o/r",
+      task: "Write a report.",
+      collaborationHandoffId: "handoff-pending-room",
+      createdAt: Date.now(),
+    });
+    instance.setState({ runs: [], pendingApprovals });
+    const response = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-pending-room" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(instance.state.pendingApprovals?.[0]).toMatchObject({
+      approvalId: "approval-pending-room",
+      status: "rejected",
+      decidedBy: "collaboration-cancellation",
+    });
   });
 });
 

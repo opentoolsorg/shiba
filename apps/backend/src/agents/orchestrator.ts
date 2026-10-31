@@ -156,6 +156,7 @@ import {
 } from "../runs.js";
 import { handleSteeringRequest } from "../steering.js";
 import { localDispatchStub } from "../local-dispatch.js";
+import { isCollaborationHandoffDispatchable } from "../collaboration-store.js";
 import {
   appendTaskAttempt,
   artifactLineageForRun,
@@ -1527,6 +1528,30 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                 "internal_error", `Approved route is no longer available: ${routeProblem}`,
               ));
             }
+            if (reserved.collaborationHandoffId) {
+              const roomStillAuthorizes = yield* tryRunPromise(async () =>
+                Boolean(reserved.customAgentId && reserved.customAgentVersion &&
+                  await isCollaborationHandoffDispatchable(this.env, {
+                    handoffId: reserved.collaborationHandoffId!,
+                    approvalId: pointer?.approvalId ?? callId,
+                    employeeId: reserved.customAgentId,
+                    employeeVersion: reserved.customAgentVersion,
+                  })),
+              );
+              if (!roomStillAuthorizes) {
+                return yield* Effect.fail(toTaggedError(
+                  "invalid_request",
+                  "Room access or handoff status changed before execution. Request a new employee handoff.",
+                ));
+              }
+              yield* Effect.try({
+                try: () => signal.throwIfAborted(),
+                catch: (error) => {
+                  const { code, message } = classifyRunError(error);
+                  return toTaggedError(code, message);
+                },
+              });
+            }
             const output = yield* tryRunPromise((fiberSignal) =>
               childExecute(formatAgentToolInput(fullInput), {
                 toolCallId: callId,
@@ -1868,7 +1893,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     expectedCustomAgentVersion?: unknown;
     orgId?: unknown;
     projectContextId?: unknown;
+    collaborationHandoffId?: unknown;
   }): Promise<Response> {
+    const collaborationHandoffId = typeof input.collaborationHandoffId === "string"
+      ? input.collaborationHandoffId.trim()
+      : "";
+    if (input.collaborationHandoffId !== undefined &&
+      (input.intake !== LOCAL_INTAKE_DASHBOARD || !/^[A-Za-z0-9_-]{1,128}$/.test(collaborationHandoffId))) {
+      return Response.json({ error: "Invalid trusted collaboration handoff context." }, { status: 400 });
+    }
     const kind = typeof input.kind === "string" && input.kind.trim() ? input.kind.trim() : "run";
     let executionTarget: ExecutionTarget | undefined;
     if (input.executionTarget !== undefined) {
@@ -2322,6 +2355,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...(runSetup ? { runSetup: true } : {}),
           ...(customAgentVersion !== undefined ? { customAgentVersion } : {}),
           ...(employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion } : {}),
+          ...(collaborationHandoffId ? { collaborationHandoffId } : {}),
           ...(intakeOrgId ? { orgId: intakeOrgId } : {}),
           createdAt: Date.now(),
         });
@@ -2799,6 +2833,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             return Response.json({ error: "Bot tool policy is no longer valid. Review employee grants and requeue this run." }, { status: 409 });
           }
         }
+        if (queued.collaborationHandoffId &&
+          (!queued.customAgentVersion || !await isCollaborationHandoffDispatchable(this.env, {
+            handoffId: queued.collaborationHandoffId,
+            approvalId,
+            employeeId: queued.customAgentId,
+            employeeVersion: queued.customAgentVersion,
+          }))) {
+          return Response.json({ error: "This room handoff was cancelled or room access changed. Request a new employee handoff." }, { status: 409 });
+        }
       }
     }
     // Availability and reclaim checks yielded; another resolve may have won.
@@ -3089,6 +3132,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       ...(record.role !== undefined ? { role: record.role } : {}),
       ...(record.sandboxProvider !== undefined ? { sandboxProvider: record.sandboxProvider } : {}),
       ...(record.customAgentId !== undefined ? { customAgentId: record.customAgentId } : {}),
+      ...(record.collaborationHandoffId !== undefined ? { collaborationHandoffId: record.collaborationHandoffId } : {}),
       ...(record.envDigest !== undefined
         ? { envNames: record.envNames ?? [], envDigest: record.envDigest, envSealed: record.envSealed }
         : {}),
@@ -3116,6 +3160,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(record.role !== undefined ? { role: record.role } : {}),
         ...(record.sandboxProvider !== undefined ? { sandboxProvider: record.sandboxProvider } : {}),
         ...(record.customAgentId !== undefined ? { customAgentId: record.customAgentId } : {}),
+        ...(record.collaborationHandoffId !== undefined ? { collaborationHandoffId: record.collaborationHandoffId } : {}),
         ...(record.customAgentVersion !== undefined ? { customAgentVersion: record.customAgentVersion } : {}),
         ...(record.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: record.employeeToolPolicyVersion } : {}),
         ...(record.skillPins !== undefined ? { skillPins: record.skillPins } : {}),
@@ -3645,6 +3690,32 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     approvalId: string,
   ): void {
     const dispatch = async () => {
+      if (run.collaborationHandoffId) {
+        let dispatchable = false;
+        try {
+          dispatchable = Boolean(
+            run.customAgentId && run.customAgentVersion && record &&
+            await isCollaborationHandoffDispatchable(this.env, {
+              handoffId: run.collaborationHandoffId,
+              approvalId,
+              employeeId: run.customAgentId,
+              employeeVersion: run.customAgentVersion,
+            }),
+          );
+        } catch {
+          dispatchable = false;
+        }
+        if (!dispatchable) {
+          const latest = this.store.get(run.runId);
+          if (latest && isActiveStatus(latest.status)) {
+            this.store.transition(run.runId, "cancelled", {
+              error: "Room handoff was cancelled or membership changed before execution.",
+              errorCode: "cancelled",
+            });
+          }
+          return;
+        }
+      }
       this.stampCheckpoint(run.runId, "dispatching");
       const generation = this.store.get(run.runId)?.generation;
       try {
@@ -5244,6 +5315,46 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
       return this.handlePrLifecycleWake(record);
+    }
+    if (request.method === "POST" && url.pathname === "/internal/collaboration-handoff-cancel") {
+      let body: unknown;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid_json" }, { status: 400 }); }
+      if (typeof body !== "object" || body === null || Array.isArray(body) ||
+        typeof (body as Record<string, unknown>).handoffId !== "string") {
+        return Response.json({ error: "invalid_handoff_id" }, { status: 400 });
+      }
+      const handoffId = ((body as Record<string, unknown>).handoffId as string).trim();
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(handoffId)) return Response.json({ error: "invalid_handoff_id" }, { status: 400 });
+      const pending = this.approvals.find((approval) =>
+        approval.collaborationHandoffId === handoffId && approval.status === "pending");
+      if (pending) {
+        await this.resolveApproval({
+          threadKey: pending.threadKey,
+          approvalId: pending.approvalId,
+          approved: false,
+          decidedBy: "collaboration-cancellation",
+        });
+      }
+      let uncertain = false;
+      const linkedRuns = this.store.list().filter((run) =>
+        run.collaborationHandoffId === handoffId && isActiveStatus(run.status));
+      for (const run of linkedRuns) {
+        if (run.checkpoint === "executing" || run.checkpoint === "settling") {
+          const updated = this.store.transition(run.runId, "unknown", {
+            error: "Room handoff was cancelled after execution began; inspect the result before retrying.",
+            errorCode: "outcome_unknown",
+          });
+          if (updated) {
+            this.runControllers.get(run.runId)?.abort();
+            this.stampCheckpoint(run.runId, "terminal");
+            await this.guardCleanup(() => this.releaseSandboxForRun(updated));
+          }
+          uncertain = true;
+        } else {
+          await this.cancelRun(run.runId);
+        }
+      }
+      return Response.json({ cancelled: !uncertain, outcomeUnknown: uncertain });
     }
     if (url.pathname.startsWith("/internal/web-sessions")) {
       return this.handleInternalWebSessions(request, url);

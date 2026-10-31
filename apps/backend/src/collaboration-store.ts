@@ -828,6 +828,16 @@ export async function removeCollaborationMember(
       scope.tenantId, scope.workspaceId, roomId, actorId, removedAt,
       scope.tenantId, scope.workspaceId, roomId, actorId, removedAt,
     ),
+    env.AGENT_AUDIT.prepare(
+      `UPDATE collaboration_handoffs SET status='cancelled',cancelled_at=?
+       WHERE tenant_id=? AND workspace_id=? AND room_id=? AND status='active'
+         AND root_handoff_id IN (
+           SELECT affected.root_handoff_id FROM collaboration_handoffs affected
+           WHERE affected.tenant_id=? AND affected.workspace_id=? AND affected.room_id=?
+             AND affected.status='active' AND (affected.sender_actor_id=? OR affected.recipient_actor_id=?)
+         )`,
+    ).bind(removedAt, scope.tenantId, scope.workspaceId, roomId,
+      scope.tenantId, scope.workspaceId, roomId, actorId, actorId),
   ]);
   return Number(results[0]?.meta?.changes ?? 0) === 1;
 }
@@ -1393,6 +1403,31 @@ export async function getCollaborationHandoff(
     .bind(scope.tenantId, scope.workspaceId, handoffId)
     .first<Record<string, unknown>>();
   return row ? rowHandoff(row) : null;
+}
+
+/** Dispatch fence for a linked employee approval/run; reads current room authority at execution time. */
+export async function isCollaborationHandoffDispatchable(
+  env: Pick<Env, "AGENT_AUDIT">,
+  input: { handoffId: string; approvalId: string; employeeId: string; employeeVersion: number },
+): Promise<boolean> {
+  await ensureCollaborationSchema(env);
+  const row = await env.AGENT_AUDIT.prepare(
+    `SELECT 1 AS active FROM collaboration_handoffs h
+     JOIN collaboration_memberships sender ON sender.tenant_id=h.tenant_id AND sender.workspace_id=h.workspace_id
+       AND sender.room_id=h.room_id AND sender.actor_id=h.sender_actor_id AND sender.user_id=h.sender_user_id
+     JOIN collaboration_memberships recipient ON recipient.tenant_id=h.tenant_id AND recipient.workspace_id=h.workspace_id
+       AND recipient.room_id=h.room_id AND recipient.actor_id=h.recipient_actor_id AND recipient.user_id=h.recipient_user_id
+     WHERE h.handoff_id=? AND h.status='active' AND h.approval_id=?
+       AND h.profile_version=? AND h.recipient_actor_id=? AND sender.status='active'
+       AND recipient.status='active' AND recipient.actor_kind='agent'
+       AND recipient.profile_version=h.profile_version LIMIT 1`,
+  ).bind(
+    input.handoffId,
+    input.approvalId,
+    input.employeeVersion,
+    `agent:${input.employeeId}`,
+  ).first<{ active: number }>();
+  return row?.active === 1;
 }
 
 export async function createRootCollaborationHandoff(
