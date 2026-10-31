@@ -94,4 +94,44 @@ describe("computesdk destroy", () => {
     await provider.destroy("d1");
     await provider.destroy("d1");
   });
+
+  it("retains the provider mapping when destroy fails so a retry can run", async () => {
+    const client = makeFakeClient();
+    const originalDestroy = client.instances.destroy.bind(client.instances);
+    let calls = 0;
+    client.instances.destroy = async (id: string) => {
+      calls += 1;
+      if (calls === 1) throw new Error("provider unavailable");
+      return originalDestroy(id);
+    };
+    const provider = createComputesdkSandboxProvider({ client });
+    await provider.get("d1");
+    await expect(provider.destroy("d1")).rejects.toBeInstanceOf(SandboxError);
+    await provider.destroy("d1");
+    expect(calls).toBe(2);
+  });
+});
+
+describe("computesdk gitCheckout", () => {
+  it("terminates git option parsing before operands", async () => {
+    const client = makeFakeClient();
+    let lastCommand = "";
+    const provider = createComputesdkSandboxProvider({ client });
+    const instance = await provider.get("clone-test");
+    const native = instance.raw?.() as ComputesdkInstance;
+    native.runCommand = async (command) => {
+      lastCommand = command;
+      return { stdout: "", stderr: "", exitCode: 0, durationMs: 1 };
+    };
+    await instance.gitCheckout("git@github.com:o/r.git", { branch: "", targetDir: "/workspace/r" });
+    expect(lastCommand).toContain(" -- ");
+  });
+});
+
+describe("computesdk unexposePort", () => {
+  it("reports unsupported instead of silently succeeding", async () => {
+    const provider = createComputesdkSandboxProvider({ client: makeFakeClient() });
+    const instance = await provider.get("preview-test");
+    await expect(instance.unexposePort?.(8080)).rejects.toBeInstanceOf(SandboxError);
+  });
 });

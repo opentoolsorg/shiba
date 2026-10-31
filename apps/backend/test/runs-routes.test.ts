@@ -127,6 +127,18 @@ describe("handleRuns voucher hygiene", () => {
     }), env);
     expect(await forwarded.requests[0]?.json()).toMatchObject({ kind: "email_send", threadKey: "mailbox-thread", orgId: "self-hosted" });
   });
+
+  it("does not route existing-run mutations through the shared orchestrator for email kinds", async () => {
+    forwarded.requests.length = 0;
+    const response = await handleRuns(new Request("https://shiba.test/api/runs/run-1/archive", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "email_send" }),
+    }), env);
+    expect(response?.status).toBe(200);
+    expect(forwarded.requests).toHaveLength(1);
+    expect(new URL(forwarded.requests[0]!.url).pathname).toBe("/api/runs/run-1/archive");
+  });
   it("strips a forged agent-principal header before proxying to the DO", async () => {
     forwarded.requests.length = 0;
     const request = new Request("https://shiba.test/api/runs", {

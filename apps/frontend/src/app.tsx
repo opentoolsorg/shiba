@@ -419,9 +419,9 @@ export function App(): React.JSX.Element {
     if (prompt !== null) {
       const nextUrl = window.location.pathname + nextSearch + window.location.hash;
       window.history.replaceState(window.history.state, "", nextUrl);
-      if (!draft.trim()) return prompt;
+      return prompt;
     }
-    return draft;
+    return "";
   });
   const latestComposerTask = useRef(task);
   latestComposerTask.current = task;

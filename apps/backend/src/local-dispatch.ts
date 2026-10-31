@@ -20,7 +20,6 @@
  * bearer — the DO trusts the intra-deployment channel the same way the
  * orchestrator's https://internal routes do).
  */
-import { DurableObject } from "cloudflare:workers";
 import {
   type ConnectedComputer,
   LOCAL_CLAIM_STALE_MS,
@@ -32,11 +31,14 @@ import {
   localRunEnvelopeSchema,
   localRunResultSchema,
 } from "@shiba/shared";
+import { DurableObject } from "cloudflare:workers";
 import { sha256Hex } from "./agent-tokens.js";
 import { decodeOrNull, HeartbeatRequestSchema, PairRequestSchema } from "./local-fleet-schema.js";
 import { randomHex } from "./mailbox-store.js";
 
 const RECORD_PREFIX = "run:";
+const MAX_LOCAL_EVENT_BATCH = 64;
+const MAX_SESSION_EVENTS = 200;
 const COMPUTER_PREFIX = "computer:";
 /** Locally runnable lane IDs mapped to the executable names the daemon probes. */
 const LOCAL_DAEMON_HARNESSES: Readonly<Record<string, string>> = {
@@ -405,7 +407,13 @@ export class LocalDispatch extends DurableObject {
         : body.event !== undefined
           ? [body.event]
           : [];
-      const events = [...(held.sessionEvents ?? [])];
+      if (incoming.length > MAX_LOCAL_EVENT_BATCH) {
+        return Response.json(
+          { error: `At most ${MAX_LOCAL_EVENT_BATCH} events per request.` },
+          { status: 400 },
+        );
+      }
+      let events = [...(held.sessionEvents ?? [])];
       let liveDiff = held.liveDiff;
       let next = events.reduce((max, event) => Math.max(max, event.seq), 0);
       for (const item of incoming) {
@@ -421,7 +429,9 @@ export class LocalDispatch extends DurableObject {
         if (typeof row.patch === "string" && row.patch !== "")
           liveDiff = row.patch.slice(0, 100_000);
       }
-      while (events.length > 200) events.shift();
+      if (events.length > MAX_SESSION_EVENTS) {
+        events = events.slice(-MAX_SESSION_EVENTS);
+      }
       await this.putRecord({
         ...held,
         sessionEvents: events,

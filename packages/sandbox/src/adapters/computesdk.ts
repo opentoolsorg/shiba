@@ -54,7 +54,7 @@ function wrapInstance(
         : "/workspace";
       await instance.filesystem.mkdir(parent).catch(() => undefined);
       const branch = opts.branch ? `--branch ${shellQuote(opts.branch)} ` : "";
-      const cmd = `git clone --filter=blob:none ${branch}${shellQuote(repoUrl)} ${shellQuote(opts.targetDir)}`;
+      const cmd = `git clone --filter=blob:none ${branch}-- ${shellQuote(repoUrl)} ${shellQuote(opts.targetDir)}`;
       const result = await instance.runCommand(cmd, { cwd: "/workspace" });
       if (result.exitCode !== 0) {
         throw new SandboxError("exec_failed", `git clone failed: ${result.stderr}`, { provider: "computesdk" });
@@ -94,7 +94,11 @@ function wrapInstance(
     },
 
     async unexposePort(_port) {
-      // ComputeSDK instances do not expose a revoke API — preview URLs die with destroy().
+      throw new SandboxError(
+        "capability_unsupported",
+        "ComputeSDK does not support per-port preview revocation; destroy the sandbox to drop preview URLs.",
+        { provider: "computesdk" },
+      );
     },
 
     async startProcess(command, options) {
@@ -105,9 +109,17 @@ function wrapInstance(
           while (Date.now() < deadline) {
             try {
               const url = await instance.getUrl({ port });
-              const res = await fetch(url, { method: "HEAD" });
+              const res = await fetch(url, { method: "HEAD", redirect: "manual" });
+              if (res.status >= 300 && res.status < 400) {
+                throw new SandboxError(
+                  "capability_unsupported",
+                  "Port readiness probe rejected an HTTP redirect.",
+                  { provider: "computesdk" },
+                );
+              }
               if (res.status < 500) return;
-            } catch {
+            } catch (error) {
+              if (error instanceof SandboxError) throw error;
               // retry
             }
             await delay(250);
@@ -139,10 +151,14 @@ export function createComputesdkSandboxProvider(options: ComputesdkSandboxProvid
   /** shiba run id → ComputeSDK instance id */
   const idMap = new Map<string, string>();
   const instanceCache = new Map<string, ComputesdkInstance>();
+  const pendingCreates = new Map<string, Promise<ComputesdkInstance>>();
 
   async function resolveComputeInstance(shibaId: string): Promise<ComputesdkInstance> {
     const cached = instanceCache.get(shibaId);
     if (cached) return cached;
+
+    const pending = pendingCreates.get(shibaId);
+    if (pending) return pending;
 
     const mappedId = idMap.get(shibaId);
     if (mappedId) {
@@ -154,12 +170,20 @@ export function createComputesdkSandboxProvider(options: ComputesdkSandboxProvid
       idMap.delete(shibaId);
     }
 
-    const created = await options.client.instances.create({
-      metadata: { shibaSandboxId: shibaId },
-    });
-    idMap.set(shibaId, created.instanceId);
-    instanceCache.set(shibaId, created);
-    return created;
+    const createPromise = (async () => {
+      const created = await options.client.instances.create({
+        metadata: { shibaSandboxId: shibaId },
+      });
+      idMap.set(shibaId, created.instanceId);
+      instanceCache.set(shibaId, created);
+      return created;
+    })();
+    pendingCreates.set(shibaId, createPromise);
+    try {
+      return await createPromise;
+    } finally {
+      pendingCreates.delete(shibaId);
+    }
   }
 
   return {
@@ -170,12 +194,23 @@ export function createComputesdkSandboxProvider(options: ComputesdkSandboxProvid
       return wrapInstance(instanceId, capabilities, instance, settings);
     },
     async destroy(instanceId) {
+      const pending = pendingCreates.get(instanceId);
+      if (pending) {
+        try {
+          await pending;
+        } catch {
+          pendingCreates.delete(instanceId);
+          instanceCache.delete(instanceId);
+          idMap.delete(instanceId);
+          return;
+        }
+      }
       instanceCache.delete(instanceId);
       const mapped = idMap.get(instanceId);
       if (!mapped) return;
-      idMap.delete(instanceId);
       try {
         await options.client.instances.destroy(mapped);
+        idMap.delete(instanceId);
       } catch (error) {
         throw new SandboxError("unknown", `destroy failed for ${instanceId}`, {
           provider: "computesdk",
