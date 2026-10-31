@@ -11,6 +11,7 @@ import {
 } from "../src/runs.js";
 import { makeReceipt } from "../src/receipts.js";
 import { evidenceFor } from "./seeding.js";
+import { decideRunTransition, type QueuedRunInput, type RunCommand } from "@shiba/shared";
 
 const INPUT = {
   repoUrl: "https://github.com/owner/repo",
@@ -18,6 +19,19 @@ const INPUT = {
   baseBranch: "main",
   publishPullRequest: false,
 };
+
+const QUEUE_METADATA = {
+  executionTarget: { kind: "artifact-workspace", workspaceName: "Drafts", expectedDeliverables: ["brief.md"] },
+  reviewAfterPublish: true, reviewOf: "reviewed-run", reviewRoundId: "round-one", queuedBy: "principal-one", orgId: "org-one",
+  sandboxProvider: "cloudflare", customAgentId: "employee-one", collaborationHandoffId: "handoff-one", customAgentVersion: 2,
+  employeeToolPolicyVersion: 2, skillPins: [{ skillId: `skill-${"a".repeat(24)}`, version: 1, name: "Evidence" }],
+  route: { purpose: "coding", connectionId: "connection-one", modelId: "model-one", harness: "opencode", policyVersion: 1 },
+  continuationKey: "account:home", authAccount: "home", runtime: "local", targetMachineId: "laptop-one",
+  testCommand: ["pnpm", "test"], expectedDeliverables: ["brief.md"],
+  forkedFrom: { runId: "parent-run", checkpointRef: "refs/shiba/checkpoints/parent/1" },
+  parentRunId: "parent-run", subagentPath: "0.1", subagentSandbox: "fresh", captainId: "den-one", role: "fixer",
+  envNames: ["TEAM"], envDigest: "a".repeat(64), envSealed: "sealed-environment", runSetup: true,
+} satisfies Partial<QueuedRunInput>;
 
 function makeRun(runId: string, status: Parameters<typeof transitionRun>[1] = "pending") {
   const pending = createRun({
@@ -38,6 +52,52 @@ afterEach(() => {
 });
 
 describe("run registry", () => {
+  it.each(Object.entries(QUEUE_METADATA))("pending replay retains %s without changing generation or receipts", (key, value) => {
+    const run = createRun({ ...INPUT, [key]: value, runId: "replay", sandboxId: "sandbox-replay", now: 1 });
+    let command: RunCommand | undefined;
+    const next = transitionRun(run, "pending", undefined, 99, undefined, (input, decision) => {
+      command = input;
+      expect("events" in decision && decision.events[0]).toMatchObject({ replayed: true });
+    });
+    expect(next).toEqual(run);
+    expect(next.generation).toBe(run.generation);
+    expect(next.receipts).toEqual(run.receipts);
+    expect(command?.type === "queue" && command.input).toMatchObject({ [key]: value });
+  });
+
+  it("replays complete queue identity and keeps projected mutable values detached", () => {
+    const run = createRun({ ...INPUT, ...QUEUE_METADATA, runId: "all-fields", sandboxId: "sandbox-all", now: 1 });
+    const before = structuredClone(run);
+    let queueInput: QueuedRunInput | undefined;
+    const next = transitionRun(run, "pending", undefined, 99, undefined, (command, decision) => {
+      if (command.type !== "queue") throw new Error("Expected queue replay");
+      queueInput = command.input;
+      expect("events" in decision && decision.events[0]).toMatchObject({ replayed: true });
+    });
+    expect(next).toEqual(before);
+    if (!queueInput) throw new Error("Missing replay input");
+    expect(Object.keys(queueInput).sort()).toEqual(Object.keys({ ...INPUT, ...QUEUE_METADATA, sandboxId: run.sandboxId }).sort());
+    const changes: Partial<QueuedRunInput>[] = [
+      { executionTarget: { ...QUEUE_METADATA.executionTarget, workspaceName: "Different" } },
+      { employeeToolPolicyVersion: 3 }, { skillPins: [{ ...QUEUE_METADATA.skillPins[0], version: 2 }] },
+      { collaborationHandoffId: "other-handoff" }, { orgId: "other-org" }, { customAgentVersion: 3 },
+      { continuationKey: "other-account" }, { authAccount: "other" }, { targetMachineId: "other-laptop" },
+      { testCommand: ["pnpm", "lint"] }, { expectedDeliverables: ["other.md"] }, { envDigest: "b".repeat(64) },
+      { role: "reviewer" }, { runtime: "sandbox" }, { runSetup: false },
+    ];
+    for (const change of changes) {
+      const decision = decideRunTransition({ run }, { type: "queue", commandId: "changed", runId: run.runId, input: { ...queueInput, ...change }, at: 100 });
+      expect("error" in decision && decision.error.code).toBe("input_conflict");
+    }
+    queueInput.testCommand?.push("--changed");
+    queueInput.expectedDeliverables?.push("changed.md");
+    queueInput.envNames?.push("OTHER");
+    if (queueInput.skillPins?.[0]) queueInput.skillPins[0].name = "Changed";
+    if (queueInput.executionTarget?.kind === "artifact-workspace") queueInput.executionTarget.expectedDeliverables.push("changed.md");
+    if (queueInput.route) queueInput.route.modelId = "changed";
+    if (queueInput.forkedFrom) queueInput.forkedFrom.checkpointRef = "changed";
+    expect(run).toEqual(before);
+  });
   it("creates pending runs with timestamps", () => {
     const run = createRun({
       runId: "r1",

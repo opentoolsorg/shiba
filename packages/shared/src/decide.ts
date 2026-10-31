@@ -299,6 +299,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.orgId === command.input.orgId &&
           run.sandboxProvider === command.input.sandboxProvider &&
           run.customAgentId === command.input.customAgentId &&
+          run.collaborationHandoffId === command.input.collaborationHandoffId &&
           run.customAgentVersion === command.input.customAgentVersion &&
           run.employeeToolPolicyVersion === command.input.employeeToolPolicyVersion &&
           JSON.stringify(run.skillPins ?? []) === JSON.stringify(command.input.skillPins ?? []) &&
