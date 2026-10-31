@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleSlackCommand } from "../src/slack-routes.js";
-import { postSlackMessageWithReceipt, verifySlackBotInstallation, verifySlackRequest } from "../src/slack.js";
+import { postSlackMessageWithReceipt, SlackPostRejectedError, verifySlackBotInstallation, verifySlackRequest } from "../src/slack.js";
 
 const SECRET = "test-signing-secret-abc123";
 
@@ -109,6 +109,35 @@ describe("verified Slack installation lookup", () => {
         clientMsgId: "00000000-0000-4000-8000-000000000001",
       })).resolves.toEqual({ channel: "C123", ts: "1710000009.000900" });
       expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("Slack post outcome classification", () => {
+  it.each(["{\"ok\":true,", ""])("treats unreadable HTTP 200 response %j as unknown", async (body) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status: 200 })));
+    try {
+      await expect(postSlackMessageWithReceipt("xoxb-mock-only", {
+        channel: "C123", threadTs: "1710000000.000100", text: "Approved content",
+      })).rejects.toThrow(/unknown/i);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies a valid Slack ok:false response as an explicit known rejection", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: false, error: "not_in_channel" }), { status: 200 })));
+    try {
+      let caught: unknown;
+      try {
+        await postSlackMessageWithReceipt("xoxb-mock-only", { channel: "C123", text: "Approved content" });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(SlackPostRejectedError);
+      expect(caught).toMatchObject({ outcomeKnown: true, message: "not_in_channel" });
     } finally {
       vi.unstubAllGlobals();
     }

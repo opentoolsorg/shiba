@@ -1,15 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleCollaboration } from "../src/collaboration-routes.js";
 import type { Env } from "../src/env.js";
+import worker from "../src/index.js";
 import { handleSlackEvents, clearSeenSlackEvents } from "../src/slack-events.js";
 import { handleSlackRoomEvent } from "../src/slack-room-bridge.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const authState = vi.hoisted(() => ({ userId: "owner@example.test", authorized: true }));
 vi.mock("../src/request-auth.js", () => ({
+  getUserId: vi.fn(() => null),
+  isAccessConfigured: vi.fn(() => false),
+  isAuthenticated: vi.fn(() => true),
+  isAutomationWebhookPath: vi.fn(() => false),
+  isLoopbackRequest: vi.fn(() => false),
+  isMcpPath: vi.fn(() => false),
+  isOAuthPath: vi.fn(() => false),
   isAuthorizedRequest: vi.fn(async () => authState.authorized),
   resolveUserId: vi.fn(async () => authState.userId),
+  SIGNATURE_AUTHENTICATED: ["/api/slack/events", "/api/slack/command"],
 }));
+vi.mock("@cloudflare/sandbox", () => ({
+  Sandbox: class {},
+  ContainerProxy: class {},
+  proxyToSandbox: vi.fn().mockResolvedValue(null),
+  getSandbox: vi.fn(),
+}));
+vi.mock("agents/routing", () => ({
+  getAgentByName: vi.fn(),
+  routeAgentRequest: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
+vi.mock("../src/agents/orchestrator.js", () => ({ CodingOrchestrator: class {} }));
 
 const SIGNING_SECRET = "local-signed-event-test-secret";
 
@@ -111,6 +132,50 @@ beforeEach(() => {
 });
 
 describe("signed Slack continuity through persistent collaboration rooms", () => {
+  it("runs the production Worker signed-event callback and durable seenDelivery fence", async () => {
+    const f = fixture();
+    const durableKeys = new Set<string>();
+    const durableRequests: string[] = [];
+    const stub = {
+      fetch: async (request: Request) => {
+        const path = new URL(request.url).pathname;
+        durableRequests.push(path);
+        if (path === "/internal/dedupe") {
+          const payload = await request.json() as { key: string };
+          const seen = durableKeys.has(payload.key);
+          durableKeys.add(payload.key);
+          return Response.json({ seen });
+        }
+        if (path === "/internal/slack") return Response.json({ accepted: true });
+        return new Response("not found", { status: 404 });
+      },
+    };
+    f.env.Automations = {
+      idFromName: vi.fn(() => "automations-default"),
+      get: vi.fn(() => stub),
+    } as unknown as DurableObjectNamespace;
+    const body = event("EvWorkerDurable01");
+    const dispatch = async () => {
+      const scheduled: Promise<unknown>[] = [];
+      const response = await worker.fetch(
+        await signedSlackRequest(body),
+        f.env,
+        { waitUntil: (promise: Promise<unknown>) => scheduled.push(promise) } as unknown as ExecutionContext,
+      );
+      await Promise.all(scheduled);
+      return response;
+    };
+
+    expect((await dispatch()).status).toBe(200);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_slack_observations").get()?.count).toBe(1);
+    expect(durableRequests).toEqual(["/internal/dedupe", "/internal/slack"]);
+
+    clearSeenSlackEvents(); // simulate another Worker isolate handling Slack's replay
+    expect((await dispatch()).status).toBe(200);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_slack_observations").get()?.count).toBe(1);
+    expect(durableRequests).toEqual(["/internal/dedupe", "/internal/slack", "/internal/dedupe"]);
+  });
+
   it("maps an observed thread, mirrors replies once, and records an authorized delivery intent without posting", async () => {
     const f = fixture();
     const room = await json<{ room: { roomId: string } }>(
@@ -120,7 +185,7 @@ describe("signed Slack continuity through persistent collaboration rooms", () =>
 
     const mention = event("EvRoot0001");
     expect((await dispatchSignedEvent(f, mention))?.status).toBe(200);
-    let detail = await json<{
+    const detail = await json<{
       messages: unknown[];
       slackSources: Array<{ teamId: string; channelId: string; threadTs: string }>;
     }>(await f.send(`/rooms/${roomId}`));
@@ -373,10 +438,14 @@ describe("signed Slack continuity through persistent collaboration rooms", () =>
     const replay = await f.send(approvePath, "POST", {}, { slackOutbox: { verifyInstallation, postMessage } });
     expect(replay?.status).toBe(202);
     expect(postMessage).toHaveBeenCalledTimes(1);
+    expect((await f.send(`/rooms/${roomId}/slack-links/${link.link.linkId}`, "DELETE"))?.status).toBe(200);
+    expect(f.sqlite.prepare("SELECT status,delivery_status,receipt_ts FROM collaboration_slack_delivery_intents").get())
+      .toEqual({ status: "pending", delivery_status: "sent", receipt_ts: "1710000009.000900" });
   });
 
   it("blocks workspace mismatch and revocation before send, and preserves ambiguous outcomes without retry", async () => {
     const create = async (suffix: string) => {
+      authState.userId = "owner@example.test";
       const f = fixture();
       const room = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: `Outbox ${suffix}` }));
       const roomId = room.room.roomId;
@@ -437,5 +506,141 @@ describe("signed Slack continuity through persistent collaboration rooms", () =>
     expect(ambiguousPost).toHaveBeenCalledTimes(1);
     expect(unknown.f.sqlite.prepare("SELECT delivery_status FROM collaboration_slack_delivery_intents").get())
       .toEqual({ delivery_status: "unknown" });
+    await unknown.f.send(`/rooms/${unknown.roomId}/slack-links/${unknown.linkId}`, "DELETE");
+    expect(unknown.f.sqlite.prepare("SELECT status,delivery_status FROM collaboration_slack_delivery_intents").get())
+      .toEqual({ status: "pending", delivery_status: "unknown" });
+  });
+
+  it("cancels a pending author's intent when their room membership is removed", async () => {
+    const f = fixture();
+    const room = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Removed author" }));
+    const roomId = room.room.roomId;
+    await dispatchSignedEvent(f, event("EvRemovedAuthorRoot01"));
+    const link = await json<{ link: { linkId: string } }>(await f.send(
+      `/rooms/${roomId}/slack-links`, "POST", { teamId: "T123", channelId: "C123", threadTs: "1710000000.000100" },
+    ));
+    expect((await f.send(`/rooms/${roomId}/members`, "POST", { userId: "author@example.test" }))?.status).toBe(201);
+    authState.userId = "author@example.test";
+    const message = await json<{ message: { messageId: string } }>(await f.send(
+      `/rooms/${roomId}/messages`, "POST", { body: "Author's pending update." },
+    ));
+    f.env.SLACK_BOT_TOKEN = "xoxb-test-mock-only";
+    f.env.SLACK_APPROVALS_CHANNEL = "C123";
+    const intent = await json<{ intent: { intentId: string } }>(await f.send(
+      `/rooms/${roomId}/messages/${message.message.messageId}/slack-delivery`, "POST", { linkId: link.link.linkId },
+    ));
+
+    authState.userId = "owner@example.test";
+    f.env.SLACK_ROOM_OUTBOX_ENABLED = "true";
+    f.env.DASHBOARD_APPROVERS = "owner@example.test";
+    expect((await f.send(`/rooms/${roomId}/members/${encodeURIComponent("human:author@example.test")}`, "DELETE"))?.status).toBe(200);
+    expect(f.sqlite.prepare("SELECT status,delivery_status FROM collaboration_slack_delivery_intents").get())
+      .toEqual({ status: "blocked", delivery_status: "blocked" });
+    const postMessage = vi.fn(async () => ({ channel: "C123", ts: "should-not-send" }));
+    const response = await f.send(
+      `/rooms/${roomId}/slack-delivery/${intent.intent.intentId}/approve`, "POST", {},
+      { slackOutbox: { verifyInstallation: async () => ({ teamId: "T123", userId: "W123", botId: "B123" }), postMessage } },
+    );
+    expect(response?.status).toBe(409);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it("reports unknown and prevents retry when Slack receipt persistence is rejected", async () => {
+    const f = fixture();
+    const room = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Receipt persistence" }));
+    const roomId = room.room.roomId;
+    await dispatchSignedEvent(f, event("EvReceiptPersistence01"));
+    const link = await json<{ link: { linkId: string } }>(await f.send(
+      `/rooms/${roomId}/slack-links`, "POST", { teamId: "T123", channelId: "C123", threadTs: "1710000000.000100" },
+    ));
+    const message = await json<{ message: { messageId: string } }>(await f.send(
+      `/rooms/${roomId}/messages`, "POST", { body: "Receipt must be durable before we say sent." },
+    ));
+    f.env.SLACK_BOT_TOKEN = "xoxb-test-mock-only";
+    f.env.SLACK_APPROVALS_CHANNEL = "C123";
+    f.env.SLACK_ROOM_OUTBOX_ENABLED = "true";
+    f.env.DASHBOARD_APPROVERS = "owner@example.test";
+    const intent = await json<{ intent: { intentId: string } }>(await f.send(
+      `/rooms/${roomId}/messages/${message.message.messageId}/slack-delivery`, "POST", { linkId: link.link.linkId },
+    ));
+    f.sqlite.exec(`CREATE TRIGGER ignore_slack_sent_receipt BEFORE UPDATE OF delivery_status ON collaboration_slack_delivery_intents
+      WHEN NEW.delivery_status='sent' BEGIN SELECT RAISE(IGNORE); END`);
+    const postMessage = vi.fn(async () => ({ channel: "C123", ts: "1710000022.002200" }));
+    const approvePath = `/rooms/${roomId}/slack-delivery/${intent.intent.intentId}/approve`;
+    const response = await f.send(approvePath, "POST", {}, {
+      slackOutbox: { verifyInstallation: async () => ({ teamId: "T123", userId: "W123", botId: "B123" }), postMessage },
+    });
+    expect(await response?.json()).toMatchObject({ delivery: { status: "unknown" } });
+    expect(f.sqlite.prepare("SELECT delivery_status,receipt_ts FROM collaboration_slack_delivery_intents").get())
+      .toEqual({ delivery_status: "unknown", receipt_ts: null });
+    const replay = await f.send(approvePath, "POST", {}, {
+      slackOutbox: { verifyInstallation: async () => ({ teamId: "T123", userId: "W123", botId: "B123" }), postMessage },
+    });
+    expect(await replay?.json()).toMatchObject({ delivery: { status: "not_ready" } });
+    expect(postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks author and approver membership after delayed auth.test, then preserves an in-flight receipt across revocation", async () => {
+    const create = async (suffix: string) => {
+      authState.userId = "owner@example.test";
+      const f = fixture();
+      const room = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: `Membership ${suffix}` }));
+      const roomId = room.room.roomId;
+      await dispatchSignedEvent(f, event(`EvRoot${suffix}002`));
+      const link = await json<{ link: { linkId: string } }>(await f.send(
+        `/rooms/${roomId}/slack-links`, "POST", { teamId: "T123", channelId: "C123", threadTs: "1710000000.000100" },
+      ));
+      const message = await json<{ message: { messageId: string } }>(await f.send(
+        `/rooms/${roomId}/messages`, "POST", { body: `Body ${suffix}` },
+      ));
+      f.env.SLACK_BOT_TOKEN = "xoxb-test-mock-only";
+      f.env.SLACK_APPROVALS_CHANNEL = "C123";
+      f.env.SLACK_ROOM_OUTBOX_ENABLED = "true";
+      return { f, roomId, linkId: link.link.linkId, messageId: message.message.messageId };
+    };
+
+    const removedApprover = await create("ApproverRemoved");
+    expect((await removedApprover.f.send(`/rooms/${removedApprover.roomId}/members`, "POST", { userId: "approver@example.test" }))?.status).toBe(201);
+    authState.userId = "owner@example.test";
+    const pendingApproverIntent = await json<{ intent: { intentId: string } }>(await removedApprover.f.send(
+      `/rooms/${removedApprover.roomId}/messages/${removedApprover.messageId}/slack-delivery`, "POST", { linkId: removedApprover.linkId },
+    ));
+    authState.userId = "approver@example.test";
+    removedApprover.f.env.DASHBOARD_APPROVERS = "approver@example.test";
+    const blockedPost = vi.fn(async () => ({ channel: "C123", ts: "should-not-send" }));
+    const approvalPath = `/rooms/${removedApprover.roomId}/slack-delivery/${pendingApproverIntent.intent.intentId}/approve`;
+    const blockedResponse = await removedApprover.f.send(approvalPath, "POST", {}, {
+      slackOutbox: {
+        verifyInstallation: async () => {
+          authState.userId = "owner@example.test";
+          await removedApprover.f.send(`/rooms/${removedApprover.roomId}/members/${encodeURIComponent("human:approver@example.test")}`, "DELETE");
+          authState.userId = "approver@example.test";
+          return { teamId: "T123", userId: "W123", botId: "B123" };
+        },
+        postMessage: blockedPost,
+      },
+    });
+    expect(await blockedResponse?.json()).toMatchObject({ delivery: { status: "blocked" } });
+    expect(blockedPost).not.toHaveBeenCalled();
+
+    const revokedDuringPost = await create("RevokedInFlight");
+    revokedDuringPost.f.env.DASHBOARD_APPROVERS = "owner@example.test";
+    authState.userId = "owner@example.test";
+    const inFlightIntentResponse = await revokedDuringPost.f.send(
+      `/rooms/${revokedDuringPost.roomId}/messages/${revokedDuringPost.messageId}/slack-delivery`, "POST", { linkId: revokedDuringPost.linkId },
+    );
+    const inFlightIntent = await json<{ intent: { intentId: string } }>(inFlightIntentResponse);
+    const approveInFlightPath = `/rooms/${revokedDuringPost.roomId}/slack-delivery/${inFlightIntent.intent.intentId}/approve`;
+    const receiptPost = vi.fn(async () => {
+      await revokedDuringPost.f.send(`/rooms/${revokedDuringPost.roomId}/slack-links/${revokedDuringPost.linkId}`, "DELETE");
+      return { channel: "C123", ts: "1710000011.001100" };
+    });
+    const delivered = await revokedDuringPost.f.send(approveInFlightPath, "POST", {}, {
+      slackOutbox: { verifyInstallation: async () => ({ teamId: "T123", userId: "W123", botId: "B123" }), postMessage: receiptPost },
+    });
+    expect(await delivered?.json()).toMatchObject({ delivery: { status: "sent", ts: "1710000011.001100" } });
+    expect(revokedDuringPost.f.sqlite.prepare("SELECT status,delivery_status,receipt_ts FROM collaboration_slack_delivery_intents").get())
+      .toEqual({ status: "pending", delivery_status: "sent", receipt_ts: "1710000011.001100" });
+    expect(receiptPost).toHaveBeenCalledTimes(1);
   });
 });

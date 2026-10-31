@@ -800,10 +800,10 @@ export async function removeCollaborationMember(
   removedAt: number,
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
-  const result = await env.AGENT_AUDIT.prepare(
-    `UPDATE collaboration_memberships SET status='removed',removed_at=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND role<>'owner' AND status='active' AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active')`,
-  )
-    .bind(
+  const results = await env.AGENT_AUDIT.batch([
+    env.AGENT_AUDIT.prepare(
+      `UPDATE collaboration_memberships SET status='removed',removed_at=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND role<>'owner' AND status='active' AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active')`,
+    ).bind(
       removedAt,
       scope.tenantId,
       scope.workspaceId,
@@ -813,9 +813,23 @@ export async function removeCollaborationMember(
       scope.workspaceId,
       roomId,
       scope.userId,
-    )
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+    ),
+    env.AGENT_AUDIT.prepare(
+      `UPDATE collaboration_slack_delivery_intents
+         SET status='blocked',delivery_status='blocked',outcome_detail='A message author or approver was removed from this room.'
+       WHERE tenant_id=? AND workspace_id=? AND room_id=? AND status='pending'
+         AND delivery_status IN ('awaiting_approval','approved')
+         AND EXISTS (SELECT 1 FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.status='removed' AND removed.removed_at=?)
+         AND (created_by_user_id=(SELECT user_id FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.status='removed' AND removed.removed_at=?)
+           OR approved_by_user_id=(SELECT user_id FROM collaboration_memberships removed WHERE removed.tenant_id=? AND removed.workspace_id=? AND removed.room_id=? AND removed.actor_id=? AND removed.status='removed' AND removed.removed_at=?))`,
+    ).bind(
+      scope.tenantId, scope.workspaceId, roomId,
+      scope.tenantId, scope.workspaceId, roomId, actorId, removedAt,
+      scope.tenantId, scope.workspaceId, roomId, actorId, removedAt,
+      scope.tenantId, scope.workspaceId, roomId, actorId, removedAt,
+    ),
+  ]);
+  return Number(results[0]?.meta?.changes ?? 0) === 1;
 }
 
 export async function createCollaborationMessage(
@@ -1115,7 +1129,7 @@ export async function revokeCollaborationSlackLink(
       scope.userId,
     ),
     env.AGENT_AUDIT.prepare(
-      `UPDATE collaboration_slack_delivery_intents SET status='blocked',delivery_status='blocked' WHERE tenant_id=? AND workspace_id=? AND room_id=? AND link_id=? AND status='pending'`,
+      `UPDATE collaboration_slack_delivery_intents SET status='blocked',delivery_status='blocked' WHERE tenant_id=? AND workspace_id=? AND room_id=? AND link_id=? AND status='pending' AND delivery_status IN ('awaiting_approval','approved')`,
     ).bind(scope.tenantId, scope.workspaceId, roomId, linkId),
   ]);
   return Number(results[0]?.meta?.changes ?? 0) === 1;
@@ -1294,10 +1308,12 @@ export async function approveCollaborationSlackDeliveryIntent(
     `UPDATE collaboration_slack_delivery_intents SET delivery_status='approved',approved_by_user_id=?,approved_at=?
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND intent_id=? AND status='pending' AND delivery_status='awaiting_approval'
          AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=collaboration_slack_delivery_intents.link_id AND l.status='active' AND l.team_id=collaboration_slack_delivery_intents.team_id AND l.channel_id=collaboration_slack_delivery_intents.channel_id AND l.thread_ts=collaboration_slack_delivery_intents.thread_ts)
+         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=collaboration_slack_delivery_intents.tenant_id AND author.workspace_id=collaboration_slack_delivery_intents.workspace_id AND author.room_id=collaboration_slack_delivery_intents.room_id AND author.user_id=collaboration_slack_delivery_intents.created_by_user_id AND author.actor_kind='human' AND author.status='active')
+         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=collaboration_slack_delivery_intents.tenant_id AND approver.workspace_id=collaboration_slack_delivery_intents.workspace_id AND approver.room_id=collaboration_slack_delivery_intents.room_id AND approver.user_id=? AND approver.actor_kind='human' AND approver.status='active')
        RETURNING *`,
   )
     .bind(scope.userId, approvedAt, scope.tenantId, scope.workspaceId, roomId, intentId,
-      scope.tenantId, scope.workspaceId, roomId)
+      scope.tenantId, scope.workspaceId, roomId, scope.userId)
     .first<Record<string, unknown>>();
   if (row) return rowSlackIntent(row);
   const existing = await env.AGENT_AUDIT.prepare(
@@ -1319,6 +1335,8 @@ export async function claimCollaborationSlackDeliveryIntent(
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND intent_id=? AND status='pending' AND delivery_status='approved'
          AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=collaboration_slack_delivery_intents.link_id AND l.team_id=collaboration_slack_delivery_intents.team_id AND l.channel_id=collaboration_slack_delivery_intents.channel_id AND l.thread_ts=collaboration_slack_delivery_intents.thread_ts AND l.status='active')
          AND EXISTS (SELECT 1 FROM collaboration_messages m WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.message_id=collaboration_slack_delivery_intents.message_id AND m.sender_user_id=collaboration_slack_delivery_intents.created_by_user_id AND m.sender_kind='human' AND m.source_slack_event_id IS NULL AND m.source_run_id IS NULL AND m.body=collaboration_slack_delivery_intents.content)
+         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=collaboration_slack_delivery_intents.tenant_id AND author.workspace_id=collaboration_slack_delivery_intents.workspace_id AND author.room_id=collaboration_slack_delivery_intents.room_id AND author.user_id=collaboration_slack_delivery_intents.created_by_user_id AND author.actor_kind='human' AND author.status='active')
+         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=collaboration_slack_delivery_intents.tenant_id AND approver.workspace_id=collaboration_slack_delivery_intents.workspace_id AND approver.room_id=collaboration_slack_delivery_intents.room_id AND approver.user_id=collaboration_slack_delivery_intents.approved_by_user_id AND approver.actor_kind='human' AND approver.status='active')
        RETURNING *`,
   )
     .bind(scope.tenantId, scope.workspaceId, roomId, intentId,
@@ -1342,7 +1360,9 @@ export async function isCollaborationSlackDeliverySendable(
        JOIN collaboration_messages m ON m.tenant_id=i.tenant_id AND m.workspace_id=i.workspace_id AND m.room_id=i.room_id AND m.message_id=i.message_id
        WHERE i.tenant_id=? AND i.workspace_id=? AND i.room_id=? AND i.intent_id=? AND i.delivery_status='sending' AND i.status='pending'
          AND l.status='active' AND l.team_id=i.team_id AND l.channel_id=i.channel_id AND l.thread_ts=i.thread_ts
-         AND m.sender_user_id=i.created_by_user_id AND m.sender_kind='human' AND m.source_slack_event_id IS NULL AND m.source_run_id IS NULL AND m.body=i.content`,
+         AND m.sender_user_id=i.created_by_user_id AND m.sender_kind='human' AND m.source_slack_event_id IS NULL AND m.source_run_id IS NULL AND m.body=i.content
+         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=i.tenant_id AND author.workspace_id=i.workspace_id AND author.room_id=i.room_id AND author.user_id=i.created_by_user_id AND author.actor_kind='human' AND author.status='active')
+         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=i.tenant_id AND approver.workspace_id=i.workspace_id AND approver.room_id=i.room_id AND approver.user_id=i.approved_by_user_id AND approver.actor_kind='human' AND approver.status='active')`,
   ).bind(scope.tenantId, scope.workspaceId, roomId, intentId).first();
   return Boolean(row);
 }
@@ -1354,9 +1374,9 @@ export async function finishCollaborationSlackDeliveryIntent(
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
   const result = await env.AGENT_AUDIT.prepare(
-    `UPDATE collaboration_slack_delivery_intents SET delivery_status=?,receipt_ts=?,outcome_detail=?
+    `UPDATE collaboration_slack_delivery_intents SET status=CASE WHEN ?='blocked' THEN 'blocked' ELSE status END,delivery_status=?,receipt_ts=?,outcome_detail=?
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND intent_id=? AND delivery_status='sending'`,
-  ).bind(input.status, input.receiptTs ?? null, input.detail?.slice(0, 500) ?? null,
+  ).bind(input.status, input.status, input.receiptTs ?? null, input.detail?.slice(0, 500) ?? null,
     scope.tenantId, scope.workspaceId, input.roomId, input.intentId).run();
   return Number(result.meta?.changes ?? 0) === 1;
 }
