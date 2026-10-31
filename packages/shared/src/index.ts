@@ -48,4 +48,5 @@ export * from "./container-budget.js";
 export * from "./deliverables.js";
 export * from "./collaboration-contract.js";
 export * from "./capability-catalog.js";
+export * from "./integration-catalog.js";
 export * from "./onboarding.js";
