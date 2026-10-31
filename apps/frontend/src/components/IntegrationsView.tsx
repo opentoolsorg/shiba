@@ -15,6 +15,7 @@ import type { AppNavView } from "./AppNavRail";
 import { CapabilityCatalog, type CapabilityCatalogItem } from "./CapabilityCatalog";
 import { GmailConnection } from "./GmailConnection";
 import { LoadErrorState } from "./LoadErrorState";
+import { McpCoworkerPanel } from "./McpCoworkerPanel";
 import { providerLifecycleStatus, providerTestDescription } from "./provider-lifecycle";
 import { ToneChip } from "./ToneChip";
 import { ReasonNetworkSetup } from "./ReasonNetworkSetup";
@@ -138,6 +139,12 @@ export function IntegrationsView({
   const [invocations, setInvocations] = useState<McpCapabilityInvocationReceipt[]>([]);
   const [invocationHistoryError, setInvocationHistoryError] = useState<string | null>(null);
   const [catalogRefresh, setCatalogRefresh] = useState(0);
+  const [setupSearch, setSetupSearch] = useState("");
+  const [libraryCatalog, setLibraryCatalog] = useState<Array<{ slug: string; name: string; summary: string; installed: boolean }>>([]);
+  const [spacesCatalog, setSpacesCatalog] = useState<Array<{ id: string; name: string; template: string }>>([]);
+
+  const setupQuery = setupSearch.trim().toLowerCase();
+  const rowVisible = (name: string) => !setupQuery || name.toLowerCase().includes(setupQuery);
 
   useEffect(() => {
     if (!showCatalog) return;
@@ -181,6 +188,20 @@ export function IntegrationsView({
       .catch((error: unknown) => {
         if (!cancelled) setInvocationHistoryError(error instanceof Error ? error.message : String(error));
       });
+    void fetch("/api/skills/library", requestOptions)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const value = (await response.json()) as { skills?: Array<{ slug: string; name: string; summary: string; installed: boolean }> };
+        if (!cancelled && Array.isArray(value.skills)) setLibraryCatalog(value.skills);
+      })
+      .catch(() => { /* optional catalog enrichment */ });
+    void fetch("/api/spaces", requestOptions)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const value = (await response.json()) as { spaces?: Array<{ id: string; name: string; template: string }> };
+        if (!cancelled && Array.isArray(value.spaces)) setSpacesCatalog(value.spaces);
+      })
+      .catch(() => { /* optional catalog enrichment */ });
     return () => { cancelled = true; controller.abort(); };
   }, [showCatalog, catalogRefresh]);
 
@@ -286,8 +307,44 @@ export function IntegrationsView({
         source: tool.source,
       });
     }
+    for (const entry of libraryCatalog) {
+      items.push({
+        id: `library-skill:${entry.slug}`,
+        name: entry.name,
+        kind: "skill",
+        status: entry.installed ? "configured" : "available",
+        category: "Curated skill library",
+        summary: entry.summary,
+        description: "Install from Skills → Library creates a draft skill until you activate it in review.",
+        capabilities: ["Install to draft", "Activate after review"],
+        authNote: entry.installed ? "Installed as a draft skill in this org." : "Not installed in this org yet.",
+      });
+    }
+    for (const space of spacesCatalog) {
+      items.push({
+        id: `space:${space.id}`,
+        name: space.name,
+        kind: "connector",
+        status: "configured",
+        category: "Space",
+        summary: `Template: ${space.template}. Spaces group skills, repos, and automations for a workflow desk.`,
+        capabilities: ["Group skills and runs"],
+        authNote: "Managed on the Spaces page; MCP agents queue runs separately via queue_run.",
+      });
+    }
+    items.unshift({
+      id: "mcp:coworker:grok-bot",
+      name: "Grok Bot MCP coworker",
+      kind: "mcp",
+      status: status?.doctor?.ok ? "configured" : "partiallyConfigured",
+      category: "MCP coworker",
+      summary: "External agent connector at /mcp with sandbox:exec + runs:read.",
+      description: "Mint shb_ tokens for principals like grok-bot; queue_run returns pending_approval until a human approves.",
+      capabilities: ["queue_run", "run_status", "list_runs", "list_approvals"],
+      authNote: "Live KV mint and Grok Bot connector wiring require deployment secrets — see Agents & MCP.",
+    });
     return items;
-  }, [status, mailboxes.state, providers, savedSkills, toolDirectory]);
+  }, [status, mailboxes.state, providers, savedSkills, toolDirectory, libraryCatalog, spacesCatalog]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
@@ -317,12 +374,29 @@ export function IntegrationsView({
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {failed ? <LoadErrorState message={failed.message} onRetry={reloadAll} /> : null}
 
+          <McpCoworkerPanel onOpenAgents={() => onNavigate?.("agents")} />
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+              Search integrations
+            </span>
+            <input
+              type="search"
+              value={setupSearch}
+              onChange={(event) => setSetupSearch(event.target.value)}
+              placeholder="Filter by name (GitHub, Slack, Grok Bot, …)"
+              className="w-full max-w-md rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--fg)]"
+              aria-label="Search integrations"
+            />
+          </label>
+
           <ReasonNetworkSetup />
 
           <IntegrationGroup
             title="Apps"
             hint="OAuth apps your agents work with. AI-agent providers live in Agents & MCP."
           >
+            {rowVisible("GitHub") ? (
             <IntegrationRow
               name="GitHub"
               status={githubChip(status?.github, loading)}
@@ -345,6 +419,8 @@ export function IntegrationsView({
                 </p>
               ) : null}
             </IntegrationRow>
+            ) : null}
+            {rowVisible("Linear") ? (
             <IntegrationRow
               name="Linear"
               status={linearChip(status?.linear, loading)}
@@ -359,12 +435,14 @@ export function IntegrationsView({
                 Requires LINEAR_WEBHOOK_SECRET, an API token, and LINEAR_DEFAULT_REPO_URL. Live workspace not verified from mocks.
               </p>
             </IntegrationRow>
+            ) : null}
           </IntegrationGroup>
 
           <IntegrationGroup
             title="Chat & approval channels"
             hint="Chat apps where you can queue tasks and approve runs."
           >
+            {rowVisible("Slack") ? (
             <IntegrationRow
               name="Slack"
               status={slackChip(status?.slack, loading)}
@@ -383,6 +461,8 @@ export function IntegrationsView({
                 </p>
               ) : null}
             </IntegrationRow>
+            ) : null}
+            {rowVisible("Telegram") ? (
             <IntegrationRow
               name="Telegram"
               status={<ToneChip tone="neutral" label="Available via deployment" />}
@@ -393,6 +473,8 @@ export function IntegrationsView({
                 Set up by your deployment operator — the dashboard can&apos;t verify it.
               </p>
             </IntegrationRow>
+            ) : null}
+            {rowVisible("Discord") ? (
             <IntegrationRow
               name="Discord"
               status={<ToneChip tone="neutral" label="Available via deployment" />}
@@ -406,10 +488,12 @@ export function IntegrationsView({
                 Set up by your deployment operator — the dashboard can&apos;t verify it.
               </p>
             </IntegrationRow>
+            ) : null}
           </IntegrationGroup>
 
           <IntegrationGroup title="Email" hint="Inbound triage, approval-gated outbound mail, and read-only Gmail.">
-            <GmailConnection />
+            {rowVisible("Gmail") || rowVisible("Email") ? <GmailConnection /> : null}
+            {rowVisible("Mailbox") ? (
             <IntegrationRow
               name="Mailbox"
               status={
@@ -441,6 +525,7 @@ export function IntegrationsView({
                 </p>
               ) : null}
             </IntegrationRow>
+            ) : null}
           </IntegrationGroup>
         </div>
       </div>}

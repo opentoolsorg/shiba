@@ -1,5 +1,20 @@
 # Verification Results
 
+**2026-10-31 — PR #166 Viktor/Grok Bot coworker + skills library + Spaces (branch `cursor/viktor-skills-spaces-scaffold-13c5`).**
+
+*Code-proven locally:*
+- **Spaces index:** `spaces_index.updated_at` uses `MAX(updated_at, ?)` on rename/touch; create inserts the D1 row before DO `init` and rolls the index back when init or template application fails; item routes refuse writes after index delete (`spaces-index-store.test.ts`, `spaces-routes.test.ts`).
+- **Skills library + Spaces API/UI:** curated `/api/skills/library`, install→draft, `/api/spaces` + Spaces DO stub (existing suite from this PR).
+- **MCP coworker path:** docs section [Grok Bot / Viktor coworker](/docs/mcp/#grok-bot-viktor-coworker); Integrations **MCP coworker** panel + capability catalog row; `mcp-coworker-contract.test.ts` + existing `mcp-gateway.test.ts` / `mcp-run-tools.test.ts` for 401, scope-filtered tool discovery, and `queue_run` → `pending_approval`.
+
+*Still blocked on live deployment (Prince CF account / secrets — see slice1 blockers):*
+- Minting `shb_…` into the production `shiba-agent-tokens` KV on the account that owns `app.tryshiba.dev` (wrong-account `wrangler whoami` has been observed).
+- Grok Bot connector registration with custom Authorization header (product support unconfirmed).
+- Slack approval cards (`SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, approvers) and a cloud end-to-end approved run with model inference (`AI_GATEWAY_TOKEN` / subscription lanes as applicable).
+- Live `@shiba` Slack mention loop and Worker deploy to the intended host.
+
+*Commands run for this slice:* targeted vitest (`spaces-*`, `skill-library*`, `mcp-coworker-contract`, `mcp-gateway`, `mcp-run-tools`, `IntegrationsView`, `SkillLibraryCards`, `SpacesView`) + `pnpm typecheck`.
+
 **2026-10-25 — P12 Capy parity: T72 opt-in repo setup, plus T71 and T87 (branch `capy-parity`).**
 
 *T72 (owner chose opt-in per run):*

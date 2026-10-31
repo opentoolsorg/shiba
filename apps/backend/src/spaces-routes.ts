@@ -10,7 +10,7 @@ import {
   getSpaceIndex,
   insertSpaceIndex,
   listSpacesIndex,
-  touchSpaceIndex,
+  touchSpaceIndexUpdatedAt,
   updateSpaceIndexName,
 } from "./spaces-index-store.js";
 import { getSpaceTemplate, listSpaceTemplates } from "./spaces-templates.js";
@@ -115,30 +115,32 @@ export async function handleSpaces(request: Request, env: Env): Promise<Response
       if (!template) return Response.json({ ok: false, error: "invalid_template" }, { status: 400 });
       const id = `space-${randomHex(12)}`;
       const now = Date.now();
-      const initResponse = await spaceFetch(env, auth.orgId, id, "init", "POST", {
-        id,
-        orgId: auth.orgId,
-        name: name || "Untitled space",
-        template: template.id,
-        createdBy: ownerId,
-      });
-      if (!initResponse.ok) {
-        return Response.json({ ok: false, error: "space_create_failed" }, { status: 502 });
-      }
+      const displayName = name || "Untitled space";
       await insertSpaceIndex(env, {
         id,
         orgId: auth.orgId,
-        name: name || "Untitled space",
+        name: displayName,
         template: template.id,
         createdBy: ownerId,
         createdAt: now,
         updatedAt: now,
       });
+      const initResponse = await spaceFetch(env, auth.orgId, id, "init", "POST", {
+        id,
+        orgId: auth.orgId,
+        name: displayName,
+        template: template.id,
+        createdBy: ownerId,
+      });
+      if (!initResponse.ok) {
+        await deleteSpaceIndex(env, auth.orgId, id);
+        return Response.json({ ok: false, error: "space_create_failed" }, { status: 502 });
+      }
       try {
         await applySpaceTemplate(env, auth.orgId, ownerId, id, template.id);
         const space = await readSpaceSnapshot(env, auth.orgId, id);
         if (!space) throw new Error("space_template_failed");
-        await touchSpaceIndex(env, auth.orgId, id, space.updatedAt);
+        await touchSpaceIndexUpdatedAt(env, auth.orgId, id, space.updatedAt);
         return Response.json({ ok: true, space }, { status: 201, headers: { "cache-control": "no-store" } });
       } catch {
         if (!await destroySpace(env, auth.orgId, id)) {
@@ -181,7 +183,12 @@ export async function handleSpaces(request: Request, env: Env): Promise<Response
       if (response.ok) {
         const item = typeof payload === "object" && payload !== null && "item" in payload ? payload.item : null;
         const addedAt = typeof item === "object" && item !== null && "addedAt" in item ? item.addedAt : undefined;
-        await touchSpaceIndex(env, auth.orgId, spaceId, typeof addedAt === "number" && Number.isFinite(addedAt) ? addedAt : Date.now());
+        await touchSpaceIndexUpdatedAt(
+          env,
+          auth.orgId,
+          spaceId,
+          typeof addedAt === "number" && Number.isFinite(addedAt) ? addedAt : Date.now(),
+        );
       }
       return Response.json(payload, { status: response.status, headers: { "cache-control": "no-store" } });
     }
@@ -191,6 +198,7 @@ export async function handleSpaces(request: Request, env: Env): Promise<Response
       const ref = typeof body?.ref === "string" ? body.ref : "";
       const response = await spaceFetch(env, auth.orgId, spaceId, "items", "DELETE", { kind, ref });
       const payload = await response.json().catch(() => ({}));
+      if (response.ok) await touchSpaceIndexUpdatedAt(env, auth.orgId, spaceId, Date.now());
       return Response.json(payload, { status: response.status, headers: { "cache-control": "no-store" } });
     }
     return methodNotAllowed();

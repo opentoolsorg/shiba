@@ -25,7 +25,10 @@ const headers = (user = "owner@example.test") => ({
   "content-type": "application/json",
 });
 
-function spacesEnv(db = customAgentD1().database, intercept?: (request: Request) => Response | undefined): Env {
+function spacesEnv(
+  db = customAgentD1().database,
+  options?: { failInit?: boolean; intercept?: (request: Request) => Response | undefined },
+): Env {
   const instances = new Map<string, Spaces>();
   const namespace = {
     idFromName: (name: string) => ({ toString: () => name }),
@@ -59,7 +62,16 @@ function spacesEnv(db = customAgentD1().database, intercept?: (request: Request)
         };
         instances.set(key, new Spaces({ storage: { sql, transactionSync: (callback: () => unknown) => callback() } } as unknown as DurableObjectState));
       }
-      return { fetch: (request: Request) => intercept?.(request) ?? instances.get(key)!.fetch(request) };
+      return {
+        fetch: (request: Request) => {
+          const intercepted = options?.intercept?.(request);
+          if (intercepted) return Promise.resolve(intercepted);
+          if (options?.failInit && request.method === "POST" && new URL(request.url).pathname.endsWith("/init")) {
+            return Promise.resolve(Response.json({ ok: false }, { status: 502 }));
+          }
+          return instances.get(key)!.fetch(request);
+        },
+      };
     },
   };
   return { REQUIRE_ACCESS: true, AGENT_AUDIT: db, Spaces: namespace } as unknown as Env;
@@ -78,7 +90,8 @@ describe("spaces routes", () => {
   it.each(["throw", "non-ok"])("cleans up a partial template after a %s item failure", async (failure) => {
     const { database, sqlite } = customAgentD1();
     const paths: string[] = [];
-    const bindings = spacesEnv(database, (request) => {
+    const bindings = spacesEnv(database, {
+      intercept: (request) => {
       const path = new URL(request.url).pathname;
       paths.push(path);
       if (path === "/internal/items") {
@@ -86,6 +99,7 @@ describe("spaces routes", () => {
         return Response.json({ error: "unavailable" }, { status: 503 });
       }
       return undefined;
+    },
     });
     const response = await handleSpaces(createRequest("code-review"), bindings);
     expect(response?.status).toBe(502);
@@ -96,12 +110,14 @@ describe("spaces routes", () => {
 
   it("keeps partial creation indexed when erasure fails so it can be deleted later", async () => {
     const { database, sqlite } = customAgentD1();
-    const bindings = spacesEnv(database, (request) => {
+    const bindings = spacesEnv(database, {
+      intercept: (request) => {
       const path = new URL(request.url).pathname;
       if (path === "/internal/items" || path === "/internal/destroy") {
         return Response.json({ error: "unavailable" }, { status: 503 });
       }
       return undefined;
+    },
     });
     const response = await handleSpaces(createRequest("code-review"), bindings);
     expect(response?.status).toBe(502);
@@ -113,12 +129,14 @@ describe("spaces routes", () => {
   it.each(["throw", "non-ok"])("keeps the index after a %s destroy failure and allows retry", async (failure) => {
     const { database, sqlite } = customAgentD1();
     let fail = true;
-    const bindings = spacesEnv(database, (request) => {
+    const bindings = spacesEnv(database, {
+      intercept: (request) => {
       if (fail && new URL(request.url).pathname === "/internal/destroy") {
         if (failure === "throw") throw new Error("DO unavailable");
         return Response.json({ error: "unavailable" }, { status: 503 });
       }
       return undefined;
+    },
     });
     const created = await handleSpaces(createRequest(), bindings);
     const { space } = await created!.json() as { space: { id: string } };
@@ -134,11 +152,13 @@ describe("spaces routes", () => {
 
   it.each([123456789, undefined])("touches the index with item time %s or a current-time fallback", async (addedAt) => {
     const { database, sqlite } = customAgentD1();
-    const bindings = spacesEnv(database, (request) => {
+    const bindings = spacesEnv(database, {
+      intercept: (request) => {
       if (new URL(request.url).pathname === "/internal/items") {
         return Response.json({ ok: true, item: { kind: "repo", ref: "org/repo", addedAt } });
       }
       return undefined;
+    },
     });
     const created = await handleSpaces(createRequest(), bindings);
     const { space } = await created!.json() as { space: { id: string } };
@@ -208,5 +228,39 @@ describe("spaces routes", () => {
     const { space } = await create!.json() as { space: { id: string } };
     expect((await handleSpaces(new Request(`https://shiba.test/api/spaces/${space.id}`, { method: "DELETE", headers: headers() }), bindings))?.status).toBe(200);
     expect((await handleSpaces(new Request(`https://shiba.test/api/spaces/${space.id}`, { headers: headers() }), bindings))?.status).toBe(404);
+  });
+
+  it("rolls back the index when durable init fails", async () => {
+    const bindings = spacesEnv(customAgentD1().database, { failInit: true });
+    authState.dashboard = false;
+    authState.principal = { principal: "owner-a", orgId: "org-a", scopes: ["api:read", "api:write"] };
+    const create = await handleSpaces(new Request("https://shiba.test/api/spaces", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: "Ghost", template: "blank" }),
+    }), bindings);
+    expect(create?.status).toBe(502);
+    const list = await handleSpaces(new Request("https://shiba.test/api/spaces", { headers: headers() }), bindings);
+    const body = await list!.json() as { spaces: unknown[] };
+    expect(body.spaces).toHaveLength(0);
+  });
+
+  it("blocks item writes after the space index row is deleted", async () => {
+    const bindings = spacesEnv();
+    authState.dashboard = false;
+    authState.principal = { principal: "owner-a", orgId: "org-a", scopes: ["api:read", "api:write"] };
+    const create = await handleSpaces(new Request("https://shiba.test/api/spaces", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: "Temp", template: "blank" }),
+    }), bindings);
+    const { space } = await create!.json() as { space: { id: string } };
+    await handleSpaces(new Request(`https://shiba.test/api/spaces/${space.id}`, { method: "DELETE", headers: headers() }), bindings);
+    const itemWrite = await handleSpaces(new Request(`https://shiba.test/api/spaces/${space.id}/items`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ kind: "repo", ref: "https://github.com/example/repo" }),
+    }), bindings);
+    expect(itemWrite?.status).toBe(404);
   });
 });

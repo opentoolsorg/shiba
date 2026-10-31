@@ -78,8 +78,17 @@ export async function getSpaceIndex(env: AuditEnv, orgId: string, id: string): P
 export async function updateSpaceIndexName(env: AuditEnv, orgId: string, id: string, name: string, updatedAt: number): Promise<boolean> {
   await ensureTables(env);
   const result = await env.AGENT_AUDIT.prepare(
-    "UPDATE spaces_index SET name = ?, updated_at = ? WHERE org_id = ? AND id = ?",
+    "UPDATE spaces_index SET name = ?, updated_at = MAX(updated_at, ?) WHERE org_id = ? AND id = ?",
   ).bind(name, updatedAt, orgId, id).run();
+  return result.meta.changes === 1;
+}
+
+/** Bump index ordering timestamp without regressing when clocks skew backward. */
+export async function touchSpaceIndexUpdatedAt(env: AuditEnv, orgId: string, id: string, updatedAt: number): Promise<boolean> {
+  await ensureTables(env);
+  const result = await env.AGENT_AUDIT.prepare(
+    "UPDATE spaces_index SET updated_at = MAX(updated_at, ?) WHERE org_id = ? AND id = ?",
+  ).bind(updatedAt, orgId, id).run();
   return result.meta.changes === 1;
 }
 
@@ -88,13 +97,5 @@ export async function deleteSpaceIndex(env: AuditEnv, orgId: string, id: string)
   const result = await env.AGENT_AUDIT.prepare(
     "DELETE FROM spaces_index WHERE org_id = ? AND id = ?",
   ).bind(orgId, id).run();
-  return result.meta.changes === 1;
-}
-
-export async function touchSpaceIndex(env: AuditEnv, orgId: string, id: string, updatedAt: number): Promise<boolean> {
-  await ensureTables(env);
-  const result = await env.AGENT_AUDIT.prepare(
-    "UPDATE spaces_index SET updated_at = ? WHERE org_id = ? AND id = ?",
-  ).bind(updatedAt, orgId, id).run();
   return result.meta.changes === 1;
 }
