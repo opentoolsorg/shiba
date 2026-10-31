@@ -35,7 +35,10 @@ export async function employeeRunToolPolicyMode(
   if (!env.AGENT_AUDIT || !employeeId) return "missing";
   const employee = await getCustomAgentById(env, orgId, employeeId);
   if (!employee) return "missing";
-  return employee.config.toolScopes?.length ? "policy" : "legacy";
+  // Never-enrolled profiles omit toolScopes and keep the legacy Code Mode
+  // workflow. The policy endpoint persists [] on explicit revoke, which must
+  // remain managed deny-all instead of restoring legacy registry authority.
+  return employee.config.toolScopes === undefined ? "legacy" : "policy";
 }
 
 export interface EmployeeRunToolContext {

@@ -62,6 +62,7 @@ export const CAPABILITY_INVOCATION_STATEMENTS = [
 
 export const CAPABILITY_INVOCATION_UNKNOWN_AFTER_MS = 30_000;
 export const MAX_CAPABILITY_INVOCATIONS = 50;
+export const EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX = "employee-action:";
 const initialized = new WeakSet<D1Database>();
 
 interface StoredInvocation {
@@ -148,6 +149,19 @@ export async function beginCapabilityInvocation(
   } catch {
     return { kind: "failed" };
   }
+}
+
+/** Read the durable fence for one employee approval without invoking a tool. */
+export async function getCapabilityInvocationByIdempotencyKey(
+  env: CapabilityInvocationEnv,
+  input: { orgId: string; principal: string; idempotencyKey: string; now?: number },
+): Promise<CapabilityInvocationReceipt | null> {
+  await ensureTable(env);
+  const row = await env.AGENT_AUDIT.prepare(
+    `SELECT invocation_id, created_at, updated_at, principal, tool, args_hash, status, approval_id, error_code
+     FROM capability_invocations WHERE org_id = ? AND principal = ? AND idempotency_key = ? LIMIT 1`,
+  ).bind(input.orgId, input.principal, input.idempotencyKey).first<StoredInvocation>();
+  return row ? receipt(row, input.now ?? Date.now()) : null;
 }
 
 export async function finishCapabilityInvocation(
@@ -250,6 +264,29 @@ export async function pruneCapabilityInvocations(env: CapabilityInvocationEnv, c
     `DELETE FROM capability_invocations WHERE created_at < ?`,
   ).bind(cutoff).run();
   return typeof result.meta?.changes === "number" ? result.meta.changes : 0;
+}
+
+/**
+ * Atomically release an expired employee write approval only when its durable
+ * dispatch key has never been consumed. Any receipt state fences replay,
+ * including dispatching/in-progress, pending approvals, success, failure or
+ * unknown outcome. Caller initializes the employee approval table first.
+ */
+export async function expireUnusedEmployeeActionApproval(
+  env: CapabilityInvocationEnv,
+  input: { approvalId: string; orgId: string; principal: string; now: number },
+): Promise<boolean> {
+  await ensureTable(env);
+  const result = await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
+    SET status = 'expired'
+    WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved' AND expires_at <= ?
+      AND NOT EXISTS (
+        SELECT 1 FROM capability_invocations
+        WHERE org_id = ? AND principal = ? AND idempotency_key = ?
+      )`)
+    .bind(input.approvalId, input.orgId, input.principal, input.now, input.orgId, input.principal,
+      `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${input.approvalId}`).run();
+  return result.meta?.changes === 1;
 }
 
 /** Extract the optional Shiba idempotency extension from MCP request metadata. */

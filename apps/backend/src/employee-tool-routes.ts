@@ -8,6 +8,10 @@ import { isGmailConnectionActive, readGmailForEmployee, resolveGmailResourceCand
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import { getCustomAgentById, updateCustomAgent } from "./custom-agents-store.js";
 import { createToolRegistry, hashToolArgs } from "./mcp-gateway.js";
+import {
+  EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX,
+  getCapabilityInvocationByIdempotencyKey,
+} from "./capability-invocations.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
 import {
   EMPLOYEE_TOOL_POLICY_VERSION,
@@ -296,6 +300,26 @@ export async function dispatchEmployeeToolForPrincipal(
         employeeId, employeeVersion: employee.version, tool: toolName }, { status: 202, headers: { "cache-control": "no-store" } });
     }
     if (saved.status !== "approved") return Response.json({ ok: true, status: saved.status, approvalId: saved.approvalId }, { status: 202, headers: { "cache-control": "no-store" } });
+    const idempotencyKey = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${saved.approvalId}`;
+    if (Date.now() >= saved.expiresAt) {
+      const receipt = await getCapabilityInvocationByIdempotencyKey(env, {
+        orgId, principal: actorId, idempotencyKey,
+      });
+      if (!receipt) return jsonError("expired_approval_dispatch_state_unavailable", 503);
+      if (receipt.tool !== toolName || receipt.argsHash !== await hashToolArgs(args)) {
+        return jsonError("employee_invocation_payload_conflict", 409);
+      }
+      // Expired approvals with receipts can only return the frozen receipt.
+      // Never re-enter dispatch: a receipt may describe a write whose outcome
+      // is unknown, or a Shiba approval that is still being processed.
+      return Response.json({ ok: true, result: {
+        content: [{ type: "text", text: `Request replay suppressed; inspect invocation ${receipt.invocationId} for its recorded status.` }],
+        _meta: { "com.shiba/invocation": {
+          invocationId: receipt.invocationId, status: receipt.status,
+          ...(receipt.approvalId ? { approvalId: receipt.approvalId } : {}), replayed: true,
+        } },
+      } }, { headers: { "cache-control": "no-store" } });
+    }
     approval = asEmployeeActionApproval(saved);
   }
   const dispatchRegistry = toolName === "gmail_read" ? { invoke: async (_name: string, toolArgs: Record<string, unknown>) => {
@@ -314,7 +338,7 @@ export async function dispatchEmployeeToolForPrincipal(
     registry: dispatchRegistry, authority, selection, toolName, args, connection,
     connectionPolicy: policy, ...(approval ? { approval } : {}),
     ...(executionContextId ? { executionContextId } : {}),
-    ...(approval ? { idempotencyKey: `employee-action:${approval.approvalId}` } : {}),
+    ...(approval ? { idempotencyKey: `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${approval.approvalId}` } : {}),
   });
   if (!result.allowed) return jsonError(result.reason, result.reason === "approval_required" ? 202 : 403);
   return Response.json({ ok: true, result: result.result }, { headers: { "cache-control": "no-store" } });

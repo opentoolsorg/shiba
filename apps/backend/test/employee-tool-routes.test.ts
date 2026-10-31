@@ -41,6 +41,8 @@ import type { Env } from "../src/env.js";
 import { createCustomAgent, getCustomAgentById } from "../src/custom-agents-store.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
 import { createEmployeeRunTools } from "../src/employee-run-tools.js";
+import { beginCapabilityInvocation, EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX, finishCapabilityInvocation } from "../src/capability-invocations.js";
+import { hashToolArgs } from "../src/mcp-gateway.js";
 import { isOrgApiPath } from "../src/public-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
@@ -252,5 +254,71 @@ describe("employee tool local workflow", () => {
     expect(afterProfileChange).toMatchObject({ status: "pending_approval", employeeVersion: 3 });
     expect(afterProfileChange.approvalId).not.toBe(approvalA);
     expect(orchestrator.requests).toHaveLength(0);
+  });
+
+  it("reconsents expired unused writes while consumed and unknown receipts fence replay", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    try {
+      authState.dashboard = true;
+      const bindings = env();
+      const employee = await createCustomAgent(bindings, "self-hosted", "expiring-builder", {
+        name: "Expiring builder", instructions: "Queue approved work", harness: "opencode",
+      });
+      const repoUrl = "https://github.com/acme/expiry-demo";
+      expect((await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:queue_run": [repoUrl] }), bindings))?.status).toBe(200);
+      const args = { repoUrl, task: "First approved task" };
+      authState.dashboard = false;
+      const original = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+      const originalBody = await original!.json() as { approvalId: string };
+      authState.dashboard = true;
+      const decide = async (approvalId: string) => handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${approvalId}`, {
+        method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+        body: JSON.stringify({ employeeId: employee.id, approved: true }),
+      }), bindings);
+      expect(await (await decide(originalBody.approvalId))?.json()).toMatchObject({ status: "approved" });
+
+      vi.advanceTimersByTime(16 * 60_000);
+      authState.dashboard = false;
+      const renewed = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+      expect(renewed?.status).toBe(202);
+      const renewedBody = await renewed!.json() as { approvalId: string; status: string };
+      expect(renewedBody).toMatchObject({ status: "pending_approval" });
+      expect(renewedBody.approvalId).not.toBe(originalBody.approvalId);
+
+      authState.dashboard = true;
+      await decide(renewedBody.approvalId);
+      authState.dashboard = false;
+      const consumed = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+      expect(consumed?.status).toBe(200);
+      expect(orchestrator.requests).toHaveLength(1);
+      vi.advanceTimersByTime(16 * 60_000);
+      const replay = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+      expect(await replay?.json()).toMatchObject({ result: { _meta: { "com.shiba/invocation": { status: "pending_approval", replayed: true } } } });
+      expect(orchestrator.requests).toHaveLength(1);
+
+      const unknownArgs = { repoUrl, task: "Check the unknown receipt" };
+      const unknownRequest = await handleEmployeeTools(callRequest(employee.id, "queue_run", unknownArgs), bindings);
+      const unknownPending = await unknownRequest!.json() as { approvalId: string };
+      authState.dashboard = true;
+      await decide(unknownPending.approvalId);
+      authState.dashboard = false;
+      const unknownKey = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${unknownPending.approvalId}`;
+      const begun = await beginCapabilityInvocation(bindings, {
+        principal: tokenState.principal, orgId: tokenState.orgId, tool: "queue_run",
+        argsHash: await hashToolArgs(unknownArgs), idempotencyKey: unknownKey,
+      });
+      expect(begun.kind).toBe("created");
+      if (begun.kind !== "created") throw new Error("Could not seed unknown dispatch receipt.");
+      expect(await finishCapabilityInvocation(bindings, {
+        invocationId: begun.receipt.invocationId, status: "unknown_outcome", errorCode: "test_unknown",
+      })).toBe(true);
+      vi.advanceTimersByTime(16 * 60_000);
+      const unknownReplay = await handleEmployeeTools(callRequest(employee.id, "queue_run", unknownArgs), bindings);
+      expect(await unknownReplay?.json()).toMatchObject({ result: { _meta: { "com.shiba/invocation": { status: "unknown_outcome", replayed: true } } } });
+      expect(orchestrator.requests).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
