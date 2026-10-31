@@ -64,8 +64,7 @@ function DraftReview({ id, metadataUrl, downloadUrl, reviewUrl }: NonNullable<Re
       try {
         const response = await fetch(metadataUrl, { headers: { accept: "application/json" }, cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error("Draft could not be loaded. Reload to try again.");
-        const payload = await response.json();
-        const current = draftSchema.parse(payload.draft);
+        const current = z.object({ draft: draftSchema }).parse(await response.json()).draft;
         if (current.id !== id) throw new Error("Draft identity changed. Reload to try again.");
         if (!controller.signal.aborted) {
           setDraft(current);
@@ -98,13 +97,13 @@ function DraftReview({ id, metadataUrl, downloadUrl, reviewUrl }: NonNullable<Re
       const payload = await response.json();
       if (!active.current) return;
       if (response.status === 409) {
-        const currentReview = reviewSchema.parse(payload.currentReview);
+        const currentReview = z.object({ currentReview: reviewSchema }).parse(payload).currentReview;
         setDraft({ ...draft, deliverable: { ...draft.deliverable, review: currentReview } });
         setMessage("Review changed in another tab. Current saved review refreshed; your decision and note are unchanged. Review again before saving.");
         return;
       }
       if (!response.ok) throw new Error("Review could not be saved. Your decision and note are unchanged.");
-      const updated = draftSchema.parse(payload.draft);
+      const updated = z.object({ draft: draftSchema }).parse(payload).draft;
       if (updated.id !== id || updated.deliverable.sha256 !== draft.deliverable.sha256 || updated.deliverable.path !== draft.deliverable.path || updated.deliverable.version !== draft.deliverable.version) throw new Error("Draft version changed. Reload before reviewing.");
       setDraft(updated);
       setMessage("Review saved. This internal draft has not been sent.");
