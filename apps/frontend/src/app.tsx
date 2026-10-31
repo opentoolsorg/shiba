@@ -756,7 +756,9 @@ export function App(): React.JSX.Element {
   const activeOnboardingRef = selectedOnboardingDraftRef && task === selectedOnboardingTaskText.current &&
     firstRunProgress?.draftTaskId === selectedOnboardingDraftRef.draftTaskId && canonicalOnboardingDraft?.version === selectedOnboardingDraftRef.version && canonicalOnboardingDraft.preparedAt
     ? selectedOnboardingDraftRef : null;
-  const onboardingExecutionIssue = activeOnboardingRef && canonicalOnboardingDraft
+  const onboardingExecutionIssue = selectedOnboardingDraftRef && !activeOnboardingRef
+    ? "The linked first task draft is unavailable or changed. Review and select its saved version, or remove the link before sending."
+    : activeOnboardingRef && canonicalOnboardingDraft
     ? !canonicalOnboardingDraft.employeeId
       ? "Configure an employee, then choose it in the saved setup draft before starting this goal."
       : canonicalOnboardingDraft.employeeId !== customAgentId
@@ -765,9 +767,6 @@ export function App(): React.JSX.Element {
           ? "The employee changed. Review its saved version in setup before starting this goal."
           : null
     : null;
-  useEffect(() => {
-    if (selectedOnboardingDraftRef && firstRunProgress && !activeOnboardingRef) setSelectedOnboardingDraftRef(null);
-  }, [selectedOnboardingDraftRef, firstRunProgress, activeOnboardingRef]);
   const applyOnboardingDraft = useCallback((selection: SelectedOnboardingDraft, replace = false) => {
     if (firstRunProgress?.draftTaskId !== selection.draftTaskId || firstRunProgress.draftTask?.version !== selection.version || !firstRunProgress.draftTask.preparedAt) {
       setNotice("The first task draft changed. Review its saved version before using it.");
@@ -2934,7 +2933,7 @@ export function App(): React.JSX.Element {
                     <p className="mt-2 text-[var(--muted-foreground-2)]">Saved brief only. Employee configuration and access are checked before work starts.</p>
                     {firstRunProgress.draftTask.employeeTemplateId && !firstRunProgress.draftTask.employeeId ? <button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { setInitialEmployeeTemplateId(firstRunProgress.draftTask?.employeeTemplateId ?? null); openView("custom-agents"); }}>Configure suggested employee</button> : null}
                   </section> : null}
-                  {composerVisible && selectedOnboardingDraftRef ? <div role="group" aria-label="Selected first-task goal" className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--fg)]"><span>First-task goal · v{selectedOnboardingDraftRef.version}{!activeOnboardingRef ? " · checking saved version" : ""}</span><button type="button" onClick={() => setSelectedOnboardingDraftRef(null)} className="text-[var(--primary)]">Remove first-task goal link</button></div> : null}
+                  {composerVisible && selectedOnboardingDraftRef ? <div role="group" aria-label="Selected first-task goal" className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--fg)]"><span>First-task goal · v{selectedOnboardingDraftRef.version}{!activeOnboardingRef ? " · saved version needs review" : ""}</span><button type="button" onClick={() => setSelectedOnboardingDraftRef(null)} className="text-[var(--primary)]">Remove first-task goal link</button></div> : null}
                   {pendingOnboardingDraft ? <section role="alertdialog" aria-modal="false" aria-label="Replace unsent task" className="mx-3 mt-3 border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs text-[var(--fg)]"><p>Replace the unsent task with your saved first task draft?</p><div className="mt-2 flex gap-3"><button type="button" onClick={() => setPendingOnboardingDraft(null)}>Keep current task</button><button type="button" onClick={() => applyOnboardingDraft(pendingOnboardingDraft, true)}>Replace with saved draft</button></div></section> : null}
                   {conversationMode === "chat" && chat.messages.length > 0 ? (
                     <div className="flex justify-end px-3 sm:px-5 xl:px-8 pt-2">
