@@ -208,7 +208,7 @@ async function forwardIntoContainer(
   const url = `http://127.0.0.1:${callback.port}${callback.pathname}${callback.search}`;
   const result = await sandbox.exec(
     shellJoin([
-      "curl", "--noproxy", "*", "--max-time", "10", "-s", "-o", "/dev/null",
+      "curl", "--globoff", "--noproxy", "*", "--max-time", "10", "-s", "-o", "/dev/null",
       "-w", "%{http_code}", "--request", "GET", url,
     ]),
   );

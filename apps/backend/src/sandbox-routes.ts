@@ -3,7 +3,10 @@ import type { SandboxInstance } from "@shiba/sandbox";
 import { getSandbox } from "./sandbox/client.js";
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { requireApplicationJson, requireSameOriginBrowserMutation } from "./request-auth.js";
+import { jsonObjectBody } from "./route-utils.js";
 import { redactSecrets } from "./security.js";
+import { assertAuthorizedSandboxDebug } from "./sandbox/debug-access.js";
 import { getSandboxInstance, resolveSandboxProviderForSelection } from "./sandbox/provider.js";
 import { resolveSandboxSelection, type SandboxSelectionContext } from "./sandbox/selection.js";
 
@@ -94,6 +97,9 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
   const auth = await resolveOrgForApiRequest(request, env);
   if (auth instanceof Response) return auth;
   const selectionCtx = selectionForOrg(auth.orgId, url);
+
+  const denied = await assertAuthorizedSandboxDebug(env, request, sandboxId);
+  if (denied) return denied;
 
   try {
     if (action === "info" && request.method === "GET") {
@@ -210,14 +216,18 @@ export async function handleSandboxRoutes(request: Request, env: Env): Promise<R
     }
 
     if (action === "exec" && request.method === "POST") {
-      let body: unknown;
+      const csrf = requireSameOriginBrowserMutation(request);
+      if (csrf) return csrf;
+      const jsonType = requireApplicationJson(request);
+      if (jsonType) return jsonType;
+      let body: Record<string, unknown>;
       try {
-        body = await request.json();
-      } catch {
-        return Response.json({ error: "Invalid JSON body." }, { status: 400 });
-      }
-      if (typeof body !== "object" || body === null) {
-        return Response.json({ error: "Request body must be an object." }, { status: 400 });
+        body = await jsonObjectBody(request);
+      } catch (error) {
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Invalid JSON body." },
+          { status: 400 },
+        );
       }
       const { command, cwd } = body as { command?: unknown; cwd?: unknown };
       if (typeof command !== "string" || !command.trim()) {
