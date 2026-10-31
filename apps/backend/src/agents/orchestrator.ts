@@ -923,17 +923,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     ].join(" ");
   }
 
-  override getTools(): ToolSet {
-    if (isChatOnlyTurn(this.messages)) {
-      // The mode marker only narrows authority. Work turns still use the
-      // unchanged approval-gated delegate and audited run_code tools below.
-      return toolsForConversationMode("chat", super.getTools()) as ToolSet;
-    }
-    if (isAppToolsOnlyTurn(this.messages)) {
-      return createEmployeeRunTools(this.env, () => null, () => this.name ?? null,
-        () => "self-hosted", () => null, this.employeeDraftStore(),
-        () => resolveAppToolsEmployeeContext(this.env, this.name ?? ""));
-    }
+  /** Approved dispatch is independent of the latest model-visible conversation mode. */
+  private approvedRunDelegate() {
     const child = agentTool(OpenCodeAgent, {
       description:
         "Delegate a coding task to an isolated Cloudflare Sandbox container running OpenCode. " +
@@ -945,7 +936,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (typeof childExecute !== "function") {
       throw new Error("delegate_coding_task misconfigured: child tool has no execute function.");
     }
-    const delegate = tool({
+    return tool({
       description:
         "Delegate a coding task to an isolated Cloudflare Sandbox container running OpenCode. " +
         "Requires human approval before anything runs.",
@@ -966,6 +957,20 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         );
       },
     });
+  }
+
+  override getTools(): ToolSet {
+    if (isChatOnlyTurn(this.messages)) {
+      // The mode marker only narrows authority. Work turns still use the
+      // unchanged approval-gated delegate and audited run_code tools below.
+      return toolsForConversationMode("chat", super.getTools()) as ToolSet;
+    }
+    if (isAppToolsOnlyTurn(this.messages)) {
+      return createEmployeeRunTools(this.env, () => null, () => this.name ?? null,
+        () => "self-hosted", () => null, this.employeeDraftStore(),
+        () => resolveAppToolsEmployeeContext(this.env, this.name ?? ""));
+    }
+    const delegate = this.approvedRunDelegate();
     const tools: ToolSet = {
       ...super.getTools(),
       delegate_coding_task: delegate,
@@ -3768,11 +3773,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       this.stampCheckpoint(run.runId, "dispatching");
       const generation = this.store.get(run.runId)?.generation;
       try {
-        const delegate = this.getTools()["delegate_coding_task"] as {
+        const delegate = this.approvedRunDelegate() as unknown as {
           execute: (input: unknown, options?: unknown) => Promise<unknown>;
         };
         // The tool object exists, so this attempt has started. A later
-        // restart must not call execute again; a crash inside getTools
+        // restart must not call execute again; a crash building the delegate
         // (before this line) still resumes from the dispatching checkpoint.
         const invoked = this.store.get(run.runId);
         if (invoked && invoked.resumeAttemptedAt === undefined) {
