@@ -45,7 +45,10 @@ import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
 import { handleEmployeeTools } from "./employee-tool-routes.js";
+import { handleSkillLibrary } from "./skill-library-routes.js";
 import { handleSkills } from "./skills-routes.js";
+import { handleSpaces } from "./spaces-routes.js";
+import { Spaces } from "./spaces-do.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
@@ -97,6 +100,7 @@ export {
   SandboxOutbound,
   ContainerProxy,
   Waitlist,
+  Spaces,
 };
 export { assertLiveCodingModel } from "./coding-model.js";
 // Kept public for consumers that import the auth surface from the entry.
@@ -137,6 +141,7 @@ export const DASHBOARD_VIEWS = new Set([
   "employee-tools",
   "integrations",
   "skills",
+  "spaces",
   "custom-agents",
   "remote",
   "settings",
@@ -235,6 +240,9 @@ export default {
         if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
+        if (/^\/spaces\/[^/]+\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
       }
       if (!isPublicRequest(request) && !isOrgApiPath(url.pathname) && !(await isAuthorizedRequest(request, env))) {
         // A signed-out browser on the consent screen goes to sign-in and
@@ -285,8 +293,12 @@ export default {
       if (employeeToolsResponse) return employeeToolsResponse;
       const reasonNetworkResponse = await handleReasonNetwork(request, env);
       if (reasonNetworkResponse) return reasonNetworkResponse;
+      const skillLibraryResponse = await handleSkillLibrary(request, env);
+      if (skillLibraryResponse) return skillLibraryResponse;
       const skillsResponse = await handleSkills(request, env);
       if (skillsResponse) return skillsResponse;
+      const spacesResponse = await handleSpaces(request, env);
+      if (spacesResponse) return spacesResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
       if (orgSandboxResponse) return orgSandboxResponse;
       const orgModelKeysResponse = await handleOrgModelKeys(request, env);
