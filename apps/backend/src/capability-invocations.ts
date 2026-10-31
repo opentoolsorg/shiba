@@ -164,6 +164,94 @@ export async function getCapabilityInvocationByIdempotencyKey(
   return row ? receipt(row, input.now ?? Date.now()) : null;
 }
 
+export type EmployeeActionInvocationClaim =
+  | { kind: "claimed" | "replay"; receipt: CapabilityInvocationReceipt }
+  | { kind: "expired" | "consumed_receipt_missing" | "not_approved" | "payload_conflict" | "failed" };
+
+/**
+ * Atomically consume an approved employee action and insert its invocation
+ * fence. Expiration uses SQLite's clock in production, at statement execution;
+ * `now` exists only for deterministic store tests. Either this transaction
+ * claims the one stable key, or expiration wins and no receipt is inserted.
+ */
+export async function claimEmployeeActionInvocation(
+  env: CapabilityInvocationEnv,
+  input: {
+    approvalId: string; orgId: string; principal: string; tool: string;
+    argsHash: string; idempotencyKey: string; now?: number;
+  },
+): Promise<EmployeeActionInvocationClaim> {
+  if (!input.approvalId || !input.orgId || !input.principal || !input.tool ||
+      !/^[0-9a-f]{64}$/.test(input.argsHash) ||
+      input.idempotencyKey !== `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${input.approvalId}`) return { kind: "failed" };
+  const invocationId = `inv-${randomHex(16)}`;
+  const timeExpression = input.now === undefined ? "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" : "?";
+  const timeBindings = input.now === undefined ? [] : [input.now];
+  try {
+    await ensureTable(env);
+    await env.AGENT_AUDIT.batch([
+      env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
+        SET consumed_at = COALESCE(consumed_at, ${timeExpression}),
+            consumed_invocation_id = COALESCE(consumed_invocation_id, (
+              SELECT invocation_id FROM capability_invocations
+              WHERE org_id = ? AND principal = ? AND idempotency_key = ? AND tool = ? AND args_hash = ? LIMIT 1
+            ))
+        WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved'
+          AND consumed_at IS NULL AND consumed_invocation_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM capability_invocations
+            WHERE org_id = ? AND principal = ? AND idempotency_key = ? AND tool = ? AND args_hash = ?
+          )`)
+        .bind(...timeBindings, input.orgId, input.principal, input.idempotencyKey, input.tool, input.argsHash,
+          input.approvalId, input.orgId, input.principal,
+          input.orgId, input.principal, input.idempotencyKey, input.tool, input.argsHash),
+      env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
+        SET consumed_at = COALESCE(consumed_at, ${timeExpression}), consumed_invocation_id = COALESCE(consumed_invocation_id, ?)
+        WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved'
+          AND expires_at > ${timeExpression} AND consumed_at IS NULL AND consumed_invocation_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM capability_invocations WHERE org_id = ? AND principal = ? AND idempotency_key = ?
+          )`)
+        .bind(...timeBindings, invocationId, input.approvalId, input.orgId, input.principal, ...timeBindings,
+          input.orgId, input.principal, input.idempotencyKey),
+      env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = 'expired'
+        WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved'
+          AND expires_at <= ${timeExpression} AND consumed_at IS NULL AND consumed_invocation_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM capability_invocations WHERE org_id = ? AND principal = ? AND idempotency_key = ?
+          )`)
+        .bind(input.approvalId, input.orgId, input.principal, ...timeBindings,
+          input.orgId, input.principal, input.idempotencyKey),
+      env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO capability_invocations
+        (invocation_id, org_id, principal, tool, args_hash, idempotency_key, status, created_at, updated_at)
+        SELECT ?, ?, ?, ?, ?, ?, 'dispatching', ${timeExpression}, ${timeExpression}
+        WHERE EXISTS (
+          SELECT 1 FROM employee_tool_approvals
+          WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved'
+            AND consumed_invocation_id = ?
+        )`)
+        .bind(invocationId, input.orgId, input.principal, input.tool, input.argsHash, input.idempotencyKey,
+          ...timeBindings, ...timeBindings, input.approvalId, input.orgId, input.principal, invocationId),
+    ]);
+    const existing = await getCapabilityInvocationByIdempotencyKey(env, {
+      orgId: input.orgId, principal: input.principal, idempotencyKey: input.idempotencyKey,
+      ...(input.now !== undefined ? { now: input.now } : {}),
+    });
+    if (existing) {
+      if (existing.tool !== input.tool || existing.argsHash !== input.argsHash) return { kind: "payload_conflict" };
+      return { kind: existing.invocationId === invocationId ? "claimed" : "replay", receipt: existing };
+    }
+    const approval = await env.AGENT_AUDIT.prepare(`SELECT status, consumed_invocation_id
+      FROM employee_tool_approvals WHERE approval_id = ? AND org_id = ? AND actor_id = ? LIMIT 1`)
+      .bind(input.approvalId, input.orgId, input.principal).first<{ status: string; consumed_invocation_id: string | null }>();
+    if (approval?.consumed_invocation_id) return { kind: "consumed_receipt_missing" };
+    if (approval?.status === "expired") return { kind: "expired" };
+    return { kind: "not_approved" };
+  } catch {
+    return { kind: "failed" };
+  }
+}
+
 export async function finishCapabilityInvocation(
   env: CapabilityInvocationEnv,
   input: {
@@ -274,19 +362,38 @@ export async function pruneCapabilityInvocations(env: CapabilityInvocationEnv, c
  */
 export async function expireUnusedEmployeeActionApproval(
   env: CapabilityInvocationEnv,
-  input: { approvalId: string; orgId: string; principal: string; now: number },
+  input: { approvalId: string; orgId: string; principal: string; now?: number },
 ): Promise<boolean> {
   await ensureTable(env);
-  const result = await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
-    SET status = 'expired'
-    WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved' AND expires_at <= ?
-      AND NOT EXISTS (
-        SELECT 1 FROM capability_invocations
-        WHERE org_id = ? AND principal = ? AND idempotency_key = ?
-      )`)
-    .bind(input.approvalId, input.orgId, input.principal, input.now, input.orgId, input.principal,
-      `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${input.approvalId}`).run();
-  return result.meta?.changes === 1;
+  const key = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${input.approvalId}`;
+  const timeExpression = input.now === undefined ? "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" : "?";
+  const timeBindings = input.now === undefined ? [] : [input.now];
+  const statements = await env.AGENT_AUDIT.batch([
+    env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
+      SET consumed_at = COALESCE(consumed_at, ${timeExpression}),
+          consumed_invocation_id = COALESCE(consumed_invocation_id, (
+            SELECT invocation_id FROM capability_invocations
+            WHERE org_id = ? AND principal = ? AND idempotency_key = ? LIMIT 1
+          ))
+      WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved'
+        AND consumed_at IS NULL AND consumed_invocation_id IS NULL AND expires_at <= ${timeExpression}
+        AND EXISTS (
+          SELECT 1 FROM capability_invocations
+          WHERE org_id = ? AND principal = ? AND idempotency_key = ?
+        )`)
+      .bind(...timeBindings, input.orgId, input.principal, key, input.approvalId, input.orgId, input.principal, ...timeBindings,
+        input.orgId, input.principal, key),
+    env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
+      SET status = 'expired'
+      WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved'
+        AND consumed_at IS NULL AND consumed_invocation_id IS NULL AND expires_at <= ${timeExpression}
+        AND NOT EXISTS (
+          SELECT 1 FROM capability_invocations
+          WHERE org_id = ? AND principal = ? AND idempotency_key = ?
+        )`)
+      .bind(input.approvalId, input.orgId, input.principal, ...timeBindings, input.orgId, input.principal, key),
+  ]);
+  return statements[1]?.meta?.changes === 1;
 }
 
 /** Extract the optional Shiba idempotency extension from MCP request metadata. */

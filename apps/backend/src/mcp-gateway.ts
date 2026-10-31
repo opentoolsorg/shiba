@@ -44,6 +44,7 @@ import {
   beginCapabilityInvocation,
   finishCapabilityInvocation,
   mcpIdempotencyKey,
+  type CapabilityInvocationReceipt,
 } from "./capability-invocations.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
 import { registerExternalMcpTools } from "./external-mcp.js";
@@ -119,7 +120,7 @@ export interface ToolRegistry {
     name: string,
     args: unknown,
     principal: TokenRecord | null,
-    options?: { idempotencyKey?: string },
+    options?: { idempotencyKey?: string; claimedInvocation?: CapabilityInvocationReceipt },
   ): Promise<CallToolResult>;
   /** Every registered tool, registration order. */
   tools(): RegisteredTool[];
@@ -267,31 +268,41 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
       }
       let invocationId: string | undefined;
       if (principal && !principal.revoked) {
-        const begun = await beginCapabilityInvocation(env, {
-          principal: caller,
-          orgId: orgIdForRecord(principal),
-          tool: name,
-          argsHash,
-          ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
-        });
-        if (begun.kind === "failed") {
-          return errorResult("Tool invocation could not be durably recorded; no tool was dispatched.");
+        if (options.claimedInvocation) {
+          const claimed = options.claimedInvocation;
+          if (!options.idempotencyKey?.startsWith("employee-action:") ||
+              claimed.principal !== caller || claimed.tool !== name || claimed.argsHash !== argsHash ||
+              (claimed.status !== "in_progress" && claimed.status !== "unknown_outcome")) {
+            return errorResult("The preclaimed tool invocation does not match this dispatch.");
+          }
+          invocationId = claimed.invocationId;
+        } else {
+          const begun = await beginCapabilityInvocation(env, {
+            principal: caller,
+            orgId: orgIdForRecord(principal),
+            tool: name,
+            argsHash,
+            ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+          });
+          if (begun.kind === "failed") {
+            return errorResult("Tool invocation could not be durably recorded; no tool was dispatched.");
+          }
+          if (begun.kind === "payload_conflict") {
+            return errorResult("Idempotency key was already used with different tool arguments.");
+          }
+          if (begun.kind === "replay") {
+            return receiptResult(
+              { content: [{ type: "text", text: `Request replay suppressed; inspect invocation ${begun.receipt.invocationId} for its recorded status.` }] },
+              {
+                invocationId: begun.receipt.invocationId,
+                status: begun.receipt.status,
+                ...(begun.receipt.approvalId ? { approvalId: begun.receipt.approvalId } : {}),
+                replayed: true,
+              },
+            );
+          }
+          invocationId = begun.receipt.invocationId;
         }
-        if (begun.kind === "payload_conflict") {
-          return errorResult("Idempotency key was already used with different tool arguments.");
-        }
-        if (begun.kind === "replay") {
-          return receiptResult(
-            { content: [{ type: "text", text: `Request replay suppressed; inspect invocation ${begun.receipt.invocationId} for its recorded status.` }] },
-            {
-              invocationId: begun.receipt.invocationId,
-              status: begun.receipt.status,
-              ...(begun.receipt.approvalId ? { approvalId: begun.receipt.approvalId } : {}),
-              replayed: true,
-            },
-          );
-        }
-        invocationId = begun.receipt.invocationId;
       }
       const tool = tools.get(name);
       if (!tool) {

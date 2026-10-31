@@ -33,6 +33,9 @@ export interface EmployeeApprovalRecord {
   actorId: string;
   /** Worker-side run/session; external MCP approvals omit this value. */
   executionContextId?: string;
+  /** Durable one-shot claim, retained after the capability receipt is pruned. */
+  consumedAt?: number;
+  consumedInvocationId?: string;
   connectionId: string;
   connectionGeneration: number;
   capability: CapabilityRef;
@@ -87,6 +90,8 @@ const SCHEMA = [
     employee_version INTEGER NOT NULL,
     actor_id TEXT NOT NULL,
     execution_context_id TEXT,
+    consumed_at INTEGER,
+    consumed_invocation_id TEXT,
     connection_id TEXT NOT NULL,
     connection_generation INTEGER NOT NULL,
     capability_kind TEXT NOT NULL,
@@ -124,6 +129,12 @@ async function ensureTables(env: AuditEnv): Promise<void> {
   const approvalColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(employee_tool_approvals)").all<{ name: string }>();
   if (!(approvalColumns.results ?? []).some((column) => column.name === "execution_context_id")) {
     await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN execution_context_id TEXT").run();
+  }
+  if (!(approvalColumns.results ?? []).some((column) => column.name === "consumed_at")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN consumed_at INTEGER").run();
+  }
+  if (!(approvalColumns.results ?? []).some((column) => column.name === "consumed_invocation_id")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN consumed_invocation_id TEXT").run();
   }
   // Migrate the prior uniqueness key so identical payloads in separate run
   // contexts receive separate approval records.
@@ -316,6 +327,8 @@ function approvalFromRow(row: Record<string, unknown>): EmployeeApprovalRecord |
     approvalId: String(row.approval_id), orgId: String(row.org_id), employeeId: String(row.employee_id),
     employeeVersion: Number(row.employee_version), actorId: String(row.actor_id),
     ...(typeof executionContextId === "string" ? { executionContextId } : {}),
+    ...(typeof row.consumed_at === "number" ? { consumedAt: row.consumed_at } : {}),
+    ...(typeof row.consumed_invocation_id === "string" ? { consumedInvocationId: row.consumed_invocation_id } : {}),
     connectionId: String(row.connection_id),
     connectionGeneration: Number(row.connection_generation), capability: { kind: capabilityKind, id: String(row.capability_id) },
     action: String(row.action), ...(typeof row.resource_id === "string" ? { resourceId: row.resource_id } : {}),
@@ -370,7 +383,8 @@ export async function getEmployeeActionApproval(
   }
   if (approval.status === "approved" && now >= approval.expiresAt) {
     const expired = await expireUnusedEmployeeActionApproval(env, {
-      approvalId: approval.approvalId, orgId: approval.orgId, principal: approval.actorId, now,
+      approvalId: approval.approvalId, orgId: approval.orgId, principal: approval.actorId,
+      ...(input.now !== undefined ? { now: input.now } : {}),
     });
     if (expired) return { ...approval, status: "expired" };
     // If the atomic expiration lost to a concurrent dispatch, the durable
@@ -408,7 +422,8 @@ export async function findEmployeeActionApproval(
   }
   if (approval.status === "approved" && now >= approval.expiresAt) {
     const expired = await expireUnusedEmployeeActionApproval(env, {
-      approvalId: approval.approvalId, orgId: approval.orgId, principal: approval.actorId, now,
+      approvalId: approval.approvalId, orgId: approval.orgId, principal: approval.actorId,
+      ...(input.now !== undefined ? { now: input.now } : {}),
     });
     if (expired) return { ...approval, status: "expired" };
     const current = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT} WHERE approval_id = ? LIMIT 1`)

@@ -41,7 +41,14 @@ import type { Env } from "../src/env.js";
 import { createCustomAgent, getCustomAgentById } from "../src/custom-agents-store.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
 import { createEmployeeRunTools } from "../src/employee-run-tools.js";
-import { beginCapabilityInvocation, EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX, finishCapabilityInvocation } from "../src/capability-invocations.js";
+import {
+  beginCapabilityInvocation,
+  claimEmployeeActionInvocation,
+  EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX,
+  finishCapabilityInvocation,
+  getCapabilityInvocationByIdempotencyKey,
+  pruneCapabilityInvocations,
+} from "../src/capability-invocations.js";
 import { hashToolArgs } from "../src/mcp-gateway.js";
 import { isOrgApiPath } from "../src/public-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -258,7 +265,7 @@ describe("employee tool local workflow", () => {
 
   it("reconsents expired unused writes while consumed and unknown receipts fence replay", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    vi.setSystemTime(new Date());
     try {
       authState.dashboard = true;
       const bindings = env();
@@ -281,7 +288,7 @@ describe("employee tool local workflow", () => {
       vi.advanceTimersByTime(16 * 60_000);
       authState.dashboard = false;
       const renewed = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
-      expect(renewed?.status).toBe(202);
+      expect(renewed?.status, JSON.stringify(await renewed?.clone().json())).toBe(202);
       const renewedBody = await renewed!.json() as { approvalId: string; status: string };
       expect(renewedBody).toMatchObject({ status: "pending_approval" });
       expect(renewedBody.approvalId).not.toBe(originalBody.approvalId);
@@ -317,6 +324,58 @@ describe("employee tool local workflow", () => {
       const unknownReplay = await handleEmployeeTools(callRequest(employee.id, "queue_run", unknownArgs), bindings);
       expect(await unknownReplay?.json()).toMatchObject({ result: { _meta: { "com.shiba/invocation": { status: "unknown_outcome", replayed: true } } } });
       expect(orchestrator.requests).toHaveLength(1);
+      await pruneCapabilityInvocations(bindings, Number.MAX_SAFE_INTEGER);
+      const prunedUnknown = await handleEmployeeTools(callRequest(employee.id, "queue_run", unknownArgs), bindings);
+      expect(prunedUnknown?.status).toBe(409);
+      expect(await prunedUnknown?.json()).toMatchObject({ error: "employee_invocation_receipt_pruned_no_replay" });
+      expect(orchestrator.requests).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets expiry win against a dispatch held before the atomic claim", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date());
+    try {
+      authState.dashboard = true;
+      const bindings = env();
+      const employee = await createCustomAgent(bindings, "self-hosted", "held-claim-builder", {
+        name: "Held claim builder", instructions: "Queue approved work", harness: "opencode",
+      });
+      const repoUrl = "https://github.com/acme/held-claim";
+      expect((await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:queue_run": [repoUrl] }), bindings))?.status).toBe(200);
+      const args = { repoUrl, task: "Held before begin" };
+      authState.dashboard = false;
+      const first = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+      const pending = await first!.json() as { approvalId: string };
+      authState.dashboard = true;
+      const approved = await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${pending.approvalId}`, {
+        method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+        body: JSON.stringify({ employeeId: employee.id, approved: true }),
+      }), bindings);
+      expect(await approved?.json()).toMatchObject({ status: "approved" });
+
+      let releaseClaim!: () => void;
+      const hold = new Promise<void>((resolve) => { releaseClaim = resolve; });
+      const delayedClaim = hold.then(async () => claimEmployeeActionInvocation(bindings, {
+        approvalId: pending.approvalId, orgId: tokenState.orgId, principal: tokenState.principal,
+        tool: "queue_run", argsHash: await hashToolArgs(args),
+        idempotencyKey: `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${pending.approvalId}`,
+        now: Date.now(),
+      }));
+      vi.advanceTimersByTime(16 * 60_000);
+      releaseClaim();
+      expect(await delayedClaim).toMatchObject({ kind: "expired" });
+      expect(await getCapabilityInvocationByIdempotencyKey(bindings, {
+        orgId: tokenState.orgId, principal: tokenState.principal,
+        idempotencyKey: `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${pending.approvalId}`,
+      })).toBeNull();
+
+      authState.dashboard = false;
+      const reconsent = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+      expect(reconsent?.status).toBe(202);
+      expect(orchestrator.requests).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
