@@ -228,23 +228,33 @@ export async function notifyEmployeeToolApprovalInChat(
 
 export async function decideChatEmployeeToolApproval(
   env: Env,
-  input: { orgId: string; approvalId: string; approved: boolean; decidedBy: string },
+  input: { orgId: string; threadKey: string; approvalId: string; approved: boolean; decidedBy: string },
 ): Promise<{ ok: true; status: string } | { ok: false; error: string }> {
   if (!env.AGENT_AUDIT) return { ok: false, error: "Employee policy storage is unavailable." };
+  if (!isChatIngressThreadName(input.threadKey)) {
+    return { ok: false, error: "This employee approval does not belong to this chat thread." };
+  }
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT employee_id FROM employee_tool_approvals WHERE org_id = ? AND approval_id = ? LIMIT 1`,
+    `SELECT employee_id, execution_context_id, status FROM employee_tool_approvals WHERE org_id = ? AND approval_id = ? LIMIT 1`,
   )
     .bind(input.orgId, input.approvalId)
-    .first<{ employee_id: string }>();
+    .first<{ employee_id: string; execution_context_id: string | null; status: string }>();
   if (!row?.employee_id) return { ok: false, error: "This employee approval is unknown or expired." };
+  if (row.execution_context_id !== input.threadKey) {
+    return { ok: false, error: "This employee approval does not belong to this chat thread." };
+  }
+  if (row.status !== "pending") {
+    return { ok: false, error: "This approval is already resolved or expired — nothing to do." };
+  }
   const decided = await decideEmployeeActionApproval(env, {
     orgId: input.orgId,
     employeeId: row.employee_id,
     approvalId: input.approvalId,
     approved: input.approved,
     decidedBy: input.decidedBy,
+    requirePendingTransition: true,
   });
-  if (!decided || decided.status === "pending" || decided.status === "expired") {
+  if (!decided || decided.status !== (input.approved ? "approved" : "denied")) {
     return { ok: false, error: "This approval is already resolved or expired — nothing to do." };
   }
   return { ok: true, status: decided.status };

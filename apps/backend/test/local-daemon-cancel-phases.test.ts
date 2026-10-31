@@ -27,6 +27,9 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline", "
     await exec("git", ["-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
     const realGit = (await exec("which", ["git"])).stdout.trim();
     const collecting = mode.startsWith("collect");
+    // test-deadline races the command timeout with the execution deadline.
+    // Both must share one termination/escalation or macOS can return EPERM
+    // on the second group kill, crashing the daemon before result settlement.
     const deadline = mode.endsWith("deadline");
     const denied = mode.endsWith("denied");
     const stopping = mode.includes("stop");

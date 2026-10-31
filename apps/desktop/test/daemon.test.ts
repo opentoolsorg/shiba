@@ -166,10 +166,6 @@ describe("shiba-local-daemon operator errors", () => {
 
   it("exits 76 when the Worker returns an HTML Access page", async () => {
     const root = mkdtempSync(join(tmpdir(), "shiba-daemon-access-"));
-    writeFileSync(
-      join(root, "config.json"),
-      JSON.stringify({ workerUrl: "http://127.0.0.1:1", adapterToken: "tok", machineId: "m1" }),
-    );
     const server = createServer((req, res) => {
       req.resume();
       req.on("end", () => {
@@ -182,6 +178,7 @@ describe("shiba-local-daemon operator errors", () => {
     try {
       const { port } = server.address() as AddressInfo;
       const url = `http://127.0.0.1:${port}`;
+      writeFileSync(join(root, "config.json"), JSON.stringify({ workerUrl: url, adapterToken: "paired-test-token", machineId: "paired-machine-test" }));
       const d = spawn(process.execPath, [DAEMON, "--once", "--poll", "200"], {
         env: {
           ...process.env,
@@ -227,7 +224,6 @@ describe("shiba-local-daemon Reason capability heartbeat", () => {
     const root=mkdtempSync(join(tmpdir(),"shiba-reason-heartbeat-"));
     const executable=join(root,"reason-network-fake");
     writeFileSync(executable,"#!/bin/sh\nexit 0\n");chmodSync(executable,0o755);
-    writeFileSync(join(root,"config.json"),JSON.stringify({workerUrl:"http://unused",adapterToken:"paired-test-token",machineId:"paired-machine-test"}));
     const heartbeats:Array<Record<string,unknown>>=[];
     const server=createServer((req,res)=>{
       let body="";req.setEncoding("utf8");req.on("data",(chunk:string)=>body+=chunk);
@@ -240,6 +236,7 @@ describe("shiba-local-daemon Reason capability heartbeat", () => {
     });
     await new Promise<void>((resolve)=>server.listen(0,"127.0.0.1",resolve));
     const {port}=server.address() as AddressInfo;
+    writeFileSync(join(root,"config.json"),JSON.stringify({workerUrl:`http://127.0.0.1:${port}`,adapterToken:"paired-test-token",machineId:"paired-machine-test"}));
     const run=async(enabled:boolean)=>{
       const env: NodeJS.ProcessEnv={...process.env,SHIBA_LOCAL_RUN_ROOT:root,SHIBA_WORKER_URL:`http://127.0.0.1:${port}`,SHIBA_REASON_NETWORK_COMPANION:enabled?"1":"0",SHIBA_REASON_NETWORK_EXECUTABLE:executable};
       env.LOCAL_ADAPTER_TOKEN = undefined;
