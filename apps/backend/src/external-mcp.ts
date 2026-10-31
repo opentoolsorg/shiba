@@ -6,7 +6,7 @@ import { initAudit, audit } from "./audit.js";
 import type { Env } from "./env.js";
 import { wrapUntrusted } from "./mailbox-store.js";
 import { sha256Hex } from "./agent-tokens.js";
-import type { TokenRecord } from "./agent-tokens.js";
+import { orgIdForRecord, type TokenRecord } from "./agent-tokens.js";
 import { decideConnectionDispatch, type ConnectionGrant, type CapabilityPolicy } from "./connection-policy.js";
 import { asEmployeeActionApproval, findEmployeeActionApproval, requestEmployeeActionApproval, type EmployeeApprovalRecord } from "./employee-tool-store.js";
 import { finishCapabilityInvocationApproval } from "./capability-invocations.js";
@@ -59,7 +59,8 @@ const SCHEMA = [
     PRIMARY KEY(org_id, server_id, capability_id, principal)
   )`,
   `CREATE TABLE IF NOT EXISTS external_mcp_approval_uses (
-    approval_id TEXT PRIMARY KEY, used_at INTEGER NOT NULL
+    approval_id TEXT PRIMARY KEY, used_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'dispatching'
+      CHECK(status IN ('dispatching','succeeded','failed','unknown_outcome')), error_code TEXT
   )`,
 ] as const;
 const initialized = new WeakSet<D1Database>();
@@ -69,6 +70,13 @@ async function ensure(env: Env) {
   if (initialized.has(env.AGENT_AUDIT)) return;
   await initAudit(env);
   for (const statement of SCHEMA) await env.AGENT_AUDIT.prepare(statement).run();
+  const approvalUseColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(external_mcp_approval_uses)").all<{ name: string }>();
+  if (!(approvalUseColumns.results ?? []).some((column) => column.name === "status")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE external_mcp_approval_uses ADD COLUMN status TEXT NOT NULL DEFAULT 'dispatching'").run();
+  }
+  if (!(approvalUseColumns.results ?? []).some((column) => column.name === "error_code")) {
+    await env.AGENT_AUDIT.prepare("ALTER TABLE external_mcp_approval_uses ADD COLUMN error_code TEXT").run();
+  }
   initialized.add(env.AGENT_AUDIT);
 }
 
@@ -244,6 +252,20 @@ export async function getExternalMcpServer(env: Env, orgId: string, ownerId: str
   return serverRow(row);
 }
 
+/** Server status gates the transport as a whole; tool enabled/reviewed flags gate individual capabilities. */
+async function reconcileExternalMcpStatus(env: Env, server: ExternalMcpServer, now: number) {
+  const current = await getExternalMcpServer(env, server.orgId, server.ownerId, server.id);
+  if (!current || current.generation !== server.generation || current.status === "disabled") return;
+  const counts = await env.AGENT_AUDIT.prepare(`SELECT
+    SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) AS enabled_count,
+    SUM(CASE WHEN reviewed_at IS NOT NULL AND effect IN ('read','approval_required') THEN 1 ELSE 0 END) AS reviewed_count
+    FROM external_mcp_tools WHERE server_id = ? AND lifecycle = 'active'`).bind(server.id).first<{ enabled_count: number | null; reviewed_count: number | null }>();
+  const status: ExternalMcpStatus = (counts?.enabled_count ?? 0) > 0 ? "enabled"
+    : (counts?.reviewed_count ?? 0) > 0 ? "reviewed" : current.schemaVersion ? "discovered" : "draft";
+  await env.AGENT_AUDIT.prepare("UPDATE external_mcp_servers SET status = ?, updated_at = ? WHERE id = ? AND org_id = ? AND owner_id = ? AND generation = ? AND status <> 'disabled'")
+    .bind(status, now, server.id, server.orgId, server.ownerId, server.generation).run();
+}
+
 export async function createExternalMcpServer(env: Env, input: { orgId: string; ownerId: string; name: string; endpoint: string; credentialRef: string | null }) {
   await ensure(env);
   const total = await env.AGENT_AUDIT.prepare("SELECT COUNT(*) AS count FROM external_mcp_servers WHERE org_id = ? AND owner_id = ?").bind(input.orgId, input.ownerId).first<{ count: number }>();
@@ -316,9 +338,10 @@ export async function discoverExternalMcpServer(env: Env, server: ExternalMcpSer
       await env.AGENT_AUDIT.prepare("UPDATE external_mcp_access SET enabled = 0, updated_at = ? WHERE server_id = ? AND capability_id = ?")
         .bind(now, server.id, prior.capabilityId).run();
     }
-    await env.AGENT_AUDIT.prepare(`UPDATE external_mcp_servers SET status = 'discovered', schema_version = ?, health = 'healthy', last_checked_at = ?,
+    await env.AGENT_AUDIT.prepare(`UPDATE external_mcp_servers SET schema_version = ?, health = 'healthy', last_checked_at = ?,
       last_error_code = NULL, updated_at = ? WHERE id = ? AND generation = ?`)
       .bind(result.schemaVersion, now, now, server.id, server.generation).run();
+    await reconcileExternalMcpStatus(env, server, now);
     return { ...result, tools: await toolsForServer(env, server.id) };
   } catch (error) {
     const code = error instanceof Error ? error.message : "transport_unavailable";
@@ -343,10 +366,9 @@ export async function reviewExternalMcpTool(env: Env, server: ExternalMcpServer,
     WHERE id = ? AND server_id = ? AND schema_version = ? AND lifecycle = 'active'`)
     .bind(effect, now, toolId, server.id, schemaVersion).run();
   if (result.meta?.changes !== 1) throw new Error("schema_version_changed");
-  await env.AGENT_AUDIT.prepare("UPDATE external_mcp_servers SET status = 'reviewed', updated_at = ? WHERE id = ? AND generation = ?")
-    .bind(now, server.id, server.generation).run();
   await env.AGENT_AUDIT.prepare("UPDATE external_mcp_access SET enabled = 0, updated_at = ? WHERE server_id = ? AND capability_id = (SELECT capability_id FROM external_mcp_tools WHERE id = ?)")
     .bind(now, server.id, toolId).run();
+  await reconcileExternalMcpStatus(env, server, now);
 }
 
 export async function setExternalMcpToolEnabled(env: Env, server: ExternalMcpServer, toolId: string, enabled: boolean, schemaVersion: string) {
@@ -358,8 +380,12 @@ export async function setExternalMcpToolEnabled(env: Env, server: ExternalMcpSer
   if (result.meta?.changes !== 1) throw new Error("tool_not_reviewed_or_schema_changed");
   if (!enabled) await env.AGENT_AUDIT.prepare("UPDATE external_mcp_access SET enabled = 0, updated_at = ? WHERE server_id = ? AND capability_id = (SELECT capability_id FROM external_mcp_tools WHERE id = ?)")
     .bind(now, server.id, toolId).run();
-  await env.AGENT_AUDIT.prepare("UPDATE external_mcp_servers SET status = ?, updated_at = ? WHERE id = ? AND generation = ?")
-    .bind(enabled ? "enabled" : "disabled", now, server.id, server.generation).run();
+  if (enabled) {
+    await env.AGENT_AUDIT.prepare("UPDATE external_mcp_servers SET status = 'enabled', updated_at = ? WHERE id = ? AND generation = ?")
+      .bind(now, server.id, server.generation).run();
+  } else {
+    await reconcileExternalMcpStatus(env, server, now);
+  }
 }
 
 export async function setExternalMcpAccess(env: Env, input: { orgId: string; ownerId: string; serverId: string; toolId: string; principal: string; enabled: boolean; now?: number }) {
@@ -412,14 +438,15 @@ function inputZodShape(schema: Record<string, unknown>) {
   return parsed.shape as Record<string, ZodType>;
 }
 
-export async function registerExternalMcpTools(registry: { registerTool(name: string, scope: "mcp:external", handler: (args: Record<string, unknown>, ctx: { env: Env; principal: TokenRecord }) => unknown, meta?: { description?: string; inputSchema?: Record<string, ZodType> }): void }, env: Env, principal: TokenRecord) {
-  if (principal.kind === "api_key" || principal.revoked || !principal.orgId || !principal.scopes.includes(EXTERNAL_MCP_SCOPE)) return;
+export async function registerExternalMcpTools(registry: { registerTool(name: string, scope: "mcp:external", handler: (args: Record<string, unknown>, ctx: { env: Env; principal: TokenRecord; invocationId?: string; idempotencyKey?: string }) => unknown, meta?: { description?: string; inputSchema?: Record<string, ZodType> }): void }, env: Env, principal: TokenRecord) {
+  if (principal.kind === "api_key" || principal.revoked || !principal.scopes.includes(EXTERNAL_MCP_SCOPE)) return;
   await ensure(env);
+  const principalOrgId = orgIdForRecord(principal);
   const rows = await env.AGENT_AUDIT.prepare(`SELECT t.*, s.id AS sid, s.org_id AS server_org_id, s.owner_id AS owner_id FROM external_mcp_tools t JOIN external_mcp_servers s ON s.id = t.server_id
     JOIN external_mcp_access a ON a.server_id = s.id AND a.capability_id = t.capability_id AND a.org_id = s.org_id
     WHERE s.org_id = ? AND a.principal = ? AND a.enabled = 1 AND t.enabled = 1 AND t.lifecycle = 'active'
       AND t.effect IN ('read','approval_required') AND s.status = 'enabled' ORDER BY t.gateway_name LIMIT ?`)
-    .bind(principal.orgId, principal.principal, MAX_EXTERNAL_MCP_TOOLS).all<Record<string, unknown>>();
+    .bind(principalOrgId, principal.principal, MAX_EXTERNAL_MCP_TOOLS).all<Record<string, unknown>>();
   for (const row of rows.results ?? []) {
     const tool = toolRow(row);
     const server = await getExternalMcpServer(env, String(row.server_org_id ?? ""), String(row.owner_id ?? ""), String(row.sid ?? ""));
@@ -451,14 +478,16 @@ export async function registerExternalMcpTools(registry: { registerTool(name: st
         lifecycle: "active", verification: "configured", capability, providerScopes: [], allowedResources: [tool.capabilityId],
         accountId: server.id, policyVersion, generation: server.generation };
       if (currentTool.effect === "approval_required") {
+        if (!context.invocationId) return { isError: true, content: [{ type: "text", text: "This approval-gated action has no durable operation identity and was not queued." }] };
         const saved = await findEmployeeActionApproval(env, { orgId: server.orgId, employeeId: server.id, employeeVersion: server.generation,
           actorId: context.principal.principal, capabilityId: tool.capabilityId, action: tool.remoteName,
           argumentDigest: argsHash, resourceId: tool.capabilityId,
-          connectionGeneration: server.generation });
+          connectionGeneration: server.generation, executionContextId: context.invocationId });
         if (!saved || saved.status !== "approved") {
           const pending = !saved || saved.status === "denied" || saved.status === "expired"
             ? await requestEmployeeActionApproval(env, { orgId: server.orgId, employeeId: server.id, employeeVersion: server.generation,
               actorId: context.principal.principal, connectionId: server.id, connectionGeneration: server.generation, capability,
+              executionContextId: context.invocationId,
               action: tool.remoteName, resourceId: tool.capabilityId, accountId: server.id,
               argumentDigest: argsHash, payload: args,
               policyVersion, expiresAt: Date.now() + APPROVAL_TTL }) : saved;
@@ -495,6 +524,8 @@ export async function registerExternalMcpTools(registry: { registerTool(name: st
 export async function executeApprovedExternalMcpAction(env: Env, server: ExternalMcpServer, approval: EmployeeApprovalRecord) {
   const failed = async (status: "failed" | "unknown_outcome", errorCode: string) => {
     await finishCapabilityInvocationApproval(env, { approvalId: approval.approvalId, status, errorCode });
+    await env.AGENT_AUDIT.prepare(`UPDATE external_mcp_approval_uses SET status = ?, error_code = ? WHERE approval_id = ? AND status = 'dispatching'`)
+      .bind(status, errorCode, approval.approvalId).run();
     await audit(env, { principal: approval.actorId, tool: approval.action, argsHash: approval.argumentDigest, outcome: status, detail: errorCode });
     return { status, errorCode };
   };
@@ -526,7 +557,13 @@ export async function executeApprovedExternalMcpAction(env: Env, server: Externa
     await refreshBeforeCall(env, server);
     const used = await env.AGENT_AUDIT.prepare("INSERT OR IGNORE INTO external_mcp_approval_uses (approval_id, used_at) VALUES (?, ?)")
       .bind(approval.approvalId, Date.now()).run();
-    if (used.meta?.changes !== 1) return failed("failed", "approval_already_used");
+    if (used.meta?.changes !== 1) {
+      const existing = await env.AGENT_AUDIT.prepare("SELECT status, error_code FROM external_mcp_approval_uses WHERE approval_id = ?")
+        .bind(approval.approvalId).first<{ status: string; error_code: string | null }>();
+      const status = existing?.status === "dispatching" ? "in_progress"
+        : existing?.status === "succeeded" || existing?.status === "failed" || existing?.status === "unknown_outcome" ? existing.status : "unknown_outcome";
+      return { status, ...(existing?.error_code ? { errorCode: existing.error_code } : {}) };
+    }
     const result = await withClient(env, server, (client) => client.callTool({ name: tool.remoteName, arguments: approval.payload }));
     await recordHealth(env, server, null);
     if (result.isError) return failed("unknown_outcome", "remote_tool_error");
@@ -535,6 +572,8 @@ export async function executeApprovedExternalMcpAction(env: Env, server: Externa
     const resultBytes = new TextEncoder().encode(JSON.stringify(content)).byteLength;
     if (resultBytes > MAX_RESULT_BYTES) return failed("unknown_outcome", "remote_result_too_large");
     await finishCapabilityInvocationApproval(env, { approvalId: approval.approvalId, status: "succeeded" });
+    await env.AGENT_AUDIT.prepare("UPDATE external_mcp_approval_uses SET status = 'succeeded', error_code = NULL WHERE approval_id = ? AND status = 'dispatching'")
+      .bind(approval.approvalId).run();
     await audit(env, { principal: approval.actorId, tool: tool.gatewayName, argsHash: approval.argumentDigest, outcome: "ok" });
     return { status: "succeeded", result: content };
   } catch (error) {

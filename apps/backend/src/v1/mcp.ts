@@ -1,4 +1,4 @@
-import { listTokens } from "../agent-tokens.js";
+import { listTokens, orgIdForRecord } from "../agent-tokens.js";
 import type { V1Context } from "./context.js";
 import { createExternalMcpServer, disableExternalMcpServer, discoverExternalMcpServer,
   getExternalMcpServer, listExternalMcpAccess, listExternalMcpServers, listExternalMcpTools, reviewExternalMcpTool,
@@ -106,7 +106,7 @@ export async function handleMcp(ctx: V1Context): Promise<Response | null> {
         return response({ ok: true });
       }
       if (!knownKeys(input, ["principal", "enabled"]) || typeof input.principal !== "string" || typeof input.enabled !== "boolean" || input.principal.length > 128) return response({ ok: false, error: "invalid_request" }, 400);
-      const token = (await listTokens(ctx.env)).find((candidate) => candidate.principal === input.principal && (candidate.orgId ?? "self-hosted") === server.orgId && !candidate.revoked && candidate.kind !== "api_key");
+      const token = (await listTokens(ctx.env)).find((candidate) => candidate.principal === input.principal && orgIdForRecord(candidate) === server.orgId && !candidate.revoked && candidate.kind !== "api_key");
       if (!token || !token.scopes.includes("mcp:external")) return response({ ok: false, error: "principal_needs_active_mcp_external_scope" }, 409);
       await setExternalMcpAccess(ctx.env, { orgId: server.orgId, ownerId: server.ownerId, serverId: id, toolId,
         principal: input.principal, enabled: input.enabled });
