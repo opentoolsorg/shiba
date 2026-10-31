@@ -7,6 +7,8 @@ import {
   evaluateRunWhen,
   evaluateRunWhenTypeSafe,
   isScheduleDue,
+  scheduleOccurrenceMs,
+  isValidAutomationTimeZone,
   matchAutomationEvent,
   matchGitHubTrigger,
   matchSlackTrigger,
@@ -90,6 +92,87 @@ describe("schedule triggers", () => {
       triggers: [{ kind: "schedule", cron: "*/5 * * * *" }],
     }).automation;
     expect(collectDueSchedules([due, idle], now).map((a) => a.id)).toEqual(["due"]);
+  });
+
+  it("evaluates a timezone-aware schedule across standard and daylight time", () => {
+    expect(isValidAutomationTimeZone("America/Los_Angeles")).toBe(true);
+    expect(isValidAutomationTimeZone("Not/A_Zone")).toBe(false);
+    // 09:00 local is 17:00 UTC in January and 16:00 UTC in July.
+    expect(scheduleOccurrenceMs("0 9 * * *", Date.UTC(2026, 0, 15, 17, 2), "America/Los_Angeles"))
+      .toBe(Date.UTC(2026, 0, 15, 17));
+    expect(scheduleOccurrenceMs("0 9 * * *", Date.UTC(2026, 6, 15, 16, 2), "America/Los_Angeles"))
+      .toBe(Date.UTC(2026, 6, 15, 16));
+    // The due window uses the actual UTC occurrence as the stable idempotency key.
+    expect(scheduleOccurrenceMs("0 9 * * *", Date.UTC(2026, 6, 15, 16, 4), "America/Los_Angeles"))
+      .toBe(Date.UTC(2026, 6, 15, 16));
+    expect(scheduleOccurrenceMs("0 9 * * *", Date.UTC(2026, 6, 15, 16, 5), "America/Los_Angeles"))
+      .toBeNull();
+  });
+
+  it("handles daylight-saving gaps and repeated local times by concrete UTC occurrence", () => {
+    // LA jumps from 01:59 to 03:00 on this date, so 02:30 does not occur.
+    expect(scheduleOccurrenceMs("30 2 * * *", Date.UTC(2026, 2, 8, 10, 0), "America/Los_Angeles"))
+      .toBeNull();
+    // On the fall transition, 01:30 occurs once in PDT and once in PST.
+    expect(scheduleOccurrenceMs("30 1 * * *", Date.UTC(2026, 10, 1, 8, 32), "America/Los_Angeles"))
+      .toBe(Date.UTC(2026, 10, 1, 8, 30));
+    expect(scheduleOccurrenceMs("30 1 * * *", Date.UTC(2026, 10, 1, 9, 32), "America/Los_Angeles"))
+      .toBe(Date.UTC(2026, 10, 1, 9, 30));
+  });
+
+  it("creates a repo-free workspace schedule with detached target and timezone data", () => {
+    const paths = ["sales/account-brief.md"];
+    const triggers = [{ kind: "schedule" as const, cron: "0 9 * * 1-5", timezone: "America/Los_Angeles" }];
+    const { automation } = createAutomation({
+      id: "workspace-schedule",
+      prompt: "Prepare a weekly account brief",
+      executionTarget: { kind: "artifact-workspace", workspaceName: "Sales", expectedDeliverables: paths },
+      triggers,
+    });
+    paths[0] = "sales/changed.md";
+    triggers[0]!.timezone = "UTC";
+    expect(automation.repoUrl).toBe("");
+    expect(automation.executionTarget).toEqual({
+      kind: "artifact-workspace",
+      workspaceName: "Sales",
+      expectedDeliverables: ["sales/account-brief.md"],
+    });
+    expect(automation.triggers[0]).toMatchObject({ cron: "0 9 * * 1-5", timezone: "America/Los_Angeles" });
+  });
+
+  it.each([
+    ["connected app", { kind: "connected-app", connectionId: "crm", action: "write" }],
+    ["unsafe path", { kind: "artifact-workspace", expectedDeliverables: ["../private.md"] }],
+  ])("rejects unsupported or invalid workspace target (%s)", (_label, executionTarget) => {
+    expect(() => createAutomation({
+      id: "invalid-workspace",
+      prompt: "Draft files",
+      executionTarget: executionTarget as never,
+      triggers: [{ kind: "schedule", cron: "0 9 * * *" }],
+    })).toThrow();
+  });
+
+  it("rejects workspace schedules with repository or non-schedule triggers and invalid IANA zones", () => {
+    const executionTarget = { kind: "artifact-workspace" as const, expectedDeliverables: ["brief.md"] };
+    expect(() => createAutomation({
+      id: "mixed-workspace",
+      prompt: "Draft",
+      repoUrl: REPO,
+      executionTarget,
+      triggers: [{ kind: "schedule", cron: "0 9 * * *" }],
+    })).toThrow(/must not name a repository/i);
+    expect(() => createAutomation({
+      id: "webhook-workspace",
+      prompt: "Draft",
+      executionTarget,
+      triggers: [{ kind: "schedule", cron: "0 9 * * *" }, { kind: "manual" }],
+    })).toThrow(/schedule triggers only/i);
+    expect(() => createAutomation({
+      id: "bad-zone",
+      prompt: "Legacy schedule",
+      repoUrl: REPO,
+      triggers: [{ kind: "schedule", cron: "0 9 * * *", timezone: "Mars/Olympus" }],
+    })).toThrow(/timezone/i);
   });
 });
 
@@ -390,6 +473,22 @@ describe("automation safety (T20)", () => {
     expect(killed.reason).toContain("disabled globally");
   });
 
+  it("keeps artifact-workspace runs approval-gated and charges the same daily budget", () => {
+    const created = createAutomation({
+      id: "artifact-budget",
+      prompt: "Prepare a draft",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+      triggers: [{ kind: "schedule", cron: "0 9 * * *" }],
+    }).automation;
+    const automation = { ...created, dailyRunLimit: 1, unattended: true, unattendedRepos: ["owner/repo"] };
+    const request = { publishPullRequest: false, executionTarget: automation.executionTarget };
+    expect(authorizeAutomationRun(automation, request, 1000)).toMatchObject({ allowed: true, requiresApproval: true });
+    expect(authorizeAutomationRun({ ...automation, runsToday: 1, runDayStartedAt: 0 }, request, 1000)).toMatchObject({
+      allowed: false,
+      reason: expect.stringContaining("Daily run budget"),
+    });
+  });
+
   it.each([
     ["false", false], ["0", false], ["off", false], ["no", false],
     ["true", true], ["1", true], [undefined, true], ["", true],
@@ -406,7 +505,9 @@ describe("createAutomation customAgentId", () => {
       repoUrl: REPO,
       triggers: [{ kind: "manual" }],
       customAgentId: "agent-abc",
+      customAgentPin: { id: "agent-abc", orgId: "self-hosted", version: 3, configSha256: "a".repeat(64) },
     });
     expect(automation.customAgentId).toBe("agent-abc");
+    expect(automation.customAgentPin).toMatchObject({ version: 3, configSha256: "a".repeat(64) });
   });
 });

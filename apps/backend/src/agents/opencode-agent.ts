@@ -65,7 +65,7 @@ import { messageText, renderRunTranscript } from "../transcript.js";
 export async function pinSandboxEgress(
   env: Env,
   sandboxId: string,
-  repoUrl: string,
+  repoUrl: string | null,
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
   selection: SandboxSelectionContext = {},
@@ -85,11 +85,14 @@ export async function pinSandboxEgress(
           ]),
         )
       : undefined;
-  const { owner, repo } = parseGitHubRepoUrl(repoUrl);
+  const githubRepoPath = repoUrl === null ? undefined : (() => {
+    const { owner, repo } = parseGitHubRepoUrl(repoUrl);
+    return `/${owner}/${repo}`;
+  })();
   await instance.pinEgress({
     allowedHosts: egressHosts ?? [],
     ...(outboundByHost ? { outboundByHost } : {}),
-    githubRepoPath: `/${owner}/${repo}`,
+    ...(githubRepoPath ? { githubRepoPath } : {}),
     ...(selection.orgId ? { orgId: selection.orgId } : {}),
   });
 }
@@ -120,6 +123,9 @@ export function createSandboxOps(
     return instancePromise;
   };
   return {
+    async pinEgress() {
+      await pinSandboxEgress(env, sandboxId, null, egressHosts, egressOverrides, selection);
+    },
     async gitCheckout(repoUrl, opts) {
       // The clone runs before anything else, so it is where this run's egress
       // is pinned down: the selected harness's hosts only (T22), and the

@@ -9,6 +9,9 @@ import type {
   MailboxRecord,
   PendingApproval,
   SessionRecord,
+  RunDeliverable,
+  ExecutionTarget,
+  RunStatus,
 } from "@shiba/shared";
 
 export type { EmailDirection } from "@shiba/shared";
@@ -154,14 +157,43 @@ export interface VMRun {
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
-  status: string;
+  status: RunStatus;
   createdAt: number;
   updatedAt: number;
   summary?: string;
   error?: string;
   diff?: string;
   hasDiff?: boolean;
+  pullUrl?: string;
+  reviewAfterPublish?: boolean;
+  customAgentVersion?: number;
+  expectedDeliverables?: string[];
+  deliverables?: RunDeliverable[];
+  executionTarget?: ExecutionTarget;
   parentRunId?: string;
   subagentPath?: string;
   subagentSandbox?: "fresh" | "shared";
+}
+
+/** Minimum retained-run projection needed to honestly show run status/results. */
+export interface RunProgressRecord {
+  runId: string;
+  status: RunStatus;
+  task: string;
+  publishPullRequest: boolean;
+  customAgentVersion?: number;
+  pullUrl?: string;
+  error?: string;
+  expectedDeliverables?: string[];
+  deliverables?: RunDeliverable[];
+}
+
+const RUN_STATUSES = new Set<RunStatus>([
+  "pending", "running", "completed", "error", "aborted", "cancelled", "unknown",
+]);
+
+export function normalizeRunStatus(value: unknown): RunStatus {
+  return typeof value === "string" && RUN_STATUSES.has(value as RunStatus)
+    ? value as RunStatus
+    : "unknown";
 }

@@ -5,6 +5,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@cloudflare/sandbox": join(import.meta.dirname, "src/sandbox/npm-shim.ts"),
+      "@tanstack/react-router": join(import.meta.dirname, "../frontend/node_modules/@tanstack/react-router/dist/esm/index.js"),
+      "@cloudflare/ai-chat/react": join(import.meta.dirname, "../frontend/node_modules/@cloudflare/ai-chat/dist/react.js"),
+      "agents/react": join(import.meta.dirname, "../frontend/node_modules/agents/dist/react.js"),
     },
   },
   esbuild: {
@@ -35,7 +38,7 @@ export default defineConfig({
         // agents/mcp transitively imports cloudflare:* specifiers, which
         // Node's ESM loader cannot resolve — inlining routes them through
         // Vite so the resolveId stub above applies.
-        inline: ["agents", "@cloudflare/codemode"],
+        inline: ["agents", "@cloudflare/codemode", "@cloudflare/ai-chat", "ai"],
       },
     },
   },

@@ -577,6 +577,16 @@ describe("approvalEvidenceFor + runInputHash", () => {
     expect(runInputHash({ ...local, targetMachineId: undefined })).toBe(legacy);
   });
 
+  it("pins the exact reviewed skill versions into the approval hash and queued run", () => {
+    const skillPins = [{ skillId: `skill-${"a".repeat(24)}`, version: 3, name: "Security", sourceUrl: "https://example.test/security" }];
+    const withSkill = { ...INPUT, skillPins };
+    expect(runInputHash(withSkill)).not.toBe(runInputHash(INPUT));
+    expect(runInputHash({ ...withSkill, skillPins: [{ ...skillPins[0]!, version: 4 }] })).not.toBe(runInputHash(withSkill));
+    const queued = apply(null, queue({ input: withSkill, approval: evidence({ inputHash: runInputHash(withSkill) }) })).run!;
+    expect(queued.skillPins).toEqual(skillPins);
+    expect(queued.approval?.inputHash).toBe(runInputHash(withSkill));
+  });
+
   it("start/approve reject evidence hashed for a different target; queue replay rejects a mismatched target", () => {
     const local = { ...INPUT, runtime: "local" as const };
     const run = apply(null, queue({ input: { ...local, targetMachineId: "m-1" } })).run!;

@@ -62,6 +62,12 @@ export const localRunEnvelopeSchema = z.object({
   task: z.string().min(1).max(TASK_MAX),
   customAgentId: z.string().min(1).max(128).optional(),
   customAgentVersion: z.number().int().positive().optional(),
+  skillPins: z.array(z.object({
+    skillId: z.string().regex(/^skill-[a-f0-9]{24}$/),
+    version: z.number().int().positive(),
+    name: z.string().min(1).max(100),
+    sourceUrl: z.string().url().startsWith("https://").optional(),
+  }).strict()).max(5).optional(),
   orgId: z.string().min(1).max(128).optional(),
   harness: z.string().min(1).max(64),
   /** Root-tokenized absolute paths the daemon resolves before use. */
@@ -206,6 +212,7 @@ export function buildLocalRunEnvelope(args: {
     task: string;
     customAgentId?: string;
     customAgentVersion?: number;
+    skillPins?: Array<{ skillId: string; version: number; name: string; sourceUrl?: string }>;
     orgId?: string;
     testCommand?: string[];
     expectedDeliverables?: string[];
@@ -249,6 +256,7 @@ export function buildLocalRunEnvelope(args: {
     task: input.task,
     ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+    ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
     ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
     ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: [...input.expectedDeliverables] } : {}),
     harness: args.harnessName,

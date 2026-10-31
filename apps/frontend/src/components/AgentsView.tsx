@@ -7,6 +7,7 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import type { AgentPrincipal } from "../types";
 import { formatTimeAgo } from "../ui-helpers";
+import { ExternalMcpManagement } from "./ExternalMcpManagement";
 export function AgentsView(): JSX.Element {
   const [principals, setPrincipals] = useState<AgentPrincipal[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -273,6 +274,8 @@ export function AgentsView(): JSX.Element {
             </div>
           )}
         </div>
+
+        <ExternalMcpManagement />
 
       </div>
     </div>

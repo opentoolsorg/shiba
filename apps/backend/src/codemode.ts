@@ -23,7 +23,7 @@ import { SCOPES, type Scope, type TokenRecord } from "./agent-tokens.js";
 import type { Env } from "./env.js";
 import { createToolRegistry, type ToolRegistry } from "./mcp-gateway.js";
 import { registerEmailTools } from "./mcp-email-tools.js";
-import { registerMemoryTools } from "./mcp-memory-tools.js";
+import { registerMemoryTools, registerOwnerMemoryTools } from "./mcp-memory-tools.js";
 import { registerRunTools } from "./mcp-run-tools.js";
 
 /** The shared cross-user principal must never inherit personal Gmail access. */
@@ -59,10 +59,11 @@ export function gatewayToolSet(env: Env, registry: ToolRegistry): ToolSet {
   return set;
 }
 
-function buildRegistry(env: Env): ToolRegistry {
+function buildRegistry(env: Env, ownerMemoryId?: string): ToolRegistry {
   const registry = createToolRegistry(env);
   registerEmailTools(registry, env);
   registerMemoryTools(registry, env);
+  if (ownerMemoryId) registerOwnerMemoryTools(registry, env, ownerMemoryId);
   registerRunTools(registry, env);
   return registry;
 }
@@ -72,14 +73,14 @@ function buildRegistry(env: Env): ToolRegistry {
  * calls `codemode.<tool>(args)` and returns/log()s only the fields it needs.
  * Requires the `LOADER` worker_loaders binding in wrangler.jsonc.
  */
-export function createRunCodeTool(env: Env) {
+export function createRunCodeTool(env: Env, ownerMemoryId?: string) {
   if (!env.LOADER) return null;
   const executor = new DynamicWorkerExecutor({
     loader: env.LOADER,
     globalOutbound: null,
   });
   return createCodeTool({
-    tools: [{ name: "codemode", tools: gatewayToolSet(env, buildRegistry(env)) }],
+    tools: [{ name: "codemode", tools: gatewayToolSet(env, buildRegistry(env, ownerMemoryId)) }],
     executor,
     description:
       "Execute JavaScript in an isolated sandbox to use the coworker's tools.\n\nAvailable:\n{{types}}\n\n" +

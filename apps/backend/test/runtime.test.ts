@@ -122,6 +122,50 @@ describe("SandboxRuntimeAdapter", () => {
     expect(seen).toEqual(["clone", "configure", "code", "collect", "collect"]);
   });
 
+  it("prepares a repository-free artifact workspace without checking out a repository", async () => {
+    const pinEgress = vi.fn(async () => {});
+    const gitCheckout = vi.fn(async () => {});
+    const ops = makeFakeOps({ pinEgress, gitCheckout });
+    const input: CodingTaskInput = {
+      ...INPUT,
+      repoUrl: "",
+      executionTarget: {
+        kind: "artifact-workspace",
+        workspaceName: "Sales workspace",
+        expectedDeliverables: ["sales/account-brief.md"],
+      },
+    };
+
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, input, () => {});
+
+    expect(result.status).toBe("completed");
+    expect(pinEgress).toHaveBeenCalledOnce();
+    expect(gitCheckout).not.toHaveBeenCalled();
+    expect(ops.execs.some((entry) =>
+      entry.command.includes("'git' 'init'") && entry.command.includes("'/workspace/run-abcdef12345678'"),
+    )).toBe(true);
+    expect(ops.execs.some((entry) => /'git' 'clone'|github\.com/.test(entry.command))).toBe(false);
+  });
+
+  it("fails artifact-workspace setup before execution when egress cannot be pinned", async () => {
+    const ops = makeFakeOps();
+    const input: CodingTaskInput = {
+      ...INPUT,
+      repoUrl: "",
+      executionTarget: {
+        kind: "artifact-workspace",
+        expectedDeliverables: [],
+      },
+    };
+
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, input, () => {});
+
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("Artifact workspace initialization failed");
+    expect(ops.execs.some((entry) => entry.command.includes("opencode"))).toBe(false);
+    expect(ops.execs.some((entry) => entry.command.includes("'git' 'init'"))).toBe(false);
+  });
+
   it("quotes the task so shell metacharacters cannot escape", async () => {
     const ops = makeFakeOps();
     const adapter = new SandboxRuntimeAdapter();

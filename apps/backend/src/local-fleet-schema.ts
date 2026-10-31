@@ -16,6 +16,7 @@ export const HeartbeatRequestSchema = Schema.Struct({
   daemonVersion: Bounded(64),
   harnesses: Harnesses,
   activeRunId: Schema.optional(Bounded(200)),
+  reasonNetworkCompanion: Schema.optional(Schema.Boolean),
 });
 
 export const PairRequestSchema = Schema.Struct({
@@ -36,6 +37,7 @@ export const ConnectedComputerSchema = Schema.Struct({
   lastHeartbeat: Schema.Number,
   pairedAt: Schema.optional(Schema.Number),
   activeRunId: Schema.optional(Schema.String),
+  reasonNetworkCompanion: Schema.optional(Schema.Boolean),
 });
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] extends readonly (infer U)[] ? U[] : T[K] };

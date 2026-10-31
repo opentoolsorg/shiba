@@ -7,7 +7,7 @@
  * checkpoint is `executing` or `settling`, the outcome is unknown.
  */
 import type { RunDeliverable } from "./deliverables.js";
-import type { ApprovalEvidence } from "./approvals.js";
+import type { ApprovalEvidence, SkillExecutionPin } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
 import type { ApprovedRoute } from "./model.js";
 import type { Receipt } from "./receipts.js";
@@ -15,6 +15,7 @@ import type { RunErrorCode } from "./run-errors.js";
 import type { RunSignal } from "./run-signals.js";
 import type { SteeringNote } from "./steering.js";
 import type { SubagentSandboxMode } from "./subagent.js";
+import type { ExecutionTarget } from "./execution-target.js";
 
 /**
  * Worker-vouched agent identity for run/approval reads: only the MCP
@@ -37,6 +38,8 @@ export interface DelegatedRun {
   runId: string;
   sandboxId: string;
   repoUrl: string;
+  /** Explicit work destination; absent on legacy repository run records. */
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
@@ -163,6 +166,8 @@ export interface DelegatedRun {
   /** Sandbox provider id for this run (task override frozen at queue time). */
   sandboxProvider?: string;
   customAgentId?: string;
+  /** Room handoff whose live membership/cancellation state fences this run. */
+  collaborationHandoffId?: string;
   /** T68: env names + digest (approval-hashed); values only inside `envSealed`. */
   envNames?: string[];
   envDigest?: string;
@@ -171,6 +176,10 @@ export interface DelegatedRun {
   runSetup?: boolean;
   /** Profile version whose effective instructions and route this run approved. */
   customAgentVersion?: number;
+  /** Profile version whose employee app-tool grants this approval permits. */
+  employeeToolPolicyVersion?: number;
+  /** Reviewed skill versions used to build this run's frozen task prompt. */
+  skillPins?: SkillExecutionPin[];
   /**
    * Durable phase written before the next await. A Worker/DO restart
    * resumes `queued` and `dispatching` runs that have not touched a

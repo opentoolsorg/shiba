@@ -26,6 +26,7 @@ export const SCOPES = [
   "memory:write",
   "runs:read",
   "sandbox:exec",
+  "mcp:external",
   "admin:tokens",
   "api:read",
   "api:write",

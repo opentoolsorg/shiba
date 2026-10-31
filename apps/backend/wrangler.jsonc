@@ -29,6 +29,9 @@
     { "pattern": "app.tryshiba.dev", "custom_domain": true },
   ],
   "vars": {
+    // No upstream MCP host is enabled by default. Operators must list exact public
+    // hostnames here and pre-provision referenced MCP_CREDENTIAL_* secrets.
+    "MCP_TRUSTED_HOSTS": "",
     "GATEWAY_ID": "default",
     "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",
     "CODING_MODEL": "google/gemini-3.5-flash-lite",

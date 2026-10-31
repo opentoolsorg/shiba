@@ -3,11 +3,27 @@ import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestra
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { HARNESS_IDS } from "@shiba/shared";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
+import { replaceEmployeeToolGrants } from "../src/employee-tool-store.js";
+import { activateSkill, createSkill, disableSkill, reviewSkill } from "../src/skills-store.js";
 import { LocalDispatch } from "../src/local-dispatch.js";
 import { createRun, RunStore, RUN_DEADLINE_MS, type DelegatedRun } from "../src/runs.js";
 import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
 import { createPendingApproval, resolvePendingApproval } from "../src/pending-approvals.js";
+import { artifactIdentity, prepareRunArtifacts } from "../src/artifact-metadata.js";
+import { createDurableTask, updateTaskAttempt } from "../src/task-attempts.js";
 import { approveDirect } from "./seeding.js";
+import {
+  addCollaborationMember,
+  cancelCollaborationHandoff,
+  COLLAB_TENANT_ID,
+  COLLAB_WORKSPACE_ID,
+  createCollaborationRoom,
+  createRootCollaborationHandoff,
+  humanActorId,
+  linkCollaborationHandoffRun,
+} from "../src/collaboration-store.js";
 import {
   destroyManagedContainer,
   forgetLeaked,
@@ -241,6 +257,386 @@ describe("local run cleanup", () => {
     expect(leakedContainers().some((leak) => leak.sandboxId === run.sandboxId)).toBe(false);
     expect(instance.state.leakedContainers?.unknown).toBeDefined();
     expect(instance.state.leakedContainers?.["real-cloud"]).toBeUndefined();
+  });
+});
+
+describe("room handoff dispatch fences", () => {
+  it("does not dispatch an approval after the linked room lineage was cancelled", async () => {
+    const instance = agent();
+    const db = customAgentD1();
+    Object.assign(instance.env, { AGENT_AUDIT: db.database });
+    const collaborationEnv = { AGENT_AUDIT: db.database };
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, userId: "owner@example.test" };
+    const roomId = "room-dispatch-fence";
+    const handoffId = "handoff-dispatch-fence";
+    const employeeId = "employee-dispatch-fence";
+    await createCollaborationRoom(collaborationEnv, scope, {
+      roomId, title: "Dispatch fence", visibility: "private", createdAt: Date.now(),
+    });
+    await addCollaborationMember(collaborationEnv, scope, roomId, {
+      userId: scope.userId, displayName: "Employee", actorId: `agent:${employeeId}`,
+      kind: "agent", profileVersion: 1, createdAt: Date.now(),
+    });
+    await createRootCollaborationHandoff(collaborationEnv, scope, {
+      handoffId, tenantId: scope.tenantId, workspaceId: scope.workspaceId, roomId,
+      taskId: "task-fence", senderUserId: scope.userId, senderActorId: humanActorId(scope.userId),
+      recipientUserId: scope.userId, recipientActorId: `agent:${employeeId}`, parentHandoffId: null,
+      rootHandoffId: handoffId, depth: 0, ancestorHandoffIds: [], remainingBudget: 1,
+      grantedCapabilities: ["room.read", "handoff.create"], profileVersion: 1,
+      status: "active", createdAt: Date.now(), cancelledAt: null,
+    });
+    await linkCollaborationHandoffRun(collaborationEnv, scope, handoffId, "approval-fence", "agent-tool:approval-fence");
+    const run = createRun({
+      runId: "agent-tool:approval-fence", sandboxId: "sandbox-fence", repoUrl: "",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["reports/out.md"] },
+      task: "Write a report", baseBranch: "main", publishPullRequest: false,
+      customAgentId: employeeId, customAgentVersion: 1, collaborationHandoffId: handoffId,
+    });
+    instance.setState({ runs: [run] });
+    await cancelCollaborationHandoff(collaborationEnv, scope, handoffId, Date.now());
+    const dispatch = Reflect.get(instance, "dispatchApprovedRun") as (
+      run: DelegatedRun,
+      approval: Record<string, unknown>,
+      approvalId: string,
+    ) => void;
+    dispatch.call(instance, run, { approvalId: "approval-fence", status: "approved", threadKey: scope.userId }, "approval-fence");
+    await vi.waitFor(() => expect(instance.state.runs[0]?.status).toBe("cancelled"));
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("reports an in-flight linked run as unknown after room cancellation", async () => {
+    const instance = agent();
+    const run = createRun({
+      runId: "agent-tool:in-flight-room", sandboxId: "sandbox-in-flight-room", repoUrl: "https://github.com/o/r",
+      task: "Work", baseBranch: "main", publishPullRequest: false,
+      customAgentId: "employee", customAgentVersion: 1, collaborationHandoffId: "handoff-in-flight",
+    });
+    instance.setState({ runs: [{ ...run, checkpoint: "executing" }] });
+    Object.assign(instance, { runControllersMap: new Map(), releaseSandboxForRun: vi.fn(async () => {}) });
+    const response = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-in-flight" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ cancelled: false, executorCancellationPending: false, outcomeUnknown: true });
+    expect(instance.state.runs[0]?.status).toBe("unknown");
+    const replay = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-in-flight" }),
+    }));
+    expect(await replay.json()).toEqual({ cancelled: false, executorCancellationPending: false, outcomeUnknown: true });
+  });
+
+  it("fences descendants below a terminal intermediary and preserves in-flight uncertainty", async () => {
+    const instance = agent();
+    const root = createRun({
+      runId: "room-root-completed", sandboxId: "room-root-box", repoUrl: "https://github.com/o/r",
+      task: "Root", baseBranch: "main", publishPullRequest: false,
+      collaborationHandoffId: "handoff-tree-cancel",
+    });
+    const intermediary = {
+      ...createRun({
+      runId: "room-intermediary-completed", sandboxId: "room-intermediary-box", repoUrl: "https://github.com/o/r",
+      task: "Intermediary", baseBranch: "main", publishPullRequest: false,
+      parentRunId: root.runId,
+      }),
+      status: "completed" as const,
+    };
+    const descendant = createRun({
+      runId: "room-grandchild-active", sandboxId: "room-grandchild-box", repoUrl: "https://github.com/o/r",
+      task: "Grandchild", baseBranch: "main", publishPullRequest: false,
+      parentRunId: intermediary.runId,
+    });
+    const inFlight = {
+      ...createRun({
+        runId: "room-grandchild-in-flight", sandboxId: "room-grandchild-live-box", repoUrl: "https://github.com/o/r",
+        task: "In-flight grandchild", baseBranch: "main", publishPullRequest: false,
+        parentRunId: intermediary.runId,
+      }),
+      checkpoint: "executing" as const,
+    };
+    const release = vi.fn(async () => {});
+    instance.setState({ runs: [root, intermediary, descendant, inFlight] });
+    Object.assign(instance, { releaseSandboxForRun: release });
+
+    const response = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-tree-cancel" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ cancelled: false, executorCancellationPending: false, outcomeUnknown: true });
+    expect(instance.state.runs?.find((run) => run.runId === "room-grandchild-active")?.status).toBe("cancelled");
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ runId: "room-grandchild-active" }));
+    expect(instance.state.runs?.find((run) => run.runId === "room-grandchild-in-flight")?.status).toBe("unknown");
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ runId: "room-grandchild-in-flight" }));
+    expect(instance.state.runs?.find((run) => run.runId === root.runId)?.status).toBe("cancelled");
+    expect(instance.state.runs?.find((run) => run.runId === intermediary.runId)?.status).toBe("completed");
+  });
+
+  it("reports executor cleanup failures as pending instead of claiming room cancellation completed", async () => {
+    const instance = agent();
+    const run = createRun({
+      runId: "room-cleanup-pending", sandboxId: "room-cleanup-pending-box", repoUrl: "https://github.com/o/r",
+      task: "Room run", baseBranch: "main", publishPullRequest: false,
+      collaborationHandoffId: "handoff-cleanup-pending",
+    });
+    instance.setState({ runs: [run] });
+    Object.assign(instance, {
+      releaseSandboxForRun: vi.fn(async () => { throw new Error("sandbox still reachable"); }),
+    });
+
+    const response = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-cleanup-pending" }),
+    }));
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ cancelled: false, executorCancellationPending: true, outcomeUnknown: false });
+    expect(instance.state.runs?.[0]?.status).toBe("cancelled");
+  });
+
+  it("rejects the linked pending approval when the Worker propagates lineage cancellation", async () => {
+    const instance = agent();
+    const pendingApprovals = createPendingApproval([], {
+      threadKey: "owner@example.test",
+      approvalId: "approval-pending-room",
+      repoUrl: "https://github.com/o/r",
+      task: "Write a report.",
+      collaborationHandoffId: "handoff-pending-room",
+      createdAt: Date.now(),
+    });
+    instance.setState({ runs: [], pendingApprovals });
+    const response = await instance.onRequest(new Request("https://internal/internal/collaboration-handoff-cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handoffId: "handoff-pending-room" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(instance.state.pendingApprovals?.[0]).toMatchObject({
+      approvalId: "approval-pending-room",
+      status: "rejected",
+      decidedBy: "collaboration-cancellation",
+    });
+  });
+});
+
+describe("employee tool policy in normal chat turns", () => {
+  it("preserves never-managed Code Mode but keeps managed-empty policy deny-all after revoke", async () => {
+    const instance = agent();
+    const { database } = customAgentD1();
+    Object.assign(instance, {
+      env: { ...instance.env, AGENT_AUDIT: database },
+      name: "owner@example.test",
+    });
+    const employee = await createCustomAgent(instance.env, "self-hosted", "run-status-employee", {
+      name: "Run status employee", instructions: "Read only the approved run status.", harness: "opencode",
+    });
+    Object.assign(instance, { messages: [{
+      role: "user",
+      metadata: { shibaTask: { customAgentId: employee.id, orgId: "self-hosted" } },
+    }] });
+    const tools = { run_code: {}, employee_tool_catalog: {}, employee_tool_call: {}, delegate_coding_task: {} };
+    const turn = () => instance.beforeTurn({ tools, system: "base system" } as never);
+
+    const legacy = await turn();
+    expect(legacy.activeTools).toContain("run_code");
+    expect(legacy.activeTools).not.toContain("employee_tool_catalog");
+
+    const configured = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
+      ...employee.config, toolScopes: ["mcp:shiba:run_status"],
+    }, employee.version);
+    await replaceEmployeeToolGrants(instance.env, {
+      orgId: "self-hosted", employeeId: employee.id, employeeVersion: configured.version,
+      actorId: "owner@example.test", role: "operator", capabilityIds: ["mcp:shiba:run_status"],
+      resourcesByCapability: { "mcp:shiba:run_status": ["run-1"] },
+    });
+    const configuredTurn = await turn();
+    expect(configuredTurn.activeTools).not.toContain("run_code");
+    expect(configuredTurn.activeTools).toContain("employee_tool_catalog");
+    expect(configuredTurn.activeTools).toContain("employee_tool_call");
+
+    const cleared = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
+      ...configured.config, toolScopes: [],
+    }, configured.version);
+    await replaceEmployeeToolGrants(instance.env, {
+      orgId: "self-hosted", employeeId: employee.id, employeeVersion: cleared.version,
+      actorId: "owner@example.test", role: "operator", capabilityIds: [], resourcesByCapability: {},
+    });
+    const revokedTurn = await turn();
+    expect(revokedTurn.activeTools).not.toContain("run_code");
+    expect(revokedTurn.activeTools).not.toContain("employee_tool_catalog");
+    expect(revokedTurn.activeTools).not.toContain("employee_tool_call");
+  });
+});
+
+describe("durable artifact review state", () => {
+  it("stores reviewer decisions in the owning run record and returns version history without bodies", async () => {
+    const instance = agent();
+    const first: DelegatedRun = { ...retained("completed"), runId: "r1", createdAt: 100, deliverables: [{
+      path: "reports/brief.md", mediaType: "text/markdown", bytes: 4, sha256: "a".repeat(64),
+      version: 1, sourceRunId: "r1",
+      review: { status: "pending_review" as const, updatedAt: 100 },
+    }] };
+    first.deliverables = await prepareRunArtifacts(first, first.deliverables ?? [], "task-root", 100);
+    const latest: DelegatedRun = { ...first, runId: "r2", createdAt: 200, deliverables: [{ ...first.deliverables![0]!, version: 2, sourceRunId: "r2" }] };
+    const attempts = [first, latest].map((run, index) => ({
+      attempt: index + 1,
+      commandId: `task-root:${index + 1}`,
+      approvalId: `approval-${index + 1}`,
+      runId: run.runId,
+      status: "completed" as const,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      frozen: { body: { repoUrl: run.repoUrl, task: run.task }, inputHash: `hash-${index + 1}`, threadKey: "default" },
+    }));
+    instance.setState({ ...instance.state, runs: [first, latest], tasks: [{
+      taskId: "task-root", artifactLineageId: "task-root", ownerId: "default", title: "brief",
+      createdAt: 100, updatedAt: 200, attempts,
+    }] });
+    const update = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "changes_requested", note: "Add citations", expectedRevision: 0 }),
+    }));
+    expect(update.status).toBe(200);
+    expect(instance.state.runs?.find((item) => item.runId === "r2")?.deliverables?.[0]?.review)
+      .toEqual({ status: "changes_requested", revision: 1, updatedAt: expect.any(Number), note: "Add citations" });
+    const staleDecision = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "approved", expectedRevision: 0 }),
+    }));
+    expect(staleDecision.status).toBe(409);
+    expect(await staleDecision.json()).toMatchObject({
+      currentReview: { status: "changes_requested", note: "Add citations", revision: 1 },
+    });
+    const history = await instance.onRequest(new Request("https://internal/api/runs/r2/deliverables/0/history"));
+    const payload = await history.json() as { artifactId: string; versions: Array<Record<string, unknown>> };
+    expect(payload.artifactId).toBe(first.deliverables?.[0]?.artifactId);
+    expect(payload.versions.map((version) => version.version)).toEqual([1, 2]);
+    expect(payload.versions[1]?.review).toMatchObject({ status: "changes_requested", note: "Add citations" });
+    expect(JSON.stringify(payload)).not.toContain("content");
+  });
+
+  it("rejects a revision request without a note and refuses review updates to active runs", async () => {
+    const instance = agent();
+    const active = { ...retained("running"), deliverables: [{ path: "reports/brief.md", mediaType: "text/markdown", bytes: 4, sha256: "a".repeat(64) }] };
+    instance.setState({ ...instance.state, runs: [active] });
+    const request = (body: unknown) => instance.onRequest(new Request("https://internal/api/runs/r1/deliverables/0/review", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+    expect((await request({ status: "changes_requested", expectedRevision: 0 })).status).toBe(400);
+    expect((await request({ status: "approved", expectedRevision: 0 })).status).toBe(404);
+  });
+
+  it("creates an explicit fresh revision approval with artifact lineage and never dispatches it", async () => {
+    const instance = agent();
+    const source: DelegatedRun = {
+      ...retained("completed"),
+      runId: "artifact-source-run",
+      repoUrl: "",
+      task: "Create a report",
+      expectedDeliverables: ["reports/brief.md"],
+      deliverables: [{
+        path: "reports/brief.md", mediaType: "text/markdown", bytes: 4, sha256: "a".repeat(64),
+        version: 3, sourceRunId: "artifact-source-run",
+        review: { status: "changes_requested" as const, revision: 4, updatedAt: 20, note: "Add citations" },
+      }],
+    };
+    const approvalBody = {
+      threadKey: "default", approvalId: "original-approval", repoUrl: "", task: "Create a report",
+      baseBranch: "main", publishPullRequest: false, expectedDeliverables: ["reports/brief.md"],
+      status: "approved" as const, createdAt: 10,
+    };
+    const sourceTask = updateTaskAttempt(createDurableTask({
+      taskId: "task-source", ownerId: "default", title: "Create a report", commandId: "source-command",
+      approvalId: "original-approval", frozen: { body: approvalBody, inputHash: "source-hash", threadKey: "default" }, now: 10,
+    }), 1, { runId: source.runId, status: "completed", updatedAt: 20 });
+    sourceTask.artifactLineageId = sourceTask.taskId;
+    const sourceArtifact = source.deliverables?.[0];
+    if (!sourceArtifact) throw new Error("Expected source artifact.");
+    sourceArtifact.artifactId = await artifactIdentity(source, sourceArtifact.path, "task-source");
+    instance.setState({ ...instance.state, runs: [source], tasks: [sourceTask] });
+
+    const request = () => instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        commandId: "artifact-revision:source-1234",
+        artifactId: sourceArtifact.artifactId,
+        artifactVersion: 3,
+        reviewRevision: 4,
+      }),
+    }));
+    const staleBinding = await instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        commandId: "artifact-revision:stale-12345",
+        artifactId: sourceArtifact.artifactId,
+        artifactVersion: 3,
+        reviewRevision: 3,
+      }),
+    }));
+    expect(staleBinding.status).toBe(409);
+    expect(await staleBinding.json()).toMatchObject({ currentReview: { revision: 4, note: "Add citations" } });
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    const created = await request();
+    expect(created.status).toBe(200);
+    const payload = await created.json() as { approvalId: string; started: boolean; task: { taskId: string; revisionOf: Record<string, unknown> } };
+    expect(payload.started).toBe(false);
+    expect(payload.approvalId).not.toBe("original-approval");
+    expect(payload.task.revisionOf).toMatchObject({
+      taskId: "task-source", runId: source.runId, artifactId: source.deliverables?.[0]?.artifactId,
+      artifactVersion: 3, reviewRevision: 4, path: "reports/brief.md",
+    });
+    expect(instance.state.pendingApprovals?.at(-1)).toMatchObject({
+      approvalId: payload.approvalId, task: expect.stringContaining("Add citations"), status: "pending",
+    });
+    expect(instance.state.tasks?.at(-1)).toMatchObject({ artifactLineageId: "task-source", revisionOf: payload.task.revisionOf });
+    const replay = await request().then((response) => response.json()) as { approvalId: string; deduped?: boolean };
+    expect(replay).toMatchObject({ approvalId: payload.approvalId, deduped: true });
+    const reloadRetry = await instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        commandId: "artifact-revision:after-reload",
+        artifactId: sourceArtifact.artifactId,
+        artifactVersion: 3,
+        reviewRevision: 4,
+      }),
+    })).then((response) => response.json()) as { approvalId: string; deduped?: boolean };
+    expect(reloadRetry).toMatchObject({ approvalId: payload.approvalId, deduped: true });
+    expect(instance.state.pendingApprovals).toHaveLength(1);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("requires a new room handoff instead of carrying an old handoff into a revision approval", async () => {
+    const instance = agent();
+    const source: DelegatedRun = {
+      ...retained("completed"), runId: "room-artifact-source", repoUrl: "",
+      task: "Create a room report", collaborationHandoffId: "room-source-handoff",
+      expectedDeliverables: ["reports/room.md"],
+      deliverables: [{
+        path: "reports/room.md", mediaType: "text/markdown", bytes: 4, sha256: "b".repeat(64),
+        version: 1, sourceRunId: "room-artifact-source",
+        review: { status: "changes_requested" as const, revision: 1, updatedAt: 20, note: "Add one detail" },
+      }],
+    };
+    const approvalBody = {
+      threadKey: "default", approvalId: "room-source-approval", repoUrl: "", task: "Create a room report",
+      baseBranch: "main", publishPullRequest: false, expectedDeliverables: ["reports/room.md"],
+      collaborationHandoffId: "room-source-handoff", status: "approved" as const, createdAt: 10,
+    };
+    const sourceTask = updateTaskAttempt(createDurableTask({
+      taskId: "task-room-source", ownerId: "default", title: "Create a room report", commandId: "room-source-command",
+      approvalId: "room-source-approval", frozen: { body: approvalBody, inputHash: "room-source-hash", threadKey: "default" }, now: 10,
+    }), 1, { runId: source.runId, status: "completed", updatedAt: 20 });
+    sourceTask.artifactLineageId = sourceTask.taskId;
+    const artifact = source.deliverables?.[0];
+    if (!artifact) throw new Error("Expected the room artifact.");
+    artifact.artifactId = await artifactIdentity(source, artifact.path, sourceTask.taskId);
+    instance.setState({ ...instance.state, runs: [source], tasks: [sourceTask] });
+
+    const response = await instance.onRequest(new Request(`https://internal/api/runs/${source.runId}/deliverables/0/revision`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        commandId: "artifact-revision:room-source-1", artifactId: artifact.artifactId,
+        artifactVersion: 1, reviewRevision: 1,
+      }),
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("new room handoff") });
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
   });
 });
 
@@ -1338,6 +1734,78 @@ describe("run reliability", () => {
   });
 });
 
+describe("complete skill prompt approval boundary", () => {
+  const queue = (instance: CodingOrchestrator, task: string, count: number) => instance.onRequest(new Request("https://internal/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shiba-Intake": "dashboard" },
+    body: JSON.stringify({
+      repoUrl: "https://github.com/o/r",
+      task,
+      skillPins: Array.from({ length: count }, (_, index) => ({
+        skillId: `skill-${String(index + 1).padStart(24, "a")}`,
+        version: 1,
+        name: `Skill ${index + 1}`,
+      })),
+      orgId: "self-hosted",
+    }),
+  }));
+
+  it.each([
+    ["a long single skill", `Task\n\nSkills:\nSkill: Long (skill-${"a".repeat(24)}@1)\nReviewed instructions:\n${"x".repeat(4100)}`, 1],
+    ["multiple selected skills", `Task\n\n${Array.from({ length: 3 }, (_, index) => `Skill ${index + 1}\n${"x".repeat(1400)}`).join("\n\n")}`, 3],
+    ["an already long task plus skill text", `${"User task. ".repeat(350)}\n\nSkills:\nReviewed instructions:\n${"Skill detail. ".repeat(20)}`, 1],
+  ])("rejects overflow for %s without minting a truncated approval", async (_label, task, count) => {
+    const instance = agent();
+    const response = await queue(instance, task, count);
+    expect(response.status).toBe(400);
+    expect((await response.json() as { error: string }).error).toMatch(/complete task and selected skill instructions/);
+    expect(instance.state.pendingApprovals ?? []).toEqual([]);
+  });
+
+  it("freezes the full effective prompt when it fits the limit", async () => {
+    const instance = agent();
+    const task = `User task\n\nSkill instructions\n${"x".repeat(3950)}`;
+    expect(task.length).toBeLessThanOrEqual(4000);
+    const response = await queue(instance, task, 1);
+    expect(response.status).toBe(200);
+    expect(instance.state.pendingApprovals?.[0]?.task).toBe(task);
+    expect((await response.json() as { task: string }).task).toBe(task);
+  });
+
+  it("rejects project context from non-dashboard intake", async () => {
+    const instance = agent();
+    const response = await instance.onRequest(new Request("https://internal/api/runs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Fix it", projectContextId: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa" }),
+    }));
+    expect(response.status).toBe(403);
+    expect(instance.state.pendingApprovals ?? []).toEqual([]);
+  });
+
+  it("blocks a disabled pin before execution while leaving the frozen text and provenance intact", async () => {
+    const instance = agent();
+    Object.assign(instance, { name: "owner@example.test" });
+    const db = customAgentD1();
+    instance.env.AGENT_AUDIT = db.database;
+    const content = { name: "Revocable", instructions: "Keep this exact approved guidance." };
+    const skill = await createSkill(instance.env, "self-hosted", "owner@example.test", content);
+    await reviewSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, content.instructions);
+    await activateSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, content.instructions);
+    const pin = { skillId: skill.id, version: 1, name: content.name };
+    const approvedText = `Fix the issue\n\nSkills:\n${content.instructions}`;
+    approveDirect(instance, "disabled-skill", {
+      repoUrl: "https://github.com/o/r", task: approvedText, orgId: "self-hosted", skillPins: [pin],
+    });
+    await disableSkill(instance.env, "self-hosted", "owner@example.test", skill.id);
+    const delegate = instance.getTools()["delegate_coding_task"] as { execute: (input: unknown, options: unknown) => Promise<unknown> };
+
+    await expect(delegate.execute({ repoUrl: "https://github.com/o/r", task: "changed caller input" }, { toolCallId: "disabled-skill" }))
+      .rejects.toMatchObject({ code: "invalid_request" });
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(instance.state.runs[0]).toMatchObject({ status: "error", task: approvedText, skillPins: [pin] });
+  });
+});
+
 describe("chat approval gate", () => {
   const INPUT = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false };
   type DelegateTool = {
@@ -1346,6 +1814,29 @@ describe("chat approval gate", () => {
   };
   const delegateOf = (instance: CodingOrchestrator) =>
     instance.getTools()["delegate_coding_task"] as unknown as DelegateTool;
+
+  it.each([
+    ["one long skill", "fix", ["x".repeat(4_100)]],
+    ["multiple skills", "fix", Array.from({ length: 3 }, () => "x".repeat(1_400))],
+    ["a long user task plus a skill", "x".repeat(3_900), ["y".repeat(200)]],
+  ])("rejects the full oversized chat prompt for %s before minting an approval", async (_label, task, texts) => {
+    const instance = agent();
+    Object.assign(instance, { name: "owner@example.test" });
+    const db = customAgentD1();
+    instance.env.AGENT_AUDIT = db.database;
+    const pins: Array<{ skillId: string; version: number }> = [];
+    for (const [index, instructions] of texts.entries()) {
+      const content = { name: `Chat skill ${index + 1}`, instructions };
+      const skill = await createSkill(instance.env, "self-hosted", "owner@example.test", content);
+      await reviewSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, instructions);
+      await activateSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, instructions);
+      pins.push({ skillId: skill.id, version: 1 });
+    }
+    Object.assign(instance, { composerPin: () => ({ skillPins: pins }) });
+    await expect(delegateOf(instance).needsApproval({ ...INPUT, task }, { toolCallId: "chat-overflow" }))
+      .rejects.toThrow(/complete task and selected skill instructions exceed the 4000-character limit/);
+    expect(instance.state.pendingApprovals ?? []).toEqual([]);
+  });
 
   it("mints the durable pointer at gate time so chat Approve can mint its run", async () => {
     const instance = agent();
@@ -1389,6 +1880,48 @@ describe("chat approval gate", () => {
     const run = instance.state.runs.find((r) => r.runId === "agent-tool:chat-1");
     expect(run?.approval?.approvalId).toBe("chat-1");
     expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it("freezes owner project provenance into approval and run context", async () => {
+    const instance = agent();
+    Object.assign(instance, { name: "owner@example.test", messages: [{ role: "user", metadata: { shibaTask: { projectContextId: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa" } } }] });
+    mocks.execute.mockResolvedValue(formatAgentResult({ status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: "done" }));
+    let currentText = "launch checklist and QA owner";
+    const partitionNames: string[] = [];
+    Object.assign(instance.env, { Memory: {
+      idFromName(name: string) { partitionNames.push(name); return name; },
+      get() { return { fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { id: string };
+        if (body.id !== "memproj_aaaaaaaaaaaaaaaaaaaaaaaa") return Response.json({ error: "missing" }, { status: 404 });
+        return Response.json({ snapshot: {
+          project: { id: body.id, name: "Launch", purpose: "Ship safely", version: 3, defaultCustomAgentId: null, defaultHarness: null },
+          sources: [{ id: "memsrc_1", title: "Checklist", kind: "document", referenceUrl: "https://docs.example.test/launch", updatedAt: 7, content: currentText }],
+        } });
+      } }; },
+    } });
+    const delegate = delegateOf(instance);
+    await expect(delegate.needsApproval(INPUT, { toolCallId: "project-chat-1" })).resolves.toBe(true);
+    const frozen = instance.state.pendingApprovals?.find((record) => record.approvalId === "project-chat-1")?.task ?? "";
+    expect(frozen).toContain("SELECTED PROJECT CONTEXT (UNTRUSTED REFERENCE DATA");
+    expect(frozen).toContain('"version":3');
+    expect(frozen).toContain("launch checklist and QA owner");
+    expect(frozen).toContain("https://docs.example.test/launch");
+    expect(partitionNames).toHaveLength(1);
+    expect(partitionNames[0]).toMatch(/^owner-memory:[a-f0-9]{64}$/);
+    currentText = "edited after approval";
+    const resolved = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "owner@example.test", approvalId: "project-chat-1", approved: true, decidedBy: "human" }),
+    }));
+    expect(resolved.status).toBe(200);
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(instance.state.runs.find((run) => run.runId === "agent-tool:project-chat-1")?.status).toBe("completed"));
+    const approval = instance.state.pendingApprovals?.find((record) => record.approvalId === "project-chat-1");
+    expect(approval?.status).toBe("approved");
+    const approvedRun = instance.state.runs.find((run) => run.runId === "agent-tool:project-chat-1");
+    expect(approvedRun?.task).toBe(frozen);
+    expect(approvedRun?.task).not.toContain("edited after approval");
   });
 
   it("still refuses an execute that no gate ever minted", async () => {

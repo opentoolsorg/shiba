@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RunProgressCard } from "./RunProgressCard";
 import type { RetainedRun } from "../types";
+import { normalizeRunStatus } from "../types";
 
 afterEach(cleanup);
 
@@ -22,6 +23,10 @@ const baseRun = (overrides: Partial<RetainedRun>): RetainedRun =>
   }) as RetainedRun;
 
 describe("RunProgressCard", () => {
+  it("fails unknown run statuses closed instead of displaying a false success", () => {
+    expect(normalizeRunStatus("mystery-success")).toBe("unknown");
+    expect(normalizeRunStatus("completed")).toBe("completed");
+  });
   it("shows the profile revision actually retained by a run", () => {
     render(<RunProgressCard run={baseRun({ customAgentId: "cag-a", customAgentVersion: 2 })} />);
     expect(screen.getByTestId("run-agent-version").textContent).toBe("Bot profile v2");
@@ -37,6 +42,28 @@ describe("RunProgressCard", () => {
     expect(screen.getByText(/Sandbox run in progress/i)).toBeTruthy();
   });
 
+  it("offers cancellation only while the real run is in flight", () => {
+    const onCancel = vi.fn();
+    const { rerender } = render(
+      <RunProgressCard run={baseRun({ status: "running" })} onCancel={onCancel} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run run-abc" }));
+    expect(onCancel).toHaveBeenCalledWith("run-abc");
+
+    rerender(<RunProgressCard run={baseRun({ status: "completed" })} onCancel={onCancel} />);
+    expect(screen.queryByRole("button", { name: "Cancel run run-abc" })).toBeNull();
+  });
+
+  it("makes a pending cancellation visible and prevents repeated requests", () => {
+    const onCancel = vi.fn();
+    render(
+      <RunProgressCard run={baseRun({ status: "pending" })} onCancel={onCancel} cancelling />,
+    );
+    const button = screen.getByRole("button", { name: "Cancel run run-abc" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toContain("Requesting");
+  });
+
   it("links pullUrl when present", () => {
     render(
       <RunProgressCard
@@ -47,5 +74,25 @@ describe("RunProgressCard", () => {
       />,
     );
     expect(screen.getByTestId("run-pull-link").getAttribute("href")).toBe("https://github.com/o/r/pull/3");
+  });
+
+  it("shows saved artifact-workspace outputs through the existing verified download surface", () => {
+    render(<RunProgressCard run={{
+      runId: "artifact-run",
+      status: "completed",
+      task: "Draft a grounded brief",
+      publishPullRequest: false,
+      expectedDeliverables: ["deliverables/brief.md"],
+      deliverables: [{
+        path: "deliverables/brief.md",
+        mediaType: "text/markdown",
+        bytes: 88,
+        sha256: "a".repeat(64),
+      }],
+    }} />);
+    expect(screen.getByRole("heading", { name: "Deliverables" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Download deliverables/brief.md" }).getAttribute("href"))
+      .toBe("/api/runs/artifact-run/deliverables/0");
+    expect(screen.getByText(/Review their content before using or publishing it/)).toBeTruthy();
   });
 });

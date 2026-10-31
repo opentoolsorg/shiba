@@ -128,7 +128,10 @@
 # GMAIL_REDIRECT_URI=
 # GMAIL_TOKEN_KEY=
 
-# --- Shiba Desktop local runtime (uncomment to enable pairing from the app) ----
+# --- Shiba Desktop local runtime (uncomment for Remote Access + desktop pairing) ---
+# Requires LocalDispatch binding (wrangler v9 migration). For wrangler dev without Docker:
+#   wrangler dev --local-upstream localhost:8788 --enable-containers=false
+# Access-fronted production: add Bypass for /api/local/* (see remote-access.md).
 
 # SHIBA_LOCAL_RUNTIME=1
 # LOCAL_ADAPTER_TOKEN=

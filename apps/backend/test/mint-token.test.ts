@@ -8,7 +8,7 @@ const mint = (...args: string[]) => spawnSync(process.execPath, [script, ...args
 
 describe("scripts/mint-token.mjs", () => {
   it("builds a KV record the Worker's verifyToken accepts", async () => {
-    const out = mint("--agent", "claude-code", "--scopes", "sandbox:exec,memory:read", "--host", "https://shiba.example.dev/");
+    const out = mint("--agent", "claude-code", "--scopes", "sandbox:exec,memory:read,mcp:external", "--host", "https://shiba.example.dev/");
     expect(out.status).toBe(0);
     const field = (name: string) => out.stdout.match(new RegExp(`^${name}:\\s+(\\S+)`, "m"))?.[1] ?? "";
     const [token, key, value] = [field("token"), field("key"), field("value")];
@@ -16,7 +16,7 @@ describe("scripts/mint-token.mjs", () => {
     const kv = { get: async (k: string) => (k === key ? value : null) } as unknown as KVNamespace;
     expect(await verifyToken({ AGENT_TOKENS: kv }, token)).toEqual({
       principal: "claude-code",
-      scopes: ["sandbox:exec", "memory:read"],
+      scopes: ["sandbox:exec", "memory:read", "mcp:external"],
       created: expect.any(Number),
       revoked: false,
     });

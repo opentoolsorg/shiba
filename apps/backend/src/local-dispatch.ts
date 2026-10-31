@@ -380,6 +380,7 @@ export class LocalDispatch extends DurableObject {
         lastHeartbeat: now,
         ...(existing?.pairedAt !== undefined ? { pairedAt: existing.pairedAt } : {}),
         ...(heartbeat.activeRunId !== undefined ? { activeRunId: heartbeat.activeRunId } : {}),
+        ...(heartbeat.reasonNetworkCompanion !== undefined ? { reasonNetworkCompanion: heartbeat.reasonNetworkCompanion } : {}),
         ...(existing?.tokenHash !== undefined ? { tokenHash: existing.tokenHash } : {}),
       };
       await this.ctx.storage.put(`${COMPUTER_PREFIX}${heartbeat.machineId}`, record);

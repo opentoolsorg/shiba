@@ -7,8 +7,8 @@ import { TaskComposer } from "./TaskComposer";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-function Harness({ onSubmit }: { onSubmit: () => void }) {
-  const [target, setTarget] = useState<"sandbox" | "local">("local");
+function Harness({ onSubmit, initialTarget = "local" }: { onSubmit: () => void; initialTarget?: "sandbox" | "local" }) {
+  const [target, setTarget] = useState<"sandbox" | "local">(initialTarget);
   const fleet = useLocalRunTarget({ harness: "opencode", desktopStatus: null });
   return <TaskComposer repoUrl="https://github.com/example/project" task="Fix the parser" baseBranch="main"
     publishPullRequest={false} harness="opencode" busy={false} isSubmitting={false} clearing={false}
@@ -38,6 +38,42 @@ it("requires an explicit paired computer before enabling a Local task", async ()
   expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Send task" }));
   expect(submit).toHaveBeenCalledOnce();
+});
+
+it("reopens the Local target menu after the one-computer selection closes it", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ computers: [computer("only")] })));
+  render(<Harness onSubmit={vi.fn()} initialTarget="sandbox" />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Run on: Cloud" }));
+  const localOption = screen.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ });
+  await waitFor(() => expect(localOption.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(localOption);
+  await screen.findByText("Local: Mac only");
+  expect(screen.getByRole("button", { name: "Run on: Local" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Refresh paired computers" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Run on: Local" }));
+  expect(screen.getByRole("button", { name: "Refresh paired computers" })).toBeTruthy();
+});
+
+it("keeps the Local target menu open when multiple computers need a choice", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ computers: [computer("a"), computer("b")] })));
+  render(<Harness onSubmit={vi.fn()} initialTarget="sandbox" />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Run on: Cloud" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ }));
+  expect(screen.getByRole("button", { name: "Refresh paired computers" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Local computer" })).toBeTruthy();
+});
+
+it("keeps Local unavailable with no compatible paired computers", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ computers: [] })));
+  render(<Harness onSubmit={vi.fn()} initialTarget="sandbox" />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Run on: Cloud" }));
+  const localOption = screen.getByRole("menuitemradio", { name: /Local \(Paired computer\)/ });
+  await waitFor(() => expect(localOption.hasAttribute("disabled")).toBe(true));
+  expect(screen.getByRole("button", { name: "Refresh paired computers" })).toBeTruthy();
 });
 
 it("keeps Local selected and blocks sending after its computer goes offline", async () => {

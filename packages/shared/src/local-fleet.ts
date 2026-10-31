@@ -22,6 +22,8 @@ export interface ConnectedComputer {
   lastHeartbeat: number;
   pairedAt?: number;
   activeRunId?: string;
+  /** Explicit local opt-in and installed executable are configured. */
+  reasonNetworkCompanion?: boolean;
 }
 
 export interface HeartbeatRequest {
@@ -31,6 +33,7 @@ export interface HeartbeatRequest {
   daemonVersion: string;
   harnesses: string[];
   activeRunId?: string;
+  reasonNetworkCompanion?: boolean;
 }
 
 export interface PairRequest {

@@ -6,7 +6,7 @@
  * approval; nothing here starts a container.
  */
 import { parseChatThreadName } from "@shiba/shared";
-import type { ChatPlatform, ChatTaskRequest } from "@shiba/shared";
+import type { ChatPlatform, ChatTaskRequest, ExecutionTarget } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
 import { extractGitHubRepoUrl, parseChannelRepoMap } from "./slack-context.js";
@@ -48,12 +48,20 @@ export function parseChatTaskRequest(input: {
 const CARD_TASK_LIMIT = 1500;
 
 /** Plain-text card body: the exact frozen input the approver is deciding on. */
-export function chatApprovalText(input: { repoUrl: string; task: string; approvalId: string; route?: string }): string {
+export function chatApprovalText(input: {
+  repoUrl: string;
+  task: string;
+  approvalId: string;
+  route?: string;
+  employeeLabel?: string;
+}): string {
   const task = input.task.length <= CARD_TASK_LIMIT
     ? input.task
     : `${input.task.slice(0, CARD_TASK_LIMIT)}… (${input.task.length - CARD_TASK_LIMIT} more chars — full task in this thread)`;
   const route = input.route ? `\nRoute: ${input.route}` : "";
-  return `Approval requested\nRepo: ${input.repoUrl}\nTask: ${task}${route}\napproval ${input.approvalId}`;
+  const bot = input.employeeLabel ? `\nBot: ${input.employeeLabel}` : "";
+  const repoLine = input.repoUrl ? `Repo: ${input.repoUrl}\n` : "";
+  return `Approval requested\n${repoLine}Task: ${task}${bot}${route}\napproval ${input.approvalId}`;
 }
 
 /**
@@ -87,7 +95,21 @@ function defaultResolver(env: Env): ResolveOrchestrator {
 /** Queue a pending approval on the conversation's orchestrator. Never throws. */
 export async function queueChatRun(
   env: Env,
-  input: { platform: ChatPlatform; threadKey: string; repoUrl: string; task: string; userId: string; harness?: string },
+  input: {
+    platform: ChatPlatform;
+    threadKey: string;
+    repoUrl: string;
+    task: string;
+    userId: string;
+    harness?: string;
+    orgId?: string;
+    customAgentId?: string;
+    customAgentVersion?: number;
+    employeeToolPolicyVersion?: number;
+    executionTarget?: ExecutionTarget;
+    publishPullRequest?: boolean;
+    employeeLabel?: string;
+  },
   resolve: ResolveOrchestrator = defaultResolver(env),
 ): Promise<{ approvalId: string; route?: string } | { error: string }> {
   let response: Response;
@@ -102,11 +124,18 @@ export async function queueChatRun(
           repoUrl: input.repoUrl,
           task: input.task,
           baseBranch: "main",
-          publishPullRequest: true,
+          publishPullRequest: input.publishPullRequest ?? true,
           threadKey: input.threadKey,
           source: input.platform,
           ...(input.harness ? { harness: input.harness } : {}),
           ...(input.userId ? { user_id: input.userId } : {}),
+          ...(input.orgId ? { orgId: input.orgId } : {}),
+          ...(input.customAgentId ? { customAgentId: input.customAgentId } : {}),
+          ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+          ...(input.employeeToolPolicyVersion !== undefined
+            ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion }
+            : {}),
+          ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}),
         }),
       }),
     );

@@ -7,12 +7,17 @@
  * (`/api/setup/status`, `/api/mailboxes`) or says honestly that it isn't
  * supported yet — no fake toggles.
  */
-import type { JSX, ReactNode } from "react";
+import { useEffect, useMemo, useState, type JSX, type ReactNode } from "react";
+import type { AcpProvidersSnapshot, McpCapabilityDirectoryEntry, McpCapabilityInvocationReceipt } from "@shiba/shared";
 import { type SetupStatus, useMailboxes, useSetupStatus } from "../live-status";
+import { useSavedSkills } from "../saved";
 import type { AppNavView } from "./AppNavRail";
+import { CapabilityCatalog, type CapabilityCatalogItem } from "./CapabilityCatalog";
 import { GmailConnection } from "./GmailConnection";
 import { LoadErrorState } from "./LoadErrorState";
+import { providerLifecycleStatus, providerTestDescription } from "./provider-lifecycle";
 import { ToneChip } from "./ToneChip";
+import { ReasonNetworkSetup } from "./ReasonNetworkSetup";
 
 function IntegrationRow({
   name,
@@ -91,17 +96,17 @@ function slackChip(slack: SetupStatus["slack"] | undefined, loading: boolean): J
   const configured = slack.signingSecret && slack.botToken && slack.approvers > 0;
   const partial =
     slack.signingSecret || slack.botToken || slack.approvers > 0 || slack.channelRepos;
-  if (configured) return <ToneChip tone="ok" label="Connected" />;
-  if (partial) return <ToneChip tone="pending" label="Partially set up" />;
+  if (configured) return <ToneChip tone="pending" label="Configured" />;
+  if (partial) return <ToneChip tone="pending" label="Partially configured" />;
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
 function githubChip(github: SetupStatus["github"] | undefined, loading: boolean): JSX.Element {
   if (loading) return <ToneChip tone="neutral" label="Checking…" />;
   if (!github) return <ToneChip tone="neutral" label="Not set up" />;
-  if (github.publish && github.webhookSecret) return <ToneChip tone="ok" label="Connected" />;
+  if (github.publish && github.webhookSecret) return <ToneChip tone="pending" label="Configured" />;
   if (github.publish || github.webhookSecret || github.app)
-    return <ToneChip tone="pending" label="Partially set up" />;
+    return <ToneChip tone="pending" label="Partially configured" />;
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
@@ -109,10 +114,10 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
   if (loading) return <ToneChip tone="neutral" label="Checking…" />;
   if (!linear) return <ToneChip tone="neutral" label="Not set up" />;
   if (linear.webhookSecret && linear.apiToken && linear.defaultRepo) {
-    return <ToneChip tone="ok" label="Configured (mock)" />;
+    return <ToneChip tone="pending" label="Configured" />;
   }
   if (linear.webhookSecret || linear.apiToken || linear.defaultRepo) {
-    return <ToneChip tone="pending" label="Partially set up" />;
+    return <ToneChip tone="pending" label="Partially configured" />;
   }
   return <ToneChip tone="neutral" label="Not set up" />;
 }
@@ -124,6 +129,60 @@ export function IntegrationsView({
 }): JSX.Element {
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
+  const savedSkills = useSavedSkills();
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [providers, setProviders] = useState<AcpProvidersSnapshot | null>(null);
+  const [providersError, setProvidersError] = useState<string | null>(null);
+  const [toolDirectory, setToolDirectory] = useState<McpCapabilityDirectoryEntry[]>([]);
+  const [toolDirectoryError, setToolDirectoryError] = useState<string | null>(null);
+  const [invocations, setInvocations] = useState<McpCapabilityInvocationReceipt[]>([]);
+  const [invocationHistoryError, setInvocationHistoryError] = useState<string | null>(null);
+  const [catalogRefresh, setCatalogRefresh] = useState(0);
+
+  useEffect(() => {
+    if (!showCatalog) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const refreshSuffix = catalogRefresh === 0 ? "" : `?refresh=${catalogRefresh}`;
+    const requestOptions = { credentials: "same-origin", cache: "no-store", signal: controller.signal } as const;
+    void fetch(`/api/providers${refreshSuffix}`, requestOptions)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Provider catalog unavailable (${response.status}).`);
+        const value = (await response.json()) as AcpProvidersSnapshot;
+        if (!value || !Array.isArray(value.providers)) throw new Error("Provider catalog returned an invalid response.");
+        if (!cancelled) {
+          setProviders(value);
+          setProvidersError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setProvidersError(error instanceof Error ? error.message : String(error));
+      });
+    void fetch(`/api/capabilities?limit=50${catalogRefresh === 0 ? "" : `&refresh=${catalogRefresh}`}`, requestOptions)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`MCP tool directory unavailable (${response.status}).`);
+        const value = (await response.json()) as { entries?: McpCapabilityDirectoryEntry[] };
+        if (!value || !Array.isArray(value.entries)) throw new Error("MCP tool directory returned an invalid response.");
+        if (!cancelled) {
+          setToolDirectory(value.entries);
+          setToolDirectoryError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setToolDirectoryError(error instanceof Error ? error.message : String(error));
+      });
+    void fetch(`/api/capabilities/invocations?limit=25${catalogRefresh === 0 ? "" : `&refresh=${catalogRefresh}`}`, requestOptions)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Tool call history unavailable (${response.status}).`);
+        const value = (await response.json()) as { entries?: McpCapabilityInvocationReceipt[] };
+        if (!value || !Array.isArray(value.entries)) throw new Error("Tool call history returned an invalid response.");
+        if (!cancelled) { setInvocations(value.entries); setInvocationHistoryError(null); }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setInvocationHistoryError(error instanceof Error ? error.message : String(error));
+      });
+    return () => { cancelled = true; controller.abort(); };
+  }, [showCatalog, catalogRefresh]);
 
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
   const loading = setup.state.kind === "loading";
@@ -134,6 +193,101 @@ export function IntegrationsView({
     setup.reload();
     mailboxes.reload();
   };
+
+  const catalogItems = useMemo<CapabilityCatalogItem[]>(() => {
+    const items: CapabilityCatalogItem[] = [];
+    if (status) {
+      const githubConfigured = status.github.publish && status.github.webhookSecret;
+      const githubPartial = status.github.publish || status.github.webhookSecret || status.github.app;
+      items.push({
+        id: "connector:github", name: "GitHub", kind: "connector",
+        status: githubConfigured ? "configured" : githubPartial ? "partiallyConfigured" : "available",
+        category: "Code hosting",
+        summary: githubConfigured ? "Deployment credentials are present; live repository access is not verified here." : "GitHub publishing and webhook credentials are not fully configured.",
+        description: "Open pull requests and react to repository events. Credential presence comes from the setup status endpoint.",
+        capabilities: ["Open pull requests", "React to repository events"],
+        authNote: githubConfigured ? "Configured credentials are present. This view does not verify provider access." : "Connect through deployment settings; the dashboard does not start OAuth here.",
+        source: status,
+      });
+      const linearConfigured = status.linear.webhookSecret && status.linear.apiToken && status.linear.defaultRepo;
+      items.push({
+        id: "connector:linear", name: "Linear", kind: "connector",
+        status: linearConfigured ? "configured" : status.linear.webhookSecret || status.linear.apiToken || status.linear.defaultRepo ? "partiallyConfigured" : "available",
+        category: "Project management",
+        summary: "Issue delegation requires a webhook secret, API token, and default repository URL.",
+        capabilities: ["Delegate issue sessions"],
+        authNote: linearConfigured ? "Configuration is present; live workspace access has not been verified." : "Not fully configured in deployment settings.",
+        source: status,
+      });
+      const slackConfigured = status.slack.signingSecret && status.slack.botToken;
+      items.push({
+        id: "connector:slack", name: "Slack", kind: "connector",
+        status: slackConfigured && status.slack.approvers > 0 ? "configured" : status.slack.signingSecret || status.slack.botToken || status.slack.approvers > 0 ? "partiallyConfigured" : "available",
+        category: "Chat and approvals",
+        summary: "Chat and run approvals through a deployment-configured Slack app.",
+        capabilities: ["Queue tasks", "Approve runs"],
+        authNote: slackConfigured ? "Credentials are present; live Slack access is not verified here." : "Configure a Slack app in deployment settings.",
+        source: status,
+      });
+    }
+    for (const mailbox of mailboxes.state.kind === "data" ? mailboxes.state.data.mailboxes : []) {
+      items.push({
+        id: `mailbox:${mailbox.address}`, name: mailbox.address, kind: "connector", status: "configured",
+        category: "Email", summary: "Mailbox is listed by the authenticated mailbox API.",
+        capabilities: ["Inbound triage", "Draft email"],
+        authNote: "Outbound email remains approval-gated.",
+      });
+    }
+    if (providers) {
+      for (const provider of providers.providers) {
+        items.push({
+          id: `provider:${provider.id}`, name: provider.label, kind: "mcp",
+          status: providerLifecycleStatus(provider.connection),
+          category: "AI agent provider", summary: provider.blurb,
+          description: `${provider.protocol.toUpperCase()} provider managed on the Providers page.`,
+          capabilities: Object.entries(provider.capabilities).filter(([, enabled]) => enabled).map(([name]) => name),
+          authNote: providerTestDescription(provider.connection),
+          source: provider,
+        });
+      }
+    }
+    for (const skill of savedSkills.skills) {
+      items.push({
+        id: `skill:${skill.id}`, name: skill.name, kind: "skill", status: skill.status === "active" ? "configured" : "available",
+        category: "Saved procedure", summary: skill.instructions || `Version ${skill.version} is a draft without instruction text.`,
+        description: `${skill.status} skill version ${skill.version}. ${skill.sourceUrl ? `Source provenance: ${skill.sourceUrl}. ` : ""}Reviewed text is guidance, not an executable connector.`,
+        capabilities: ["Provide task instructions"], source: skill,
+      });
+    }
+    for (const legacy of savedSkills.legacySkills) {
+      items.push({
+        id: `legacy-skill:${legacy.id}`, name: legacy.name, kind: "skill", status: "available",
+        category: "Legacy local skill", summary: legacy.notes || "Browser-local notes are waiting to be imported.",
+        description: "This legacy entry is not active. Import it from Skills to create an unreviewed server draft.",
+        capabilities: [], source: legacy.name,
+      });
+    }
+    for (const tool of toolDirectory) {
+      items.push({
+        id: tool.id,
+        name: tool.name,
+        kind: "mcp",
+        status: "available",
+        category: "Shiba MCP tool",
+        summary: tool.description,
+        description: `${tool.description} Discovery is based on the same handler registry published by Shiba MCP.`,
+        capabilities: [tool.requiredScope, tool.writeEffect.replaceAll("_", " ")],
+        catalogOnly: true,
+        version: tool.version,
+        requiredScope: tool.requiredScope,
+        writeEffect: tool.writeEffect,
+        approval: tool.approval,
+        verification: tool.verification,
+        source: tool.source,
+      });
+    }
+    return items;
+  }, [status, mailboxes.state, providers, savedSkills, toolDirectory]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
@@ -146,10 +300,24 @@ export function IntegrationsView({
             Third-party apps and channels your agents can reach — connect once, use everywhere.
           </p>
         </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {showCatalog ? <button type="button" onClick={() => { setup.reload(); mailboxes.reload(); setCatalogRefresh((value) => value + 1); }} className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]" aria-label="Refresh integration status">Refresh status</button> : null}
+          <button type="button" onClick={() => setShowCatalog((shown) => !shown)} className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]" aria-pressed={showCatalog}>
+            {showCatalog ? "Show setup details" : "Browse capability catalog"}
+          </button>
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+      {showCatalog ? (
+        <div className="min-h-0 flex-1">
+          {providersError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{providersError} Provider state may be stale. Retry refresh before relying on the last displayed state.</p> : null}
+          {toolDirectoryError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{toolDirectoryError} MCP schemas are withheld from the dashboard directory.</p> : null}
+          <CapabilityCatalog items={catalogItems} invocations={invocations} invocationHistoryError={invocationHistoryError} onConfigure={(item) => onNavigate?.(item.kind === "skill" ? "skills" : item.kind === "mcp" ? "providers" : "settings")} onReconnect={(item) => onNavigate?.(item.kind === "mcp" ? "providers" : "settings")} onConnectMcp={() => onNavigate?.("agents")} onViewToolHistory={() => onNavigate?.("approvals")} />
+        </div>
+      ) : <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {failed ? <LoadErrorState message={failed.message} onRetry={reloadAll} /> : null}
+
+          <ReasonNetworkSetup />
 
           <IntegrationGroup
             title="Apps"
@@ -275,7 +443,7 @@ export function IntegrationsView({
             </IntegrationRow>
           </IntegrationGroup>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

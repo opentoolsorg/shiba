@@ -22,10 +22,18 @@ export default {
         touch: { raw: "(pointer: coarse)" },
       },
       fontFamily: {
-        sans: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
-        mono: ['"Geist Mono"', 'ui-monospace', 'monospace'],
-        tech: ['"Geist Mono"', 'monospace'],
-        display: ['"Instrument Serif"', 'Georgia', 'serif'],
+        sans: [
+          'Inter',
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Segoe UI',
+          'sans-serif',
+        ],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        tech: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        display: ['Georgia', 'Times New Roman', 'serif'],
       },
       borderRadius: {
         xs: 'var(--radius-xs)',

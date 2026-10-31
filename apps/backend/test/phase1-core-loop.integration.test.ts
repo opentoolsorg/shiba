@@ -18,6 +18,8 @@ import {
   formatAgentResult,
   parseAgentToolInput,
 } from "../src/opencode-input.js";
+import { runInputHash } from "@shiba/shared";
+import { deliverableStorageKey, persistRunDeliverables, verifyExpectedDeliverables } from "../src/run-deliverables.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 
@@ -180,7 +182,7 @@ async function queueAndApprove(instance: CodingOrchestrator, body: Record<string
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        repoUrl: REPO,
+        ...((body.executionTarget as { kind?: unknown } | undefined)?.kind === "artifact-workspace" ? {} : { repoUrl: REPO }),
         task: "Add a README",
         publishPullRequest: true,
         reviewAfterPublish: true,
@@ -344,6 +346,158 @@ describe("Phase 1 core loop (integration)", () => {
     expect(body.round?.status).toBe("posted");
 
     vi.unstubAllGlobals();
+  });
+
+  it("stores an approved employee run's requested artifact before marking it completed", async () => {
+    const stored = new Map<string, string>();
+    const attachments = {
+      put: vi.fn(async (key: string, body: string) => {
+        stored.set(key, body);
+        return { key };
+      }),
+    } as unknown as R2Bucket;
+    const instance = agent({ ATTACHMENTS: attachments });
+    mocks.execute.mockImplementation(async (text: string) => {
+      const input = parseAgentToolInput([{ role: "user", text }]);
+      const file = { path: "research/report.md", content: "# Research draft\nSynthetic evidence only.\n", encoding: "utf8" as const };
+      const artifacts = await verifyExpectedDeliverables(input.expectedDeliverables, [file]);
+      const deliverables = await persistRunDeliverables({ ATTACHMENTS: attachments }, input.sandboxId, artifacts);
+      return formatAgentResult({
+        status: "completed", exitCode: 0, stderrTail: "", changedFiles: [file.path],
+        diff: "+# Research draft", files: [file], deliverables, summary: "Created a synthetic research draft.",
+      });
+    });
+
+    const { approvalId, codingRunId } = await queueAndApprove(instance, {
+      task: "Prepare the research report", publishPullRequest: false, reviewAfterPublish: false,
+      expectedDeliverables: ["research/report.md"],
+    });
+    await vi.waitFor(() => expect(instance.state.runs.find((item) => item.runId === codingRunId)?.status).toBe("completed"));
+
+    const run = instance.state.runs.find((item) => item.runId === codingRunId);
+    expect(run?.approval?.approvalId).toBe(approvalId);
+    expect(run?.status).toBe("completed");
+    expect(run?.expectedDeliverables).toEqual(["research/report.md"]);
+    expect(run?.deliverables).toEqual([expect.objectContaining({ path: "research/report.md", mediaType: "text/markdown; charset=utf-8" })]);
+    expect(stored.get(deliverableStorageKey(run!.sandboxId, run!.deliverables![0]!.sha256, 0))).toBe("# Research draft\nSynthetic evidence only.\n");
+    expect(JSON.stringify(run?.deliverables)).not.toContain("Synthetic evidence only");
+  });
+
+  it("accepts a repo-free artifact workspace, freezes its target at approval, and stores the verified output", async () => {
+    const stored = new Map<string, string>();
+    const attachments = {
+      put: vi.fn(async (key: string, body: string) => {
+        stored.set(key, body);
+        return { key };
+      }),
+    } as unknown as R2Bucket;
+    const instance = agent({ ATTACHMENTS: attachments });
+    const expectedDeliverables = ["sales/account-brief.md"];
+    const executionTarget = {
+      kind: "artifact-workspace",
+      workspaceName: "Sales workspace",
+      expectedDeliverables,
+    } as const;
+    mocks.execute.mockImplementation(async (text: string) => {
+      const input = parseAgentToolInput([{ role: "user", text }]);
+      expect(input.repoUrl).toBe("");
+      expect(input.executionTarget).toEqual(executionTarget);
+      expect(input.expectedDeliverables).toEqual(expectedDeliverables);
+      expect(input.publishPullRequest).toBe(false);
+      const file = { path: expectedDeliverables[0]!, content: "# Account brief\nSynthetic fixture.\n", encoding: "utf8" as const };
+      const artifacts = await verifyExpectedDeliverables(input.expectedDeliverables, [file]);
+      const deliverables = await persistRunDeliverables({ ATTACHMENTS: attachments }, input.sandboxId, artifacts);
+      return formatAgentResult({
+        status: "completed", exitCode: 0, stderrTail: "", changedFiles: [file.path],
+        diff: "+# Account brief", files: [file], deliverables, summary: "Created a synthetic account brief.",
+      });
+    });
+
+    const { approvalId, codingRunId } = await queueAndApprove(instance, {
+      executionTarget,
+      task: "Draft an evidence-grounded account brief",
+      publishPullRequest: false,
+      reviewAfterPublish: false,
+    });
+    await vi.waitFor(() => {
+      const run = instance.state.runs.find((item) => item.runId === codingRunId);
+      if (run?.status === "error") throw new Error(run.error ?? "Artifact workspace run failed.");
+      expect(run?.status).toBe("completed");
+    });
+
+    const run = instance.state.runs.find((item) => item.runId === codingRunId);
+    expect(run?.approval?.approvalId).toBe(approvalId);
+    expect(run?.executionTarget).toEqual(executionTarget);
+    expect(run?.repoUrl).toBe("");
+    expect(run?.expectedDeliverables).toEqual(expectedDeliverables);
+    expect(run?.approval?.inputHash).toMatch(/^[a-f0-9]{64}$/);
+    const frozenInput = {
+      repoUrl: run!.repoUrl,
+      executionTarget: run!.executionTarget,
+      task: run!.task,
+      baseBranch: run!.baseBranch,
+      publishPullRequest: run!.publishPullRequest,
+      route: run!.route,
+      runtime: run!.runtime,
+      expectedDeliverables: run!.expectedDeliverables,
+    };
+    expect(runInputHash(frozenInput)).toBe(run!.approval!.inputHash);
+    expect(runInputHash({
+      ...frozenInput,
+      executionTarget: { ...executionTarget, workspaceName: "Changed after approval" },
+    })).not.toBe(run!.approval!.inputHash);
+    expect(run?.deliverables).toEqual([expect.objectContaining({ path: expectedDeliverables[0], mediaType: "text/markdown; charset=utf-8" })]);
+    expect(stored.get(deliverableStorageKey(run!.sandboxId, run!.deliverables![0]!.sha256, 0))).toBe("# Account brief\nSynthetic fixture.\n");
+  });
+
+  it("validates direct execution-target intake before approval and deduplicates command replay", async () => {
+    const instance = agent({ AI_GATEWAY_TOKEN: undefined, SHIBA_VERIFY_STANDIN: "1" });
+    const postRun = (body: Record<string, unknown>) => instance.onRequest(
+      new Request("https://internal/api/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: "Create an account brief", publishPullRequest: false, ...body }),
+      }),
+    );
+    const target = {
+      kind: "artifact-workspace",
+      workspaceName: "Sales workspace",
+      expectedDeliverables: ["sales/account-brief.md"],
+    } as const;
+
+    const connected = await postRun({
+      executionTarget: { kind: "connected-app", connectionId: "crm", action: "create-record" },
+    });
+    expect(connected.status).toBe(501);
+    expect(await connected.json()).toEqual({ error: "Connected-app execution is not available until a permissioned adapter is implemented." });
+
+    const invalidRequests: Array<Record<string, unknown>> = [
+      { executionTarget: target, repoUrl: REPO },
+      { executionTarget: target, expectedDeliverables: ["sales/other.md"] },
+      { executionTarget: { ...target, expectedDeliverables: ["../private.md"] } },
+      { executionTarget: target, publishPullRequest: true },
+      { executionTarget: target, runtime: "local" },
+      { executionTarget: target, runSetup: true },
+    ];
+    for (const body of invalidRequests) {
+      const response = await postRun(body);
+      expect(response.status).toBe(400);
+      expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    }
+
+    const payload = { executionTarget: target, commandId: "artifact-command-1" };
+    const first = await postRun(payload);
+    expect(first.status).toBe(200);
+    const firstBody = await first.json() as { approvalId: string };
+    const approval = instance.state.pendingApprovals?.find((item) => item.approvalId === firstBody.approvalId);
+    expect(approval?.executionTarget).toEqual(target);
+    expect(approval?.expectedDeliverables).toEqual(target.expectedDeliverables);
+    expect(approval?.repoUrl).toBe("");
+
+    const replay = await postRun(payload);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual({ ok: true, approvalId: firstBody.approvalId, deduped: true });
+    expect(instance.state.pendingApprovals).toHaveLength(1);
   });
 
   it("does not leave a review round when the coding harness fails", async () => {

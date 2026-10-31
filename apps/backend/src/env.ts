@@ -86,6 +86,8 @@ export interface Env {
    * would be a quota-exhaustion vector. Keyed on `cf-connecting-ip`.
    */
   MCP_RATE_LIMIT?: RateLimit;
+  /** Comma-separated exact HTTPS destination hostnames trusted for outbound MCP. Empty means disabled. */
+  MCP_TRUSTED_HOSTS?: string;
   /**
    * Optional. Workers Browser Rendering endpoint (wrangler `browser` binding,
    * megaplan T33). `puppeteer.launch()` accepts the Fetcher shape directly;
@@ -162,6 +164,12 @@ export interface Env {
   DISCORD_AGENT_HARNESS?: string;
   /** Optional. Harness for Slack-originated runs; defaults to AGENT_HARNESS, then "claude-code". */
   SLACK_AGENT_HARNESS?: string;
+  /** Default employee slug when chat text omits `bot:<slug>` (Slack/Discord/Telegram). */
+  CHAT_EMPLOYEE_DEFAULT?: string;
+  /** Org partition for chat-resolved employee profiles; defaults to self-hosted. */
+  CHAT_EMPLOYEE_ORG_ID?: string;
+  /** Dashboard actor id whose employee-tool grants apply to chat thread orchestrators. */
+  CHAT_EMPLOYEE_ACTOR?: string;
   /** "sandbox" (default), "computer" (preview-only refusal), or "local". */
   RUNTIME?: string;
   /**
@@ -170,6 +178,8 @@ export interface Env {
    * local-runtime request refuses 403 before any approval exists.
    */
   SHIBA_LOCAL_RUNTIME?: string;
+  /** Reason Network local companion dispatch is explicitly disabled unless set to "1". */
+  REASON_NETWORK_ENABLED?: string;
   /** verify-shiba: "1" runs deterministic publish/review without containers. */
   SHIBA_VERIFY_STANDIN?: string;
   /**
@@ -252,6 +262,8 @@ export interface Env {
    * Unset = the dashboard Approvals surface is their only resolve path.
    */
   SLACK_APPROVALS_CHANNEL?: string;
+  /** Optional. Must be exactly `true` to enable approved collaboration-room outbox delivery. */
+  SLACK_ROOM_OUTBOX_ENABLED?: string;
   /** Optional. Daily USD budget for the /api/usage report's budget line. */
   USAGE_BUDGET_USD?: string;
   /** Optional. JSON map `{channelId: "https://github.com/owner/repo"}` for bare mentions. */
