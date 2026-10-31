@@ -92,12 +92,28 @@ export async function postSlackMessageWithReceipt(
       ...(input.blocks ? { blocks: input.blocks } : {}),
     }),
   });
-  const json = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string; channel?: string; ts?: string };
-  if (!response.ok || json.ok !== true) {
+  let json: { ok?: boolean; error?: string; channel?: string; ts?: string };
+  try {
+    const parsed: unknown = JSON.parse(await response.text());
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("invalid Slack response object");
+    json = parsed as typeof json;
+  } catch {
+    if (!response.ok && response.status >= 400 && response.status < 500)
+      throw new SlackPostRejectedError(`Slack API ${response.status}`, true);
+    throw new Error("Slack response body is unreadable; delivery outcome is unknown.");
+  }
+  if (!response.ok) {
     const error = typeof json.error === "string" ? json.error : `Slack API ${response.status}`;
-    const outcomeKnown = response.status < 500 && !["fatal_error", "internal_error", "request_timeout"].includes(error);
+    const outcomeKnown = response.status >= 400 && response.status < 500 &&
+      !["fatal_error", "internal_error", "request_timeout"].includes(error);
     throw new SlackPostRejectedError(error, outcomeKnown);
   }
+  if (json.ok === false) {
+    const error = typeof json.error === "string" ? json.error : "Slack rejected the message.";
+    const outcomeKnown = !["fatal_error", "internal_error", "request_timeout"].includes(error);
+    throw new SlackPostRejectedError(error, outcomeKnown);
+  }
+  if (json.ok !== true) throw new Error("Slack response did not confirm acceptance; delivery outcome is unknown.");
   if (typeof json.channel !== "string" || typeof json.ts !== "string") {
     throw new Error("Slack accepted the message but returned no receipt.");
   }

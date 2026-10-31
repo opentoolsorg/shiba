@@ -5,6 +5,7 @@ import {
   type CollaborationScope,
 } from "./collaboration-store.js";
 import type { Env } from "./env.js";
+import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { postSlackMessageWithReceipt, SlackPostRejectedError, verifySlackBotInstallation } from "./slack.js";
 
 export interface SlackRoomOutboxDeps {
@@ -41,7 +42,7 @@ async function stableClientMsgId(intentId: string): Promise<string> {
  * network timeout. A stable client_msg_id is included as an extra dedupe aid.
  */
 export async function deliverApprovedSlackRoomIntent(
-  env: Pick<Env, "AGENT_AUDIT" | "SLACK_BOT_TOKEN" | "SLACK_APPROVALS_CHANNEL" | "SLACK_ROOM_OUTBOX_ENABLED">,
+  env: Pick<Env, "AGENT_AUDIT" | "SLACK_BOT_TOKEN" | "SLACK_APPROVALS_CHANNEL" | "SLACK_ROOM_OUTBOX_ENABLED" | "DASHBOARD_APPROVERS">,
   scope: CollaborationScope,
   roomId: string,
   intentId: string,
@@ -57,7 +58,8 @@ export async function deliverApprovedSlackRoomIntent(
   if (
     intent.status !== "pending" || intent.deliveryStatus !== "sending" ||
     intent.channelId !== approvalsChannel || !intent.content ||
-    await contentHash(intent.content) !== intent.contentHash
+    await contentHash(intent.content) !== intent.contentHash ||
+    !intent.approvedByUserId || !isApprover(intent.approvedByUserId, parseApproverAllowlist(env.DASHBOARD_APPROVERS))
   ) {
     await finishCollaborationSlackDeliveryIntent(env, scope, {
       intentId,
@@ -86,7 +88,10 @@ export async function deliverApprovedSlackRoomIntent(
   }
 
   // Recheck the exact room link, message author, content, and revocation fence immediately before Slack I/O.
-  if (!(await isCollaborationSlackDeliverySendable(env, scope, roomId, intentId))) {
+  if (
+    !isApprover(intent.approvedByUserId, parseApproverAllowlist(env.DASHBOARD_APPROVERS)) ||
+    !(await isCollaborationSlackDeliverySendable(env, scope, roomId, intentId))
+  ) {
     await finishCollaborationSlackDeliveryIntent(env, scope, {
       intentId, roomId, status: "blocked", detail: "The Slack room link or source message is no longer active.",
     });
@@ -106,9 +111,16 @@ export async function deliverApprovedSlackRoomIntent(
       });
       return { status: "unknown" };
     }
-    await finishCollaborationSlackDeliveryIntent(env, scope, {
+    const persisted = await finishCollaborationSlackDeliveryIntent(env, scope, {
       intentId, roomId, status: "sent", receiptTs: receipt.ts,
     });
+    if (!persisted) {
+      await finishCollaborationSlackDeliveryIntent(env, scope, {
+        intentId, roomId, status: "unknown",
+        detail: "Slack returned a receipt, but it could not be durably recorded.",
+      });
+      return { status: "unknown" };
+    }
     return { status: "sent", channel: receipt.channel, ts: receipt.ts };
   } catch (error) {
     const knownRejected = error instanceof SlackPostRejectedError && error.outcomeKnown;
