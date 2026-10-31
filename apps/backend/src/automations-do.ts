@@ -538,7 +538,11 @@ export class Automations {
     }
     const all = await this.ctx.storage.list<unknown>({ prefix: DEDUPE_PREFIX });
     const stale = [...all.entries()]
-      .filter(([, seenAt]) => typeof seenAt !== "number" || seenAt < nowMs - DEDUPE_TTL_MS)
+      .filter(([key, seenAt]) => {
+        // Signed GitHub bodies stay valid indefinitely; never forget payload hashes.
+        if (key.startsWith(`${DEDUPE_PREFIX}gh-payload:`)) return false;
+        return typeof seenAt !== "number" || seenAt < nowMs - DEDUPE_TTL_MS;
+      })
       .map(([key]) => key)
       .sort()
       .slice(0, DEDUPE_GC_DELETE_LIMIT);
