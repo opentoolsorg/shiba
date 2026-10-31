@@ -30,7 +30,8 @@ describe("SkillsView recovery and draft races", () => {
   it("rerenders an initial load error and retries successfully", async () => {
     localStorageMock();
     let reads = 0;
-    vi.stubGlobal("fetch", vi.fn(async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/skills/library") return json({ ok: true, skills: [] });
       reads += 1;
       return reads === 1 ? json({ error: "temporarily unavailable" }, 503) : json({ skills: [serverSkill({ name: "Recovered" })] });
     }));
@@ -48,6 +49,7 @@ describe("SkillsView recovery and draft races", () => {
     const requests: Array<{ url: string; method: string; body?: Record<string, unknown> }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); const method = init?.method ?? "GET";
+      if (url === "/api/skills/library") return json({ ok: true, skills: [] });
       const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ url, method, body });
       return method === "GET" ? json({ skills: [] }) : json({ skill: serverSkill({ name: String(body?.name), instructions: String(body?.instructions), sourceUrl: body?.sourceUrl }) }, 201);
@@ -70,7 +72,8 @@ describe("SkillsView recovery and draft races", () => {
   it("does not clear newer editor changes when an earlier save completes", async () => {
     localStorageMock();
     const post = deferred<Response>();
-    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/skills/library") return json({ ok: true, skills: [] });
       if (init?.method === "POST") return post.promise;
       return json({ skills: [] });
     }));
@@ -90,6 +93,7 @@ describe("SkillsView recovery and draft races", () => {
     const alpha = deferred<Response>(); const beta = deferred<Response>();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === "/api/skills/library") return json({ ok: true, skills: [] });
       if (url.startsWith("/api/skills?") ) return json({ skills: [
         serverSkill({ id: "skill-aaaaaaaaaaaaaaaaaaaaaaaa", name: "Alpha", instructions: "Current alpha" }),
         serverSkill({ id: "skill-bbbbbbbbbbbbbbbbbbbbbbbb", name: "Beta", instructions: "Current beta" }),
