@@ -580,7 +580,7 @@ describe("signed Slack continuity through persistent collaboration rooms", () =>
     expect(postMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("rechecks author and approver membership after delayed auth.test, then preserves an in-flight receipt across revocation", async () => {
+  it("blocks a removed approver after delayed auth.test and preserves an in-flight receipt across link revocation", async () => {
     const create = async (suffix: string) => {
       authState.userId = "owner@example.test";
       const f = fixture();
@@ -622,6 +622,31 @@ describe("signed Slack continuity through persistent collaboration rooms", () =>
     });
     expect(await blockedResponse?.json()).toMatchObject({ delivery: { status: "blocked" } });
     expect(blockedPost).not.toHaveBeenCalled();
+
+    const removedAuthor = await create("AuthorRemoved");
+    expect((await removedAuthor.f.send(`/rooms/${removedAuthor.roomId}/members`, "POST", { userId: "author@example.test" }))?.status).toBe(201);
+    authState.userId = "author@example.test";
+    const authorMessage = await json<{ message: { messageId: string } }>(await removedAuthor.f.send(
+      `/rooms/${removedAuthor.roomId}/messages`, "POST", { body: "This author is removed during verification." },
+    ));
+    const pendingAuthorIntent = await json<{ intent: { intentId: string } }>(await removedAuthor.f.send(
+      `/rooms/${removedAuthor.roomId}/messages/${authorMessage.message.messageId}/slack-delivery`, "POST", { linkId: removedAuthor.linkId },
+    ));
+    authState.userId = "owner@example.test";
+    removedAuthor.f.env.DASHBOARD_APPROVERS = "owner@example.test";
+    const blockedAuthorPost = vi.fn(async () => ({ channel: "C123", ts: "should-not-send" }));
+    const authorApprovalPath = `/rooms/${removedAuthor.roomId}/slack-delivery/${pendingAuthorIntent.intent.intentId}/approve`;
+    const blockedAuthorResponse = await removedAuthor.f.send(authorApprovalPath, "POST", {}, {
+      slackOutbox: {
+        verifyInstallation: async () => {
+          await removedAuthor.f.send(`/rooms/${removedAuthor.roomId}/members/${encodeURIComponent("human:author@example.test")}`, "DELETE");
+          return { teamId: "T123", userId: "W123", botId: "B123" };
+        },
+        postMessage: blockedAuthorPost,
+      },
+    });
+    expect(await blockedAuthorResponse?.json()).toMatchObject({ delivery: { status: "blocked" } });
+    expect(blockedAuthorPost).not.toHaveBeenCalled();
 
     const revokedDuringPost = await create("RevokedInFlight");
     revokedDuringPost.f.env.DASHBOARD_APPROVERS = "owner@example.test";
