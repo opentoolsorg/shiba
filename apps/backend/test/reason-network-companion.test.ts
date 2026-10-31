@@ -109,8 +109,57 @@ describe("Reason Network paired companion queue v1",()=>{
     expect(await revokeReasonNetworkGrant({AGENT_AUDIT:database},scope.ownerId,scope.grantId)).toBe(true);
     await store.cancelGrant(scope.ownerId,scope.grantId);
     expect((await store.get(scope,"grant-revoke"))?.state).toBe("cancelled");
-    const persisted=sqlite.prepare("SELECT state,dispatch_state FROM reason_network_operations WHERE idempotency_key=?").get("grant-revoke") as {state:string;dispatch_state:string};
-    expect(persisted).toEqual({state:"approved",dispatch_state:"cancelled"});
+    const persisted=sqlite.prepare("SELECT state,dispatch_state,cancelled_at FROM reason_network_operations WHERE idempotency_key=?").get("grant-revoke") as {state:string;dispatch_state:string|null;cancelled_at:number|null};
+    expect(persisted.state).toBe("approved");
+    expect(persisted.dispatch_state).toBeNull();
+    expect(persisted.cancelled_at).toEqual(expect.any(Number));
+  });
+
+  it("adds a cancellation marker to the intermediate constrained dispatch schema without rebuilding it",async()=>{
+    const {database,sqlite}=customAgentD1();
+    sqlite.exec(`CREATE TABLE reason_network_grants (
+      grant_id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,
+      companion_machine_id TEXT,status TEXT NOT NULL CHECK(status IN ('active','revoked')),created_at INTEGER NOT NULL,revoked_at INTEGER
+    );
+    INSERT INTO reason_network_grants VALUES('grant-mid','owner-mid','conversation-mid','session-mid','${MACHINE}','active',1,NULL);
+    CREATE TABLE reason_network_operations (
+      owner_id TEXT NOT NULL,grant_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,payload_digest TEXT NOT NULL,destination TEXT NOT NULL,
+      operation_id TEXT NOT NULL,approval_id TEXT,companion_machine_id TEXT,claim_token TEXT,cancel_requested INTEGER NOT NULL DEFAULT 0,first_attempt_at INTEGER,
+      dispatch_state TEXT CHECK(dispatch_state IN ('queued','claimed')),
+      state TEXT NOT NULL CHECK(state IN ('pending_approval','approved','accepted','unknown','rejected','cancelled')),
+      remote_message_id TEXT,updated_at INTEGER NOT NULL,
+      PRIMARY KEY(owner_id,grant_id,conversation_id,session_id,idempotency_key)
+    );`);
+    const scope={ownerId:"owner-mid",grantId:"grant-mid",conversationId:"conversation-mid",sessionId:"session-mid"};
+    const insert=sqlite.prepare(`INSERT INTO reason_network_operations
+      (owner_id,grant_id,conversation_id,session_id,idempotency_key,payload_digest,destination,operation_id,approval_id,companion_machine_id,claim_token,cancel_requested,first_attempt_at,dispatch_state,state,remote_message_id,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    for(const [key,state] of [["approved-cancel","approved"],["queued-cancel","approved"],["grant-revoke","approved"],["mid-unknown","unknown"]] as const)
+      insert.run(scope.ownerId,scope.grantId,scope.conversationId,scope.sessionId,key,`digest-${key}`,"peer",`op-${key}`,null,key==="mid-unknown"?MACHINE:null,null,0,key==="mid-unknown"?0:null,null,state,null,1);
+
+    const store=new D1ReasonNetworkOperationStore({AGENT_AUDIT:database});
+    const approved=await store.get(scope,"approved-cancel");
+    const queued=await store.get(scope,"queued-cancel");
+    const unknown=await store.get(scope,"mid-unknown");
+    expect(await store.transition(scope,"queued-cancel",["approved"],"queued")).toBe(true);
+    expect(await store.transition(scope,"grant-revoke",["approved"],"queued")).toBe(true);
+    expect(await store.cancelOperation(scope.ownerId,approved!.operationId!)).toBe("cancelled");
+    expect((await store.get(scope,"approved-cancel"))?.state).toBe("cancelled");
+    expect(await store.cancelOperation(scope.ownerId,queued!.operationId!)).toBe("cancelled");
+    expect((await store.get(scope,"queued-cancel"))?.state).toBe("cancelled");
+    expect(await store.recover(scope.ownerId,unknown!.operationId!,Date.now())).toBe(false);
+    expect((await store.get(scope,"mid-unknown"))?.state).toBe("unknown");
+
+    expect(await revokeReasonNetworkGrant({AGENT_AUDIT:database},scope.ownerId,scope.grantId)).toBe(true);
+    await store.cancelGrant(scope.ownerId,scope.grantId);
+    expect((await store.get(scope,"grant-revoke"))?.state).toBe("cancelled");
+    const raw=sqlite.prepare("SELECT state,dispatch_state,cancelled_at FROM reason_network_operations WHERE idempotency_key=?").get("grant-revoke") as {state:string;dispatch_state:string|null;cancelled_at:number|null};
+    expect(raw.state).toBe("approved");
+    expect(raw.dispatch_state).toBeNull();
+    expect(raw.cancelled_at).toEqual(expect.any(Number));
+    // The historical CHECK remains intact; only the new nullable marker was added.
+    expect((sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reason_network_operations'").get() as {sql:string}).sql).toContain("dispatch_state IN ('queued','claimed')");
   });
 
   it("moves exact approved payload Worker→queue→paired daemon claim→MCP result→owner status",async()=>{
