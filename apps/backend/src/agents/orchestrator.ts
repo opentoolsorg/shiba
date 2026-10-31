@@ -70,6 +70,7 @@ import { createRunCodeTool } from "../codemode.js";
 import { isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode } from "../conversation-mode.js";
 import { createEmployeeRunTools, employeeRunToolPolicyMode, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext } from "../employee-run-tools.js";
 import { handleEmployeeDraftRequest, MAX_EMPLOYEE_DRAFTS, type EmployeeDraft, type EmployeeDraftStore, type EmployeeReadReceipt } from "../employee-drafts.js";
+import { chatLaneActorId } from "../chat-employee.js";
 import { runWorkerEffect, toRunFailure, tryRunPromise } from "../effect/runtime.js";
 import {
   emailApprovalDraftRef,
@@ -973,8 +974,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         () => this.employeeToolProfileId(),
         () => this.name ?? null,
         () => this.employeeToolOrgId(),
-        () => initiatorUserIdFromOrchestratorName(this.name) ?? null,
-        this.employeeDraftStore(),
+        () => chatLaneActorId(this.env, this.name) ?? initiatorUserIdFromOrchestratorName(this.name) ?? null,
+        isDashboardAgentName(this.name) ? this.employeeDraftStore() : undefined,
       ),
     };
     const ownerMemoryId = isDashboardAgentName(this.name)
@@ -1049,7 +1050,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (mode === "legacy") {
       return { activeTools: Object.keys(ctx.tools).filter((name) => name !== "employee_tool_catalog" && name !== "employee_tool_call" && name !== "employee_retain_draft") };
     }
-    const actorId = initiatorUserIdFromOrchestratorName(this.name);
+    const actorId = chatLaneActorId(this.env, this.name) ?? initiatorUserIdFromOrchestratorName(this.name);
     const context = actorId ? await resolveEmployeeRunToolContext(this.env, employeeId, orgId, actorId) : null;
     const allowed = Boolean(context?.allowed.length);
     return {

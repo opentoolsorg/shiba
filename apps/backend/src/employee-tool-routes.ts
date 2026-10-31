@@ -318,6 +318,16 @@ export async function dispatchEmployeeToolForPrincipal(
         ...(connection.accountId ? { accountId: connection.accountId } : {}), argumentDigest,
         payload: args, policyVersion: policy.version, expiresAt: Date.now() + APPROVAL_TTL_MS,
       });
+      const { notifyEmployeeToolApprovalInChat } = await import("./chat-employee.js");
+      await notifyEmployeeToolApprovalInChat(env, {
+        approvalId: pending.approvalId,
+        employeeId,
+        action: toolName,
+        payload: args,
+        executionContextId,
+        orgId: principal.orgId,
+        employeeLabel: employee.config.name?.trim() || employee.slug,
+      }).catch(() => undefined);
       return Response.json({ ok: true, status: "pending_approval", approvalId: pending.approvalId,
         employeeId, employeeVersion: employee.version, tool: toolName }, { status: 202, headers: { "cache-control": "no-store" } });
     }

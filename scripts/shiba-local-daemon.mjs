@@ -56,10 +56,45 @@ const DEFAULT_POLL_MS = 3_000;
 const DAEMON_VERSION = "0.1.0";
 const HEARTBEAT_MS = 30_000;
 const PROBED_HARNESSES = ["claude", "codex", "opencode", "agy"];
-// EX_CONFIG: a revoked token needs operator action, not a restart loop.
-const EXIT_REVOKED = 78;
+// EX_CONFIG: misconfiguration the operator must fix before retrying.
+const EXIT_USAGE = 64;
 // EX_TEMPFAIL: a second daemon over the same run root exits fast.
 const EXIT_LOCKED = 75;
+// Cloudflare Access (or similar) returned HTML instead of JSON.
+const EXIT_ACCESS = 76;
+// Pairing token rejected (expired, reused, or malformed server-side).
+const EXIT_PAIR_TOKEN = 77;
+// EX_CONFIG: adapter token revoked — re-pair required.
+const EXIT_REVOKED = 78;
+// Worker has no local runtime (SHIBA_LOCAL_RUNTIME / LocalDispatch).
+const EXIT_RUNTIME_OFF = 79;
+
+const HELP_TEXT = `shiba-local-daemon — poll a Shiba deployment for local runs.
+
+Usage:
+  shiba-local-daemon [--once] [--poll <ms>]
+  shiba-local-daemon --connect <workerUrl> --pair <token>
+
+Environment:
+  SHIBA_WORKER_URL          Worker origin (https://…), unless saved by --pair
+  LOCAL_ADAPTER_TOKEN       Deployment daemon bearer (legacy) or use --pair
+  SHIBA_LOCAL_RUN_ROOT      State directory (default ~/.shiba-local)
+  SHIBA_REASON_NETWORK_COMPANION=1
+  SHIBA_REASON_NETWORK_EXECUTABLE=/absolute/path/reason-network
+
+Exit codes:
+  0   success (--once with no work, or completed run)
+  1   run failed or transient claim/network error
+  64  invalid CLI arguments
+  75  another daemon holds the lock on this run root
+  76  HTML login page instead of JSON — bypass Access for /api/local/*
+  77  pairing token expired, reused, or invalid
+  78  adapter token revoked — mint a new pairing token
+  79  local runtime disabled on the deployment (SHIBA_LOCAL_RUNTIME=1)
+ 130  SIGINT graceful stop
+ 143  SIGTERM graceful stop
+
+See docs/remote-access.md and VERIFICATION/desktop.md.`;
 
 /** Status hook for a host process (worker_thread); a no-op under plain node. */
 const report = (msg) => process.parentPort?.postMessage({ type: "status", ...msg });
@@ -78,16 +113,14 @@ function parseArgs(argv) {
     else if (argv[i] === "--poll" && argv[i + 1]) {
       args.pollMs = Math.max(500, Number(argv[++i]) || DEFAULT_POLL_MS);
     } else if (argv[i] === "--help" || argv[i] === "-h") {
-      console.log(
-        "Usage: shiba-local-daemon [--once] [--poll <ms>] [--connect <workerUrl> --pair <token>]\n  Env: SHIBA_WORKER_URL, LOCAL_ADAPTER_TOKEN, SHIBA_LOCAL_RUN_ROOT\n  Optional Reason: SHIBA_REASON_NETWORK_COMPANION=1, SHIBA_REASON_NETWORK_EXECUTABLE=/absolute/path/reason-network",
-      );
+      console.log(HELP_TEXT);
       process.exit(0);
     } else {
-      fail(`Unknown argument ${argv[i]}`);
+      fail(`Unknown argument ${argv[i]}`, EXIT_USAGE);
     }
   }
   if (Boolean(args.connect) !== Boolean(args.pair))
-    fail("--connect and --pair must be given together.");
+    fail("--connect and --pair must be given together.", EXIT_USAGE);
   return args;
 }
 
@@ -151,18 +184,70 @@ async function post(sub, body) {
     signal: AbortSignal.timeout(10_000),
   });
   const text = await res.text();
-  if (!res.ok)
-    throw Object.assign(new Error(`${sub}: HTTP ${res.status} ${text.slice(0, 300)}`), {
-      status: res.status,
-    });
-  return text === "" ? {} : JSON.parse(text);
+  return parseLocalApiResponse(sub, res, text);
 }
 
 async function get(sub) {
   const res = await fetch(`${workerUrl}/api/local/${sub}`, { headers: AUTH, signal: AbortSignal.timeout(10_000) });
   const text = await res.text();
-  if (!res.ok) throw Object.assign(new Error(`${sub}: HTTP ${res.status} ${text.slice(0, 300)}`), { status: res.status });
-  return text === "" ? {} : JSON.parse(text);
+  return parseLocalApiResponse(sub, res, text);
+}
+
+function looksLikeHtml(text) {
+  const sample = text.trimStart().slice(0, 256).toLowerCase();
+  return sample.startsWith("<!doctype") || sample.startsWith("<html") || sample.includes("cloudflare access");
+}
+
+/** Turn Worker responses into JSON or operator-actionable errors (Access HTML, runtime off). */
+function parseLocalApiResponse(sub, res, text) {
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw Object.assign(
+        new Error(
+          `${sub}: local runtime is not enabled on this deployment — set SHIBA_LOCAL_RUNTIME=1, bind LocalDispatch, and configure PAIRING_SECRET or LOCAL_ADAPTER_TOKEN.`,
+        ),
+        { status: res.status, runtimeOff: true },
+      );
+    }
+    if (looksLikeHtml(text)) {
+      throw Object.assign(
+        new Error(
+          `${sub}: got an HTML login page instead of JSON — bypass Cloudflare Access (or similar) for ${workerUrl}/api/local/* before pairing or claiming runs.`,
+        ),
+        { status: res.status, accessHtml: true },
+      );
+    }
+    throw Object.assign(new Error(`${sub}: HTTP ${res.status} ${text.slice(0, 300)}`), {
+      status: res.status,
+    });
+  }
+  if (text === "") return {};
+  if (looksLikeHtml(text)) {
+    throw Object.assign(
+      new Error(
+        `${sub}: got an HTML login page instead of JSON — bypass Cloudflare Access for ${workerUrl}/api/local/*.`,
+      ),
+      { status: res.status, accessHtml: true },
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw Object.assign(
+      new Error(`${sub}: response was not JSON (${text.slice(0, 120)}…)`),
+      { status: res.status, badJson: true },
+    );
+  }
+}
+
+function rethrowLocalApiError(error, context) {
+  if (error?.runtimeOff) fail(error.message, EXIT_RUNTIME_OFF);
+  if (error?.accessHtml) fail(error.message, EXIT_ACCESS);
+  if (context === "pair" && error?.status === 401) {
+    fail("pairing token expired, reused, or invalid — mint a new one in Remote Access.", EXIT_PAIR_TOKEN);
+  }
+  if (error instanceof Error) throw error;
+  throw new Error(String(error));
 }
 
 /** Validate the local opt-in before pairing or heartbeat, and refresh it to withdraw stale capability. */
@@ -884,11 +969,7 @@ async function pair(url, pairingToken) {
       harnesses,
     });
   } catch (error) {
-    fail(
-      error.status === 401
-        ? "pairing token expired, reused, or invalid — mint a new one in Remote Access."
-        : `pairing failed: ${error.message}`,
-    );
+    rethrowLocalApiError(error, "pair");
   }
   await writeConfig({ workerUrl, adapterToken: paired.adapterToken, machineId: paired.machineId });
   console.log(`shiba-local: paired as ${paired.machineId}; saved ${configPath}`);
@@ -916,6 +997,8 @@ async function heartbeat() {
   } catch (error) {
     report({ state: "heartbeat", ok: false });
     if (error.status === 401) revoked();
+    if (error.accessHtml) fail(error.message, EXIT_ACCESS);
+    if (error.runtimeOff) fail(error.message, EXIT_RUNTIME_OFF);
     // Network blips are expected; the next tick retries.
     console.error(`shiba-local: heartbeat failed: ${error.message}`);
   }
@@ -959,10 +1042,12 @@ async function main() {
   if (workerUrl === "")
     fail(
       "SHIBA_WORKER_URL is required (e.g. https://shiba.example.com), or pair with --connect/--pair.",
+      EXIT_USAGE,
     );
   if (adapterToken === "")
     fail(
       "LOCAL_ADAPTER_TOKEN is required — the deployment's daemon bearer — or pair with --connect/--pair.",
+      EXIT_USAGE,
     );
   AUTH = { Authorization: `Bearer ${adapterToken}` };
   machineId =
@@ -996,6 +1081,8 @@ async function main() {
       claim = await post("claim", { operator });
     } catch (error) {
       if (error.status === 401) revoked();
+      if (error.accessHtml) fail(error.message, EXIT_ACCESS);
+      if (error.runtimeOff) fail(error.message, EXIT_RUNTIME_OFF);
       console.error(`shiba-local: claim failed: ${error.message}`);
       if (args.once) process.exit(1);
       await new Promise((r) => setTimeout(r, Math.min(args.pollMs * 4, 30_000)));
