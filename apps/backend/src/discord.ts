@@ -290,6 +290,7 @@ export async function handleDiscordInteractions(
       await schedule(async () => {
         const result = await decideChatEmployeeToolApproval(env, {
           orgId: resolveChatEmployeeOrgId(env),
+          threadKey,
           approvalId: employeeDecision.approvalId,
           approved: employeeDecision.approved,
           decidedBy: `discord:${userId}`,

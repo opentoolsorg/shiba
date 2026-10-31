@@ -126,16 +126,20 @@ describe("queueChatRun employee wiring", () => {
 
 describe("employee decision pointers", () => {
   it("round-trips emp-approve ids", () => {
-    const id = "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6";
+    const id = "eap-a1b2c3d4e5f647a8b9c0d1e2f3a4b5c6";
     expect(parseEmployeeDecisionData(buildEmployeeDecisionData(true, id))).toEqual({
       approved: true,
       approvalId: id,
     });
+    expect(parseEmployeeDecisionData(buildEmployeeDecisionData(false, id))).toEqual({ approved: false, approvalId: id });
+    for (const invalid of ["", `${id}extra`, "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6", "eap-not-hex"]) {
+      expect(parseEmployeeDecisionData(buildEmployeeDecisionData(true, invalid))).toBeNull();
+    }
   });
 });
 
 describe("decideChatEmployeeToolApproval", () => {
-  it("records approve/reject for chat ingress", async () => {
+  it.each([true, false])("records a chat decision (%s) and refuses replay or reversal", async (approvedDecision) => {
     const { database } = customAgentD1();
     const env = { AGENT_AUDIT: database } as const;
     const agent = await createCustomAgent(env, "self-hosted", "writer", {
@@ -159,12 +163,57 @@ describe("decideChatEmployeeToolApproval", () => {
       expiresAt: Date.now() + 60_000,
       executionContextId: "slack:T1:C1:1758217392.000100",
     });
-    const approved = await decideChatEmployeeToolApproval(env as import("../src/env.js").Env, {
+    for (const threadKey of ["slack:T1:C2:1758217392.000100", "discord:42", "dashboard:owner"]) {
+      expect(await decideChatEmployeeToolApproval(env as import("../src/env.js").Env, {
+        orgId: "self-hosted",
+        threadKey,
+        approvalId: pending.approvalId,
+        approved: true,
+        decidedBy: "slack:U1",
+      })).toMatchObject({ ok: false });
+    }
+    const decisionInput = {
       orgId: "self-hosted",
       approvalId: pending.approvalId,
-      approved: true,
+      threadKey: "slack:T1:C1:1758217392.000100",
+      approved: approvedDecision,
       decidedBy: "slack:U1",
+    };
+    const [approved, competing] = await Promise.all([
+      decideChatEmployeeToolApproval(env as import("../src/env.js").Env, decisionInput),
+      decideChatEmployeeToolApproval(env as import("../src/env.js").Env, { ...decisionInput, approved: !approvedDecision, decidedBy: "slack:U2" }),
+    ]);
+    expect(competing).toMatchObject({ ok: false });
+    expect(approved).toEqual({ ok: true, status: approvedDecision ? "approved" : "denied" });
+    for (const approved of [approvedDecision, !approvedDecision]) {
+      expect(await decideChatEmployeeToolApproval(env as import("../src/env.js").Env, {
+        orgId: "self-hosted",
+        threadKey: "slack:T1:C1:1758217392.000100",
+        approvalId: pending.approvalId,
+        approved,
+        decidedBy: "slack:U2",
+      })).toMatchObject({ ok: false });
+    }
+  });
+});
+
+
+describe("employee approval chat ownership", () => {
+  it.each([null, "dashboard:owner", "discord:43"])("refuses stored nonmatching context %s", async (executionContextId) => {
+    const { database, sqlite } = customAgentD1();
+    const env = { AGENT_AUDIT: database } as import("../src/env.js").Env;
+    const agent = await createCustomAgent(env, "self-hosted", "writer", { name: "Writer", instructions: "Write.", harness: "opencode" });
+    const pending = await requestEmployeeActionApproval(env, {
+      orgId: "self-hosted", employeeId: agent.id, employeeVersion: agent.version,
+      actorId: "owner@example.test", connectionId: "conn-1", connectionGeneration: 1,
+      capability: { kind: "mcp", id: "mcp:shiba:send_email" }, action: "send_email",
+      argumentDigest: "abc", payload: { subject: "Hi" }, policyVersion: "current",
+      expiresAt: Date.now() + 60_000, ...(executionContextId ? { executionContextId } : {}),
     });
-    expect(approved).toEqual({ ok: true, status: "approved" });
+    expect(await decideChatEmployeeToolApproval(env, {
+      orgId: "self-hosted", threadKey: "discord:42", approvalId: pending.approvalId,
+      approved: true, decidedBy: "discord:42",
+    })).toMatchObject({ ok: false });
+    expect(sqlite.prepare("SELECT status FROM employee_tool_approvals WHERE approval_id = ?").get(pending.approvalId)).toMatchObject({ status: "pending" });
   });
 });

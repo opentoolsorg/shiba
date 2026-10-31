@@ -19,6 +19,7 @@ import type { Env } from "./env.js";
 import type { ApprovalKind } from "./pending-approvals.js";
 import { redactSecrets } from "./security.js";
 import { verifySlackRequest } from "./slack.js";
+import { buildSlackThreadName } from "./slack-thread.js";
 
 export const SLACK_INTERACT_PATH = "/api/slack/interact";
 
@@ -304,6 +305,7 @@ interface BlockActionPayload {
   actionId: string;
   pointer?: ApprovalPointer;
   employeePointer?: EmployeeToolApprovalPointer;
+  employeeThreadKey?: string;
   responseUrl: string;
   /** Blocks of the clicked card — kept so the decision can replace it in place. */
   blocks: unknown[];
@@ -330,7 +332,7 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
   const actionId = typeof first?.action_id === "string" ? first.action_id : "";
   const value = typeof first?.value === "string" ? first.value : "";
   const responseUrl = typeof record["response_url"] === "string" ? (record["response_url"] as string) : "";
-  const message = record["message"] as { blocks?: unknown } | undefined;
+  const message = record["message"] as { blocks?: unknown; thread_ts?: string; ts?: string } | undefined;
   const blocks = Array.isArray(message?.blocks) ? (message.blocks as unknown[]) : [];
   if (userId === "" || actionId === "" || value === "" || responseUrl === "") {
     throw new Error("Interaction payload is missing user, action, value, or response_url.");
@@ -340,10 +342,16 @@ function parseBlockActionsPayload(payloadParam: string | null): BlockActionPaylo
   }
   const employeeAction = actionId === EMPLOYEE_APPROVE_ACTION_ID || actionId === EMPLOYEE_REJECT_ACTION_ID;
   if (employeeAction) {
+    const team = record["team"] as { id?: string } | undefined;
+    const channel = record["channel"] as { id?: string } | undefined;
+    const threadKey = buildSlackThreadName(team?.id ?? "", channel?.id ?? "", message?.thread_ts ?? message?.ts ?? "");
+    const employeePointer = parseEmployeeToolApprovalValue(value);
+    if (employeePointer.threadKey !== threadKey) throw new Error("Employee approval does not belong to this chat thread.");
     return {
       userId,
       actionId,
-      employeePointer: parseEmployeeToolApprovalValue(value),
+      employeePointer,
+      employeeThreadKey: threadKey,
       responseUrl,
       blocks,
     };
@@ -514,6 +522,7 @@ export async function handleSlackInteract(
     const work = (async () => {
       const result = await decideChatEmployeeToolApproval(env, {
         orgId: pointer.orgId,
+        threadKey: interaction.employeeThreadKey ?? "",
         approvalId: pointer.approvalId,
         approved,
         decidedBy: `slack:${interaction.userId}`,

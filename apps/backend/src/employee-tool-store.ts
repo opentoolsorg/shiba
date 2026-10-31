@@ -449,13 +449,14 @@ export async function listEmployeeActionApprovals(
 
 export async function decideEmployeeActionApproval(
   env: AuditEnv,
-  input: { orgId: string; employeeId: string; approvalId: string; approved: boolean; decidedBy: string; now?: number },
+  input: { orgId: string; employeeId: string; approvalId: string; approved: boolean; decidedBy: string; now?: number; requirePendingTransition?: boolean },
 ): Promise<EmployeeApprovalRecord | null> {
   await ensureTables(env);
   const now = input.now ?? Date.now();
-  await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = ?, decided_by = ?, decided_at = ?
+  const updated = await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = ?, decided_by = ?, decided_at = ?
     WHERE org_id = ? AND employee_id = ? AND approval_id = ? AND status = 'pending' AND expires_at > ?`)
     .bind(input.approved ? "approved" : "denied", input.decidedBy, now, input.orgId, input.employeeId, input.approvalId, now).run();
+  if (input.requirePendingTransition && updated.meta.changes !== 1) return null;
   return getEmployeeActionApproval(env, { orgId: input.orgId, employeeId: input.employeeId, approvalId: input.approvalId, now });
 }
 

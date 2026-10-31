@@ -14,7 +14,7 @@ const CONVERSATION_ID = /^-?\d{1,24}$/;
 const WEB_CONVERSATION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const THREAD_NAME = /^(telegram|discord|web):(.+)$/;
 const DECISION_DATA = /^(approve|reject):([0-9a-f-]{36})$/;
-const EMPLOYEE_DECISION_DATA = /^(emp-approve|emp-reject):([0-9a-f-]{36})$/;
+const EMPLOYEE_DECISION_DATA = /^(emp-approve|emp-reject):(eap-[0-9a-f]{32})$/;
 
 function isValidConversationId(platform: ChatPlatform, id: string): boolean {
   return platform === "web" ? WEB_CONVERSATION_ID.test(id) : CONVERSATION_ID.test(id);
