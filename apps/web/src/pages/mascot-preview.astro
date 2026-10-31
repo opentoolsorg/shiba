@@ -1,0 +1,97 @@
+---
+import MarketingPage from '../layouts/MarketingPage.astro';
+import ShibaMascot from '../components/ShibaMascot.astro';
+import AgentCast from '../components/AgentCast.astro';
+
+const states = [
+  { state: 'idle', label: 'Ready when you are', detail: 'A breath, a blink, a little tail wag.' },
+  { state: 'thinking', label: 'Thinking it through', detail: 'A head tilt before the next step.' },
+  { state: 'waiting-approval', label: 'Your move, human', detail: 'One raised paw. Standard sandbox execution waits for approval.' },
+  { state: 'working', label: 'Paws on the keyboard', detail: 'A tiny laptop. A focused coworker.' },
+  { state: 'done', label: 'Ready for your review', detail: 'Happy to hand the work back to you.' },
+] as const;
+---
+<MarketingPage title="Shiba Mascot — Character Preview" description="Private design preview of Shiba’s original mascot and agent character cast." path="/mascot-preview/" noindex>
+  <div class="preview-shell">
+    <header class="preview-intro">
+      <p class="eyebrow">SHIBA / CHARACTER STUDIO / 01</p>
+      <h1>A little dog.<br /><em>A lot of good work.</em></h1>
+      <p class="intro">An original Shiba Inu for the paper desktop. Eight role-based characters share pointed ears, a curled tail and a clear working agreement. No character represents a harness or model.</p>
+      <div class="studio-label"><span aria-hidden="true">●</span> CHARACTER PREVIEW · NOT A LIVE RUN</div>
+    </header>
+    <section aria-labelledby="states-title" class="states-section">
+      <div class="section-heading"><h2 id="states-title">One Shiba. Five moods.</h2><span>01 — BEHAVIOR STUDIES</span></div>
+      <div class="states-grid">
+        {states.map(({ state, label, detail }, index) => (
+          <article class="state-card">
+            <div class="state-top"><span>{String(index + 1).padStart(2, '0')}</span><code>{state}</code></div>
+            <ShibaMascot state={state} size="card" title={`Shiba ${state.replaceAll('-', ' ')}`} />
+            <h3>{label}</h3><p>{detail}</p>
+          </article>
+        ))}
+      </div>
+      <p class="motion-note">CSS-only motion. Your device’s reduced-motion preference keeps every pose still. Use the site’s theme button to check both papers.</p>
+    </section>
+    <section aria-labelledby="cast-title" class="cast-section">
+      <div class="section-heading"><h2 id="cast-title">Meet the rest of the pack.</h2><span>02 — AGENT CAST</span></div>
+      <p class="cast-intro">Engineering, marketing, sales, product, design, research, operations and your own custom role. Original role props, not provider identities. Hover over a portrait for a small hello. Planning may precede approval; standard sandbox execution is gated, with scoped unattended automation only by explicit opt-in.</p>
+      <AgentCast />
+    </section>
+    <section class="hero-studies" aria-labelledby="hero-states-title">
+      <div class="section-heading"><h2 id="hero-states-title">Big feelings. Same little Shiba.</h2><span>03 — 240PX EXPRESSION STUDIES</span></div>
+      <div class="hero-states">
+        {states.map(({ state, label }) => <article class="state-card"><ShibaMascot state={state} size="hero" title={label} /><h3>{label}</h3></article>)}
+      </div>
+      <div class="state-lab">
+        <div id="live-expression"><ShibaMascot size="hero" title="Interactive Shiba expression preview" /></div>
+        <fieldset hidden data-preview-controls><legend>Change the live SVG’s data-state</legend>{states.map(({ state }) => <button type="button" data-preview-state={state} aria-pressed={state === 'idle'}>{state}</button>)}</fieldset>
+        <noscript><p>All five expression studies remain visible above without JavaScript.</p></noscript>
+      </div>
+    </section>
+    <section class="hero-studies" aria-labelledby="hero-cast-title">
+      <div class="section-heading"><h2 id="hero-cast-title">The pack, up close.</h2><span>04 — HERO SIZE</span></div>
+      <AgentCast size="hero" />
+    </section>
+    <footer class="studio-footer"><span>ORIGINAL SVG ART / NO IMAGE ASSETS / NO ANIMATION LIBRARY</span><span>SHIBA CHARACTER STUDIO</span></footer>
+  </div>
+</MarketingPage>
+<script>
+  document.querySelector<HTMLElement>('[data-preview-controls]')?.removeAttribute('hidden');
+  document.querySelectorAll<HTMLButtonElement>('[data-preview-state]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const mascot = document.querySelector('#live-expression svg');
+      if (mascot) mascot.setAttribute('data-state', button.dataset.previewState ?? 'idle');
+      document.querySelectorAll('[data-preview-state]').forEach((choice) => choice.setAttribute('aria-pressed', String(choice === button)));
+    });
+  });
+</script>
+<style>
+  button { min-height: 44px; min-width: 44px; }
+  .hero-studies { margin-top: 56px; } .hero-states { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; } .hero-states :global(svg), .state-card :global(svg) { margin: auto; }
+  .state-lab { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; margin: 24px 0; padding: 20px; border: 1px solid var(--line-2); } .state-lab fieldset { flex: 1 1 260px; min-width: 0; border: 0; padding: 0; } legend { font-size: 14px; margin-bottom: 14px; } button { font: 12px/1.5 'Geist Mono', monospace; color: var(--ink); background: var(--card); border: 1px solid var(--line-2); padding: 9px 12px; margin: 0 8px 8px 0; cursor: pointer; } button[aria-pressed='true'] { color: var(--paper); background: var(--navy); } button:focus-visible { outline: 3px solid var(--navy); outline-offset: 3px; }
+  @media (max-width: 680px) { .hero-states { grid-template-columns: 1fr; } }
+
+  .preview-shell { max-width: 1280px; margin: 0 auto; padding: 64px 28px 40px; color: var(--ink); }
+  .preview-intro { max-width: 780px; padding-bottom: 56px; }
+  .eyebrow, .studio-label, .section-heading > span, .state-top, .studio-footer { font-family: 'Geist Mono', monospace; }
+  .eyebrow { font-size: 12px; letter-spacing: .13em; color: var(--navy); margin-bottom: 25px; }
+  h1 { font-size: clamp(44px, 5.6vw, 76px); font-weight: 500; line-height: 1.06; letter-spacing: -.055em; margin: 0 0 24px; }
+  h1 em { color: var(--navy); font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; letter-spacing: -.025em; }
+  .intro { max-width: 590px; font-size: 17px; line-height: 1.8; margin: 0 0 24px; }
+  .studio-label { display: inline-flex; gap: 10px; padding: 9px 12px; border: 1px solid var(--line-2); font-size: 12px; color: var(--navy); letter-spacing: .025em; }
+  .section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 24px; padding-top: 22px; border-top: 1px solid var(--line-2); }
+  h2 { font-size: clamp(24px, 3vw, 34px); line-height: 1.2; letter-spacing: -.035em; font-weight: 500; margin: 0; }
+  .section-heading > span { font-size: 12px; letter-spacing: .05em; color: var(--navy); }
+  .states-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+  .state-card { min-width: 0; padding: 16px; background: var(--card); border: 1px solid var(--line-2); }
+  .state-top { display: flex; justify-content: space-between; align-items: start; gap: 8px; font-size: 12px; color: var(--navy); }
+  .state-top code { text-align: right; overflow-wrap: anywhere; }
+  .state-card h3 { font-size: 14px; font-weight: 600; line-height: 1.5; margin: 16px 0 7px; }
+  .state-card p { font-size: 12px; line-height: 1.8; margin: 0; }
+  .motion-note { font-size: 12px; line-height: 1.8; margin: 18px 0 50px; }
+  .cast-intro { max-width: 650px; font-size: 15px; line-height: 1.8; margin: -7px 0 24px; }
+  .studio-footer { display: flex; justify-content: space-between; gap: 18px; margin-top: 55px; padding-top: 20px; border-top: 1px solid var(--line-2); color: var(--navy); font-size: 12px; line-height: 1.8; letter-spacing: .03em; }
+  @media (max-width: 1000px) { .states-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 680px) { .preview-shell { padding: 40px 16px 24px; } .states-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .section-heading { flex-direction: column; gap: 10px; } .state-card { padding: 12px; } .studio-footer { flex-direction: column; } }
+  @media (max-width: 380px) { .states-grid { grid-template-columns: 1fr; } }
+</style>

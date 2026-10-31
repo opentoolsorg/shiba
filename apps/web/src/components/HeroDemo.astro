@@ -1,0 +1,202 @@
+---
+import ShibaMascot from './ShibaMascot.astro';
+const states = ['idle', 'thinking', 'waiting-approval', 'working', 'done'] as const;
+const steps = ['Task', 'Plan', 'Approve', 'Work', 'Review'];
+---
+<section class="hero-demo" data-demo data-frame="idle" aria-label="Interactive Shiba product demo">
+  <div class="demo-stage"><div class="companion-copy"><span class="companion-dot" aria-hidden="true"></span><span>A little help.<br /><strong>On your terms.</strong></span></div><div class="demo-mascot" data-demo-mascot><ShibaMascot state="idle" /></div></div>
+  {states.map(state => <template data-demo-mascot-state={state}><ShibaMascot state={state} /></template>)}
+  <div class="demo-window">
+    <div class="demo-bar"><span class="workspace-mark" aria-hidden="true"><img src="/assets/mascot/pet-logo.png" alt="" width="23" height="23" /></span><strong>Shiba workspace</strong><span class="example-tag">Example run</span></div>
+    <p class="demo-caption">Interactive demo, simulated data <span aria-hidden="true">·</span> Nothing runs or ships.</p>
+    <form class="demo-composer" data-demo-form><label for="demo-task">What would you like to get done?</label><div class="composer-row"><input id="demo-task" name="task" value="Research competitors for our next launch" maxlength="100" autocomplete="off" readonly /><button type="submit" disabled data-demo-control aria-label="Send example task">↑</button></div></form>
+    <div class="demo-content" data-demo-content><div class="task-card"><span class="card-kicker">Start with a little direction</span><p class="card-title">A clear task.<br />A little help.</p><p>Try the task above. This is a fixed example, not a connected workspace.</p><span class="task-arrow" aria-hidden="true">↗</span></div></div>
+    <p class="demo-status" data-demo-status role="status" aria-live="polite">Fixed example. Use the controls to explore; nothing runs or ships.</p>
+    <div class="demo-controls" data-demo-controls hidden><div class="demo-steps" aria-label="Demo steps">{steps.map((step, index) => <button type="button" data-demo-step={index} aria-label={`Show step ${index + 1}: ${step}`} aria-pressed={index === 0}><span>{String(index + 1).padStart(2, '0')}</span>{step}</button>)}</div><button type="button" class="replay" data-demo-playback aria-label="Play simulated demo">Play</button><button type="button" class="replay" data-demo-replay aria-label="Replay">↻<span>Replay</span></button></div>
+  </div>
+  <noscript><p class="no-js-note">Static example: JavaScript is off. No task has been run.</p></noscript>
+  <template data-demo-view="idle"><div class="task-card"><span class="card-kicker">Start with a little direction</span><p class="card-title">A clear task.<br />A little help.</p><p>Try the task above. This is a fixed example, not a connected workspace.</p><span class="task-arrow" aria-hidden="true">↗</span></div></template>
+  <template data-demo-view="thinking"><div class="plan-card"><span class="card-kicker">Research role · Thinking it through</span><p class="card-title">A plan before the work.</p><ol><li>Compare the source material you provide</li><li>Draft findings with sources and open questions</li><li>Prepare research files for your review</li></ol><button type="button" class="demo-primary" data-demo-review>Review approval card →</button></div></template>
+  <template data-demo-view="waiting-approval"><div class="approval-card"><span class="card-kicker">Simulated · Your permission, please</span><p class="card-title">Approve this run?</p><dl><div><dt>Repository</dt><dd>example/team-workspace</dd></div><div><dt>Branch</dt><dd>task/competitor-research</dd></div><div><dt>Model route</dt><dd>OpenCode → configured model</dd></div></dl><p>A repository is required, even for research. This standard sandbox run waits for approval.</p><div class="approval-actions"><button type="button" class="demo-primary" data-demo-approve>Approve &amp; run →</button><button type="button" class="demo-secondary" data-demo-reject>Reject</button></div></div></template>
+  <template data-demo-view="working"><div class="build-card"><span class="card-kicker">Simulated · Approved. On it.</span><p class="card-title">Visible progress.</p><div class="stream-log" role="log" aria-label="Simulated execution logs"><div data-log>› sandbox started</div><div data-log hidden>› comparing supplied source material</div><div data-log hidden>› drafting research/report.md</div></div><pre class="diff" aria-label="Illustrative research file preview"><code># Competitor research
+
+Sources linked to each finding.
+Evidence gaps called out.
+Open questions for your review.</code></pre></div></template>
+  <template data-demo-view="done"><div class="result-card"><span class="card-kicker">Simulated · Ready for your review</span><p class="card-title">Files to review.<br />Over to you.</p><p>A sourced draft, not a final decision.</p><div class="pr-tag"><span aria-hidden="true">↗</span><span><strong>Example research deliverables</strong><code>research/report.md</code><code>research/sources.json</code></span><span class="pr-check" aria-hidden="true">✓</span></div><p class="result-foot">Illustrative files only; no download in this demo. In the app, review and download available deliverables.</p></div></template>
+  <template data-demo-view="rejected"><div class="result-card rejected"><span class="card-kicker">You said no. That's the point.</span><p class="card-title">Rejected.<br />Nothing ran.</p><p>No sandbox started. No files changed.</p><button type="button" class="demo-secondary" data-demo-retry>Review the plan again →</button></div></template>
+</section>
+<script>
+  document.querySelectorAll<HTMLElement>('[data-demo]').forEach(demo => {
+    const states = ['idle', 'thinking', 'waiting-approval', 'working', 'done'];
+    const labels = ['Task', 'Plan', 'Approve', 'Work', 'Review'];
+    const content = demo.querySelector<HTMLElement>('[data-demo-content]')!;
+    const mascot = demo.querySelector<HTMLElement>('[data-demo-mascot]')!;
+    const status = demo.querySelector<HTMLElement>('[data-demo-status]')!;
+    const playback = demo.querySelector<HTMLButtonElement>('[data-demo-playback]')!;
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+    let timers: ReturnType<typeof setTimeout>[] = [];
+    let playing = false;
+    let approved = false;
+    let interacted = false;
+    let entered = false;
+    const later = (fn: () => void, delay: number) => { timers.push(setTimeout(fn, delay)); };
+    function stop() {
+      timers.forEach(clearTimeout); timers = []; playing = false;
+      playback.textContent = 'Play'; playback.setAttribute('aria-label', 'Play simulated demo');
+      demo.classList.add('is-paused');
+    }
+    function show(state: string, message: string) {
+      if ((state === 'working' || state === 'done') && !approved) { review(); return; }
+      if (state === 'idle' || state === 'thinking' || state === 'rejected') approved = false;
+      demo.dataset.frame = state;
+      const view = demo.querySelector<HTMLTemplateElement>(`[data-demo-view="${state}"]`);
+      const face = demo.querySelector<HTMLTemplateElement>(`[data-demo-mascot-state="${state === 'rejected' ? 'idle' : state}"]`);
+      if (view) content.replaceChildren(view.content.cloneNode(true));
+      if (face) mascot.replaceChildren(face.content.cloneNode(true));
+      status.textContent = message;
+      demo.querySelectorAll<HTMLButtonElement>('[data-demo-step]').forEach((button, i) => button.setAttribute('aria-pressed', String(states[i] === state)));
+    }
+    function review() { stop(); show('waiting-approval', 'Your turn. Approve or reject this simulated run. Playback cannot approve it.'); }
+    function play() {
+      stop();
+      if (document.hidden) return;
+      if (demo.dataset.frame === 'waiting-approval') { review(); return; }
+      if (motion.matches) { status.textContent = 'Reduced motion: use the numbered steps and approval controls. Nothing autoplays.'; return; }
+      playing = true; demo.classList.remove('is-paused');
+      playback.textContent = 'Pause'; playback.setAttribute('aria-label', 'Pause simulated demo');
+      status.textContent = 'Playing a fixed simulation. Playback stops for your approval.';
+      if (demo.dataset.frame === 'working') {
+        status.textContent = 'Playing the approved simulation. Pause stops playback; no real task is running.';
+        later(() => { demo.querySelectorAll<HTMLElement>('[data-log]').forEach(line => { line.hidden = false; }); }, 650);
+        later(() => { stop(); show('done', 'Simulated files ready for review. No real repository was changed.'); }, 3000);
+        return;
+      }
+      if (demo.dataset.frame !== 'thinking') {
+        show('idle', 'Playing a fixed simulation. Playback stops for your approval.');
+        later(() => show('thinking', 'Simulated plan. Human approval is required next.'), 2000);
+      }
+      later(review, demo.dataset.frame === 'thinking' ? 1800 : 3800);
+    }
+    function approve() {
+      approved = true;
+      stop(); show('working', 'Simulated run approved by you. No real task is running.');
+      if (motion.matches) demo.querySelectorAll<HTMLElement>('[data-log]').forEach(line => { line.hidden = false; });
+      else play();
+    }
+    demo.querySelector<HTMLElement>('[data-demo-controls]')!.hidden = false;
+    demo.querySelector<HTMLButtonElement>('[data-demo-control]')!.disabled = false;
+    function takeControl(event: Event) {
+      const control = (event.target as HTMLElement).closest('button, input');
+      if (!control) return;
+      interacted = true;
+      if (control.hasAttribute('data-demo-playback')) return;
+      if (playing) { stop(); status.textContent = 'Playback paused. Use the controls to continue.'; }
+    }
+    demo.addEventListener('click', takeControl);
+    demo.addEventListener('keydown', takeControl);
+    demo.querySelector('form')!.addEventListener('submit', event => {
+      event.preventDefault(); stop();
+      show('thinking', 'Example plan drafted. Review the approval card to continue.');
+    });
+    demo.addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+      if (!button) return;
+      if (button.hasAttribute('data-demo-playback')) {
+        if (playing) { stop(); status.textContent = 'Playback paused. Play resumes this example step.'; }
+        else play();
+      }
+      if (button.hasAttribute('data-demo-approve')) approve();
+      if (button.hasAttribute('data-demo-reject')) { stop(); show('rejected', 'Rejected. No sandbox started and no files changed.'); }
+      if (button.hasAttribute('data-demo-review') || button.hasAttribute('data-demo-retry')) review();
+      if (button.hasAttribute('data-demo-replay')) { stop(); show('idle', 'Example reset.'); play(); }
+      if (button.dataset.demoStep !== undefined) {
+        stop(); const index = Number(button.dataset.demoStep); const state = states[index]!;
+        show(state, `Static example: ${labels[index]}. Use the controls to continue.`);
+        if (state === 'working') demo.querySelectorAll<HTMLElement>('[data-log]').forEach(line => { line.hidden = false; });
+      }
+      if (!button.isConnected) { content.tabIndex = -1; content.focus({ preventScroll: true }); }
+    });
+    stop();
+    motion.addEventListener('change', () => { stop(); status.textContent = 'Motion preference changed. Use the controls to explore.'; });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && playing) { stop(); status.textContent = 'Playback paused while this tab is hidden. Choose Play to resume.'; }
+    });
+    if ('IntersectionObserver' in window) {
+      if (!motion.matches) status.textContent = 'Playback starts in view and stops for approval. You can pause it.';
+      const observer = new IntersectionObserver(entries => {
+        const visible = entries.some(entry => entry.isIntersecting);
+        if (!visible && playing) { stop(); status.textContent = 'Playback paused offscreen. Choose Play to resume.'; }
+        if (visible && !entered) { entered = true; if (!interacted && !motion.matches) play(); }
+      }, { threshold: 0.35 });
+      observer.observe(demo);
+    } else status.textContent = 'Static example. Choose Play or the numbered steps to explore.';
+  });
+</script>
+<style>
+  .hero-demo { min-width: 0; position: relative; }
+  .demo-stage { height: 168px; display: flex; align-items: center; justify-content: space-between; padding-inline: 40px 22px; }
+  .companion-copy { display: flex; align-items: flex-start; gap: 10px; color: var(--ink-2); font: 12px/1.8 'Geist', sans-serif; }
+  .companion-copy strong { color: var(--ink); font-weight: 500; }
+  .companion-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--navy); margin-top: 9px; }
+  .demo-mascot { width: 185px; height: 171px; align-self: end; flex: none; margin-bottom: -2px; }
+  .demo-window { position: relative; border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent); border-radius: 16px; overflow: hidden; background: var(--card); box-shadow: 0 2px 3px color-mix(in srgb, var(--ink) 3%, transparent), 0 20px 65px -12px color-mix(in srgb, var(--ink) 15%, transparent), 0 0 0 5px color-mix(in srgb, var(--card) 40%, transparent); }
+  .demo-bar { min-height: 54px; display: flex; align-items: center; gap: 9px; padding: 10px 22px; background: color-mix(in srgb, var(--panel-2) 45%, var(--card)); border-bottom: 1px solid var(--line); color: var(--ink); font: 11px 'Geist', sans-serif; }
+  .demo-bar strong { font-weight: 500; }
+  .workspace-mark { display: grid; place-items: center; flex: none; width: 23px; height: 23px; border-radius: 6px; background: #fffaf0; overflow: hidden; }
+  .workspace-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .example-tag { margin-left: auto; font-size: 11px; color: var(--ink-2); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; }
+  .demo-composer { margin: 18px 20px 0; padding: 13px 14px 5px; border: 1px solid color-mix(in srgb, var(--ink) 17%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--paper) 40%, var(--card)); }
+  .demo-composer label { display: block; margin-bottom: 2px; font-size: 10px; color: var(--ink-2); }
+  .composer-row { display: flex; gap: 8px; align-items: center; }
+  input { min-width: 0; flex: 1; width: 100%; border: 0; background: transparent; color: var(--ink); font: 12px/1.6 'Geist', sans-serif; padding: 8px 0; }
+  button { min-height: 44px; cursor: pointer; font: 11px 'Geist', sans-serif; }
+  .composer-row button { min-width: 44px; border: 0; border-radius: 8px; background: var(--navy); color: var(--on-accent); font-size: 21px; }
+  .demo-content { height: 304px; padding: 25px 26px 20px; overflow: auto; }
+  .demo-content:focus-visible { outline: 2px solid var(--navy); outline-offset: -4px; }
+  .demo-content .card-title { font: 550 27px/1.16 'Geist', sans-serif; letter-spacing: -.035em; margin: 12px 0 14px; color: var(--ink); }
+  .demo-content p { font-size: 11px; line-height: 1.75; margin: 10px 0; color: var(--ink-2); }
+  .card-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--navy); font: 10px/1.5 'Geist', sans-serif; }
+  .card-kicker::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+  .task-card { position: relative; }
+  .task-card .card-title { font-size: 34px; }
+  .task-card p { max-width: 30ch; }
+  .task-arrow { position: absolute; right: 8px; bottom: 0; color: var(--navy); font-size: 54px; line-height: 1; font-weight: 300; }
+  ol { margin: 0 0 18px; padding-left: 18px; font: 12px/2 'Geist', sans-serif; color: var(--ink-2); }
+  dl { margin: 0; font-size: 10px; }
+  dl div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px; padding: 6px 0; }
+  dt { color: var(--ink-2); } dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+  .approval-actions { display: flex; gap: 8px; }
+  .demo-primary, .demo-secondary { padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); border-radius: 7px; }
+  .demo-primary { background: var(--navy); color: var(--on-accent); border-color: var(--navy); }
+  .demo-secondary { background: var(--card); color: var(--ink); }
+  .stream-log { font: 10px/1.9 'Geist Mono', monospace; color: var(--ink-2); min-height: 57px; }
+  .diff { margin: 12px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); font: 10px/1.7 'Geist Mono', monospace; overflow: auto; }
+  .diff-remove { color: var(--danger); } .diff-add { color: var(--ok); }
+  .pr-tag { display: flex; align-items: center; gap: 12px; padding: 15px; margin: 20px 0; background: color-mix(in srgb, var(--navy) 4%, var(--card)); border: 1px solid var(--line); border-radius: 10px; color: var(--ink); font-size: 18px; }
+  .pr-tag > span:nth-child(2) { min-width: 0; }
+  .pr-tag strong { display: block; font: 500 11px 'Geist', sans-serif; margin-bottom: 6px; }
+  .pr-tag code { display: block; font: 11px 'Geist Mono', monospace; color: var(--ink-2); overflow-wrap: anywhere; }
+  .pr-check { margin-left: auto; color: var(--ok); font-size: 14px; }
+  .demo-status { min-height: 46px; margin: 0; padding: 10px 22px; font: 11px/1.6 'Geist', sans-serif; color: var(--ink-2); border-top: 1px solid var(--line); display: flex; align-items: center; }
+  .demo-controls { display: flex; align-items: center; gap: 7px; padding: 8px 10px; background: color-mix(in srgb, var(--paper) 50%, var(--card)); border-top: 1px solid var(--line); }
+  [hidden] { display: none !important; }
+  .demo-steps { display: flex; flex: 1; gap: 3px; min-width: 0; }
+  .demo-steps button { min-width: 44px; flex: 1; padding: 5px 2px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); font-size: 11px; }
+  .demo-steps button > span { display: block; font-size: 12px; margin-bottom: 3px; }
+  .demo-steps button[aria-pressed='true'] { background: var(--card); color: var(--navy); box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 10%, transparent); }
+  .replay { flex: none; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 6px; background: transparent; color: var(--ink-2); border: 0; border-radius: 7px; }
+  .replay:hover, .demo-steps button:hover { background: var(--panel-2); color: var(--ink); }
+  .demo-caption, .no-js-note { color: var(--ink-2); text-align: center; font: 11px/1.7 'Geist', sans-serif; margin: 19px 0 0; }
+  @media (max-width: 1100px) and (min-width: 801px) { .demo-stage { padding-inline: 18px; } .demo-mascot { width: 170px; height: 157px; } .demo-content { padding-inline: 20px; } .replay span { display: none; } .demo-controls { gap: 4px; } .companion-copy { font-size: 11px; } }
+  @media (max-width: 500px) { .demo-stage { height: 155px; padding-inline: 20px 8px; } .demo-mascot { width: 175px; height: 162px; } .companion-copy { font-size: 11px; } .demo-content { padding: 22px 20px; height: 310px; } .demo-content h2 { font-size: 26px; } .demo-bar { padding-inline: 16px; } .demo-composer { margin-inline: 14px; padding-inline: 10px; } input { font-size: 11px; } .replay span { display: none; } .demo-status { min-height: 48px; padding-inline: 17px; } .demo-caption { font-size: 12px; } .demo-controls { gap: 5px; } }
+  /* Small demo copy remains readable at every breakpoint. */
+  .example-tag, .demo-composer label, .card-kicker, dl, .stream-log, .diff, .pr-tag code, .demo-status, .demo-steps button, .demo-steps button > span { font-size: 11px; }
+  .demo-caption { font-size: 12px; margin: 0; padding: 12px 16px 0; }
+  .demo-controls { flex-wrap: wrap; justify-content: flex-end; }
+  .demo-steps { flex-basis: 100%; }
+  .task-card .card-title { font-size: 34px; }
+  .is-paused :global(.shiba *) { animation-play-state: paused !important; }
+  @media (max-width: 500px) { .demo-caption { font-size: 12px; } .demo-content .card-title { font-size: 26px; } }
+  @media (prefers-reduced-motion: no-preference) { .demo-content > div { animation: card-arrive 300ms var(--ease-out) both; } @keyframes card-arrive { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } } }
+</style>
