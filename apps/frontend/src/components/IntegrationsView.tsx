@@ -19,6 +19,7 @@ import { providerLifecycleStatus, providerTestDescription } from "./provider-lif
 import { ToneChip } from "./ToneChip";
 import { ReasonNetworkSetup } from "./ReasonNetworkSetup";
 import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
+import { CuratedMcpConnections } from "./CuratedMcpConnections";
 import type { IntegrationBindingInputs } from "../integration-connection-bindings";
 
 function IntegrationRow({
@@ -137,6 +138,9 @@ export function IntegrationsView({
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [externalMcpServerCount, setExternalMcpServerCount] = useState<number | undefined>(undefined);
+  const [externalMcpCatalogConnections, setExternalMcpCatalogConnections] = useState<
+    IntegrationBindingInputs["externalMcpCatalogConnections"]
+  >(undefined);
   const [externalMcpLoading, setExternalMcpLoading] = useState(true);
   const [providers, setProviders] = useState<AcpProvidersSnapshot | null>(null);
   const [providersError, setProvidersError] = useState<string | null>(null);
@@ -179,21 +183,41 @@ export function IntegrationsView({
     let cancelled = false;
     const controller = new AbortController();
     setExternalMcpLoading(true);
-    void fetch("/api/v1/mcp/servers", {
-      credentials: "same-origin",
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
+    void Promise.all([
+      fetch("/api/v1/mcp/servers", {
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: controller.signal,
+      }),
+      fetch("/api/v1/mcp/catalog-connections", {
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: controller.signal,
+      }),
+    ])
+      .then(async ([serversResponse, catalogResponse]) => {
+        if (!serversResponse.ok) {
           if (!cancelled) setExternalMcpServerCount(0);
+        } else {
+          const body = (await serversResponse.json()) as { servers?: unknown[] };
+          if (!cancelled) setExternalMcpServerCount(Array.isArray(body.servers) ? body.servers.length : 0);
+        }
+        if (!catalogResponse.ok) {
+          if (!cancelled) setExternalMcpCatalogConnections([]);
           return;
         }
-        const body = (await response.json()) as { servers?: unknown[] };
-        if (!cancelled) setExternalMcpServerCount(Array.isArray(body.servers) ? body.servers.length : 0);
+        const catalogBody = (await catalogResponse.json()) as {
+          connections?: IntegrationBindingInputs["externalMcpCatalogConnections"];
+        };
+        if (!cancelled) {
+          setExternalMcpCatalogConnections(Array.isArray(catalogBody.connections) ? catalogBody.connections : []);
+        }
       })
       .catch(() => {
-        if (!cancelled) setExternalMcpServerCount(0);
+        if (!cancelled) {
+          setExternalMcpServerCount(0);
+          setExternalMcpCatalogConnections([]);
+        }
       })
       .finally(() => {
         if (!cancelled) setExternalMcpLoading(false);
@@ -202,7 +226,7 @@ export function IntegrationsView({
       cancelled = true;
       controller.abort();
     };
-  }, []);
+  }, [catalogRefresh]);
 
   useEffect(() => {
     if (!showCapabilityCatalog) return;
@@ -268,6 +292,7 @@ export function IntegrationsView({
       gmailConnected,
       gmailLoading,
       externalMcpServerCount,
+      externalMcpCatalogConnections,
       externalMcpLoading,
     }),
     [
@@ -278,6 +303,7 @@ export function IntegrationsView({
       gmailConnected,
       gmailLoading,
       externalMcpServerCount,
+      externalMcpCatalogConnections,
       externalMcpLoading,
     ],
   );
@@ -571,6 +597,11 @@ export function IntegrationsView({
               <LoadErrorState message={failed.message} onRetry={reloadAll} />
             </div>
           ) : null}
+          <div className="border-b border-[var(--border-1)] px-4 py-4 lg:px-8">
+            <div className="mx-auto max-w-6xl">
+              <CuratedMcpConnections onChanged={() => setCatalogRefresh((value) => value + 1)} />
+            </div>
+          </div>
           <IntegrationCatalogDirectory bindingInputs={bindingInputs} />
         </>
       )}
