@@ -57,7 +57,7 @@ function fixture() {
   } as unknown as Env["Memory"];
   async function call(path: string, owner = "alice@example.test", init?: RequestInit) {
     const response = await handleMemory(new Request(`https://app.test/api/memory${path}`, {
-      ...init, headers: { "CF-Access-Authenticated-User-Email": owner, ...init?.headers },
+      ...init, headers: { "CF-Access-Authenticated-User-Email": owner, Origin: "https://app.test", ...init?.headers },
     }), env);
     if (!response) throw new Error("Memory route did not match.");
     return response;
