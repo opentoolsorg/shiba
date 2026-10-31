@@ -25,6 +25,7 @@ import {
 } from "./automations.js";
 import { automationCommandId } from "./pending-approvals.js";
 import { clampBurstWindowSeconds, DEFAULT_BURST_WINDOW_SECONDS } from "./slack-context.js";
+import { fireGrokbotBridgeAutomation, type GrokbotBridgeEnv } from "./grokbot-bridge-runner.js";
 
 export const AUTOMATIONS_DO_NAME = "default";
 
@@ -58,6 +59,12 @@ export interface FireAutomationDeps {
     approved: boolean;
     decidedBy: string;
   }) => Promise<void>;
+  /** Founder / Grok Bot bridge automations (PR C). */
+  bridgeContext?: {
+    env: GrokbotBridgeEnv;
+    orgId: string;
+    ownerId: string;
+  };
 }
 
 export interface FireAutomationResult {
@@ -298,6 +305,33 @@ async function commitAutomationFire(
   if (burst !== null) {
     const skipped = recordSkip(automation, burst, nowMs);
     return { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? "burst" };
+  }
+
+  if (automation.executionTarget?.kind === "grokbot-bridge") {
+    const publishPullRequest = false;
+    const auth = authorizeAutomationRun(
+      automation,
+      { publishPullRequest, executionTarget: automation.executionTarget },
+      nowMs,
+      deps.globalEnabled,
+    );
+    if (!auth.allowed) {
+      const skipped = recordSkip(automation, auth.reason, nowMs);
+      return { fired: false, automation: skipped, reason: auth.reason };
+    }
+    if (!deps.bridgeContext) {
+      const skipped = recordSkip(automation, "Grok Bot bridge context is unavailable.", nowMs);
+      return { fired: false, automation: skipped, reason: skipped.lastSkip?.reason ?? "bridge" };
+    }
+    return fireGrokbotBridgeAutomation(
+      automation,
+      event,
+      deps,
+      nowMs,
+      recheck,
+      deps.bridgeContext.orgId,
+      deps.bridgeContext.ownerId,
+    );
   }
 
   // No GITHUB_TOKEN: degrade to a no-PR run (the orchestrator 400s a PR
