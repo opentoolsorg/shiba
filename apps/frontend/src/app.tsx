@@ -16,6 +16,7 @@ import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
+import { SpacesView } from "./components/SpacesView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
@@ -3186,6 +3187,8 @@ export function App(): React.JSX.Element {
             <ProvidersView />
           ) : mainView === "skills" ? (
             <SkillsView />
+          ) : mainView === "spaces" ? (
+            <SpacesView />
           ) : mainView === "custom-agents" ? (
             <div className="flex min-h-0 flex-1 flex-col">
               {firstRunProgress?.draftTask ? <section aria-label="Return to first task setup" className="border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-3 text-xs text-[var(--fg)]"><p>Configure and save an employee here. Then choose its saved version for your first task.</p><button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { void updateFirstRunProgress({ action: "save-draft", draftTask: { currentStep: "employee" } }).then(openFirstRun).catch(() => setNotice("Setup could not be opened. Retry from your saved first task draft.")); }}>Choose saved employee in setup</button></section> : null}

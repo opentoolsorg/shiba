@@ -278,6 +278,49 @@ export async function getSkillVersions(id: string): Promise<Array<{ version: num
   return body.versions as Array<{ version: number; name: string; instructions: string; sourceUrl?: string; createdAt: number }>;
 }
 
+export interface LibrarySkillCard {
+  slug: string;
+  name: string;
+  summary: string;
+  tags: string[];
+  version: string;
+  installed: boolean;
+  installedSkillId?: string;
+  updateAvailable: boolean;
+}
+
+export async function fetchSkillLibrary(): Promise<LibrarySkillCard[]> {
+  const response = await fetch("/api/skills/library", { credentials: "same-origin", cache: "no-store" });
+  const body = await response.json().catch(() => null) as { ok?: boolean; skills?: LibrarySkillCard[]; error?: string } | null;
+  if (!response.ok || !body?.ok || !Array.isArray(body.skills)) {
+    throw new Error(body?.error ?? `Skill library unavailable (${response.status}).`);
+  }
+  return body.skills;
+}
+
+export async function installLibrarySkill(slug: string): Promise<string> {
+  const response = await fetch(`/api/skills/library/${encodeURIComponent(slug)}/install`, {
+    method: "POST",
+    credentials: "same-origin",
+  });
+  const body = await response.json().catch(() => null) as { ok?: boolean; skillId?: string; error?: string } | null;
+  if (!response.ok || !body?.ok || typeof body.skillId !== "string") {
+    throw new Error(body?.error ?? `Install failed (${response.status}).`);
+  }
+  return body.skillId;
+}
+
+export async function uninstallLibrarySkill(slug: string): Promise<void> {
+  const response = await fetch(`/api/skills/library/${encodeURIComponent(slug)}/install`, {
+    method: "DELETE",
+    credentials: "same-origin",
+  });
+  const body = await response.json().catch(() => null) as { ok?: boolean; error?: string } | null;
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error ?? `Uninstall failed (${response.status}).`);
+  }
+}
+
 // Unsent composer text per scope (session id); newest 100 kept.
 const DRAFTS_KEY = "shiba-composer-drafts-v1";
 export function composerDraftScope(owner: string, sessionId: string): string {

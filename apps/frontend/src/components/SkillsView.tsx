@@ -1,5 +1,6 @@
 /** Authenticated, versioned skill library. Source URLs are provenance only. */
 import { useRef, useState, type JSX } from "react";
+import { SkillLibraryCards } from "./SkillLibraryCards";
 import {
   activateSkill,
   getSkillVersions,
@@ -120,6 +121,8 @@ export function SkillsView(): JSX.Element {
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
+          <SkillLibraryCards />
+
           <div className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-2.5 shadow-[var(--sh-overlay)]">
             <div className="text-xs font-semibold text-[var(--fg)]">{editingId ? "Create a new draft version" : "Add a draft skill"}</div>
             <input type="text" value={name} onChange={(event) => { draftRevision.current += 1; setName(event.target.value); }} placeholder="Skill name" aria-label="Skill name" className={`${FIELD} w-full`} />

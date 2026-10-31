@@ -76,6 +76,7 @@ export function AgentsView(): JSX.Element {
   ].join("\n");
 
   const mintCommand = `node scripts/mint-token.mjs --agent scout --scopes email:read --host ${workerHost} --namespace-id <agentTokensNamespace> --write`;
+  const mintCoworkerCommand = `node scripts/mint-token.mjs --agent grok-bot --scopes sandbox:exec,runs:read --ttl-days 30 --host ${workerHost} --namespace-id <agentTokensNamespace> --write`;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -168,7 +169,7 @@ export function AgentsView(): JSX.Element {
                       ? claudeConfig
                       : mcpTab === "cursor"
                         ? cursorConfig
-                        : mintCommand;
+                        : mintCoworkerCommand;
                   copyToClipboard(text, "snippet");
                 }}
                 className="text-[11px] font-mono text-[var(--primary)] hover:underline"
@@ -182,10 +183,16 @@ export function AgentsView(): JSX.Element {
                 ? claudeConfig
                 : mcpTab === "cursor"
                   ? cursorConfig
-                  : mintCommand}
+                  : mintCoworkerCommand}
             </pre>
             <p className="mt-2 text-[11px] text-[var(--muted-foreground-2)]">
-              Replace <code>scout</code> with the exact principal assigned in Inbox. Minting without
+              {mcpTab === "cli" ? (
+                <>
+                  Coworker default: <code>grok-bot</code> with <code>sandbox:exec,runs:read</code> for{" "}
+                  <code>queue_run</code> + polling. For mailbox tools use principal <code>scout</code> and email scopes instead.{" "}
+                </>
+              ) : null}
+              Replace <code>scout</code> or <code>grok-bot</code> with the exact principal you assign in Inbox or audit. Minting without
               --write only prints a token; it cannot authenticate until its hash is stored in the
               deployed AGENT_TOKENS namespace. Never paste the token into a mailbox or a public log.{" "}
               <a href="/docs/mcp/" className="text-[var(--primary)] hover:underline">

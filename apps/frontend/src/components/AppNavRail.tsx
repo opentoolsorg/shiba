@@ -24,6 +24,7 @@ import {
   GitCompareArrows,
   Inbox,
   LayoutDashboard,
+  LayoutGrid,
   List,
   LogOut,
   Monitor,
@@ -59,6 +60,7 @@ export type AppNavView =
   | "providers"
   | "integrations"
   | "skills"
+  | "spaces"
   | "custom-agents"
   | "employee-tools"
   | "remote"
@@ -81,6 +83,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "collaboration", label: "Collaboration", description: "Private rooms for people and agents" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
+  { id: "spaces", label: "Spaces", description: "Hosted coworker mini-apps" },
   { id: "custom-agents", label: "Bots", description: "Reusable bot profiles & defaults" },
   { id: "employee-tools", label: "Tool policy", description: "Employee tool grants & approvals" },
   { id: "agents", label: "Agents & MCP", description: "MCP Gateway & Agent Tokens" },
@@ -144,6 +147,7 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   integrations: Blocks,
   providers: Terminal,
   skills: BookMarked,
+  spaces: LayoutGrid,
   "custom-agents": Bot,
   "employee-tools": ShieldCheck,
   settings: Settings,
@@ -262,6 +266,7 @@ export function AppNavRail({
     "memory",
     "providers",
     "skills",
+    "spaces",
     "custom-agents",
     "employee-tools",
     "integrations",

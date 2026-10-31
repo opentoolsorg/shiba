@@ -1,5 +1,20 @@
 # Verification Results
 
+**2026-10-31 — PR #166 Viktor/Grok Bot coworker + skills library + Spaces (branch `cursor/viktor-skills-spaces-scaffold-13c5`).**
+
+*Code-proven locally:*
+- **Spaces index:** `spaces_index.updated_at` uses `MAX(updated_at, ?)` on rename/touch; create inserts the D1 row before DO `init` and rolls the index back when init or template application fails; item routes refuse writes after index delete (`spaces-index-store.test.ts`, `spaces-routes.test.ts`).
+- **Skills library + Spaces API/UI:** curated `/api/skills/library`, install→draft, `/api/spaces` + Spaces DO stub (existing suite from this PR).
+- **MCP coworker path:** docs section [Grok Bot / Viktor coworker](/docs/mcp/#grok-bot-viktor-coworker); Integrations **MCP coworker** panel + capability catalog row; `mcp-coworker-contract.test.ts` + existing `mcp-gateway.test.ts` / `mcp-run-tools.test.ts` for 401, scope-filtered tool discovery, and `queue_run` → `pending_approval`.
+
+*Still blocked on live deployment (Prince CF account / secrets — see slice1 blockers):*
+- Minting `shb_…` into the production `shiba-agent-tokens` KV on the account that owns `app.tryshiba.dev` (wrong-account `wrangler whoami` has been observed).
+- Grok Bot connector registration with custom Authorization header (product support unconfirmed).
+- Slack approval cards (`SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, approvers) and a cloud end-to-end approved run with model inference (`AI_GATEWAY_TOKEN` / subscription lanes as applicable).
+- Live `@shiba` Slack mention loop and Worker deploy to the intended host.
+
+*Commands run for this slice:* targeted vitest (`spaces-*`, `skill-library*`, `mcp-coworker-contract`, `mcp-gateway`, `mcp-run-tools`, `IntegrationsView`, `SkillLibraryCards`, `SpacesView`) + `pnpm typecheck`.
+
 **2026-10-25 — P12 Capy parity: T72 opt-in repo setup, plus T71 and T87 (branch `capy-parity`).**
 
 *T72 (owner chose opt-in per run):*
@@ -1172,3 +1187,12 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
 - REVIEW3-final-audit.md verdict was BLOCKED with 14 findings. All applied (`REVIEW3-fixes.md`): run-finished notification now keys on `state:"settled"` (F1); tray icon resolves inside the asar (F2); `electron-updater` moved to dependencies so the updater actually ships (F3); CI builds `dist/` before packaging (F4); revoke falls back to on-disk machineId and honors non-OK revoke responses; tray hides Disconnect under `conflict` (F5/F6); probe no longer respawns a daemon latched revoked/conflict/crashed (F7); `offline` needs 2 consecutive failed heartbeats (F8); pairing watchdog kills a hung fork at 30s (F9); `unpair` returns PairResult on the bridge contract (F10); wrangler/Access bypass documented (F12); the approvals poller keeps `seen` across suspend/resume (F13).
 - **Packaged-only defects found by actually launching the unsigned .app** (REVIEW3-fixes.md P1–P4): unsigned fused binaries are kernel-killed on arm64 until re-signed ad-hoc inside-out (`scripts/adhoc-sign.sh`, wired as `pnpm dist:local`); `file://` can't see inside app.asar on Electron 44, so setup.html/setup.js ship via `asarUnpack`; `app.setName("Shiba")` pins userData to the documented path; the electron-updater import needed the CJS `.default` interop fallback.
 - Post-fix artifact: `release/Shiba-0.1.0-{arm64,}*.dmg/.zip` + `release/mac-arm64/Shiba.app` — fuses re-verified = D8 on both arches; `pnpm test` 119/119 and `test:e2e` 2/2 after the fixes; the re-signed .app launches with no load errors.
+
+## 2026-10-31 — PR #166 review fixes
+
+- Worker ingress accepts the exact skill-library and Spaces API families; route authentication and bearer read/write scopes still apply. Lookalike paths and legacy Skills routes retain their dashboard gate.
+- Library installs are scoped by organization, owner, and slug. Atomic claims and compare-and-swap replacements converge concurrent installs and disable losing drafts. Migration 0007 preserves existing install rows when upgrading the original 0005 schema.
+- Failed Space templates return an error and erase partial Space data; failed erasure preserves the index for retry. Space deletion atomically clears metadata, memberships, and items before removing its index. Successful item additions synchronize index timestamps.
+- Space detail navigation ignores cancelled successes and errors and only renders the selected ID. SkillsView test fixtures now account for the library request.
+- Passed: `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm test` (3,834 passed, 3 skipped across workspace packages), `pnpm build`, `pnpm test:built`, `pnpm check:ci`, `pnpm check:deploy`, `pnpm env:load`, and `pnpm env:scan`. Lint/static checks retain existing warnings.
+- Deployment dry-run attempted with `pnpm exec wrangler deploy --dry-run --config apps/backend/wrangler.jsonc`; blocked by unavailable Docker daemon/tool launch. No production deployment or live-provider execution performed.
