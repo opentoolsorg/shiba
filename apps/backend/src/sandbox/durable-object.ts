@@ -96,6 +96,17 @@ export class Sandbox extends DurableObject<Env> {
     this.persistOutbound(config);
   }
 
+  async setOutboundInitiatorUserId(userId: string): Promise<void> {
+    const normalized = userId.trim();
+    if (!normalized) throw new Error("Sandbox initiator user ID is required.");
+    const config = this.getOutboundConfig();
+    if (config.initiatorUserId && config.initiatorUserId !== normalized) {
+      throw new Error("Sandbox is already bound to a different initiator.");
+    }
+    config.initiatorUserId = normalized;
+    this.persistOutbound(config);
+  }
+
   async setOutboundGatewayByokAlias(alias: string): Promise<void> {
     const normalized = alias.trim();
     if (!normalized) throw new Error("Gateway BYOK alias is required.");
@@ -196,18 +207,20 @@ export class Sandbox extends DurableObject<Env> {
       });
       let stdout = "";
       let stderr = "";
-      const decoder = new TextDecoder();
       const readStream = async (
         stream: ReadableStream<Uint8Array> | undefined,
         onChunk: (t: string) => void,
       ) => {
-        const reader = (stream ?? new ReadableStream()).getReader();
+        const decoder = new TextDecoder();
+        const reader = (stream ?? new ReadableStream({ start(controller) { controller.close(); } })).getReader();
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             onChunk(decoder.decode(value, { stream: true }));
           }
+          const tail = decoder.decode();
+          if (tail) onChunk(tail);
         } finally {
           reader.releaseLock();
         }

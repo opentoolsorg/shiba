@@ -100,6 +100,8 @@ const codingTaskInputSchema = z.object({
   runSetup: z.boolean().optional(),
   envSealed: z.string().min(1).optional(),
   envDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  /** Orchestrator that owns every artifact, including runs without sealed env. */
+  accessAgent: z.string().min(1).max(200).optional(),
   envOwner: z.string().min(1).max(200).optional(),
   /**
    * T51: the approved runtime. `"local"` runs on the operator's machine
@@ -110,7 +112,7 @@ const codingTaskInputSchema = z.object({
   /** Pins a local run to one paired machine (hashed into the approved run). */
   targetMachineId: z.string().min(1).max(128).optional(),
   /** HMAC seal proving the orchestrator parent dispatched this envelope. */
-  dispatchApprovalId: z.string().min(1).max(128).optional(),
+  dispatchApprovalId: z.string().min(1).max(512).optional(),
   dispatchInputHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   dispatchSig: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });

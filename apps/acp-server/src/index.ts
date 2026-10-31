@@ -9,6 +9,7 @@
  * SHIBA_TOKEN (better-auth session token — `login` prints one).
  */
 import { createInterface } from "node:readline";
+import { Writable } from "node:stream";
 import { ShibaClient } from "./client.js";
 import { JsonRpcPeer, parseJsonRpc } from "./jsonrpc.js";
 import { ShibaAcpServer } from "./server.js";
@@ -52,10 +53,14 @@ async function serve(): Promise<void> {
 }
 
 async function readPasswordFromTty(): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
+  const mutedOutput = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+  const rl = createInterface({ input: process.stdin, output: mutedOutput, terminal: true });
+  process.stderr.write("Password: ");
   return new Promise((resolve) => {
-    rl.question("Password: ", (answer) => {
+    rl.question("", (answer) => {
       rl.close();
+      mutedOutput.end();
+      process.stderr.write("\n");
       resolve(answer);
     });
   });

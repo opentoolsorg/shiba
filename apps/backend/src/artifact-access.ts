@@ -28,8 +28,6 @@ async function runsIncludeSandbox(
 }
 
 async function callerMayReadSharedRuns(request: Request, env: Env): Promise<boolean> {
-  const email = request.headers.get("CF-Access-Authenticated-User-Email")?.trim() ?? "";
-  if (email && isApprover(email, parseApproverAllowlist(env.DASHBOARD_APPROVERS))) return true;
   const userId = await resolveUserId(request, env);
   return userId !== null && isApprover(userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS));
 }

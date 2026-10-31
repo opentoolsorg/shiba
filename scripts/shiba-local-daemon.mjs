@@ -622,12 +622,14 @@ async function collectResult(envelope, root, execution) {
     return { error: `git status failed: ${status.stderr.slice(0, 500)}` };
   }
   const changedFiles = [];
+  const deletedFiles = new Set();
   for (const line of status.stdout.split("\n")) {
     if (line.trim() === "") continue;
     const spec = line.slice(3).trim();
     // rename lines read "old -> new"; the new path is what the PR writes.
     const filePath = spec.includes(" -> ") ? spec.split(" -> ").pop().trim() : spec;
     changedFiles.push(filePath);
+    if (line.slice(0, 2).includes("D")) deletedFiles.add(filePath);
     if (changedFiles.length >= 500) break;
   }
   // Stage everything (this workspace is disposable) so the diff covers
@@ -640,6 +642,10 @@ async function collectResult(envelope, root, execution) {
   const remainingFiles = changedFiles.filter((filePath) => !requestedPaths.has(filePath))
     .slice(0, Math.max(0, MAX_CAPTURED_FILES - files.length));
   for (const filePath of remainingFiles) {
+    if (deletedFiles.has(filePath)) {
+      files.push({ path: filePath, content: null, encoding: "utf8" });
+      continue;
+    }
     try {
       const content = await readContainedChangedFile(cloneDir, filePath, {
         maxBytes: MAX_FILE_CHARS * 2,
@@ -647,8 +653,8 @@ async function collectResult(envelope, root, execution) {
       if (totalChars + content.length > MAX_TOTAL_FILE_CHARS) break;
       totalChars += content.length;
       files.push({ path: filePath, content, encoding: "utf8" });
-    } catch {
-      files.push({ path: filePath, content: null, encoding: "utf8" });
+    } catch (error) {
+      return { error: `Changed file ${filePath} could not be captured: ${error.message}` };
     }
   }
   return { changedFiles, diff: boundTail(diff.stdout, 2_000_000), files };

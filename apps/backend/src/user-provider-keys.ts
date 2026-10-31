@@ -84,6 +84,11 @@ export async function readProviderSecretForOrg(
   credentialUserId?: string,
 ): Promise<string | null> {
   const org = orgId?.trim() || "self-hosted";
+  // Self-hosted runs use the authenticated initiator’s own saved key.
+  if (org === "self-hosted" && credentialUserId?.trim()) {
+    const personal = await readUserProviderSecret(env, credentialUserId.trim(), kind);
+    if (personal) return personal;
+  }
   const direct = await readUserProviderSecret(env, org, kind);
   if (direct) return direct;
   if (!env.AGENT_TOKENS) return null;

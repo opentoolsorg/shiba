@@ -25,6 +25,11 @@ describe("agent tool input envelope", () => {
     expect(parseAgentToolInput([{ role: "user", text: envelope }])).toEqual(INPUT);
   });
 
+  it("preserves artifact ownership and long lifecycle approval IDs", () => {
+    const input = { ...INPUT, accessAgent: "web::owner@example.com::session", dispatchApprovalId: `wake:pull_request:${"o".repeat(39)}/${"r".repeat(100)}:123:1234567890123` };
+    expect(parseAgentToolInput([{ role: "user", text: formatAgentToolInput(input) }])).toEqual(input);
+  });
+
   it("uses the latest envelope when several exist", () => {
     const first = formatAgentToolInput(INPUT);
     const second = formatAgentToolInput({ ...INPUT, task: "Second task." });

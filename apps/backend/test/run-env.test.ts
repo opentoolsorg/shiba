@@ -191,7 +191,7 @@ describe("/api/runs intake", () => {
   });
 
   it("hands the sealed blob to the minted run and keeps no copy on the decided approval", async () => {
-    const orchestrator = makeOrchestrator();
+    const orchestrator = makeOrchestrator({ DASHBOARD_APPROVERS: "owner" });
     const queued = await orchestrator.onRequest(await queue({ environment: await sealRunEnv(KEY, "default", VARS) }));
     const { approvalId } = (await queued.json()) as { approvalId: string };
     const approve = await orchestrator.onRequest(
@@ -373,7 +373,7 @@ describe("leak guard", () => {
     expect(guarded.status).toBe("error");
   });
 
-  it("ignores a value the repo already had — context, removed lines and file bodies aren't leaks", () => {
+  it("fails closed on a file-body secret even when diff context contains an approved value", () => {
     const guarded = guardRunEnvLeak(
       {
         ...RESULT,
@@ -382,8 +382,19 @@ describe("leak guard", () => {
       },
       values,
     );
-    expect(guarded.status).toBe("completed");
-    expect(guarded.files).toHaveLength(1);
+    expect(guarded.status).toBe("error");
+    expect(guarded.files).toEqual([]);
+  });
+
+  it("does not use a different approved value in another file as a baseline", () => {
+    const otherSecret = "another-approved-secret";
+    const guarded = guardRunEnvLeak({
+      ...RESULT,
+      diff: `diff --git a/old.ts b/old.ts\n const old = "${SECRET}";\n+const added = 1;`,
+      files: [{ path: "hidden.env", content: otherSecret, encoding: "utf8" }],
+    }, { ...values, OTHER_SECRET: otherSecret });
+    expect(guarded.status).toBe("error");
+    expect(guarded.files).toEqual([]);
   });
 
   it("scrubs the JSON-escaped form a harness event line carries", () => {

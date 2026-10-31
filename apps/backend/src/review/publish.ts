@@ -6,6 +6,7 @@ import { redactSecrets } from "../security.js";
 export interface PostReviewDeps {
   fetchImpl?: typeof fetch;
   apiBase?: string;
+  credentialMode?: "pat" | "app";
   /** Findings at or above this severity become inline comments. Default medium. */
   inlineThreshold?: FindingSeverity;
 }
@@ -44,14 +45,18 @@ export async function postReview(
   const { owner, repo, number, headSha } = round.pull;
   const path = `/repos/${owner}/${repo}/pulls/${number}/reviews`;
   try {
-    const identityRes = await fetchWithBackoff(`${apiBase}/user`, { headers: headers(token) }, {
-      fetchImpl,
-      attempts: 3,
-      baseDelayMs: 200,
-    });
-    const identityText = await identityRes.text();
-    if (!identityRes.ok) throw new Error(`GitHub identity failed ${identityRes.status}: ${identityText.slice(0, 300)}`);
-    const publisherLogin = (JSON.parse(identityText) as { login?: string }).login ?? "";
+    let publisherLogin: string | undefined;
+    if (round.githubReviewId === undefined && deps.credentialMode !== "app") {
+      const identityRes = await fetchWithBackoff(`${apiBase}/user`, { headers: headers(token) }, {
+        fetchImpl,
+        attempts: 3,
+        baseDelayMs: 200,
+      });
+      const identityText = await identityRes.text();
+      if (!identityRes.ok) throw new Error(`GitHub identity failed ${identityRes.status}: ${identityText.slice(0, 300)}`);
+      publisherLogin = (JSON.parse(identityText) as { login?: string }).login;
+      if (!publisherLogin) throw new Error("GitHub identity response missing login.");
+    }
     const listed = await fetchWithBackoff(`${apiBase}${path}`, { headers: headers(token) }, {
       fetchImpl,
       attempts: 3,
@@ -69,7 +74,7 @@ export async function postReview(
           typeof (review as { body?: unknown }).body === "string" &&
           (review as { body: string }).body.includes(tag) &&
           (round.githubReviewId === undefined
-            ? (review as { user?: { login?: string } }).user?.login === publisherLogin
+            ? publisherLogin !== undefined && (review as { user?: { login?: string } }).user?.login === publisherLogin
             : (review as { id?: number }).id === round.githubReviewId),
       ) as { id?: number; html_url?: string } | undefined;
       if (existing?.id !== undefined) {

@@ -48,13 +48,15 @@ describe("cloudflare pinEgress", () => {
     rpc.approveRepoScope = async (path) => {
       calls.push(`repo:${path}`);
     };
+    rpc.setOutboundInitiatorUserId = async (userId) => { calls.push(`initiator:${userId}`); };
     const provider = createCloudflareSandboxProvider({ resolveRpc: () => rpc });
     const instance = await provider.get("pin-test");
     await instance.pinEgress?.({
       allowedHosts: ["api.anthropic.com"],
       githubRepoPath: "/o/r",
+      initiatorUserId: "alice",
     });
-    expect(calls).toEqual(["hosts:api.anthropic.com", "repo:/o/r"]);
+    expect(calls).toEqual(["hosts:api.anthropic.com", "repo:/o/r", "initiator:alice"]);
   });
 
   it("applies an explicit empty host allowlist (deny-all)", async () => {

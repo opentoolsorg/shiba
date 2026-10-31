@@ -118,6 +118,34 @@ describe("provider-oauth modules", () => {
     globalThis.fetch = originalFetch;
   });
 
+
+  it.each([false, true])("completes a first Cursor connection unless logout intervenes (%s)", async (logoutDuringPoll) => {
+    const storage = new Map<string, unknown>();
+    const deployment = { MODEL_CREDENTIAL_KEY: KEY, AGENT_AUDIT: new FakeD1() } as unknown as Env;
+    const instance = Object.assign(Object.create(UserProviderOAuth.prototype) as UserProviderOAuth, {
+      ctx: { id: { name: "alice" }, storage: {
+        get: async (key: string) => storage.get(key),
+        put: async (key: string, value: unknown) => { storage.set(key, value); },
+        delete: async (key: string) => storage.delete(key),
+      } },
+      env: deployment,
+    });
+    const begin = await instance.fetch(new Request("https://oauth/begin?provider=cursor", { method: "POST" }));
+    expect(begin.status).toBe(200);
+    globalThis.fetch = vi.fn(async () => {
+      if (logoutDuringPoll) {
+        await instance.fetch(new Request("https://oauth/logout?provider=cursor", { method: "DELETE" }));
+      }
+      return Response.json({ accessToken: "cursor-access", refreshToken: "cursor-refresh" });
+    }) as typeof fetch;
+    const complete = await instance.fetch(new Request("https://oauth/complete?provider=cursor", {
+      method: "POST", body: "{}", headers: { "Content-Type": "application/json" },
+    }));
+    expect(complete.status).toBe(logoutDuringPoll ? 400 : 200);
+    const status = await instance.fetch(new Request("https://oauth/status?provider=cursor"));
+    expect(await status.json()).toMatchObject({ connected: !logoutDuringPoll });
+  });
+
   it("antigravity: exchange, refresh, callback host/state, and authenticated egress", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

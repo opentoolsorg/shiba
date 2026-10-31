@@ -130,7 +130,10 @@ export async function readContainedChangedFile(cloneDir, relativePath, limits = 
     if (length > maxBytes) throw new Error("file exceeds capture size limit");
     const after = await handle.stat();
     const current = await checkedLeaf(root, realRoot, relativePath);
-    if (before.ino !== after.stat.ino || before.size !== after.stat.size || after.stat.nlink !== 1) {
+    if (before.ino !== leaf.stat.ino || before.dev !== leaf.stat.dev
+      || before.ino !== after.ino || before.dev !== after.dev
+      || before.size !== length || after.size !== length || before.mtimeMs !== after.mtimeMs
+      || after.nlink !== 1 || current.stat.ino !== before.ino || current.stat.dev !== before.dev) {
       throw new Error("file changed during capture");
     }
     return new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, length));

@@ -84,6 +84,8 @@ export async function withStaticPreview<T>(
           ? new NativeWebSocket(resolved.toString())
           : new NativeWebSocket(resolved.toString(), protocols);
       }
+      Object.setPrototypeOf(Proxy, NativeWebSocket);
+      Proxy.prototype = NativeWebSocket.prototype;
       (globalThis as typeof globalThis & { WebSocket: typeof WebSocket }).WebSocket =
         Proxy as unknown as typeof WebSocket;
     }, previewOrigin);

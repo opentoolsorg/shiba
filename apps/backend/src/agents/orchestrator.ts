@@ -105,7 +105,7 @@ import { approvalResolveForbidden } from "../approval-resolve-auth.js";
 import { DASHBOARD_ORG_ID, intakeOrgIdForOrchestrator, orgIdFromIntake } from "../org-request-auth.js";
 import { sealChildDispatch } from "../child-dispatch.js";
 import { openRunEnv } from "../run-env-seal.js";
-import { resolveRuntimeName } from "../runtime.js";
+import { COMPUTER_PREVIEW_MESSAGE, resolveRuntimeName } from "../runtime.js";
 import { assertRunPreflight } from "../run-preflight.js";
 import { readModelConfig, resolveCodingRoute, revalidateCodingRoute } from "../model-policy.js";
 import { initiatorUserIdFromOrchestratorName } from "../subscription-routing.js";
@@ -1439,6 +1439,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         baseBranch: input.baseBranch,
         publishPullRequest: input.publishPullRequest,
         sandboxId,
+        accessAgent: this.name,
         ...(reserved.orgId ? { orgId: reserved.orgId } : pointer?.orgId ? { orgId: pointer.orgId } : {}),
         ...(reserved.sandboxProvider !== undefined ? { sandboxProvider: reserved.sandboxProvider } : {}),
         ...(reserved.customAgentId !== undefined ? { customAgentId: reserved.customAgentId } : {}),
@@ -2389,6 +2390,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const effectiveRuntime =
       runtimeForPreflight ??
       (executionTarget?.kind === "artifact-workspace" ? ("sandbox" as const) : resolveRuntimeName(this.env.RUNTIME));
+    if (effectiveRuntime === "computer") {
+      return Response.json({ error: COMPUTER_PREVIEW_MESSAGE }, { status: 400 });
+    }
     if (effectiveRuntime === "local" && input.intake !== LOCAL_INTAKE_DASHBOARD) {
       return Response.json(
         { error: 'runtime "local" is admitted only through the dashboard.' },
@@ -2959,11 +2963,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       typeof rawDecidedBy === "string" && rawDecidedBy.trim()
         ? rawDecidedBy.slice(0, 200)
         : "unknown";
+    const storedApproval = this.approvals.find((record) => record.approvalId === approvalId && record.threadKey === threadKey);
     const forbidden = approvalResolveForbidden(this.env, {
       threadKey,
       approved,
       decidedBy,
       source,
+      ...(storedApproval && threadKey.startsWith("acp:")
+        ? { ownedAcpApproval: { orchestratorName: this.name, threadKey: storedApproval.threadKey } }
+        : {}),
     });
     if (forbidden !== null) {
       return Response.json({ error: forbidden }, { status: 403 });
@@ -3225,6 +3233,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const runEnv = await this.intakeRunEnv(this.composerEnv(), resolveRuntimeName(this.env.RUNTIME));
     const runSetup = this.composerRunSetup();
     const deploymentRuntime = resolveRuntimeName(this.env.RUNTIME);
+    if (deploymentRuntime === "computer") throw new Error(COMPUTER_PREVIEW_MESSAGE);
     const chatFrozenRuntime =
       deploymentRuntime === "local" && isDashboardAgentName(this.name) ? ("local" as const) : ("sandbox" as const);
     if (runSetup && chatFrozenRuntime === "local") {
@@ -3812,7 +3821,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const pull = parent?.pullUrl ? this.parsePull(parent.pullUrl) : null;
     const roundId = run.reviewRoundId ?? `${run.reviewOf ?? run.runId}:head`;
     const envelope = parseReviewEnvelope(output);
-    if (!envelope.findingsPresent) {
+    if (!envelope.findingsPresent || envelope.rejected > 0) {
       this.writeRound({
         roundId,
         codingRunId: parent?.runId ?? run.reviewOf ?? run.runId,
@@ -3827,7 +3836,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         status: "failed",
         findings: [],
         summary: envelope.summary,
-        error: "review_findings_missing",
+        error: envelope.rejected > 0 ? "review_findings_invalid" : "review_findings_missing",
         generation: run.generation,
       });
       return;
@@ -3859,6 +3868,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     try {
       const posted = await postReview(round, githubCred.token, {
         apiBase: githubCred.apiBase,
+        credentialMode: githubCred.mode,
         inlineThreshold: this.inlineReviewThreshold(),
       });
       const postedRound: ReviewRound = {
@@ -5173,6 +5183,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     try {
       const posted = await postReview(round, cred.token, {
         apiBase: cred.apiBase,
+        credentialMode: cred.mode,
         inlineThreshold: this.inlineReviewThreshold(),
       });
       const next: ReviewRound = { ...round, status: "posted", githubReviewId: posted.githubReviewId, postedAt: Date.now() };

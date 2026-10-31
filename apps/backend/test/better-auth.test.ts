@@ -291,7 +291,7 @@ describe("end-to-end session flow", () => {
     expect(await isAuthorizedRequest(new Request("https://example.com/api/runs"), env)).toBe(false);
   });
 
-  it("refuses the first account on a public host until a setup token or owner email is set", async () => {
+  it("refuses the first account on a public host until a setup token is set", async () => {
     const env = makeEnv();
     const res = await handleBetterAuth(
       new Request("https://app.example/api/auth/sign-up/email", {
@@ -306,6 +306,17 @@ describe("end-to-end session flow", () => {
     expect(body.message).toMatch(/locked/i);
     const row = await env.AGENT_AUDIT.prepare(`SELECT COUNT(*) AS c FROM "user"`).first<{ c: number }>();
     expect(Number(row?.c ?? 0)).toBe(0);
+  });
+
+  it("reports owner-email-only public signup as locked and rejects it", async () => {
+    const env = makeEnv({ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" });
+    const status = await handleBetterAuth(new Request("https://app.example/api/auth/bootstrap"), env);
+    expect(await status?.json()).toEqual({ requiresToken: false, requiresOwnerEmail: true, locked: true });
+    const response = await handleBetterAuth(new Request("https://app.example/api/auth/sign-up/email", {
+      method: "POST", headers: { "content-type": "application/json", origin: "https://app.example" },
+      body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
+    }), env);
+    expect(response?.status).toBe(403);
   });
 
   it("accepts the first public account when the setup token matches", async () => {

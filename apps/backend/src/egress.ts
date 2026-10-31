@@ -313,7 +313,7 @@ export async function forwardClaudeSubscription(
           env,
           ctx?.orgId,
           "claude-setup",
-          ctx?.initiatorUserId ?? ctx?.orgId,
+          providerCredentialUser(ctx),
         )
       : undefined;
   const configured = (env as Record<string, unknown>)[secretName];

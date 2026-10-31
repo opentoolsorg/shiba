@@ -507,12 +507,8 @@ export default {
           canonicalAgentPath === url.pathname
             ? request
             : new Request(new URL(`${canonicalAgentPath}${url.search}`, url.origin), request);
-        const agentResponse = await routeAgentRequest(agentRequest, {
-          CodingOrchestrator: env.CodingOrchestrator,
-        });
-        if (agentResponse) {
-          return agentResponse;
-        }
+        const agent = await getAgentByName(env.CodingOrchestrator, name);
+        return agent.fetch(agentRequest);
       }
       const agentResponse = await routeAgentRequest(request, {
         CodingOrchestrator: env.CodingOrchestrator,

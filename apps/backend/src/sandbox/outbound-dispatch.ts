@@ -104,14 +104,16 @@ export async function dispatchOutboundRequest(
     if (!forward) {
       return new Response("Invalid provider destination.", { status: 403 });
     }
-    return forward(request, env, config.orgId || config.gatewayByokAlias ? {
+    return forward(request, env, config.orgId || config.initiatorUserId || config.gatewayByokAlias ? {
       ...(config.orgId ? { orgId: config.orgId } : {}),
+      ...(config.initiatorUserId ? { initiatorUserId: config.initiatorUserId } : {}),
       ...(config.gatewayByokAlias ? { gatewayByokAlias: config.gatewayByokAlias } : {}),
     } : undefined);
   }
   const handler = namedHandler(rule.handler);
   const ctx: OutboundHandlerCtx = {
     ...(config.orgId ? { orgId: config.orgId } : {}),
+    ...(config.initiatorUserId ? { initiatorUserId: config.initiatorUserId } : {}),
     ...(config.gatewayByokAlias ? { gatewayByokAlias: config.gatewayByokAlias } : {}),
     ...(rule.params ? { params: rule.params } : {}),
   };

@@ -17,11 +17,11 @@ export interface StreamOptions {
   maxReconnectAttempts?: number;
 }
 
-/** Pending frame bytes before the next event delimiter. */
-const MAX_PENDING_FRAME_BYTES = 512_000;
+/** Maximum UTF-16 code units in one event frame. */
+const MAX_FRAME_CODE_UNITS = 512_000;
 
 function parseSseBlock(block: string): SseEvent<string> | null {
-  const lines = block.split("\n");
+  const lines = block.split(/\r\n|\r|\n/);
   let id: string | undefined;
   let event: string | undefined;
   let retry: number | undefined;
@@ -99,11 +99,11 @@ export async function* streamSse<T = unknown>(options: StreamOptions): AsyncGene
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        if (buffer.length > MAX_PENDING_FRAME_BYTES) {
-          throw new ShibaApiError("SSE frame exceeded size limit", 413, null);
-        }
         let split = nextEventDelimiter(buffer, scanFrom);
         while (split.index !== -1) {
+          if (split.index > MAX_FRAME_CODE_UNITS) {
+            throw new ShibaApiError("SSE frame exceeded size limit", 413, null);
+          }
           const block = buffer.slice(0, split.index);
           buffer = buffer.slice(split.index + split.length);
           scanFrom = 0;
@@ -119,6 +119,9 @@ export async function* streamSse<T = unknown>(options: StreamOptions): AsyncGene
             yield data;
           }
           split = nextEventDelimiter(buffer, scanFrom);
+        }
+        if (buffer.length > MAX_FRAME_CODE_UNITS) {
+          throw new ShibaApiError("SSE frame exceeded size limit", 413, null);
         }
         scanFrom = Math.max(0, buffer.length - 3);
       }

@@ -426,12 +426,12 @@ describe("employee tool policy in normal chat turns", () => {
       env: { ...instance.env, AGENT_AUDIT: database },
       name: "owner@example.test",
     });
-    const employee = await createCustomAgent(instance.env, "owner@example.test", "run-status-employee", {
+    const employee = await createCustomAgent(instance.env, "self-hosted", "run-status-employee", {
       name: "Run status employee", instructions: "Read only the approved run status.", harness: "opencode",
     });
     Object.assign(instance, { messages: [{
       role: "user",
-      metadata: { shibaTask: { customAgentId: employee.id, orgId: "owner@example.test" } },
+      metadata: { shibaTask: { customAgentId: employee.id, orgId: "self-hosted" } },
     }] });
     const tools = { run_code: {}, employee_tool_catalog: {}, employee_tool_call: {}, delegate_coding_task: {} };
     const turn = () => instance.beforeTurn({ tools, system: "base system" } as never);
@@ -440,11 +440,11 @@ describe("employee tool policy in normal chat turns", () => {
     expect(legacy.activeTools).toContain("run_code");
     expect(legacy.activeTools).not.toContain("employee_tool_catalog");
 
-    const configured = await updateCustomAgent(instance.env, "owner@example.test", employee.id, {
+    const configured = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
       ...employee.config, toolScopes: ["mcp:shiba:run_status"],
     }, employee.version);
     await replaceEmployeeToolGrants(instance.env, {
-      orgId: "owner@example.test", employeeId: employee.id, employeeVersion: configured.version,
+      orgId: "self-hosted", employeeId: employee.id, employeeVersion: configured.version,
       actorId: "owner@example.test", role: "operator", capabilityIds: ["mcp:shiba:run_status"],
       resourcesByCapability: { "mcp:shiba:run_status": ["run-1"] },
     });
@@ -453,11 +453,11 @@ describe("employee tool policy in normal chat turns", () => {
     expect(configuredTurn.activeTools).toContain("employee_tool_catalog");
     expect(configuredTurn.activeTools).toContain("employee_tool_call");
 
-    const cleared = await updateCustomAgent(instance.env, "owner@example.test", employee.id, {
+    const cleared = await updateCustomAgent(instance.env, "self-hosted", employee.id, {
       ...configured.config, toolScopes: [],
     }, configured.version);
     await replaceEmployeeToolGrants(instance.env, {
-      orgId: "owner@example.test", employeeId: employee.id, employeeVersion: cleared.version,
+      orgId: "self-hosted", employeeId: employee.id, employeeVersion: cleared.version,
       actorId: "owner@example.test", role: "operator", capabilityIds: [], resourcesByCapability: {},
     });
     const revokedTurn = await turn();
@@ -1821,15 +1821,15 @@ describe("complete skill prompt approval boundary", () => {
     const db = customAgentD1();
     instance.env.AGENT_AUDIT = db.database;
     const content = { name: "Revocable", instructions: "Keep this exact approved guidance." };
-    const skill = await createSkill(instance.env, "owner@example.test", "owner@example.test", content);
-    await reviewSkill(instance.env, "owner@example.test", "owner@example.test", skill.id, 1, content.instructions);
-    await activateSkill(instance.env, "owner@example.test", "owner@example.test", skill.id, 1, content.instructions);
+    const skill = await createSkill(instance.env, "self-hosted", "owner@example.test", content);
+    await reviewSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, content.instructions);
+    await activateSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, content.instructions);
     const pin = { skillId: skill.id, version: 1, name: content.name };
     const approvedText = `Fix the issue\n\nSkills:\n${content.instructions}`;
     approveDirect(instance, "disabled-skill", {
-      repoUrl: "https://github.com/o/r", task: approvedText, orgId: "owner@example.test", skillPins: [pin],
+      repoUrl: "https://github.com/o/r", task: approvedText, orgId: "self-hosted", skillPins: [pin],
     });
-    await disableSkill(instance.env, "owner@example.test", "owner@example.test", skill.id);
+    await disableSkill(instance.env, "self-hosted", "owner@example.test", skill.id);
     const delegate = instance.getTools()["delegate_coding_task"] as { execute: (input: unknown, options: unknown) => Promise<unknown> };
 
     await expect(delegate.execute({ repoUrl: "https://github.com/o/r", task: "changed caller input" }, { toolCallId: "disabled-skill" }))
@@ -1860,9 +1860,9 @@ describe("chat approval gate", () => {
     const pins: Array<{ skillId: string; version: number }> = [];
     for (const [index, instructions] of texts.entries()) {
       const content = { name: `Chat skill ${index + 1}`, instructions };
-      const skill = await createSkill(instance.env, "owner@example.test", "owner@example.test", content);
-      await reviewSkill(instance.env, "owner@example.test", "owner@example.test", skill.id, 1, instructions);
-      await activateSkill(instance.env, "owner@example.test", "owner@example.test", skill.id, 1, instructions);
+      const skill = await createSkill(instance.env, "self-hosted", "owner@example.test", content);
+      await reviewSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, instructions);
+      await activateSkill(instance.env, "self-hosted", "owner@example.test", skill.id, 1, instructions);
       pins.push({ skillId: skill.id, version: 1 });
     }
     Object.assign(instance, { composerPin: () => ({ skillPins: pins }) });

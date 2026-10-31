@@ -179,11 +179,11 @@ export function createSandboxOps(
 function workerLocalDispatchClient(env: Env): LocalDispatchClient {
   const stub = () => localDispatchStub(env);
   return {
-    async dispatch(envelope, targetMachineId) {
+    async dispatch(envelope, targetMachineId, dashboardOwnerId) {
       const res = await stub().fetch(new Request("https://local-dispatch/dispatch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ envelope, ...(targetMachineId !== undefined ? { targetMachineId } : {}) }),
+        body: JSON.stringify({ envelope, ...(targetMachineId !== undefined ? { targetMachineId } : {}), ...(dashboardOwnerId !== undefined ? { dashboardOwnerId } : {}) }),
       }));
       if (!res.ok) throw new Error(`dispatch: ${res.status} ${await res.text()}`);
     },
@@ -354,11 +354,11 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
               const envelope = parseReviewEnvelope(
                 rawFindings !== undefined ? { summary: result.summary, findings: rawFindings } : result.summary,
               );
-              if (!envelope.findingsPresent) {
+              if (!envelope.findingsPresent || envelope.rejected > 0) {
                 result = {
                   ...result,
                   status: "error",
-                  summary: "Review output is missing structured findings.",
+                  summary: envelope.rejected > 0 ? "Review output contains invalid structured findings." : "Review output is missing structured findings.",
                 };
               } else {
                 result = {
@@ -468,7 +468,12 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       files: [],
       ...(result.deliverables ? { deliverables: result.deliverables } : {}),
       ...(result.usage ? { usage: result.usage } : {}),
-      ...(result.findings ? { findings: result.findings } : {}),
+      ...(result.findings ? { findings: parseReviewEnvelope({ findings: result.findings }).findings.map((finding) => ({
+        ...finding,
+        path: this.safeText(finding.path, 1024),
+        title: this.safeText(finding.title, 4000),
+        failureScenario: this.safeText(finding.failureScenario, 8000),
+      })) } : {}),
       ...(result.testEvidence
         ? {
             testEvidence: {
@@ -495,10 +500,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     // or sandbox problem can never lose a publish.
     const capture = verifyStandinEnabled(this.env)
       ? null
-      : await captureRunPreview(this.env, { sandboxId: input.sandboxId });
+      : await captureRunPreview(this.env, { sandboxId: input.sandboxId, accessAgent: input.accessAgent });
     const e2eCapture = verifyStandinEnabled(this.env)
       ? null
-      : await captureBrowserE2eEvidence(this.env, { sandboxId: input.sandboxId });
+      : await captureBrowserE2eEvidence(this.env, { sandboxId: input.sandboxId, accessAgent: input.accessAgent });
     signal?.throwIfAborted();
     const bodyLines = [
       this.safeText(result.summary, 4000),
