@@ -11,7 +11,7 @@ import { expect, it } from "vitest";
 
 const exec = promisify(execFile);
 
-it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline"])(
+it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline", "test-denied", "test-stop-denied"])(
   "enforces execution-wide cancellation across the native %s phase",
   async (mode) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "shiba-cancel-phase-"));
@@ -28,6 +28,15 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline"])(
     const realGit = (await exec("which", ["git"])).stdout.trim();
     const collecting = mode.startsWith("collect");
     const deadline = mode.endsWith("deadline");
+    const denied = mode.endsWith("denied");
+    const stopping = mode.includes("stop");
+    const deniedSignals = path.join(root, "denied-signals.mjs");
+    await writeFile(deniedSignals, `import { existsSync } from 'node:fs';
+      const kill = process.kill.bind(process);
+      process.kill = (pid, signal) => {
+        if (pid < 0 && signal === 'SIGKILL' && existsSync(${JSON.stringify(path.join(work, ".git/test-ignored-sigterm"))})) throw Object.assign(new Error('fixture denial'), { code: 'EPERM' });
+        return kill(pid, signal);
+      };`);
     await writeFile(path.join(bin, "git"), [
       `#!${process.execPath}`,
       "const fs=require('node:fs'), cp=require('node:child_process');",
@@ -50,6 +59,7 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline"])(
       `#!${process.execPath}`,
       "const fs=require('node:fs'),path=require('node:path');",
       "fs.writeFileSync('.git/test-started','yes');",
+      "fs.writeFileSync('.git/test-parent-pid',String(process.pid));",
       `if(${collecting})process.exit(0);`,
       "const sentinel=path.resolve('.git/test-grandchild-sentinel');",
       "const childCode='process.on(\"SIGTERM\",()=>{});setInterval(()=>require(\"node:fs\").appendFileSync('+JSON.stringify(sentinel)+',\"x\"),25)';",
@@ -62,11 +72,13 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline"])(
     type Result = { status: string; summary: string; exitCode: number };
     let result: Result | undefined;
     let revoked = false;
+    let claims = 0;
     const server = createServer(async (request, response) => {
       let raw = ""; for await (const chunk of request) raw += String(chunk);
       const body = JSON.parse(raw || "{}");
       response.setHeader("content-type", "application/json");
       if (request.url === "/api/local/claim") {
+        claims += 1;
         response.end(JSON.stringify({ claimToken: "phase-claim", envelope: {
           sandboxId: "phase-run", harness: "codex", repoUrl: repo, baseBranch: "main",
           cloneDir: `${LOCAL_RUN_ROOT_TOKEN}/work`, homeDir: `${LOCAL_RUN_ROOT_TOKEN}/home`,
@@ -76,9 +88,14 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline"])(
         } }));
       } else if (request.url === "/api/local/control" && !deadline
         && existsSync(path.join(work, collecting ? ".git/collect-started" : ".git/test-grandchild-sentinel"))) {
-        revoked = true;
-        response.statusCode = 409;
-        response.end('{"error":"claim cancelled"}');
+        if (stopping) {
+          daemon.kill("SIGTERM");
+          response.end("{}");
+        } else {
+          revoked = true;
+          response.statusCode = 409;
+          response.end('{"error":"claim cancelled"}');
+        }
       } else {
         if (request.url === "/api/local/result") result = body.result;
         response.end("{}");
@@ -93,7 +110,11 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline"])(
       unrelated.once("error", reject);
       unrelated.stdout.once("data", (chunk) => resolve(Number(String(chunk).trim())));
     });
-    const daemon = spawn(process.execPath, [fileURLToPath(new URL("../../../scripts/shiba-local-daemon.mjs", import.meta.url)), "--once"], {
+    const daemon = spawn(process.execPath, [
+      ...(denied ? ["--import", deniedSignals] : []),
+      fileURLToPath(new URL("../../../scripts/shiba-local-daemon.mjs", import.meta.url)),
+      ...(denied ? [] : ["--once"]),
+    ], {
       env: { ...process.env, HOME: operatorHome, PATH: `${bin}:${process.env.PATH}`,
         SHIBA_LOCAL_RUN_ROOT: runRoot, SHIBA_WORKER_URL: `http://127.0.0.1:${address.port}`,
         LOCAL_ADAPTER_TOKEN: "phase-control-secret" },
@@ -105,9 +126,18 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline"])(
     const timer = setTimeout(() => daemon.kill("SIGKILL"), 12000);
     try {
       const exit = await new Promise<number | null>((resolve, reject) => { daemon.once("error", reject); daemon.once("close", resolve); });
-      expect(exit, output).toBe(1);
-      expect(result, output).toMatchObject({ status: "error", summary: expect.stringContaining(deadline ? "deadline" : "revoked or cancelled") });
-      if (!deadline) expect(revoked).toBe(true);
+      if (exit === 70) {
+        expect(result, output).toMatchObject({ status: "error", summary: expect.stringContaining("termination unconfirmed (SIGKILL: EPERM)") });
+      } else {
+        expect(exit, output).toBe(denied ? 70 : 1);
+        expect(result, output).toMatchObject({ status: "error", summary: expect.stringContaining(deadline ? "deadline" : "revoked or cancelled") });
+      }
+      expect(claims).toBe(1);
+      if (denied) {
+        expect(result?.summary).toContain("SIGKILL: EPERM");
+        expect(result?.summary).toContain("child processes may still be running");
+      }
+      if (!deadline && !stopping) expect(revoked).toBe(true);
       if (collecting) {
         expect(existsSync(path.join(work, ".git/collect-started"))).toBe(true);
         expect(existsSync(path.join(work, ".git/test-started"))).toBe(false);
@@ -117,17 +147,21 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline"])(
         const sentinel = path.join(work, ".git/test-grandchild-sentinel");
         const before = await readFile(sentinel, "utf8");
         await new Promise((resolve) => setTimeout(resolve, 200));
-        expect(await readFile(sentinel, "utf8")).toBe(before);
+        const after = await readFile(sentinel, "utf8");
+        if (denied) expect(after.length).toBeGreaterThan(before.length);
+        else expect(after).toBe(before);
       }
       expect(unrelated.exitCode).toBeNull();
       expect(await (await fetch(`http://127.0.0.1:${unrelatedPort}`)).text()).toBe("operator listener alive");
       expect(output).not.toContain("phase-control-secret");
     } finally {
       clearTimeout(timer); daemon.kill("SIGKILL"); unrelated.kill("SIGKILL");
-      try {
-        const pid = Number(await readFile(path.join(work, ".git/test-grandchild-pid"), "utf8"));
-        if (Number.isSafeInteger(pid) && pid > 1) { try { process.kill(pid, "SIGKILL"); } catch {} }
-      } catch {}
+      for (const file of denied ? [".git/test-grandchild-pid", ".git/test-parent-pid"] : [".git/test-grandchild-pid"]) {
+        try {
+          const pid = Number(await readFile(path.join(work, file), "utf8"));
+          if (Number.isSafeInteger(pid) && pid > 1) { try { process.kill(pid, "SIGKILL"); } catch {} }
+        } catch {}
+      }
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
       await rm(root, { recursive: true, force: true });
     }

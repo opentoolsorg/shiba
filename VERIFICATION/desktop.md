@@ -107,6 +107,7 @@ Record a dated pass/fail in `VERIFICATION.md` when complete. Do **not** claim th
 
 | Code | Meaning |
 | --- | --- |
+| 70 | Owned process termination could not be confirmed; error receipt says tools may still be running. Desktop latches `crashed` without automatic restart. Stop remaining tools before Retry. |
 | 75 | Another daemon holds `daemon.lock` on this run root |
 | 76 | HTML login (Cloudflare Access) instead of JSON — fix `/api/local/*` bypass |
 | 77 | Pairing token invalid/expired/reused |
