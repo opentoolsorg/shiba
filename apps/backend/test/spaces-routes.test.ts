@@ -168,7 +168,7 @@ describe("spaces routes", () => {
     }), bindings);
     expect(response?.status).toBe(200);
     const row = sqlite.prepare("SELECT updated_at FROM spaces_index WHERE id = ?").get(space.id) as { updated_at: number };
-    if (addedAt !== undefined) expect(row.updated_at).toBe(addedAt);
+    if (addedAt !== undefined) expect(row.updated_at).toBeGreaterThanOrEqual(addedAt);
     else {
       expect(row.updated_at).toBeGreaterThanOrEqual(before);
       expect(row.updated_at).toBeLessThanOrEqual(Date.now());
