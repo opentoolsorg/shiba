@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from "react";
 
 type SourceKind = "note" | "document" | "conversation" | "reference" | "other";
-interface MemorySource {
+export interface MemorySource {
   id: string;
   title: string;
   content: string;
