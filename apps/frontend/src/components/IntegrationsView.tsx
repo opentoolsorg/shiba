@@ -18,6 +18,8 @@ import { LoadErrorState } from "./LoadErrorState";
 import { providerLifecycleStatus, providerTestDescription } from "./provider-lifecycle";
 import { ToneChip } from "./ToneChip";
 import { ReasonNetworkSetup } from "./ReasonNetworkSetup";
+import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
+import type { IntegrationBindingInputs } from "../integration-connection-bindings";
 
 function IntegrationRow({
   name,
@@ -130,7 +132,12 @@ export function IntegrationsView({
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
   const savedSkills = useSavedSkills();
-  const [showCatalog, setShowCatalog] = useState(false);
+  const [showCapabilityCatalog, setShowCapabilityCatalog] = useState(false);
+  const [showSetupDetails, setShowSetupDetails] = useState(false);
+  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+  const [gmailLoading, setGmailLoading] = useState(true);
+  const [externalMcpServerCount, setExternalMcpServerCount] = useState<number | undefined>(undefined);
+  const [externalMcpLoading, setExternalMcpLoading] = useState(true);
   const [providers, setProviders] = useState<AcpProvidersSnapshot | null>(null);
   const [providersError, setProvidersError] = useState<string | null>(null);
   const [toolDirectory, setToolDirectory] = useState<McpCapabilityDirectoryEntry[]>([]);
@@ -140,7 +147,65 @@ export function IntegrationsView({
   const [catalogRefresh, setCatalogRefresh] = useState(0);
 
   useEffect(() => {
-    if (!showCatalog) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    setGmailLoading(true);
+    void fetch("/api/connections/gmail", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          if (!cancelled) setGmailConnected(false);
+          return;
+        }
+        const body = (await response.json()) as { configured?: boolean; connection?: unknown };
+        if (!cancelled) setGmailConnected(Boolean(body.configured && body.connection));
+      })
+      .catch(() => {
+        if (!cancelled) setGmailConnected(false);
+      })
+      .finally(() => {
+        if (!cancelled) setGmailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    setExternalMcpLoading(true);
+    void fetch("/api/v1/mcp/servers", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          if (!cancelled) setExternalMcpServerCount(0);
+          return;
+        }
+        const body = (await response.json()) as { servers?: unknown[] };
+        if (!cancelled) setExternalMcpServerCount(Array.isArray(body.servers) ? body.servers.length : 0);
+      })
+      .catch(() => {
+        if (!cancelled) setExternalMcpServerCount(0);
+      })
+      .finally(() => {
+        if (!cancelled) setExternalMcpLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showCapabilityCatalog) return;
     let cancelled = false;
     const controller = new AbortController();
     const refreshSuffix = catalogRefresh === 0 ? "" : `?refresh=${catalogRefresh}`;
@@ -182,7 +247,7 @@ export function IntegrationsView({
         if (!cancelled) setInvocationHistoryError(error instanceof Error ? error.message : String(error));
       });
     return () => { cancelled = true; controller.abort(); };
-  }, [showCatalog, catalogRefresh]);
+  }, [showCapabilityCatalog, catalogRefresh]);
 
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
   const loading = setup.state.kind === "loading";
@@ -193,6 +258,29 @@ export function IntegrationsView({
     setup.reload();
     mailboxes.reload();
   };
+
+  const bindingInputs = useMemo<IntegrationBindingInputs>(
+    () => ({
+      setupLoading: loading,
+      setup: status,
+      mailboxCount: mailboxList?.length,
+      mailboxLoading: mailboxes.state.kind === "loading",
+      gmailConnected,
+      gmailLoading,
+      externalMcpServerCount,
+      externalMcpLoading,
+    }),
+    [
+      loading,
+      status,
+      mailboxList,
+      mailboxes.state.kind,
+      gmailConnected,
+      gmailLoading,
+      externalMcpServerCount,
+      externalMcpLoading,
+    ],
+  );
 
   const catalogItems = useMemo<CapabilityCatalogItem[]>(() => {
     const items: CapabilityCatalogItem[] = [];
@@ -301,19 +389,51 @@ export function IntegrationsView({
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {showCatalog ? <button type="button" onClick={() => { setup.reload(); mailboxes.reload(); setCatalogRefresh((value) => value + 1); }} className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]" aria-label="Refresh integration status">Refresh status</button> : null}
-          <button type="button" onClick={() => setShowCatalog((shown) => !shown)} className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]" aria-pressed={showCatalog}>
-            {showCatalog ? "Show setup details" : "Browse capability catalog"}
+          {showCapabilityCatalog ? (
+            <button
+              type="button"
+              onClick={() => {
+                setup.reload();
+                mailboxes.reload();
+                setCatalogRefresh((value) => value + 1);
+              }}
+              className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+              aria-label="Refresh integration status"
+            >
+              Refresh status
+            </button>
+          ) : null}
+          {!showCapabilityCatalog ? (
+            <button
+              type="button"
+              onClick={() => setShowSetupDetails((shown) => !shown)}
+              className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+              aria-pressed={showSetupDetails}
+            >
+              {showSetupDetails ? "Hide setup details" : "Show setup details"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setShowCapabilityCatalog((shown) => !shown);
+              if (!showCapabilityCatalog) setShowSetupDetails(false);
+            }}
+            className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+            aria-pressed={showCapabilityCatalog}
+          >
+            {showCapabilityCatalog ? "Back to integration catalog" : "Browse capability catalog"}
           </button>
         </div>
       </div>
-      {showCatalog ? (
+      {showCapabilityCatalog ? (
         <div className="min-h-0 flex-1">
           {providersError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{providersError} Provider state may be stale. Retry refresh before relying on the last displayed state.</p> : null}
           {toolDirectoryError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{toolDirectoryError} MCP schemas are withheld from the dashboard directory.</p> : null}
           <CapabilityCatalog items={catalogItems} invocations={invocations} invocationHistoryError={invocationHistoryError} onConfigure={(item) => onNavigate?.(item.kind === "skill" ? "skills" : item.kind === "mcp" ? "providers" : "settings")} onReconnect={(item) => onNavigate?.(item.kind === "mcp" ? "providers" : "settings")} onConnectMcp={() => onNavigate?.("agents")} onViewToolHistory={() => onNavigate?.("approvals")} />
         </div>
-      ) : <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+      ) : showSetupDetails ? (
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {failed ? <LoadErrorState message={failed.message} onRetry={reloadAll} /> : null}
 
@@ -443,7 +563,17 @@ export function IntegrationsView({
             </IntegrationRow>
           </IntegrationGroup>
         </div>
-      </div>}
+      </div>
+      ) : (
+        <>
+          {failed ? (
+            <div className="border-b border-[var(--border-1)] px-4 py-2 lg:px-8">
+              <LoadErrorState message={failed.message} onRetry={reloadAll} />
+            </div>
+          ) : null}
+          <IntegrationCatalogDirectory bindingInputs={bindingInputs} />
+        </>
+      )}
     </div>
   );
 }
