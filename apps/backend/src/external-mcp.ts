@@ -8,7 +8,7 @@ import { wrapUntrusted } from "./mailbox-store.js";
 import { sha256Hex } from "./agent-tokens.js";
 import { orgIdForRecord, type TokenRecord } from "./agent-tokens.js";
 import { decideConnectionDispatch, type ConnectionGrant, type CapabilityPolicy } from "./connection-policy.js";
-import { asEmployeeActionApproval, findEmployeeActionApproval, requestEmployeeActionApproval, type EmployeeApprovalRecord } from "./employee-tool-store.js";
+import { asEmployeeActionApproval, findEmployeeActionApproval, getEmployeeActionApproval, requestEmployeeActionApproval, type EmployeeApprovalRecord } from "./employee-tool-store.js";
 import { finishCapabilityInvocationApproval } from "./capability-invocations.js";
 
 export const EXTERNAL_MCP_SCOPE = "mcp:external" as const;
@@ -152,25 +152,84 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
+const SCHEMA_ANNOTATIONS = ["title", "description", "$comment", "examples"] as const;
+
+function assertSchemaKeys(schema: Record<string, unknown>, allowed: readonly string[]) {
+  if (Object.keys(schema).some((key) => !allowed.includes(key))) throw new Error("schema_invalid");
+}
+
+function schemaIntegerConstraint(schema: Record<string, unknown>, key: string, max: number): number | undefined {
+  const value = schema[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > max) throw new Error("schema_invalid");
+  return value as number;
+}
+
+function schemaNumberConstraint(schema: Record<string, unknown>, key: string): number | undefined {
+  const value = schema[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("schema_invalid");
+  return value;
+}
+
 function schemaForProperty(schema: Record<string, unknown>, depth = 0): ZodType {
-  if (depth > 4 || Object.keys(schema).some((key) => ["$ref", "$defs", "definitions", "oneOf", "anyOf", "allOf", "not"].includes(key))) throw new Error("schema_invalid");
-  if (Array.isArray(schema.enum) && schema.enum.length > 0 && schema.enum.length <= 32 && schema.enum.every((v) => typeof v === "string")) {
-    return z.enum(schema.enum as [string, ...string[]]);
-  }
+  if (depth > 4 || typeof schema.type !== "string") throw new Error("schema_invalid");
+  const annotations = [...SCHEMA_ANNOTATIONS];
   switch (schema.type) {
-    case "string": return z.string().max(8_000);
-    case "number": return z.number().finite();
-    case "integer": return z.number().int();
-    case "boolean": return z.boolean();
+    case "string": {
+      assertSchemaKeys(schema, [...annotations, "type", "minLength", "maxLength", "enum"]);
+      const min = schemaIntegerConstraint(schema, "minLength", 8_000) ?? 0;
+      const max = schemaIntegerConstraint(schema, "maxLength", 8_000) ?? 8_000;
+      if (min > max) throw new Error("schema_invalid");
+      let parsed = z.string().min(min).max(max);
+      if (schema.enum !== undefined) {
+        if (!Array.isArray(schema.enum) || schema.enum.length === 0 || schema.enum.length > 32 ||
+            !schema.enum.every((value) => typeof value === "string")) throw new Error("schema_invalid");
+        const choices = new Set(schema.enum);
+        parsed = parsed.refine((value) => choices.has(value));
+      }
+      return parsed;
+    }
+    case "number":
+    case "integer": {
+      assertSchemaKeys(schema, [...annotations, "type", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"]);
+      const minimum = schemaNumberConstraint(schema, "minimum");
+      const maximum = schemaNumberConstraint(schema, "maximum");
+      const exclusiveMinimum = schemaNumberConstraint(schema, "exclusiveMinimum");
+      const exclusiveMaximum = schemaNumberConstraint(schema, "exclusiveMaximum");
+      if (minimum !== undefined && maximum !== undefined && minimum > maximum ||
+          exclusiveMinimum !== undefined && maximum !== undefined && exclusiveMinimum >= maximum ||
+          minimum !== undefined && exclusiveMaximum !== undefined && minimum >= exclusiveMaximum ||
+          exclusiveMinimum !== undefined && exclusiveMaximum !== undefined && exclusiveMinimum >= exclusiveMaximum) throw new Error("schema_invalid");
+      let parsed = schema.type === "integer" ? z.number().int() : z.number().finite();
+      if (minimum !== undefined) parsed = parsed.min(minimum);
+      if (maximum !== undefined) parsed = parsed.max(maximum);
+      if (exclusiveMinimum !== undefined) parsed = parsed.gt(exclusiveMinimum);
+      if (exclusiveMaximum !== undefined) parsed = parsed.lt(exclusiveMaximum);
+      return parsed;
+    }
+    case "boolean":
+      assertSchemaKeys(schema, [...annotations, "type"]);
+      return z.boolean();
     case "array": {
+      assertSchemaKeys(schema, [...annotations, "type", "items", "minItems", "maxItems"]);
       if (!isRecord(schema.items)) throw new Error("schema_invalid");
-      return z.array(schemaForProperty(schema.items, depth + 1)).max(100);
+      const min = schemaIntegerConstraint(schema, "minItems", 100) ?? 0;
+      const max = schemaIntegerConstraint(schema, "maxItems", 100) ?? 100;
+      if (min > max) throw new Error("schema_invalid");
+      return z.array(schemaForProperty(schema.items, depth + 1)).min(min).max(max);
     }
     case "object": {
-      if (!isRecord(schema.properties) || Object.keys(schema.properties).length > 32 || schema.additionalProperties === true) throw new Error("schema_invalid");
-      const required = new Set(Array.isArray(schema.required) ? schema.required.filter((x): x is string => typeof x === "string") : []);
+      assertSchemaKeys(schema, [...annotations, "type", "properties", "required", "additionalProperties"]);
+      if (!isRecord(schema.properties) || Object.keys(schema.properties).length > 32 ||
+          schema.additionalProperties !== undefined && schema.additionalProperties !== false) throw new Error("schema_invalid");
+      const properties = schema.properties;
+      if (schema.required !== undefined && (!Array.isArray(schema.required) ||
+          !schema.required.every((value) => typeof value === "string" && Object.hasOwn(properties, value)) ||
+          new Set(schema.required).size !== schema.required.length)) throw new Error("schema_invalid");
+      const required = new Set(Array.isArray(schema.required) ? schema.required as string[] : []);
       const shape: Record<string, ZodType> = {};
-      for (const [key, definition] of Object.entries(schema.properties)) {
+      for (const [key, definition] of Object.entries(properties)) {
         if (!/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(key) || !isRecord(definition)) throw new Error("schema_invalid");
         const parsed = schemaForProperty(definition, depth + 1);
         shape[key] = required.has(key) ? parsed : parsed.optional();
@@ -432,6 +491,37 @@ async function refreshBeforeCall(env: Env, server: ExternalMcpServer) {
   return result;
 }
 
+/** Re-read all revocable dispatch state after network awaits and immediately before a call. */
+async function currentExternalCapabilityState(env: Env, expectedServer: ExternalMcpServer, expectedTool: ExternalMcpTool, principal: TokenRecord) {
+  const currentServer = await getExternalMcpServer(env, expectedServer.orgId, expectedServer.ownerId, expectedServer.id);
+  if (!currentServer || currentServer.generation !== expectedServer.generation || currentServer.status !== "enabled" ||
+      currentServer.schemaVersion !== expectedServer.schemaVersion || currentServer.health !== "healthy" ||
+      !principal.scopes.includes(EXTERNAL_MCP_SCOPE)) return null;
+  const currentTool = (await toolsForServer(env, currentServer.id)).find((item) => item.id === expectedTool.id);
+  if (!currentTool || !currentTool.enabled || currentTool.schemaVersion !== expectedTool.schemaVersion || currentTool.effect !== expectedTool.effect) return null;
+  const grant = await env.AGENT_AUDIT.prepare(`SELECT 1 FROM external_mcp_access WHERE org_id = ? AND server_id = ? AND capability_id = ? AND principal = ? AND enabled = 1`)
+    .bind(currentServer.orgId, currentServer.id, currentTool.capabilityId, principal.principal).first();
+  return grant ? { server: currentServer, tool: currentTool } : null;
+}
+
+async function currentApprovedExternalCall(env: Env, expectedServer: ExternalMcpServer, expectedTool: ExternalMcpTool, expectedApproval: EmployeeApprovalRecord) {
+  const server = await getExternalMcpServer(env, expectedServer.orgId, expectedServer.ownerId, expectedServer.id);
+  if (!server || server.generation !== expectedServer.generation || server.status !== "enabled" ||
+      server.schemaVersion !== expectedServer.schemaVersion || server.health !== "healthy") return null;
+  const tool = (await toolsForServer(env, server.id)).find((item) => item.id === expectedTool.id);
+  if (!tool || !tool.enabled || tool.schemaVersion !== expectedTool.schemaVersion || tool.effect !== "approval_required") return null;
+  const access = await env.AGENT_AUDIT.prepare(`SELECT 1 FROM external_mcp_access WHERE org_id = ? AND server_id = ? AND capability_id = ? AND principal = ? AND enabled = 1`)
+    .bind(server.orgId, server.id, tool.capabilityId, expectedApproval.actorId).first();
+  if (!access) return null;
+  const approval = await getEmployeeActionApproval(env, { orgId: server.orgId, employeeId: server.id, approvalId: expectedApproval.approvalId });
+  if (!approval || approval.status !== "approved" || approval.actorId !== expectedApproval.actorId ||
+      approval.employeeVersion !== server.generation || approval.connectionId !== server.id || approval.connectionGeneration !== server.generation ||
+      approval.capability.id !== tool.capabilityId || approval.action !== tool.remoteName || approval.argumentDigest !== expectedApproval.argumentDigest ||
+      approval.resourceId !== tool.capabilityId || approval.accountId !== server.id || approval.policyVersion !== `external-mcp:${server.generation}:${server.schemaVersion}` ||
+      approval.expiresAt <= Date.now()) return null;
+  return { server, tool, approval };
+}
+
 function inputZodShape(schema: Record<string, unknown>) {
   const parsed = schemaForProperty(schema);
   if (!(parsed instanceof z.ZodObject)) throw new Error("schema_invalid");
@@ -501,8 +591,16 @@ export async function registerExternalMcpTools(registry: { registerTool(name: st
       if (!decision.allowed) return { isError: true, content: [{ type: "text", text: `External MCP dispatch denied: ${decision.reason}.` }] };
       try {
         await refreshBeforeCall(env, currentServer);
-        const result = await withClient(env, currentServer, (client) => client.callTool({ name: currentTool.remoteName, arguments: args }));
-        await recordHealth(env, currentServer, null);
+        const afterRefresh = await currentExternalCapabilityState(env, server, tool, context.principal);
+        if (!afterRefresh) return { isError: true, content: [{ type: "text", text: "External MCP capability was disabled or revoked during schema refresh; no call was sent." }] };
+        const dispatch = await withClient(env, afterRefresh.server, async (client) => {
+          const immediatelyBeforeCall = await currentExternalCapabilityState(env, server, tool, context.principal);
+          if (!immediatelyBeforeCall) return null;
+          return client.callTool({ name: immediatelyBeforeCall.tool.remoteName, arguments: args });
+        });
+        if (!dispatch) return { isError: true, content: [{ type: "text", text: "External MCP capability was disabled or revoked before dispatch; no call was sent." }] };
+        await recordHealth(env, afterRefresh.server, null);
+        const result = dispatch;
         const content = Array.isArray(result.content) ? result.content : [];
         const safe = content.slice(0, 50).map((item) => item.type === "text" && typeof item.text === "string"
           ? { type: "text" as const, text: JSON.stringify(wrapUntrusted(item.text.slice(0, MAX_RESULT_BYTES))) } : null).filter(Boolean);
@@ -513,7 +611,7 @@ export async function registerExternalMcpTools(registry: { registerTool(name: st
       } catch (error) {
         const code = error instanceof Error && ["destination_not_trusted", "auth_reference_missing", "redirect_rejected", "schema_version_changed", "schema_invalid"].includes(error.message)
           ? error.message : "transport_unavailable";
-        await recordHealth(env, currentServer, code);
+        if (code !== "schema_version_changed") await recordHealth(env, currentServer, code);
         return { isError: true, content: [{ type: "text", text: `External MCP call failed closed (${code}). Review or reconnect the server before retrying.` }] };
       }
     }, { description, inputSchema: inputZodShape(tool.inputSchema) });
@@ -522,6 +620,7 @@ export async function registerExternalMcpTools(registry: { registerTool(name: st
 
 /** Dispatch a frozen write only from the authenticated owner's explicit approval action. */
 export async function executeApprovedExternalMcpAction(env: Env, server: ExternalMcpServer, approval: EmployeeApprovalRecord) {
+  await ensure(env);
   const failed = async (status: "failed" | "unknown_outcome", errorCode: string) => {
     await finishCapabilityInvocationApproval(env, { approvalId: approval.approvalId, status, errorCode });
     await env.AGENT_AUDIT.prepare(`UPDATE external_mcp_approval_uses SET status = ?, error_code = ? WHERE approval_id = ? AND status = 'dispatching'`)
@@ -529,43 +628,56 @@ export async function executeApprovedExternalMcpAction(env: Env, server: Externa
     await audit(env, { principal: approval.actorId, tool: approval.action, argsHash: approval.argumentDigest, outcome: status, detail: errorCode });
     return { status, errorCode };
   };
+  // Own the one-shot approval before any revocable-state or network await: a duplicate must
+  // observe this owner's attempt and must never settle its receipt on its behalf.
+  const used = await env.AGENT_AUDIT.prepare("INSERT OR IGNORE INTO external_mcp_approval_uses (approval_id, used_at) VALUES (?, ?)")
+    .bind(approval.approvalId, Date.now()).run();
+  if (used.meta?.changes !== 1) {
+    const existing = await env.AGENT_AUDIT.prepare("SELECT status, error_code FROM external_mcp_approval_uses WHERE approval_id = ?")
+      .bind(approval.approvalId).first<{ status: string; error_code: string | null }>();
+    const status = existing?.status === "dispatching" ? "in_progress"
+      : existing?.status === "succeeded" || existing?.status === "failed" || existing?.status === "unknown_outcome" ? existing.status : "unknown_outcome";
+    return { status, ...(existing?.error_code ? { errorCode: existing.error_code } : {}) };
+  }
+  try {
   if (approval.status !== "approved" || approval.employeeId !== server.id || approval.employeeVersion !== server.generation ||
       approval.connectionId !== server.id || approval.connectionGeneration !== server.generation || approval.accountId !== server.id ||
       !isRecord(approval.payload) || server.status !== "enabled") return failed("failed", "approval_stale");
-  const tool = (await toolsForServer(env, server.id)).find((candidate) => candidate.capabilityId === approval.capability.id &&
-    candidate.remoteName === approval.action && candidate.enabled && candidate.effect === "approval_required");
-  if (!tool || !server.schemaVersion) return failed("failed", "capability_disabled");
-  const access = await env.AGENT_AUDIT.prepare(`SELECT 1 FROM external_mcp_access WHERE org_id = ? AND server_id = ? AND capability_id = ? AND principal = ? AND enabled = 1`)
-    .bind(server.orgId, server.id, tool.capabilityId, approval.actorId).first();
-  if (!access) return failed("failed", "grant_revoked");
-  const policyVersion = `external-mcp:${server.generation}:${server.schemaVersion}`;
+  const registeredTool = (await toolsForServer(env, server.id)).find((candidate) => candidate.capabilityId === approval.capability.id && candidate.remoteName === approval.action);
+  if (!registeredTool || !server.schemaVersion) return failed("failed", "capability_disabled");
+  const initial = await currentApprovedExternalCall(env, server, registeredTool, approval);
+  if (!initial) return failed("failed", "approval_stale");
+  const tool = initial.tool;
   const capability = { kind: "mcp" as const, id: tool.capabilityId };
-  const grant: ConnectionGrant = { connectionId: server.id, owner: { type: "shared_workspace", workspaceId: server.orgId }, lifecycle: "active",
-    verification: "configured", capability, providerScopes: [], allowedResources: [tool.capabilityId], accountId: server.id,
-    policyVersion, generation: server.generation };
-  const policy: CapabilityPolicy = { version: policyVersion, allowlist: [capability], actions: [
-    { capability, action: tool.remoteName, risk: "external_write", resourceRequired: true, requiresLiveVerification: false },
-  ] };
-  const savedApproval = asEmployeeActionApproval(approval);
-  if (!savedApproval || !decideConnectionDispatch({ now: Date.now(), principal: { userId: approval.actorId, workspaceId: server.orgId }, grant, policy,
-    request: { capability, action: tool.remoteName, resourceId: tool.capabilityId, accountId: server.id, argumentDigest: approval.argumentDigest }, approval: savedApproval }).allowed) {
-    return failed("failed", "policy_denied");
-  }
-  const validated = schemaForProperty(tool.inputSchema).safeParse(approval.payload);
-  if (!validated.success) return failed("failed", "schema_changed");
-  try {
-    await refreshBeforeCall(env, server);
-    const used = await env.AGENT_AUDIT.prepare("INSERT OR IGNORE INTO external_mcp_approval_uses (approval_id, used_at) VALUES (?, ?)")
-      .bind(approval.approvalId, Date.now()).run();
-    if (used.meta?.changes !== 1) {
-      const existing = await env.AGENT_AUDIT.prepare("SELECT status, error_code FROM external_mcp_approval_uses WHERE approval_id = ?")
-        .bind(approval.approvalId).first<{ status: string; error_code: string | null }>();
-      const status = existing?.status === "dispatching" ? "in_progress"
-        : existing?.status === "succeeded" || existing?.status === "failed" || existing?.status === "unknown_outcome" ? existing.status : "unknown_outcome";
-      return { status, ...(existing?.error_code ? { errorCode: existing.error_code } : {}) };
-    }
-    const result = await withClient(env, server, (client) => client.callTool({ name: tool.remoteName, arguments: approval.payload }));
-    await recordHealth(env, server, null);
+  const allowed = (state: Awaited<ReturnType<typeof currentApprovedExternalCall>>) => {
+    if (!state) return false;
+    const policyVersion = `external-mcp:${state.server.generation}:${state.server.schemaVersion}`;
+    const grant: ConnectionGrant = { connectionId: state.server.id, owner: { type: "shared_workspace", workspaceId: state.server.orgId }, lifecycle: "active",
+      verification: "configured", capability, providerScopes: [], allowedResources: [state.tool.capabilityId], accountId: state.server.id,
+      policyVersion, generation: state.server.generation };
+    const policy: CapabilityPolicy = { version: policyVersion, allowlist: [capability], actions: [
+      { capability, action: state.tool.remoteName, risk: "external_write", resourceRequired: true, requiresLiveVerification: false },
+    ] };
+    const savedApproval = asEmployeeActionApproval(state.approval);
+    return Boolean(savedApproval && decideConnectionDispatch({ now: Date.now(), principal: { userId: state.approval.actorId, workspaceId: state.server.orgId }, grant, policy,
+      request: { capability, action: state.tool.remoteName, resourceId: state.tool.capabilityId, accountId: state.server.id, argumentDigest: state.approval.argumentDigest }, approval: savedApproval }).allowed);
+  };
+  if (!allowed(initial)) return failed("failed", "policy_denied");
+  if (!schemaForProperty(tool.inputSchema).safeParse(initial.approval.payload).success) return failed("failed", "schema_changed");
+    await refreshBeforeCall(env, initial.server);
+    const afterRefresh = await currentApprovedExternalCall(env, server, tool, approval);
+    if (!afterRefresh) return failed("failed", "approval_stale");
+    if (!allowed(afterRefresh)) return failed("failed", "policy_denied");
+    if (!schemaForProperty(afterRefresh.tool.inputSchema).safeParse(afterRefresh.approval.payload).success) return failed("failed", "schema_changed");
+    const dispatched = await withClient(env, afterRefresh.server, async (client) => {
+      const immediatelyBeforeCall = await currentApprovedExternalCall(env, server, tool, approval);
+      if (!immediatelyBeforeCall || !allowed(immediatelyBeforeCall) ||
+          !schemaForProperty(immediatelyBeforeCall.tool.inputSchema).safeParse(immediatelyBeforeCall.approval.payload).success) return null;
+      return client.callTool({ name: immediatelyBeforeCall.tool.remoteName, arguments: immediatelyBeforeCall.approval.payload });
+    });
+    if (!dispatched) return failed("failed", "approval_stale");
+    const result = dispatched;
+    await recordHealth(env, afterRefresh.server, null);
     if (result.isError) return failed("unknown_outcome", "remote_tool_error");
     const content = Array.isArray(result.content) ? result.content.slice(0, 50).map((item) => item.type === "text" && typeof item.text === "string"
       ? JSON.stringify(wrapUntrusted(item.text.slice(0, MAX_RESULT_BYTES))) : null).filter(Boolean) : [];
@@ -579,7 +691,7 @@ export async function executeApprovedExternalMcpAction(env: Env, server: Externa
   } catch (error) {
     const code = error instanceof Error && ["destination_not_trusted", "auth_reference_missing", "redirect_rejected", "schema_version_changed", "schema_invalid"].includes(error.message)
       ? error.message : "transport_unavailable";
-    await recordHealth(env, server, code);
+    if (code !== "schema_version_changed") await recordHealth(env, server, code);
     return failed("unknown_outcome", code);
   }
 }
