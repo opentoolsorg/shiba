@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpineWire } from "../live-status";
@@ -43,4 +44,30 @@ describe("ActivityView execution controls", () => {
     expect(screen.getByText("×3")).toBeTruthy();
     expect(screen.queryByText("xoxb-superlongtoken123")).toBeNull();
   });
+
+
+import { afterEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { ActivityView } from "./ActivityView";
+
+const { reload, useSpine } = vi.hoisted(() => ({ reload: vi.fn(), useSpine: vi.fn() }));
+vi.mock("../live-status", () => ({ useSpine }));
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+it("shows quiet empty groups and retains refresh", () => {
+  useSpine.mockReturnValue({ state: { kind: "data", data: { events: [], outbox: [] } }, reload, inFlight: true });
+  render(<ActivityView sessionId="test" sessionApiAvailable />);
+  expect(screen.getByText("No events yet")).toBeTruthy();
+  expect(screen.getByText("No pending deliveries")).toBeTruthy();
+  expect(screen.getByText("Event log").closest("details")?.open).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  expect(reload).toHaveBeenCalledOnce();
+});
+
+it("does not claim deliveries are empty when the request fails", () => {
+  useSpine.mockReturnValue({ state: { kind: "error", message: "Unavailable" }, reload, inFlight: true });
+  render(<ActivityView sessionId="test" sessionApiAvailable />);
+  expect(screen.getByText("Deliveries unavailable")).toBeTruthy();
+  expect(screen.queryByText("No pending deliveries")).toBeNull();
+
 });

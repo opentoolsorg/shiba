@@ -103,7 +103,7 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
             <button
               type="button"
               onClick={copyDiff}
-              className="text-[11px] font-sans px-2.5 py-1 rounded-[var(--radius-button)] bg-[var(--bg)] hover:bg-[var(--secondary)] text-[var(--fg)] border border-[var(--border-1)] transition-colors flex items-center gap-1.5"
+              className="min-h-11 min-w-11 text-xs font-sans px-3 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] bg-[var(--bg)] hover:bg-[var(--secondary)] text-[var(--fg)] border border-[var(--border-1)] transition-colors flex items-center gap-1.5"
             >
               {copied ? (
                 <>
@@ -123,7 +123,7 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
             <button
               type="button"
               onClick={downloadPatch}
-              className="text-[11px] font-sans px-2.5 py-1 rounded-[var(--radius-button)] bg-[var(--bg)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] border border-[var(--border-1)] transition-colors flex items-center gap-1"
+              className="min-h-11 min-w-11 text-xs font-sans px-3 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] bg-[var(--bg)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] border border-[var(--border-1)] transition-colors flex items-center gap-1"
             >
               <Download aria-hidden="true" className="w-3.5 h-3.5" strokeWidth={2} />
               <span>.diff</span>

@@ -21,7 +21,7 @@ it("shows the chosen bot's required output contract before submission and update
   const outputs = screen.getByRole("list", { name: "Required deliverables" });
   expect(within(outputs).getByText("marketing/brief.md")).toBeTruthy();
   expect(within(outputs).getByText("marketing/campaign.md")).toBeTruthy();
-  expect(screen.getByRole("textbox", { name: "Task description" }).getAttribute("placeholder")).toContain("outcome and facts");
+  expect(screen.getByRole("textbox", { name: "Task description" }).getAttribute("placeholder")).toContain("goal, context, and output");
   expect(props.onSubmit).not.toHaveBeenCalled();
 
   rerender(<TaskComposer {...props} customAgentId="research" />);
@@ -30,5 +30,5 @@ it("shows the chosen bot's required output contract before submission and update
 
   rerender(<TaskComposer {...props} customAgentId="" />);
   expect(screen.queryByRole("list", { name: "Required deliverables" })).toBeNull();
-  expect(screen.getByRole("textbox", { name: "Task description" }).getAttribute("placeholder")).toBe("Describe the change in this repository");
+  expect(screen.getByRole("textbox", { name: "Task description" }).getAttribute("placeholder")).toBe("What do you want to get done? Share the goal, context, and output you need.");
 });
