@@ -17,6 +17,8 @@ import { listCapabilityInvocations } from "../src/capability-invocations.js";
 import { createToolRegistry } from "../src/mcp-gateway.js";
 import { handleMcp } from "../src/v1/mcp.js";
 import type { V1Context } from "../src/v1/context.js";
+import { createEmployeeRunTools, isSupportedEmployeeToolScope, resolveAppToolsEmployeeContext, resolveEmployeeRunToolContext } from "../src/employee-run-tools.js";
+import { handleEmployeeDraftRequest, type EmployeeDraftStore, type EmployeeDraft, type EmployeeReadReceipt } from "../src/employee-drafts.js";
 
 const owner = "owner@example.test";
 const endpoint = "https://mcp.example.com/mcp";
@@ -32,6 +34,7 @@ async function fixture() {
     { name: "hidden_item", description: "SECRET_UNAUTHORIZED_SCHEMA", inputSchema: schema },
   ];
   const calls: Array<{ name: string; arguments: unknown }> = [];
+  let failWrite = false;
   let hold: Promise<void> | null = null;
   let release = () => {};
   let markListed = () => {};
@@ -52,6 +55,7 @@ async function fixture() {
     }
     if (rpc.method === "tools/call") {
       calls.push(rpc.params);
+      if (failWrite && rpc.params.name === "write_item") throw new Error("Connection lost after remote write may have happened");
       return Response.json({ jsonrpc: "2.0", id: rpc.id, result: { content: [{ type: "text", text: "Actual selected-record fixture response" }] } });
     }
     throw new Error(`Unexpected fixture method ${rpc.method}`);
@@ -96,6 +100,7 @@ async function fixture() {
     return response?.json();
   };
   return { env, sqlite, tools, read, write, serverId: draft.id, binding, calls, approve,
+    failWrite() { failWrite = true; },
     drift() { remote = remote.map((tool) => ({ ...tool, description: `${tool.description} changed` })); },
     holdLists() { listed = new Promise<void>((resolve) => { markListed = resolve; }); hold = new Promise<void>((resolve) => { release = resolve; }); },
     listed: () => listed, release() { hold = null; release(); },
@@ -103,6 +108,44 @@ async function fixture() {
 }
 
 describe("ordinary employee external MCP boundary", () => {
+  it("uses the ordinary Work factory for a selected read and retained draft without broad token scopes or Sandbox", async () => {
+    const f = await fixture();
+    Object.defineProperty(f.env, "Sandbox", { get: () => { throw new Error("Sandbox must not be used"); } });
+    expect(isSupportedEmployeeToolScope(`mcp:shiba:${f.read.gatewayName}`)).toBe(false);
+    expect(await resolveEmployeeRunToolContext(f.env, f.binding.employeeId, "self-hosted", owner)).toBeNull();
+    const context = await resolveAppToolsEmployeeContext(f.env, f.binding.executionContextId);
+    expect(context?.allowed.sort()).toEqual([`mcp:shiba:${f.read.gatewayName}`, `mcp:shiba:${f.write.gatewayName}`].sort());
+    expect(context?.principal.scopes).not.toContain("mcp:external");
+    const reads = new Map<string, EmployeeReadReceipt>(), drafts = new Map<string, EmployeeDraft>(), objects = new Map<string, string>();
+    const store: EmployeeDraftStore = { getReadReceipt: (id) => reads.get(id) ?? null, saveReadReceipt: (value) => { reads.set(value.id, structuredClone(value)); },
+      getDraft: (id) => drafts.get(id) ?? null, listDrafts: () => [...drafts.values()], saveDraft: (value) => { drafts.set(value.id, structuredClone(value)); } };
+    const put = vi.fn(async (key: string, body: string) => { objects.set(key, body); return { key }; });
+    f.env.ATTACHMENTS = { put, get: async (key: string) => {
+      const body = objects.get(key); if (body === undefined) return null;
+      const bytes = new TextEncoder().encode(body); return { size: bytes.byteLength, arrayBuffer: async () => bytes.buffer };
+    } } as unknown as R2Bucket;
+    const tools = createEmployeeRunTools(f.env, () => f.binding.employeeId, () => f.binding.executionContextId, () => "self-hosted", () => owner, store,
+      () => resolveAppToolsEmployeeContext(f.env, f.binding.executionContextId));
+    const catalog = tools.employee_tool_catalog!.execute as (input: object, options: unknown) => Promise<unknown>;
+    const call = tools.employee_tool_call!.execute as (input: object, options: unknown) => Promise<{ sourceReadId?: string; result: unknown }>;
+    const retain = tools.employee_retain_draft!.execute as (input: object, options: unknown) => Promise<{ draft: EmployeeDraft; downloadUrl: string }>;
+    expect(JSON.stringify(await catalog({}, {}))).not.toContain("SECRET_UNAUTHORIZED_SCHEMA");
+    const read = await call({ tool: f.read.gatewayName, args: { resourceId: "record-1" } }, { toolCallId: "factory-read" });
+    expect(read.sourceReadId).toMatch(/^read_[a-f0-9]{64}$/);
+    const receipt = reads.get(read.sourceReadId!)!;
+    expect(receipt).toMatchObject({ tool: f.read.gatewayName, sourceMessageIds: [], external: { schemaVersion: f.read.schemaVersion, resourceIds: ["record-1"], effect: "read", adapterVersion: 1 } });
+    const output = await retain({ path: "drafts/record.md", content: "Internal selected-record summary", sourceReadId: read.sourceReadId }, { toolCallId: "factory-draft" });
+    expect(output.draft.source).toEqual(receipt); expect([...objects.values()]).toEqual(["Internal selected-record summary"]);
+    expect(await (await handleEmployeeDraftRequest(new Request(`https://shiba.test${output.downloadUrl}`), f.env, store, f.binding))?.text()).toBe("Internal selected-record summary");
+    const pending = await call({ tool: f.write.gatewayName, args: { resourceId: "record-1", body: "Exact write" } }, { toolCallId: "factory-write" });
+    expect(pending.sourceReadId).toBeUndefined(); expect(reads.size).toBe(1); expect(f.calls).toHaveLength(1);
+    const hidden = f.tools.find((tool) => tool.remoteName === "hidden_item")!;
+    await expect(call({ tool: hidden.gatewayName, args: { resourceId: "record-1" } }, { toolCallId: "hidden-write" })).rejects.toThrow("unavailable");
+    await f.env.AGENT_AUDIT.prepare("UPDATE employee_tool_grants SET lifecycle='revoked' WHERE employee_id=?").bind(f.binding.employeeId).run();
+    await expect(retain({ path: "another.md", content: "Draft", sourceReadId: read.sourceReadId }, { toolCallId: "revoked-draft" })).rejects.toThrow("authority changed");
+    expect(put).toHaveBeenCalledTimes(1); expect(reads.get(read.sourceReadId!)).toEqual(receipt);
+  });
+
   it("filters schemas/counts, calls a reviewed read, and dispatches an exact write only after owner consent", async () => {
     const f = await fixture();
     const catalog = await employeeExternalMcpCatalog(f.env, f.binding);
@@ -143,6 +186,21 @@ describe("ordinary employee external MCP boundary", () => {
     expect(f.calls).toHaveLength(0);
     expect(await employeeExternalMcpCatalog(f.env, f.binding)).toEqual({ actions: [], totalAuthorized: 0, returned: 0 });
     expect((await getExternalMcpServer(f.env, "self-hosted", owner, f.serverId))?.status).toBe("discovered");
+  });
+
+  it("keeps an unknown approved write one-shot and never turns it into read evidence", async () => {
+    const f = await fixture();
+    const pending = await callEmployeeExternalMcp(f.env, f.binding, f.write.gatewayName, { resourceId: "record-1", body: "Exact" }, "unknown-write");
+    expect(pending).toMatchObject({ structuredContent: { status: "pending_approval" } });
+    expect(pending._meta?.["com.shiba/employee-mcp-read"]).toBeUndefined();
+    const approval = (await listEmployeeActionApprovals(f.env, { orgId: "self-hosted", status: "pending" }))[0];
+    if (!approval) throw new Error("Approval missing");
+    f.failWrite();
+    expect(await f.approve(approval.approvalId)).toMatchObject({ dispatch: { status: "unknown_outcome" } });
+    expect(await f.approve(approval.approvalId)).toMatchObject({ dispatch: { status: "unknown_outcome" } });
+    await expect(callEmployeeExternalMcp(f.env, f.binding, f.write.gatewayName, { resourceId: "record-1", body: "Exact" }, "unknown-write")).rejects.toThrow("unavailable");
+    expect(f.calls).toEqual([{ name: "write_item", arguments: { resourceId: "record-1", body: "Exact" } }]);
+    expect((await listCapabilityInvocations(f.env, { orgId: "self-hosted" }))[0]?.status).toBe("unknown_outcome");
   });
 
   it("requires each workspace, actor and role resource grant before exposing or calling a tool", async () => {

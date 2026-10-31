@@ -5,13 +5,16 @@ import { expireUnusedEmployeeActionApproval } from "./capability-invocations.js"
 import type { EmployeeRole } from "./employee-tool-policy.js";
 import type { EmployeeActionApproval } from "./employee-tool-policy.js";
 import type { CapabilityRef, ConnectionGrant } from "./connection-policy.js";
-import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
-import { parseSessionAgentName, validateSessionRecordIntegrity, type WebSessionRecord } from "./web-sessions.js";
+import { resolveOwnedAppSession } from "./employee-app-session.js";
+import type { OnboardingRunFields, SkillExecutionPin } from "@shiba/shared";
+import { revalidateOnboardingBinding } from "./onboarding-task-binding.js";
+import { areSkillPinsActive } from "./skills-store.js";
 
-export interface EmployeeExternalMcpBinding {
+export interface EmployeeExternalMcpBinding extends OnboardingRunFields {
   orgId: string; actorId: string; employeeId: string; employeeVersion: number; executionContextId: string;
+  skillPins?: SkillExecutionPin[];
 }
 export interface EmployeeExternalMcpApprovalContext extends EmployeeExternalMcpBinding {
   capabilityId: string; schemaVersion: string; resourceArgument: string; resourceIds: string[];
@@ -24,20 +27,14 @@ export function employeeExternalPolicyVersion(generation: number, schemaVersion:
 /** Resolve the current named-session selection before applying the normal employee grant intersection. */
 export async function resolveEmployeeExternalMcpPolicy(env: Env, binding: EmployeeExternalMcpBinding) {
   try {
-    const parsed = parseSessionAgentName(binding.executionContextId);
-    if (!parsed || parsed.userId !== binding.actorId || !env.AGENT_AUDIT) return null;
-    const base = await getAgentByName(env.CodingOrchestrator, binding.actorId);
-    const response = await base.fetch("https://internal/internal/web-sessions");
-    if (!response.ok) return null;
-    const body = await response.json() as { sessions?: unknown };
-    if (!Array.isArray(body.sessions)) return null;
-    const matches = body.sessions.filter((candidate) => validateSessionRecordIntegrity(candidate, binding.actorId) === null &&
-      (candidate as WebSessionRecord).agentName === binding.executionContextId && (candidate as WebSessionRecord).id === parsed.sessionId);
-    if (matches.length !== 1) return null;
-    const session = matches[0] as WebSessionRecord;
+    if (!env.AGENT_AUDIT) return null;
+    const session = await resolveOwnedAppSession(env, binding.executionContextId);
+    if (!session || session.userId !== binding.actorId) return null;
     if (session.deletingAt || session.metadata?.customAgentId !== binding.employeeId || (session.metadata?.orgId ?? "self-hosted") !== binding.orgId) return null;
     const profile = await getCustomAgentById(env, binding.orgId, binding.employeeId);
     if (!profile || profile.version !== binding.employeeVersion || !Array.isArray(profile.config.toolScopes)) return null;
+    if (!await areSkillPinsActive(env, binding.orgId, binding.skillPins ?? [])) return null;
+    await revalidateOnboardingBinding(env, binding.actorId, binding);
     const membership = await resolveCurrentEmployeeToolMembership(env, binding);
     if (!membership || membership.actorId !== binding.actorId) return null;
     const policy = await resolveEmployeeToolPolicy(env, binding);
@@ -183,16 +180,13 @@ async function ensureTables(env: AuditEnv): Promise<void> {
   await initAudit(env);
   for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
   const approvalColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(employee_tool_approvals)").all<{ name: string }>();
-  for (const [name, type] of [["execution_context_id", "TEXT"], ["consumed_at", "INTEGER"], ["consumed_invocation_id", "TEXT"]]) {
+  for (const [name, type] of [["execution_context_id", "TEXT"], ["consumed_at", "INTEGER"], ["consumed_invocation_id", "TEXT"], ["employee_context_json", "TEXT"]]) {
     if ((approvalColumns.results ?? []).some((column) => column.name === name)) continue;
     try {
       await env.AGENT_AUDIT.prepare(`ALTER TABLE employee_tool_approvals ADD COLUMN ${name} ${type}`).run();
     } catch (error) {
       if (!new RegExp(`duplicate column name:\\s*${name}\\b`, "i").test(error instanceof Error ? error.message : String(error))) throw error;
     }
-  }
-  if (!(approvalColumns.results ?? []).some((column) => column.name === "employee_context_json")) {
-    await env.AGENT_AUDIT.prepare("ALTER TABLE employee_tool_approvals ADD COLUMN employee_context_json TEXT").run();
   }
   // Migrate the prior uniqueness key so identical payloads in separate run
   // contexts receive separate approval records. Install its replacement first;

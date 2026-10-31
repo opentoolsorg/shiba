@@ -4,7 +4,7 @@ import { ensureBetterAuthSchema } from "../../src/better-auth.js";
 import { handleOnboardingProgress, type OnboardingProgress } from "../../src/onboarding-progress.js";
 
 /** Real D1 draft lifecycle with an owner-local, versioned source service fake. */
-export async function preparedGoal(env: Env, owner: string, employeeId: string, employeeVersion: number, withSource = true) {
+export async function preparedGoal(env: Env, owner: string, employeeId: string, employeeVersion: number, withSource = true, contextAnswer?: string) {
   env.BETTER_AUTH_SECRET = "s".repeat(32);
   if (!env.AGENT_AUDIT) throw new Error("Fixture needs audit storage");
   await ensureBetterAuthSchema(env);
@@ -31,6 +31,7 @@ export async function preparedGoal(env: Env, owner: string, employeeId: string, 
   const initial = await update();
   const saved = await update({ action: "save-draft", expectedRevision: initial.revision, draftTask: {
     goal: "Write a sourced reply draft", audience: "Owner", acceptance: "Editable draft with limitations", employeeId, employeeVersion,
+    ...(contextAnswer ? { contextAnswer } : {}),
     sourceIds: withSource ? [source.id] : [],
   } });
   const progress = await update({ action: "prepare-task", expectedRevision: saved.revision });

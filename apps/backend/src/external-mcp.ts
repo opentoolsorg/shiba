@@ -43,6 +43,11 @@ export interface ExternalMcpEmployeeBoundary {
   authorize(server: ExternalMcpServer, tool: ExternalMcpTool, args: Record<string, unknown>): Promise<EmployeeExternalMcpApprovalContext | null>;
 }
 
+export interface EmployeeExternalReadEvidence extends EmployeeExternalMcpApprovalContext {
+  serverId: string; serverOwnerId: string; serverGeneration: number; tool: string; effect: "read"; adapterVersion: 1;
+}
+export const EMPLOYEE_MCP_READ_META = "com.shiba/employee-mcp-read";
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS external_mcp_servers (
     id TEXT PRIMARY KEY, org_id TEXT NOT NULL, owner_id TEXT NOT NULL, name TEXT NOT NULL,
@@ -636,7 +641,12 @@ export async function registerExternalMcpTools(registry: { registerTool(name: st
         const resultText = JSON.stringify({ content: safe, isError: Boolean(result.isError) });
         if (new TextEncoder().encode(resultText).byteLength > MAX_RESULT_BYTES) throw new Error("remote_result_too_large");
         await audit(env, { principal: context.principal.principal, tool: currentTool.gatewayName, argsHash, outcome: result.isError ? "error" : "ok" });
-        return { content: [{ type: "text", text: resultText }], ...(result.isError ? { isError: true } : {}) };
+        return { content: [{ type: "text", text: resultText }], ...(result.isError ? { isError: true } : {}),
+          ...(employeeContext && !result.isError ? { _meta: { [EMPLOYEE_MCP_READ_META]: {
+            ...employeeContext, serverId: server.id, serverOwnerId: server.ownerId, serverGeneration: server.generation,
+            tool: tool.gatewayName, effect: "read", adapterVersion: 1,
+          } satisfies EmployeeExternalReadEvidence } } : {}),
+        };
       } catch (error) {
         const code = error instanceof Error && ["destination_not_trusted", "auth_reference_missing", "redirect_rejected", "schema_version_changed", "schema_invalid"].includes(error.message)
           ? error.message : "transport_unavailable";

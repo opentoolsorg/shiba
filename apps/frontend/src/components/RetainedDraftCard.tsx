@@ -17,9 +17,10 @@ const draftSchema = z.object({
     review: reviewSchema,
   }),
   source: z.object({
-    id: z.string(), tool: z.literal("gmail_read"), toolVersion: z.number().int().positive(),
+    id: z.string(), tool: z.union([z.literal("gmail_read"), z.literal("selected_context"), z.string().regex(/^ext_[a-f0-9]{12}_[a-f0-9]{16}$/)]), toolVersion: z.number().int().positive(),
     sourceMessageIds: z.array(z.string()), resultSha256: z.string().regex(/^[a-f0-9]{64}$/),
     untrusted: z.literal(true),
+    external: z.object({ schemaVersion: z.string().regex(/^[a-f0-9]{64}$/), resourceArgument: z.string(), resourceIds: z.array(z.string()) }).optional(),
   }),
 });
 type Draft = z.infer<typeof draftSchema>;
@@ -126,10 +127,11 @@ function DraftReview({ id, metadataUrl, downloadUrl, reviewUrl }: NonNullable<Re
         <p className="break-all text-xs font-mono">SHA-256: {file.sha256}</p>
         <p className="text-xs">Employee: {draft.employeeId} v{draft.employeeVersion}</p>
         <details className="text-xs">
-          <summary>Source provenance (untrusted email)</summary>
+          <summary>Source provenance ({draft.source.tool === "gmail_read" ? "untrusted email" : draft.source.tool === "selected_context" ? "untrusted supplied facts and selected sources" : "untrusted reviewed MCP output"})</summary>
           <p>Read: {draft.source.tool} v{draft.source.toolVersion}</p>
           <p className="break-all">Receipt: {draft.source.id}</p>
-          <p className="break-all">Messages: {draft.source.sourceMessageIds.join(", ")}</p>
+          {draft.source.tool === "gmail_read" ? <p className="break-all">Messages: {draft.source.sourceMessageIds.join(", ")}</p> : null}
+          {draft.source.external ? <><p className="break-all">Resources ({draft.source.external.resourceArgument}): {draft.source.external.resourceIds.join(", ")}</p><p className="break-all">Reviewed schema: {draft.source.external.schemaVersion}</p></> : null}
           <p className="break-all font-mono">Source SHA-256: {draft.source.resultSha256}</p>
         </details>
         <a href={downloadUrl} download={file.path.split("/").pop()} className="underline">Download {file.path}</a>

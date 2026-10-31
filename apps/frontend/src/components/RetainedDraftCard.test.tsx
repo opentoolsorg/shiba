@@ -25,6 +25,19 @@ const withReview = (nextReview: object) => ({ ...draft, deliverable: { ...draft.
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("retained internal draft review", () => {
+  it.each(["selected_context", `ext_${"a".repeat(12)}_${"b".repeat(16)}`])("shows truthful provenance for %s without inventing email messages", async (tool) => {
+    const external = tool.startsWith("ext_") ? { schemaVersion: "ab".repeat(32), resourceArgument: "recordId", resourceIds: ["record-1"] } : undefined;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ draft: { ...draft, source: { ...draft.source, tool, sourceMessageIds: [], ...(external ? { external } : {}) } } })));
+    render(<RetainedDraftCard output={output} />);
+    await screen.findByText("Saved review: Pending review · revision 0");
+    expect(screen.queryByText(/Messages:/)).toBeNull();
+    expect(screen.getByText(tool === "selected_context" ? "Source provenance (untrusted supplied facts and selected sources)" : "Source provenance (untrusted reviewed MCP output)")).toBeTruthy();
+    if (external) {
+      expect(screen.getByText("Resources (recordId): record-1")).toBeTruthy();
+      expect(screen.getByText(`Reviewed schema: ${external.schemaVersion}`)).toBeTruthy();
+    }
+  });
+
   it("loads server review instead of accepting tool-asserted approval, and reloads after remount", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ draft }))
       .mockResolvedValueOnce(Response.json({ draft: withReview({ status: "changes_requested", revision: 4, updatedAt: 5, note: "Recheck sources" }) }));

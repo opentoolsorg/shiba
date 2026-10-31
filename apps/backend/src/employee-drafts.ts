@@ -9,8 +9,14 @@ import { capabilityId, EMPLOYEE_TOOL_POLICY_VERSION } from "./employee-tool-poli
 import { deliverableStorageKey, persistRunDeliverables, verifyExpectedDeliverables } from "./run-deliverables.js";
 import { artifactReviewRevision, parseArtifactReview } from "./artifact-metadata.js";
 import { parseSessionAgentName } from "./web-sessions.js";
-import type { OnboardingRunFields } from "@shiba/shared";
+import { onboardingTaskText, type OnboardingRunFields, type SkillExecutionPin } from "@shiba/shared";
 import { revalidateOnboardingBinding } from "./onboarding-task-binding.js";
+import { resolvePreparedOnboardingDraft } from "./onboarding-progress.js";
+import { areSkillPinsActive } from "./skills-store.js";
+import { wrapUntrusted } from "./mailbox-store.js";
+import { EMPLOYEE_MCP_READ_META, type EmployeeExternalReadEvidence } from "./external-mcp.js";
+import { isEmployeeExternalReadCurrent } from "./employee-external-mcp.js";
+import { resolveOwnedAppSession } from "./employee-app-session.js";
 
 export interface EmployeeDraftBinding extends OnboardingRunFields {
   orgId: string;
@@ -18,11 +24,12 @@ export interface EmployeeDraftBinding extends OnboardingRunFields {
   executionContextId: string;
   employeeId: string;
   employeeVersion: number;
+  skillPins?: SkillExecutionPin[];
 }
 
 export interface EmployeeReadReceipt extends EmployeeDraftBinding {
   id: string;
-  tool: "gmail_read";
+  tool: "gmail_read" | "selected_context" | `ext_${string}`;
   toolVersion: 1;
   policyVersion: typeof EMPLOYEE_TOOL_POLICY_VERSION;
   sourceMessageIds: string[];
@@ -32,6 +39,8 @@ export interface EmployeeReadReceipt extends EmployeeDraftBinding {
   resultSha256: string;
   createdAt: number;
   untrusted: true;
+  external?: EmployeeExternalReadEvidence;
+  selectedContext?: { canonicalTask: string };
 }
 
 export interface EmployeeDraft extends EmployeeDraftBinding {
@@ -67,7 +76,17 @@ function sameBinding(a: EmployeeDraftBinding, b: EmployeeDraftBinding): boolean 
   return a.orgId === b.orgId && a.actorId === b.actorId && a.executionContextId === b.executionContextId &&
     a.employeeId === b.employeeId && a.employeeVersion === b.employeeVersion &&
     a.draftTaskId === b.draftTaskId && a.draftTaskVersion === b.draftTaskVersion &&
-    JSON.stringify(a.onboardingSourceSnapshot) === JSON.stringify(b.onboardingSourceSnapshot);
+    JSON.stringify(a.onboardingSourceSnapshot) === JSON.stringify(b.onboardingSourceSnapshot) &&
+    JSON.stringify(a.skillPins ?? []) === JSON.stringify(b.skillPins ?? []);
+}
+
+async function currentProfile(env: Env, binding: EmployeeDraftBinding) {
+  const employee = await getCustomAgentById(env, binding.orgId, binding.employeeId);
+  if (!employee || employee.version !== binding.employeeVersion || !await areSkillPinsActive(env, binding.orgId, binding.skillPins ?? [])) {
+    throw new Error("Employee or selected skill version changed; read the source again.");
+  }
+  await revalidateOnboardingBinding(env, binding.actorId, binding);
+  return employee;
 }
 
 async function currentSourceGrant(env: Env, binding: EmployeeDraftBinding, messageIds: readonly string[]) {
@@ -75,7 +94,7 @@ async function currentSourceGrant(env: Env, binding: EmployeeDraftBinding, messa
     !Number.isSafeInteger(binding.employeeVersion) || binding.employeeVersion < 1 || !env.AGENT_AUDIT ||
     messageIds.length < 1 || messageIds.length > 25 || new Set(messageIds).size !== messageIds.length ||
     messageIds.some((id) => !/^[A-Za-z0-9_-]{1,128}$/.test(id))) throw new Error("Invalid draft source binding.");
-  const employee = await getCustomAgentById(env, binding.orgId, binding.employeeId);
+  const employee = await currentProfile(env, binding);
   const capability = capabilityId("gmail_read");
   if (!employee || employee.version !== binding.employeeVersion || !employee.config.toolScopes?.includes(capability)) {
     throw new Error("Employee policy changed; read the selected source again.");
@@ -121,6 +140,73 @@ export async function recordEmployeeRead(
   return receipt;
 }
 
+/** Only a successful adapter result can mint a connector read receipt. Model arguments cannot supply evidence. */
+export async function recordEmployeeExternalRead(
+  env: Env, store: EmployeeDraftStore, binding: EmployeeDraftBinding, toolCallId: string,
+  result: { isError?: boolean; _meta?: Record<string, unknown> }, signal?: AbortSignal,
+): Promise<EmployeeReadReceipt> {
+  signal?.throwIfAborted();
+  const evidence = result._meta?.[EMPLOYEE_MCP_READ_META] as EmployeeExternalReadEvidence | undefined;
+  const invocation = result._meta?.["com.shiba/invocation"] as { status?: string } | undefined;
+  if (!toolCallId || result.isError || invocation?.status !== "succeeded" || !evidence || !sameBinding(evidence, binding) ||
+    !/^ext_[a-f0-9]{12}_[a-f0-9]{16}$/.test(evidence.tool) || !await isEmployeeExternalReadCurrent(env, evidence)) {
+    throw new Error("External source read did not succeed under current employee authority.");
+  }
+  const id = `read_${await sha256(JSON.stringify([binding, toolCallId]))}`;
+  const resultSha256 = await sha256(JSON.stringify(result));
+  if (!await isEmployeeExternalReadCurrent(env, evidence)) throw new Error("External source authority changed; read it again.");
+  signal?.throwIfAborted();
+  const previous = store.getReadReceipt(id);
+  if (previous) {
+    if (!sameBinding(previous, binding) || previous.resultSha256 !== resultSha256) throw new Error("Source read invocation changed.");
+    return previous;
+  }
+  const receipt: EmployeeReadReceipt = { ...binding, id, tool: evidence.tool as `ext_${string}`, toolVersion: 1,
+    policyVersion: EMPLOYEE_TOOL_POLICY_VERSION, sourceMessageIds: [], connectionId: evidence.serverId, accountId: evidence.serverId,
+    connectionGeneration: evidence.serverGeneration, resultSha256, createdAt: Date.now(), untrusted: true, external: structuredClone(evidence) };
+  store.saveReadReceipt(receipt);
+  return receipt;
+}
+
+async function currentSelectedSession(env: Env, binding: EmployeeDraftBinding) {
+  const session = await resolveOwnedAppSession(env, binding.executionContextId);
+  if (!session || session.userId !== binding.actorId || session.metadata?.customAgentId !== binding.employeeId ||
+    (session.metadata?.orgId ?? "self-hosted") !== binding.orgId) throw new Error("Selected employee session changed; read the context again.");
+}
+
+async function selectedContext(env: Env, binding: EmployeeDraftBinding) {
+  await currentSelectedSession(env, binding);
+  await currentProfile(env, binding);
+  if (!binding.draftTaskId || !binding.draftTaskVersion) throw new Error("Prepare an onboarding goal before reading supplied context.");
+  const draft = await resolvePreparedOnboardingDraft(env, binding.actorId, { draftTaskId: binding.draftTaskId, version: binding.draftTaskVersion });
+  if (!draft || draft.draftTask.employeeId !== binding.employeeId) throw new Error("Prepared context or selected employee changed.");
+  const payload = { canonicalTask: onboardingTaskText(draft.draftTask), sources: binding.onboardingSourceSnapshot?.sources ?? [] };
+  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > MAX_DELIVERABLE_BYTES) throw new Error("Selected context exceeds 16 KiB. Choose fewer sources or facts.");
+  return payload;
+}
+
+/** A distinct local context read: no connector permission, OAuth, provider call or invented Gmail receipt. */
+export async function readEmployeeSelectedContext(
+  env: Env, store: EmployeeDraftStore, binding: EmployeeDraftBinding, toolCallId: string, signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  if (!toolCallId) throw new Error("Context read requires a tool invocation identity.");
+  const payload = await selectedContext(env, binding);
+  const id = `read_${await sha256(JSON.stringify([binding, toolCallId]))}`;
+  const resultSha256 = await sha256(JSON.stringify(payload));
+  await currentProfile(env, binding);
+  await currentSelectedSession(env, binding);
+  signal?.throwIfAborted();
+  const previous = store.getReadReceipt(id);
+  if (previous && (!sameBinding(previous, binding) || previous.resultSha256 !== resultSha256)) throw new Error("Source read invocation changed.");
+  const receipt: EmployeeReadReceipt = previous ?? { ...binding, id, tool: "selected_context", toolVersion: 1,
+    policyVersion: EMPLOYEE_TOOL_POLICY_VERSION, sourceMessageIds: [], connectionId: binding.draftTaskId ?? "", accountId: binding.actorId,
+    connectionGeneration: binding.draftTaskVersion ?? 0, resultSha256, createdAt: Date.now(), untrusted: true,
+    selectedContext: { canonicalTask: payload.canonicalTask } };
+  if (!previous) store.saveReadReceipt(receipt);
+  return { sourceReadId: receipt.id, context: wrapUntrusted(JSON.stringify(payload)) };
+}
+
 /** Generated content remains an unreviewed internal draft, never a completed run or sent email. */
 export async function retainEmployeeDraft(
   env: Env, store: EmployeeDraftStore, binding: EmployeeDraftBinding,
@@ -135,6 +221,18 @@ export async function retainEmployeeDraft(
   if (!artifact) throw new Error("Draft content is missing.");
   const id = `draft_${await sha256(JSON.stringify([binding, toolCallId]))}`;
   const recheck = async () => {
+    if (source.tool === "selected_context") {
+      const context = await selectedContext(env, binding);
+      if (!source.selectedContext || context.canonicalTask !== source.selectedContext.canonicalTask ||
+        await sha256(JSON.stringify(context)) !== source.resultSha256) throw new Error("Selected context changed; read it again.");
+      await currentSelectedSession(env, binding);
+      return;
+    }
+    if (source.external) {
+      if (!sameBinding(source.external, binding) || !await isEmployeeExternalReadCurrent(env, source.external)) throw new Error("External source authority changed; read it again.");
+      return;
+    }
+    if (source.tool !== "gmail_read") throw new Error("Unsupported draft source receipt.");
     const connection = await currentSourceGrant(env, binding, source.sourceMessageIds);
     if (connection.connectionId !== source.connectionId || connection.accountId !== source.accountId ||
       connection.connectionGeneration !== source.connectionGeneration) throw new Error("Draft source connection changed; read it again.");
@@ -167,6 +265,7 @@ export async function retainEmployeeDraft(
     ...binding, id, createdAt: now, source: structuredClone(source),
     deliverable: { ...metadata, artifactId: id, version: 1,
       provenance: { customAgent: { id: binding.employeeId, version: binding.employeeVersion },
+        ...(binding.skillPins?.length ? { skills: binding.skillPins.map(({ skillId, version, name }) => ({ skillId, version, name })) } : {}),
         ...(binding.draftTaskId && binding.draftTaskVersion ? { onboarding: {
           draftTaskId: binding.draftTaskId, version: binding.draftTaskVersion,
           sources: (binding.onboardingSourceSnapshot?.sources ?? []).map(({ id, version, sha256 }) => ({ id, version, sha256 })),

@@ -177,10 +177,10 @@ describe("employee-run Gmail selected-resource policy", () => {
       messages: [{ role: "user", parts: [{ type: "text", text: goal?.task ?? "Review the message" }], metadata: { ...(goal ? { shibaDraftTaskId: goal.reference.draftTaskId, shibaDraftTaskVersion: goal.reference.draftTaskVersion } : {}), shibaMode: "work", shibaWorkTarget: "app-tools", shibaTask: { customAgentId: "forged-composer-profile", orgId: "forged-composer-org" } } }],
     }) as CodingOrchestrator;
     const tools = instance.getTools();
-    expect(Object.keys(tools).sort()).toEqual(["employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
+    expect(Object.keys(tools).sort()).toEqual(["employee_context_read", "employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
     expect(sessionState.delegated).not.toHaveBeenCalled();
     const turn = () => instance.beforeTurn({ tools: { ...tools, delegate_coding_task: {}, run_code: {}, broad_builtin: {} }, system: "Work" } as never);
-    expect((await turn()).activeTools?.sort()).toEqual(Object.keys(tools).sort());
+    expect((await turn()).activeTools?.sort()).toEqual(["employee_retain_draft", "employee_tool_call", "employee_tool_catalog"]);
     if (goal) expect((await turn()).instructions).toContain("SELECTED ONBOARDING SOURCES");
     const workMessages = instance.messages;
     Object.assign(instance, { messages: [{ role: "user", metadata: { shibaMode: "chat", shibaWorkTarget: "app-tools" } }] });
@@ -196,7 +196,8 @@ describe("employee-run Gmail selected-resource policy", () => {
     expect((await turn()).activeTools).toEqual([]);
     const unmanaged = await createCustomAgent(env, "self-hosted", "legacy-profile", { name: "Legacy", instructions: "No tool policy", harness: "opencode" });
     sessionState.sessions = [{ ...session, metadata: { customAgentId: unmanaged.id } }];
-    expect((await turn()).activeTools).toEqual([]);
+    if (withGoal) await expect(turn()).rejects.toThrow("selected employee does not match");
+    else expect((await turn()).activeTools).toEqual([]);
     sessionState.sessions = [session];
     const catalog = tools.employee_tool_catalog as unknown as {
       execute: (input: Record<string, never>) => Promise<{ actions: Array<{ tool: string; resources: string[] }> }>;

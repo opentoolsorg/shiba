@@ -9,8 +9,8 @@ import {
 } from "./employee-tool-store.js";
 import {
   EXTERNAL_MCP_SCOPE, listExternalMcpServers, registerExternalMcpTools,
-  validateExternalMcpEndpoint,
-  type ExternalMcpServer, type ExternalMcpTool,
+  validateExternalMcpEndpoint, getExternalMcpServer, listExternalMcpTools,
+  type ExternalMcpServer, type ExternalMcpTool, type EmployeeExternalReadEvidence,
 } from "./external-mcp.js";
 
 export function isEmployeeExternalMcpScope(value: string): boolean {
@@ -73,7 +73,7 @@ function eligibleResources(authority: Authority, server: ExternalMcpServer, tool
 async function employeeRegistry(env: Env, binding: EmployeeExternalMcpBinding) {
   const registry = createToolRegistry(env);
   const actions: Array<{ tool: string; capabilityId: string; resourceArgument: string; resources: string[];
-    inputSchema: Record<string, unknown>; schemaVersion: string; description: string }> = [];
+    inputSchema: Record<string, unknown>; schemaVersion: string; effect: "read" | "approval_required"; description: string }> = [];
   const principal: TokenRecord = { kind: "agent", principal: binding.actorId, orgId: binding.orgId,
     scopes: [EXTERNAL_MCP_SCOPE], created: 0, revoked: false };
   const authority = await resolveEmployeeExternalMcpPolicy(env, binding);
@@ -85,6 +85,7 @@ async function employeeRegistry(env: Env, binding: EmployeeExternalMcpBinding) {
       if (!allowed) return false;
       actions.push({ tool: tool.gatewayName, capabilityId: capabilityId(tool.gatewayName), ...allowed,
         inputSchema: structuredClone(tool.inputSchema), schemaVersion: tool.schemaVersion,
+        effect: tool.effect === "read" ? "read" : "approval_required",
         description: `UNTRUSTED owner-reviewed MCP description (${tool.effect}): ${tool.description}` });
       return true;
     },
@@ -109,11 +110,26 @@ export async function employeeExternalMcpCatalog(env: Env, binding: EmployeeExte
 
 /** Actual tool invocation ID plus trusted session/profile binding form the durable operation identity. */
 export async function callEmployeeExternalMcp(
-  env: Env, binding: EmployeeExternalMcpBinding, tool: string, args: Record<string, unknown>, toolCallId: string,
+  env: Env, binding: EmployeeExternalMcpBinding, tool: string, args: Record<string, unknown>, toolCallId: string, signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   if (!toolCallId || toolCallId.length > 200) throw new Error("Employee MCP call requires a tool invocation identity.");
   const { registry, principal, actions } = await employeeRegistry(env, binding);
   if (!actions.some((action) => action.tool === tool)) throw new Error("Employee MCP capability is unavailable under the current policy.");
   const operation = await hashToolArgs({ ...binding, toolCallId });
-  return registry.invoke(tool, args, principal, { idempotencyKey: `employee-mcp:${operation}` });
+  signal?.throwIfAborted();
+  const result = await registry.invoke(tool, args, principal, { idempotencyKey: `employee-mcp:${operation}` });
+  signal?.throwIfAborted();
+  return result;
+}
+
+/** Recheck a Worker-minted successful read before retaining its derived internal output. */
+export async function isEmployeeExternalReadCurrent(env: Env, evidence: EmployeeExternalReadEvidence): Promise<boolean> {
+  if (evidence.effect !== "read" || evidence.adapterVersion !== 1) return false;
+  const server = await getExternalMcpServer(env, evidence.orgId, evidence.serverOwnerId, evidence.serverId);
+  if (!server || server.status !== "enabled" || server.health !== "healthy" || server.generation !== evidence.serverGeneration) return false;
+  try { validateExternalMcpEndpoint(server.endpoint, env); } catch { return false; }
+  const tool = (await listExternalMcpTools(env, server.id)).find((item) => item.gatewayName === evidence.tool && item.enabled && item.effect === "read");
+  return Boolean(tool && capabilityId(tool.gatewayName) === evidence.capabilityId &&
+    await isEmployeeExternalMcpApprovalCurrent(env, evidence, server.id, server.generation, tool.schemaVersion));
 }
