@@ -6,7 +6,7 @@
 import type { Env } from "./env.js";
 import { MEMORY_REGISTRY_NAME, memoryRegistryStub, memoryStub, ownerMemoryStub } from "./memory-do.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
-import { methodNotAllowed } from "./route-utils.js";
+import { hasSameOriginIntent, methodNotAllowed } from "./route-utils.js";
 
 const MEMORY_DO_BASE = "https://internal/internal/memory";
 
@@ -22,6 +22,9 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
   }
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
+  }
+  if (["POST", "PATCH", "DELETE"].includes(request.method) && !hasSameOriginIntent(request)) {
+    return Response.json({ error: "Same-origin request required." }, { status: 403 });
   }
   if (env.Memory === undefined) {
     return Response.json(

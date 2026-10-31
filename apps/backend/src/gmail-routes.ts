@@ -5,6 +5,7 @@ import type { Env } from "./env.js";
 import { beginGmailConnect, cancelGmailConnect, disconnectGmail, finishGmailConnect, GMAIL_BASE, GmailError,
   gmailStatus, grantGmail, revokeGmailGrant, searchGmailResourceCandidates } from "./gmail.js";
 import { isAccessConfigured, isAuthorizedRequest } from "./request-auth.js";
+import { hasSameOriginIntent } from "./route-utils.js";
 
 /** Separate resolver: do not change resolveUserId's legacy session/email semantics. */
 export async function gmailOwner(request: Request, env: Env): Promise<string | null> {
@@ -26,8 +27,7 @@ function json(value: unknown, status = 200): Response {
 function requireSameOrigin(request: Request): void {
   // Cookie-authenticated mutations require explicit same-origin intent. OAuth GET
   // callbacks instead use the single-use owner-bound state + PKCE capability.
-  if (request.headers.get("origin") !== new URL(request.url).origin ||
-      request.headers.get("sec-fetch-site") === "cross-site") {
+  if (!hasSameOriginIntent(request)) {
     throw new GmailError("Same-origin request required.", 403);
   }
 }
