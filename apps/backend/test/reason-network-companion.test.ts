@@ -6,7 +6,7 @@ const auth=vi.hoisted(()=>({authorized:true,userId:"companion-owner"}));
 vi.mock("../src/request-auth.js",()=>({isAuthorizedRequest:vi.fn(async()=>auth.authorized),resolveUserId:vi.fn(async()=>auth.userId)}));
 
 import { handleReasonNetwork } from "../src/reason-network/routes.js";
-import { createReasonNetworkGrant, listReasonNetworkGrants } from "../src/reason-network/approval-store.js";
+import { createReasonNetworkGrant, listReasonNetworkGrants, revokeReasonNetworkGrant } from "../src/reason-network/approval-store.js";
 import { handleReasonNetworkCompanion } from "../src/reason-network/companion-routes.js";
 import { handleLocalAdapter } from "../src/local-routes.js";
 import { createReasonNetworkCompanion } from "../../../scripts/reason-network-companion.mjs";
@@ -68,6 +68,49 @@ describe("Reason Network paired companion queue v1",()=>{
     expect(old?.operationId).toMatch(/^rno-legacy-/);
     expect(await store.transition(old!.scope, old!.idempotencyKey, ["approved"], "queued")).toBe(true);
     expect((await store.get(old!.scope, old!.idempotencyKey))?.state).toBe("queued");
+  });
+
+  it("cancels legacy approved and queued rows and revoked grants without violating the old state check",async()=>{
+    const {database,sqlite}=customAgentD1();
+    sqlite.exec(`CREATE TABLE reason_network_grants (
+      grant_id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('active','revoked')),created_at INTEGER NOT NULL,revoked_at INTEGER
+    );
+    INSERT INTO reason_network_grants VALUES('grant-legacy','owner-legacy','conversation-legacy','session-legacy','active',1,NULL);
+    CREATE TABLE reason_network_operations (
+      owner_id TEXT NOT NULL,grant_id TEXT NOT NULL,conversation_id TEXT NOT NULL,session_id TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,payload_digest TEXT NOT NULL,destination TEXT NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('pending_approval','approved','accepted','unknown','rejected')),
+      remote_message_id TEXT,updated_at INTEGER NOT NULL,
+      PRIMARY KEY(owner_id,grant_id,conversation_id,session_id,idempotency_key)
+    );`);
+    const scope={ownerId:"owner-legacy",grantId:"grant-legacy",conversationId:"conversation-legacy",sessionId:"session-legacy"};
+    const insert=sqlite.prepare("INSERT INTO reason_network_operations VALUES(?,?,?,?,?,?,?,?,?,?)");
+    for(const [key,state] of [["approved-cancel","approved"],["queued-cancel","approved"],["grant-revoke","approved"],["old-unknown","unknown"]] as const)
+      insert.run(scope.ownerId,scope.grantId,scope.conversationId,scope.sessionId,key,`digest-${key}`,"peer",state,null,1);
+    const store=new D1ReasonNetworkOperationStore({AGENT_AUDIT:database});
+    const approved=await store.get(scope,"approved-cancel");
+    const queued=await store.get(scope,"queued-cancel");
+    const unknown=await store.get(scope,"old-unknown");
+    expect(approved?.state).toBe("approved");
+    expect(await store.transition(scope,"queued-cancel",["approved"],"queued")).toBe(true);
+    expect(await store.transition(scope,"grant-revoke",["approved"],"queued")).toBe(true);
+
+    expect(await store.cancelOperation(scope.ownerId,approved!.operationId!)).toBe("cancelled");
+    expect((await store.get(scope,"approved-cancel"))?.state).toBe("cancelled");
+    expect(await store.cancelOperation(scope.ownerId,queued!.operationId!)).toBe("cancelled");
+    expect((await store.get(scope,"queued-cancel"))?.state).toBe("cancelled");
+
+    sqlite.prepare("UPDATE reason_network_grants SET companion_machine_id=? WHERE grant_id=?").run(MACHINE,scope.grantId);
+    sqlite.prepare("UPDATE reason_network_operations SET companion_machine_id=? WHERE idempotency_key=?").run(MACHINE,"old-unknown");
+    expect(await store.recover(scope.ownerId,unknown!.operationId!,Date.now())).toBe(false);
+    expect((await store.get(scope,"old-unknown"))?.state).toBe("unknown");
+
+    expect(await revokeReasonNetworkGrant({AGENT_AUDIT:database},scope.ownerId,scope.grantId)).toBe(true);
+    await store.cancelGrant(scope.ownerId,scope.grantId);
+    expect((await store.get(scope,"grant-revoke"))?.state).toBe("cancelled");
+    const persisted=sqlite.prepare("SELECT state,dispatch_state FROM reason_network_operations WHERE idempotency_key=?").get("grant-revoke") as {state:string;dispatch_state:string};
+    expect(persisted).toEqual({state:"approved",dispatch_state:"cancelled"});
   });
 
   it("moves exact approved payload Worker→queue→paired daemon claim→MCP result→owner status",async()=>{
