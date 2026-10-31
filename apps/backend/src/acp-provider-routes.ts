@@ -17,7 +17,7 @@ import {
   inspectProviderSignIn,
   type SignInLanes,
 } from "./provider-sign-in.js";
-import { resolveUserId } from "./request-auth.js";
+import { rejectCrossSiteDashboardMutation, requireJsonContentType, resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { InputError } from "./security.js";
 
@@ -113,6 +113,10 @@ export async function handleAcpProviders(
       return Response.json({ error: "Not found." }, { status: 404 });
     }
     if (request.method !== "POST") return methodNotAllowed();
+    const csrf = rejectCrossSiteDashboardMutation(request);
+    if (csrf) return csrf;
+    const jsonOnly = requireJsonContentType(request);
+    if (jsonOnly) return jsonOnly;
     const id = match[1] as string;
     const action = match[2] as "connect" | "verify" | "test" | "disconnect" | "default";
     const body = await readBody(request);

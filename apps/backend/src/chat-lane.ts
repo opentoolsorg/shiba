@@ -45,7 +45,7 @@ export function parseChatTaskRequest(input: {
 
 // Discord caps a message at 2000 chars; oversized tasks post as follow-up
 // chunks in the same thread — the card can never hide approved text.
-const CARD_TASK_LIMIT = 1500;
+export const CARD_TASK_LIMIT = 1500;
 
 /** Plain-text card body: the exact frozen input the approver is deciding on. */
 export function chatApprovalText(input: {
@@ -69,11 +69,16 @@ export function chatApprovalText(input: {
  * Lanes post these as follow-ups next to the card so an approver can always
  * read the entire task before pressing Approve.
  */
-export function chatTaskChunks(task: string, limit: number): string[] {
-  if (task.length <= limit) return [];
+/** Follow-ups when the card truncates at {@link CARD_TASK_LIMIT}; optional platform message cap. */
+export function chatTaskChunks(
+  task: string,
+  cardLimit: number,
+  messageLimit = cardLimit,
+): string[] {
+  if (task.length <= cardLimit) return [];
   const chunks: string[] = [];
-  for (let i = 0; i < task.length; i += limit) {
-    chunks.push(task.slice(i, i + limit));
+  for (let i = 0; i < task.length; i += messageLimit) {
+    chunks.push(task.slice(i, i + messageLimit));
   }
   return chunks;
 }

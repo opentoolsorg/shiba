@@ -3,7 +3,7 @@
  */
 import type { Env } from "./env.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
-import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import { isAuthorizedRequest, rejectCrossSiteDashboardMutation, resolveUserId } from "./request-auth.js";
 import { deleteUserSubscriptionCredential } from "./subscription-credentials.js";
 import {
   clearUserOpenAiAuthMode,
@@ -25,6 +25,8 @@ export async function handleUserOpenAiSubscription(request: Request, env: Env): 
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
   }
+  const csrf = rejectCrossSiteDashboardMutation(request);
+  if (csrf) return csrf;
   const userId = (await resolveUserId(request, env)) ?? "default";
   if (!env.ChatGptAuth) {
     return Response.json({ error: "ChatGPT auth is not configured on this deployment." }, { status: 503 });
