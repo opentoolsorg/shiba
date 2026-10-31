@@ -74,6 +74,23 @@ describe("skill library routes", () => {
     expect(removedList.skills.find((skill) => skill.slug === "pr-review-checklist")?.installed).toBe(false);
   });
 
+  it("shows and removes only the caller's installs within a shared dashboard org", async () => {
+    const bindings = env();
+    const first = await handleSkillLibrary(libraryRequest("/pr-review-checklist/install", "POST"), bindings);
+    expect(first?.status).toBe(201);
+    const otherList = await handleSkillLibrary(libraryRequest("", "GET", undefined, "other@example.test"), bindings);
+    const otherBody = await otherList?.json() as { skills: Array<{ installed: boolean }> };
+    expect(otherBody.skills.every((skill) => !skill.installed)).toBe(true);
+    expect((await handleSkillLibrary(libraryRequest("/pr-review-checklist/install", "DELETE", undefined, "other@example.test"), bindings))?.status).toBe(404);
+    const second = await handleSkillLibrary(libraryRequest("/pr-review-checklist/install", "POST", undefined, "other@example.test"), bindings);
+    expect(second?.status).toBe(201);
+    const firstBody = await first?.json() as { skillId: string };
+    const secondBody = await second?.json() as { skillId: string };
+    expect(secondBody.skillId).not.toBe(firstBody.skillId);
+    const again = await handleSkillLibrary(libraryRequest("/pr-review-checklist/install", "POST"), bindings);
+    expect((await again?.json() as { skillId: string }).skillId).toBe(firstBody.skillId);
+  });
+
   it("does not treat library paths as versioned skill ids", async () => {
     const bindings = env();
     expect(await handleSkillLibrary(libraryRequest(""), bindings)).not.toBeNull();

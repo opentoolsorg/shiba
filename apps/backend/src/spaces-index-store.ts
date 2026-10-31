@@ -90,3 +90,11 @@ export async function deleteSpaceIndex(env: AuditEnv, orgId: string, id: string)
   ).bind(orgId, id).run();
   return result.meta.changes === 1;
 }
+
+export async function touchSpaceIndex(env: AuditEnv, orgId: string, id: string, updatedAt: number): Promise<boolean> {
+  await ensureTables(env);
+  const result = await env.AGENT_AUDIT.prepare(
+    "UPDATE spaces_index SET updated_at = ? WHERE org_id = ? AND id = ?",
+  ).bind(updatedAt, orgId, id).run();
+  return result.meta.changes === 1;
+}

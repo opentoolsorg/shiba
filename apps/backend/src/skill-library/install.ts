@@ -12,7 +12,7 @@ export async function installLibrarySkill(
   const definition = getLibrarySkill(slug);
   if (!definition) throw new Error("unknown_slug");
 
-  const existing = await getSkillInstall(env, orgId, slug);
+  const existing = await getSkillInstall(env, orgId, ownerId, slug);
   if (existing) {
     const skill = await getSkill(env, orgId, ownerId, existing.skillId);
     if (skill && skill.status !== "disabled") {
@@ -25,15 +25,25 @@ export async function installLibrarySkill(
     instructions: definition.instructions,
     sourceUrl: definition.sourceUrl,
   });
-  await recordSkillInstall(env, {
-    orgId,
-    librarySlug: slug,
-    libraryVersion: definition.version,
-    skillId: created.id,
-    installedBy: ownerId,
-    installedAt: Date.now(),
-  });
-  return { skillId: created.id, status: "draft", created: true };
+  try {
+    const claimed = await recordSkillInstall(env, {
+      orgId,
+      librarySlug: slug,
+      libraryVersion: definition.version,
+      skillId: created.id,
+      installedBy: ownerId,
+      installedAt: Date.now(),
+    }, existing?.skillId);
+    if (claimed) return { skillId: created.id, status: "draft", created: true };
+  } catch (error) {
+    await disableSkill(env, orgId, ownerId, created.id);
+    throw error;
+  }
+
+  await disableSkill(env, orgId, ownerId, created.id);
+  const winner = await getSkillInstall(env, orgId, ownerId, slug);
+  if (!winner) throw new Error("skill_install_conflict");
+  return { skillId: winner.skillId, status: "draft", created: false };
 }
 
 export async function uninstallLibrarySkill(
@@ -42,8 +52,8 @@ export async function uninstallLibrarySkill(
   ownerId: string,
   slug: string,
 ): Promise<boolean> {
-  const install = await getSkillInstall(env, orgId, slug);
+  const install = await getSkillInstall(env, orgId, ownerId, slug);
   if (!install) return false;
   await disableSkill(env, orgId, ownerId, install.skillId);
-  return deleteSkillInstall(env, orgId, slug);
+  return deleteSkillInstall(env, orgId, ownerId, slug);
 }

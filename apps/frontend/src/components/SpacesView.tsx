@@ -56,13 +56,13 @@ export function SpacesView(): JSX.Element {
     }
   }, []);
 
-  const loadDetail = useCallback(async (id: string) => {
-    const response = await fetch(`/api/spaces/${encodeURIComponent(id)}`, { credentials: "same-origin", cache: "no-store" });
+  const loadDetail = useCallback(async (id: string, signal: AbortSignal) => {
+    const response = await fetch(`/api/spaces/${encodeURIComponent(id)}`, { credentials: "same-origin", cache: "no-store", signal });
     const body = await response.json() as { space?: SpaceDetail; error?: string };
     if (!response.ok || !body.space) {
       throw new Error(body.error ?? `Space unavailable (${response.status}).`);
     }
-    setDetail(body.space);
+    if (!signal.aborted) setDetail(body.space);
   }, []);
 
   useEffect(() => {
@@ -78,13 +78,18 @@ export function SpacesView(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    setError(null);
     if (!detailId) {
       setDetail(null);
       return;
     }
-    void loadDetail(detailId).catch((cause) => {
-      setError(cause instanceof Error ? cause.message : "Space detail could not be loaded.");
+    const controller = new AbortController();
+    void loadDetail(detailId, controller.signal).catch((cause) => {
+      if (!controller.signal.aborted) {
+        setError(cause instanceof Error ? cause.message : "Space detail could not be loaded.");
+      }
     });
+    return () => controller.abort();
   }, [detailId, loadDetail]);
 
   const openSpace = (id: string) => {
@@ -117,7 +122,7 @@ export function SpacesView(): JSX.Element {
     }
   };
 
-  if (detailId && detail) {
+  if (detailId && detail?.id === detailId) {
     return (
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto bg-[var(--bg)] text-[var(--fg)]">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-4">

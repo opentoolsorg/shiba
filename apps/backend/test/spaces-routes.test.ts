@@ -25,7 +25,7 @@ const headers = (user = "owner@example.test") => ({
   "content-type": "application/json",
 });
 
-function spacesEnv(db = customAgentD1().database): Env {
+function spacesEnv(db = customAgentD1().database, intercept?: (request: Request) => Response | undefined): Env {
   const instances = new Map<string, Spaces>();
   const namespace = {
     idFromName: (name: string) => ({ toString: () => name }),
@@ -46,6 +46,8 @@ function spacesEnv(db = customAgentD1().database): Env {
             if (/INSERT INTO space_items/i.test(statement)) {
               rows.items.push({ kind: String(args[0]), ref: String(args[1]), added_at: Number(args[2]) });
             }
+            if (/DELETE FROM space_items/i.test(statement)) rows.items = [];
+            if (/DELETE FROM space$/i.test(statement)) rows.space = null;
             return {
               toArray: () => {
                 if (/FROM space LIMIT/i.test(statement)) return rows.space ? [rows.space] : [];
@@ -55,9 +57,9 @@ function spacesEnv(db = customAgentD1().database): Env {
             };
           },
         };
-        instances.set(key, new Spaces({ storage: { sql } } as unknown as DurableObjectState));
+        instances.set(key, new Spaces({ storage: { sql, transactionSync: (callback: () => unknown) => callback() } } as unknown as DurableObjectState));
       }
-      return { fetch: (request: Request) => instances.get(key)!.fetch(request) };
+      return { fetch: (request: Request) => intercept?.(request) ?? instances.get(key)!.fetch(request) };
     },
   };
   return { REQUIRE_ACCESS: true, AGENT_AUDIT: db, Spaces: namespace } as unknown as Env;
@@ -69,6 +71,103 @@ beforeEach(() => {
 });
 
 describe("spaces routes", () => {
+  const createRequest = (template = "blank") => new Request("https://shiba.test/api/spaces", {
+    method: "POST", headers: headers(), body: JSON.stringify({ name: "Temp", template }),
+  });
+
+  it.each(["throw", "non-ok"])("cleans up a partial template after a %s item failure", async (failure) => {
+    const { database, sqlite } = customAgentD1();
+    const paths: string[] = [];
+    const bindings = spacesEnv(database, (request) => {
+      const path = new URL(request.url).pathname;
+      paths.push(path);
+      if (path === "/internal/items") {
+        if (failure === "throw") throw new Error("item unavailable");
+        return Response.json({ error: "unavailable" }, { status: 503 });
+      }
+      return undefined;
+    });
+    const response = await handleSpaces(createRequest("code-review"), bindings);
+    expect(response?.status).toBe(502);
+    expect(await response!.json()).toEqual({ ok: false, error: "space_template_failed" });
+    expect(paths).toContain("/internal/destroy");
+    expect(sqlite.prepare("SELECT * FROM spaces_index").all()).toEqual([]);
+  });
+
+  it("keeps partial creation indexed when erasure fails so it can be deleted later", async () => {
+    const { database, sqlite } = customAgentD1();
+    const bindings = spacesEnv(database, (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/internal/items" || path === "/internal/destroy") {
+        return Response.json({ error: "unavailable" }, { status: 503 });
+      }
+      return undefined;
+    });
+    const response = await handleSpaces(createRequest("code-review"), bindings);
+    expect(response?.status).toBe(502);
+    const body = await response!.json() as { error: string; id: string };
+    expect(body.error).toBe("space_create_cleanup_failed");
+    expect(sqlite.prepare("SELECT id FROM spaces_index").all()).toEqual([{ id: body.id }]);
+  });
+
+  it.each(["throw", "non-ok"])("keeps the index after a %s destroy failure and allows retry", async (failure) => {
+    const { database, sqlite } = customAgentD1();
+    let fail = true;
+    const bindings = spacesEnv(database, (request) => {
+      if (fail && new URL(request.url).pathname === "/internal/destroy") {
+        if (failure === "throw") throw new Error("DO unavailable");
+        return Response.json({ error: "unavailable" }, { status: 503 });
+      }
+      return undefined;
+    });
+    const created = await handleSpaces(createRequest(), bindings);
+    const { space } = await created!.json() as { space: { id: string } };
+    const deleteRequest = () => new Request(`https://shiba.test/api/spaces/${space.id}`, { method: "DELETE", headers: headers() });
+    const failed = await handleSpaces(deleteRequest(), bindings);
+    expect(failed?.status).toBe(502);
+    expect(await failed!.json()).toEqual({ ok: false, error: "space_destroy_failed" });
+    expect(sqlite.prepare("SELECT id FROM spaces_index").all()).toEqual([{ id: space.id }]);
+    fail = false;
+    expect((await handleSpaces(deleteRequest(), bindings))?.status).toBe(200);
+    expect(sqlite.prepare("SELECT id FROM spaces_index").all()).toEqual([]);
+  });
+
+  it.each([123456789, undefined])("touches the index with item time %s or a current-time fallback", async (addedAt) => {
+    const { database, sqlite } = customAgentD1();
+    const bindings = spacesEnv(database, (request) => {
+      if (new URL(request.url).pathname === "/internal/items") {
+        return Response.json({ ok: true, item: { kind: "repo", ref: "org/repo", addedAt } });
+      }
+      return undefined;
+    });
+    const created = await handleSpaces(createRequest(), bindings);
+    const { space } = await created!.json() as { space: { id: string } };
+    const before = Date.now();
+    const response = await handleSpaces(new Request(`https://shiba.test/api/spaces/${space.id}/items`, {
+      method: "POST", headers: headers(), body: JSON.stringify({ kind: "repo", ref: "org/repo" }),
+    }), bindings);
+    expect(response?.status).toBe(200);
+    const row = sqlite.prepare("SELECT updated_at FROM spaces_index WHERE id = ?").get(space.id) as { updated_at: number };
+    if (addedAt !== undefined) expect(row.updated_at).toBe(addedAt);
+    else {
+      expect(row.updated_at).toBeGreaterThanOrEqual(before);
+      expect(row.updated_at).toBeLessThanOrEqual(Date.now());
+    }
+  });
+
+  it("leaves the index timestamp unchanged when adding an invalid item fails", async () => {
+    const { database, sqlite } = customAgentD1();
+    const bindings = spacesEnv(database);
+    const created = await handleSpaces(createRequest(), bindings);
+    const { space } = await created?.json() as { space: { id: string } };
+    sqlite.prepare("UPDATE spaces_index SET updated_at = 100 WHERE id = ?").run(space.id);
+    const response = await handleSpaces(new Request(`https://shiba.test/api/spaces/${space.id}/items`, {
+      method: "POST", headers: headers(), body: JSON.stringify({ kind: "repo", ref: "" }),
+    }), bindings);
+    expect(response?.status).toBe(400);
+    expect(sqlite.prepare("SELECT updated_at FROM spaces_index WHERE id = ?").get(space.id)).toEqual({ updated_at: 100 });
+  });
+
   it("creates a code-review space with draft skill items and blocks cross-org reads", async () => {
     const bindings = spacesEnv();
     authState.dashboard = false;

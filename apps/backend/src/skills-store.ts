@@ -69,7 +69,7 @@ const TABLES = [
     skill_id TEXT NOT NULL,
     installed_by TEXT NOT NULL,
     installed_at INTEGER NOT NULL,
-    PRIMARY KEY (org_id, library_slug)
+    PRIMARY KEY (org_id, installed_by, library_slug)
   )`,
 ];
 

@@ -27,7 +27,7 @@ export async function handleSkillLibrary(request: Request, env: Env): Promise<Re
   const rest = url.pathname.replace(/^\/api\/skills\/library\/?/, "");
   if (rest === "" || rest === "/") {
     if (request.method !== "GET") return methodNotAllowed();
-    const installs = await listSkillInstalls(env, auth.orgId);
+    const installs = await listSkillInstalls(env, auth.orgId, ownerId);
     const installBySlug = new Map(installs.map((row) => [row.librarySlug, row]));
     const skills = listLibrarySkills().map((entry) => {
       const install = installBySlug.get(entry.slug);

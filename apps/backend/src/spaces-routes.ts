@@ -10,6 +10,7 @@ import {
   getSpaceIndex,
   insertSpaceIndex,
   listSpacesIndex,
+  touchSpaceIndex,
   updateSpaceIndexName,
 } from "./spaces-index-store.js";
 import { getSpaceTemplate, listSpaceTemplates } from "./spaces-templates.js";
@@ -50,6 +51,15 @@ async function readSpaceSnapshot(env: Env, orgId: string, spaceId: string): Prom
   return body.space ?? null;
 }
 
+/** Keep the index available for retry if the Durable Object cannot be erased. */
+async function destroySpace(env: Env, orgId: string, spaceId: string): Promise<boolean> {
+  try {
+    return (await spaceFetch(env, orgId, spaceId, "destroy", "POST")).ok;
+  } catch {
+    return false;
+  }
+}
+
 async function applySpaceTemplate(
   env: Env,
   orgId: string,
@@ -61,10 +71,12 @@ async function applySpaceTemplate(
   if (!template) return;
   for (const slug of template.skillSlugs) {
     const installed = await installLibrarySkill(env, orgId, ownerId, slug);
-    await spaceFetch(env, orgId, spaceId, "items", "POST", { kind: "skill", ref: installed.skillId });
+    const response = await spaceFetch(env, orgId, spaceId, "items", "POST", { kind: "skill", ref: installed.skillId });
+    if (!response.ok) throw new Error("space_template_failed");
   }
   if (template.automationDraftRef) {
-    await spaceFetch(env, orgId, spaceId, "items", "POST", { kind: "automation", ref: template.automationDraftRef });
+    const response = await spaceFetch(env, orgId, spaceId, "items", "POST", { kind: "automation", ref: template.automationDraftRef });
+    if (!response.ok) throw new Error("space_template_failed");
   }
 }
 
@@ -122,9 +134,19 @@ export async function handleSpaces(request: Request, env: Env): Promise<Response
         createdAt: now,
         updatedAt: now,
       });
-      await applySpaceTemplate(env, auth.orgId, ownerId, id, template.id);
-      const space = await readSpaceSnapshot(env, auth.orgId, id);
-      return Response.json({ ok: true, space }, { status: 201, headers: { "cache-control": "no-store" } });
+      try {
+        await applySpaceTemplate(env, auth.orgId, ownerId, id, template.id);
+        const space = await readSpaceSnapshot(env, auth.orgId, id);
+        if (!space) throw new Error("space_template_failed");
+        await touchSpaceIndex(env, auth.orgId, id, space.updatedAt);
+        return Response.json({ ok: true, space }, { status: 201, headers: { "cache-control": "no-store" } });
+      } catch {
+        if (!await destroySpace(env, auth.orgId, id)) {
+          return Response.json({ ok: false, error: "space_create_cleanup_failed", id }, { status: 502 });
+        }
+        await deleteSpaceIndex(env, auth.orgId, id);
+        return Response.json({ ok: false, error: "space_template_failed" }, { status: 502 });
+      }
     }
     return methodNotAllowed();
   }
@@ -155,7 +177,12 @@ export async function handleSpaces(request: Request, env: Env): Promise<Response
         return Response.json({ ok: false, error: "invalid_item" }, { status: 400 });
       }
       const response = await spaceFetch(env, auth.orgId, spaceId, "items", "POST", { kind, ref });
-      const payload = await response.json().catch(() => ({}));
+      const payload: unknown = await response.json().catch(() => ({}));
+      if (response.ok) {
+        const item = typeof payload === "object" && payload !== null && "item" in payload ? payload.item : null;
+        const addedAt = typeof item === "object" && item !== null && "addedAt" in item ? item.addedAt : undefined;
+        await touchSpaceIndex(env, auth.orgId, spaceId, typeof addedAt === "number" && Number.isFinite(addedAt) ? addedAt : Date.now());
+      }
       return Response.json(payload, { status: response.status, headers: { "cache-control": "no-store" } });
     }
     if (request.method === "DELETE") {
@@ -191,6 +218,9 @@ export async function handleSpaces(request: Request, env: Env): Promise<Response
   }
 
   if (request.method === "DELETE") {
+    if (!await destroySpace(env, auth.orgId, spaceId)) {
+      return Response.json({ ok: false, error: "space_destroy_failed" }, { status: 502 });
+    }
     await deleteSpaceIndex(env, auth.orgId, spaceId);
     return Response.json({ ok: true, id: spaceId }, { headers: { "cache-control": "no-store" } });
   }

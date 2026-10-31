@@ -47,6 +47,15 @@ export class Spaces {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    if (path === "/internal/destroy" && request.method === "POST") {
+      this.ctx.storage.transactionSync(() => {
+        this.ctx.storage.sql.exec("DELETE FROM space_items");
+        this.ctx.storage.sql.exec("DELETE FROM space_members");
+        this.ctx.storage.sql.exec("DELETE FROM space");
+      });
+      return Response.json({ ok: true });
+    }
+
     if (path === "/internal/init" && request.method === "POST") {
       let body: unknown;
       try {
