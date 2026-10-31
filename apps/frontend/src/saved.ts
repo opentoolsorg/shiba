@@ -7,6 +7,7 @@
  * app.tsx so the picker shows real repos on first use.
  */
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { isOnboardingDraftRef, type OnboardingDraftRef } from "./onboarding-draft";
 
 export type SavedSkillStatus = "draft" | "review" | "active" | "disabled";
 export interface SavedSkill {
@@ -279,7 +280,10 @@ export async function getSkillVersions(id: string): Promise<Array<{ version: num
 
 // Unsent composer text per scope (session id); newest 100 kept.
 const DRAFTS_KEY = "shiba-composer-drafts-v1";
-type Drafts = Record<string, { text: string; updatedAt: number }>;
+export function composerDraftScope(owner: string, sessionId: string): string {
+  return JSON.stringify([owner, sessionId]);
+}
+type Drafts = Record<string, { text: string; updatedAt: number; onboardingDraft?: OnboardingDraftRef }>;
 
 function readDrafts(): Drafts {
   try {
@@ -295,12 +299,17 @@ export function readDraft(scope: string): string {
   return typeof text === "string" ? text : "";
 }
 
-export function writeDraft(scope: string, text: string): void {
+export function readDraftReference(scope: string): OnboardingDraftRef | null {
+  const ref = readDrafts()[scope]?.onboardingDraft;
+  return isOnboardingDraftRef(ref) ? { draftTaskId: ref.draftTaskId, version: ref.version } : null;
+}
+
+export function writeDraft(scope: string, text: string, onboardingDraft?: OnboardingDraftRef | null): void {
   try {
     const drafts = readDrafts();
     // Stored oldest-first and re-inserted on write, so the stable sort breaks same-ms ties by recency.
     delete drafts[scope];
-    if (text.trim()) drafts[scope] = { text, updatedAt: Date.now() };
+    if (text.trim()) drafts[scope] = { text, updatedAt: Date.now(), ...(isOnboardingDraftRef(onboardingDraft) ? { onboardingDraft } : {}) };
     const newest = Object.entries(drafts)
       .sort(([, a], [, b]) => (a?.updatedAt ?? 0) - (b?.updatedAt ?? 0))
       .slice(-100);

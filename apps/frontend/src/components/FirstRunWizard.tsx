@@ -5,9 +5,13 @@ import type { AppNavView } from "./AppNavRail";
 import { providerPhaseLabel } from "./provider-phase";
 import { ToneChip } from "./ToneChip";
 import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
+import type { OnboardingDraft } from "../onboarding-draft";
 
 export type FirstRunStepId = "channels" | "agent" | "models" | "employee";
 export interface FirstRunProgressSnapshot {
+  schemaVersion?: 2;
+  draftTaskId?: string | null;
+  draftTask?: OnboardingDraft | null;
   currentStep: FirstRunStepId;
   dismissedAt: number | null;
   connectionVerifiedAt: number | null;
