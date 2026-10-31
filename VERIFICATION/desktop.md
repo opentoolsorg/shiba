@@ -19,7 +19,7 @@ Targeted desktop + local-runtime slices:
 ```bash
 pnpm --filter @shiba/desktop test          # controller, pairing, poller, tray, daemon spawn
 pnpm --filter @shiba/frontend test -- --run src/desktop-status.test.ts src/desktop-connection-label.test.ts src/local-run-target.test.tsx
-pnpm --filter @shiba/backend test -- local-fleet.test.ts local-runtime.test.ts
+pnpm --filter @shiba/backend test -- chat-employee.test.ts employee-tool-routes.test.ts local-fleet.test.ts local-runtime.test.ts
 ```
 
 Optional (needs display + built desktop; Linux CI uses `docs/audits/desktop-web-e2e.md`):
@@ -96,8 +96,21 @@ Record a dated pass/fail in `VERIFICATION.md` when complete. Do **not** claim th
 | --- | --- | --- |
 | Probe stuck **Sign in to Shiba** | Session cookie not on configured origin | Sign in again; `BETTER_AUTH_URL` vs app URL |
 | **Local runs disabled** | Flag off or DO unbound | `SHIBA_LOCAL_RUNTIME`, `LocalDispatch` |
-| Pair exits “expired, reused, or invalid” | Token TTL or reuse | Mint new token; clock skew |
-| Daemon logs HTML / Access page | Missing `/api/local/*` bypass | Access app + `remote-access.md` |
+| Pair exits “expired, reused, or invalid” | Token TTL or reuse | Mint new token; clock skew; daemon exit **77** |
+| Daemon exits **76** | HTML login page on `/api/local/*` | Access bypass for `/api/local/*` (see `remote-access.md`) |
+| Daemon exits **79** | `SHIBA_LOCAL_RUNTIME` off or DO unbound | Worker vars + `LocalDispatch` binding |
 | Fleet 401 in browser | Auth lane mismatch | T61 `isAuthorizedRequest` path; session |
 | Run never claims | Multiple daemons / wrong machine | Single paired computer; pin `targetMachineId` in composer |
 | Notification but run stays pending | Expected — notifications do not approve | Open Approvals tab and approve on card |
+
+### CLI daemon exit codes (`scripts/shiba-local-daemon.mjs`)
+
+| Code | Meaning |
+| --- | --- |
+| 75 | Another daemon holds `daemon.lock` on this run root |
+| 76 | HTML login (Cloudflare Access) instead of JSON — fix `/api/local/*` bypass |
+| 77 | Pairing token invalid/expired/reused |
+| 78 | Adapter token revoked — re-pair from Remote Access |
+| 79 | Local runtime disabled on the Worker (`SHIBA_LOCAL_RUNTIME=1`) |
+
+Run `node scripts/shiba-local-daemon.mjs --help` for the full list.
