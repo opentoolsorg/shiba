@@ -183,6 +183,25 @@ describe("desktop:pair", () => {
     expect(order).toEqual(["stop", "fork", `fetch ${ORIGIN}/api/computers/revoke {"machineId":"old-id"}`]);
   });
 
+  it("re-probes after a successful pair so the bridge resyncs", async () => {
+    const child = fakeChild();
+    const probe = vi.fn();
+    const { deps, handlers } = makeDeps({
+      supervisor: {
+        status: () => ({ state: "unpaired" }),
+        stop: vi.fn(),
+        forkDaemon: () => child,
+        probe,
+      },
+    });
+    registerDesktopIpc(deps);
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    await new Promise((r) => setTimeout(r, 0));
+    child.emit("message", polling);
+    expect(await pending).toEqual({ ok: true });
+    expect(probe).toHaveBeenCalledOnce();
+  });
+
   it("keeps the old pairing untouched when the new pair fails", async () => {
     const child = fakeChild();
     const { deps, handlers } = makeDeps({
