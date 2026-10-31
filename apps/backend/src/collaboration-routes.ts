@@ -35,7 +35,6 @@ import {
   humanActorId,
   createCollaborationAgentReply,
   linkCollaborationHandoffRun,
-  listActiveCollaborationHandoffRootsForActor,
   listCollaborationHandoffs,
   listCollaborationHandoffsForRoot,
   listCollaborationMemberships,
@@ -148,30 +147,6 @@ async function cancelLinkedHandoffExecutors(
     }
   }
   return { executorCancellationPending, outcomeUnknown };
-}
-
-/** Enumerate every affected lineage, independent of the room history UI's 100-row cap. */
-async function collectActiveHandoffRootsForActor(
-  env: Env,
-  scope: CollaborationScope,
-  roomId: string,
-  actorId: string,
-): Promise<string[]> {
-  const roots: string[] = [];
-  let cursor: string | null = null;
-  do {
-    const page = await listActiveCollaborationHandoffRootsForActor(
-      env,
-      scope,
-      roomId,
-      actorId,
-      cursor,
-      100,
-    );
-    roots.push(...page.rootHandoffIds);
-    cursor = page.nextCursor;
-  } while (cursor !== null);
-  return roots;
 }
 
 async function collectHandoffsForRoots(
@@ -772,16 +747,15 @@ export async function handleCollaboration(
       if (access.membership.role !== "owner")
         return json({ error: "Only room owners can remove members." }, 403);
       const actorId = path[3] ?? "";
-      const affectedRoots = await collectActiveHandoffRootsForActor(env, scope, roomId, actorId);
-      const changed = await removeCollaborationMember(
+      const removal = await removeCollaborationMember(
         env,
         scope,
         roomId,
         actorId,
         Date.now(),
       );
-      if (!changed) return json({ error: "Member not found or cannot be removed." }, 404);
-      const cancelledRows = await collectHandoffsForRoots(env, scope, roomId, affectedRoots);
+      if (!removal.changed) return json({ error: "Member not found or cannot be removed." }, 404);
+      const cancelledRows = await collectHandoffsForRoots(env, scope, roomId, removal.affectedRootIds);
       const cancellation = await cancelLinkedHandoffExecutors(env, cancelledRows);
       return json({ removed: true, ...cancellation }, cancellation.executorCancellationPending || cancellation.outcomeUnknown ? 202 : 200);
     }

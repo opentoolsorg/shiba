@@ -741,44 +741,6 @@ export async function listCollaborationHandoffsForRoot(
   return (rows.results ?? []).map(rowHandoff);
 }
 
-/** Page all root lineages involving an actor so removal cleanup cannot skip older work. */
-export async function listActiveCollaborationHandoffRootsForActor(
-  env: Pick<Env, "AGENT_AUDIT">,
-  scope: CollaborationScope,
-  roomId: string,
-  actorId: string,
-  afterRootId: string | null = null,
-  limit = 100,
-): Promise<{ rootHandoffIds: string[]; nextCursor: string | null }> {
-  await ensureCollaborationSchema(env);
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 250)
-    throw new CollaborationStoreError("Invalid handoff cleanup page size.");
-  const query = afterRootId === null
-    ? `SELECT DISTINCT h.root_handoff_id FROM collaboration_handoffs h
-       WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND h.status='active'
-         AND (h.sender_actor_id=? OR h.recipient_actor_id=?)
-         AND EXISTS (SELECT 1 FROM collaboration_memberships reader
-           WHERE reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id
-             AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active')
-       ORDER BY h.root_handoff_id ASC LIMIT ?`
-    : `SELECT DISTINCT h.root_handoff_id FROM collaboration_handoffs h
-       WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND h.status='active'
-         AND (h.sender_actor_id=? OR h.recipient_actor_id=?) AND h.root_handoff_id>?
-         AND EXISTS (SELECT 1 FROM collaboration_memberships reader
-           WHERE reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id
-             AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active')
-       ORDER BY h.root_handoff_id ASC LIMIT ?`;
-  const values = afterRootId === null
-    ? [scope.tenantId, scope.workspaceId, roomId, actorId, actorId, scope.userId, limit]
-    : [scope.tenantId, scope.workspaceId, roomId, actorId, actorId, afterRootId, scope.userId, limit];
-  const rows = await env.AGENT_AUDIT.prepare(query).bind(...values).all<{ root_handoff_id: string }>();
-  const rootHandoffIds = (rows.results ?? []).map((row) => row.root_handoff_id);
-  return {
-    rootHandoffIds,
-    nextCursor: rootHandoffIds.length === limit ? rootHandoffIds.at(-1) ?? null : null,
-  };
-}
-
 export async function addCollaborationMember(
   env: Pick<Env, "AGENT_AUDIT">,
   scope: CollaborationScope,
@@ -856,7 +818,7 @@ export async function removeCollaborationMember(
   roomId: string,
   actorId: string,
   removedAt: number,
-): Promise<boolean> {
+): Promise<{ changed: boolean; affectedRootIds: string[] }> {
   await ensureCollaborationSchema(env);
   const results = await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare(
@@ -893,11 +855,16 @@ export async function removeCollaborationMember(
            SELECT affected.root_handoff_id FROM collaboration_handoffs affected
            WHERE affected.tenant_id=? AND affected.workspace_id=? AND affected.room_id=?
              AND affected.status='active' AND (affected.sender_actor_id=? OR affected.recipient_actor_id=?)
-         )`,
+         ) RETURNING root_handoff_id`,
     ).bind(removedAt, scope.tenantId, scope.workspaceId, roomId,
       scope.tenantId, scope.workspaceId, roomId, actorId, actorId),
   ]);
-  return Number(results[0]?.meta?.changes ?? 0) === 1;
+  const changedHandoffs = (results[2]?.results ?? []) as Array<{ root_handoff_id?: unknown }>;
+  return {
+    changed: Number(results[0]?.meta?.changes ?? 0) === 1,
+    affectedRootIds: [...new Set(changedHandoffs.flatMap((row) =>
+      typeof row.root_handoff_id === "string" ? [row.root_handoff_id] : []))],
+  };
 }
 
 export async function createCollaborationMessage(

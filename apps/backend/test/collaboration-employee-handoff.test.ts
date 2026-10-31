@@ -740,6 +740,46 @@ describe("approval-gated employee handoffs", () => {
     expect(state.approvalStatus).toBe("rejected");
   });
 
+  it("cleans up a handoff linked immediately before the durable member-removal fence", async () => {
+    const f = fixture();
+    const room = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Removal interleaving" }));
+    const roomId = room.room.roomId;
+    expect((await f.send(`/rooms/${roomId}/members`, "POST", { userId: "racing-member@example.test" }))?.status).toBe(201);
+
+    // This insert models a queue/link operation that commits after the old
+    // route's pre-removal root snapshot but immediately before the member
+    // removal transaction fences the lineage.
+    f.sqlite.exec(`
+      CREATE TRIGGER link_handoff_before_removal_fence
+      AFTER UPDATE OF status ON collaboration_memberships
+      WHEN NEW.actor_id='human:racing-member@example.test' AND NEW.status='removed'
+      BEGIN
+        INSERT INTO collaboration_handoffs (
+          handoff_id,tenant_id,workspace_id,room_id,task_id,sender_user_id,sender_actor_id,
+          recipient_user_id,recipient_actor_id,parent_handoff_id,root_handoff_id,depth,
+          ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,profile_version,
+          status,created_at,cancelled_at,approval_id,run_id
+        ) VALUES (
+          'racing-linked-handoff','self-hosted','default','${roomId}','racing-task',
+          'racing-member@example.test','human:racing-member@example.test',
+          'owner@example.test','human:owner@example.test',NULL,'racing-linked-handoff',0,
+          '[]',0,'[]',NULL,'active',1,NULL,'approval-racing','agent-tool:approval-racing'
+        );
+      END;
+    `);
+    state.approvalStatus = "pending";
+
+    const response = await f.send(
+      `/rooms/${roomId}/members/${encodeURIComponent("human:racing-member@example.test")}`,
+      "DELETE",
+    );
+    expect(response?.status).toBe(200);
+    expect(state.cancelledHandoffs).toContain("racing-linked-handoff");
+    expect(state.approvalStatus).toBe("rejected");
+    expect(f.sqlite.prepare("SELECT status,cancelled_at FROM collaboration_handoffs WHERE handoff_id='racing-linked-handoff'").get())
+      .toMatchObject({ status: "cancelled" });
+  });
+
   it("cancels a waiting employee approval when its requesting human is removed", async () => {
     const f = fixture();
     const employee = await createCustomAgent(f.env, "self-hosted", "writer", {
