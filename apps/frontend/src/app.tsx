@@ -21,6 +21,7 @@ import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { buildExecutionTargetFields } from "./execution-target-input";
+import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
 import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
 import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
@@ -529,6 +530,7 @@ export function App(): React.JSX.Element {
   }, []);
   // Local runs use the authenticated paired fleet in both web and desktop.
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
+  const [appToolsWork, setAppToolsWork] = useState(false);
   const [executionTargetKind, setExecutionTargetKind] = useState<"repository" | "artifact-workspace">("repository");
   const [artifactWorkspaceName, setArtifactWorkspaceName] = useState("My workspace");
   const [artifactDeliverables, setArtifactDeliverables] = useState("deliverables/brief.md");
@@ -543,6 +545,7 @@ export function App(): React.JSX.Element {
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
+  const [sessionRegistryOwner, setSessionRegistryOwner] = useState<string | null>(null);
   // Persistent workspace panel removed from tasks view; functionality promoted to standalone views.
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -848,6 +851,16 @@ export function App(): React.JSX.Element {
     },
   });
   const { runsById } = useAgentToolEvents({ agent });
+  const appToolsContext = useMemo(() => ({
+    sessionId: selectedSessionId,
+    session: activeWebSession,
+    sessionAvailable: sessionApiAvailable && sessionsLoaded && sessionRegistryOwner === orchestratorName,
+    employeeId: customAgentId,
+    profile: customAgentRecords.find((profile) => profile.id === customAgentId),
+    profilesUnavailable: customAgentsLoading || Boolean(customAgentsError),
+    socketName: agent.name,
+    connected: orchestratorName !== null && agent.identified && !agent.connectionError && agent.readyState === 1,
+  }), [selectedSessionId, activeWebSession, sessionApiAvailable, sessionsLoaded, sessionRegistryOwner, orchestratorName, customAgentId, customAgentRecords, customAgentsLoading, customAgentsError, agent.name, agent.identified, agent.connectionError, agent.readyState]);
 
   useEffect(() => {
     if (!signedIn) {
@@ -870,6 +883,7 @@ export function App(): React.JSX.Element {
           sessions?: WebThread[];
         };
         if (!cancelled) {
+          setSessionRegistryOwner(orchestratorName);
           setSessionApiAvailable(true);
           const nextSessions = Array.isArray(body.sessions) ? body.sessions : [];
           setWebSessions(nextSessions);
@@ -890,7 +904,7 @@ export function App(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [signedIn]);
+  }, [signedIn, orchestratorName]);
   // Ordinary views read the lean summary projection; only the diff
   // inspector pulls the full run payload (diff/receipts/signals/steering).
   const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
@@ -1162,6 +1176,33 @@ export function App(): React.JSX.Element {
         } catch (error) {
           restoreDraft(draftSession, draft);
           setNotice(`Message could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+        }
+        return;
+      }
+      if (appToolsWork) {
+        if (chat.isStreaming || chat.status === "streaming" || chat.status === "submitted") {
+          setNotice("Wait for the current app task to finish before sending another.");
+          return;
+        }
+        const issue = appToolsWorkIssue(appToolsContext);
+        if (issue || !task.trim()) {
+          setNotice(issue ?? "Enter a task first.");
+          return;
+        }
+        const draft = task;
+        const draftSession = selectedSessionId;
+        submitInFlight.current = true;
+        setIsSubmitting(true);
+        setNotice(null);
+        setTask("");
+        try {
+          await sendAppToolsWork(appToolsContext, draft, (message) => chat.sendMessage(message));
+        } catch (error) {
+          restoreDraft(draftSession, draft);
+          setNotice(`App task could not be sent: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
           submitInFlight.current = false;
           setIsSubmitting(false);
@@ -1441,6 +1482,8 @@ export function App(): React.JSX.Element {
       baseBranch,
       task,
       conversationMode,
+      appToolsWork,
+      appToolsContext,
       publishPullRequest,
       reviewAfterPublish,
       runSetup,
@@ -2049,6 +2092,7 @@ export function App(): React.JSX.Element {
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     const session = await createAgentThread(profile);
+    setSessionRegistryOwner(orchestratorName);
     setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
     setSessionApiAvailable(true);
     setSelectedSessionId(session.id);
@@ -2063,7 +2107,7 @@ export function App(): React.JSX.Element {
     window.setTimeout(() => {
       document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
     }, 0);
-  }, [refreshCustomAgents, applyThreadProfile]);
+  }, [refreshCustomAgents, applyThreadProfile, orchestratorName]);
 
   const activeSandboxCount = useMemo(() => {
     return (
@@ -2539,8 +2583,9 @@ export function App(): React.JSX.Element {
                       />
                     </Tooltip>
                     <ConversationWorkspaceHeading
-                      title={liveSession ? liveSession.title : "New coding task"}
+                      title={appToolsWork && conversationMode === "work" ? activeWebSession?.name ?? "New app task" : liveSession ? liveSession.title : "New coding task"}
                       mode={conversationMode}
+                      appToolsWork={appToolsWork}
                       executionTargetKind={executionTargetKind}
                       runTarget={runTarget}
                       repoUrl={repoUrl}
@@ -2830,6 +2875,10 @@ export function App(): React.JSX.Element {
                     </div>
                   ) : (
                   <TaskComposer
+                    appToolsWork={appToolsWork}
+                    onAppToolsWorkChange={setAppToolsWork}
+                    appToolsWorkIssue={appToolsWorkIssue(appToolsContext)}
+                    onOpenEmployeeTools={() => openView("employee-tools")}
                     repoUrl={repoUrl}
                     task={task}
                     baseBranch={baseBranch}
