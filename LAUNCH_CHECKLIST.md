@@ -124,7 +124,7 @@ is set. `isPublicRequest` only exempts GET static pages + `POST /api/waitlist`.
       worker-authenticated machine path — these callers cannot do Access login.
       alchemy `ACCESS_BYPASS_PATHS` covers:
       `/api/slack/events`, `/api/slack/command`, `/api/slack/interact`,
-      `/api/telegram/webhook`, `/api/discord/interactions`,
+      `/api/telegram/webhook`, `/api/discord/interactions`, `/api/teams/webhook`,
       `/api/github/webhook`, `/mcp`, `/mcp/*`, `/api/automations/*/trigger`,
       `/api/waitlist`, `/api/trigger`.
       ⚠ NOT covered — add to the operator-managed app's bypass list:

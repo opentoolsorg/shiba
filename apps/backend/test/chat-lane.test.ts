@@ -62,6 +62,13 @@ describe("buildChatThreadName / parseChatThreadName", () => {
     expect(parseChatThreadName(name)).toEqual({ platform: "discord", conversationId: "777777777777777777" });
   });
 
+  it("round-trips a Teams Bot Framework conversation id", () => {
+    const id = "19:meeting_abc@thread.v2";
+    const name = buildChatThreadName("teams", id);
+    expect(name).toBe(`teams:${id}`);
+    expect(parseChatThreadName(name)).toEqual({ platform: "teams", conversationId: id });
+  });
+
   it("trims whitespace around the id", () => {
     expect(buildChatThreadName("discord", "  42  ")).toBe("discord:42");
   });

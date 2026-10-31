@@ -118,6 +118,7 @@ export const ACCESS_BYPASS_PATHS = [
   "/api/slack/interact",
   "/api/telegram/webhook",
   "/api/discord/interactions",
+  "/api/teams/webhook",
   "/api/github/webhook",
   "/api/linear/webhook",
   // Sentry issue alerts authenticate in-Worker via the hook signature or
@@ -318,10 +319,12 @@ export const Worker = Cloudflare.Worker("Worker", {
       "GMAIL_CLIENT_SECRET",
       "GMAIL_TOKEN_KEY",
       "MODEL_CREDENTIAL_KEY",
-      // Telegram + Discord webhook lanes.
+      // Telegram + Discord + Teams webhook lanes.
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
       "DISCORD_PUBLIC_KEY",
+      "TEAMS_MICROSOFT_APP_ID",
+      "TEAMS_MICROSOFT_APP_PASSWORD",
       // T52: HMAC key for dashboard-minted pairing tokens (optional —
       // falls back to LOCAL_ADAPTER_TOKEN when unset).
       "PAIRING_SECRET",
@@ -391,6 +394,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       "DISCORD_APPROVERS",
       "DISCORD_CHANNEL_REPOS",
       "DISCORD_AGENT_HARNESS",
+      "TEAMS_APPROVERS",
+      "TEAMS_CONVERSATION_REPOS",
+      "TEAMS_AGENT_HARNESS",
+      "TEAMS_SERVICE_URL",
       "WORKER_HOSTNAME",
       // Built-in dashboard auth: canonical public URL for cookie scope and
       // origin checks; unset = each request's own origin.

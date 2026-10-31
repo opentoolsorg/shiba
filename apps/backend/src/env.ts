@@ -160,6 +160,7 @@ export interface Env {
   /** Per-lane harness overrides; fall back to AGENT_HARNESS when unset. */
   TELEGRAM_AGENT_HARNESS?: string;
   DISCORD_AGENT_HARNESS?: string;
+  TEAMS_AGENT_HARNESS?: string;
   /** Optional. Harness for Slack-originated runs; defaults to AGENT_HARNESS, then "claude-code". */
   SLACK_AGENT_HARNESS?: string;
   /** "sandbox" (default), "computer" (preview-only refusal), or "local". */
@@ -280,6 +281,20 @@ export interface Env {
   DASHBOARD_APPROVERS?: string;
   /** Optional. JSON map `{channelId: "https://github.com/owner/repo"}` for commands without a repo. */
   DISCORD_CHANNEL_REPOS?: string;
+  /** Optional. Azure Bot Microsoft App Id (JWT audience + OAuth client id); unset disables Teams. */
+  TEAMS_MICROSOFT_APP_ID?: string;
+  /** Optional. Azure Bot client secret for connector OAuth; paired with TEAMS_MICROSOFT_APP_ID. */
+  TEAMS_MICROSOFT_APP_PASSWORD?: string;
+  /** Optional. Comma-separated Teams user ids (AAD object id or Bot Framework from.id) allowed to approve. */
+  TEAMS_APPROVERS?: string;
+  /** Optional. JSON map `{conversationId: "https://github.com/owner/repo"}` for messages without a URL. */
+  TEAMS_CONVERSATION_REPOS?: string;
+  /**
+   * Optional. Bot Framework serviceUrl for run post-backs into Teams when the
+   * orchestrator only knows `teams:{conversationId}`. Set to your tenant's
+   * connector base (from any inbound activity's serviceUrl field).
+   */
+  TEAMS_SERVICE_URL?: string;
   /** Optional. TypeSafe System One key for `run_when`; unset falls back to Workers AI. */
   TYPESAFE_API_KEY?: string;
   /** Optional. Required only to open pull requests. Never sent to containers. */

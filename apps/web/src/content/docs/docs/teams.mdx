@@ -1,0 +1,79 @@
+---
+title: Microsoft Teams Integration
+description: Queue and approve coding runs from Microsoft Teams — Viktor-style @mention and DM lane.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Shiba can be operated from Microsoft Teams channels and DMs — same approval-gated flow as Slack, Telegram, and Discord: @mention the bot (or DM it) with a repo URL and task, an Adaptive Card gates the run, an approver's button launches it, and the outcome posts back into the same conversation. Azure Bot Service delivers activities to your Worker; you do not host a separate bot process.
+
+**Before you start**
+
+- [Approval Gates](/docs/approval-gates) — how the pending-approval model works
+- [Telegram Integration](/docs/telegram) — sibling lane sharing `chat-lane.ts`
+
+## The model
+
+```
+Teams channel or DM
+└── POST /api/teams/webhook  (Bot Framework JWT auth)
+    └── Orchestrator DO named teams:{conversation.id}
+        ├── Pending approval  ← @mention or /shiba with repo + task
+        ├── Approve / Reject  ← Adaptive Card buttons, TEAMS_APPROVERS only
+        └── Run → Sandbox → PR → post-back (needs TEAMS_SERVICE_URL)
+```
+
+- A **conversation** (`conversation.id` from Bot Framework) owns one orchestrator conversation.
+- A **pending approval** is a pointer (`approve:{uuid}`); the button invoke decides it.
+- A **run** executes in the Cloudflare Sandbox and posts progress back in Teams when `TEAMS_SERVICE_URL` is set.
+
+## How It Works
+
+- **Inbound webhook**: Azure Bot Service posts Bot Framework activities to `POST /api/teams/webhook`. Each request carries a Bearer JWT whose `aud` claim must equal `TEAMS_MICROSOFT_APP_ID` and whose `serviceurl` claim must match the activity's `serviceUrl` — the Worker verifies this before parsing JSON (same class as Slack HMAC / Discord Ed25519). Cloudflare Access must **bypass** this path so Microsoft can reach it.
+- **Conversation-per-orchestrator**: the Durable Object is named `teams:{conversation.id}`, matching `telegram:{chat_id}` and `discord:{channel_id}`.
+- **Intake**: in a channel, @mention the bot with `https://github.com/owner/repo` and a task, or send `/shiba <repo-url> <task>`. In a personal chat, plain text or `/shiba` works without a mention.
+- **Approval card**: Shiba replies with an Adaptive Card and **Approve / Reject** submits. Only user ids listed in `TEAMS_APPROVERS` (Azure AD object ids from `from.aadObjectId`, or Bot Framework `from.id` when AAD is absent) may decide — unset means nobody can.
+- **Post-back**: run progress uses the Bot Connector with `TEAMS_MICROSOFT_APP_ID`, `TEAMS_MICROSOFT_APP_PASSWORD`, and `TEAMS_SERVICE_URL` (copy `serviceUrl` from any inbound activity for your tenant/region).
+
+## Setup
+
+<Steps>
+
+1. **Register an Azure Bot** (App registration + Azure Bot resource) in the [Azure portal](https://portal.azure.com). Enable the **Microsoft Teams** channel. Note the **Microsoft App ID** and create a **client secret**.
+
+2. **Store secrets** on the Worker:
+   ```bash
+   pnpm wrangler secret put TEAMS_MICROSOFT_APP_ID --config apps/backend/wrangler.jsonc
+   pnpm wrangler secret put TEAMS_MICROSOFT_APP_PASSWORD --config apps/backend/wrangler.jsonc
+   pnpm wrangler secret put TEAMS_APPROVERS --config apps/backend/wrangler.jsonc
+   ```
+   `TEAMS_APPROVERS` is a comma-separated list of Azure AD object ids (Teams → user profile → copy **Object ID**) or Bot Framework user ids from activity logs.
+
+3. **Set the messaging endpoint** in the Azure Bot configuration to `https://your-worker.workers.dev/api/teams/webhook`. Ensure your Cloudflare Access bypass list includes `/api/teams/webhook` (see [Configuration](/docs/configuration)).
+
+4. **Optional vars**:
+   - `TEAMS_SERVICE_URL` — connector base URL for run post-backs (from any activity's `serviceUrl`, e.g. `https://smba.trafficmanager.net/amer/`)
+   - `TEAMS_AGENT_HARNESS` — harness override (falls back to `AGENT_HARNESS`)
+   - `TEAMS_CONVERSATION_REPOS` — JSON map `{ "19:channel@thread.tacv2": "https://github.com/owner/repo" }` when the message omits a URL
+
+</Steps>
+
+## Example Interaction
+
+In a channel:
+
+> **You**: @Shiba https://github.com/owner/repo fix the flaky login test
+>
+> **Shiba** (Adaptive Card): Approval requested — Repo · Task · Approve / Reject
+
+Only ids in `TEAMS_APPROVERS` can press **Approve**. After approval, the run starts and Shiba posts the PR link back into the thread when post-back is configured.
+
+<Aside type="caution">
+Live Teams delivery (Azure registration, tenant policies, and card invoke UX) is **not verified in CI** — unit tests cover JWT auth, approver allowlists, dedupe, and chat-lane wiring only.
+</Aside>
+
+## Related documentation
+
+- [Discord Interactions](/docs/discord) — sibling lane
+- [Slack Integration](/docs/slack) — original approval lane
+- [Configuration & Secrets](/docs/configuration) — Access bypass paths and env vars
