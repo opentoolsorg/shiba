@@ -41,6 +41,19 @@ function reasonNetworkJson() {
   };
 }
 
+function providerMetaUnconfigured() {
+  return {
+    ok: true,
+    provider: "composio",
+    health: {
+      provider: "composio",
+      status: "unconfigured",
+      checkedAt: Date.now(),
+      message: "Set COMPOSIO_API_KEY",
+    },
+  };
+}
+
 function stubIntegrationsFetch(setup = defaultSetup()) {
   const reason = reasonNetworkJson();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -49,6 +62,14 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
     if (url === "/api/mailboxes") return Response.json({ mailboxes: [{ address: "ops@example.test" }] });
     if (url === "/api/connections/gmail") return Response.json({ configured: false, connection: null, grants: [] });
     if (url === "/api/v1/mcp/servers") return Response.json({ servers: [{ id: "server-1" }] });
+    if (url === "/api/v1/mcp/catalog-connections") return Response.json({ ok: true, connections: [] });
+    if (url === "/api/integrations/provider/meta") return Response.json(providerMetaUnconfigured());
+    if (url.startsWith("/api/integrations/provider/catalog")) {
+      return Response.json({ ok: true, provider: "composio", items: [], nextCursor: null, hasMore: false, fallbackCatalog: true });
+    }
+    if (url === "/api/integrations/provider/connections") {
+      return Response.json({ ok: true, provider: "composio", connections: [] });
+    }
     if (url.endsWith("/api/reason-network/status")) return Response.json(reason.status);
     if (url.endsWith("/api/reason-network/grants") && (init?.method ?? "GET") === "GET") {
       return Response.json({ grants: reason.grants });
@@ -69,13 +90,16 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
 }
 
 describe("IntegrationsView Viktor catalog", () => {
-  it("renders seeded catalog rows with search and domain filter", async () => {
+  it("renders Connected and Available sections with search and domain filter", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
-    expect(await screen.findByText("HubSpot")).toBeTruthy();
-    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} integrations`))).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Available" })).toBeTruthy();
+    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} Viktor catalog rows`))).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("tab", { name: "All" }));
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
+    expect(await screen.findByTestId("integration-catalog-row-hubspot")).toBeTruthy();
+
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "stripe" } });
     expect(screen.getByTestId("integration-catalog-row-stripe")).toBeTruthy();
     expect(screen.queryByTestId("integration-catalog-row-slack")).toBeNull();
@@ -86,24 +110,22 @@ describe("IntegrationsView Viktor catalog", () => {
     expect(screen.queryByTestId("integration-catalog-row-stripe")).toBeNull();
   });
 
-  it("switches Viktor tabs and shows live GitHub status from setup status", async () => {
+  it("shows live GitHub under Connected and HubSpot under Available", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
     await screen.findByTestId("integration-catalog-row-github");
-
-    fireEvent.click(screen.getByRole("tab", { name: "Connected" }));
     const githubRow = screen.getByTestId("integration-catalog-row-github");
     expect(githubRow.textContent).toMatch(/Connected/);
-
-    fireEvent.click(screen.getByRole("tab", { name: "Needs attention" }));
-    expect(screen.getByTestId("integration-catalog-row-linear")).toBeTruthy();
-    expect(screen.getByTestId("integration-catalog-row-hubspot")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
+    const hubspotRow = await screen.findByTestId("integration-catalog-row-hubspot");
+    expect(hubspotRow.textContent).toMatch(/Available|Catalog|Grok/i);
+    expect(screen.getByText(/COMPOSIO_API_KEY/i)).toBeTruthy();
   });
 
   it("preserves setup detail panels behind Show setup details", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
-    await screen.findByText("HubSpot");
+    await screen.findByRole("heading", { name: "Connected" });
     fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
     expect(await screen.findByTestId("integration-linear")).toBeTruthy();
     expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);

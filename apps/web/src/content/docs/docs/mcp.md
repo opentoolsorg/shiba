@@ -104,6 +104,10 @@ The gateway has no approve tool. This MCP tool accepts repository/task/branch/pu
 
 Run visibility is per-principal: `run_status`, `list_runs`, and `list_approvals` only return records the calling token's principal queued (`queuedBy` is stamped at intake). Operator surfaces — dashboard, Slack, `/api/runs` with an Access identity — still see everything. Pair `sandbox:exec` with `runs:read` on tokens that queue and poll runs.
 
+### Grok Bot bridge (founder skills)
+
+SaaS connectors that live in Grok Bot use the **`grokbot-bridge`** execution target and MCP tools `queue_grokbot_bridge_task`, `grokbot_bridge_status`, and `complete_grokbot_bridge_task`. See [Grok Bot bridge](/docs/grokbot-bridge/) for pairing, founder skill library ids, and the live-vs-blocked checklist.
+
 ## 4. How `/mcp` is authenticated
 
 `/mcp` and `/mcp/*` are **bypassed in Cloudflare Access**, because an MCP client cannot complete an Access login. The Worker authenticates these requests itself with the bearer token:
