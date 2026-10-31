@@ -113,6 +113,20 @@ describe("retained internal draft review", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["", "   "])("requires a nonblank change-request note before any write (%j)", async (blankNote) => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ draft }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<RetainedDraftCard output={output} />);
+    await screen.findByText("Saved review: Pending review · revision 0");
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "changes_requested" } });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: blankNote } });
+    fireEvent.click(screen.getByRole("button", { name: "Save review" }));
+    expect(screen.getByRole("alert").textContent).toBe("Add a review note before requesting changes.");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(blankNote);
+    expect(screen.getByRole("textbox").getAttribute("maxlength")).toBe("500");
+  });
+
   it("fails closed when authoritative metadata fails or belongs to another draft", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ draft: { ...draft, id: `draft_${"ff".repeat(32)}` } })));
     render(<RetainedDraftCard output={output} />);

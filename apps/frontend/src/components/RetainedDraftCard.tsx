@@ -81,6 +81,11 @@ function DraftReview({ id, metadataUrl, downloadUrl, reviewUrl }: NonNullable<Re
 
   async function saveReview() {
     if (!draft || savingRef.current) return;
+    if (decision === "changes_requested" && !note.trim()) {
+      setError("Add a review note before requesting changes.");
+      setMessage("");
+      return;
+    }
     savingRef.current = true;
     setSaving(true);
     setError("");
@@ -138,7 +143,7 @@ function DraftReview({ id, metadataUrl, downloadUrl, reviewUrl }: NonNullable<Re
           </select>
         </label>
         <label className="flex flex-col gap-1">Review note
-          <textarea value={note} onChange={(event) => setNote(event.target.value)} disabled={saving} maxLength={2000} className="bg-[var(--card)] border border-[var(--border-1)] rounded p-2" />
+          <textarea value={note} onChange={(event) => setNote(event.target.value)} disabled={saving} maxLength={500} className="bg-[var(--card)] border border-[var(--border-1)] rounded p-2" />
         </label>
         <button type="button" onClick={() => void saveReview()} disabled={saving} className="self-start border border-[var(--border-1)] rounded px-3 py-2">{saving ? "Saving review…" : "Save review"}</button>
       </>}
