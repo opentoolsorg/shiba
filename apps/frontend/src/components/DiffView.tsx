@@ -76,28 +76,23 @@ export function DiffView({
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
       {/* Top Header */}
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
-        <div>
-          <h2 className="text-[22px] leading-none text-[var(--fg)] flex items-center gap-2">
-            <span>Pull requests</span>
-            <span className="text-xs font-mono px-2 py-0.5 rounded-[var(--radius-button)] bg-[var(--card)] border border-[var(--border-1)] text-[var(--muted-foreground-2)]">
-              {runsWithDiff.length} with diffs / {runs.length} total
-            </span>
-          </h2>
-          <p className="text-xs text-[var(--muted-foreground-2)] mt-1.5">
-            Diffs recorded for each run. Open a run to read the patch.
-          </p>
+      <div className="border-b border-[var(--border-1)] bg-[var(--chrome)] px-4 sm:px-6 py-2 min-h-14 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--muted-foreground-2)]">
+          <span>Personal</span><span aria-hidden="true">&gt;</span>
+          <h1 className="font-sans font-medium text-[var(--fg)]">Pull requests</h1><span aria-hidden="true">&gt;</span>
+          <span>Diff review</span>
+          <span className="rounded-full bg-[var(--section)] px-2 py-1 text-xs">{runsWithDiff.length} with diffs / {runs.length} total</span>
         </div>
 
         {/* Run Selector */}
         {runs.length > 0 ? (
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-mono text-[var(--muted-foreground-2)]">Active Run:</span>
+            <span className="text-xs font-mono text-[var(--muted-foreground-2)]">Run</span>
             <select
               aria-label="Select run for diff inspection"
               value={activeRun?.runId ?? ""}
               onChange={(e) => handleSelect(e.target.value)}
-              className="text-xs font-mono bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-2.5 py-1.5 text-[var(--fg)] focus:border-[var(--primary)] focus:outline-none max-w-xs truncate"
+              className="min-h-11 min-w-11 text-xs bg-[var(--input)] border border-[var(--border-1)] rounded-lg px-3 text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] max-w-[min(20rem,75vw)] truncate"
             >
               {runs.map((r) => {
                 const hasDiff = Boolean(extractCompletedDiff(r) ?? r.diff) || r.hasDiff === true;
@@ -121,26 +116,23 @@ export function DiffView({
           </div>
         ) : null}
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
+          <div className="flex flex-col items-center justify-center py-20 max-w-3xl mx-auto px-4 text-center">
             <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">Loading run details…</h3>
             <p className="text-xs text-[var(--muted-foreground-2)] max-w-md">
               Fetching the full diff payload for these runs.
             </p>
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
+          <div className="flex flex-col items-center justify-center py-20 max-w-3xl mx-auto px-4 text-center">
             <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">Run details unavailable</h3>
             <p className="text-xs text-[var(--muted-foreground-2)] max-w-md break-words">{error}</p>
           </div>
         ) : !activeRun ? (
-          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] max-w-3xl mx-auto p-8 text-center">
-            <div className="w-12 h-12 rounded-[var(--radius-button)] bg-[var(--primary-soft)] border border-[var(--primary)]/20 text-[var(--primary)] flex items-center justify-center mb-3">
+          <div className="flex flex-col items-center justify-center py-20 max-w-3xl mx-auto px-4 text-center">
+            <div className="size-10 text-[var(--muted-foreground-2)] flex items-center justify-center mb-3">
               <GitCompareArrows aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
             </div>
-            <h3 className="text-sm font-semibold text-[var(--fg)] mb-1">No runs yet</h3>
-            <p className="text-xs text-[var(--muted-foreground-2)] max-w-md">
-              Start a thread. Diffs show up here after the sandbox writes files.
-            </p>
+            <h3 className="text-sm font-normal text-[var(--muted-foreground-2)]">No runs yet</h3>
           </div>
         ) : activeRun ? (
           <div className="max-w-6xl mx-auto flex flex-col gap-4">

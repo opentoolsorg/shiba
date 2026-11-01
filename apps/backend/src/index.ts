@@ -123,10 +123,11 @@ const MARKETING_SECTIONS = new Set([
   "waitlist",
   "welcome",
 ]);
-// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the tasks home.
+// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the Work home.
 export const DASHBOARD_VIEWS = new Set([
   // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
   "",
+  "work",
   "dashboard",
   "tasks",
   "activity",

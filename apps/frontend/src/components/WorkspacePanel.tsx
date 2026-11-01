@@ -9,9 +9,9 @@ import { formatTimeAgo, statusChipClass } from "../ui-helpers";
 import type { StoredApproval } from "../types";
 
 const ACCENT_BUTTON =
-  "text-[11px] bg-[var(--primary-soft)] hover:bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-[var(--radius-button)] transition-colors";
+  "text-sm bg-[var(--inverse)] hover:bg-[var(--inverse-hover)] text-[var(--inverse-text)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const DANGER_BUTTON =
-  "text-[11px] bg-transparent hover:bg-[var(--destructive-soft)] border border-[var(--destructive)]/50 text-[var(--destructive)] font-medium py-1 px-2.5 touch:min-h-11 touch:px-3.5 rounded-[var(--radius-button)] transition-colors";
+  "text-sm bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] text-[var(--fg)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 
 /** Kind-aware label for a stored approval pointer; unknown kinds render raw. */
 export function storedApprovalKind(approval: StoredApproval): string {
@@ -77,9 +77,16 @@ export function StoredApprovalCard({
       ...(approval.expectedDeliverables !== undefined ? { expectedDeliverables: approval.expectedDeliverables } : {}),
     } satisfies Record<string, unknown>);
   return (
-    <div className="border border-[var(--border-1)] border-l-2 border-l-[var(--attention)] rounded-[var(--radius-button)] bg-[var(--bg)] p-3">
+    <div className="bg-[var(--bg)] p-4">
+      <p role="status" className="mb-3 text-xs text-[var(--muted-foreground-2)]">
+        {decided && decision !== undefined
+          ? decision
+            ? approval.kind === undefined || approval.kind === "run" ? "Approved — sandbox starting" : "Approved — queued for execution"
+            : "Rejected — nothing ran"
+          : "Waiting for your approval"}
+      </p>
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--warning-fg)]">
+        <span className="text-xs font-medium text-[var(--warning-fg)]">
           {storedApprovalKind(approval)}
         </span>
         <span className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
@@ -89,7 +96,8 @@ export function StoredApprovalCard({
       <p className="text-[10px] font-mono text-[var(--muted-foreground-2)] truncate mb-1">
         via {storedApprovalAgent(approval)}
       </p>
-      <p className="text-[11px] text-[var(--fg)] font-medium break-words mb-1">{approval.task}</p>
+      <p className="text-sm text-[var(--fg)] font-medium break-words mb-2">{approval.task}</p>
+      <p className="text-xs text-[var(--muted-foreground-2)] break-all mb-2">Repository: {approval.repoUrl}{approval.baseBranch ? ` · Branch: ${approval.baseBranch}` : ""}</p>
       {approval.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)] mb-1">Bot profile v{approval.customAgentVersion}</p> : null}
       {approval.expectedDeliverables?.length ? (
         <div className="text-xs text-[var(--muted-foreground-2)] mb-2">
@@ -168,13 +176,13 @@ export function DecidedApprovalRow({ approval }: { approval: StoredApproval }): 
           ? { label: "Executed", cls: statusChipClass("completed") }
           : { label: "Approved", cls: statusChipClass("running") };
   return (
-    <div className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--bg)] p-3">
+    <div className="min-h-11 bg-[var(--bg)] px-4 py-3">
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground-2)]">
+        <span className="text-xs font-medium text-[var(--muted-foreground-2)]">
           {storedApprovalKind(approval)}
         </span>
         <span
-          className={`text-[10px] font-bold uppercase tracking-wider border rounded-[var(--radius-button)] px-2 py-0.5 shrink-0 ${chip.cls}`}
+          className={`text-xs font-medium border rounded-[var(--radius-button)] px-2 py-0.5 shrink-0 ${chip.cls}`}
         >
           {chip.label}
         </span>
