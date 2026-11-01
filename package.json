@@ -5,6 +5,7 @@
   "description": "Self-hosted AI employees for marketing, coding, design and QA, with approval-gated repository-backed work.",
   "type": "module",
   "scripts": {
+    "generate:og": "node scripts/generate-shiba-og.mjs",
     "build": "turbo run build && node scripts/assemble-public.mjs && pnpm run docs:verify",
     "build:dashboard": "turbo run build --filter=@shiba/frontend",
     "deploy:alchemy": "pnpm build && alchemy deploy",
