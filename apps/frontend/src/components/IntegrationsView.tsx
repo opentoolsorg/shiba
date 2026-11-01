@@ -447,15 +447,15 @@ export function IntegrationsView({
       });
     }
     items.unshift({
-      id: "mcp:coworker:grok-bot",
-      name: "Grok Bot MCP coworker",
+      id: "mcp:coworker",
+      name: "MCP coworker",
       kind: "mcp",
       status: status?.doctor?.ok ? "configured" : "partiallyConfigured",
       category: "MCP coworker",
       summary: "External agent connector at /mcp with sandbox:exec + runs:read.",
-      description: "Mint shb_ tokens for principals like grok-bot; queue_run returns pending_approval until a human approves.",
+      description: "Mint shb_ tokens for dedicated principals; queue_run returns pending_approval until a human approves.",
       capabilities: ["queue_run", "run_status", "list_runs", "list_approvals"],
-      authNote: "Live KV mint and Grok Bot connector wiring require deployment secrets — see Agents & MCP.",
+      authNote: "Live KV mint and client wiring require deployment secrets — see Agents & MCP.",
     });
     return items;
   }, [status, mailboxes.state, providers, savedSkills, toolDirectory, libraryCatalog, spacesCatalog]);
@@ -530,7 +530,7 @@ export function IntegrationsView({
               type="search"
               value={setupSearch}
               onChange={(event) => setSetupSearch(event.target.value)}
-              placeholder="Filter by name (GitHub, Slack, Grok Bot, …)"
+              placeholder="Filter by name (GitHub, Slack, …)"
               className="w-full max-w-md rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--fg)]"
               aria-label="Search integrations"
             />

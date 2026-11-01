@@ -101,6 +101,26 @@ describe("OpenConnector adapter", () => {
     await provider(fetchImpl).disconnect(context);
   });
 
+  it("searches bounded runtime actions and verifies exact action service without exposing global authentication", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer runtime-secret");
+      const url = new URL(String(input));
+      const action = { id: "github.create_issue", service: "github", name: "Create issue", inputSchema: { type: "object" }, authenticated: true };
+      if (url.pathname === "/v1/actions/search") {
+        expect(url.searchParams.get("q")).toBe("issue");
+        expect(url.searchParams.get("service")).toBe("github");
+        expect(url.searchParams.get("limit")).toBe("50");
+        return Response.json({ success: true, data: [action, { ...action, id: "slack.send", service: "slack" }] });
+      }
+      expect(url.pathname).toBe("/v1/actions/github.create_issue");
+      return Response.json({ success: true, data: action });
+    });
+    const adapter = provider(fetchImpl);
+    const actions = await adapter.searchActions({ userId: "alice", toolkitSlug: "github", query: "issue", limit: 100 });
+    expect(actions).toEqual([{ id: "github.create_issue", service: "github", name: "Create issue", inputSchema: { type: "object" } }]);
+    expect(await adapter.searchActions({ userId: "alice", toolkitSlug: "slack", actionId: "github.create_issue", limit: 50 })).toEqual([]);
+  });
+
   it("executes upstream action IDs with runtime auth and ignores caller account/session selectors", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe("https://connector.example.test/v1/actions/github.get_current_user");

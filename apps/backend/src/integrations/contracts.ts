@@ -4,7 +4,6 @@ import type {
   IntegrationProviderConnection,
   IntegrationProviderExecuteResponse,
   IntegrationProviderHealth,
-  IntegrationProviderSessionResponse,
   IntegrationsProviderId,
 } from "@shiba/shared";
 
@@ -37,17 +36,30 @@ export interface IntegrationExecuteContext {
   connectedAccountId?: string;
 }
 
+export interface IntegrationAction {
+  id: string;
+  service: string;
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+}
+
+export interface IntegrationActionQuery {
+  userId: string;
+  toolkitSlug: string;
+  query?: string;
+  actionId?: string;
+  limit: number;
+}
+
 export interface IntegrationProvider {
+  searchActions?(query: IntegrationActionQuery): Promise<IntegrationAction[]>;
   readonly id: IntegrationsProviderId;
   health(): Promise<IntegrationProviderHealth>;
   listCatalog(query: IntegrationCatalogQuery): Promise<IntegrationCatalogPage>;
   listConnections(args: { userId: string }): Promise<IntegrationProviderConnection[]>;
   beginConnect(context: IntegrationConnectContext): Promise<IntegrationProviderBeginConnectResponse>;
   disconnect(context: IntegrationConnectContext): Promise<void>;
-  createToolRouterSession?(args: {
-    userId: string;
-    toolkitSlugs: string[];
-  }): Promise<IntegrationProviderSessionResponse>;
   executeTool?(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse>;
 }
 

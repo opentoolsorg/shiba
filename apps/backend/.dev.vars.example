@@ -137,8 +137,8 @@
 # LOCAL_ADAPTER_TOKEN=
 # PAIRING_SECRET=
 
-# Optional open-connector HTTP fallback (local Worker has no sibling binding).
-# INTEGRATIONS_PROVIDER=openconnector
+# Sole provider; local Worker uses the HTTP fallback without a sibling binding.
+INTEGRATIONS_PROVIDER=openconnector
 # OPEN_CONNECTOR_URL=
 # OPEN_CONNECTOR_ADMIN_TOKEN=
 # OPEN_CONNECTOR_RUNTIME_TOKEN=

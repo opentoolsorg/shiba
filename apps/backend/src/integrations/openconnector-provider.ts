@@ -8,6 +8,8 @@ import { z } from "zod";
 import type { Env } from "../env.js";
 import type {
   FetchImpl,
+  IntegrationActionQuery,
+  IntegrationAction,
   IntegrationCatalogPage,
   IntegrationCatalogQuery,
   IntegrationConnectContext,
@@ -183,6 +185,18 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
       method: "DELETE",
       body: JSON.stringify({ connectionName: await openConnectorConnectionName(context.userId) }),
     });
+  }
+
+  async searchActions(query: IntegrationActionQuery): Promise<IntegrationAction[]> {
+    const params = new URLSearchParams({ q: query.actionId ?? query.query ?? "", service: query.toolkitSlug, limit: String(Math.max(1, Math.min(50, query.limit))) });
+    const actionSchema = z.object({
+      id: z.string().min(1), service: z.string().min(1), name: z.string(), description: z.string().optional(),
+      inputSchema: z.record(z.string(), z.unknown()).optional(),
+    });
+    const actions = query.actionId
+      ? [this.parse(z.object({ success: z.literal(true), data: actionSchema }), await this.request(`/v1/actions/${encodeURIComponent(query.actionId)}`, "runtime")).data]
+      : this.parse(z.object({ success: z.literal(true), data: z.array(actionSchema) }), await this.request(`/v1/actions/search?${params}`, "runtime")).data;
+    return actions.filter((action) => action.service === query.toolkitSlug && (!query.actionId || action.id === query.actionId));
   }
 
   async executeTool(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse> {

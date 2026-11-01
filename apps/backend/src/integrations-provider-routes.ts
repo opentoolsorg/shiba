@@ -7,11 +7,7 @@ import { gmailOwner } from "./gmail-routes.js";
 import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { hasSameOriginIntent } from "./route-utils.js";
-import { getIntegrationProvider, getSelectedIntegrationsProviderId } from "./integrations/runtime.js";
-import {
-  ComposioIntegrationProvider,
-  ComposioIntegrationProviderError,
-} from "./integrations/composio-provider.js";
+import { getIntegrationProvider } from "./integrations/runtime.js";
 
 const PROVIDER_BASE = "/api/integrations/provider";
 
@@ -39,7 +35,7 @@ function oauthCallbackPage(origin: string, ok: boolean, nonce: string): string {
   const payload = scriptJson({
     type: SHIBA_INTEGRATIONS_OAUTH_CHANNEL,
     ok,
-    provider: "composio",
+    provider: "openconnector",
   });
   return `<!DOCTYPE html>
 <html lang="en">
@@ -106,10 +102,6 @@ function requireSameOrigin(request: Request): Response | null {
   return null;
 }
 
-function asComposio(provider: ReturnType<typeof getIntegrationProvider>): ComposioIntegrationProvider | null {
-  return provider instanceof ComposioIntegrationProvider ? provider : null;
-}
-
 export async function handleIntegrationProviderRoutes(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== PROVIDER_BASE && !url.pathname.startsWith(`${PROVIDER_BASE}/`)) {
@@ -117,7 +109,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   }
 
   const provider = getIntegrationProvider(env);
-  const selectedId = getSelectedIntegrationsProviderId(env);
+  const selectedId = provider.id;
   const suffix = url.pathname.slice(PROVIDER_BASE.length);
 
   if (suffix === "/callback" && request.method === "GET") {
@@ -148,8 +140,8 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
     try {
       const connections = await provider.listConnections({ userId: owner });
       return json({ ok: true, provider: selectedId, connections });
-    } catch (error) {
-      return json({ ok: false, error: error instanceof ComposioIntegrationProviderError ? error.message : "Integration connections unavailable." }, 503);
+    } catch {
+      return json({ ok: false, error: "Integration connections unavailable." }, 503);
     }
   }
 
@@ -169,10 +161,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
         hasMore: page.hasMore,
         fallbackCatalog: page.fallbackCatalog,
       });
-    } catch (error) {
-      if (error instanceof ComposioIntegrationProviderError) {
-        return json({ ok: false, error: error.message }, error.status);
-      }
+    } catch {
       return json({ ok: false, error: "Integration catalog unavailable." }, 503);
     }
   }
@@ -180,29 +169,12 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   if (suffix === "/session" && request.method === "POST") {
     const sameOrigin = requireSameOrigin(request);
     if (sameOrigin) return sameOrigin;
-    const composio = asComposio(provider);
-    if (!composio) {
-      return json({ ok: false, error: "Tool router sessions require INTEGRATIONS_PROVIDER=composio." }, 503);
-    }
-    const body = await readJsonBody(request);
-    const toolkitSlugs = Array.isArray(body?.toolkitSlugs)
-      ? body!.toolkitSlugs.filter((value): value is string => typeof value === "string")
-      : typeof body?.toolkitSlug === "string"
-        ? [body.toolkitSlug]
-        : [];
-    const result = await composio.createToolRouterSession({ userId: owner, toolkitSlugs });
-    return json(result, result.ok ? 200 : 503);
+    return json({ ok: false, status: "unsupported", error: "Tool router sessions are unsupported; use integration action execution." }, 503);
   }
 
   if (suffix === "/execute" && request.method === "POST") {
     const sameOrigin = requireSameOrigin(request);
     if (sameOrigin) return sameOrigin;
-    if (!provider.executeTool) {
-      return json(
-        { ok: false, status: "failed", error: "Selected integration provider does not support tool execution." },
-        503,
-      );
-    }
     const body = await readJsonBody(request, 64 * 1024);
     const toolSlug = typeof body?.toolSlug === "string" ? body.toolSlug.trim() : "";
     if (!toolSlug) return json({ ok: false, status: "failed", error: "toolSlug is required." }, 400);

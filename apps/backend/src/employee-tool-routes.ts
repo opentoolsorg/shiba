@@ -1,3 +1,6 @@
+import type { IntegrationProviderConnection } from "@shiba/shared";
+import { registerIntegrationTools, integrationToolInput } from "./mcp-integration-tools.js";
+import { getIntegrationProvider } from "./integrations/runtime.js";
 import type { TokenRecord } from "./agent-tokens.js";
 import { verifyToken } from "./agent-tokens.js";
 import type { Env } from "./env.js";
@@ -45,6 +48,8 @@ type EmployeeToolResult = Awaited<ReturnType<ToolRegistry["invoke"]>>;
 
 /** Only actions with a reviewed input shape and known side-effect contract are dispatchable. */
 export const EMPLOYEE_TOOL_ACTIONS = {
+  "integrations.search_actions": { risk: "read", requiredScope: "integrations:read", resourceArgument: "toolkitSlug", resourceRequired: true, requiresLiveVerification: false },
+  "integrations.execute": { risk: "external_write", requiredScope: "integrations:execute", resourceArgument: "toolkitSlug", resourceRequired: true, requiresLiveVerification: false },
   gmail_read: { risk: "read", requiredScope: "gmail:read", resourceArgument: "messageIds", resourceRequired: true, requiresLiveVerification: false },
   run_status: { risk: "read", requiredScope: "runs:read", resourceArgument: "runId", resourceRequired: true, requiresLiveVerification: false },
   queue_run: { risk: "external_write", requiredScope: "sandbox:exec", resourceArgument: "repoUrl", resourceRequired: true, requiresLiveVerification: false },
@@ -173,6 +178,23 @@ async function configurePolicy(request: Request, env: Env, employeeId: string): 
       employeeExternalPolicyVersion(choice.generation, choice.schemaVersion, field)]));
     resourceGenerationsByCapability[id] = Object.fromEntries((resources as string[]).map((resource) => [resource, choice.generation]));
   }
+  for (const toolName of ["integrations.search_actions", "integrations.execute"] as const) {
+    const id = capabilityId(toolName);
+    const resources = resourcesByCapability[id];
+    if (!Array.isArray(resources)) continue;
+    // Bind SaaS credentials to the authenticated configuring owner, never the employee token name.
+    const owner = await gmailOwner(request, env);
+    if (!owner) return jsonError("authenticated_integration_owner_required", 401);
+    const provider = getIntegrationProvider(env);
+    let connections: IntegrationProviderConnection[];
+    try { connections = await provider.listConnections({ userId: owner }); }
+    catch { return jsonError("integration_connections_unavailable", 503); }
+    const selected = resources.map((resource) => connections.find((connection) => connection.providerKey === resource)).filter((connection) => connection !== undefined);
+    if (selected.length !== resources.length) return jsonError("integration_connection_not_owned", 403);
+    resourceConnectionsByCapability[id] = Object.fromEntries(selected.map((connection) => [connection.providerKey, connection.id]));
+    resourceAccountsByCapability[id] = Object.fromEntries(selected.map((connection) => [connection.providerKey, owner]));
+    resourcePolicyVersionsByCapability[id] = Object.fromEntries(selected.map((connection) => [connection.providerKey, `integrations:${provider.id}`]));
+  }
   const gmailCapability = "mcp:shiba:gmail_read";
   if (Object.hasOwn(resourcesByCapability, gmailCapability)) {
     const owner = await gmailOwner(request, env);
@@ -278,6 +300,7 @@ export async function dispatchEmployeeToolForPrincipal(
   if (!Object.hasOwn(EMPLOYEE_TOOL_ACTIONS, toolNameRaw)) return jsonError("unsupported_employee_tool_action", 400);
   const toolName = toolNameRaw as keyof typeof EMPLOYEE_TOOL_ACTIONS;
   const action = EMPLOYEE_TOOL_ACTIONS[toolName];
+  if (toolName.startsWith("integrations.") && !integrationToolInput(toolName, args)) return jsonError("invalid_integration_tool_input", 400);
   const orgId = principal.orgId;
   const actorId = principal.principal;
   const employee = await getCustomAgentById(env, orgId, employeeId);
@@ -305,6 +328,7 @@ export async function dispatchEmployeeToolForPrincipal(
   };
   const selection = selectEmployeeCapabilities(authority);
   const id = capabilityId(toolName);
+  if (!selection.allowedCapabilityIds.includes(id)) return jsonError("capability_not_allowed", 403);
   const resourceKey = action.resourceArgument;
   const gmailIds = toolName === "gmail_read" ? args[resourceKey] : undefined;
   let resourceId: string;
@@ -338,7 +362,15 @@ export async function dispatchEmployeeToolForPrincipal(
     });
   }
   if (!connection) return jsonError("employee_connection_or_resource_grant_missing", 403);
-  const policy = connectionPolicy(toolName);
+  if (toolName.startsWith("integrations.")) {
+    const provider = getIntegrationProvider(env);
+    if (!connection.accountId || connection.policyVersion !== `integrations:${provider.id}`) return jsonError("integration_connection_changed", 403);
+    let connections: IntegrationProviderConnection[];
+    try { connections = await provider.listConnections({ userId: connection.accountId }); }
+    catch { return jsonError("integration_connections_unavailable", 503); }
+    if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId)) return jsonError("integration_connection_disconnected", 403);
+  }
+  const policy = { ...connectionPolicy(toolName), version: connection.policyVersion };
 
   let approval;
   if (action.risk === "external_write") {
@@ -396,7 +428,20 @@ export async function dispatchEmployeeToolForPrincipal(
     }
     approval = asEmployeeActionApproval(saved);
   }
-  const registeredDispatchRegistry: Pick<ToolRegistry, "invoke"> = toolName === "gmail_read" ? { invoke: async (_name, toolArgs) => {
+  const integrationRegistry = toolName.startsWith("integrations.") ? createToolRegistry(env) : null;
+  if (integrationRegistry && connection.accountId) registerIntegrationTools(integrationRegistry, env, connection.accountId, async () => {
+    const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
+    if (!freshEmployee || freshEmployee.version !== employee.version) throw new Error("Employee policy changed.");
+    const current = await resolveEmployeeConnectionGrant(env, { orgId, employeeId, employeeVersion: employee.version, actorId,
+      capabilityId: id, resourceId });
+    if (!current || current.connectionId !== connection.connectionId || current.accountId !== connection.accountId ||
+      current.generation !== connection.generation || current.policyVersion !== connection.policyVersion) throw new Error("Integration grant changed.");
+    const provider = getIntegrationProvider(env);
+    if (current.policyVersion !== `integrations:${provider.id}`) throw new Error("Integration provider changed.");
+    const connections = await provider.listConnections({ userId: connection.accountId! });
+    if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId)) throw new Error("Integration disconnected.");
+  });
+  const registeredDispatchRegistry: Pick<ToolRegistry, "invoke"> = integrationRegistry ?? (toolName === "gmail_read" ? { invoke: async (_name, toolArgs) => {
     const currentIds = (toolArgs as Record<string, unknown>).messageIds as string[];
     const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
     if (!freshEmployee || freshEmployee.version !== employee.version) throw new Error("Employee policy changed.");
@@ -407,7 +452,7 @@ export async function dispatchEmployeeToolForPrincipal(
         await isGmailConnectionActive(env, connection.accountId!, connection.connectionId));
     });
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
-  } } : registry;
+  } } : registry);
   const approvedAction = approval;
   const dispatchRegistry: Pick<ToolRegistry, "invoke"> = approvedAction ? {
     invoke: async (name, toolArgs, callPrincipal, options) => {
