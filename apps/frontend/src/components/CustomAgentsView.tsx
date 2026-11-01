@@ -6,6 +6,8 @@ import { formatTimeAgo } from "../ui-helpers";
 import { sanitizeCustomAgentSlug, type CustomAgentConfig } from "@shiba/shared";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
 import { EMPLOYEE_TEMPLATES, type EmployeeTemplate } from "../employee-templates";
+import { AgentTemplatesCatalog } from "./AgentTemplatesCatalog";
+import type { AgentTemplate } from "@shiba/shared";
 
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors w-full";
@@ -354,6 +356,13 @@ export function CustomAgentsView({
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
+
+          <AgentTemplatesCatalog onUse={async (template: AgentTemplate) => {
+            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: template.id, config: { name: template.name, instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
+            const body = await response.json().catch(() => ({})) as { error?: string };
+            if (!response.ok) throw new Error(body.error ?? `Could not add template (${response.status}).`);
+            refresh();
+          }} />
 
           <div className="flex gap-2" role="group" aria-label="Bot directory">
             {[false, true].map((archived) => (

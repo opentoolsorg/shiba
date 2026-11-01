@@ -1,0 +1,18 @@
+{
+  "id": "slack-digester",
+  "name": "Slack Digester",
+  "description": "Summarize selected Slack conversations into decisions, owners, and open questions.",
+  "categories": [
+    "ops",
+    "product"
+  ],
+  "appearance": "🧾",
+  "skills": [
+    "slack-summary"
+  ],
+  "plugins": [],
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "support-triage",
+  "name": "Support Triage",
+  "description": "Sort support reports into reproducible issues, questions, and escalation drafts.",
+  "categories": [
+    "ops",
+    "product"
+  ],
+  "appearance": "🧰",
+  "skills": [
+    "issue-triage"
+  ],
+  "plugins": [],
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}

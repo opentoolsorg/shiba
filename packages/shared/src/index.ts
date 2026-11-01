@@ -54,3 +54,4 @@ export * from "./curated-mcp-vendors.js";
 export * from "./grokbot-bridge.js";
 export * from "./founder-skill-library.js";
 export * from "./onboarding.js";
+export * from "./agent-templates.js";

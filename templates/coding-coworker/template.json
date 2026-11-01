@@ -1,0 +1,19 @@
+{
+  "id": "coding-coworker",
+  "name": "Coding Coworker",
+  "description": "Turn an approved repository task into a reviewed change and optional pull request.",
+  "categories": [
+    "engineering",
+    "featured"
+  ],
+  "appearance": "🛠️",
+  "skills": [
+    "repository-work"
+  ],
+  "plugins": [],
+  "harness": "opencode",
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}
