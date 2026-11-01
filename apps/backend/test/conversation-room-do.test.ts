@@ -55,6 +55,7 @@ class RoomSql {
         if (row.status === "streaming" && row.updated_at <= cutoff) {
           row.status = "failed";
           row.updated_at = updatedAt;
+          if (statement.includes("RETURNING")) rows.push({ stream_id: row.stream_id, viewer_id: row.viewer_id });
         }
       }
     } else if (statement.startsWith("UPDATE room_streams SET status = ?")) {
@@ -110,6 +111,29 @@ function roomFixture() {
 }
 
 describe("ConversationRoom", () => {
+  it("notifies connected viewers once when an abandoned stream expires", async () => {
+    vi.useFakeTimers();
+    try {
+      const { room, sql, sockets } = roomFixture();
+      const streamId = "55555555-5555-4555-8555-555555555555";
+      await room.webSocketMessage(sockets[0] as unknown as WebSocket, JSON.stringify({ type: "stream:start", streamId }));
+      await room.webSocketMessage(sockets[0] as unknown as WebSocket, JSON.stringify({ type: "stream:delta", streamId, delta: "Partial answer" }));
+      vi.advanceTimersByTime(2 * 60_000 + 1);
+      await room.alarm();
+      expect(sql.streams.get(streamId)).toMatchObject({ status: "failed", body: "Partial answer" });
+      for (const socket of sockets) {
+        expect(socket.events().filter((event) => event.type === "stream:end")).toEqual([{
+          type: "stream:end", streamId, viewerId: "11111111-1111-4111-8111-111111111111",
+          status: "failed", updatedAt: Date.now(),
+        }]);
+      }
+      await room.alarm();
+      expect(sockets[1]!.events().filter((event) => event.type === "stream:end")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("persists room messages and stream deltas before broadcasting them to every viewer", async () => {
     const { room, sql, sockets } = roomFixture();
     const [owner, other] = sockets;

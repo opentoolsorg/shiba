@@ -29,6 +29,7 @@ class FakeWebSocket {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -103,6 +104,34 @@ describe("useConversationRoomRealtime", () => {
     act(() => socket.receive({ type: "stream:end", streamId: "remote-stream", viewerId: "remote-viewer", status: "complete" }));
     expect(hook.result.current.remoteStream).toBeNull();
 
+    hook.unmount();
+  });
+
+  it("replays the full assistant text when an active stream reconnects", () => {
+    vi.useFakeTimers();
+    const sockets: FakeWebSocket[] = [];
+    vi.stubGlobal("WebSocket", class extends FakeWebSocket {
+      constructor(url: string | URL) { super(url); sockets.push(this); }
+    });
+    const initial = {
+      sessionId: "default", enabled: true, typingText: "", onMessage: vi.fn(),
+      messages: [] as Array<{ id: string; role: string; parts: Array<{ type: string; text: string }> }>,
+    };
+    const hook = renderHook((props) => useConversationRoomRealtime(props), { initialProps: initial });
+    act(() => sockets[0]!.open());
+    let streamId = "";
+    act(() => { streamId = hook.result.current.startStream(); });
+    const message = (text: string) => ({ id: "assistant", role: "assistant", parts: [{ type: "text", text }] });
+    hook.rerender({ ...initial, messages: [message("Before disconnect. ")] });
+    act(() => sockets[0]!.close());
+    hook.rerender({ ...initial, messages: [message("Before disconnect. After reconnect.")] });
+    act(() => vi.advanceTimersByTime(1_000));
+    act(() => sockets[1]!.open());
+    expect(sockets[1]!.sent[0]).toEqual({ type: "stream:start", streamId });
+    expect(sockets[1]!.sent.filter((event) => event.type === "stream:delta").map((event) => event.delta).join(""))
+      .toBe("Before disconnect. After reconnect.");
+    act(() => hook.result.current.finishStream(streamId, "complete"));
+    expect(sockets[1]!.sent.at(-1)).toEqual({ type: "stream:end", streamId, status: "complete" });
     hook.unmount();
   });
 

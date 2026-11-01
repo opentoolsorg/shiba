@@ -433,7 +433,7 @@ export function AppNavRail({
       {/* Bottom: Bot avatars stack + Utilities */}
       <div className="flex flex-col items-center gap-2 mt-auto pt-3 w-full px-1.5">
         {/* Bot / Agent Avatars Stack */}
-        <div className="flex flex-col items-center gap-1.5 pb-2 border-b border-[var(--border-1)] w-full" aria-label="Available bots">
+        <div role="group" className="flex flex-col items-center gap-1.5 pb-2 border-b border-[var(--border-1)] w-full" aria-label="Available bots">
           <Tooltip content="Shiba (Lead) · Ready" side="right">
             <button
               type="button"
