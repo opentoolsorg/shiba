@@ -6,7 +6,8 @@ import type { Env } from "../src/env.js";
 import { createToken, type TokenRecord } from "../src/agent-tokens.js";
 import { beginGmailConnect, decryptGmailToken, disconnectGmail, encryptGmailToken,
   finishGmailConnect, GMAIL_BASE, GMAIL_SCOPE, gmailStatus, grantGmail, readGmail,
-  revokeGmailGrant, searchGmail } from "../src/gmail.js";
+  revokeGmailGrant, searchGmail, searchGmailResourceCandidates, resolveGmailResourceCandidates,
+  readGmailForEmployee } from "../src/gmail.js";
 import { gmailOwner, handleGmail } from "../src/gmail-routes.js";
 import { createToolRegistry, principalFor } from "../src/mcp-gateway.js";
 import worker from "../src/index.js";
@@ -127,6 +128,11 @@ function mockGoogle(overrides: { scope?: string; refresh?: boolean; revoke?: boo
     expect(init?.redirect).toBe("error");
     if (url.pathname === "/gmail/v1/users/me/profile") return Response.json({ emailAddress: "mailbox@example.test" });
     if (url.pathname === "/gmail/v1/users/me/messages") return Response.json({ messages: [{ id: "abc123", threadId: "def456" }] });
+    if (url.pathname === "/gmail/v1/users/me/messages/abc123" && url.searchParams.get("format") === "metadata") {
+      return Response.json({ id: "abc123", threadId: "def456", payload: { headers: [
+        { name: "From", value: "sender@example.test" }, { name: "Subject", value: "Selected subject" }, { name: "Date", value: "Tue, 1 Jan 2030 12:00:00 +0000" },
+      ] } });
+    }
     if (url.pathname === "/gmail/v1/users/me/messages/abc123") {
       const text = overrides.body ?? "untrusted mail https://127.0.0.1/private";
       return Response.json({ id: "abc123", threadId: "def456", snippet: "untrusted snippet", payload: {
@@ -183,6 +189,41 @@ describe("Gmail owner-only route boundary", () => {
     expect(await gmailOwner(request(""), env)).toBe(PEER);
     session.mockResolvedValue({ user: { email: "owner@example.test" } });
     expect((await handleGmail(request(""), env))?.status).toBe(401);
+  });
+
+  it("discovers metadata as the authenticated owner and only resolves fresh selected message IDs", async () => {
+    const { env } = environment();
+    const google = mockGoogle(); vi.stubGlobal("fetch", google);
+    await connect(env);
+    signIn();
+    const response = await handleGmail(request("/resources?q=from%3Asender%40example.test&limit=5"), env);
+    expect(response?.status).toBe(200);
+    expect(await response!.json()).toEqual({ results: [{ messageId: "abc123", threadId: "def456", from: "sender@example.test", subject: "Selected subject", date: "Tue, 1 Jan 2030 12:00:00 +0000" }] });
+    expect(google.mock.calls.some(([input]) => new URL(String(input)).searchParams.get("format") === "metadata")).toBe(true);
+    await expect(resolveGmailResourceCandidates(env, OWNER, ["abc123"])).resolves.toEqual(new Map([["abc123", (await gmailStatus(env, OWNER)).connection!.id]]));
+    await expect(resolveGmailResourceCandidates(env, PEER, ["abc123"])).rejects.toThrow();
+    await expect(resolveGmailResourceCandidates(env, OWNER, ["unselected"])).rejects.toThrow();
+    await expect(searchGmailResourceCandidates(env, OWNER, "", 5)).rejects.toThrow();
+  });
+
+  it("reads only current selected employee resources and stops on denied or revoked grants", async () => {
+    const { env, sql } = environment();
+    const google = mockGoogle(); vi.stubGlobal("fetch", google);
+    const connection = await connect(env);
+    const allow = vi.fn(async () => true);
+    const result = await readGmailForEmployee(env, OWNER, connection.id, "employee-actor", ["abc123"], allow);
+    expect(result.messages).toHaveLength(1);
+    expect(JSON.stringify(result)).toContain("UNTRUSTED");
+    const providerReads = () => google.mock.calls.filter(([input]) => new URL(String(input)).pathname.endsWith("/messages/abc123") && !new URL(String(input)).search).length;
+    const beforeDenied = providerReads();
+    await expect(readGmailForEmployee(env, OWNER, connection.id, "employee-actor", ["abc123"], async () => false)).rejects.toThrow("grant was revoked");
+    expect(providerReads()).toBe(beforeDenied);
+    let checks = 0;
+    await expect(readGmailForEmployee(env, OWNER, connection.id, "employee-actor", ["abc123"], async () => ++checks === 1)).rejects.toThrow("grant was revoked");
+    expect(checks).toBe(2);
+    await disconnectGmail(env, OWNER);
+    await expect(readGmailForEmployee(env, OWNER, connection.id, "employee-actor", ["abc123"], allow)).rejects.toThrow("disconnected or revoked");
+    expect(sql.prepare("SELECT active FROM gmail_connections").get()).toBeUndefined();
   });
 
   it("requires verified Access subject and namespaces issuer/audience", async () => {
@@ -616,7 +657,9 @@ describe("Gmail explicit grants, bounded tools, disconnect", () => {
     expect(source).not.toMatch(/messages\/(?:send|batchModify|batchDelete|import|insert)|\/(?:trash|untrash|modify|drafts)(?:["'`/?]|$)/);
     expect(source).not.toMatch(/method:\s*["'](?:PUT|PATCH|DELETE)["']/);
     expect(readFileSync(new URL("../src/codemode.ts", import.meta.url), "utf8")).not.toContain("registerGmailTools");
-    expect(readFileSync(new URL("../src/mcp-gateway.ts", import.meta.url), "utf8")).toContain("registerGmailTools(registry)");
+    const toolRegistration = readFileSync(new URL("../src/mcp-tool-registration.ts", import.meta.url), "utf8");
+    expect(toolRegistration).toContain("registerGmailTools(registry)");
+    expect(readFileSync(new URL("../src/mcp-gateway.ts", import.meta.url), "utf8")).toContain("registerAllMcpTools(registry, env)");
     const entry = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
     expect(entry.indexOf("!(await isAuthorizedRequest(request, env))")).toBeLessThan(entry.indexOf("await handleGmail(request, env)"));
   });

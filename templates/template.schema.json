@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tryshiba.dev/schemas/template.schema.json",
+  "title": "Shiba agent template",
+  "type": "object",
+  "required": ["id", "name", "description", "categories", "skills", "plugins", "version"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 220 },
+    "categories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "appearance": { "type": "string" },
+    "skills": { "type": "array", "items": { "type": "string" } },
+    "plugins": { "type": "array", "items": { "type": "string" } },
+    "harness": { "type": "string" },
+    "chat_lanes": { "type": "array", "items": { "enum": ["slack"] }, "default": ["slack"] },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+  },
+  "additionalProperties": false
+}

@@ -21,6 +21,7 @@
  * Worker, in Vitest, and anywhere else without modification.
  */
 import { InputError, parseGitHubRepoUrl } from "./security.js";
+import { executionTargetSchema, type ExecutionTarget } from "@shiba/shared";
 import { postSystemOne, readNoulAnswer, type TypeSafeFetch } from "./typesafe.js";
 
 /** Minimum gap between two schedule firings, in minutes. */
@@ -103,6 +104,8 @@ export interface Automation {
   id: string;
   prompt: string;
   repoUrl: string;
+  /** Absent on legacy repo automations; frozen target for new scheduling paths. */
+  executionTarget?: ExecutionTarget;
   triggers: AutomationTrigger[];
   enabled: boolean;
   runAs?: string;
@@ -135,7 +138,42 @@ export interface Automation {
   mission?: boolean;
   /** Org custom agent id — resolved at queue time like dashboard intake. */
   customAgentId?: string;
+  /** Profile snapshot reviewed when the recurring task was configured. */
+  customAgentPin?: { id: string; orgId: string; version: number; configSha256: string };
+  /** Immutable reviewed skill text snapshots. Never fetched or updated at dispatch. */
+  skillPins?: ReviewedSkillPin[];
+  /** Bounded occurrence history for reload/recovery. */
+  occurrences?: ScheduleOccurrence[];
 }
+
+export interface ReviewedSkillPin {
+  id: string;
+  version: string;
+  source: string;
+  instructions: string;
+  sha256: string;
+  enabled: boolean;
+}
+
+/** Hash the entire reviewed identity and snapshot so source/version edits cannot keep a stale digest. */
+export async function reviewedSkillPinSha256(pin: Pick<ReviewedSkillPin, "id" | "version" | "source" | "instructions">): Promise<string> {
+  const canonical = JSON.stringify([pin.id, pin.version, pin.source, pin.instructions]);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export interface ScheduleOccurrence {
+  id: string;
+  scheduledAt: number;
+  commandId: string;
+  status: "queued" | "queue-unknown" | "rejected" | "approved" | "running" | "completed" | "error" | "aborted" | "cancelled" | "unknown";
+  outcome: "approval-pending" | "queue-outcome-unknown" | "not-queued" | "approved" | "rejected" | "running" | "completed" | "error" | "aborted" | "cancelled" | "unknown";
+  approvalId?: string;
+  runId?: string;
+  updatedAt: number;
+}
+
+export const AUTOMATION_OCCURRENCE_HISTORY_LIMIT = 64;
 
 export interface GitHubAutomationEvent {
   /** Webhook name: `pull_request`, `push`, `issues`, `issue_comment`, … */
@@ -181,6 +219,8 @@ export type AutomationMatchEvent =
 export interface MatchedTrigger {
   triggerIndex: number;
   trigger: AutomationTrigger;
+  /** Concrete UTC minute selected from the timezone-aware scheduler window. */
+  scheduleOccurrenceMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,6 +390,16 @@ export function validateCron(expr: string): boolean {
   return minuteFieldGap(parsed.minute) >= SCHEDULE_FLOOR_MINUTES;
 }
 
+export function isValidAutomationTimeZone(timeZone: string): boolean {
+  if (!timeZone.trim()) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function matchesCron(parsed: ParsedCron, date: Date): boolean {
   if (!parsed.minute.has(date.getUTCMinutes())) {
     return false;
@@ -385,7 +435,7 @@ function cronPartsInTimeZone(nowMs: number, timeZone: string): { minute: number;
       hour: "numeric",
       minute: "numeric",
       weekday: "short",
-      hour12: false,
+      hourCycle: "h23",
     });
     const parts = fmt.formatToParts(new Date(nowMs));
     const read = (type: string) => parts.find((p) => p.type === type)?.value;
@@ -432,23 +482,24 @@ export function isScheduleDue(
   lastTriggeredAtMs?: number,
   timeZone = "UTC",
 ): boolean {
+  const occurrence = scheduleOccurrenceMs(cron, nowMs, timeZone);
+  return occurrence !== null && (lastTriggeredAtMs === undefined || lastTriggeredAtMs < occurrence);
+}
+
+/** Latest matching UTC minute in the scheduler's coalescing window. */
+export function scheduleOccurrenceMs(cron: string, nowMs: number, timeZone = "UTC"): number | null {
   const parsed = parseCron(cron);
-  if (!parsed) {
-    return false;
-  }
+  if (!parsed) return null;
   const tz = timeZone.trim() || "UTC";
+  if (tz !== "UTC" && tz !== "Etc/UTC" && !isValidAutomationTimeZone(tz)) return null;
   for (let back = 0; back < SCHEDULE_FLOOR_MINUTES; back++) {
     const fireMs = (Math.floor(nowMs / 60000) - back) * 60000;
-    const matches =
-      tz === "UTC" || tz === "Etc/UTC"
-        ? matchesCron(parsed, new Date(fireMs))
-        : matchesCronZoned(parsed, fireMs, tz);
-    if (!matches) {
-      continue;
-    }
-    return lastTriggeredAtMs === undefined || lastTriggeredAtMs < fireMs;
+    const matches = tz === "UTC" || tz === "Etc/UTC"
+      ? matchesCron(parsed, new Date(fireMs))
+      : matchesCronZoned(parsed, fireMs, tz);
+    if (matches) return fireMs;
   }
-  return false;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -573,13 +624,16 @@ function randomHex(bytes: number): string {
 export interface CreateAutomationInput {
   id?: string;
   prompt: string;
-  repoUrl: string;
+  repoUrl?: string;
+  executionTarget?: ExecutionTarget;
   triggers: AutomationTrigger[];
   enabled?: boolean;
   runAs?: string;
   /** Standing-goal automation — see {@link Automation.mission}. */
   mission?: boolean;
   customAgentId?: string;
+  customAgentPin?: Automation["customAgentPin"];
+  skillPins?: ReviewedSkillPin[];
 }
 
 export interface CreatedAutomation {
@@ -602,36 +656,104 @@ export function createAutomation(input: CreateAutomationInput): CreatedAutomatio
   if (!prompt) {
     throw new InputError("Automation prompt must be a non-empty string.");
   }
-  parseGitHubRepoUrl(input.repoUrl);
+  let repoUrl = typeof input.repoUrl === "string" ? input.repoUrl.trim() : "";
+  let executionTarget: ExecutionTarget | undefined;
+  if (input.executionTarget !== undefined) {
+    const parsedTarget = executionTargetSchema.safeParse(input.executionTarget);
+    if (!parsedTarget.success) throw new InputError("Invalid automation execution target.");
+    executionTarget = parsedTarget.data;
+    if (executionTarget.kind === "connected-app") {
+      throw new InputError("Connected-app automation runs are unavailable until a permissioned adapter exists.");
+    }
+    if (executionTarget.kind === "repository") {
+      if (repoUrl && repoUrl !== executionTarget.repoUrl) {
+        throw new InputError("Repository execution target must match repoUrl.");
+      }
+      repoUrl = executionTarget.repoUrl;
+      parseGitHubRepoUrl(repoUrl);
+    } else if (executionTarget.kind === "artifact-workspace") {
+      if (repoUrl) throw new InputError("Artifact-workspace automations must not name a repository.");
+      if (!Array.isArray(input.triggers) || input.triggers.some((trigger) => trigger.kind !== "schedule")) {
+        throw new InputError("Artifact-workspace automations support schedule triggers only.");
+      }
+      executionTarget = {
+        ...executionTarget,
+        workspaceName: executionTarget.workspaceName ?? "My workspace",
+        expectedDeliverables: [...executionTarget.expectedDeliverables],
+      };
+    }
+  } else {
+    if (!repoUrl) throw new InputError("Automation needs a GitHub repo URL or a supported execution target.");
+    parseGitHubRepoUrl(repoUrl);
+  }
   const id = input.id ?? `auto-${randomHex(8)}`;
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
     throw new InputError("Automation id must be 1–64 chars of letters, digits, - or _.");
   }
-  if (input.triggers.length === 0) {
+  if (!Array.isArray(input.triggers) || input.triggers.length === 0) {
     throw new InputError("Automation needs at least one trigger.");
   }
-  for (const trigger of input.triggers) {
+  if (input.customAgentId && !input.customAgentPin) {
+    throw new InputError("Custom-agent schedules require a reviewed profile version pin.");
+  }
+  if (input.customAgentPin && (
+    !input.customAgentId || input.customAgentPin.id !== input.customAgentId.trim() ||
+    !input.customAgentPin.orgId || !Number.isSafeInteger(input.customAgentPin.version) || input.customAgentPin.version < 1 ||
+    !/^[a-f0-9]{64}$/.test(input.customAgentPin.configSha256)
+  )) {
+    throw new InputError("Invalid custom-agent profile pin.");
+  }
+  if (input.skillPins !== undefined && (!Array.isArray(input.skillPins) || input.skillPins.length > 16 || input.skillPins.some((pin) =>
+    !pin || typeof pin.id !== "string" || !pin.id.trim() || pin.id.length > 128 ||
+    typeof pin.version !== "string" || !pin.version.trim() || pin.version.length > 128 ||
+    typeof pin.source !== "string" || pin.source.length > 2048 ||
+    typeof pin.instructions !== "string" || !pin.instructions.trim() || pin.instructions.length > 32_000 ||
+    typeof pin.enabled !== "boolean" || !/^[a-f0-9]{64}$/.test(pin.sha256)
+  ))) {
+    throw new InputError("Invalid reviewed skill pins.");
+  }
+  if ((input.skillPins ?? []).reduce((sum, pin) => sum + pin.instructions.length, prompt.length) > 3_500) {
+    throw new InputError("Prompt and reviewed skill snapshots must fit within the approval task limit.");
+  }
+  const triggers = input.triggers.map((trigger) => ({
+    ...trigger,
+    ...(trigger.kind === "schedule" && trigger.timezone ? { timezone: trigger.timezone.trim() } : {}),
+    ...(trigger.kind === "github" ? {
+      events: [...trigger.events],
+      ...(trigger.repos ? { repos: [...trigger.repos] } : {}),
+      ...(trigger.branches ? { branches: [...trigger.branches] } : {}),
+      ...(trigger.authors ? { authors: [...trigger.authors] } : {}),
+      ...(trigger.labels ? { labels: [...trigger.labels] } : {}),
+    } : {}),
+  })) as AutomationTrigger[];
+  for (const trigger of triggers) {
     if (trigger.kind === "schedule" && !validateCron(trigger.cron)) {
       throw new InputError(
         `Invalid schedule cron "${trigger.cron}": want five fields, at most one run per 5 minutes.`,
       );
     }
+    if (trigger.kind === "schedule" && trigger.timezone !== undefined && !isValidAutomationTimeZone(trigger.timezone)) {
+      throw new InputError(`Invalid schedule timezone "${trigger.timezone}"; expected an IANA timezone.`);
+    }
     if (trigger.kind === "github" && trigger.events.length === 0) {
       throw new InputError("GitHub triggers need at least one event.");
     }
   }
-  const needsSecret = input.triggers.some((trigger) => trigger.kind === "webhook");
+  const needsSecret = triggers.some((trigger) => trigger.kind === "webhook");
   const webhookSecret = needsSecret ? randomHex(32) : null;
   return {
     automation: {
       id,
       prompt,
-      repoUrl: input.repoUrl,
-      triggers: input.triggers,
+      repoUrl,
+      ...(executionTarget !== undefined ? { executionTarget } : {}),
+      triggers,
       enabled: input.enabled ?? true,
       ...(input.runAs !== undefined ? { runAs: input.runAs } : {}),
       ...(input.mission === true ? { mission: true } : {}),
       ...(input.customAgentId?.trim() ? { customAgentId: input.customAgentId.trim() } : {}),
+      ...(input.customAgentPin ? { customAgentPin: { ...input.customAgentPin } } : {}),
+      ...(input.skillPins ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(webhookSecret !== null ? { webhookSecret } : {}),
       runCount: 0,
     },
@@ -673,8 +795,9 @@ export function matchAutomationEvent(
     } else if (event.kind === "schedule" && trigger.kind === "schedule") {
       const scheduleKey = `t${index}`;
       const lastForTrigger = automation.scheduleFiredAt?.[scheduleKey] ?? automation.lastTriggeredAt;
-      if (isScheduleDue(trigger.cron, event.nowMs, lastForTrigger, trigger.timezone ?? "UTC")) {
-        return { triggerIndex: index, trigger };
+      const occurrence = scheduleOccurrenceMs(trigger.cron, event.nowMs, trigger.timezone ?? "UTC");
+      if (occurrence !== null && (lastForTrigger === undefined || lastForTrigger < occurrence)) {
+        return { triggerIndex: index, trigger, scheduleOccurrenceMs: occurrence };
       }
     } else if (event.kind === "manual" && trigger.kind === "manual") {
       return { triggerIndex: index, trigger };
@@ -832,6 +955,7 @@ export async function evaluateRunWhen(
 /** The one mutation safe to run unattended: a PR is reviewable and revertible. */
 export interface AutomationRunRequest {
   publishPullRequest: boolean;
+  executionTarget?: ExecutionTarget;
   /** Any mutation beyond opening a PR — pushing to a branch, closing issues, … */
   otherMutations?: string[];
 }
@@ -868,6 +992,16 @@ export function authorizeAutomationRun(
       requiresApproval: true,
       reason: `Daily run budget reached: ${used}/${limit} runs today.`,
     };
+  }
+  if (automation.executionTarget?.kind === "artifact-workspace") {
+    if (request.publishPullRequest || (request.otherMutations ?? []).length > 0) {
+      return {
+        allowed: false,
+        requiresApproval: true,
+        reason: "Artifact-workspace runs cannot publish or perform connected-app mutations.",
+      };
+    }
+    return { allowed: true, requiresApproval: true, reason: "Artifact-workspace runs require human approval." };
   }
   const prOnly = request.publishPullRequest && (request.otherMutations ?? []).length === 0;
   if (!automation.unattended) {

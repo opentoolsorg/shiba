@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { EMPLOYEE_TEMPLATES } from "./employee-templates";
 
 describe("employee role templates", () => {
-  it("offers four distinct editable bot identities without claiming an external integration", () => {
-    expect(EMPLOYEE_TEMPLATES.map((template) => template.label)).toEqual(["Engineering", "Marketing", "Research", "Operations"]);
-    expect(new Set(EMPLOYEE_TEMPLATES.map((template) => template.slug)).size).toBe(4);
+  it("offers seven distinct editable bot identities without claiming an external integration", () => {
+    expect(EMPLOYEE_TEMPLATES.map((template) => template.label)).toEqual(["Engineering", "Marketing", "Sales", "Product", "Design", "Research", "Operations"]);
+    expect(new Set(EMPLOYEE_TEMPLATES.map((template) => template.slug)).size).toBe(7);
     for (const template of EMPLOYEE_TEMPLATES) {
       expect(template.slug).toMatch(/^[a-z0-9-]{1,48}$/);
       expect(template.config.name).toBe(`${template.label} bot`);
@@ -21,6 +21,9 @@ describe("employee role templates", () => {
     expect(EMPLOYEE_TEMPLATES.map((template) => template.config.expectedDeliverables)).toEqual([
       [],
       ["marketing/brief.md", "marketing/campaign.md"],
+      ["sales/account-brief.md", "sales/outreach.md"],
+      ["product/brief.md"],
+      ["design/spec.md"],
       ["research/report.md", "research/sources.json"],
       ["operations/runbook.md"],
     ]);

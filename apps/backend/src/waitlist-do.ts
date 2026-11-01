@@ -63,8 +63,8 @@ export class Waitlist {
         entry.email, entry.interest, entry.github, now,
       );
     }
-    // Uniform 200: a 201-vs-200 split would reveal whether an email is on the list.
-    return Response.json({ ok: true, alreadyJoined: existing });
+    // Uniform body: never reveal whether the email was already registered.
+    return Response.json({ ok: true });
   }
 
   async alarm(): Promise<void> {

@@ -251,7 +251,11 @@ describe("dashboard inbox routes", () => {
     const env = makeEnv({ [DIRECTORY]: directory });
     const payload = JSON.stringify({ address: "agent@shiba.dev", label: "Agent" });
     const response = await worker.fetch(
-      new Request("http://localhost/api/mailboxes", { method: "POST", body: payload }),
+      new Request("http://localhost/api/mailboxes", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: payload,
+      }),
       env,
       ctx,
     );
@@ -263,11 +267,45 @@ describe("dashboard inbox routes", () => {
       { method: "POST", match: "/internal/mailbox/mailboxes", body: { error: "address required" }, status: 400 },
     ]);
     const bad = await worker.fetch(
-      new Request("http://localhost/api/mailboxes", { method: "POST", body: "{}" }),
+      new Request("http://localhost/api/mailboxes", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: "{}",
+      }),
       makeEnv({ [DIRECTORY]: rejecting }),
       ctx,
     );
     expect(bad.status).toBe(400);
+  });
+
+  it("POST /api/mailboxes rejects cross-site and non-JSON mutations", async () => {
+    const directory = makeStub([
+      { method: "POST", match: "/internal/mailbox/mailboxes", body: { mailbox: { address: "agent@shiba.dev" } }, status: 201 },
+    ]);
+    const env = makeEnv({ [DIRECTORY]: directory });
+    const payload = JSON.stringify({ address: "agent@shiba.dev" });
+    const crossSite = await worker.fetch(
+      new Request("http://localhost/api/mailboxes", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://evil.example" },
+        body: payload,
+      }),
+      env,
+      ctx,
+    );
+    expect(crossSite.status).toBe(403);
+    expect(directory.calls).toHaveLength(0);
+    const wrongType = await worker.fetch(
+      new Request("http://localhost/api/mailboxes", {
+        method: "POST",
+        headers: { "content-type": "text/plain", origin: "http://localhost" },
+        body: payload,
+      }),
+      env,
+      ctx,
+    );
+    expect(wrongType.status).toBe(415);
+    expect(directory.calls).toHaveLength(0);
   });
 
   it("GET /api/emails fans out across mailboxes, tags each row, sorts newest first", async () => {
@@ -711,17 +749,17 @@ describe("dashboard memory routes", () => {
       { method: "DELETE", match: /^\/internal\/memory\/facts\/fact-1$/, body: { ok: true } },
     ]);
     const directory = makeStub([{ match: "/internal/mailbox/mailboxes", body: { mailboxes: [] } }]);
-    const env = makeEnv({ [DIRECTORY]: directory }, { memory: { global: memoryStub } });
+    const env = makeEnv({ [DIRECTORY]: directory }, { memory: { global: memoryStub, default: memoryStub } });
     return { env, memoryStub };
   }
 
-  it("GET /api/memory/facts proxies the global registry stub", async () => {
+  it("GET /api/memory/facts limits legacy facts to the local default agent", async () => {
     const { env, memoryStub } = memoryEnv();
     const response = await worker.fetch(new Request("http://localhost/api/memory/facts"), env, ctx);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { facts: Array<{ id: string }> };
     expect(body.facts).toHaveLength(1);
-    expect(memoryStub.calls[0]!.url).toContain("/internal/memory/facts");
+    expect(memoryStub.calls[0]!.url).toBe("https://internal/internal/memory/facts?agent=default");
   });
 
   it("GET /api/memory/facts?q= routes to recall search with the query", async () => {
@@ -734,7 +772,7 @@ describe("dashboard memory routes", () => {
     const body = (await response.json()) as { facts: Array<{ score?: number }> };
     expect(body.facts[0]!.score).toBe(0.87);
     expect(memoryStub.calls[0]!.url).toBe(
-      "https://internal/internal/memory/facts/search?q=package+manager",
+      "https://internal/internal/memory/facts/search?agent=default&q=package+manager",
     );
   });
 
@@ -743,8 +781,11 @@ describe("dashboard memory routes", () => {
     const sessions = await worker.fetch(new Request("http://localhost/api/memory/sessions"), env, ctx);
     const body = (await sessions.json()) as { sessions: Array<{ id: string }> };
     expect(body.sessions[0]!.id).toBe("ses-1");
+    expect(memoryStub.calls.find((call) => call.url.includes("/sessions"))?.url).toBe(
+      "https://internal/internal/memory/sessions?agent=default",
+    );
     const del = await worker.fetch(
-      new Request("http://localhost/api/memory/facts/fact-1", { method: "DELETE" }),
+      new Request("http://localhost/api/memory/facts/fact-1", { method: "DELETE", headers: { Origin: "http://localhost" } }),
       env,
       ctx,
     );
@@ -759,7 +800,7 @@ describe("dashboard memory routes", () => {
   it("DELETE /api/memory/facts/:id forwards the encoded segment without double-encoding", async () => {
     const { env, memoryStub } = memoryEnv();
     await worker.fetch(
-      new Request("http://localhost/api/memory/facts/my%20fact", { method: "DELETE" }),
+      new Request("http://localhost/api/memory/facts/my%20fact", { method: "DELETE", headers: { Origin: "http://localhost" } }),
       env,
       ctx,
     );

@@ -21,6 +21,7 @@ import {
 import { isGitHubPublishConfigured } from "./github-auth.js";
 import {
   AutomationStore,
+  AUTOMATION_OCCURRENCE_HISTORY_LIMIT,
   automationsEnabled,
   collectDueSchedules,
   createAutomation,
@@ -30,10 +31,15 @@ import {
   type Automation,
   type AutomationMatchEvent,
   type CreateAutomationInput,
+  type ScheduleOccurrence,
+  reviewedSkillPinSha256,
 } from "./automations.js";
 import type { Env } from "./env.js";
 import { InputError } from "./security.js";
 import { ORCHESTRATOR_NAME } from "./slack-routes.js";
+import { sha256Hex } from "./agent-tokens.js";
+import { getCustomAgentById } from "./custom-agents-store.js";
+import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 
 export interface AutomationsState {
   items: Automation[];
@@ -94,6 +100,7 @@ async function webhookBody(request: Request): Promise<string | null> {
   return new TextDecoder().decode(joined);
 }
 const DEDUPE_PREFIX = "dedupe:";
+const GITHUB_PAYLOAD_PREFIX = "github-payload-replay:";
 const DEDUPE_TTL_MS = 3_600_000;
 const DEDUPE_GC_INTERVAL_MS = 60_000;
 const DEDUPE_GC_STATE_KEY = "automation-dedupe-gc:last-success";
@@ -103,6 +110,7 @@ async function queueOnOrchestrator(
   stub: OrchestratorStub,
   input: {
     repoUrl: string;
+    executionTarget?: QueueAutomationRunInput["executionTarget"];
     task: string;
     publishPullRequest: boolean;
     threadKey: string;
@@ -110,6 +118,8 @@ async function queueOnOrchestrator(
     codingModel?: string;
     commandId?: string;
     customAgentId?: string;
+    expectedCustomAgentVersion?: number;
+    orgId?: string;
   },
 ): Promise<{ approvalId: string }> {
   const queued = await stub.fetch(
@@ -167,8 +177,76 @@ export class Automations {
     return this.storeFrom(state.items);
   }
 
-  private async save(store: AutomationStore): Promise<void> {
-    await this.ctx.storage.put("state", { items: store.list() } satisfies AutomationsState);
+  /**
+   * Merge the in-flight fire's accounting into the latest persisted state.
+   * Queue calls yield to PATCH/DELETE requests, so replacing the old snapshot
+   * after an await could undo a pause or resurrect a deleted automation.
+   */
+  private async mergeFireState(before: Automation[], after: Automation[]): Promise<void> {
+    const beforeById = new Map(before.map((item) => [item.id, item]));
+    const afterById = new Map(after.map((item) => [item.id, item]));
+    await this.ctx.storage.transaction(async (transaction) => {
+      const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+      const items = state.items.map((latest) => {
+        const base = beforeById.get(latest.id);
+        const fired = afterById.get(latest.id);
+        return base && fired ? mergeAutomationFireState(base, fired, latest) : latest;
+      });
+      await transaction.put("state", { items } satisfies AutomationsState);
+    });
+  }
+
+  /**
+   * Refresh persisted occurrence links from the orchestrator's retained approvals and runs.
+   * These source listings are bounded (25 decided approvals, 500 recent runs); older
+   * entries retain their last known state instead of claiming indefinite recovery.
+   */
+  private async reconcileScheduleOccurrences(orchestrator: OrchestratorStub, nowMs: number): Promise<void> {
+    const state = await this.ctx.storage.get<AutomationsState>("state") ?? { items: [] };
+    if (!state.items.some((item) => item.occurrences?.some((occurrence) => occurrence.approvalId))) return;
+    try {
+      const [approvalResponse, runResponse] = await Promise.all([
+        orchestrator.fetch(new Request("https://internal/api/approvals", { method: "GET", signal: AbortSignal.timeout(10_000) })),
+        orchestrator.fetch(new Request("https://internal/api/runs?limit=500&view=summary", { method: "GET", signal: AbortSignal.timeout(10_000) })),
+      ]);
+      if (!approvalResponse.ok || !runResponse.ok) return;
+      const approvals = await approvalResponse.json() as { approvals?: { approvalId?: string; status?: string }[]; decided?: { approvalId?: string; status?: string }[] };
+      const runs = await runResponse.json() as { runs?: { runId?: string; status?: string }[] };
+      const pendingIds = new Set((approvals.approvals ?? []).map((item) => item.approvalId).filter((id): id is string => Boolean(id)));
+      const decided = new Map((approvals.decided ?? []).flatMap((item) => item.approvalId ? [[item.approvalId, item.status ?? "unknown"] as const] : []));
+      const runStatuses = new Map((runs.runs ?? []).flatMap((item) => item.runId && item.status ? [[item.runId, item.status] as const] : []));
+      await this.ctx.storage.transaction(async (transaction) => {
+        const latest = await transaction.get<AutomationsState>("state") ?? { items: [] };
+        const items = latest.items.map((automation) => {
+          if (!automation.occurrences?.length) return automation;
+          let changed = false;
+          const occurrences = automation.occurrences.map((occurrence) => {
+            if (!occurrence.approvalId) return occurrence;
+            let outcome: "approval-pending" | "approved" | "rejected" | "running" | "completed" | "error" | "aborted" | "cancelled" | undefined;
+            if (pendingIds.has(occurrence.approvalId)) outcome = "approval-pending";
+            else {
+              const runStatus = occurrence.runId ? runStatuses.get(occurrence.runId) : undefined;
+              const approvalStatus = decided.get(occurrence.approvalId);
+              if (runStatus && ["pending", "running", "completed", "error", "aborted", "cancelled"].includes(runStatus)) {
+                outcome = runStatus === "pending" ? "approved" : runStatus as "running" | "completed" | "error" | "aborted" | "cancelled";
+              } else if (approvalStatus === "rejected") outcome = "rejected";
+              else if (approvalStatus === "approved") outcome = "approved";
+            }
+            if (!outcome || occurrence.outcome === outcome) return occurrence;
+            changed = true;
+            const status: ScheduleOccurrence["status"] = outcome === "approval-pending" ? "queued" : outcome;
+            return { ...occurrence, status, outcome, updatedAt: nowMs };
+          });
+          return changed ? { ...automation, occurrences } : automation;
+        });
+        if (items.some((item, index) => item !== latest.items[index])) {
+          await transaction.put("state", { items } satisfies AutomationsState);
+        }
+      });
+    } catch {
+      // A read-side reconciliation failure must not stall schedule dispatch;
+      // the last known outcome and stable command receipt remain available.
+    }
   }
 
   private fireDeps(orchestrator: OrchestratorStub, nowMs: number): FireAutomationDeps {
@@ -180,6 +258,11 @@ export class Automations {
       globalEnabled: automationsEnabled(this.env.AUTOMATIONS_ENABLED),
       canPublishPullRequest: isGitHubPublishConfigured(this.env),
       queueRun: (input) => queueOnOrchestrator(orchestrator, input),
+      resolveCustomAgentPin: async (pin) => {
+        if (!this.env.AGENT_AUDIT) return null;
+        const current = await getCustomAgentById(this.env, pin.orgId, pin.id);
+        return current ? { version: current.version, configSha256: await sha256Hex(JSON.stringify(current.config)) } : null;
+      },
       resolveApproval: (input) => resolveOnOrchestrator(orchestrator, input),
     };
   }
@@ -198,12 +281,7 @@ export class Automations {
       event,
       this.fireDeps(orchestrator, nowMs),
     );
-    // Merge updated entries back into the full store — the input list is
-    // filtered when onlyId is set, so it is not the complete store.
-    const updated = new Map(automations.map((a) => [a.id, a]));
-    const next = new AutomationStore();
-    for (const item of all) next.upsert(updated.get(item.id) ?? item);
-    await this.save(next);
+    await this.mergeFireState(target, automations);
     return {
       fired: results.filter((r) => r.fired).length,
       skipped: results.filter((r) => !r.fired).length,
@@ -211,6 +289,7 @@ export class Automations {
   }
 
   async tick(orchestrator: OrchestratorStub, nowMs = Date.now()): Promise<{ fired: number }> {
+    await this.reconcileScheduleOccurrences(orchestrator, nowMs);
     const batchStore = await this.load();
     let fired = 0;
     fired += await this.flushWebhookBatches(orchestrator, batchStore, nowMs);
@@ -227,9 +306,7 @@ export class Automations {
       event,
       this.fireDeps(orchestrator, nowMs),
     );
-    const next = new AutomationStore();
-    for (const item of automations) next.upsert(item);
-    await this.save(next);
+    await this.mergeFireState(store.list(), automations);
     return { fired: fired + results.filter((r) => r.fired).length };
   }
 
@@ -281,7 +358,18 @@ export class Automations {
         ...automation,
         // Evaluate today's permissions against the repository and PR intent
         // that was actually queued, rather than a subsequently edited task.
-        ...(frozenIntent ? { repoUrl: frozenIntent.repoUrl, prompt: frozenIntent.prompt } : {}),
+        ...(frozenIntent ? {
+          repoUrl: frozenIntent.repoUrl,
+          prompt: frozenIntent.prompt,
+          // A previously attempted queue has a durable input intent. Do not
+          // let later employee edits turn that same command into a different
+          // (or unpinned) profile dispatch; queueRun below reuses the frozen
+          // command receipt and exact input fields.
+          customAgentId: frozenIntent.customAgentId,
+          customAgentPin: undefined,
+          skillPins: undefined,
+          executionTarget: frozenIntent.executionTarget,
+        } : {}),
         ...(ownCharge ? { runsToday: Math.max(0, (automation.runsToday ?? 0) - 1) } : {}),
       };
       const result = await fireMatchingAutomations(
@@ -446,8 +534,20 @@ export class Automations {
       return;
     }
     const all = await this.ctx.storage.list<unknown>({ prefix: DEDUPE_PREFIX });
+    // Move legacy permanent replay keys out of the periodically scanned namespace.
+    const legacyPayloads = [...all.entries()]
+      .filter(([key]) => key.startsWith(`${DEDUPE_PREFIX}gh-payload:`))
+      .slice(0, DEDUPE_GC_DELETE_LIMIT);
+    for (const [key, seenAt] of legacyPayloads) {
+      await this.ctx.storage.put(GITHUB_PAYLOAD_PREFIX + key.slice(DEDUPE_PREFIX.length), seenAt);
+    }
+    if (legacyPayloads.length > 0) await this.ctx.storage.delete(legacyPayloads.map(([key]) => key));
     const stale = [...all.entries()]
-      .filter(([, seenAt]) => typeof seenAt !== "number" || seenAt < nowMs - DEDUPE_TTL_MS)
+      .filter(([key, seenAt]) => {
+        // Signed GitHub bodies stay valid indefinitely; never forget payload hashes.
+        if (key.startsWith(`${DEDUPE_PREFIX}gh-payload:`)) return false;
+        return typeof seenAt !== "number" || seenAt < nowMs - DEDUPE_TTL_MS;
+      })
       .map(([key]) => key)
       .sort()
       .slice(0, DEDUPE_GC_DELETE_LIMIT);
@@ -638,8 +738,12 @@ export class Automations {
       if (typeof key !== "string" || !key) {
         return Response.json({ error: "Missing dedupe key." }, { status: 400 });
       }
-      const storageKey = DEDUPE_PREFIX + key.slice(0, 200);
-      if (await this.ctx.storage.get<number>(storageKey)) {
+      const isGitHubPayload = key.startsWith("gh-payload:");
+      const storageKey = (isGitHubPayload ? GITHUB_PAYLOAD_PREFIX : DEDUPE_PREFIX) + key.slice(0, 200);
+      if (
+        await this.ctx.storage.get<number>(storageKey) ||
+        (isGitHubPayload && await this.ctx.storage.get<number>(DEDUPE_PREFIX + key.slice(0, 200)))
+      ) {
         return Response.json({ seen: true });
       }
       const now = Date.now();
@@ -724,10 +828,35 @@ export class Automations {
         return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
       }
       try {
-        const created = createAutomation(body as CreateAutomationInput);
-        const store = await this.load();
-        store.upsert(created.automation);
-        await this.save(store);
+        const input = body as CreateAutomationInput;
+        if (input.customAgentId?.trim()) {
+          if (!this.env.AGENT_AUDIT) return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
+          const agent = await getCustomAgentById(this.env, DASHBOARD_ORG_ID, input.customAgentId.trim());
+          if (!agent) return Response.json({ error: "Bot not found or unavailable." }, { status: 404 });
+          if (agent.config.toolScopes?.length) return Response.json({ error: "Bot toolScopes are not supported." }, { status: 400 });
+          input.customAgentId = agent.id;
+          input.customAgentPin = {
+            id: agent.id,
+            orgId: agent.orgId,
+            version: agent.version,
+            configSha256: await sha256Hex(JSON.stringify(agent.config)),
+          };
+        }
+        for (const pin of input.skillPins ?? []) {
+          if (await reviewedSkillPinSha256(pin) !== pin.sha256) {
+            return Response.json({ error: `Reviewed skill pin ${pin.id} does not match its content hash.` }, { status: 400 });
+          }
+        }
+        const created = createAutomation(input);
+        const inserted = await this.ctx.storage.transaction(async (transaction) => {
+          const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+          if (state.items.some((item) => item.id === created.automation.id)) return false;
+          await transaction.put("state", { items: [...state.items, created.automation] } satisfies AutomationsState);
+          return true;
+        });
+        if (!inserted) {
+          return Response.json({ error: "Automation id already exists." }, { status: 409 });
+        }
         return Response.json(
           { automation: publicAutomation(created.automation), webhookSecret: created.webhookSecret },
           { status: 201 },
@@ -746,15 +875,17 @@ export class Automations {
       } catch {
         return Response.json({ error: "Automation not found." }, { status: 404 });
       }
-      const store = await this.load();
-      const automation = store.get(id);
+      if (request.method === "DELETE") {
+        return this.ctx.storage.transaction(async (transaction) => {
+          const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+          if (!state.items.some((item) => item.id === id)) return Response.json({ error: "Automation not found." }, { status: 404 });
+          await transaction.put("state", { items: state.items.filter((item) => item.id !== id) } satisfies AutomationsState);
+          return Response.json({ ok: true, id });
+        });
+      }
+      const automation = (await this.load()).get(id);
       if (!automation) {
         return Response.json({ error: "Automation not found." }, { status: 404 });
-      }
-      if (request.method === "DELETE") {
-        store.remove(id);
-        await this.save(store);
-        return Response.json({ ok: true, id });
       }
       let body: unknown;
       try {
@@ -766,16 +897,26 @@ export class Automations {
         enabled?: unknown;
         prompt?: unknown;
         customAgentId?: unknown;
+        reviewCustomAgent?: unknown;
+        skillPins?: unknown;
+        reviewSkillPins?: unknown;
+        executionTarget?: unknown;
+        triggers?: unknown;
       };
+      if (patch.executionTarget !== undefined || patch.triggers !== undefined) {
+        return Response.json({ error: "Execution target, deliverables, and triggers are immutable after creation." }, { status: 400 });
+      }
       if (
         (patch.enabled !== undefined && typeof patch.enabled !== "boolean") ||
         (patch.prompt !== undefined && (typeof patch.prompt !== "string" || !patch.prompt.trim())) ||
         (patch.customAgentId !== undefined &&
           patch.customAgentId !== null &&
-          typeof patch.customAgentId !== "string")
+          typeof patch.customAgentId !== "string") ||
+        (patch.reviewCustomAgent !== undefined && typeof patch.reviewCustomAgent !== "boolean") ||
+        (patch.reviewSkillPins !== undefined && typeof patch.reviewSkillPins !== "boolean")
       ) {
         return Response.json(
-          { error: "enabled must be a boolean; prompt a non-empty string; customAgentId a string or null." },
+          { error: "Invalid automation update fields." },
           { status: 400 },
         );
       }
@@ -785,15 +926,66 @@ export class Automations {
           : typeof patch.customAgentId === "string" && patch.customAgentId.trim()
             ? patch.customAgentId.trim()
             : automation.customAgentId;
-      const updated: Automation = {
-        ...automation,
+      if (patch.customAgentId !== undefined && patch.customAgentId !== null && customAgentId !== automation.customAgentId && patch.reviewCustomAgent !== true) {
+        return Response.json({ error: "Changing an employee profile requires reviewCustomAgent: true." }, { status: 400 });
+      }
+      let customAgentPin = patch.customAgentId === null ? undefined : automation.customAgentPin;
+      if (customAgentId && patch.reviewCustomAgent === true) {
+        if (!this.env.AGENT_AUDIT) return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
+        const agent = await getCustomAgentById(this.env, DASHBOARD_ORG_ID, customAgentId);
+        if (!agent) return Response.json({ error: "Bot not found or unavailable." }, { status: 404 });
+        if (agent.config.toolScopes?.length) return Response.json({ error: "Bot toolScopes are not supported." }, { status: 400 });
+        customAgentPin = { id: agent.id, orgId: agent.orgId, version: agent.version, configSha256: await sha256Hex(JSON.stringify(agent.config)) };
+      }
+      let skillPins = automation.skillPins;
+      if (patch.skillPins !== undefined) {
+        if (patch.reviewSkillPins !== true || !Array.isArray(patch.skillPins) || patch.skillPins.length > 16) {
+          return Response.json({ error: "Changing skill pins requires reviewSkillPins: true and a skill pin list." }, { status: 400 });
+        }
+        try {
+          for (const pin of patch.skillPins) {
+            const item = pin as { id?: unknown; version?: unknown; source?: unknown; instructions?: unknown; sha256?: unknown; enabled?: unknown };
+            if (typeof item.id !== "string" || typeof item.version !== "string" || typeof item.source !== "string" || typeof item.instructions !== "string" || typeof item.sha256 !== "string" || await reviewedSkillPinSha256(item as Pick<import("./automations.js").ReviewedSkillPin, "id" | "version" | "source" | "instructions">) !== item.sha256) {
+              return Response.json({ error: "Reviewed skill pin content does not match its hash." }, { status: 400 });
+            }
+          }
+          const validated = createAutomation({
+            id: automation.id,
+            prompt: automation.prompt,
+            repoUrl: automation.repoUrl,
+            ...(automation.executionTarget ? { executionTarget: automation.executionTarget } : {}),
+            triggers: automation.triggers,
+            customAgentId,
+            ...(customAgentPin ? { customAgentPin } : {}),
+            skillPins: patch.skillPins as CreateAutomationInput["skillPins"],
+          });
+          skillPins = validated.automation.skillPins;
+        } catch (error) {
+          return Response.json({ error: error instanceof Error ? error.message : "Invalid reviewed skill pins." }, { status: 400 });
+        }
+      }
+      const selectsCustomAgent = patch.customAgentId === null || (typeof patch.customAgentId === "string" && patch.customAgentId.trim() !== "");
+      const config = {
         ...(typeof patch.enabled === "boolean" ? { enabled: patch.enabled } : {}),
         ...(typeof patch.prompt === "string" ? { prompt: patch.prompt.trim() } : {}),
-        ...(patch.customAgentId !== undefined ? { customAgentId } : {}),
+        ...(selectsCustomAgent ? { customAgentId } : {}),
+        ...(patch.customAgentId === null || patch.reviewCustomAgent === true ? { customAgentPin } : {}),
+        ...(patch.skillPins !== undefined ? { skillPins } : {}),
       };
-      store.upsert(updated);
-      await this.save(store);
-      return Response.json({ automation: publicAutomation(updated) });
+      // Validation can yield to ticks, other edits, and deletion. Only requested
+      // configuration fields belong to PATCH; runtime state belongs to the fire path.
+      return this.ctx.storage.transaction(async (transaction) => {
+        const state = await transaction.get<AutomationsState>("state") ?? { items: [] };
+        const latest = state.items.find((item) => item.id === id);
+        if (!latest) return Response.json({ error: "Automation not found." }, { status: 404 });
+        if ((!selectsCustomAgent && patch.reviewCustomAgent === true && latest.customAgentId !== customAgentId) ||
+            (selectsCustomAgent && patch.customAgentId !== null && latest.customAgentId !== customAgentId && patch.reviewCustomAgent !== true)) {
+          return Response.json({ error: "Automation employee changed during review. Reload before updating it." }, { status: 409 });
+        }
+        const updated: Automation = { ...latest, ...config };
+        await transaction.put("state", { items: state.items.map((item) => item.id === id ? updated : item) } satisfies AutomationsState);
+        return Response.json({ automation: publicAutomation(updated) });
+      });
     }
     const manualId = /^\/api\/automations\/([^/]+)\/run\/?$/.exec(url.pathname)?.[1];
     if (manualId && request.method === "POST") {
@@ -867,6 +1059,55 @@ export class Automations {
     }
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+}
+
+function mergeAutomationFireState(base: Automation, fired: Automation, latest: Automation): Automation {
+  const updated: Automation = { ...latest };
+  const runCountDelta = Math.max(0, fired.runCount - base.runCount);
+  if (runCountDelta > 0) updated.runCount = latest.runCount + runCountDelta;
+
+  const firedDay = fired.runDayStartedAt;
+  const baseDay = base.runDayStartedAt;
+  const firedTodayDelta = firedDay === baseDay
+    ? Math.max(0, (fired.runsToday ?? 0) - (base.runsToday ?? 0))
+    : fired.runsToday ?? 0;
+  if (firedTodayDelta > 0 && firedDay !== undefined) {
+    if (latest.runDayStartedAt === firedDay) {
+      updated.runsToday = (latest.runsToday ?? 0) + firedTodayDelta;
+    } else if (latest.runDayStartedAt === undefined || latest.runDayStartedAt < firedDay) {
+      updated.runDayStartedAt = firedDay;
+      updated.runsToday = fired.runsToday ?? firedTodayDelta;
+    }
+  }
+
+  if (fired.lastTriggeredAt !== base.lastTriggeredAt && fired.lastTriggeredAt !== undefined) {
+    updated.lastTriggeredAt = Math.max(latest.lastTriggeredAt ?? Number.NEGATIVE_INFINITY, fired.lastTriggeredAt);
+  }
+  const scheduleFiredAt = { ...(latest.scheduleFiredAt ?? {}) };
+  for (const [key, value] of Object.entries(fired.scheduleFiredAt ?? {})) {
+    if (value !== base.scheduleFiredAt?.[key]) {
+      scheduleFiredAt[key] = Math.max(scheduleFiredAt[key] ?? Number.NEGATIVE_INFINITY, value);
+    }
+  }
+  if (Object.keys(scheduleFiredAt).length > 0) updated.scheduleFiredAt = scheduleFiredAt;
+
+  const firedSkip = fired.lastSkip;
+  const baseSkip = base.lastSkip;
+  if (firedSkip && (firedSkip.at !== baseSkip?.at || firedSkip.reason !== baseSkip.reason)
+      && (!latest.lastSkip || latest.lastSkip.at <= firedSkip.at)) {
+    updated.lastSkip = firedSkip;
+  }
+  const occurrenceMap = new Map((latest.occurrences ?? []).map((item) => [item.id, item]));
+  for (const occurrence of fired.occurrences ?? []) {
+    const previous = base.occurrences?.find((item) => item.id === occurrence.id);
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(occurrence)) {
+      const current = occurrenceMap.get(occurrence.id);
+      if (!current || current.updatedAt <= occurrence.updatedAt) occurrenceMap.set(occurrence.id, occurrence);
+    }
+  }
+  const occurrences = [...occurrenceMap.values()].sort((a, b) => a.scheduledAt - b.scheduledAt).slice(-AUTOMATION_OCCURRENCE_HISTORY_LIMIT);
+  if (occurrences.length > 0) updated.occurrences = occurrences;
+  return updated;
 }
 
 function publicAutomation(automation: Automation): Omit<Automation, "webhookSecret"> & { hasWebhookSecret: boolean } {

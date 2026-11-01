@@ -3,23 +3,32 @@
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
  */
 import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { VMRun } from "./types";
+import { HARNESS_REASONING_EFFORTS, onboardingTaskText, type ReasoningEffort } from "@shiba/shared";
+import { normalizeRunStatus, type VMRun } from "./types";
 import { ActivityView } from "./components/ActivityView";
 import { ActivityReportView } from "./components/ActivityReportView";
 import { SwarmDeskView } from "./components/SwarmDeskView";
+import { CollaborationView } from "./components/CollaborationView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AutomationsView } from "./components/AutomationsView";
 import { AgentsView } from "./components/AgentsView";
 import { ProvidersView } from "./components/ProvidersView";
 import { SkillsView } from "./components/SkillsView";
+import { SpacesView } from "./components/SpacesView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
+import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
+import { AgentDetailsPanel, AgentPageHeader, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
-import { formatSkillInstructions, taskWithSkillInstructions } from "./skill-prompt";
+import { useProjectContexts } from "./project-contexts";
+import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables } from "./execution-target-input";
+import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
+import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
-import { useSavedRepos, useSavedSkills, saveRepo, readDraft, writeDraft } from "./saved";
+import { useSavedRepos, useSavedSkills, saveRepo, composerDraftScope, readDraft, readDraftReference, writeDraft } from "./saved";
 import { useSocketLiveness } from "./socket-liveness";
 import {
   codingModelOptions,
@@ -28,9 +37,26 @@ import {
   useModelConfig,
 } from "./live-status";
 import { DashboardView } from "./components/DashboardView";
+import { WorkView } from "./components/WorkView";
+import { TasksHomeView } from "./components/TasksHomeView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
-import { FirstRunWizard, ONBOARDING_STORAGE_KEY } from "./components/FirstRunWizard";
+import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
+import { OnboardingProgressClient, type FirstRunProgressUpdate } from "./onboarding-progress-client";
+import { ConversationalOnboarding } from "./components/ConversationalOnboarding";
+import type { OnboardingDraftRef, SelectedOnboardingDraft } from "./onboarding-draft";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
+import { ConversationWorkspaceHeading } from "./components/ConversationWorkspaceHeading";
+import { ConversationRoomPresence, RemoteAgentStream } from "./components/ConversationRoomPresence";
+import { ConversationModeSwitch } from "./components/ConversationModeSwitch";
+import { ChatMessageComposer } from "./components/ChatMessageComposer";
+import {
+  readConversationMode,
+  readRememberedSessionId,
+  resolveRememberedSessionId,
+  writeConversationMode,
+  writeRememberedSessionId,
+  type ConversationMode,
+} from "./conversation-mode";
 import { StepTimeline } from "./components/StepTimeline";
 import { DiffView } from "./components/DiffView";
 import { ApprovalsView } from "./components/ApprovalsView";
@@ -40,6 +66,7 @@ import { MemoryTab } from "./components/MemoryTab";
 import { SettingsModal } from "./components/SettingsModal";
 import type { SettingsSectionId } from "./components/settings-sections";
 import { TaskComposer } from "./components/TaskComposer";
+import { TaskHistory, type TaskHistoryItem } from "./components/TaskHistory";
 import { PullRequestCard } from "./components/PullRequestCard";
 import { ReviewFindings } from "./components/ReviewFindings";
 import { RunUsageCard } from "./components/RunUsageSummary";
@@ -57,7 +84,7 @@ import { CommandMenu, type CommandItem } from "./components/ui/command-menu";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { useTheme } from "./components/ThemeProvider";
 import { Tooltip } from "./components/Tooltip";
-import { extractPendingApprovals, extractCompletedDiff, parseRepoName, runsListUrl, statusChipClass, statusLabel } from "./ui-helpers";
+import { extractPendingApprovals, extractCompletedDiff, parseRepoName, readPromptParam, runsListUrl, statusChipClass, statusLabel } from "./ui-helpers";
 import { createCompletionDrivenPoll, documentVisibilityPause } from "./polling";
 import type { AgentPrincipal, RetainedRun, StoredApproval, ToolRunRecord } from "./types";
 
@@ -331,18 +358,20 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 }
 
 type MainView = AppNavView;
+const DEFAULT_VIEW: MainView = "work";
 
 const VIEW_ALIASES: Record<string, AppNavView> = {
   "run-registry": "analytics",
   orchestrator: "activity",
   mailbox: "inbox",
+  work: "work",
 };
 
 // Each sidebar view owns a root path (/dashboard/, /skills/ …); legacy ?tab=/?view=/?run= still resolve.
 function viewFromUrl(): AppNavView | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
-  if (params.get("run")) return "dashboard";
+  if (params.has("run") || readPromptParam(window.location.search).prompt !== null) return "threads";
   const toView = (raw: string | null) => {
     const view = raw ? (VIEW_ALIASES[raw] ?? raw) : null;
     return APP_NAV_ITEMS.some((item) => item.id === view) ? (view as AppNavView) : null;
@@ -354,7 +383,7 @@ function viewFromUrl(): AppNavView | null {
 }
 
 function pathForView(view: MainView): string {
-  return view === "tasks" ? "/" : `/${view}/`;
+  return view === "work" ? "/" : `/${view}/`;
 }
 
 const SETUP_TOTAL_STEPS = 6;
@@ -383,22 +412,61 @@ const STARTER_TEMPLATES = [
 ];
 
 export function App(): React.JSX.Element {
+  const [mainView, setMainView] = useState<MainView>(() => {
+    const view = viewFromUrl();
+    return view && view !== "settings" ? view : DEFAULT_VIEW;
+  });
   const [repoUrl, setRepoUrl] = useState("");
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const savedRepos = useSavedRepos();
   const savedSkills = useSavedSkills();
+  const selectableSkills = savedSkills.skills.filter((skill) => skill.status === "active");
   const [baseBranch, setBaseBranch] = useState("main");
-  const [task, setTask] = useState("");
+  // T71 — deep-link ?prompt= prefills empty composer task on app load; replaceState strips it.
+  const [task, setTask] = useState(() => {
+    const draft = "";
+    if (typeof window === "undefined") return draft;
+    const { prompt, nextSearch } = readPromptParam(window.location.search);
+    if (prompt !== null) {
+      const nextUrl = window.location.pathname + nextSearch + window.location.hash;
+      window.history.replaceState(window.history.state, "", nextUrl);
+      return prompt;
+    }
+    return "";
+  });
+  const latestComposerTask = useRef(task);
+  latestComposerTask.current = task;
+  const [selectedOnboardingDraftRef, setSelectedOnboardingDraftRef] = useState<OnboardingDraftRef | null>(null);
+  const latestSelectedDraftRef = useRef(selectedOnboardingDraftRef);
+  latestSelectedDraftRef.current = selectedOnboardingDraftRef;
+  const selectedOnboardingTaskText = useRef<string | null>(null);
+  const initialComposerPrompt = useRef(task);
+  const [pendingOnboardingDraft, setPendingOnboardingDraft] = useState<SelectedOnboardingDraft | null>(null);
   const [publishPullRequest, setPublishPullRequest] = useState(false);
   const [reviewAfterPublish, setReviewAfterPublish] = useState(true);
+  const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
+  const [agentDetailsOpen, setAgentDetailsOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280);
+  const [employeeOnboardingDismissed, setEmployeeOnboardingDismissed] = useState(() => {
+    try { return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true"; } catch { return false; }
+  });
+  const dismissEmployeeOnboarding = () => {
+    try { localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true"); } catch { /* The current session can still dismiss it. */ }
+    setEmployeeOnboardingDismissed(true);
+  };
+  const [projectContextId, setProjectContextId] = useState("");
+  const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
+  const [envVars, setEnvVars] = useState<{ name: string; value: string }[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
+  const cancellingRunRef = useRef<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
@@ -416,10 +484,7 @@ export function App(): React.JSX.Element {
     if (notice) toast(notice);
   }, [notice]);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [mainView, setMainView] = useState<MainView>(() => {
-    const view = viewFromUrl();
-    return view && view !== "settings" ? view : "tasks";
-  });
+  const [memoryInitialView, setMemoryInitialView] = useState<"facts" | "sources">("facts");
   // Settings is a Kosuke-style popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
   const [settingsModalOpen, setSettingsModalOpen] = useState(() => viewFromUrl() === "settings");
@@ -427,6 +492,7 @@ export function App(): React.JSX.Element {
   // where they left off; deep links (e.g. the wizard's Models step) override it.
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>("account");
   const openView = useCallback((view: AppNavView) => {
+    setShowFirstRun(false);
     // Settings is a popup, not a routable view — every nav path opens the modal.
     if (view === "settings") {
       setSettingsModalOpen(true);
@@ -441,46 +507,37 @@ export function App(): React.JSX.Element {
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
-  // Per-session composer draft: a scope change loads that scope's draft
-  // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
-  const draftScope = useRef<string | null>(null);
-  const pendingDraft = useRef<{ scope: string; text: string } | null>(null);
-  const flushDraft = useCallback(() => {
-    const pending = pendingDraft.current;
-    pendingDraft.current = null;
-    if (pending) writeDraft(pending.scope, pending.text);
-  }, []);
+const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
+  const [taskHistoryError, setTaskHistoryError] = useState<string | null>(null);
+  const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
+  const [conversationMode, setConversationModeState] = useState<ConversationMode>(() => readConversationMode("default"));
   useEffect(() => {
-    if (draftScope.current !== selectedSessionId) {
-      flushDraft(); // the old scope's unwritten keystrokes land before switching
-      draftScope.current = selectedSessionId;
-      setTask(readDraft(selectedSessionId));
-      return;
-    }
-    pendingDraft.current = { scope: selectedSessionId, text: task };
-    // An emptied composer (submit or clear) flushes now; typing waits for 300 ms idle.
-    if (!task.trim()) return flushDraft();
-    const timer = window.setTimeout(flushDraft, 300);
-    return () => window.clearTimeout(timer);
-  }, [selectedSessionId, task, flushDraft]);
-  // A failed submit restores its text only into the session it came from.
-  const restoreDraft = useCallback((scope: string, text: string) => {
-    if (draftScope.current === scope) setTask((current) => (current === "" ? text : current));
-    else writeDraft(scope, text);
-  }, []);
+    setConversationModeState(readConversationMode(selectedSessionId));
+  }, [selectedSessionId]);
+  const setConversationMode = useCallback((mode: ConversationMode) => {
+    setConversationModeState(mode);
+    writeConversationMode(selectedSessionId, mode);
+  }, [selectedSessionId]);
+
   // Local runs use the authenticated paired fleet in both web and desktop.
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
+  const [appToolsWork, setAppToolsWork] = useState(false);
+  const [executionTargetKind, setExecutionTargetKind] = useState<"repository" | "artifact-workspace">("repository");
+  const [artifactWorkspaceName, setArtifactWorkspaceName] = useState("My workspace");
+  const [artifactDeliverables, setArtifactDeliverables] = useState("deliverables/brief.md");
   const { status: desktopStatus } = useDesktopStatus();
   // Only these harnesses run locally; anything else would show as a
   // deployment pin the backend then refuses.
   useEffect(() => {
-    if (runTarget === "local" && !customAgentId && !["opencode", "claude-code", "codex"].includes(harness))
+    if (executionTargetKind === "artifact-workspace" && runTarget === "local") setRunTarget("sandbox");
+    if (runTarget === "local" && executionTargetKind === "repository" && !customAgentId && !["opencode", "claude-code", "codex"].includes(harness))
       setHarness("opencode");
-  }, [runTarget, harness, customAgentId]);
+  }, [runTarget, harness, customAgentId, executionTargetKind]);
   const [sessionApiAvailable, setSessionApiAvailable] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
-  // Persistent workspace panel removed from tasks view; functionality promoted to standalone views.
+  const [sessionRegistryOwner, setSessionRegistryOwner] = useState<string | null>(null);
+  // Persistent workspace panel removed from the thread view; functionality promoted to standalone views.
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const mobileNavTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -539,7 +596,7 @@ export function App(): React.JSX.Element {
       const view = viewFromUrl();
       if (view === "settings") setSettingsModalOpen(true);
       else {
-        setMainView(view ?? "tasks");
+        setMainView(view ?? DEFAULT_VIEW);
         setSettingsModalOpen(false);
       }
     };
@@ -568,6 +625,57 @@ export function App(): React.JSX.Element {
   const identityFailures = useRef(0);
   const retryIdentity = useCallback(() => setIdentityAttempt((n) => n + 1), []);
   const signedIn = orchestratorName !== null && identityIssue === null;
+  const projectContexts = useProjectContexts(signedIn ? orchestratorName : null);
+  useEffect(() => setProjectContextId(""), [signedIn, orchestratorName]);
+  // Per-session composer draft: a scope change loads that scope's draft
+  // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
+  const composerScope = signedIn && orchestratorName ? composerDraftScope(orchestratorName, selectedSessionId) : null;
+  const quickDraft = useRef<{ scope: string; text: string } | null>(null);
+  const draftScope = useRef<string | null>(null);
+  const [restoredComposerScope, setRestoredComposerScope] = useState<string | null>(null);
+  const composerVisible = composerScope !== null && restoredComposerScope === composerScope;
+  const pendingDraft = useRef<{ scope: string; text: string; onboardingDraft: OnboardingDraftRef | null } | null>(null);
+  const flushDraft = useCallback(() => {
+    const pending = pendingDraft.current;
+    pendingDraft.current = null;
+    if (pending) writeDraft(pending.scope, pending.text, pending.onboardingDraft);
+  }, []);
+  useEffect(() => {
+    if (draftScope.current !== composerScope) {
+      flushDraft(); // the old scope's unwritten keystrokes land before switching
+      const keepCurrentTask = draftScope.current === null && composerScope !== null && task !== "";
+      draftScope.current = composerScope;
+      setRestoredComposerScope(composerScope);
+      const quick = quickDraft.current?.scope === composerScope ? quickDraft.current : null;
+      const restored = quick ? quick.text : keepCurrentTask ? task : composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
+      quickDraft.current = null;
+      if (composerScope) initialComposerPrompt.current = "";
+      selectedOnboardingTaskText.current = restored;
+      setTask(restored);
+      setSelectedOnboardingDraftRef(composerScope && !keepCurrentTask ? readDraftReference(composerScope) : null);
+      return;
+    }
+    if (!composerScope) return;
+    if (quickDraft.current?.scope === composerScope && quickDraft.current.text === task) quickDraft.current = null;
+    const linked = task === selectedOnboardingTaskText.current ? selectedOnboardingDraftRef : null;
+    if (selectedOnboardingDraftRef && !linked) setSelectedOnboardingDraftRef(null);
+    pendingDraft.current = { scope: composerScope, text: task, onboardingDraft: linked };
+    // An emptied composer (submit or clear) flushes now; typing waits for 300 ms idle.
+    if (!task.trim()) return flushDraft();
+    const timer = window.setTimeout(flushDraft, 300);
+    return () => window.clearTimeout(timer);
+  }, [composerScope, task, selectedOnboardingDraftRef, flushDraft]);
+  // A failed submit restores its text only into the session it came from.
+  const restoreDraft = useCallback((scope: string, text: string, reference?: OnboardingDraftRef | null) => {
+    if (draftScope.current === scope) {
+      if (latestComposerTask.current !== "" && latestComposerTask.current !== text) return;
+      const selected = latestSelectedDraftRef.current;
+      if (selected && (selected.draftTaskId !== reference?.draftTaskId || selected.version !== reference?.version)) return;
+      selectedOnboardingTaskText.current = text;
+      setSelectedOnboardingDraftRef(reference ?? null);
+      setTask((current) => (current === "" ? text : current));
+    } else if (!readDraft(scope)) writeDraft(scope, text, reference);
+  }, []);
   const {
     agents: customAgentRecords,
     refresh: refreshCustomAgents,
@@ -646,30 +754,110 @@ export function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [showOnboardingModal, signedIn]);
-  // First-run wizard: opens once per browser after the first authenticated
-  // session on the better-auth lane (Access identities are operators, not
-  // the signup path the wizard serves).
+  // First-run progress belongs to the authenticated account; activation also
+  // requires an explicitly approved artifact, not just setup dismissal/run completion.
   const [showFirstRun, setShowFirstRun] = useState(false);
-  useEffect(() => {
-    if (authMode !== "better-auth" || orchestratorName === null) return;
-    try {
-      if (localStorage.getItem(ONBOARDING_STORAGE_KEY) === "done") return;
-    } catch {
-      // private mode — show it anyway
+  const [showLegacyFirstRun, setShowLegacyFirstRun] = useState(false);
+  const [storedFirstRunProgress, setFirstRunProgress] = useState<FirstRunProgressSnapshot | null>(null);
+  const [firstRunProgressOwner, setFirstRunProgressOwner] = useState<string | null>(null);
+  const firstRunProgress = firstRunProgressOwner === orchestratorName ? storedFirstRunProgress : null;
+  const firstRunProgressClient = useRef<OnboardingProgressClient | null>(null);
+  if (!firstRunProgressClient.current) {
+    firstRunProgressClient.current = new OnboardingProgressClient((input, init) => fetch(input, init), setFirstRunProgress);
+  }
+  const refreshFirstRunProgress = useCallback(async (): Promise<void> => {
+    await firstRunProgressClient.current?.read();
+  }, []);
+  const updateFirstRunProgress = useCallback((body: FirstRunProgressUpdate): Promise<void> => {
+    return firstRunProgressClient.current?.update(body) ?? Promise.reject(new Error("Onboarding progress client is unavailable."));
+  }, []);
+  const resumeFirstRunProgress = useCallback(() => updateFirstRunProgress({ action: "resume" }), [updateFirstRunProgress]);
+  const saveFirstRunStep = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "step", currentStep }), [updateFirstRunProgress]);
+  const dismissFirstRunProgress = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "dismiss", currentStep }), [updateFirstRunProgress]);
+  const dismissOutcomeSetup = useCallback(() => updateFirstRunProgress({ action: "dismiss" }), [updateFirstRunProgress]);
+  const openFirstRun = useCallback(() => {
+    setMainView("threads");
+    if (authMode === "better-auth") setShowFirstRun(true);
+    else setShowLegacyFirstRun(true);
+  }, [authMode]);
+  const canonicalOnboardingDraft = firstRunProgress?.draftTask;
+  const preparedOnboardingSelection: SelectedOnboardingDraft | null = firstRunProgress?.draftTaskId && canonicalOnboardingDraft?.preparedAt
+    ? { draftTaskId: firstRunProgress.draftTaskId, version: canonicalOnboardingDraft.version, draftTask: canonicalOnboardingDraft } : null;
+  const activeOnboardingRef = selectedOnboardingDraftRef && task === selectedOnboardingTaskText.current &&
+    firstRunProgress?.draftTaskId === selectedOnboardingDraftRef.draftTaskId && canonicalOnboardingDraft?.version === selectedOnboardingDraftRef.version && canonicalOnboardingDraft.preparedAt
+    ? selectedOnboardingDraftRef : null;
+  const onboardingExecutionIssue = selectedOnboardingDraftRef && !activeOnboardingRef
+    ? "The linked first task draft is unavailable or changed. Review and select its saved version, or remove the link before sending."
+    : activeOnboardingRef && canonicalOnboardingDraft
+    ? !canonicalOnboardingDraft.employeeId
+      ? "Configure an employee, then choose it in the saved setup draft before starting this goal."
+      : canonicalOnboardingDraft.employeeId !== customAgentId
+        ? "Launch the employee selected in this goal before starting work."
+        : customAgentRecords.find((profile) => profile.id === customAgentId)?.version !== canonicalOnboardingDraft.employeeVersion
+          ? "The employee changed. Review its saved version in setup before starting this goal."
+          : null
+    : null;
+  const applyOnboardingDraft = useCallback((selection: SelectedOnboardingDraft, replace = false) => {
+    if (firstRunProgress?.draftTaskId !== selection.draftTaskId || firstRunProgress.draftTask?.version !== selection.version || !firstRunProgress.draftTask.preparedAt) {
+      setNotice("The first task draft changed. Review its saved version before using it.");
+      openFirstRun();
+      return;
     }
-    setShowFirstRun(true);
+    if (!composerScope) { setNotice("Sign in before selecting a task draft."); return; }
+    const text = onboardingTaskText(firstRunProgress.draftTask);
+    if (!replace && task.trim() && task !== text) {
+      setPendingOnboardingDraft(selection); setShowFirstRun(false); setMainView("threads"); setConversationMode("work"); return;
+    }
+    const reference = { draftTaskId: selection.draftTaskId, version: selection.version };
+    selectedOnboardingTaskText.current = text;
+    setSelectedOnboardingDraftRef(reference);
+    setTask(text);
+    writeDraft(composerScope, text, reference);
+    setPendingOnboardingDraft(null);
+    setShowFirstRun(false);
+    setMainView("threads");
+    setConversationMode("work");
+  }, [firstRunProgress, task, composerScope, openFirstRun, setConversationMode]);
+  useEffect(() => {
+    if (authMode !== "better-auth" || orchestratorName === null) {
+      firstRunProgressClient.current?.reset();
+      setFirstRunProgressOwner(null);
+      setShowFirstRun(false);
+      return;
+    }
+    firstRunProgressClient.current?.reset();
+    setFirstRunProgressOwner(orchestratorName);
+    let cancelled = false;
+    void firstRunProgressClient.current!.read().then((progress) => {
+      if (!cancelled && progress) {
+        const show = progress.activatedAt === null && progress.dismissedAt === null && !progress.draftTask?.preparedAt;
+        setShowFirstRun(show);
+        if (show) setMainView("threads");
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setFirstRunProgress(null);
+        setShowFirstRun(true);
+        setMainView("threads");
+      }
+    });
+    return () => { cancelled = true; };
   }, [authMode, orchestratorName]);
 
   // Better-auth lane sign-out: clears the session cookie, then re-runs
   // whoami — the 401 that follows lands on AuthScreen again.
   const handleSignOut = useCallback(async () => {
     setSettingsModalOpen(false);
+    flushDraft();
     await authClient.signOut().catch(() => {});
+    firstRunProgressClient.current?.reset();
+    setTask(""); setSelectedOnboardingDraftRef(null); setPendingOnboardingDraft(null);
+    setWebSessions([]); setSessionRegistryOwner(null);
     setOrchestratorName(null);
     setAuthMode(null);
     setIdentityIssue("signin");
     retryIdentity();
-  }, [retryIdentity]);
+  }, [retryIdentity, flushDraft]);
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
@@ -762,7 +950,43 @@ export function App(): React.JSX.Element {
       submitFailed.current = true;
     },
   });
+  const receiveRoomMessage = useCallback((message: ConversationRoomMessage) => {
+    chat.setMessages((current) => current.some((item) => item.id === message.messageId)
+      ? current
+      : [...current, {
+          id: message.messageId,
+          role: "user",
+          metadata: { shibaRoomViewerId: message.viewerId },
+          parts: [{ type: "text", text: message.text }],
+        }]);
+  }, [chat.setMessages]);
+  const conversationRealtime = useConversationRoomRealtime({
+    sessionId: selectedSessionId,
+    enabled: signedIn && mainView === "work",
+    typingText: task,
+    messages: chat.messages,
+    onMessage: receiveRoomMessage,
+  });
+  const {
+    viewerId: realtimeViewerId,
+    status: realtimeStatus,
+    viewers: realtimeViewers,
+    remoteStream: realtimeRemoteStream,
+    startStream: startRealtimeStream,
+    finishStream: finishRealtimeStream,
+  } = conversationRealtime;
   const { runsById } = useAgentToolEvents({ agent });
+  const appToolsContext = useMemo(() => ({
+    sessionId: selectedSessionId,
+    session: activeWebSession,
+    sessionAvailable: sessionApiAvailable && sessionsLoaded && sessionRegistryOwner === orchestratorName,
+    employeeId: customAgentId,
+    profile: customAgentRecords.find((profile) => profile.id === customAgentId),
+    profilesUnavailable: customAgentsLoading || Boolean(customAgentsError),
+    socketName: agent.name,
+    connected: orchestratorName !== null && agent.identified && !agent.connectionError && agent.readyState === 1,
+    hasPreparedContext: Boolean(activeOnboardingRef && !onboardingExecutionIssue),
+  }), [selectedSessionId, activeWebSession, sessionApiAvailable, sessionsLoaded, sessionRegistryOwner, orchestratorName, customAgentId, customAgentRecords, customAgentsLoading, customAgentsError, agent.name, agent.identified, agent.connectionError, agent.readyState, activeOnboardingRef, onboardingExecutionIssue]);
 
   useEffect(() => {
     if (!signedIn) {
@@ -785,8 +1009,13 @@ export function App(): React.JSX.Element {
           sessions?: WebThread[];
         };
         if (!cancelled) {
+          setSessionRegistryOwner(orchestratorName);
           setSessionApiAvailable(true);
-          setWebSessions(Array.isArray(body.sessions) ? body.sessions : []);
+          const nextSessions = Array.isArray(body.sessions) ? body.sessions : [];
+          setWebSessions(nextSessions);
+          const restoredSessionId = resolveRememberedSessionId(readRememberedSessionId(), nextSessions);
+          setSelectedSessionId(restoredSessionId);
+          writeRememberedSessionId(restoredSessionId);
           // The mount-time fetch can run pre-auth (e.g. AuthScreen up); once a
           // later attempt succeeds, drop the failure it toasted.
           setNotice((n) => (n?.startsWith("Sessions request failed") ? null : n));
@@ -801,7 +1030,7 @@ export function App(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [signedIn]);
+  }, [signedIn, orchestratorName]);
   // Ordinary views read the lean summary projection; only the diff
   // inspector pulls the full run payload (diff/receipts/signals/steering).
   const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
@@ -812,6 +1041,35 @@ export function App(): React.JSX.Element {
       mainView === "diff",
       signedIn,
     );
+  useEffect(() => {
+    if (!signedIn || mainView !== "threads") return;
+    let cancelled = false;
+    let generation = 0;
+    setTaskHistoryLoading(true);
+    const scopeQuery = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    const load = async () => {
+      const current = ++generation;
+      try {
+        const refreshQuery = scopeQuery ? `${scopeQuery}&refresh=${refreshToken}` : `?refresh=${refreshToken}`;
+        const response = await fetch(`/api/tasks${refreshQuery}`);
+        const body = await response.json().catch(() => ({})) as { tasks?: TaskHistoryItem[]; error?: string };
+        if (!response.ok) throw new Error(body.error ?? `Task history request failed: ${response.status}`);
+        if (!cancelled && current === generation) {
+          setTaskHistoryItems(Array.isArray(body.tasks) ? body.tasks : []);
+          setTaskHistoryError(null);
+        }
+      } catch (error: unknown) {
+        if (!cancelled && current === generation) setTaskHistoryError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (!cancelled && current === generation) setTaskHistoryLoading(false);
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 5_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [refreshToken, selectedSessionId, sessionApiAvailable, signedIn, mainView]);
   const {
     approvals: storedApprovals,
     decided: decidedStoredApprovals,
@@ -821,7 +1079,7 @@ export function App(): React.JSX.Element {
     // Approvals data renders on the approvals board, the tasks strip, and
     // the dashboard decided tail — the nav badge between them refreshes
     // on entry to any of the three.
-    signedIn && (mainView === "approvals" || mainView === "tasks" || mainView === "dashboard"),
+    signedIn && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work"),
   );
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
@@ -832,7 +1090,7 @@ export function App(): React.JSX.Element {
   }, [storedApprovals]);
   const agentPrincipals = useAgentPrincipals(
     refreshToken,
-    signedIn && (mainView === "tasks" || mainView === "dashboard"),
+    signedIn && (mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work"),
   );
 
   const toolRuns = useMemo(() => Object.values(runsById) as ToolRunRecord[], [runsById]);
@@ -1012,26 +1270,119 @@ export function App(): React.JSX.Element {
   );
 
   const submitTask = useCallback(
-    async (event?: React.FormEvent) => {
+    async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string }) => {
+      const selectedCustomAgentId = options?.customAgentId ?? customAgentId;
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current) return;
-      if (customAgentId && (customAgentsLoading || customAgentsError || !customAgentRecords.some((profile) => profile.id === customAgentId))) {
+      if (!composerScope || !composerVisible) { setNotice("Wait for your conversation draft to reconnect before sending."); return; }
+      if (!options?.forceWork && conversationMode === "chat") {
+        if (!task.trim()) {
+          setNotice("Enter a message first.");
+          return;
+        }
+        if (!orchestratorName || agent.connectionError || !agent.identified) {
+          setNotice(
+            `Message not sent: ${agent.connectionError
+              ? `connection error: ${agent.connectionError.message ?? "unknown"}`
+              : !orchestratorName
+                ? "still resolving your agent identity"
+                : "still connecting to the orchestrator"}.`,
+          );
+          return;
+        }
+        const draft = task;
+        const draftSession = composerScope;
+        setNotice(null);
+        setTask("");
+        submitInFlight.current = true;
+        submitFailed.current = false;
+        setIsSubmitting(true);
+        try {
+          const streamId = startRealtimeStream(draft.trim());
+          try {
+            await chat.sendMessage({
+              text: draft.trim(),
+              metadata: {
+                shibaMode: "chat",
+                shibaRoomViewerId: realtimeViewerId,
+              },
+            });
+            finishRealtimeStream(streamId, "complete");
+          } catch (error) {
+            finishRealtimeStream(streamId, "failed");
+            throw error;
+          }
+          // The failed user turn remains in the transcript; retrying it must
+          // regenerate that turn rather than append a duplicate user message.
+        } catch (error) {
+          restoreDraft(draftSession, draft, activeOnboardingRef);
+          setNotice(`Message could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+        }
+        return;
+      }
+      if (selectedOnboardingDraftRef && !activeOnboardingRef) {
+        setNotice("The linked first task draft is unavailable or changed. Review its saved version before sending.");
+        return;
+      }
+      if (onboardingExecutionIssue) { setNotice(onboardingExecutionIssue); return; }
+      if (appToolsWork) {
+        if (chat.isStreaming || chat.status === "streaming" || chat.status === "submitted") {
+          setNotice("Wait for the current app task to finish before sending another.");
+          return;
+        }
+        const issue = appToolsWorkIssue(appToolsContext);
+        if (issue || !task.trim()) {
+          setNotice(issue ?? "Enter a task first.");
+          return;
+        }
+        const draft = task;
+        const draftSession = composerScope;
+        submitInFlight.current = true;
+        submitFailed.current = false;
+        setIsSubmitting(true);
+        setNotice(null);
+        setTask("");
+        try {
+          await sendAppToolsWork(appToolsContext, draft, (message) => chat.sendMessage(message), activeOnboardingRef);
+          if (submitFailed.current) restoreDraft(draftSession, draft, activeOnboardingRef);
+        } catch (error) {
+          restoreDraft(draftSession, draft, activeOnboardingRef);
+          setNotice(`App task could not be sent: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+        }
+        return;
+      }
+      if (selectedCustomAgentId && (customAgentsLoading || customAgentsError || !customAgentRecords.some((profile) => profile.id === selectedCustomAgentId))) {
         setNotice(customAgentsLoading
           ? "Wait for the selected bot to load before sending."
           : "The selected bot is unavailable. Choose an available bot before sending.");
         return;
       }
-      if (!repoUrl.trim() || !task.trim()) {
-        setNotice("Enter a repository URL and a task first.");
+      if (!task.trim() || (executionTargetKind === "repository" && !repoUrl.trim())) {
+        setNotice(executionTargetKind === "repository" ? "Enter a repository URL and a task first." : "Enter a task first.");
         return;
       }
-      if (!repoUrl.trim().startsWith("https://github.com/")) {
+      if (executionTargetKind === "repository" && !repoUrl.trim().startsWith("https://github.com/")) {
         setNotice("Repository URL must be a GitHub URL like https://github.com/owner/repo.");
         return;
       }
+      const parsedArtifactDeliverables = parseArtifactDeliverables(artifactDeliverables);
+      if (executionTargetKind === "artifact-workspace" && !parsedArtifactDeliverables.success) {
+        setNotice("Use 1–8 safe relative .md, .txt, .json, or .csv output paths.");
+        return;
+      }
       const branch = baseBranch.trim() || "main";
-      const attachedSkills = savedSkills.filter((skill) => selectedSkillIds.includes(skill.id));
-      if (runTarget === "local" || customAgentId) {
+      const effort =
+        reasoningEffort && (HARNESS_REASONING_EFFORTS[harness] ?? []).includes(reasoningEffort)
+          ? reasoningEffort
+          : "";
+      const attachedSkills = selectableSkills.filter((skill) => selectedSkillIds.includes(skill.id));
+      if (runTarget === "local" || selectedCustomAgentId || executionTargetKind === "artifact-workspace") {
         if (runTarget === "local" && (!selectedLocalMachineId || localComputersLoading || localComputersError)) {
           setNotice(localComputersError ?? (localComputersLoading
             ? "Wait for paired computers to be checked before sending."
@@ -1042,21 +1393,40 @@ export function App(): React.JSX.Element {
           setNotice("This conversation cannot queue tasks until its session connection is available. Retry after reconnecting.");
           return;
         }
+        const directTarget = runTarget === "local" ? "runs on this computer" : "cloud runs";
+        if (envVars.some((v) => v.name.trim() !== "")) {
+          setNotice(`Environment variables aren't supported for ${directTarget} yet.`);
+          return;
+        }
+        if (runSetup) {
+          setNotice(`Repo setup isn't supported for ${directTarget} yet.`);
+          return;
+        }
         setNotice(null);
         // A selected bot is already a configured execution route. Queue it
         // directly, just like a local task, without a separate planner call.
         // The Worker resolves its saved profile and requires human approval
         // of the frozen task before dispatching either runtime.
+        const targetFields = executionTargetKind === "repository"
+          ? buildExecutionTargetFields({ kind: "repository", repoUrl: repoUrl.trim(), baseBranch: branch })
+          : buildExecutionTargetFields({
+              kind: "artifact-workspace",
+              workspaceName: artifactWorkspaceName,
+              expectedDeliverables: parsedArtifactDeliverables.success ? parsedArtifactDeliverables.data : [],
+            });
         const fields = {
-          repoUrl: repoUrl.trim(),
-          task: taskWithSkillInstructions(task, attachedSkills),
-          baseBranch: branch,
+          ...targetFields,
+          task: task.trim(),
+          ...(activeOnboardingRef ? { draftTaskId: activeOnboardingRef.draftTaskId, draftTaskVersion: activeOnboardingRef.version } : {}),
+          skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
           ...(harness ? { harness } : {}),
           ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
           ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
+          ...(effort ? { reasoningEffort: effort } : {}),
           publishPullRequest,
           ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
-          ...(customAgentId ? { customAgentId } : {}),
+          ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
+          ...(projectContextId ? { projectContextId } : {}),
         };
         const body = {
           ...fields,
@@ -1069,7 +1439,7 @@ export function App(): React.JSX.Element {
         if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID() };
         const commandId = runCommand.current.id;
         const draft = task;
-        const draftSession = selectedSessionId;
+        const draftSession = composerScope;
         setTask("");
         submitInFlight.current = true;
         setIsSubmitting(true);
@@ -1096,13 +1466,15 @@ export function App(): React.JSX.Element {
             throw new Error(detail || `Run request failed with ${res.status}`);
           }
           runCommand.current = null;
-          saveRepo(repoUrl.trim());
+          if (executionTargetKind === "repository") saveRepo(repoUrl.trim());
           setNotice(runTarget === "local"
             ? "Queued — approve the run card to execute on this computer."
-            : "Bot task queued — review and approve the run card to launch it.");
+            : executionTargetKind === "artifact-workspace"
+              ? "Draft queued — review and approve the run card before the cloud sandbox starts."
+              : "Bot task queued — review and approve the run card to launch it.");
           refreshRuns();
         } catch (error) {
-          restoreDraft(draftSession, draft);
+          restoreDraft(draftSession, draft, activeOnboardingRef);
           setNotice(
             `Run could not be queued: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -1132,25 +1504,79 @@ export function App(): React.JSX.Element {
         );
         return;
       }
+      let sealedEnv: { sealed: string; names: string[]; digest: string } | null = null;
+      // Unnamed rows are dropped, like the direct-run guard above; parseRunEnv rejects a blank name.
+      const namedEnvVars = envVars.filter((v) => v.name.trim() !== "");
+      if (namedEnvVars.length > 0) {
+        // Claim the submit before the seal round-trip so a double-click can't queue two runs.
+        submitInFlight.current = true;
+        setIsSubmitting(true);
+        const sealFailed = (message: string) => {
+          submitInFlight.current = false;
+          setIsSubmitting(false);
+          setNotice(message);
+        };
+        const sealUrl = sessionApiAvailable
+          ? `/api/runs/env-seal?session=${encodeURIComponent(selectedSessionId)}`
+          : "/api/runs/env-seal";
+        try {
+          const sealRes = await fetch(sealUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              environmentVariables: namedEnvVars.map((v) => ({
+                name: v.name.trim(),
+                value: v.value,
+              })),
+            }),
+          });
+          const sealData = (await sealRes.json().catch(() => ({}))) as {
+            sealed?: string;
+            names?: string[];
+            digest?: string;
+            error?: string;
+          };
+          if (!sealRes.ok) {
+            sealFailed(sealData.error ?? `Failed to seal environment variables (${sealRes.status}).`);
+            return;
+          }
+          if (!sealData.sealed || !sealData.digest || !Array.isArray(sealData.names)) {
+            sealFailed("Failed to seal environment variables: invalid server response.");
+            return;
+          }
+          sealedEnv = {
+            sealed: sealData.sealed,
+            names: sealData.names,
+            digest: sealData.digest,
+          };
+        } catch (sealError) {
+          sealFailed(
+            `Failed to seal environment variables: ${
+              sealError instanceof Error ? sealError.message : String(sealError)
+            }`,
+          );
+          return;
+        }
+      }
       setNotice(null);
       const text = [
         `Repository: ${repoUrl.trim()}`,
         `Base branch: ${branch}`,
         `Coding agent harness: ${harness}`,
         ...(codingModel.trim() ? [`Coding model: ${codingModel.trim()}`] : []),
+        ...(effort ? [`Reasoning effort: ${effort}`] : []),
+        ...(sealedEnv ? [`Environment variables: ${sealedEnv.names.join(", ")}`] : []),
+        ...(runSetup ? ["Run repo setup: yes"] : []),
         ...(connectionId.trim() ? [`Model connection: ${connectionId.trim()}`] : []),
         `Open a pull request with the result: ${publishPullRequest ? "yes" : "no"}`,
         ...(publishPullRequest
           ? [`Read-only review after the PR opens: ${reviewAfterPublish ? "yes" : "no"}`]
           : []),
-        ...(attachedSkills.length > 0
-          ? [formatSkillInstructions(attachedSkills)]
-          : []),
         "",
         `Task: ${task.trim()}`,
       ].join("\n");
       const draft = task;
-      const draftSession = selectedSessionId;
+      const draftSession = composerScope;
       setTask("");
       submitInFlight.current = true;
       submitFailed.current = false;
@@ -1161,28 +1587,36 @@ export function App(): React.JSX.Element {
         await chat.sendMessage({
           text,
           metadata: {
+            shibaMode: "work",
             shibaTask: {
               repoUrl: repoUrl.trim(),
-              task: taskWithSkillInstructions(task, attachedSkills),
+              task: task.trim(),
+              ...(activeOnboardingRef ? { draftTaskId: activeOnboardingRef.draftTaskId, draftTaskVersion: activeOnboardingRef.version } : {}),
+              skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
               baseBranch: branch,
               harness,
               publishPullRequest,
               ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
               ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
               ...(connectionId.trim() ? { connectionId: connectionId.trim() } : {}),
-              ...(customAgentId ? { customAgentId } : {}),
+              ...(effort ? { reasoningEffort: effort } : {}),
+              ...(sealedEnv ? { environment: { sealed: sealedEnv.sealed, digest: sealedEnv.digest } } : {}),
+              ...(runSetup ? { runSetup: true } : {}),
+              ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
+              ...(projectContextId ? { projectContextId } : {}),
             },
           },
         });
         // onError already surfaces chat.error in the notice banner.
         if (submitFailed.current) {
-          restoreDraft(draftSession, draft);
+          restoreDraft(draftSession, draft, activeOnboardingRef);
         } else {
           saveRepo(repoUrl.trim());
+          setEnvVars([]);
           refreshRuns();
         }
       } catch (error) {
-        restoreDraft(draftSession, draft);
+        restoreDraft(draftSession, draft, activeOnboardingRef);
         setNotice(
           `Task could not be sent: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -1195,23 +1629,41 @@ export function App(): React.JSX.Element {
       repoUrl,
       baseBranch,
       task,
+      conversationMode,
+      appToolsWork,
+      appToolsContext,
+      activeOnboardingRef,
+      composerScope,
+      composerVisible,
+      selectedOnboardingDraftRef,
+      onboardingExecutionIssue,
       publishPullRequest,
       reviewAfterPublish,
+      runSetup,
       harness,
       customAgentId,
+      projectContextId,
       customAgentRecords,
       customAgentsLoading,
       customAgentsError,
       codingModel,
+      reasoningEffort,
+      envVars,
       connectionId,
       chat,
+      realtimeViewerId,
+      startRealtimeStream,
+      finishRealtimeStream,
       agent,
       orchestratorName,
       identityError,
       refreshRuns,
-      savedSkills,
+      selectableSkills,
       selectedSkillIds,
       runTarget,
+      executionTargetKind,
+      artifactWorkspaceName,
+      artifactDeliverables,
       sessionApiAvailable,
       selectedSessionId,
       selectedLocalMachineId,
@@ -1255,6 +1707,7 @@ export function App(): React.JSX.Element {
             current.filter((session) => session.id !== selectedSessionId),
           );
           setSelectedSessionId("default");
+          writeRememberedSessionId("default");
           setNotice(
             "That session no longer exists — it was removed from the list. Conversation history cleared; run registry is unchanged.",
           );
@@ -1284,6 +1737,9 @@ export function App(): React.JSX.Element {
 
   const cancelRun = useCallback(
     async (runId: string) => {
+      if (cancellingRunRef.current !== null) return;
+      cancellingRunRef.current = runId;
+      setCancellingRunId(runId);
       try {
         let url = sessionApiAvailable
           ? `/api/runs/${encodeURIComponent(runId)}?session=${encodeURIComponent(selectedSessionId)}`
@@ -1300,6 +1756,7 @@ export function App(): React.JSX.Element {
               current.filter((session) => session.id !== selectedSessionId),
             );
             setSelectedSessionId("default");
+            writeRememberedSessionId("default");
             setNotice("That session no longer exists — it was removed from the list.");
             refreshRuns();
             return;
@@ -1315,10 +1772,51 @@ export function App(): React.JSX.Element {
         setNotice(
           `Cancellation could not be requested: ${error instanceof Error ? error.message : String(error)}`,
         );
+      } finally {
+        cancellingRunRef.current = null;
+        setCancellingRunId(null);
       }
     },
     [refreshRuns, selectedSessionId, sessionApiAvailable],
   );
+
+  const retryTaskHistory = useCallback(async (taskId: string) => {
+    const query = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/retry${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commandId: crypto.randomUUID() }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `Retry request failed: ${response.status}`);
+      setNotice("Retry queued for approval. Review the new approval card before it runs.");
+      refreshRuns();
+    } catch (error) {
+      setNotice(`Task retry could not be queued: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [refreshRuns, selectedSessionId, sessionApiAvailable]);
+
+  const cancelTaskHistory = useCallback(async (taskId: string, attempt: number) => {
+    const query = sessionApiAvailable && selectedSessionId !== "default"
+      ? `?session=${encodeURIComponent(selectedSessionId)}`
+      : "";
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ attempt }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `Cancellation failed: ${response.status}`);
+      setNotice("Task cancellation recorded.");
+      refreshRuns();
+    } catch (error) {
+      setNotice(`Task cancellation could not be completed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [refreshRuns, selectedSessionId, sessionApiAvailable]);
 
   // Keyboard shortcut listener: Cmd/Ctrl+Enter submits, Escape closes modals
   useEffect(() => {
@@ -1358,7 +1856,7 @@ export function App(): React.JSX.Element {
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        if (!isSubmitting && repoUrl.trim() && task.trim()) {
+        if (!isSubmitting && hasComposerInput({ task, repoUrl, executionTargetKind, conversationMode, appToolsWork })) {
           e.preventDefault();
           submitTask();
         }
@@ -1401,6 +1899,9 @@ export function App(): React.JSX.Element {
     repoUrl,
     task,
     submitTask,
+    executionTargetKind,
+    conversationMode,
+    appToolsWork,
     toggleSessionsCollapsed,
     toggleTheme,
     settingsModalOpen,
@@ -1426,18 +1927,6 @@ export function App(): React.JSX.Element {
     return at;
   }, []);
 
-  const reviewThreadId = useMemo(() => {
-    const newest = [...retainedRuns].sort((a, b) => b.updatedAt - a.updatedAt);
-    return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
-  }, [retainedRuns]);
-
-  const reviewRun = useMemo(() => {
-    if (!reviewThreadId) return undefined;
-    return retainedRuns.find((run) => run.runId === reviewThreadId);
-  }, [retainedRuns, reviewThreadId]);
-
-  const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
-
   const allRuns: VMRun[] = useMemo(() => {
     const map = new Map<string, VMRun>();
     for (const r of retainedRuns) {
@@ -1448,6 +1937,12 @@ export function App(): React.JSX.Element {
         task: r.task,
         baseBranch: r.baseBranch,
         publishPullRequest: r.publishPullRequest,
+        ...(r.pullUrl !== undefined ? { pullUrl: r.pullUrl } : {}),
+        ...(r.reviewAfterPublish !== undefined ? { reviewAfterPublish: r.reviewAfterPublish } : {}),
+        ...(r.customAgentVersion !== undefined ? { customAgentVersion: r.customAgentVersion } : {}),
+        ...(r.expectedDeliverables !== undefined ? { expectedDeliverables: r.expectedDeliverables } : {}),
+        ...(r.deliverables !== undefined ? { deliverables: r.deliverables } : {}),
+        ...(r.executionTarget !== undefined ? { executionTarget: r.executionTarget } : {}),
         status: r.status,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
@@ -1461,7 +1956,7 @@ export function App(): React.JSX.Element {
       const existing = map.get(tr.runId);
       const completedDiff = extractCompletedDiff(tr);
       if (existing) {
-        existing.status = tr.status || existing.status;
+        existing.status = normalizeRunStatus(tr.status || existing.status);
         if (!existing.diff?.trim() && completedDiff) existing.diff = completedDiff;
         if (tr.summary) existing.summary = tr.summary;
         if (tr.error) existing.error = tr.error;
@@ -1476,7 +1971,7 @@ export function App(): React.JSX.Element {
             typeof input.task === "string" ? input.task : `Delegated run ${tr.runId.slice(0, 8)}`,
           baseBranch: typeof input.baseBranch === "string" ? input.baseBranch : "main",
           publishPullRequest: input.publishPullRequest === true,
-          status: tr.status || "running",
+          status: normalizeRunStatus(tr.status || "running"),
           createdAt: at,
           updatedAt: at,
           summary: tr.summary,
@@ -1487,6 +1982,28 @@ export function App(): React.JSX.Element {
     }
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
+
+  const reviewThreadId = useMemo(() => {
+    if (selectedRunId && allRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
+    // Retained runs are already scoped to the selected conversation. Their
+    // update timestamps are authoritative; delegated tool runs from other
+    // conversations receive a local first-seen timestamp and must not steal
+    // the task screen's review panels from the active thread.
+    const selectedSessionRuns = retainedRuns
+      .map((run) => allRuns.find((candidate) => candidate.runId === run.runId))
+      .filter((run): run is VMRun => run !== undefined)
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+    if (selectedSessionRuns[0]) return selectedSessionRuns[0].runId;
+    const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
+    return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
+  }, [allRuns, retainedRuns, selectedRunId]);
+
+  const reviewRun = useMemo(() => {
+    if (!reviewThreadId) return undefined;
+    return allRuns.find((run) => run.runId === reviewThreadId);
+  }, [allRuns, reviewThreadId]);
+
+  const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
   // Model-by-purpose config: connections + the coding-purpose suggestion list.
   const modelConfig = useModelConfig();
   const agentsDirectory = useAgentsDirectory();
@@ -1515,11 +2032,11 @@ export function App(): React.JSX.Element {
   const reloadModelConfig = modelConfig.reload;
   const reloadAgentsDirectory = agentsDirectory.reload;
   useEffect(() => {
-    if (mainView === "tasks") {
+    if (mainView === "threads") {
       reloadModelConfig();
       reloadAgentsDirectory();
-      refreshCustomAgents();
     }
+    if (mainView === "tasks" || mainView === "threads" || mainView === "work") refreshCustomAgents();
   }, [mainView, reloadModelConfig, reloadAgentsDirectory, refreshCustomAgents]);
 
   const repoSuggestions = useMemo(() => {
@@ -1637,9 +2154,10 @@ export function App(): React.JSX.Element {
               // sessions API unavailable or select the dead session.
               setWebSessions((current) => current.filter((item) => item.id !== id));
               setSelectedSessionId("default");
+              writeRememberedSessionId("default");
               setMobileSessionsOpen(false);
               setSelectedRunId(null);
-              setMainView("tasks");
+              setMainView("threads");
               setNotice("That session no longer exists — it was removed from the list.");
               return;
             }
@@ -1655,10 +2173,11 @@ export function App(): React.JSX.Element {
         }
       }
       setSelectedSessionId(id);
+      writeRememberedSessionId(id);
       setCustomAgentId(threadAgentId(session));
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
-      setMainView("tasks");
+      setMainView("threads");
     },
     [webSessions],
   );
@@ -1669,21 +2188,14 @@ export function App(): React.JSX.Element {
     void handleSelectSession(id);
   };
 
+  const threadCreationPending = useRef(false);
   const handleNewTask = useCallback(async () => {
+    if (threadCreationPending.current) return null;
     if (!sessionApiAvailable) {
-      setSelectedSessionId("default");
-      setCustomAgentId("");
-      setMobileSessionsOpen(false);
-      setMainView("tasks");
-      window.setTimeout(
-        () =>
-          document
-            .querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')
-            ?.focus(),
-        0,
-      );
-      return;
+      setNotice("Session creation is unavailable. Your existing draft has been kept.");
+      return null;
     }
+    threadCreationPending.current = true;
     try {
       const response = await fetch("/api/sessions", {
         method: "POST",
@@ -1692,18 +2204,8 @@ export function App(): React.JSX.Element {
       });
       if (response.status === 404 || response.status === 405) {
         setSessionApiAvailable(false);
-        setSelectedSessionId("default");
-        setCustomAgentId("");
-        setMobileSessionsOpen(false);
-        setMainView("tasks");
-        window.setTimeout(
-          () =>
-            document
-              .querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')
-              ?.focus(),
-          0,
-        );
-        return;
+      setNotice("Session creation is unavailable. Your existing draft has been kept.");
+      return null;
       }
       if (!response.ok) throw new Error(`Could not create session: ${response.status}`);
       const body = (await response.json()) as {
@@ -1714,35 +2216,77 @@ export function App(): React.JSX.Element {
         ...current.filter((session) => session.id !== body.session.id),
       ]);
       setSelectedSessionId(body.session.id);
+      writeRememberedSessionId(body.session.id);
       setCustomAgentId("");
+      setNotice(null);
+      setMobileSessionsOpen(false);
+      setMainView("threads");
+      window.setTimeout(() => {
+        document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
+      }, 0);
+      return body.session.id;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
+      return null;
+    } finally {
+      threadCreationPending.current = false;
     }
-    setMobileSessionsOpen(false);
-    setMainView("tasks");
-    window.setTimeout(() => {
-      document
-        .querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')
-        ?.focus();
-    }, 0);
   }, [sessionApiAvailable]);
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
-    const session = await createAgentThread(profile);
-    setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
-    setSessionApiAvailable(true);
-    setSelectedSessionId(session.id);
-    setSelectedRunId(null);
-    setCustomAgentId(profile.id);
-    applyThreadProfile(profile);
-    setNotice(null);
-    refreshCustomAgents();
-    setMainView("tasks");
-    setMobileSessionsOpen(false);
-    window.setTimeout(() => {
-      document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
-    }, 0);
-  }, [refreshCustomAgents, applyThreadProfile]);
+    if (threadCreationPending.current) throw new Error("Another thread is being created. Wait, then try again.");
+    threadCreationPending.current = true;
+    try {
+      const session = await createAgentThread(profile);
+      setSessionRegistryOwner(orchestratorName);
+      setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
+      setSessionApiAvailable(true);
+      setSelectedSessionId(session.id);
+      writeRememberedSessionId(session.id);
+      setSelectedRunId(null);
+      setCustomAgentId(profile.id);
+      applyThreadProfile(profile);
+      setNotice(null);
+      refreshCustomAgents();
+      setMainView("threads");
+      setMobileSessionsOpen(false);
+      window.setTimeout(() => {
+        document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
+      }, 0);
+      return session.id;
+    } finally {
+      threadCreationPending.current = false;
+    }
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents]);
+
+  const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
+    try {
+      if (profile) await handleStartAgentThread(profile);
+      else await handleNewTask();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not start a thread. Try again from the sidebar.");
+    }
+  };
+  const setupEmployee = async (template: EmployeeTemplate) => {
+    const profile = await createEmployeeAgent(template);
+    try {
+      await handleStartAgentThread(profile);
+      setTask("");
+      dismissEmployeeOnboarding();
+    } catch (error) {
+      dismissEmployeeOnboarding();
+      setMainView("threads");
+      setNotice(`Agent created. Start a new thread from its sidebar row. ${error instanceof Error ? error.message : "Thread creation failed."}`);
+      refreshCustomAgents();
+    }
+  };
+  const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
+  useEffect(() => {
+    if (mainView !== "tasks" || customAgentId || customAgentRecords.length === 0) return;
+    applyThreadProfile(customAgentRecords[0]!);
+  }, [mainView, customAgentId, customAgentRecords, applyThreadProfile]);
+  const employeeName = activeEmployee?.config.name ?? "Shiba";
+  const showEmployeeOnboarding = !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
   const activeSandboxCount = useMemo(() => {
     return (
@@ -1791,7 +2335,7 @@ export function App(): React.JSX.Element {
     {
       id: "setup-guide",
       label: "Open setup guide",
-      run: () => setShowFirstRun(true),
+      run: openFirstRun,
     },
     {
       id: "shortcuts",
@@ -1881,7 +2425,7 @@ export function App(): React.JSX.Element {
         activeSandboxCount={activeSandboxCount}
         setupDone={setupDone}
         setupTotal={SETUP_TOTAL_STEPS}
-        onOpenSetup={() => setShowFirstRun(true)}
+        onOpenSetup={openFirstRun}
         onOpenShortcuts={() => setShowShortcutsModal(true)}
         accountEmail={orchestratorName}
         onSignOut={authMode === "better-auth" ? handleSignOut : undefined}
@@ -1892,6 +2436,9 @@ export function App(): React.JSX.Element {
         onOpenSearch={() => setCommandMenuOpen(true)}
         onToggleCollapse={toggleSessionsCollapsed}
         threadsLoading={threadsLoading}
+        customAgentRecords={customAgentRecords}
+        agentThreads={webSessions}
+        onNewAgentThread={startSidebarAgentThread}
         connectionLabel={connectionState}
         connectionTone={
           identityError || agent.connectionError
@@ -1927,7 +2474,7 @@ export function App(): React.JSX.Element {
               setupTotal={SETUP_TOTAL_STEPS}
               onOpenSetup={() => {
                 setMobileNavOpen(false);
-                setShowFirstRun(true);
+                openFirstRun();
               }}
               onOpenShortcuts={() => {
                 setMobileNavOpen(false);
@@ -1947,6 +2494,9 @@ export function App(): React.JSX.Element {
                 setMobileNavOpen(false);
               }}
               threadsLoading={threadsLoading}
+              customAgentRecords={customAgentRecords}
+              agentThreads={webSessions}
+              onNewAgentThread={(profile) => { startSidebarAgentThread(profile); setMobileNavOpen(false); }}
               onOpenSearch={() => {
                 setMobileNavOpen(false);
                 setCommandMenuOpen(true);
@@ -1986,7 +2536,7 @@ export function App(): React.JSX.Element {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <nav aria-label="Breadcrumb" className="flex items-center gap-2 min-w-0">
+          <nav aria-label="Breadcrumb" hidden={mainView === "work"} className={mainView === "work" ? "hidden" : "flex items-center gap-2 min-w-0"}>
             <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
               Shiba
             </span>
@@ -2076,7 +2626,83 @@ export function App(): React.JSX.Element {
               </div>
             </div>
           ) : null}
-          {mainView === "inbox" ? null : mainView === "dashboard" ? (
+{showFirstRun ? (
+            <ConversationalOnboarding key={orchestratorName ?? "pending"} progress={firstRunProgress}
+              onUpdate={updateFirstRunProgress} onResume={resumeFirstRunProgress} onRefresh={refreshFirstRunProgress}
+              onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={(view) => { if (view === "memory") setMemoryInitialView("sources"); openView(view); }}
+              onLegacyGuide={() => { setShowFirstRun(false); setShowLegacyFirstRun(true); }}
+              onConfigureEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
+              onUseDraft={applyOnboardingDraft} employees={customAgentRecords} draftScope={orchestratorName ?? undefined} />
+          ) : mainView === "inbox" ? null : mainView === "work" ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
+            <WorkView
+              runs={retainedRuns}
+              sessions={sessions}
+              storedApprovals={visibleStoredApprovals}
+              pendingApprovals={pendingApprovals}
+              onSelectTask={(id, kind) => {
+                if (kind === "approval") { setMainView("approvals"); return; }
+                void handleSelectSession(id);
+                setMainView("threads");
+              }}
+              onNewTask={handleNewTask}
+              onQuickAddTask={async (taskText) => {
+                const id = await handleNewTask();
+                if (!id) return false;
+                if (!orchestratorName) return false;
+                const scope = composerDraftScope(orchestratorName, id);
+                quickDraft.current = { scope, text: taskText };
+                writeDraft(scope, taskText);
+                setTask(taskText);
+                return true;
+              }}
+              onReviewApproval={() => {
+                setMainView("approvals");
+              }}
+            />
+            </div>
+          ) : mainView === "tasks" ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
+            <TasksHomeView
+              task={composerVisible ? task : ""}
+              onTaskChange={setTask}
+              agents={customAgentRecords.map((profile) => ({
+                id: profile.id,
+                name: profile.config.name,
+                slug: profile.slug,
+                emoji: profile.config.emoji,
+                defaultRepoUrl: profile.config.defaultRepoUrl,
+              }))}
+              agentsLoading={customAgentsLoading}
+              selectedAgentId={customAgentId || customAgentRecords[0]?.id || ""}
+              onAgentChange={(id) => {
+                const profile = customAgentRecords.find((candidate) => candidate.id === id);
+                if (profile) {
+                  applyThreadProfile(profile);
+                  if (!profile.config.defaultRepoUrl && !repoUrl) setRepoUrl(repoSuggestions[0] ?? "");
+                } else {
+                  setCustomAgentId(id);
+                }
+              }}
+              repoUrl={repoUrl}
+              repoSuggestions={repoSuggestions}
+              onRepoUrlChange={setRepoUrl}
+              runs={retainedRuns}
+              approvals={visibleStoredApprovals}
+              busy={busy}
+              onSubmit={(event, agentId) => {
+                void submitTask(event, { forceWork: true, customAgentId: agentId });
+              }}
+              onOpenRun={(runId) => { void handleSelectSession(runId); }}
+              onOpenApproval={() => setMainView("approvals")}
+              onToggleAgents={toggleSessionsCollapsed}
+              agentsOpen={!sessionsCollapsed}
+            />
+            </div>
+          ) : mainView === "dashboard" ? (
+
             <DashboardView
               runs={retainedRuns}
               pendingApprovals={pendingApprovals}
@@ -2099,8 +2725,8 @@ export function App(): React.JSX.Element {
                 setMainView("analytics");
               }}
             />
-          ) : mainView === "tasks" ? (
-            <div className="flex-1 flex overflow-hidden">
+          ) : mainView === "threads" ? (
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
               {/* Mobile sessions drawer (below lg) */}
               {mobileSessionsOpen ? (
                 <div className="fixed inset-0 z-40 lg:hidden">
@@ -2129,7 +2755,7 @@ export function App(): React.JSX.Element {
                       setupTotal={SETUP_TOTAL_STEPS}
                       onOpenSetup={() => {
                         setMobileSessionsOpen(false);
-                        setShowFirstRun(true);
+                        openFirstRun();
                       }}
                       isMobileDrawer={true}
                       onToggleCollapse={() => setMobileSessionsOpen(false)}
@@ -2140,11 +2766,14 @@ export function App(): React.JSX.Element {
 
               {/* CENTER: conversation timeline + composer */}
               <main
-                className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[var(--bg)]"
+                className="flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
                 aria-busy={busy}
               >
-                {/* SESSION HEADER */}
-                <div className="border-b border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
+                <AgentPageHeader name={employeeName} slug={activeEmployee?.slug} detailsOpen={agentDetailsOpen} onToggleDetails={() => setAgentDetailsOpen((open) => !open)} onExpandSidebar={sessionsCollapsed ? toggleSessionsCollapsed : undefined} />
+                {showEmployeeOnboarding ? <div className="max-h-[65vh] shrink-0 overflow-y-auto"><EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /></div> : null}
+                {!threadHasWork && sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? <div className="shrink-0 px-4 py-2"><ThreadTitleEditor key={selectedSessionId} sessionId={selectedSessionId} name={activeWebSession.name} onRenamed={(renamed) => setWebSessions((current) => applyThreadRename(current, renamed))} /></div> : null}
+                {/* Keep the existing session actions on nonempty threads. */}
+                <div className={`${threadHasWork ? "flex" : "hidden"} border-b border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-6 py-2.5 items-center justify-between gap-3 shrink-0`}>
                   <div className="flex items-center gap-2.5 min-w-0">
                     {/* Desktop sidebar toggle button */}
                     <Tooltip
@@ -2217,10 +2846,17 @@ export function App(): React.JSX.Element {
                         className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
                       />
                     </Tooltip>
-                    <h1 className="text-base text-[var(--fg)] tracking-tight truncate">
-                      {liveSession ? liveSession.title : "New coding task"}
-                    </h1>
-                    {sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? (
+<ConversationWorkspaceHeading
+                      title={appToolsWork && conversationMode === "work" ? activeWebSession?.name ?? "New app task" : liveSession ? liveSession.title : "New coding task"}
+                      mode={conversationMode}
+                      appToolsWork={appToolsWork}
+                      executionTargetKind={executionTargetKind}
+                      runTarget={runTarget}
+                      repoUrl={repoUrl}
+                      artifactWorkspaceName={artifactWorkspaceName}
+                      machineName={localComputers.find((computer) => computer.machineId === selectedLocalMachineId)?.hostname}
+                    />
+                    {threadHasWork && sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? (
                       <ThreadTitleEditor
                         key={selectedSessionId}
                         sessionId={selectedSessionId}
@@ -2229,9 +2865,11 @@ export function App(): React.JSX.Element {
                       />
                     ) : null}
                     <span
-                      className={`text-[10px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 shrink-0 ${statusChipClass(liveSession?.status ?? "ready")}`}
+                      className={conversationMode === "chat"
+                        ? "text-[10px] font-mono font-bold uppercase tracking-wider border border-[var(--primary)]/40 text-[var(--primary)] px-2 py-0.5 shrink-0"
+                        : `text-[10px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 shrink-0 ${statusChipClass(liveSession?.status ?? "ready")}`}
                     >
-                      {statusLabel(liveSession?.status ?? "ready")}
+                      {conversationMode === "chat" ? "Chat only" : statusLabel(liveSession?.status ?? "ready")}
                     </span>
                   </div>
 
@@ -2383,10 +3021,30 @@ export function App(): React.JSX.Element {
                   </div>
                 ) : null}
 
+                <details className="mx-3 mt-3 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)]/70 px-3 py-2 sm:mx-5 xl:mx-8">
+                  <summary className="cursor-pointer select-none text-xs font-medium text-[var(--muted-foreground-1)]">
+                    Task history · {taskHistoryItems.length}
+                  </summary>
+                  <div className="mt-3 max-h-[35vh] overflow-y-auto">
+                    <TaskHistory
+                      tasks={taskHistoryItems}
+                      loading={taskHistoryLoading}
+                      error={taskHistoryError}
+                      onRetry={retryTaskHistory}
+                      onCancel={cancelTaskHistory}
+                      onSelectRun={(runId) => {
+                        setSelectedRunId(runId);
+                        setMainView("analytics");
+                      }}
+                    />
+                  </div>
+                </details>
+
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
                   className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
                 >
+                  {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
                   {chat.messages.length > 0 ? (
                     <StepTimeline
                       messages={chat.messages}
@@ -2398,13 +3056,21 @@ export function App(): React.JSX.Element {
                       starters={STARTER_TEMPLATES}
                       onStarter={(starterTask) => {
                         setTask(starterTask);
-                        if (!repoUrl) setRepoUrl("https://github.com/cloudflare/ai-chat");
                       }}
                     />
                   ) : null}
                   {reviewThreadId ? (
                     <div className="mt-4 flex flex-col gap-3">
-                      <RunProgressCard run={reviewRun} sessionId={selectedSessionId} />
+                      <RunProgressCard
+                        run={reviewRun}
+                        sessionId={selectedSessionId}
+                        onCancel={
+                          reviewRun && retainedRuns.some((run) => run.runId === reviewRun.runId)
+                            ? cancelRun
+                            : undefined
+                        }
+                        cancelling={cancellingRunId === reviewRun?.runId}
+                      />
                       <RunUsageCard runs={retainedRuns} />
                       <PullRequestCard
                         threadId={reviewThreadId}
@@ -2429,16 +3095,80 @@ export function App(): React.JSX.Element {
                       : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
+                  {conversationMode === "chat" ? (
+                    <ConversationRoomPresence
+                      status={realtimeStatus}
+                      viewers={realtimeViewers}
+                      viewerId={realtimeViewerId}
+                    />
+                  ) : null}
+                  <ConversationModeSwitch
+                    value={conversationMode}
+                    onChange={setConversationMode}
+                    disabled={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
+                  />
+                  {firstRunProgress?.draftTask ? <section aria-label="Saved first task draft" className="mx-3 mt-3 rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs text-[var(--fg)]">
+                    <strong>{firstRunProgress.draftTask.preparedAt ? "First task draft saved" : "First task setup saved"}</strong>
+                    <p className="mt-1 break-words">{firstRunProgress.draftTask.goal || "Continue shaping your first outcome."}</p>
+                    <div className="mt-2 flex flex-wrap gap-3"><button type="button" onClick={openFirstRun} className="text-[var(--primary)]">Review setup draft</button>{preparedOnboardingSelection ? <button type="button" onClick={() => applyOnboardingDraft(preparedOnboardingSelection)} className="text-[var(--primary)]">Use first task draft</button> : null}</div>
+                    <p className="mt-2 text-[var(--muted-foreground-2)]">Saved brief only. Employee configuration and access are checked before work starts.</p>
+                    {firstRunProgress.draftTask.employeeTemplateId && !firstRunProgress.draftTask.employeeId ? <button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { setInitialEmployeeTemplateId(firstRunProgress.draftTask?.employeeTemplateId ?? null); openView("custom-agents"); }}>Configure suggested employee</button> : null}
+                  </section> : null}
+                  {composerVisible && selectedOnboardingDraftRef ? <div role="group" aria-label="Selected first-task goal" className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--fg)]"><span>First-task goal · v{selectedOnboardingDraftRef.version}{!activeOnboardingRef ? " · saved version needs review" : ""}</span><button type="button" onClick={() => setSelectedOnboardingDraftRef(null)} className="text-[var(--primary)]">Remove first-task goal link</button></div> : null}
+                  {pendingOnboardingDraft ? <section role="alertdialog" aria-modal="false" aria-label="Replace unsent task" className="mx-3 mt-3 border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs text-[var(--fg)]"><p>Replace the unsent task with your saved first task draft?</p><div className="mt-2 flex gap-3"><button type="button" onClick={() => setPendingOnboardingDraft(null)}>Keep current task</button><button type="button" onClick={() => applyOnboardingDraft(pendingOnboardingDraft, true)}>Replace with saved draft</button></div></section> : null}
+                  {conversationMode === "chat" && chat.messages.length > 0 ? (
+                    <div className="flex justify-end px-3 sm:px-5 xl:px-8 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowClearModal(true)}
+                        disabled={clearing || isSubmitting}
+                        className="text-[10px] font-mono text-[var(--muted-foreground-3)] hover:text-[var(--fg)] disabled:opacity-50"
+                      >
+                        Clear conversation
+                      </button>
+                    </div>
+                  ) : null}
+                  {conversationMode === "chat" ? (
+                    <div className={
+                      chat.messages.length === 0 && !reviewThreadId
+                        ? "flex-1 min-h-0 flex flex-col items-center justify-center gap-5 px-3 sm:px-5 xl:px-8 py-5"
+                        : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                    }>
+                      {chat.messages.length === 0 ? (
+                        <div className="max-w-2xl text-center">
+                          <h2 className="font-sans text-3xl text-[var(--fg)] mb-2">What should we explore?</h2>
+                          <p className="text-sm text-[var(--muted-foreground-2)]">
+                            Ask a question here. Chat mode has no task tools; switch to Work to delegate an approval-gated task.
+                          </p>
+                        </div>
+                      ) : null}
+                      <ChatMessageComposer
+                        value={composerVisible ? task : ""}
+                        onChange={setTask}
+                        onSubmit={submitTask}
+                        onStop={() => { void chat.stop(); }}
+                        onRetry={() => { void chat.regenerate(); }}
+                        busy={isSubmitting || clearing}
+                        streaming={chat.isStreaming || chat.status === "streaming" || chat.status === "submitted"}
+                        failed={Boolean(chat.error)}
+                      />
+                    </div>
+                  ) : (
                   <TaskComposer
+                    blockedReason={onboardingExecutionIssue}
+                    appToolsWork={appToolsWork}
+                    onAppToolsWorkChange={setAppToolsWork}
+                    appToolsWorkIssue={appToolsWorkIssue(appToolsContext)}
+                    onOpenEmployeeTools={() => openView("employee-tools")}
                     repoUrl={repoUrl}
-                    task={task}
+                    task={composerVisible ? task : ""}
                     baseBranch={baseBranch}
                     publishPullRequest={publishPullRequest}
                     reviewAfterPublish={reviewAfterPublish}
                     harness={harness}
                     busy={busy}
                     repoSuggestions={repoSuggestions}
-                    skills={savedSkills}
+                    skills={selectableSkills}
                     selectedSkillIds={selectedSkillIds}
                     onToggleSkill={(id) =>
                       setSelectedSkillIds((current) =>
@@ -2449,6 +3179,19 @@ export function App(): React.JSX.Element {
                     }
                     isSubmitting={isSubmitting}
                     clearing={clearing}
+                    executionTargetKind={executionTargetKind}
+                    onExecutionTargetKindChange={(value) => {
+                      setExecutionTargetKind(value);
+                      if (value === "artifact-workspace") {
+                        setRunTarget("sandbox");
+                        setPublishPullRequest(false);
+                        setRunSetup(false);
+                      }
+                    }}
+                    artifactWorkspaceName={artifactWorkspaceName}
+                    onArtifactWorkspaceNameChange={setArtifactWorkspaceName}
+                    artifactDeliverables={artifactDeliverables}
+                    onArtifactDeliverablesChange={setArtifactDeliverables}
                     runTarget={runTarget}
                     onRunTargetChange={setRunTarget}
                     localRunAvailable={localRunAvailable}
@@ -2466,9 +3209,18 @@ export function App(): React.JSX.Element {
                       if (value) setReviewAfterPublish(true);
                     }}
                     onReviewAfterPublishChange={setReviewAfterPublish}
+                    runSetup={runSetup}
+                    onRunSetupChange={setRunSetup}
                     onHarnessChange={setHarness}
                     customAgents={customAgentPickerOptions}
                     customAgentId={customAgentId}
+                    projects={projectContexts}
+                    projectContextId={projectContextId}
+                    onProjectContextChange={setProjectContextId}
+                    onApplyProjectDefaults={(project) => {
+                      if (project.defaultCustomAgentId) setCustomAgentId(project.defaultCustomAgentId);
+                      if (project.defaultHarness) setHarness(project.defaultHarness);
+                    }}
                     customAgentsLoading={customAgentsLoading}
                     onCustomAgentChange={setCustomAgentId}
                     routing={{
@@ -2476,15 +3228,23 @@ export function App(): React.JSX.Element {
                       connectionId,
                       onCodingModelChange: setCodingModel,
                       onConnectionChange: setConnectionId,
+                      reasoningEffort,
+                      onReasoningEffortChange: setReasoningEffort,
                       modelSuggestions: codingModelSuggestions,
                       connections: modelConnections,
                     }}
+                    envVars={envVars}
+                    onEnvVarsChange={setEnvVars}
                     variant={threadHasWork ? "docked" : "hero"}
+                    agentName={employeeName}
+                    examplePrompts={employeeExamples(activeEmployee)}
                     onSubmit={submitTask}
                     onClear={() => setShowClearModal(true)}
                   />
+                  )}
                 </div>
               </main>
+              {agentDetailsOpen ? <AgentDetailsPanel key={customAgentId || "shiba"} agent={activeEmployee} onClose={() => setAgentDetailsOpen(false)} onEdit={() => openView("custom-agents")} /> : null}
             </div>
           ) : mainView === "activity" ? (
             // Remount on session switch so the previous session's spine never
@@ -2547,13 +3307,13 @@ export function App(): React.JSX.Element {
                     <span>Agent Memory</span>
                   </h2>
                   <p className="text-xs text-[var(--muted-foreground-2)]">
-                    Vectorize long-term semantic memory, extracted facts, and session context.
+                    Private workspace sources with local keyword recall, plus legacy agent facts and sessions.
                   </p>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-4 lg:p-8">
                 <div className="max-w-6xl mx-auto">
-                  <MemoryTab />
+                  <MemoryTab initialViewMode={memoryInitialView} />
                 </div>
               </div>
             </div>
@@ -2574,7 +3334,7 @@ export function App(): React.JSX.Element {
               }}
               onApplyIntake={(prompt) => {
                 setTask(prompt);
-                setMainView("tasks");
+                setMainView("threads");
                 window.setTimeout(() => {
                   document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
                 }, 0);
@@ -2592,13 +3352,23 @@ export function App(): React.JSX.Element {
                 return body.url;
               }}
             />
+          ) : mainView === "collaboration" ? (
+            <CollaborationView />
           ) : mainView === "providers" ? (
             <ProvidersView />
           ) : mainView === "skills" ? (
             <SkillsView />
+          ) : mainView === "spaces" ? (
+            <SpacesView />
           ) : mainView === "custom-agents" ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              {firstRunProgress?.draftTask ? <section aria-label="Return to first task setup" className="border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-3 text-xs text-[var(--fg)]"><p>Configure and save an employee here. Then choose its saved version for your first task.</p><button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { void updateFirstRunProgress({ action: "save-draft", draftTask: { currentStep: "employee" } }).then(openFirstRun).catch(() => setNotice("Setup could not be opened. Retry from your saved first task draft.")); }}>Choose saved employee in setup</button></section> : null}
             <CustomAgentsView
-              onStartThread={handleStartAgentThread}
+              key={orchestratorName ?? "manual"}
+              draftScope={orchestratorName ?? undefined}
+              onStartThread={async (profile) => { await handleStartAgentThread(profile); }}
+              initialTemplateId={initialEmployeeTemplateId}
+              onInitialTemplateApplied={() => setInitialEmployeeTemplateId(null)}
               connections={modelConnections}
               modelSuggestions={agentsDirectory.state.kind === "data" ? agentsDirectory.state.data.agents.map((agent) => agent.defaultModel).filter((model): model is string => typeof model === "string" && model.includes("/")) : []}
               threads={webSessions}
@@ -2606,6 +3376,9 @@ export function App(): React.JSX.Element {
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
+            </div>
+          ) : mainView === "employee-tools" ? (
+            <EmployeeToolPolicyView />
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
@@ -2627,7 +3400,7 @@ export function App(): React.JSX.Element {
                 }
               }}
               onOpenSessions={() => {
-                setMainView("tasks");
+                setMainView("threads");
                 if (window.matchMedia("(min-width: 1024px)").matches) {
                   setSessionsCollapsed((collapsed) => {
                     if (collapsed) {
@@ -2684,9 +3457,19 @@ export function App(): React.JSX.Element {
 
           {/* ONBOARDING SETUP MODAL */}
           <FirstRunWizard
-            open={showFirstRun}
-            onClose={() => setShowFirstRun(false)}
+            open={showLegacyFirstRun}
+            onClose={() => setShowLegacyFirstRun(false)}
+            progress={authMode === "better-auth" ? firstRunProgress : null}
+            onRefresh={authMode === "better-auth" ? refreshFirstRunProgress : undefined}
+            onResume={authMode === "better-auth" ? resumeFirstRunProgress : undefined}
+            onStepChange={authMode === "better-auth" ? saveFirstRunStep : undefined}
+            onDismiss={authMode === "better-auth" ? dismissFirstRunProgress : undefined}
             onNavigate={openView}
+            onStartEmployeeSetup={(template) => {
+              setInitialEmployeeTemplateId(template.id);
+              setShowLegacyFirstRun(false);
+              openView("custom-agents");
+            }}
             onOpenModels={() => {
               setSettingsInitialSection("models");
               setSettingsModalOpen(true);

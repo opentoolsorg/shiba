@@ -17,25 +17,32 @@ import { handleAutomations } from "../src/v1/automations.js";
 import type { V1Context } from "../src/v1/context.js";
 import { handleMcp } from "../src/v1/mcp.js";
 import { handleRepositories } from "../src/v1/repositories.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 function makeDo() {
   const storage = new Map<string, unknown>();
-  const state = { storage: {
+  const storageApi = {
     get: async (key: string) => storage.get(key),
     put: async (key: string, value: unknown) => void storage.set(key, value),
     list: async () => new Map(storage),
     delete: async (keys: string[]) => { for (const key of keys) storage.delete(key); },
+  };
+  const state = { storage: {
+    ...storageApi,
+    transaction: async (callback: (transaction: typeof storageApi) => Promise<unknown>) => callback(storageApi),
   } } as unknown as DurableObjectState;
   return new Automations(state, { CodingOrchestrator: {}, AUTOMATIONS_ENABLED: "true", AI: {}, ORCHESTRATOR_MODEL: "@cf/test/model",
     GITHUB_TOKEN: "t" } as unknown as Env);
 }
 
 function fixture(path: string, method = "GET", body?: unknown, env: Partial<Env> = { GITHUB_TOKEN: "t" }, headers: Record<string, string> = {}) {
+  const { database } = customAgentD1();
+  const bindings = { AGENT_AUDIT: database, MCP_TRUSTED_HOSTS: "", ...env };
   const request = new Request(`https://worker.test/api/v1${path}`, { method,
     headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const forward = vi.fn(async () => new Response("unused", { status: 500 }));
   const ctx: V1Context = {
-    request, url: new URL(request.url), env: env as Env, forward,
+    request, url: new URL(request.url), env: bindings as Env, forward,
     principal: { principal: "test", orgId: "self-hosted", scopes: ["api:read", "api:write", "api:keys:admin"] },
   };
   return { ctx, forward };
@@ -128,23 +135,23 @@ describe("v1 P3a handlers", () => {
   describe("mcp servers", () => {
     it("lists the built-in gateway with no secrets", async () => {
       const body = await (await handleMcp(fixture("/mcp/servers?projectId=p1").ctx))!.json();
-      expect(body).toEqual({ ok: true, servers: [{ id: "shiba", projectId: null, name: "shiba",
-        config: { transport: "http", url: "https://worker.test/mcp", needsAuth: true }, enabled: true }] });
+      expect(body).toEqual({ ok: true, servers: [], builtin: { id: "shiba", projectId: null, name: "shiba",
+        config: { transport: "http", url: "https://worker.test/mcp", needsAuth: true }, enabled: true } });
     });
 
-    it("validates create, then 501s", async () => {
+    it("validates create and stores a draft without contacting the upstream", async () => {
       expect((await handleMcp(fixture("/mcp/servers", "POST", { config: {} }).ctx))!.status).toBe(400);
       expect((await handleMcp(fixture("/mcp/servers", "POST", { name: "x", config: {} }, {}, { "Idempotency-Key": "" }).ctx))!.status).toBe(400);
-      const response = await handleMcp(fixture("/mcp/servers", "POST", { name: "linear", config: { transport: "http", url: "https://mcp.linear.app" } }).ctx);
-      expect(response!.status).toBe(501);
-      expect(await response!.json()).toMatchObject({ code: "not_implemented" });
+      const response = await handleMcp(fixture("/mcp/servers", "POST", { name: "linear", transport: "streamable_http", url: "https://mcp.linear.app", credentialRef: null }).ctx);
+      expect(response!.status).toBe(201);
+      expect(await response!.json()).toMatchObject({ ok: true, server: { name: "linear", status: "draft", credentialRef: null } });
     });
 
     it("404s unknown ids and 409s the read-only gateway", async () => {
       expect((await handleMcp(fixture("/mcp/servers/other", "PATCH", { enabled: false }).ctx))!.status).toBe(404);
       expect((await handleMcp(fixture("/mcp/servers/shiba", "DELETE").ctx))!.status).toBe(409);
-      expect((await handleMcp(fixture("/mcp/servers/shiba", "PATCH", { enabled: "no" }).ctx))!.status).toBe(400);
-      expect((await handleMcp(fixture("/mcp/servers/shiba", "GET").ctx))!.status).toBe(405);
+      expect((await handleMcp(fixture("/mcp/servers/shiba", "PATCH", { enabled: "no" }).ctx))!.status).toBe(409);
+      expect((await handleMcp(fixture("/mcp/servers/shiba", "GET").ctx))!.status).toBe(404);
     });
   });
 

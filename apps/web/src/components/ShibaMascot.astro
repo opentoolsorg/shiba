@@ -1,0 +1,119 @@
+---
+interface Props {
+  state?: 'idle' | 'thinking' | 'waiting-approval' | 'working' | 'done';
+  title?: string;
+  size?: number | 'card' | 'hero';
+  variant?: 'default' | 'card' | 'hero';
+  character?: 'shiba' | 'engineering' | 'marketing' | 'sales' | 'product' | 'design' | 'research' | 'operations' | 'custom';
+  collar?: string;
+  animated?: boolean;
+}
+const { state = 'idle', title, size, variant = 'default', character: persona = 'shiba', collar, animated = true } = Astro.props;
+const width = typeof size === 'number' ? `${size}px` : size === 'hero' || variant === 'hero' ? '240px' : size === 'card' || variant === 'card' ? '150px' : '100%';
+---
+<!-- Original geometric Shiba artwork. Every expression stays in the SVG so data-state can change without a rerender. -->
+<svg class:list={['shiba', { still: !animated }]} data-state={state} data-character={persona} viewBox="0 0 260 240" fill="none" xmlns="http://www.w3.org/2000/svg" role={title ? 'img' : undefined} aria-label={title} aria-hidden={title ? undefined : 'true'} focusable="false" style={{ width, '--shiba-collar': collar }}>
+  {title && <title>{title}</title>}
+  <ellipse cx="128" cy="224" rx="82" ry="5" class="ground" />
+  <g class="greeting">
+    <g class="dog" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+      <g class="tail"><path d="M169 184C219 204 237 156 215 141C195 125 175 151 190 164C202 175 216 158 204 153" class="fur" /><path d="M190 184Q225 172 215 149" class="cream-stroke" stroke-width="10" /></g>
+      <path d="M92 132Q64 163 78 213H175Q187 159 155 132Z" class="fur" />
+      <path d="M111 144Q91 171 103 211H149Q158 171 136 144" class="cream" />
+      {persona !== 'shiba' && <g class="outfit"><path d={persona === 'research' ? 'M89 141L112 148L127 178L144 148L162 141L178 211H77Z' : 'M87 146L108 152L127 170L147 152L166 146L178 211H76Z'} /><path d="M127 173V210M97 188H112M146 188H160" class="detail" /></g>}
+      <path d="M80 208Q64 220 79 222H104L108 205M148 205L151 222H178Q188 216 171 208" class="cream" />
+      <g class="head">
+        <g class="ear ear-left"><path d="M72 88L66 34Q66 24 77 30L111 62Z" class="fur" /><path d="M78 66L77 43L95 63Z" class="ear-inner" /></g>
+        <g class="ear ear-right"><path d="M146 61L180 29Q190 23 189 36L182 88Z" class="fur" /><path d="M159 62L178 42L176 69Z" class="ear-inner" /></g>
+        <path d="M77 71Q98 52 128 55Q162 53 179 74L194 110Q190 143 150 153H105Q68 143 62 112Z" class="fur" />
+        <path d="M64 111L86 98Q99 99 110 115Q128 105 146 115Q159 99 171 99L192 111Q183 145 149 151H106Q75 143 64 111Z" class="cream" stroke="none" />
+        <g class="brows face"><path class="brow-left" d="M93 82L105 80" /><path class="brow-right" d="M151 80L163 83" /></g>
+        <g class="eyes normal-eyes"><ellipse cx="100" cy="99" rx="3.5" ry="4.5" class="face-fill" /><ellipse cx="156" cy="99" rx="3.5" ry="4.5" class="face-fill" /></g>
+        <path d="M92 100Q100 89 108 100M148 100Q156 89 164 100" class="face happy-eyes expression" />
+        <path d="M120 115Q128 111 136 115L129 123Q127 125 125 122Z" class="face-fill" />
+        <path d="M115 130Q122 135 128 128Q134 135 141 130M128 123V128" class="face normal-mouth" />
+        <path d="M116 129Q128 149 140 129M128 123V134" class="face happy-mouth expression" />
+        <ellipse cx="128" cy="134" rx="5" ry="7" class="face-fill question-mouth expression" />
+        <path d="M94 148Q128 162 163 148L159 158Q128 171 97 158Z" class="collar" />
+        {persona === 'sales' && <g class="prop tie"><path d="M121 159H135L131 168L138 188L128 199L118 188L125 168Z" class="outfit" /></g>}
+        {persona === 'engineering' && <g class="prop hardhat"><path d="M73 78Q72 40 127 39Q181 40 182 78Z" class="outfit" /><path d="M121 38H135V70H121Z" class="cream" /><path d="M67 77H189V86H67Z" class="outfit" /></g>}
+        {persona === 'operations' && <g class="prop headset"><path d="M70 102V88Q70 51 128 49Q187 50 187 90V109M183 111Q181 133 144 133" class="detail" /><rect x="64" y="86" width="14" height="29" rx="6" class="outfit" /><rect x="179" y="86" width="14" height="29" rx="6" class="outfit" /><rect x="135" y="129" width="16" height="8" rx="4" class="outfit" /></g>}
+        {persona === 'custom' && <path d="M100 65Q109 48 126 60Q143 43 154 62" class="detail tuft" />}
+      </g>
+      <g class="paws resting-paws"><path d="M92 163L87 191Q93 201 104 193L110 177M153 163L162 191Q156 201 146 193L140 177" class="fur" /></g>
+      <g class="raised-paw expression"><path d="M92 168L68 141Q55 126 47 139Q43 149 57 161L79 187" class="fur" /><ellipse cx="54" cy="144" rx="5" ry="6" class="ear-inner" /><path d="M47 135L45 131M54 132V128M61 136L64 132" class="face" /></g>
+      {persona === 'sales' && <g class="prop account-card"><rect x="163" y="172" width="59" height="39" rx="5" class="paper" /><circle cx="176" cy="186" r="5" class="outfit" /><path d="M187 183H213M187 190H206M172 201H212" class="detail" /></g>}
+      {persona === 'product' && <g class="prop roadmap"><rect x="55" y="169" width="146" height="47" rx="5" class="paper" /><path d="M70 194H184M91 194V183M130 194V203M168 194V183" class="detail" /><circle cx="91" cy="180" r="5" class="outfit" /><circle cx="130" cy="204" r="5" class="outfit" /><circle cx="168" cy="180" r="5" class="outfit" /></g>}
+      {persona === 'design' && <g class="prop pencil-swatch"><path d="M69 207L84 165L93 169L78 211L67 219Z" class="outfit" /><path d="M69 207L78 211M84 165L87 158L96 162L93 169" class="detail" /><rect x="159" y="171" width="53" height="42" rx="4" class="paper" /><path d="M168 180H180V192H168Z" class="outfit" /><path d="M187 180H201V192H187Z" class="fur" /><path d="M168 202H201" class="detail" /></g>}
+      {persona === 'engineering' && <g class="prop wrench"><path d="M177 186L198 158Q190 144 201 136L202 147L212 151L219 142Q225 158 209 164L187 198Z" class="tool" /></g>}
+      {persona === 'marketing' && <g class="prop megaphone"><path d="M86 172L44 150V199L86 183H105V172ZM60 193L65 211H77L72 189" class="outfit" /><path d="M44 150V199" class="cream-stroke" stroke-width="6" /><path d="M31 161L21 155M29 176H16M31 191L21 198" class="detail" /></g>}
+      {persona === 'research' && <g class="prop magnifier"><path d="M161 176L181 153" class="detail" stroke-width="8" /><circle cx="193" cy="138" r="23" class="lens" /><path d="M185 126Q197 121 205 132" class="detail" /><path d="M65 181L100 174L111 214L76 221Z" class="paper" /><path d="M74 190L95 185M77 199L98 194M80 208L101 203" class="detail" /></g>}
+      {persona === 'operations' && <g class="prop checklist"><rect x="161" y="162" width="49" height="57" rx="4" class="paper" /><path d="M169 174L173 178L180 169M184 175H201M169 191L173 195L180 186M184 192H201M170 207H201" class="detail" /></g>}
+      {persona === 'custom' && <g class="prop nametag"><rect x="91" y="169" width="73" height="37" rx="6" class="paper" /><path d="M93 180H162" class="detail" /><path d="M128 186V199M121 192H135" class="detail" /></g>}
+      <g class="laptop expression"><path d="M76 184H177L170 215H83Z" class="computer" /><path d="M70 216H183L176 223H77Z" class="outfit" /><path d="M117 194L110 200L117 206M139 194L146 200L139 206" class="code" /></g>
+      <g class="typing-paws expression"><path d="M94 166L108 185Q111 195 121 187L109 169" class="fur typing-left" /><path d="M154 166L142 185Q139 195 129 187L140 169" class="fur typing-right" /></g>
+    </g>
+  </g>
+  <g class="thought expression"><path d="M191 39Q190 22 212 22Q240 22 240 42Q240 62 211 61L199 70L201 58Q191 54 191 39Z" class="paper" /><circle cx="203" cy="42" r="2.5" class="face-fill dot" /><circle cx="215" cy="42" r="2.5" class="face-fill dot" /><circle cx="227" cy="42" r="2.5" class="face-fill dot" /></g>
+  <g class="bubble expression"><path d="M204 30H233Q242 30 242 39V63Q242 71 233 71H216L204 81L207 70Q198 69 198 61V39Q198 30 204 30Z" class="paper" /><path d="M211 43Q220 36 226 43Q231 50 220 55V59M220 65V66" class="detail" /></g>
+  <g class="celebration expression"><path d="M212 79L215 89L225 92L215 95L212 105L209 95L199 92L209 89ZM44 60L47 68L55 71L47 74L44 82L41 74L33 71L41 68Z" class="outfit" /><path d="M205 48L214 56L232 36" class="detail" /></g>
+</svg>
+<script>
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => entry.target.classList.toggle('is-visible', entry.isIntersecting)));
+    document.querySelectorAll('.shiba').forEach(mascot => observer.observe(mascot));
+  }
+</script>
+<style>
+  .shiba { --fur-light: #d99652; --fur-dark: #e6ad70; --outfit-light: #a84a26; --outfit-dark: #e7a480; --shiba-fur: var(--fur-light); --outfit: var(--outfit-light); --shiba-cream: #fff0d6; --shiba-outline: #493426; --prop-paper: #fffaf0; display: block; max-width: 100%; height: auto; overflow: visible; }
+  [data-character='sales'] { --fur-light: #c88b60; --fur-dark: #dda77e; --outfit-light: #244c80; --outfit-dark: #8baed8; --idle: polite-tilt; --tempo: 5.1s; --delay: -1.3s; }
+  [data-character='product'] { --fur-light: #b4a08a; --fur-dark: #d1bca5; --outfit-light: #49645d; --outfit-dark: #9dbdb3; --idle: survey; --tempo: 6.3s; --delay: -2.1s; }
+  [data-character='design'] { --fur-light: #d8bb83; --fur-dark: #ead2a4; --outfit-light: #805c72; --outfit-dark: #c9a2bb; --idle: ponder; --tempo: 7s; --delay: -3.6s; }
+  [data-character='engineering'] { --fur-light: #a46b43; --fur-dark: #ce986c; --outfit-light: #edaa28; --outfit-dark: #f2c15e; --idle: tool-check; --tempo: 4.7s; --delay: -2.7s; }
+  [data-character='marketing'] { --fur-light: #e9b6aa; --fur-dark: #f0c7ba; --outfit-light: #a33464; --outfit-dark: #de8bb0; --idle: announce; --tempo: 5.6s; --delay: -4.3s; }
+  [data-character='research'] { --fur-light: #9eaa7e; --fur-dark: #bec9a1; --outfit-light: #42654b; --outfit-dark: #86b592; --idle: inspect; --tempo: 6.8s; --delay: -1.8s; }
+  [data-character='operations'] { --fur-light: #a99ac0; --fur-dark: #c6b6dc; --outfit-light: #4d3d78; --outfit-dark: #a697ce; --idle: listen; --tempo: 5.9s; --delay: -3.1s; }
+  [data-character='custom'] { --fur-light: #ebdfc8; --fur-dark: #f6e8d0; --outfit-light: #426e78; --outfit-dark: #8cbac4; --idle: hello; --tempo: 7.4s; --delay: -5.2s; }
+  :global([data-theme='dark']) .shiba { --shiba-fur: var(--fur-dark); --outfit: var(--outfit-dark); }
+  .fur { fill: var(--shiba-fur); stroke: var(--shiba-outline); } .cream { fill: var(--shiba-cream); stroke: var(--shiba-outline); } .cream-stroke { stroke: var(--shiba-cream); }
+  .ear-inner { fill: #b97568; stroke: var(--shiba-outline); } .face, .detail { fill: none; stroke: var(--shiba-outline); stroke-width: 2.5; } .face-fill { fill: var(--shiba-outline); }
+  .collar { fill: var(--shiba-collar, var(--outfit)); stroke: var(--shiba-outline); } .outfit { fill: var(--outfit); stroke: var(--shiba-outline); }
+  .ground { fill: var(--navy, #0000a8); opacity: .13; } .paper { fill: var(--prop-paper); stroke: var(--shiba-outline); stroke-width: 2; }
+  .computer { fill: #253449; stroke: var(--shiba-outline); } .code { fill: none; stroke: #fff4dd; stroke-width: 2.5; }
+  .tool { fill: #a5bcc4; stroke: var(--shiba-outline); } .lens { fill: #dceef0; fill-opacity: .88; stroke: var(--shiba-outline); stroke-width: 5; }
+  .head { transform-origin: 128px 148px; } .ear-left { transform-origin: 90px 76px; } .brow-left { transform-origin: 100px 81px; } .brow-right { transform-origin: 156px 81px; }
+  .head, .eyes, .brows path, .expression, .normal-eyes, .normal-mouth, .resting-paws, .prop { transition: transform .45s ease, opacity .3s ease; }
+  .expression { opacity: 0; pointer-events: none; } .raised-paw { transform-origin: 87px 176px; transform: rotate(22deg); }
+  [data-state='thinking'] .head { transform: rotate(-7deg); } [data-state='thinking'] .eyes { transform: translate(2px, -5px); } [data-state='thinking'] .brow-right { transform: translateY(-5px) rotate(-10deg); }
+  [data-state='thinking'] .thought, [data-state='waiting-approval'] .bubble, [data-state='waiting-approval'] .raised-paw, [data-state='waiting-approval'] .question-mouth, [data-state='working'] .laptop, [data-state='working'] .typing-paws, [data-state='done'] .happy-eyes, [data-state='done'] .happy-mouth, [data-state='done'] .celebration { opacity: 1; }
+  [data-state='waiting-approval'] .head { transform: rotate(5deg); } [data-state='waiting-approval'] .raised-paw { transform: rotate(0); } [data-state='waiting-approval'] .brows { transform: translateY(-6px); }
+  [data-state='waiting-approval'] .normal-mouth, [data-state='waiting-approval'] .resting-paws, [data-state='working'] .resting-paws, [data-state='working'] .prop, [data-state='done'] .normal-eyes, [data-state='done'] .normal-mouth { opacity: 0; }
+  [data-state='working'] .brow-left { transform: rotate(15deg); } [data-state='working'] .brow-right { transform: rotate(-15deg); } [data-state='working'] .eyes { transform: translateY(3px); }
+  .dog { transform-origin: 128px 221px; animation: var(--idle, breathe) var(--tempo, 4s) ease-in-out var(--delay, 0s) infinite; }
+  .tail { transform-origin: 177px 183px; animation: wag 5s ease-in-out var(--delay, 0s) infinite; }
+  .ear-left { animation: twitch 8s ease-in-out var(--delay, 0s) infinite; }
+  [data-state='working'] .typing-left { animation: typing .35s infinite alternate; } [data-state='working'] .typing-right { animation: typing .35s -.35s infinite alternate; }
+  [data-state='thinking'] .dot { animation: dot 1.5s infinite; } .dot:nth-of-type(2) { animation-delay: .2s; } .dot:nth-of-type(3) { animation-delay: .4s; }
+  [data-state='done'] .tail { animation-duration: 1s; }
+  .shiba:hover .greeting, .shiba:focus-within .greeting, :global(.agent-card:is(:hover, :focus-within)) .greeting { animation: greet .65s ease; transform-origin: 128px 221px; }
+  .shiba * { animation-play-state: paused; }
+  .shiba.is-visible *, :global(.hero-demo:not(.is-paused)) .shiba * { animation-play-state: running; }
+  :global(.agent-card) .shiba * { animation-play-state: paused; }
+  :global(.agent-card:is(:hover, :focus-within)) .shiba * { animation-play-state: running; }
+  .still * { animation: none !important; }
+  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) .shiba { --shiba-fur: var(--fur-dark); --outfit: var(--outfit-dark); } }
+  @keyframes breathe { 50% { transform: scale(1.01, 1.02); } }
+  @keyframes polite-tilt { 20%, 30% { transform: rotate(-3deg); } }
+  @keyframes survey { 50% { transform: translateX(3px) rotate(1deg); } }
+  @keyframes ponder { 45%, 60% { transform: rotate(3deg) translateY(-1px); } }
+  @keyframes tool-check { 35% { transform: rotate(-2deg) translateY(2px); } }
+  @keyframes announce { 50% { transform: rotate(3deg) scale(1.02); } }
+  @keyframes inspect { 45% { transform: translateX(-3px) rotate(-3deg); } }
+  @keyframes listen { 30%, 50% { transform: rotate(2deg) scaleY(1.015); } }
+  @keyframes hello { 65% { transform: translateY(-4px) rotate(-1deg); } }
+  @keyframes wag { 0%, 70%, 100% { transform: rotate(0); } 78%, 91% { transform: rotate(-9deg); } 84%, 96% { transform: rotate(7deg); } }
+  @keyframes twitch { 80%, 87% { transform: rotate(0); } 83% { transform: rotate(-9deg); } }
+  @keyframes typing { to { transform: translateY(-4px); } } @keyframes dot { 50% { opacity: .25; } }
+  @keyframes greet { 35% { transform: translateY(-9px) rotate(-4deg); } 70% { transform: translateY(-3px) rotate(3deg); } }
+  @media (prefers-reduced-motion: reduce) { .shiba *, .shiba:hover .greeting, :global(.agent-card:is(:hover, :focus-within)) .greeting { animation: none !important; transition: none !important; } }
+</style>

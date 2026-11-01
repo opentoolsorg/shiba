@@ -1,151 +1,63 @@
 ---
 title: Remote access
-description: Pair your own machines with the local daemon, watch the fleet, and revoke a machine from the dashboard.
+description: Connect your computer and choose it for approved local tasks.
 ---
 
-Remote Access lets you run approved local tasks on your own computers. You pair a machine with one command, and the dashboard lists every paired machine with its hostname, platform, detected harnesses, and status. You can revoke any machine from the same screen.
+Use **Remote Access** to connect a computer you want Shiba to work on. The page shows its connection status and available agents.
 
-The daemon only makes outbound calls. It polls the Worker over HTTPS, so your machine needs no open port, tunnel, or VPN.
+If it says **Local runtime is disabled**, ask your Shiba operator to enable it using the [setup guide](/docs/remote-access-setup/).
 
-## Turn it on
+## Connect a computer
 
-Remote Access is off by default. The `/api/local/*` and `/api/computers*` routes return `404` until both of these are true:
+1. Open **Remote Access** in the dashboard.
+2. In Shiba Desktop, select **Connect this computer**. In a browser, select **Add computer** and follow the displayed command on the computer you want to connect.
+3. Wait for the computer to appear in the list. Check its status and available agents.
 
-- `SHIBA_LOCAL_RUNTIME=1` is set on the Worker.
-- The `LocalDispatch` Durable Object is bound.
+The connect command works once and expires after 15 minutes. If it expires, generate another from **Add computer**.
 
-Pairing tokens are signed with `PAIRING_SECRET`. If that is unset, the Worker signs with `LOCAL_ADAPTER_TOKEN` instead. If neither is set, minting a pairing token returns `503`. With Remote Access off, the dashboard's Remote Access view says the local runtime is disabled.
+## Run a task locally
 
-### Cloudflare Access
+1. Open a thread and choose the repository and task.
+2. Open the **Cloud** or **Local** selector and choose **Local (Paired computer)**.
+3. Choose an online computer with a compatible agent.
+4. Send the task, then review and approve the **exact request** before work starts.
 
-Alchemy deploys create a second Access application (`MachineBypass`) that covers `/api/local/*` and the other machine-caller routes with a `bypass` policy, because a daemon cannot complete an interactive Access login — it authenticates inside the Worker with its adapter bearer. If you deploy with wrangler or front the Worker with your own Access configuration, create the equivalent yourself: an Access application on `<worker-host>/api/local/*` with a `bypass` / `everyone` policy. Without it the daemon's polls get the Access HTML login page instead of the API, and pairing fails. The bypass does not open the Worker — every `/api/local/*` route still requires a valid adapter bearer token; it only removes the IdP challenge.
+Connecting a computer does not approve work on it. Review the returned changes in the thread, just as you would for a cloud task.
 
-## Pair a machine
+## Understand the status
 
-1. In the dashboard, open **Sandbox & Safety → Remote Access** and click **Add computer**.
-2. Copy the connect command. It looks like this:
-
-   ```sh
-   node scripts/shiba-local-daemon.mjs --connect https://shiba.example.com --pair <token>
-   ```
-
-3. Run it from a checkout of this repository on the machine you want to pair.
-
-The pairing token works once and expires after 15 minutes; the modal shows a countdown. The daemon sends the token to `POST /api/local/pair`. The Worker checks the token's HMAC signature and expiry, then burns its nonce, so the same token can't be used twice. On success the Worker returns a new adapter token and a machine id, and the daemon starts polling.
-
-If the token was expired, already used, or mistyped, the daemon exits with a message telling you to mint a new one. Mint a new token and run the command again.
-
-## Files on the machine
-
-The daemon keeps its state in `~/.shiba-local/`. Set `SHIBA_LOCAL_RUN_ROOT` to use a different directory.
-
-| File | Contents | Mode |
-| --- | --- | --- |
-| `config.json` | `{workerUrl, adapterToken, machineId}`, written by `--connect`/`--pair` | `0600` |
-| `machine-id` | A random UUID, created once and reused across restarts | `0600` |
-
-The directory is created with mode `0700`. Pairing again overwrites `config.json` and tightens its permissions to `0600`.
-
-The older environment-variable setup still works. If `SHIBA_WORKER_URL` and `LOCAL_ADAPTER_TOKEN` are set, they take precedence over `config.json`. In that mode the daemon authenticates with the deployment-wide bearer, not a per-machine token.
-
-## Heartbeat and status
-
-At startup the daemon checks which harnesses are installed by running `claude`, `codex`, `opencode`, and `agy` with `--version`. Each check has a 5-second timeout. Only the names of harnesses that respond are reported; version strings are not.
-
-The daemon then sends a heartbeat to `POST /api/local/heartbeat` every 30 seconds. Each heartbeat includes the machine id, hostname, platform (`process.platform-process.arch`, such as `darwin-arm64`), daemon version, harness list, and the id of the run in progress, if any.
-
-The dashboard polls `/api/computers` every 10 seconds and shows one of three statuses:
-
-| Status | Meaning |
+| Status | What to do |
 | --- | --- |
-| `busy` | The last heartbeat reported an active run. |
-| `idle` | The last heartbeat arrived within 75 seconds and reported no active run. |
-| `offline` | No heartbeat for more than 75 seconds. |
+| Idle | The computer is connected and has reported no active task. |
+| Busy | Check its current task before sending more work. |
+| Offline | Make sure the computer is awake, connected to the internet, and running Shiba. |
 
-Expect some lag. A machine can show `idle` or `busy` for up to about 30 seconds after the real change, plus up to 10 seconds of dashboard polling. A machine that stops reporting shows `offline` only after 75 seconds, which is two missed heartbeats plus slack.
+Status can take a little time to update. Check the task's thread for progress. A listed agent is not a guarantee that its sign-in or connection is ready.
 
-A failed heartbeat caused by a network error is logged, and the daemon tries again on the next tick. Records for machines that have not sent a heartbeat in 7 days are deleted. A deleted machine has to be paired again.
+## Disconnect a computer
 
-## Revoke a machine
+Select **Revoke** beside it and confirm. On Shiba Desktop, **Disconnect this computer** is also available from the tray menu.
 
-Click **Revoke** on a machine and confirm. This calls `POST /api/computers/revoke`, which deletes the machine record, including the stored hash of its adapter token. The machine's next heartbeat or claim then gets a `401`. The daemon logs `adapter token revoked; re-pair` and exits with code `78`, so a process supervisor can treat it as a configuration error instead of restarting it in a loop.
+Revoking access does not guarantee an active process stops immediately. Cancel and check active work before retiring the computer.
 
-Things revocation does not do:
+## Setup and troubleshooting
 
-- The Worker can't cancel a run that is already in progress on the machine. The daemon only exits after its next heartbeat or claim gets a `401`, which can take up to about 30 seconds.
-- It can't revoke a daemon running in environment-variable mode. That daemon uses the deployment-wide `LOCAL_ADAPTER_TOKEN`, so you have to rotate that secret to cut it off.
-- It does not delete `~/.shiba-local/` on the machine. Remove the directory yourself if you are retiring the machine.
+<span id="turn-it-on"></span>
+<span id="cloudflare-access"></span>
+<span id="pair-a-machine"></span>
+<span id="files-on-the-machine"></span>
+<span id="heartbeat-and-status"></span>
+<span id="revoke-a-machine"></span>
+<span id="desktop-app"></span>
+<span id="install"></span>
+<span id="first-run"></span>
+<span id="connect-this-computer"></span>
+<span id="tray-states"></span>
+<span id="logs"></span>
+<span id="notifications"></span>
+<span id="start-at-login-and-quitting"></span>
+<span id="uninstall"></span>
+<span id="security-model"></span>
+<span id="limits"></span>
 
-## Desktop app
-
-Shiba Desktop (macOS only) wraps the same dashboard in an app and adds one-click pairing. It only makes outbound calls and adds no approval path: local runs still need the approval card in the dashboard.
-
-### Install
-
-Open the `.dmg`, then drag Shiba to Applications. Local builds are unsigned, so Gatekeeper blocks the first launch. Right-click the app, choose **Open**, then confirm. If macOS still refuses, clear the quarantine flag once:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Shiba.app
-```
-
-If you build locally with `pnpm --filter @shiba/desktop dist`, the unsigned app is killed at launch on Apple silicon (`Code Signature Invalid`) because the fused binary keeps an invalid signature — re-sign it ad-hoc once:
-
-```sh
-pnpm --filter @shiba/desktop dist:local   # builds, then ad-hoc signs the .app
-```
-
-### First run
-
-The app asks for your Shiba URL, then loads the dashboard. Sign in as usual. Only that origin and your sign-in providers load inside the app; other links open in your browser. **Change Shiba URL…** in the tray menu reopens the prompt.
-
-### Connect this computer
-
-Open **Sandbox & Safety → Remote Access** and click **Connect this computer**. The app pairs this machine to the Shiba URL you configured and starts the daemon, so you don't copy a command or token. The machine then appears in the fleet list as **This computer**. **Disconnect this computer** in the tray menu unpairs it.
-
-### Tray states
-
-| State | Tray label | What it means |
-| --- | --- | --- |
-| Signed out | Sign in to Shiba | You aren't signed in to the dashboard. |
-| Disabled | Local runs disabled on this Shiba | The Worker has the local runtime off. |
-| Not connected | Not connected | This computer isn't paired. |
-| Paired elsewhere | Paired to another Shiba | This computer is paired to a different URL. Reconnecting asks you to confirm. |
-| Connected, idle | Connected · idle | The daemon is polling. |
-| Busy | Running · owner/repo | A local run is in progress. |
-| Offline | Offline · retrying | Heartbeats are failing. The daemon retries by itself. |
-| Revoked | Revoked · reconnect | The machine was revoked. The app doesn't restart the daemon; connect again. |
-| Conflict | Another daemon is running | A CLI or other daemon holds this machine's lock. The app doesn't restart it. |
-| Crashed | Daemon crashed · View logs | Five abnormal exits within 10 minutes. The app stops restarting it. |
-
-Other abnormal exits restart the daemon after 1s, 2s, 4s and so on, up to 60s. The harness list can show `agy`. It is listed but can't run local tasks.
-
-### Logs
-
-The app writes `<userData>/logs/main.log` and `daemon.log`. On macOS `<userData>` is `~/Library/Application Support/Shiba`. Each file rotates at 5 MB and keeps one `.1` copy. **View logs** in the tray menu opens the folder.
-
-### Notifications
-
-The app notifies you when an approval is waiting and when a run finishes. Clicking either opens the dashboard. Notifications show only the title and `owner/repo`, and you can never approve or reject from one. Toggle them with **Notifications** in the tray menu.
-
-### Start at login and quitting
-
-**Start at login** in the tray menu launches the app hidden at login. Closing the window hides the app to the tray. Quit from the tray menu or with Cmd+Q. If a local run is in progress, the app asks first. Quitting stops the run and reports it failed.
-
-### Uninstall
-
-Quit the app, delete Shiba from Applications, and remove `~/.shiba-local` to drop the pairing and machine id. Revoke the machine from the dashboard if you want its token invalidated on the Worker.
-
-## Security model
-
-- **The approval gate does not change.** Every local run still requires the approval card and the same approval checks as any other run. Pairing a machine only gives the daemon a way to receive work you have already approved.
-- **Provider credentials never pass through the Worker.** The machine's harnesses use the credentials already on the machine. The only credential the Worker issues is the adapter token, which is a Shiba bearer token, not a provider key.
-- **The Worker never stores adapter tokens in plain text.** It keeps only a SHA-256 hash, and the dashboard never shows the token. The plain token exists only in the pairing response and in the machine's `config.json`.
-- **Pairing tokens are short-lived and single-use.** Each token is signed with HMAC-SHA256, expires after 15 minutes, and its nonce is deleted the first time it is used.
-- **Only the dashboard can start local work.** Local runs are created from the dashboard only. The `/api/computers*` routes require dashboard sign-in, the daemon bearer only reaches `/api/local/*`, and no chat surface can reach either set of routes.
-
-## Limits
-
-- This is built for a single tenant. If `PAIRING_SECRET` is unset, pairing tokens are signed with the deployment's `LOCAL_ADAPTER_TOKEN`.
-- Checking a daemon's token reads through the whole fleet on every daemon call. That is fine for a handful of machines and has not been measured for large fleets.
-- Status lags reality by up to about 40 seconds for a change and 75 seconds for going offline. Use the run timeline, not the fleet view, to see what a task is doing.
-- The connect command assumes the machine has a checkout of this repository and Node.js 22.12.0+ installed.
+For operator configuration, command-line setup, desktop logs, or connection errors, use the [Remote access setup reference](/docs/remote-access-setup/).

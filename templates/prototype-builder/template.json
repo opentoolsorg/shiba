@@ -1,0 +1,19 @@
+{
+  "id": "prototype-builder",
+  "name": "Prototype Builder",
+  "description": "Build a small interactive prototype from a product brief and existing design system.",
+  "categories": [
+    "product",
+    "engineering"
+  ],
+  "appearance": "🧩",
+  "skills": [
+    "prototype-loop"
+  ],
+  "plugins": [],
+  "harness": "opencode",
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}

@@ -41,6 +41,7 @@ import { redactSecrets } from "./security.js";
 
 const PENDING_KEY = "pending";
 const DEVICE_PENDING_KEY = "device-pending";
+const CONNECTION_GENERATION_KEY = "connectionGeneration";
 const PENDING_TTL_MS = 15 * 60_000;
 
 interface DevicePending {
@@ -231,15 +232,31 @@ export class ChatGptAuth extends DurableObject<Env> {
   }
 
   private async ensureFreshAccess(): Promise<ChatGptConnectionRecord> {
+    const generationAtStart = await this.connectionGeneration();
     const record = await loadConnection(this.env, this.userId());
     if (!record) throw new ChatGptOAuthError("Sign in with ChatGPT first.", "not_connected");
     if (!record.planUsageEnabled) throw new ChatGptOAuthError("ChatGPT plan usage is disabled for this connection.");
     const discovery = await fetchDiscovery(CHATGPT_DISCOVERY_URL);
     const refreshed = await refreshConnection(discovery, record, fetch, Date.now(), this.oauthResilienceOptions());
+    if ((await this.connectionGeneration()) !== generationAtStart) {
+      throw new ChatGptOAuthError("Sign in with ChatGPT first.", "not_connected");
+    }
+    if (!(await loadConnection(this.env, this.userId()))) {
+      throw new ChatGptOAuthError("Sign in with ChatGPT first.", "not_connected");
+    }
     if (refreshed.accessToken !== record.accessToken || refreshed.expiresAt !== record.expiresAt) {
       await saveConnection(this.env, this.userId(), refreshed);
     }
     return refreshed;
+  }
+
+  private async connectionGeneration(): Promise<number> {
+    return (await this.ctx.storage.get<number>(CONNECTION_GENERATION_KEY)) ?? 0;
+  }
+
+  private async bumpConnectionGeneration(): Promise<void> {
+    const next = (await this.connectionGeneration()) + 1;
+    await this.ctx.storage.put(CONNECTION_GENERATION_KEY, next);
   }
 
   private async beginDeviceSignIn(): Promise<Response> {
@@ -334,6 +351,7 @@ export class ChatGptAuth extends DurableObject<Env> {
       }
     }
     await deleteConnection(this.env, this.userId());
+    await this.bumpConnectionGeneration();
     await this.ctx.storage.delete(PENDING_KEY);
     return Response.json({ connected: false });
   }

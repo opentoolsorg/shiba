@@ -48,12 +48,15 @@ import { existsSync } from "node:fs";
 import { Effect, Redacted } from "effect";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
+import { deploymentConfig } from "./deploy-config.js";
 import type { CodingOrchestrator } from "./apps/backend/src/agents/orchestrator.js";
 import type { OpenCodeAgent } from "./apps/backend/src/agents/opencode-agent.js";
 import type { Mailbox } from "./apps/backend/src/mailbox-do.js";
 import type { Memory } from "./apps/backend/src/memory-do.js";
 import type { Sandbox } from "./apps/backend/src/sandbox.js";
 import type { Waitlist } from "./apps/backend/src/waitlist-do.js";
+import type { Spaces } from "./apps/backend/src/spaces-do.js";
+import type { ConversationRoom } from "./apps/backend/src/conversation-room-do.js";
 import type { ModelConfig } from "./apps/backend/src/model-config-do.js";
 
 // alchemy loads .env into its own config store, not process.env — which
@@ -80,16 +83,13 @@ const configVars = (names: readonly string[]) => {
   return entries;
 };
 
-const LIVE_STAGE = /^live(_|$)/;
+const LIVE_STAGE = /^live$/;
 const stage = process.env.ALCHEMY_STAGE;
 const isLiveStage = stage === undefined || LIVE_STAGE.test(stage);
 const workerName = isLiveStage ? "shiba-ai-coworker" : `shiba-ai-coworker-${stage}`;
 const containerName = isLiveStage ? "shiba-ai-coworker-sandbox" : `shiba-ai-coworker-sandbox-${stage}`;
-// Same stage isolation for the megaplan stores (KV/R2/D1/Vectorize): live
-// stages pin the wrangler names, test stages get a suffixed copy. Vectorize
-// names only allow lowercase letters, digits and hyphens — `_` stages
-// (alchemy's own pattern allows them) are normalized to `-`.
-const resSuffix = isLiveStage ? "" : `-${(stage as string).replaceAll("_", "-")}`;
+// Only the exact live stage adopts existing names; previews suffix every store.
+const resSuffix = isLiveStage ? "" : `-${stage}`;
 // Stage segments must still form valid Worker names (lowercase, digits,
 // dashes, start with a letter) — the CLI's own stage pattern allows `_`.
 if (!/^[a-z][a-z0-9-]{0,62}$/.test(workerName) || !/^[a-z][a-z0-9-]{0,62}$/.test(containerName)) {
@@ -98,18 +98,10 @@ if (!/^[a-z][a-z0-9-]{0,62}$/.test(workerName) || !/^[a-z][a-z0-9-]{0,62}$/.test
 
 // Cloudflare Access: hostname apps, not the Worker `access` prop — Worker-level
 // Access 403s WebSocket upgrades, and the dashboard runs on one.
-const accessEmails = (process.env.ACCESS_EMAILS ?? "").split(",").map((e: string) => e.trim()).filter(Boolean);
-const workersSubdomain = process.env.WORKERS_SUBDOMAIN?.trim();
-const workerHost = workersSubdomain ? `${workerName}.${workersSubdomain}.workers.dev` : undefined;
-const accessEnabled = isLiveStage && workerHost !== undefined && accessEmails.length > 0;
-if (isLiveStage && !accessEnabled) {
-  // No managed Access app: identity comes from the built-in email lane (BETTER_AUTH_SECRET);
-  // with neither lane the Worker gate fails closed on its own.
-  console.warn(
-    "alchemy: live stage without DashboardAccess — dashboard sign-in uses BETTER_AUTH_SECRET; " +
-      "set ACCESS_EMAILS and WORKERS_SUBDOMAIN to manage Access here.",
-  );
-}
+const { workerHost, accessEnabled, accessEmails } = deploymentConfig(process.env, {
+  isLiveStage, workerName, liveHost: "app.tryshiba.dev",
+});
+const workerOrigin = `https://${workerHost}`;
 // Machine callers authenticate inside the Worker (Slack/GitHub HMAC, MCP bearer,
 // automation secret) and cannot complete an Access login.
 export const ACCESS_BYPASS_PATHS = [
@@ -170,7 +162,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   // public host (wrangler `workers_dev: false` parity; previews stay off).
   // Non-live (preview) stages enable workers.dev so `pr-<n>` deploys are
   // reachable at their own subdomain and never claim the live domain.
-  workersDev: isLiveStage ? { enabled: false, previewsEnabled: false } : { enabled: true },
+  workersDev: isLiveStage ? { enabled: false, previewsEnabled: false } : { enabled: true, previewsEnabled: false },
   // wrangler `routes` parity: app.tryshiba.dev is the single public
   // dashboard host (dashboard + /api same-origin). Custom domain
   // auto-manages DNS + edge TLS on the tryshiba.dev zone. Live stages only —
@@ -179,6 +171,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   crons: ["*/5 * * * *"],
   env: {
     GATEWAY_ID: "default",
+    INTEGRATIONS_PROVIDER: "openconnector",
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
@@ -192,10 +185,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     // Must match the Sandbox container's instanceType.
     INSTANCE_TYPE: "standard-1",
     // Public hostname for preview URLs + absolute screenshot links (T33).
-    // Empty = PR screenshot capture disabled. Preview stages fall back to
-    // their workers.dev hostname (or empty when WORKERS_SUBDOMAIN is unset).
-    WORKER_HOSTNAME: isLiveStage ? "app.tryshiba.dev" : (workerHost ?? ""),
-    BETTER_AUTH_URL: "https://app.tryshiba.dev",
+    // Preview stages use their validated workers.dev host, never the live origin.
+    WORKER_HOSTNAME: isLiveStage ? "app.tryshiba.dev" : workerHost,
+    BETTER_AUTH_URL: isLiveStage ? "https://app.tryshiba.dev" : workerOrigin,
 
     AI: Cloudflare.Workers.AI(),
 
@@ -238,6 +230,12 @@ export const Worker = Cloudflare.Worker("Worker", {
     }),
     UserProviderOAuth: Cloudflare.DurableObject("UserProviderOAuth", {
       className: "UserProviderOAuth",
+    }),
+    Spaces: Cloudflare.DurableObject<Spaces>("Spaces", {
+      className: "Spaces",
+    }),
+    ConversationRoom: Cloudflare.DurableObject<ConversationRoom>("ConversationRoom", {
+      className: "ConversationRoom",
     }),
 
     // Megaplan stores — wrangler keeps `__PENDING__` ids until the resources
@@ -317,6 +315,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       "BETTER_AUTH_OWNER_EMAIL",
       "GMAIL_CLIENT_SECRET",
       "GMAIL_TOKEN_KEY",
+      "OPEN_CONNECTOR_ADMIN_TOKEN",
+      "OPEN_CONNECTOR_RUNTIME_TOKEN",
       "MODEL_CREDENTIAL_KEY",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
@@ -334,6 +334,8 @@ export const Worker = Cloudflare.Worker("Worker", {
     ...(DashboardAccess
       ? { REQUIRE_ACCESS: "1", ACCESS_AUD: DashboardAccess.pipe(Effect.map((app) => app.aud)) }
       : {}),
+    // Upstream MCP egress is deny-by-default; operators add exact public hosts explicitly.
+    MCP_TRUSTED_HOSTS: "",
     // T56 (PLAN.md §20): the shipped role pin, as a LITERAL env member — the
     // drift guard compares declared vars by value (scripts/check-alchemy-drift.mjs),
     // so a configVars() spread would read as an absent var. Model ids verified
@@ -343,7 +345,6 @@ export const Worker = Cloudflare.Worker("Worker", {
     ROLE_MODEL_MAP:
       "{\"orchestrator\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"explorer\":{\"harness\":\"codex\",\"model\":\"openai/gpt-6-sol\"},\"fixer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-sonnet-5-5\"},\"reviewer\":{\"harness\":\"opencode\",\"model\":\"opencode-go/gpt-6.1-sol\"},\"designer\":{\"harness\":\"claude-code\",\"model\":\"anthropic/claude-opus-5-5\"}}",
     ...configVars([
-      "REQUIRE_ACCESS",
       "AUTOMATIONS_ENABLED",
       "AGENT_HARNESS",
       "CLAUDE_CODE_MODEL",
@@ -382,6 +383,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "ROLE_MODEL__REVIEWER",
       "ROLE_MODEL__DESIGNER",
       "SLACK_APPROVALS_CHANNEL",
+      "SLACK_ROOM_OUTBOX_ENABLED",
       // Agent mailbox identity (default dev@tryshiba.dev).
       "AGENT_MAILBOX",
       "MEMORY_ENABLED",
@@ -391,12 +393,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       "DISCORD_APPROVERS",
       "DISCORD_CHANNEL_REPOS",
       "DISCORD_AGENT_HARNESS",
-      "WORKER_HOSTNAME",
-      // Built-in dashboard auth: canonical public URL for cookie scope and
-      // origin checks; unset = each request's own origin.
-      "BETTER_AUTH_URL",
       "GMAIL_CLIENT_ID",
       "GMAIL_REDIRECT_URI",
+      "INTEGRATIONS_PROVIDER",
+      "OPEN_CONNECTOR_URL",
     ]),
   },
 });
@@ -435,6 +435,12 @@ export default Alchemy.Stack(
       );
     }
     const worker = yield* Worker;
+    // The sibling is deployed separately from unmodified upstream source.
+    if (process.env.OPEN_CONNECTOR_WORKER) {
+      yield* worker.bind`OPEN_CONNECTOR`({
+        bindings: [{ type: "service", name: "OPEN_CONNECTOR", service: process.env.OPEN_CONNECTOR_WORKER }],
+      });
+    }
     // Scoped memory recall filters on `agent`; Vectorize ignores unindexed metadata.
     yield* Cloudflare.Vectorize.MetadataIndex("MemoryAgentIndex", {
       indexName: `shiba-memory${resSuffix}`,
@@ -446,16 +452,16 @@ export default Alchemy.Stack(
       yield* MachineBypass;
     } else if (isLiveStage) {
       yield* Effect.logWarning(
-        "Cloudflare Access not managed here (set ACCESS_EMAILS and WORKERS_SUBDOMAIN): dashboard sign-in relies on BETTER_AUTH_SECRET.",
+        "Cloudflare Access not managed here (set ACCESS_EMAILS): dashboard sign-in relies on BETTER_AUTH_SECRET.",
       );
     }
     const tokens = yield* AgentTokens;
-    const base = workerHost ? `https://${workerHost}` : worker.url;
+    const base = workerOrigin;
     return {
       url: base,
-      mcp: workerHost ? `${base}/mcp` : undefined,
-      slackEvents: workerHost ? `${base}/api/slack/events` : undefined,
-      githubWebhook: workerHost ? `${base}/api/github/webhook` : undefined,
+      mcp: `${base}/mcp`,
+      slackEvents: `${base}/api/slack/events`,
+      githubWebhook: `${base}/api/github/webhook`,
       agentTokensNamespace: tokens.namespaceId,
     };
   }).pipe(Alchemy.AdoptPolicy.adopt(isLiveStage)),

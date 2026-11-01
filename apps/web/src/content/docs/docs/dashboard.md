@@ -1,48 +1,46 @@
 ---
-title: Dashboard
-description: Compose, approve, observe, and interpret the current interface.
+title: Threads and results
+description: Give Shiba a task, approve the request, and review the result.
 ---
 
-Sign in at `/app/` — the first account created becomes the only account (sign-up closes after it). A first-run wizard then walks through channels, connecting an agent provider, and model routing; every step is skippable and it never re-opens once finished.
+Open the [dashboard](/app/) and sign in. Use **Threads** to start work and return to your conversations.
 
-The sidebar groups surfaces for normal use: **Workspace** (Dashboard, Tasks, Activity, Analytics, Diff, Approvals, Automations), **Capabilities** (Agents & MCP, Providers, Skills, Integrations, Mailbox, Memory), and **System** (Settings). **Activity** streams the orchestrator's event spine (`GET /api/spine` — decide→append→apply events plus the side-effect outbox); **Analytics** is the run-record and usage surface (`/api/usage` aggregates). Light/dark theme follows the in-app toggle on every surface.
+## Start a task
 
-Enter an HTTPS GitHub URL, base branch, and bounded task. Start without publishing. The planning agent proposes `delegate_coding_task`; read the **exact tool input** on the approval card, then approve or reject. The same gate applies to queued runs from **Approvals** (`POST /api/runs`). Approval is a workflow gate, not installation authentication.
+1. Open a thread, or select **Launch bot** from [Bots](/docs/employees/) to use an employee's saved instructions.
+2. Choose a GitHub repository and base branch. Describe what you want changed and how to check it.
+3. Review the selected agent and connection. Leave **Create pull request** off for your first task.
+4. Add any [skills](/docs/skills/) you want, then send the message.
 
-## Phase 1 thread panels (Tasks view)
+Keep the task small enough to review: fix one bug, draft one campaign, or investigate one question. Work is returned as changes or draft files in the repository.
 
-After the first message in a session, the timeline footer shows run outcome panels for the latest retained run on that thread:
+## Approve the request
 
-| Panel | Meaning |
-| --- | --- |
-| **Run progress** | Registry status (`pending`, `running`, `completed`, error family). Includes a direct **Open pull request** link when `pullUrl` is on the run row. |
-| **Pull request** | Live GitHub status from `GET /api/v1/threads/:id/pr/status`, with a waiting state while publish is in flight and a fallback link from `pullUrl` when GitHub status is not ready. |
-| **Review findings** | Review round from `GET /api/v1/threads/:id/pr/review` when **Read-only review after publish** was frozen at approval. Failed rounds expose **Retry review** (`POST …/pr/review/retry`), which re-runs the reviewer unless the only failure was posting an already finished review. |
+Read the **exact request** on the approval card before work starts. Check the repository, branch, task, settings, and whether a pull request will be created.
 
-The composer shows **Sending task…** while a submit is in flight and **Planner responding** while the orchestrator is still streaming — the Send button stays disabled in both cases.
+Approve the request you intend to run, or reject it and clarify the task. You can also find waiting decisions in **Approvals**.
 
-## Progress and results
+## Review the result
 
-The SDK supplies connection state. Vite-only development has no Worker backend, so connection errors are expected there.
+Stay in the thread to follow progress and read the response. Open the returned files and diff, then check what passed, failed, or could not be checked.
 
-Clone/configure/code/collect phases stream, but the runtime awaits the OpenCode process before returning its output. Token-level OpenCode streaming is not implemented. Inspect the final transcript for changes, bounded diff, errors, and any PR URL. The retained run API also stores `pullUrl`, `reviewAfterPublish`, and review round metadata for the panels above.
+The thread may show **Run progress**, **Pull request**, and **Review findings** panels when those results are available. A completed status is a starting point for review, not proof that every result is correct.
 
-The parent currently treats string child output as completed, including possible error text. **Read the transcript, not just a completed badge.** An empty diff is not evidence of successful edits.
+If something needs another pass, reply in the same thread with a specific correction. Start another thread for unrelated work.
 
-## Missions, Gates, VM, Runs
+## Cancel or clear
 
-These surfaces were deleted, not just hidden — recurring goals live in **Automations**, sandbox state is summarized on the **Dashboard**, run records live on **Analytics**, and approvals land in the **Approvals** queue. There are no `?tab=` deep links for them; the code is gone.
+Cancel from the task's controls when you want work to stop. Check the task status before starting replacement work; cancellation may take time.
 
-## Providers and Integrations
+**Clear conversation** asks for confirmation. Cancel active work first: clearing a conversation does not stop it. If Shiba reports a partial clear, refresh and check what remains.
 
-**Providers** lists ACP agent adapters (Claude Code via `claude-agent-acp`, Codex via `codex-acp`, Gemini CLI, OpenCode, and the Grok CLI). Each card connects with subscription sign-in (Claude and ChatGPT, reusing the deployment's subscription probe) or an API-credential fallback, then shows status, test, disconnect, and the org default. The page reads `GET /api/providers`. The first-run wizard reads that same registry and links here; it does not call `/api/auth/*-subscription`. Grok's pinned CLI is not an ACP server; its card says so. **Agents & MCP** holds only the MCP gateway: the `/mcp` endpoint, client configuration snippets, token minting, and registered agent principals. **Skills** is the saved-skill manager — name, optional GitHub repo, notes; picked skills ship in a run's preamble so the executing agent receives them. **Integrations** lists third-party apps (GitHub, and coming-soon rows for Notion/Linear/Jira/Asana), chat & approval channels (Slack, Telegram, Discord), and email — not AI providers.
+## More task options
 
-The composer also offers saved repositories (autocomplete seeded from run history) and per-purpose model routing — connections and purpose pins come from `/api/model-config` (`{connections, policy, purposes}`), where `connectionId` picks the credential route and the harness/model pair rides the approved run's frozen route.
+<span id="execution-settings"></span>
+<span id="reasoning-effort"></span>
+<span id="repo-setup"></span>
+<span id="environment-variables"></span>
 
-## Cancel and clear
+For effort levels, setup scripts, or test environment values, see [Task settings](/docs/task-settings/). These options are usually unnecessary for a first task.
 
-Cancellation updates the registry before best-effort sandbox destruction. A successful request does not prove the process stopped. Verify shutdown for sensitive work.
-
-Clear history asks for confirmation and clears chat plus retained registry records. It does not erase all child Durable Object data or stop active containers. Cancel and verify active work before clearing. If only part of the clear succeeds, the UI reports partial success; refresh to recheck retained state.
-
-Review every generated diff and truncation marker. Run the target repository's tests before adoption. See [GitHub](/docs/github/) for publication fidelity limits.
+To run on your own computer, see [Remote access](/docs/remote-access/). If a connection or result is missing, start with [Troubleshooting](/docs/troubleshooting/).

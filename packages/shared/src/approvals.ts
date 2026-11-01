@@ -1,8 +1,10 @@
+import { onboardingRunFields, type OnboardingRunFields } from "./onboarding.js";
 /**
  * Durable pending-approval records: the wire shape `/api/approvals` serves
  * and the pure list transforms the orchestrator applies to DO state.
  */
 import type { RuntimeSelection } from "./local-runtime.js";
+import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import type { AgentRole } from "./roles.js";
 import type { ForkLineage } from "./runs.js";
@@ -45,6 +47,14 @@ export interface JsonObject {
  */
 export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
 
+/** Stable provenance pointer for reviewed skill text frozen into an approval. */
+export interface SkillExecutionPin {
+  skillId: string;
+  version: number;
+  name: string;
+  sourceUrl?: string;
+}
+
 /** Runtime check that `value` is JSON-serializable — the shape a JSON body parse produces. */
 export function isJsonValue(value: unknown): value is JsonValue {
   if (value === null) return true;
@@ -71,10 +81,12 @@ export function isJsonObject(value: unknown): value is Record<string, JsonValue>
   );
 }
 
-export interface PendingApproval {
+export interface PendingApproval extends OnboardingRunFields {
   threadKey: string;
   approvalId: string;
   repoUrl: string;
+  /** Explicit target for new runs; absent on legacy repository approvals. */
+  executionTarget?: ExecutionTarget;
   task: string;
   /** Exact delegation input frozen at queue time; executed verbatim on approve. */
   baseBranch?: string;
@@ -126,8 +138,20 @@ export interface PendingApproval {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  /** T68: env names + digest are hashed; values exist only inside `envSealed`. */
+  envNames?: string[];
+  envDigest?: string;
+  envSealed?: string;
+  /** T72: the human opted in to the repo's `.shiba/setup.json` initialize. */
+  runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  /** Profile version that supplied the selected employee app-tool policy, if enabled. */
+  employeeToolPolicyVersion?: number;
+  /** Room handoff whose live membership/cancellation state fences this approval. */
+  collaborationHandoffId?: string;
+  /** Reviewed skill versions resolved by the authenticated Worker at intake. */
+  skillPins?: SkillExecutionPin[];
   orgId?: string;
   /**
    * T52: the delegation role this run was queued under. The role pin
@@ -165,10 +189,11 @@ export interface ApprovalExecution {
   executedAt: number;
 }
 
-export interface CreateApprovalInput {
+export interface CreateApprovalInput extends OnboardingRunFields {
   threadKey: string;
   approvalId: string;
   repoUrl: string;
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch?: string;
   publishPullRequest?: boolean;
@@ -190,8 +215,16 @@ export interface CreateApprovalInput {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  envNames?: string[];
+  envDigest?: string;
+  envSealed?: string;
+  runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  /** Profile version that supplied the selected employee app-tool policy, if enabled. */
+  employeeToolPolicyVersion?: number;
+  collaborationHandoffId?: string;
+  skillPins?: SkillExecutionPin[];
   orgId?: string;
   role?: AgentRole;
   kind?: ApprovalKind;
@@ -213,9 +246,11 @@ export function createPendingApproval(
   return [
     ...approvals,
     {
+      ...onboardingRunFields(input),
       threadKey: input.threadKey,
       approvalId: input.approvalId,
       repoUrl: input.repoUrl,
+      ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget } : {}),
       task: input.task,
       ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
       ...(input.publishPullRequest !== undefined ? { publishPullRequest: input.publishPullRequest } : {}),
@@ -236,7 +271,14 @@ export function createPendingApproval(
       ...(input.denId !== undefined ? { denId: input.denId } : {}),
       ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
       ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+      ...(input.envNames !== undefined ? { envNames: input.envNames } : {}),
+      ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
+      ...(input.envSealed !== undefined ? { envSealed: input.envSealed } : {}),
+      ...(input.runSetup === true ? { runSetup: true } : {}),
       ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+      ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
+      ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
+      ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
       ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
@@ -359,8 +401,10 @@ export interface ApprovalEvidence {
 }
 
 /** The fields the human approves — the input-hash surface. */
-export interface RunInputFields {
+export interface RunInputFields extends OnboardingRunFields {
   repoUrl: string;
+  /** Included in the approval hash; absent on legacy repository runs. */
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
@@ -389,8 +433,18 @@ export interface RunInputFields {
   denId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  /** T68: what the human approves about env — names and a digest, never values. */
+  envNames?: string[];
+  envDigest?: string;
+  /** T72: running the repo's own setup script is part of what the human approves. */
+  runSetup?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
+  /** Profile version that supplied the selected employee app-tool policy, if enabled. */
+  employeeToolPolicyVersion?: number;
+  /** Room handoff whose live membership/cancellation state fences this run. */
+  collaborationHandoffId?: string;
+  skillPins?: SkillExecutionPin[];
   role?: AgentRole;
 }
 
@@ -481,7 +535,9 @@ export function stableHash(value: JsonValue): string {
 export function runInputHash(input: RunInputFields): string {
   const tc = input.testCommand;
   return stableHash({
+    ...onboardingRunFields(input) as unknown as JsonObject,
     repoUrl: input.repoUrl,
+    ...(input.executionTarget !== undefined ? { executionTarget: input.executionTarget as unknown as JsonValue } : {}),
     task: input.task,
     baseBranch: input.baseBranch,
     publishPullRequest: input.publishPullRequest,
@@ -503,7 +559,13 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.denId !== undefined ? { denId: input.denId } : {}),
     ...(input.sandboxProvider !== undefined ? { sandboxProvider: input.sandboxProvider } : {}),
     ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
+    ...(input.envNames !== undefined ? { envNames: input.envNames } : {}),
+    ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
+    ...(input.runSetup === true ? { runSetup: true } : {}),
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+    ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
+    ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
+    ...(input.skillPins !== undefined ? { skillPins: input.skillPins as unknown as JsonValue } : {}),
     ...(input.role !== undefined ? { role: input.role } : {}),
     ...(input.subagentBudget !== undefined ? { subagentBudget: input.subagentBudget } : {}),
   });

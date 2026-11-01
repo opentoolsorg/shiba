@@ -6,8 +6,13 @@
  * AGENT_AUDIT.
  */
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
+
+// Cold-importing the whole Worker can outrun the 5s per-test budget under the parallel gate; pay it once here.
+beforeAll(async () => {
+  await import("../src/index.js");
+}, 60_000);
 import {
   handleBetterAuth,
   isBetterAuthConfigured,
@@ -286,7 +291,7 @@ describe("end-to-end session flow", () => {
     expect(await isAuthorizedRequest(new Request("https://example.com/api/runs"), env)).toBe(false);
   });
 
-  it("refuses the first account on a public host until a setup token or owner email is set", async () => {
+  it("refuses the first account on a public host until a setup token is set", async () => {
     const env = makeEnv();
     const res = await handleBetterAuth(
       new Request("https://app.example/api/auth/sign-up/email", {
@@ -301,6 +306,17 @@ describe("end-to-end session flow", () => {
     expect(body.message).toMatch(/locked/i);
     const row = await env.AGENT_AUDIT.prepare(`SELECT COUNT(*) AS c FROM "user"`).first<{ c: number }>();
     expect(Number(row?.c ?? 0)).toBe(0);
+  });
+
+  it("reports owner-email-only public signup as locked and rejects it", async () => {
+    const env = makeEnv({ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" });
+    const status = await handleBetterAuth(new Request("https://app.example/api/auth/bootstrap"), env);
+    expect(await status?.json()).toEqual({ requiresToken: false, requiresOwnerEmail: true, locked: true });
+    const response = await handleBetterAuth(new Request("https://app.example/api/auth/sign-up/email", {
+      method: "POST", headers: { "content-type": "application/json", origin: "https://app.example" },
+      body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
+    }), env);
+    expect(response?.status).toBe(403);
   });
 
   it("accepts the first public account when the setup token matches", async () => {
@@ -330,8 +346,11 @@ describe("end-to-end session flow", () => {
     expect(created?.headers.get("set-cookie")).toContain("better-auth.session_token=");
   });
 
-  it("accepts only the allowlisted owner email", async () => {
-    const env = makeEnv({ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" });
+  it("accepts only the allowlisted owner email when a bootstrap token is supplied", async () => {
+    const env = makeEnv({
+      BETTER_AUTH_OWNER_EMAIL: "owner@example.com",
+      BETTER_AUTH_BOOTSTRAP_TOKEN: "setup-token-value",
+    });
     const denied = await handleBetterAuth(
       new Request("https://app.example/api/auth/sign-up/email", {
         method: "POST",
@@ -341,8 +360,29 @@ describe("end-to-end session flow", () => {
       env,
     );
     expect(denied?.status).toBe(403);
-    const created = await signUp(env, "owner@example.com");
-    expect(created).toContain("better-auth.session_token=");
+    const withoutToken = await handleBetterAuth(
+      new Request("https://app.example/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://app.example" },
+        body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
+      }),
+      env,
+    );
+    expect(withoutToken?.status).toBe(403);
+    const created = await handleBetterAuth(
+      new Request("https://app.example/api/auth/sign-up/email", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://app.example",
+          "x-shiba-bootstrap-token": "setup-token-value",
+        },
+        body: JSON.stringify({ name: "Owner", email: "owner@example.com", password: "password-123" }),
+      }),
+      env,
+    );
+    expect(created?.status).toBe(200);
+    expect(created?.headers.get("set-cookie")).toContain("better-auth.session_token=");
   });
 
   it("describes the bootstrap rules without echoing the secret", async () => {

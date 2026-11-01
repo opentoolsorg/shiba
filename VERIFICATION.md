@@ -1,5 +1,113 @@
 # Verification Results
 
+**2026-10-31 — PR #166 External MCP coworker + skills library + Spaces (branch `cursor/viktor-skills-spaces-scaffold-13c5`).**
+
+*Code-proven locally:*
+- **Spaces index:** `spaces_index.updated_at` uses `MAX(updated_at, ?)` on rename/touch; create inserts the D1 row before DO `init` and rolls the index back when init or template application fails; item routes refuse writes after index delete (`spaces-index-store.test.ts`, `spaces-routes.test.ts`).
+- **Skills library + Spaces API/UI:** curated `/api/skills/library`, install→draft, `/api/spaces` + Spaces DO stub (existing suite from this PR).
+- **MCP coworker path:** docs section [External coworkers](/docs/mcp/#external-coworkers); Integrations **MCP coworker** panel + capability catalog row; `mcp-coworker-contract.test.ts` + existing `mcp-gateway.test.ts` / `mcp-run-tools.test.ts` for 401, scope-filtered tool discovery, and `queue_run` → `pending_approval`.
+
+*Still blocked on live deployment (Prince CF account / secrets — see slice1 blockers):*
+- Minting `shb_…` into the production `shiba-agent-tokens` KV on the account that owns `app.tryshiba.dev` (wrong-account `wrangler whoami` has been observed).
+- External MCP client registration with a custom Authorization header.
+- Slack approval cards (`SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, approvers) and a cloud end-to-end approved run with model inference (`AI_GATEWAY_TOKEN` / subscription lanes as applicable).
+- Live `@shiba` Slack mention loop and Worker deploy to the intended host.
+
+*Commands run for this slice:* targeted vitest (`spaces-*`, `skill-library*`, `mcp-coworker-contract`, `mcp-gateway`, `mcp-run-tools`, `IntegrationsView`, `SkillLibraryCards`, `SpacesView`) + `pnpm typecheck`.
+
+**2026-10-25 — P12 Capy parity: T72 opt-in repo setup, plus T71 and T87 (branch `capy-parity`).**
+
+*T72 (owner chose opt-in per run):*
+- `runSetup` is part of the approval hash and threaded like `testCommand`: approval, queue input, hash check, replay compare, run record, mint evidence, dispatch envelope.
+- Steering, fork, v1 retry and PR-lifecycle wakes carry it. The composer's thread configuration has a "Run repo setup" checkbox, and the stored card shows `Setup: runs .shiba/setup.json initialize`.
+- `repo-setup.ts` reads `.shiba/setup.json`. The shape is strict: unknown keys are refused, `scripts.initialize` is at most 8000 chars, and `timeouts.initialize` is 1–900 s, default 600.
+- It runs `sh -c <initialize>` through `scopedExec` with a one-call `[["sh","-c"]]` allowlist, the approved env, and receipts labeled `.shiba/setup.json#initialize`. This happens **between clone and the baseline checkpoint**.
+- It then folds setup's effects into a **local-only commit** (`core.hooksPath=/dev/null`, `commit.gpgsign=false`, `--no-verify`). `git status`-based collection, the diff and the published PR tree therefore contain only the agent's changes; publishing builds from the remote base sha. An agent edit to a setup-touched path fails the run, which also closes the env-leak path through setup-written files. The check runs at collect time as `git diff-tree <setup-sha> -- <changed files>` and fails the run if git can't answer. Every set-aside git call has hooks and fsmonitor off and a 120 s timeout.
+- Only the composer tick or the authenticated `/api/runs` can set `runSetup`. It was removed from the model-facing delegate schema, and a non-boolean is a 400.
+- A missing or invalid file, or a non-zero exit, fails the run before the harness starts. A read error is reported apart from a missing file.
+- The local runtime is refused at intake (explicit runtime or deployment `RUNTIME`) and in the local adapter.
+
+*T71* `/app/?prompt=` prefills the composer (capped at 4000 chars), strips the param, and never submits. *T87* adds composer dictation through the browser's speech recognition API, hidden when unsupported.
+
+*Tests:* `repo-setup.test.ts` (24) covers parsing (including accepted `refresh`/`entries`), the opt-in gate, ordering before the baseline checkpoint and the harness, the failure paths, env passthrough, the local-only commit, the overlap check and its fail-closed git error, quiet set-aside git, the hash, and intake with the local refusal. `v1-core.test.ts` adds the v1-retry `environment_discarded` 409 and the effort/setup carry on retry.
+
+*Independent review:* two passes.
+- Pass 1 found 1 HIGH, 2 MED and 3 LOW, all fixed. HIGH: setup's effects reached the PR and skipped the env-leak guard. MED: the model's tool call could set `runSetup`, and the timeout could exceed the run deadline.
+- Pass 2 confirmed those fixed and raised 5 LOWs. Fixed: an unchecked `diff-tree` exit, a 1 MB cap on the path list, no timeouts on set-aside git, and hooks off only on the commit.
+- Kept by design: the overlap check also applies to runs that don't publish, because file contents still reach the API.
+
+*Gate (`pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built && pnpm check:ci`):* exit 0.
+
+| Package | Tests |
+| --- | --- |
+| Backend | 2625 passed, 3 skipped |
+| Frontend | 121 |
+| Desktop | 152 |
+| Sandbox | 34 |
+| Auth | 11 |
+| ACP server | 8 |
+| SDK | 6 |
+| shiba-login | 3 |
+
+**NOT VERIFIED:**
+- No real sandbox ran a setup script.
+- `scripts.refresh`, named `entries` and the Setup tab (T74) aren't built.
+- Dictation was not tried in a real browser.
+
+**2026-10-24 — P12 Capy parity: T67 reasoning effort + T68 per-run environment variables (branch `capy-parity`).**
+
+*T67:*
+- The effort chip lists only levels the selected harness accepts.
+- `reasoningEffort` rides the approval-hashed `ApprovedRoute` and shows on cards via `describeRoute`.
+- `resolveCodingRoute` refuses unsupported harness/level combinations before a card exists.
+- Argv: claude `--effort`, codex `-c model_reasoning_effort="…"`, opencode `--variant`. The flags were checked against current CLI docs and the Dockerfile pins (claude-code 2.1.284, codex 0.157.1, opencode 1.18.34).
+- Steering, forks, v1 retry and PR-lifecycle wakes keep the effort.
+- A replayed queue with a different effort is no longer treated as the same input; the decider's `sameRoute` now compares it.
+- `/api/runs` and the chat composer both refuse an unknown level.
+- Stored cards for `/api/runs`-queued runs now show the model route at all (they never did).
+
+*T68:*
+- **Sealing:** `POST /api/runs/env-seal` seals values with AES-GCM under `MODEL_CREDENTIAL_KEY`. The AAD covers the owner orchestrator plus an HMAC digest.
+- **Approval:** approvals and runs carry `envNames` + `envDigest`, both in `runInputHash`. The decider replay check compares `envDigest`.
+- **Child:** it opens the blob at sandbox start, passes the values under the harness env (harness keys win) and into the test command, and scrubs values of 8+ characters (raw and JSON-escaped) from all output before truncation. An added diff line or binary file holding a value fails the run and drops the change; the oversize-diff R2 export refuses too.
+- **Retention:** once the approval is decided, the minted run holds the only `envSealed`, and it is discarded on any terminal transition. It never appears in `serializeRun`, the approvals listing or spine payloads. Fork and v1 retry of a finished run with env refuse.
+- **Refusals:** reserved loader/toolchain/egress names, local runtime (including a deployment default `RUNTIME=local`), and deployments without the key.
+- **Composer:** + → Environment variables, with a masked value field. The dashboard seals values before sending, never stores them, and holds the send button during the seal round-trip.
+
+*Independent review (Sonnet code-reviewer), two passes:*
+- **Pass 1:** 9 findings (1 high, 4 medium, 4 low). The high: env values weren't scrubbed from run output.
+- **Pass 2, re-verifying the fixes:** 7 resolved and 2 partial, and the fixes had introduced 1 medium and 2 low new issues. All of these were then fixed:
+  - Output is scrubbed **before** truncation, including the JSON-escaped form.
+  - The decided approval keeps no blob; the minted run holds its own copy in the same state write, discarded at terminal cleanup. Chat metadata can retain ciphertext until key rotation or cleanup (see below).
+  - The leak guard checks only added diff lines and binary files, so values the repo already had no longer fail runs.
+  - The wake follow-up also carries `authAccount`.
+  - The reserved-name list is wider.
+- **By design:** fork and v1 retry of a finished env run return 409.
+
+*Gate (`pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built`, then `pnpm check:ci`):* exit 0.
+
+| Package | Tests |
+| --- | --- |
+| Backend | 2598 passed, 3 skipped |
+| Frontend | 109 |
+| Desktop | 152 |
+| Sandbox | 34 |
+| Auth | 11 |
+| ACP server | 8 |
+| SDK | 6 |
+| shiba-login | 3 |
+
+New tests: `reasoning-effort.test.ts`, `run-env.test.ts`, plus cases in `steering.test.ts`, `StoredApprovalCard.test.tsx` and `TaskComposer.test.tsx`. Two Worker cold-import tests (`better-auth`, `runtime`) now pre-warm the import in `beforeAll`; under the parallel gate they had timed out at 5 s.
+
+**NOT VERIFIED:**
+- No deploy and no live container run.
+- No real CLI was invoked with the new flags; the argv is checked by tests only.
+- Per-model effort validity (e.g. a provider refusing `minimal` for some model) is unchecked and would fail inside the container after approval.
+- The encrypted env blob remains in chat message metadata and in the DO state broadcast to the owner's own dashboard, until key rotation or cleanup. Rotating `MODEL_CREDENTIAL_KEY` retires it.
+- The reserved-name list is a denylist and not exhaustive.
+- Values under 8 characters aren't scrubbed.
+- No tests yet for: the v1-retry 409, dispatch fail-closed, or the wake route/account carry. These are guard clauses, reviewed by probe only. The fork 409 and the fork carry are pinned in `run-fork.test.ts`; after that test was added, the backend suite alone ran 2602/2602.
+
 **2026-10-24 — Provider sign-in and dashboard loading.** Codex on the Providers page starts Sign in with ChatGPT (PKCE, paste the loopback callback). Claude pairs a local daemon (`claude auth login` stays on that machine); setup-token is an explicit opt-in. Fake confirmation codes and the plain `chatgpt.com` / `claude.ai/login` links are gone. Subscription preflight and the setup-token test do not require `AI_GATEWAY_TOKEN`. The plan token is attached in `forwardCodexPlan`, and the sandbox env holds `shiba-egress-placeholder`. Dashboard fetches wait until `/api/whoami` succeeds, so a signed-out page does not toast `Sessions request failed: 401`. Setup status bounds the gateway probe so Settings and Integrations leave the loading state. A workspace with no gateway token and no connected provider shows "Can't launch yet" instead of a ready/connected launch state. Login cards draw an inline mark so a missing asset is not a blank circle.
 
 **Not verified on app.tryshiba.dev:** no live ChatGPT consent, no paired daemon heartbeat, no real `claude setup-token` probe, no production task that opens a GitHub pull request. The task → approve → diff → stub PR path is the Phase 1 integration test with GitHub and the harness stubbed.
@@ -1038,7 +1146,13 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
   status as the computer-use tools).
 ## 2026-10-08 — Shiba Desktop (T59–T66): local-prototype verification
 
-**Status: local prototype. Not accepted against a real deployment.** Per-task evidence lives in `apps/web/docs/evidence/desktop/`; this entry only summarizes it.
+**Status: local prototype. Not accepted against a real deployment.** Per-task evidence lives in `apps/web/docs/evidence/desktop/`; **`VERIFICATION/desktop.md`** is the operator + manual acceptance checklist (automated slices and remaining blockers).
+
+### 2026-10-31 — Desktop path wiring (unit)
+- Remote Access **Connections** row shows `This computer · idle` (and harness summary) from the desktop bridge when running inside Shiba Desktop.
+- Successful **Connect this computer** re-probes the daemon supervisor so tray/bridge status resyncs after pairing.
+- Shared labels: `packages/shared/src/desktop-connection-label.ts`; tests in `apps/frontend/src/desktop-connection-label.test.ts` and extended `apps/desktop/test/pairing.test.ts`.
+- **Still blocked-for-manual:** DESKTOP-PLAN §7 on macOS with a real Access-fronted deployment, signing/notarization, tray/notification click-through, T62 credential spike.
 
 ### Verified so far (unit / integration / static)
 - T59 (`T59-docs.md`): `spec/GOAL.md` item 15, ADR 0001, PLAN §21 + tracker row; `pnpm docs:verify` passed (49 pages, 2479 links).
@@ -1073,3 +1187,42 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
 - REVIEW3-final-audit.md verdict was BLOCKED with 14 findings. All applied (`REVIEW3-fixes.md`): run-finished notification now keys on `state:"settled"` (F1); tray icon resolves inside the asar (F2); `electron-updater` moved to dependencies so the updater actually ships (F3); CI builds `dist/` before packaging (F4); revoke falls back to on-disk machineId and honors non-OK revoke responses; tray hides Disconnect under `conflict` (F5/F6); probe no longer respawns a daemon latched revoked/conflict/crashed (F7); `offline` needs 2 consecutive failed heartbeats (F8); pairing watchdog kills a hung fork at 30s (F9); `unpair` returns PairResult on the bridge contract (F10); wrangler/Access bypass documented (F12); the approvals poller keeps `seen` across suspend/resume (F13).
 - **Packaged-only defects found by actually launching the unsigned .app** (REVIEW3-fixes.md P1–P4): unsigned fused binaries are kernel-killed on arm64 until re-signed ad-hoc inside-out (`scripts/adhoc-sign.sh`, wired as `pnpm dist:local`); `file://` can't see inside app.asar on Electron 44, so setup.html/setup.js ship via `asarUnpack`; `app.setName("Shiba")` pins userData to the documented path; the electron-updater import needed the CJS `.default` interop fallback.
 - Post-fix artifact: `release/Shiba-0.1.0-{arm64,}*.dmg/.zip` + `release/mac-arm64/Shiba.app` — fuses re-verified = D8 on both arches; `pnpm test` 119/119 and `test:e2e` 2/2 after the fixes; the re-signed .app launches with no load errors.
+
+## 2026-11-01 — Documentation workspace refresh (local)
+
+- Added a responsive Starlight header, section navigation, and documentation styling inspired by Capy and Overlay while retaining Shiba's cream/navy identity and native search, theme control, and mobile sidebar.
+- Reorganized the existing URLs into Get started, Employees & work, Workspace, Integrations, Self-hosting, Developer reference, and Help. Rebuilt `/docs/overview/` as the welcome page; legacy `/welcome/` redirects there.
+- Added Employees and Skills guides, rewrote Quickstart, and reconciled Threads/results guidance with the marketing branch's implementation. This branch offers Engineering, Marketing, Research, and Operations presets; Design/QA use custom profiles. Skills remain browser-local notes.
+- Updated built-marketing assertions for the existing employee positioning. Sitemap verification now excludes explicitly noindex redirects and design previews.
+- Passed: `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm check:ci`, `pnpm test` (3,453 passed, 3 skipped), `pnpm build`, `pnpm test:built`, `pnpm check:deploy`, `pnpm env:load`, and `pnpm env:scan`. Existing non-blocking static warnings remain.
+- Production docs verified: 67 assembled HTML pages, 4,497 local link/asset/anchor references, generated Pagefind search, and 44 markdown files checked for stale claims.
+- Browser QA: 55 checks across 390/768/1440px in light/dark themes for welcome, quickstart, employees, skills, threads, self-hosting, API, and approvals; search results, theme switching, native mobile navigation, and no-JavaScript mobile navigation passed. Fixed mobile menu stacking found during these checks. Screenshots/results: `/tmp/shiba-docs-evidence/`; script: `/tmp/shiba-docs-ui-check.cjs`.
+- Preview: `http://127.0.0.1:4399/docs/overview/`. Changes remain local in the marketing worktree; no push, deployment, provider call, or sandbox execution performed.
+
+## 2026-11-01 — API reference design and reusable UI skill (local)
+
+- Reworked `/docs/api/` as an API-scoped MDX reference: concise introduction and jump links, aligned authentication cards, labeled method/path endpoint cards, native titled JSON examples/copy controls, and expandable coverage details. Corrected source-verified authentication, run-store, and webhook descriptions.
+- Created `.agents/skills/shiba-ui-polish/SKILL.md` and `agents/openai.yaml`, adapted from UI Skills guidance to Shiba's established identity and Starlight controls. Added AGENTS routing and the repo-authored skill allowlist. Installed the same validated skill into the primary and marketing worktrees; no package dependency or MCP configuration added.
+- Skill validation passed in both worktrees. The implementation agent read and applied the new skill; screenshot review corrected native Markdown sibling margins and API heading selectors.
+- Passed: typecheck, lint, import lint, CI static checks, production build/link scan (67 pages, 4,524 link/asset/anchor references), built-page test, environment validation, and secret scan.
+- API browser QA passed at 390/768/1024/1440px in light and dark themes: no page overflow, aligned cards, labeled methods, 44px-or-larger new controls, section anchors, actual clipboard copy, keyboard focus/disclosure, and native mobile menu. Disclosure also works without JavaScript. Evidence: `/tmp/shiba-api-evidence/`; script: `/tmp/shiba-api-ui-check.cjs`.
+- Full workspace tests were attempted twice: each had 3,452 passing tests, 3 skipped tests, and one unrelated daemon deadline failure (`local-daemon-control.test.ts` initially; `local-daemon-cancel-phases.test.ts` with bounded workers). Both files passed together in a focused rerun (7 tests). No daemon source or tests changed; full-suite timing remains a validation limitation.
+- Preview remains `http://127.0.0.1:4399/docs/api/`. No push or deployment performed.
+
+## 2026-11-01 — Plain-language docs and company-wide copy (local)
+
+- Completed ai-slop-cleaner and copy-editing passes with disjoint native writing lanes and an independent reviewer. OMX Team was unavailable because this session has no tmux leader; no runtime launch or shutdown is claimed.
+- Everyday copy across 16 docs is 57% shorter; setup/API internals moved into 11 linked references. Removed repeated welcome decoration and unsupported approval/Missions claims.
+- Public copy now describes AI employees for company work, including engineering/design/marketing/sales/operations/finance/revenue. Four built-in presets remain distinct from custom-role examples; finance/revenue output is limited to supplied-information drafts.
+- Final checks: typecheck, lint, import lint, static checks, build/link scan (78 pages; 5,919 references), eight marketing/SEO tests, built-page test, environment validation, and secret scan pass. Browser QA: 49 marketing cases, 55 docs cases, and eight API viewport/theme combinations plus no-JavaScript disclosure pass.
+- Full workspace tests still fail two existing daemon deadline cases. Both affected files pass in the focused rerun (7 tests); no daemon code changed. No claim of a fully green suite.
+- Full cleanup plan, classifications, changed-file map, independent review, team fallback and verification: [Company-wide copy cleanup report](apps/web/docs/evidence/2026-11-01-company-copy.md). Changes remain local; no push/deployment.
+
+## 2026-10-31 — PR #166 review fixes
+
+- Worker ingress accepts the exact skill-library and Spaces API families; route authentication and bearer read/write scopes still apply. Lookalike paths and legacy Skills routes retain their dashboard gate.
+- Library installs are scoped by organization, owner, and slug. Atomic claims and compare-and-swap replacements converge concurrent installs and disable losing drafts. Migration 0007 preserves existing install rows when upgrading the original 0005 schema.
+- Failed Space templates return an error and erase partial Space data; failed erasure preserves the index for retry. Space deletion atomically clears metadata, memberships, and items before removing its index. Successful item additions synchronize index timestamps.
+- Space detail navigation ignores cancelled successes and errors and only renders the selected ID. SkillsView test fixtures now account for the library request.
+- Passed: `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm test` (3,834 passed, 3 skipped across workspace packages), `pnpm build`, `pnpm test:built`, `pnpm check:ci`, `pnpm check:deploy`, `pnpm env:load`, and `pnpm env:scan`. Lint/static checks retain existing warnings.
+- Deployment dry-run attempted with `pnpm exec wrangler deploy --dry-run --config apps/backend/wrangler.jsonc`; blocked by unavailable Docker daemon/tool launch. No production deployment or live-provider execution performed.

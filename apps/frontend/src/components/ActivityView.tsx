@@ -1,7 +1,9 @@
 import { useEffect, useMemo, type JSX } from "react";
+import { redactSecrets } from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
 import { useSpine, type OutboxEntryWire, type SpineEventWire } from "../live-status";
 import { documentVisibilityPause } from "../polling";
+import { ViewEmpty, ViewGroup, ViewHeader, viewButtonClass } from "./ui/ViewChrome";
 
 /**
  * Orchestrator activity — the P9 event spine, surfaced. Two panels:
@@ -19,7 +21,7 @@ export function ActivityView({
   const { state, reload, inFlight } = useSpine(sessionId, sessionApiAvailable);
 
   // Poll 5s after each fetch settles — never abort a request that's still in
-  // flight, or a slow DO keeps the feed stuck on "Reading the spine…" forever.
+  // flight, or a slow DO keeps the feed stuck on "Loading events…" forever.
   // A hidden tab holds the next tick and refreshes once on resume.
   useEffect(() => {
     if (inFlight) return;
@@ -47,6 +49,7 @@ export function ActivityView({
 
   const events = state.kind === "data" ? state.data.events : [];
   const outbox = state.kind === "data" ? state.data.outbox : [];
+  const executionBudget = state.kind === "data" ? state.data.executionBudget : undefined;
   // Bounded (≤ MAX_SPINE_EVENTS) but still worth memoizing: every render used
   // to re-allocate a sorted copy and re-filter the outbox.
   const sortedEvents = useMemo(
@@ -60,46 +63,45 @@ export function ActivityView({
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-[var(--fg)]">Orchestrator activity</h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">
-            What your agent decided and the side effects it still owes — the event spine, live.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          {pending.length > 0 ? (
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--warning-fg)] bg-[var(--warning-subtle)] border border-[var(--warning)] px-2 py-1">
-              {pending.length} owed
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={reload}
-            className="text-xs text-[var(--primary)] hover:text-[var(--primary)] border border-[var(--border-1)] hover:border-[var(--primary)]/40 bg-transparent px-3 py-1.5 transition-colors"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
+      <ViewHeader section="Activity" view="Orchestrator activity" count={`${events.length} events`}>
+        {pending.length > 0 ? <span className="text-xs text-[var(--muted-foreground-2)]">{pending.length} pending</span> : null}
+        <button type="button" onClick={reload} className={viewButtonClass}>Refresh</button>
+      </ViewHeader>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-        <div className="max-w-5xl mx-auto grid gap-4 lg:grid-cols-[1fr_320px]">
-          <section
-            aria-label="Event log"
-            className="border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)]"
-          >
-            <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-              Event log
+        <div className="max-w-5xl mx-auto flex flex-col gap-6">
+          <section aria-label="Execution limits and usage" className="lg:col-span-2 border border-[var(--border-1)] bg-[var(--card)] px-4 py-3">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <div className="text-xs font-semibold text-[var(--fg)]">Execution limits</div>
+              {executionBudget?.dailyLimitUsd !== undefined ? (
+                <div className="text-xs text-[var(--fg)] tabular-nums">
+                  ${executionBudget.spentUsd.toFixed(4)} / ${executionBudget.dailyLimitUsd.toFixed(2)} daily reported cost
+                  <span className={`ml-2 text-[10px] font-semibold uppercase ${executionBudget.dispatchAvailable ? "text-[var(--success)]" : "text-[var(--destructive)]"}`}>
+                    {executionBudget.limitReached ? "daily cap reached" : executionBudget.dispatchAvailable ? "new runs allowed" : "concurrency full"}
+                  </span>
+                </div>
+              ) : (
+                <div className="text-xs text-[var(--muted-foreground-2)]">No daily cost limit is configured.</div>
+              )}
+              <div className="text-[10px] text-[var(--muted-foreground-2)]">
+                {executionBudget ? `${executionBudget.reportedRuns} ${executionBudget.reportedRuns === 1 ? "run" : "runs"} reported cost · ${executionBudget.unreportedRuns} ${executionBudget.unreportedRuns === 1 ? "run has" : "runs have"} no cost report` : "Usage unavailable"}
+              </div>
+              {executionBudget ? (
+                <div className="text-[10px] tabular-nums text-[var(--muted-foreground-2)]">{executionBudget.activeRuns} / {executionBudget.maxConcurrentRuns} active tasks</div>
+              ) : null}
             </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">
+              Costs are harness-reported and may be incomplete. A configured daily limit blocks new dispatches at the limit; it does not stop active tasks. Cancel fences the run and signals its executor; if the executor cannot confirm its final state, the outcome remains unknown.
+            </p>
+          </section>
+          <section aria-label="Event log">
+            <ViewGroup title="Event log" count={events.length}>
             {state.kind === "loading" ? (
-              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Reading the spine…</div>
+              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">Loading events…</div>
             ) : state.kind === "error" ? (
               <LoadErrorState message={state.message} onRetry={reload} />
             ) : events.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
-                No decisions yet — queue a task and the spine records every step here.
-              </div>
+              <ViewEmpty>No events yet</ViewEmpty>
             ) : (
               <ol className="divide-y divide-[var(--border-1)]/60">
                 {sortedEvents.map((event) => (
@@ -107,19 +109,13 @@ export function ActivityView({
                 ))}
               </ol>
             )}
+            </ViewGroup>
           </section>
 
-          <section
-            aria-label="Outbox"
-            className="border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)] self-start"
-          >
-            <div className="border-b border-[var(--border-1)] px-4 py-2.5 text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-              Outbox — owed side effects
-            </div>
-            {outbox.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
-                Nothing owed — every post-back that should happen has been delivered.
-              </div>
+          <section aria-label="Outbox">
+            <ViewGroup title="Outbox" count={outbox.length}>
+            {state.kind === "loading" ? <p className="p-4 text-xs text-[var(--muted-foreground-2)]">Loading deliveries…</p> : state.kind === "error" ? <p className="p-4 text-xs text-[var(--muted-foreground-2)]">Deliveries unavailable</p> : outbox.length === 0 ? (
+              <ViewEmpty>No pending deliveries</ViewEmpty>
             ) : (
               <ol className="divide-y divide-[var(--border-1)]/60">
                 {outbox.map((entry) => (
@@ -127,6 +123,7 @@ export function ActivityView({
                 ))}
               </ol>
             )}
+            </ViewGroup>
           </section>
         </div>
       </div>
@@ -150,7 +147,7 @@ function eventSummary(event: SpineEventWire): string {
   if (typeof p.summary === "string") return p.summary;
   if (typeof p.status === "string") return p.status;
   if (typeof p.target === "string") return `${p.effectKind ?? "effect"} → ${p.target}`;
-  if (typeof p.error === "string") return p.error;
+  if (typeof p.error === "string") return redactSecrets(p.error).slice(0, 500);
   if (typeof p.result === "string") return p.result;
   if (p.forkedFrom && typeof p.forkedFrom === "object") {
     const f = p.forkedFrom as Record<string, unknown>;
@@ -168,16 +165,16 @@ function EventRow({ event }: { event: SpineEventWire }): JSX.Element {
   const tone = KIND_TONE[event.kind] ?? "text-[var(--muted-foreground-2)] bg-[var(--section)] border-[var(--border-1)]";
   const summary = eventSummary(event);
   return (
-    <li className="px-4 py-2.5 flex items-baseline gap-3">
+    <li className="min-h-11 border-b border-[var(--border-1)] px-3 py-2.5 flex flex-wrap items-center gap-3">
       <span className="font-mono text-[10px] text-[var(--muted-foreground-2)] w-10 shrink-0 tabular-nums">
         #{event.seq}
       </span>
       <span
-        className={`text-[10px] font-semibold uppercase tracking-[0.08em] border px-1.5 py-0.5 shrink-0 ${tone}`}
+        className={`text-xs font-medium rounded-md px-2 py-1 shrink-0 ${tone}`}
       >
         {event.kind}
       </span>
-      <span className="flex-1 min-w-0">
+      <span className="flex-1 min-w-32">
         <span className="block text-xs text-[var(--fg)] truncate">
           {summary || <span className="text-[var(--muted-foreground-2)]">—</span>}
         </span>
@@ -205,9 +202,9 @@ function OutboxRow({ entry }: { entry: OutboxEntryWire }): JSX.Element {
         ? "text-[var(--destructive)] bg-[var(--destructive-soft)] border-[color-mix(in_oklch,var(--destructive)_30%,transparent)]"
         : "text-[var(--warning-fg)] bg-[var(--warning-subtle)] border-[var(--warning)]";
   return (
-    <li className="px-4 py-2.5 flex flex-col gap-1">
+    <li className="min-h-11 border-b border-[var(--border-1)] px-3 py-3 flex flex-col gap-1">
       <div className="flex items-center gap-2">
-        <span className={`text-[10px] font-semibold uppercase tracking-[0.08em] border px-1.5 py-0.5 ${tone}`}>
+        <span className={`text-xs font-medium rounded-md px-2 py-1 ${tone}`}>
           {entry.status}
         </span>
         <span className="text-xs font-medium text-[var(--fg)]">{entry.effectKind}</span>
@@ -218,7 +215,7 @@ function OutboxRow({ entry }: { entry: OutboxEntryWire }): JSX.Element {
         {entry.summary ? ` — ${entry.summary}` : ""}
       </div>
       {entry.lastError ? (
-        <div className="text-[10px] text-[var(--destructive)] truncate">{entry.lastError}</div>
+        <div className="text-[10px] text-[var(--destructive)] truncate">{redactSecrets(entry.lastError).slice(0, 500)}</div>
       ) : null}
     </li>
   );

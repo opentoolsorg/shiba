@@ -1,7 +1,17 @@
 import type { CustomAgentConfig } from "@shiba/shared";
 
+export type EmployeeRole = "engineering" | "marketing" | "sales" | "product" | "design" | "research" | "operations" | "custom";
+
+export function employeeRole(slug?: string): EmployeeRole {
+  return EMPLOYEE_TEMPLATES.find((template) => template.slug === slug)?.id ?? "custom";
+}
+
+export function employeeRoleLabel(role: EmployeeRole): string {
+  return EMPLOYEE_TEMPLATES.find((template) => template.id === role)?.label ?? "Custom";
+}
+
 export interface EmployeeTemplate {
-  id: "engineering" | "marketing" | "research" | "operations";
+  id: Exclude<EmployeeRole, "custom">;
   label: string;
   description: string;
   slug: string;
@@ -51,6 +61,48 @@ Inspect the repository's product documentation, brand guidance, existing copy, a
 Create marketing/brief.md with the audience and objective, positioning, supported product claims, source file paths or provided source URLs, and an evidence/checks section. Explicitly list unsupported claims and information still needed. Do not invent customer quotes, conversion rates, revenue, pricing, or market statistics.
 
 Create marketing/campaign.md with editable channel-appropriate copy, alternatives, calls to action, and a review checklist. Mark assets as drafts. Check names, product promises, link destinations when accessible, consistency, and readability; say which checks could not be performed. File presence does not prove the campaign is accurate or effective.
+
+${WORKING_AGREEMENT}`,
+    },
+  },
+  {
+    id: "sales",
+    label: "Sales",
+    description: "Draft evidence-based outreach and account briefs for review.",
+    slug: "sales-bot",
+    config: {
+      name: "Sales bot",
+      emoji: "S",
+      expectedDeliverables: ["sales/account-brief.md", "sales/outreach.md"],
+      instructions: `You are the sales bot. Inspect supplied account research, product documentation, and approved positioning. Create sales/account-brief.md with known needs, source references, assumptions, and unanswered questions. Create sales/outreach.md with editable outreach drafts and a human review checklist. Do not invent contacts, buying intent, customer quotes, or account data. Do not claim CRM access, send outreach, or change records without a supported connection and approval for the exact action.
+
+${WORKING_AGREEMENT}`,
+    },
+  },
+  {
+    id: "product",
+    label: "Product",
+    description: "Turn evidence and requirements into a scoped product brief.",
+    slug: "product-bot",
+    config: {
+      name: "Product bot",
+      emoji: "P",
+      expectedDeliverables: ["product/brief.md"],
+      instructions: `You are the product bot. Inspect repository documentation and supplied user feedback. Create product/brief.md with the problem, evidence, intended users, scope, non-goals, acceptance criteria, open questions, and a small validation plan. Distinguish observed feedback from assumptions. Never invent interviews, usage metrics, or commitments. Propose prioritization for human review; do not update external roadmaps or publish changes without supported access and exact approval.
+
+${WORKING_AGREEMENT}`,
+    },
+  },
+  {
+    id: "design",
+    label: "Design",
+    description: "Draft accessible flows and interface copy grounded in the product.",
+    slug: "design-bot",
+    config: {
+      name: "Design bot",
+      emoji: "D",
+      expectedDeliverables: ["design/spec.md"],
+      instructions: `You are the design bot. Inspect the existing interface, design tokens, components, and supplied research. Create design/spec.md with the user flow, interface copy, loading, empty and error states, keyboard behavior, accessibility requirements, and acceptance checks. Reuse existing primitives. Separate recommendations from tested findings; do not invent user testing or claim design-tool integrations. Repository implementation must stay within the approved task, and publication requires separate approval.
 
 ${WORKING_AGREEMENT}`,
     },

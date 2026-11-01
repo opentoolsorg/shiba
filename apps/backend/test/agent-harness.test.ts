@@ -37,7 +37,7 @@ const turnId = "turn_1";
 rl.on("line", (line) => {
   let msg;
   try { msg = JSON.parse(line); } catch { return; }
-  note({ method: msg.method, id: msg.id, result: msg.result, error: msg.error });
+  note({ method: msg.method, params: msg.params, id: msg.id, result: msg.result, error: msg.error });
   if (msg.method === "initialize") {
     send({ jsonrpc: "2.0", id: msg.id, result: { userAgent: "fake-codex" } });
     return;
@@ -190,6 +190,54 @@ describe("codex app-server adapter", () => {
     expect(log.some((row) => row.event.type === "turn.completed")).toBe(true);
   });
 
+  it.each([undefined, "xhigh"])("forwards effort %s through thread config and turn overrides", async (reasoningEffort) => {
+    const dir = await scratch();
+    const result = await codexJob(dir, "happy", { reasoningEffort });
+    expect(result.status).toBe("completed");
+    const frames = (await readFile(path.join(dir, "seen.jsonl"), "utf8"))
+      .trim().split("\n").map((line) => JSON.parse(line));
+    const thread = frames.find((frame) => frame.method === "thread/start").params;
+    const turn = frames.find((frame) => frame.method === "turn/start").params;
+    expect(thread.config).toEqual(reasoningEffort ? { model_reasoning_effort: reasoningEffort } : undefined);
+    expect(turn.effort).toBe(reasoningEffort);
+    expect(turn.config).toBeUndefined();
+  });
+
+  it("auto-denies when an approval request exceeds review limits", async () => {
+    const dir = await scratch();
+    const script = path.join(dir, "fake-codex-long.mjs");
+    const log = path.join(dir, "seen.jsonl");
+    const longFake = CODEX_FAKE.replace(
+      'params: { command: "ls", reason: "list the tree"',
+      `params: { command: ${JSON.stringify("x".repeat(2500))}, reason: "list the tree"`,
+    );
+    await writeFile(script, longFake);
+    const result = await runSessionJob({
+      provider: "codex",
+      model: "gpt-test",
+      cwd: dir,
+      logDir: dir,
+      prompt: "say hello",
+      permissionMode: "approval-required",
+      bin: process.execPath,
+      binArgs: [script],
+      checkpoints: false,
+      emitStdout: false,
+      onApproval: async () => "allow",
+      env: childEnv({ FAKE_MODE: "approve", FAKE_LOG: log }),
+    });
+    expect(result.status).toBe("completed");
+    const seen = await readFile(log, "utf8");
+    expect(seen).toContain('"decision":"decline"');
+    expect(
+      result.events.some(
+        (event) =>
+          event.type === "approval.resolved" &&
+          (event as { decision?: string }).decision === "deny",
+      ),
+    ).toBe(true);
+  });
+
   it("allows and denies a command approval", async () => {
     const allowDir = await scratch();
     const allow = await codexJob(allowDir, "approve", { onApproval: async () => "allow" });
@@ -275,6 +323,14 @@ describe("claude stream-json adapter", () => {
       ...extra,
     });
   }
+
+  it.each([undefined, "high"])("forwards effort %s to the real Claude argv", async (reasoningEffort) => {
+    const dir = await scratch();
+    expect((await claudeJob(dir, "happy", { reasoningEffort })).status).toBe("completed");
+    const { argv } = JSON.parse((await readFile(path.join(dir, "seen.jsonl"), "utf8")).split("\n")[0] ?? "{}");
+    if (reasoningEffort) expect(argv.slice(argv.indexOf("--effort"), argv.indexOf("--effort") + 2)).toEqual(["--effort", reasoningEffort]);
+    else expect(argv).not.toContain("--effort");
+  });
 
   it("allows a can_use_tool request", async () => {
     const dir = await scratch();
@@ -404,6 +460,7 @@ describe("sandbox and local wiring", () => {
         publishPullRequest: false,
         sandboxId: "sb-harness",
         codingModel: "anthropic/claude-sonnet-4-6",
+        route: { purpose: "coding", connectionId: null, modelId: "anthropic/claude-sonnet-4-6", harness: "claude-code", policyVersion: 0, reasoningEffort: "high" },
       },
       async () => {},
     );
@@ -411,6 +468,7 @@ describe("sandbox and local wiring", () => {
     const script = "/workspace/sb-harness.agent-harness.mjs";
     expect(files.get(script)).toBe(AGENT_HARNESS_SOURCE);
     const job = files.get("/workspace/sb-harness.job.json") ?? "";
+    expect(JSON.parse(job).reasoningEffort).toBe("high");
     expect(job).toContain('"permissionMode":"accept-edits"');
     expect(job).toContain('"/tmp/shiba-sessions"');
     expect(job).toContain("claude-sonnet-4-6");
@@ -463,6 +521,7 @@ describe("sandbox and local wiring", () => {
       publishPullRequest: false,
       sandboxId: "sb-local",
       codingModel: "anthropic/claude-sonnet-4-6",
+      route: { purpose: "coding" as const, connectionId: null, modelId: "anthropic/claude-sonnet-4-6", harness: "claude-code", policyVersion: 0, reasoningEffort: "high" as const },
     };
     const adapter = new LocalRuntimeAdapter(resolveHarness("claude-code"), {
       client,
@@ -476,6 +535,7 @@ describe("sandbox and local wiring", () => {
       provider: "claude",
       model: "claude-sonnet-4-6",
       permissionMode: "approval-required",
+      reasoningEffort: "high",
     });
     expect(messages).toContain("hello from harness");
 

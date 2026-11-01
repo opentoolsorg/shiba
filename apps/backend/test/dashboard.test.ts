@@ -56,10 +56,15 @@ afterEach(() => {
   mocks.chat.status = "ready";
   mocks.runsById = {};
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
-function renderApp() {
+function renderApp(view?: "tasks") {
   (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent = "ada@example.com";
+  if (view) {
+    vi.stubGlobal("window", { location: new URL(`https://app.tryshiba.dev/${view}/`) });
+    vi.stubGlobal("localStorage", { getItem: () => null });
+  }
   return renderToStaticMarkup(React.createElement(App));
 }
 
@@ -89,13 +94,22 @@ describe("dashboard rendering", () => {
   it("shows useful empty states when no task has started", () => {
     const markup = renderApp();
 
-    expect(markup).toContain('data-testid="task-composer"');
-    expect(markup).toContain("Describe the change in this repository");
-    expect(markup).toContain("What should Shiba change?");
+    expect(markup).toContain('aria-label="Work views"');
+    expect(markup).toContain('aria-label="Draft a task and press Enter"');
+    expect(markup).toContain("Nothing waiting");
+    expect(markup).toContain("No tasks in Running");
+    expect(markup).toContain("New task");
     expect(markup).toContain("New thread");
     expect(markup).toContain("Threads");
-    expect(markup).toContain("dot-grid");
+  });
 
+  it("shows the thread composer when opening Threads", () => {
+    const markup = renderApp("tasks");
+
+    expect(markup).toContain('data-testid="task-composer"');
+    expect(markup).toContain('aria-label="Task description"');
+    expect(markup).toContain("What do you want to get done?");
+    expect(markup).toContain('aria-label="Thread configuration"');
   });
 
   it("renders a pending approval with its tool input and actions", () => {
@@ -115,10 +129,14 @@ describe("dashboard rendering", () => {
       },
     ];
 
-    const markup = renderApp();
+    const workMarkup = renderApp();
+    expect(workMarkup).toContain("Approve tool: runSandbox");
+    expect(workMarkup).toContain("Review");
 
-    expect(markup).toContain("waiting for your approval");
-    expect(markup).toContain("Action Required");
+    const markup = renderApp("tasks");
+
+    expect(markup).toContain("Waiting for your approval");
+    expect(markup).toContain("Needs approval");
     expect(markup).toContain("runSandbox");
     expect(markup).toContain("&quot;command&quot;: &quot;npm test&quot;");
     expect(markup).toContain("Approve");
@@ -139,7 +157,7 @@ describe("dashboard rendering", () => {
       },
     };
 
-    const markup = renderApp();
+    const markup = renderApp("tasks");
 
     expect(markup).toContain("Chat error: stream failed");
     expect(markup).toContain("run-1");
@@ -156,7 +174,7 @@ describe("dashboard rendering", () => {
     expect(formMarkup).toContain('type="checkbox"');
     expect(formMarkup).toContain('value="main"');
 
-    const appMarkup = renderApp();
+    const appMarkup = renderApp("tasks");
 
     expect(appMarkup).toContain('data-testid="task-composer"');
     expect(appMarkup).toContain("<textarea");
@@ -171,7 +189,7 @@ describe("dashboard rendering", () => {
       task: "Implement feature",
       baseBranch: "main",
       publishPullRequest: false,
-      status: "completed",
+      status: "completed" as const,
       createdAt: Date.now() - 10000,
       updatedAt: Date.now(),
       agentType: "coding-agent",
@@ -219,7 +237,7 @@ describe("dashboard rendering", () => {
       })
     );
     expect(diffMarkup).toContain("Pull requests");
-    expect(diffMarkup).toContain("No runs yet");
+    expect(diffMarkup).toContain("No changes to review");
 
     const approvalsMarkup = renderToStaticMarkup(
       React.createElement(ApprovalsView, {
@@ -234,8 +252,8 @@ describe("dashboard rendering", () => {
       })
     );
     expect(approvalsMarkup).toContain("Approvals");
-    expect(approvalsMarkup).toContain("Nothing waiting");
-    expect(approvalsMarkup).toContain("0 waiting");
+    expect(approvalsMarkup).toContain("Nothing needs you");
+    expect(approvalsMarkup).toContain("0 open");
     expect(approvalsMarkup).toContain("Audit log");
     expect(approvalsMarkup).not.toContain("Zero-Trust");
   });
@@ -268,11 +286,15 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("owner/repo");
   });
 
-  it("renders AutomationsView with webhook endpoints", () => {
+  it("renders AutomationsView with navigation to recipes and inbound triggers", () => {
     const markup = renderToStaticMarkup(React.createElement(AutomationsView));
-    expect(markup).toContain("Automations &amp; Inbound Triggers");
-    expect(markup).toContain("/api/github/webhook");
-    expect(markup).toContain("/api/slack/command");
+    expect(markup).toContain("Automations");
+    expect(markup).toContain('aria-label="Automation views"');
+    expect(markup).toContain(">Recipes</button>");
+    expect(markup).toContain(">Triggers</button>");
+    expect(markup).toContain("New automation");
+    expect(markup).toContain('aria-label="Deployed automations"');
+    expect(markup).toContain("Runs still need your approval.");
   });
 
   it("renders OnboardingModal with steps from PLAN.md", () => {
@@ -289,11 +311,12 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Operator &amp; Self-Hosting Setup");
     expect(markup).toContain('role="checkbox"');
   });
-  it("renders sidebar toggle button and keyboard shortcuts for sidebar", () => {
+  it("renders the sidebar toggle, search, and thread group controls", () => {
     const markup = renderApp();
     expect(markup).toContain('aria-label="Collapse sidebar"');
     expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain('aria-label="Open sessions"');
+    expect(markup).toContain('aria-label="Search"');
+    expect(markup).toContain("Threads");
   });
 
   it("renders Tooltip component wrapping trigger elements", () => {

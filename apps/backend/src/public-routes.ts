@@ -14,6 +14,7 @@ export function isPublicRequest(request: Request): boolean {
   const path = new URL(request.url).pathname;
   return ((request.method === "GET" || request.method === "HEAD") && isPublicStaticPath(path))
     || (request.method === "GET" && path === "/api/v1/openapi.json")
+    || (request.method === "GET" && path === "/api/integrations/provider/callback")
     || (request.method === "POST" && path === "/api/waitlist")
     // POST-only bypass so a Sentry alert reaches the handler even when the
     // edge Access gate is misconfigured; the handler still verifies the
@@ -24,6 +25,10 @@ export function isPublicRequest(request: Request): boolean {
 /** These route modules verify an org-scoped API key or dashboard session themselves. */
 export function isOrgApiPath(path: string): boolean {
   return path === "/api/api-keys"
+    || path === "/api/skills/library" || path.startsWith("/api/skills/library/")
+    || path === "/api/spaces" || path.startsWith("/api/spaces/")
+    || path === "/api/employee-tools" || path.startsWith("/api/employee-tools/")
+    || path === "/api/reason-network" || path.startsWith("/api/reason-network/")
     || path === "/api/custom-agents" || path.startsWith("/api/custom-agents/")
     || path === "/api/org/sandbox" || path === "/api/org/sandbox/test"
     || path === "/api/org/model-keys" || path.startsWith("/api/org/model-keys/");

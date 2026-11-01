@@ -29,6 +29,11 @@
     { "pattern": "app.tryshiba.dev", "custom_domain": true },
   ],
   "vars": {
+    // No upstream MCP host is enabled by default. Operators must list exact public
+    // hostnames here and pre-provision referenced MCP_CREDENTIAL_* secrets.
+    "MCP_TRUSTED_HOSTS": "",
+    "INTEGRATIONS_PROVIDER": "openconnector",
+    // Separate open-connector sibling Worker (OPEN_CONNECTOR binding or OPEN_CONNECTOR_URL).
     "GATEWAY_ID": "default",
     "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",
     "CODING_MODEL": "google/gemini-3.5-flash-lite",
@@ -119,6 +124,10 @@
   "ai": {
     "binding": "AI",
   },
+  // Optional sibling: deploy it first, then uncomment this service binding.
+  // Alchemy equivalent: OPEN_CONNECTOR_WORKER=shiba-openconnector.
+  // "services": [{ "binding": "OPEN_CONNECTOR", "service": "shiba-openconnector" }],
+  // HTTP fallback: set OPEN_CONNECTOR_URL to the sibling HTTPS origin in vars.
   "worker_loaders": [
     { "binding": "LOADER" },
   ],
@@ -143,6 +152,8 @@
       { "name": "LocalDispatch", "class_name": "LocalDispatch" },
       { "name": "ChatGptAuth", "class_name": "ChatGptAuth" },
       { "name": "UserProviderOAuth", "class_name": "UserProviderOAuth" },
+      { "name": "Spaces", "class_name": "Spaces" },
+      { "name": "ConversationRoom", "class_name": "ConversationRoom" },
     ],
   },
   // Email attachment bodies >256KB go here, keyed `emailId/partId`
@@ -213,5 +224,7 @@
     // Live script tag after the Oct 20 alchemy deploy; all classes above already exist.
     { "tag": "alchemy:v22" },
     { "tag": "v13", "new_sqlite_classes": ["UserProviderOAuth"] },
+    { "tag": "v14", "new_sqlite_classes": ["Spaces"] },
+    { "tag": "v15", "new_sqlite_classes": ["ConversationRoom"] },
   ],
 }

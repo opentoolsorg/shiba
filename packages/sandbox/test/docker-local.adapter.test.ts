@@ -1,21 +1,26 @@
-import { describe, expect } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDockerLocalSandboxProvider, type DockerExecutor } from "../src/adapters/docker-local.js";
 import { describeSandboxProviderContract } from "../src/contract-suite.js";
 
 function mockDocker(): DockerExecutor {
-  const running = new Set<string>();
+  const running = new Map<string, string>();
   const files = new Map<string, string>();
   return {
     async run(args) {
       if (args[0] === "inspect") {
         const name = args[args.length - 1]!;
-        const ok = running.has(name);
-        return { stdout: ok ? "true" : "false", stderr: "", exitCode: ok ? 0 : 1 };
+        const instanceId = running.get(name);
+        if (instanceId === undefined) {
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        return { stdout: `true|${instanceId}`, stderr: "", exitCode: 0 };
       }
       if (args[0] === "run") {
         const nameIdx = args.indexOf("--name");
         const name = nameIdx >= 0 ? args[nameIdx + 1]! : "unknown";
-        running.add(name);
+        const labelIdx = args.findIndex((arg) => arg.startsWith("shiba.instance_id="));
+        const instanceId = labelIdx >= 0 ? args[labelIdx]!.slice("shiba.instance_id=".length) : name;
+        running.set(name, instanceId);
         return { stdout: "cid\n", stderr: "", exitCode: 0 };
       }
       if (args[0] === "exec") {
@@ -52,3 +57,14 @@ describeSandboxProviderContract("docker-local (mock docker)", () =>
     dockerExec: mockDocker(),
   }),
 );
+
+it("reuses a running container with the matching instance label", async () => {
+  const docker = mockDocker();
+  const run = vi.spyOn(docker, "run");
+  const provider = createDockerLocalSandboxProvider({ image: "shiba-sandbox:mock", dockerExec: docker });
+  const instance = await provider.get("label-reuse-test");
+  await instance.exec("echo contract-ok");
+  await instance.exec("echo contract-ok");
+  expect(run.mock.calls.filter(([args]) => args[0] === "run")).toHaveLength(1);
+  expect(run.mock.calls.filter(([args]) => args[0] === "rm")).toHaveLength(0);
+});

@@ -48,6 +48,9 @@ function env(extra: Record<string, unknown> = {}, kv: FakeKV = new FakeKV()): En
 
 function request(path: string, init?: RequestInit, email?: string): Request {
   const headers = new Headers(init?.headers);
+  if (init?.body !== undefined && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   if (email !== undefined) headers.set("CF-Access-Authenticated-User-Email", email);
   return new Request(`http://localhost${path}`, { ...init, headers });
 }

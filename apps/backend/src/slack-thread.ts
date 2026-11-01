@@ -96,6 +96,11 @@ export interface SlackRunPayload {
   harness?: string;
   channel_id?: string;
   user_id?: string;
+  orgId?: string;
+  customAgentId?: string;
+  customAgentVersion?: number;
+  employeeToolPolicyVersion?: number;
+  executionTarget?: import("@shiba/shared").ExecutionTarget;
 }
 
 /**
@@ -109,16 +114,29 @@ export function buildSlackRunPayload(input: {
   channelId?: string;
   userId?: string;
   harness?: string;
+  publishPullRequest?: boolean;
+  orgId?: string;
+  customAgentId?: string;
+  customAgentVersion?: number;
+  employeeToolPolicyVersion?: number;
+  executionTarget?: import("@shiba/shared").ExecutionTarget;
 }): SlackRunPayload {
   return {
     repoUrl: input.repoUrl,
     task: input.task,
     baseBranch: input.baseBranch ?? "main",
-    publishPullRequest: SLACK_DEFAULT_PUBLISH_PR,
+    publishPullRequest: input.publishPullRequest ?? SLACK_DEFAULT_PUBLISH_PR,
     source: "slack",
     ...(input.harness ? { harness: input.harness } : {}),
     ...(input.channelId ? { channel_id: input.channelId } : {}),
     ...(input.userId ? { user_id: input.userId } : {}),
+    ...(input.orgId ? { orgId: input.orgId } : {}),
+    ...(input.customAgentId ? { customAgentId: input.customAgentId } : {}),
+    ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+    ...(input.employeeToolPolicyVersion !== undefined
+      ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion }
+      : {}),
+    ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}),
   };
 }
 

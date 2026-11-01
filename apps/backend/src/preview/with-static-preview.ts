@@ -72,6 +72,23 @@ export async function withStaticPreview<T>(
     await proc.waitForPort(PREVIEW_PORT, { timeout: PORT_READY_TIMEOUT_MS });
     previewUrl = (await sandbox.expose(PREVIEW_PORT, { hostname })).url;
     const page = await browser.newPage();
+    const previewOrigin = new URL(previewUrl).origin;
+    await page.evaluateOnNewDocument((allowedOrigin: string) => {
+      const NativeWebSocket = WebSocket;
+      function Proxy(url: string | URL, protocols?: string | string[]) {
+        const resolved = new URL(String(url), allowedOrigin);
+        if (resolved.origin !== allowedOrigin) {
+          throw new Error("Cross-origin WebSocket connections are blocked.");
+        }
+        return protocols === undefined
+          ? new NativeWebSocket(resolved.toString())
+          : new NativeWebSocket(resolved.toString(), protocols);
+      }
+      Object.setPrototypeOf(Proxy, NativeWebSocket);
+      Proxy.prototype = NativeWebSocket.prototype;
+      (globalThis as typeof globalThis & { WebSocket: typeof WebSocket }).WebSocket =
+        Proxy as unknown as typeof WebSocket;
+    }, previewOrigin);
     await page.setRequestInterception(true);
     page.on("request", (request) => {
       allowSameOriginOnly(request, previewUrl).catch(() => undefined);

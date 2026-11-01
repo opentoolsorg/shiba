@@ -87,6 +87,7 @@ async function pending() {
 
 try {
   await directory();
+  await page.getByText("Advanced settings", { exact: true }).click();
   await page.getByLabel("Slug", { exact: true }).fill(slug);
   await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel(/^Instructions/).fill(instructions(1));
@@ -125,10 +126,16 @@ try {
   const { session } = await sessionCreated.json();
   sessionId = session.id;
   assert.equal(session.metadata.customAgentId, agentId);
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
   await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
   await page.getByLabel("Task description", { exact: true }).fill(task);
   await directory();
+  const resumeResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/sessions/${encodeURIComponent(sessionId)}/resume` &&
+    response.request().method() === "POST",
+  );
   await card().getByRole("list", { name: `${name} threads`, exact: true }).getByRole("button").filter({ hasText: name }).first().click();
+  assert.equal((await resumeResponse).status(), 200, "Reopening a bot conversation must resume its named session");
   await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
   passed("Launch a bot conversation and reopen it from the bot's own thread history");
 
@@ -154,6 +161,13 @@ try {
   const afterFailure = await json("/api/approvals");
   assert(!afterFailure.approvals.some((item) => item.task.endsWith(task)), "A failed queue request must not mint an approval");
   await page.unroute("**/api/runs**", failFirstQueue);
+  // The 503 UI restores the draft asynchronously. Wait for the composer to be
+  // actionable before exercising its retry path, rather than racing React's
+  // submission-state cleanup with a second click.
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[aria-label="Send task"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  });
   passed("A failed bot submission shows the error, restores the draft, and creates no approval");
 
   const realResponse = queueResponse();
@@ -231,27 +245,19 @@ try {
     const url = new URL(response.url());
     return response.request().method() === "GET" && url.pathname === `/api/v1/threads/${encodeURIComponent(runId)}/pr/${action}`;
   });
-  const [[reviewRead, pullRead]] = await Promise.all([
-    Promise.all([panelResponse("review"), panelResponse("status")]),
-    (async () => {
-      await page.goto(new URL("/app/", base).href);
-      await page.getByRole("option").filter({ hasText: name }).first().click();
-      await page.getByTestId("run-agent-version").filter({ hasText: "Bot profile v2" }).first().waitFor();
-    })(),
-  ]);
+  const reviewReadPromise = panelResponse("review");
+  await page.goto(new URL("/app/", base).href);
+  await page.getByRole("option").filter({ hasText: name }).first().click();
+  await page.getByTestId("run-agent-version").filter({ hasText: "Bot profile v2" }).first().waitFor();
+  const reviewRead = await reviewReadPromise;
   assert.equal(new URL(reviewRead.url()).searchParams.get("session"), sessionId);
   assert.equal(reviewRead.status(), 200, "Named conversation review must resolve its own run");
-  assert.equal(new URL(pullRead.url()).searchParams.get("session"), sessionId);
-  assert.equal(pullRead.status(), 404, "This fixture did not request a pull request");
-  const pullReadback = await page.request.get(pullRead.url());
-  assert.equal(pullReadback.status(), 404);
-  assert.equal((await pullReadback.json()).error, "pull_request_not_found", "An absent PR must not be confused with an absent named-session run");
   await page.getByTestId("review-findings").waitFor({ state: "hidden" });
-  await page.getByTestId("pr-card").waitFor({ state: "hidden" });
+  assert.equal(await page.getByTestId("pr-card").count(), 0, "A run that did not request a pull request must not mount a PR status panel");
   assert(!/Review:\s*Run(?:\s|_)*not(?:\s|_)*found/i.test(await page.locator("body").innerText()), "A completed named-session run must not show a false review error");
   report.completedPanels = {
     review: { session: sessionId, status: reviewRead.status() },
-    pullRequest: { session: sessionId, status: pullRead.status(), error: "pull_request_not_found" },
+    pullRequest: { requested: false, visible: false },
   };
   await page.screenshot({ path: resolve(output, "completed-profile-run.png"), fullPage: true });
   passed("Conversation history shows the frozen bot version and scopes review/PR reads without false missing-run errors");

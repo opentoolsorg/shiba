@@ -63,6 +63,7 @@ class ManagedContainerImpl implements ManagedContainer {
     private readonly fallbackSignal?: AbortSignal,
   ) {
     this.ops = {
+      ...(inner.pinEgress ? { pinEgress: () => this.call(() => inner.pinEgress!()) } : {}),
       gitCheckout: (repoUrl, opts) => this.call(() => inner.gitCheckout(repoUrl, opts)),
       writeFile: (path, content) => this.call(() => inner.writeFile(path, content)),
       exec: (command, opts) =>

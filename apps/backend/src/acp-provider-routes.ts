@@ -11,13 +11,14 @@ import {
   verifyProvider,
 } from "./acp-providers.js";
 import type { Env } from "./env.js";
+import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
 import {
   beginProviderSignIn,
   completeProviderSignIn,
   inspectProviderSignIn,
   type SignInLanes,
 } from "./provider-sign-in.js";
-import { resolveUserId } from "./request-auth.js";
+import { rejectCrossSiteDashboardMutation, requireJsonContentType, resolveUserId } from "./request-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
 import { InputError } from "./security.js";
 
@@ -113,6 +114,14 @@ export async function handleAcpProviders(
       return Response.json({ error: "Not found." }, { status: 404 });
     }
     if (request.method !== "POST") return methodNotAllowed();
+    const originBlock = rejectCrossOriginMutation(request);
+    if (originBlock) return originBlock;
+    const csrf = rejectCrossSiteDashboardMutation(request);
+    if (csrf) return csrf;
+    const jsonBlock = rejectNonJsonMutation(request);
+    if (jsonBlock) return jsonBlock;
+    const jsonOnly = requireJsonContentType(request);
+    if (jsonOnly) return jsonOnly;
     const id = match[1] as string;
     const action = match[2] as "connect" | "verify" | "test" | "disconnect" | "default";
     const body = await readBody(request);

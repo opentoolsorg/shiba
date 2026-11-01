@@ -33,16 +33,21 @@ import type { ZodType } from "zod";
 import {
   requireScope,
   ScopeError,
+  orgIdForRecord,
   sha256Hex,
+  SCOPES,
   type Scope,
   type TokenRecord,
 } from "./agent-tokens.js";
 import { audit } from "./audit.js";
-import { registerEmailTools } from "./mcp-email-tools.js";
-import { registerGmailTools } from "./mcp-gmail-tools.js";
-import { registerMemoryTools } from "./mcp-memory-tools.js";
-import { registerRunTools } from "./mcp-run-tools.js";
-import { registerScreenTools } from "./mcp-screen-tools.js";
+import {
+  beginCapabilityInvocation,
+  finishCapabilityInvocation,
+  mcpIdempotencyKey,
+  type CapabilityInvocationReceipt,
+} from "./capability-invocations.js";
+import { registerAllMcpTools } from "./mcp-tool-registration.js";
+import { registerExternalMcpTools } from "./external-mcp.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 
@@ -76,6 +81,9 @@ export interface ToolCallContext {
   env: McpGatewayEnv;
   /** The verified token record for this request. */
   principal: TokenRecord;
+  /** Durable receipt identity for this logical dispatch; stable on receipt replays. */
+  invocationId?: string;
+  idempotencyKey?: string;
 }
 
 export type McpToolHandler = (
@@ -90,12 +98,15 @@ export interface ToolMeta {
   annotations?: ToolAnnotations;
 }
 
-interface RegisteredTool {
+export interface RegisteredTool {
   name: string;
   scope: Scope;
   handler: McpToolHandler;
   meta: ToolMeta;
 }
+
+export const MAX_MCP_TOOLS = 100;
+export const MAX_MCP_INPUT_FIELDS = 64;
 
 export interface ToolRegistry {
   registerTool(
@@ -109,6 +120,7 @@ export interface ToolRegistry {
     name: string,
     args: unknown,
     principal: TokenRecord | null,
+    options?: { idempotencyKey?: string; claimedInvocation?: CapabilityInvocationReceipt },
   ): Promise<CallToolResult>;
   /** Every registered tool, registration order. */
   tools(): RegisteredTool[];
@@ -116,6 +128,27 @@ export interface ToolRegistry {
 
 function errorResult(text: string): CallToolResult {
   return { content: [{ type: "text", text }], isError: true };
+}
+
+function receiptResult(
+  result: CallToolResult,
+  input: { invocationId: string; status: string; approvalId?: string; replayed?: boolean },
+): CallToolResult {
+  const existing = result._meta && typeof result._meta === "object"
+    ? result._meta as Record<string, unknown>
+    : {};
+  return {
+    ...result,
+    _meta: {
+      ...existing,
+      "com.shiba/invocation": {
+        invocationId: input.invocationId,
+        status: input.status,
+        ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+        ...(input.replayed ? { replayed: true } : {}),
+      },
+    },
+  };
 }
 
 /** Sorted-key deep copy so the args hash ignores JSON key order. */
@@ -160,17 +193,27 @@ function parsePrincipal(raw: string | null): TokenRecord | null {
   if (
     typeof record.principal !== "string" ||
     !Array.isArray(record.scopes) ||
-    !record.scopes.every((s) => typeof s === "string") ||
-    typeof record.created !== "number" ||
+    !record.scopes.every((s) => typeof s === "string" && (SCOPES as readonly string[]).includes(s)) ||
+    typeof record.created !== "number" || !Number.isFinite(record.created) || record.created < 0 ||
     typeof record.revoked !== "boolean"
   ) {
     return null;
   }
+  if ("orgId" in record && (typeof record.orgId !== "string" || !record.orgId.trim())) return null;
+  if ("kind" in record && record.kind !== "agent" && record.kind !== "api_key") return null;
+  if ("expiresAt" in record && (typeof record.expiresAt !== "number" || !Number.isFinite(record.expiresAt))) return null;
+  if ("label" in record && typeof record.label !== "string") return null;
+  if ("keyId" in record && typeof record.keyId !== "string") return null;
   return {
     principal: record.principal,
     scopes: record.scopes as Scope[],
     created: record.created,
     revoked: record.revoked,
+    ...(typeof record.orgId === "string" ? { orgId: record.orgId.trim() } : {}),
+    ...(record.kind === "agent" || record.kind === "api_key" ? { kind: record.kind } : {}),
+    ...(typeof record.label === "string" ? { label: record.label } : {}),
+    ...(typeof record.keyId === "string" ? { keyId: record.keyId } : {}),
+    ...(typeof record.expiresAt === "number" ? { expiresAt: record.expiresAt } : {}),
   };
 }
 
@@ -192,12 +235,17 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
   const tools = new Map<string, RegisteredTool>();
   return {
     registerTool(name, scope, handler, meta = {}) {
+      if (tools.has(name)) throw new Error(`Duplicate MCP tool name "${name}".`);
+      if (tools.size >= MAX_MCP_TOOLS) throw new Error("MCP tool registry capacity exceeded.");
+      if (meta.inputSchema && Object.keys(meta.inputSchema).length > MAX_MCP_INPUT_FIELDS) {
+        throw new Error(`MCP tool "${name}" input schema exceeds the field limit.`);
+      }
       tools.set(name, { name, scope, handler, meta });
     },
     tools() {
       return [...tools.values()];
     },
-    async invoke(name, args, principal) {
+    async invoke(name, args, principal, options = {}) {
       const caller = principal?.principal ?? "<unknown>";
       // args_hash is required on every audit row; args that cannot be
       // serialized (BigInt, circular refs) fail the call before a handler
@@ -218,6 +266,44 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
         });
         return errorResult(`Tool "${name}" failed: ${detail}`);
       }
+      let invocationId: string | undefined;
+      if (principal && !principal.revoked) {
+        if (options.claimedInvocation) {
+          const claimed = options.claimedInvocation;
+          if (!options.idempotencyKey?.startsWith("employee-action:") ||
+              claimed.principal !== caller || claimed.tool !== name || claimed.argsHash !== argsHash ||
+              (claimed.status !== "in_progress" && claimed.status !== "unknown_outcome")) {
+            return errorResult("The preclaimed tool invocation does not match this dispatch.");
+          }
+          invocationId = claimed.invocationId;
+        } else {
+          const begun = await beginCapabilityInvocation(env, {
+            principal: caller,
+            orgId: orgIdForRecord(principal),
+            tool: name,
+            argsHash,
+            ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+          });
+          if (begun.kind === "failed") {
+            return errorResult("Tool invocation could not be durably recorded; no tool was dispatched.");
+          }
+          if (begun.kind === "payload_conflict") {
+            return errorResult("Idempotency key was already used with different tool arguments.");
+          }
+          if (begun.kind === "replay") {
+            return receiptResult(
+              { content: [{ type: "text", text: `Request replay suppressed; inspect invocation ${begun.receipt.invocationId} for its recorded status.` }] },
+              {
+                invocationId: begun.receipt.invocationId,
+                status: begun.receipt.status,
+                ...(begun.receipt.approvalId ? { approvalId: begun.receipt.approvalId } : {}),
+                replayed: true,
+              },
+            );
+          }
+          invocationId = begun.receipt.invocationId;
+        }
+      }
       const tool = tools.get(name);
       if (!tool) {
         // An unknown name is still a tool call: audit it so an
@@ -229,21 +315,53 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
           outcome: "error",
           detail: "unknown tool",
         });
-        return errorResult(`Unknown tool "${name}".`);
+        if (invocationId) await finishCapabilityInvocation(env, { invocationId, status: "failed", errorCode: "unknown_tool" });
+        return invocationId
+          ? receiptResult(errorResult(`Unknown tool "${name}".`), { invocationId, status: "failed" })
+          : errorResult(`Unknown tool "${name}".`);
       }
       try {
         requireScope(principal, tool.scope);
         const result = await tool.handler(
           (args ?? {}) as Record<string, unknown>,
-          { env, principal: principal as TokenRecord },
+          { env, principal: principal as TokenRecord,
+            ...(invocationId ? { invocationId } : {}), ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}) },
         );
+        const status = result.structuredContent && typeof result.structuredContent === "object"
+          ? (result.structuredContent as Record<string, unknown>).status
+          : undefined;
+        const structured = result.structuredContent && typeof result.structuredContent === "object"
+          ? result.structuredContent as Record<string, unknown>
+          : undefined;
+        const approvalId = structured?.approvalId ?? structured?.approval_id;
+        const isPendingApproval = !result.isError && status === "pending_approval";
         await audit(env, {
           principal: caller,
           tool: name,
           argsHash,
-          outcome: "ok",
+          outcome: result.isError ? "error" : isPendingApproval ? "pending_approval" : "ok",
+          ...(isPendingApproval && typeof approvalId === "string" ? { detail: `approval_id:${approvalId}` } : {}),
         });
-        return result;
+        const finalStatus = result.isError ? "failed" : isPendingApproval ? "pending_approval" : "succeeded";
+        const saved = invocationId
+          ? await finishCapabilityInvocation(env, {
+              invocationId,
+              status: finalStatus,
+              ...(isPendingApproval && typeof approvalId === "string" ? { approvalId } : {}),
+              ...(result.isError ? { errorCode: "tool_error" } : {}),
+            })
+          : true;
+        if (!saved && invocationId) {
+          return receiptResult(errorResult("Tool result may be unknown because its receipt could not be committed."), {
+            invocationId, status: "unknown_outcome",
+          });
+        }
+        return invocationId
+          ? receiptResult(result, {
+              invocationId, status: finalStatus,
+              ...(isPendingApproval && typeof approvalId === "string" ? { approvalId } : {}),
+            })
+          : result;
       } catch (error) {
         if (error instanceof ScopeError) {
           await audit(env, {
@@ -253,7 +371,10 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
             outcome: "denied",
             detail: `missing scope: ${tool.scope}`,
           });
-          return errorResult(`Forbidden: missing scope "${tool.scope}".`);
+          if (invocationId) await finishCapabilityInvocation(env, { invocationId, status: "denied", errorCode: "missing_scope" });
+          return invocationId
+            ? receiptResult(errorResult(`Forbidden: missing scope "${tool.scope}".`), { invocationId, status: "denied" })
+            : errorResult(`Forbidden: missing scope "${tool.scope}".`);
         }
         const detail = redactSecrets(
           error instanceof Error ? error.message : String(error),
@@ -265,10 +386,24 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
           outcome: "error",
           detail,
         });
-        return errorResult(`Tool "${name}" failed: ${detail}`);
+        if (invocationId) await finishCapabilityInvocation(env, { invocationId, status: "unknown_outcome", errorCode: "handler_threw" });
+        const failed = errorResult(`Tool "${name}" failed; its external effect may be unknown. Check the invocation receipt before retrying. ${detail}`);
+        return invocationId
+          ? receiptResult(failed, { invocationId, status: "unknown_outcome" })
+          : failed;
       }
     },
   };
+}
+
+/** Scope-filter before metadata/schema is exposed by MCP tools/list. */
+export function visibleToolsForPrincipal(
+  tools: readonly RegisteredTool[],
+  principal: TokenRecord | null,
+): RegisteredTool[] {
+  if (!principal || principal.revoked || !Array.isArray(principal.scopes)) return [];
+  const allowed = new Set(principal.scopes);
+  return tools.filter((tool) => allowed.has(tool.scope)).slice(0, MAX_MCP_TOOLS);
 }
 
 /**
@@ -279,15 +414,16 @@ export function createToolRegistry(env: McpGatewayEnv): ToolRegistry {
  * injected principal from its own dispatch context (`ctx.http?.req`),
  * falling back to that same request.
  */
-function buildMcpServer(env: Env, mcpCtx: McpRequestContext): McpServer {
+async function buildMcpServer(env: Env, mcpCtx: McpRequestContext): Promise<McpServer> {
   const server = new McpServer({ name: "shiba", version: "0.1.0" });
   const registry = createToolRegistry(env);
-  registerEmailTools(registry, env);
-  registerGmailTools(registry);
-  registerMemoryTools(registry, env);
-  registerRunTools(registry, env);
-  registerScreenTools(registry, env);
-  for (const tool of registry.tools()) {
+  registerAllMcpTools(registry, env);
+  const principal = principalFor(mcpCtx.requestInfo);
+  if (principal) {
+    try { await registerExternalMcpTools(registry, env, principal); }
+    catch { console.warn("External MCP capability catalog unavailable; upstream capabilities withheld."); }
+  }
+  for (const tool of visibleToolsForPrincipal(registry.tools(), principal)) {
     server.registerTool(
       tool.name,
       {
@@ -299,11 +435,12 @@ function buildMcpServer(env: Env, mcpCtx: McpRequestContext): McpServer {
           | undefined,
         annotations: tool.meta.annotations,
       },
-      async (args: Record<string, unknown>, ctx: ServerContext) =>
+          async (args: Record<string, unknown>, ctx: ServerContext) =>
         (await registry.invoke(
           tool.name,
           args,
           principalFor(ctx.http?.req ?? mcpCtx.requestInfo),
+              { idempotencyKey: mcpIdempotencyKey(ctx.mcpReq._meta) },
         )) as CallToolResultV2,
     );
   }

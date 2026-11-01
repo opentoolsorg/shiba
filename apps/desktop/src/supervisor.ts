@@ -32,6 +32,7 @@ export function createRestartPolicy() {
   return function onExit(code: number | null, ctx: ExitContext, now: number): ExitAction {
     if (code === 78) return { kind: "revoked" };
     if (code === 75) return { kind: "conflict" };
+    if (code === 70) return { kind: "crashed" };
     // Before 130/143: the pair watchdog SIGTERMs a stalled pairing fork.
     if (ctx.pairing && !ctx.sawPolling) return { kind: "failed-pairing" };
     if (code === 130 || code === 143) return { kind: "stopped" };

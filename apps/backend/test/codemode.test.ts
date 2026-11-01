@@ -77,4 +77,10 @@ describe("createRunCodeTool", () => {
     expect(runCode).not.toBeNull();
     expect(runCode?.description).toContain("Execute JavaScript");
   });
+
+  it("includes owner-scoped workspace memory in the signed-in employee tool context", () => {
+    const env = { LOADER: {} } as { LOADER?: WorkerLoader } as Env;
+    const runCode = createRunCodeTool(env, "auth-user-1");
+    expect(runCode?.description).toContain("workspace_memory_recall");
+  });
 });

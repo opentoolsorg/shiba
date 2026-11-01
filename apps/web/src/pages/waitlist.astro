@@ -4,8 +4,9 @@ import MarketingPage from '../layouts/MarketingPage.astro';
 const waitlistSchema = {
   '@context': 'https://schema.org',
   '@type': 'WebPage',
-  name: 'Shiba Project Updates & Open Source Contributor Community',
-  description: 'Get Shiba project updates or contribute. Shiba is open-source software you can self-host; the list is not required for access.',
+  name: 'Shiba Project Updates & Contributor Community',
+  description:
+    'Follow Shiba as we build AI employees for company work. Sign up for project updates and contributor invitations; self-hosting needs no invite.',
   url: 'https://tryshiba.dev/waitlist/',
   potentialAction: {
     '@type': 'CommunicateAction',
@@ -15,8 +16,8 @@ const waitlistSchema = {
 ---
 
 <MarketingPage
-  title="Join the Shiba Waitlist, Contribute & Watch the Build"
-  description="Get Shiba project updates or contribute to the open-source coding agent. Self-hosting uses Cloudflare Workers and Sandbox containers."
+  title="Join the Waitlist & Community — Shiba AI Employees"
+  description="Follow Shiba as we build AI employees for engineering, design, marketing, sales, operations, finance, and research. Get project updates and contributor invitations."
   path="/waitlist/"
   type="website"
   schema={waitlistSchema}
@@ -27,69 +28,69 @@ const waitlistSchema = {
 >
   <!-- TOP INTRO HERO -->
   <section class="shell hero-grid">
-    
-    <!-- LEFT: THE INVITATION & WATCH -->
+    <!-- LEFT: INVITATION & VALUE -->
     <div class="intro-pane" aria-labelledby="waitlist-title">
       <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-[var(--card)] border border-[var(--line-2)] text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--navy)] mb-6 shadow-[2px_2px_0_var(--paper-shadow)]">
-        <span class="w-2 h-2 bg-[var(--navy)]"></span>
-        <span>OPEN SOURCE · CLOUDFLARE NATIVE</span>
+        <span class="w-2 h-2 bg-[var(--navy)]" aria-hidden="true"></span>
+        <span>BUILT IN THE OPEN</span>
       </div>
 
-      <h1 id="waitlist-title" class="text-4xl sm:text-6xl font-bold tracking-tight text-[var(--ink)] leading-[1.08] mb-6">
-        The next software engineer is <span class="text-[var(--navy)]">built in the open.</span>
+      <h1 id="waitlist-title" class="manifesto-title text-[var(--ink)]">
+        Help shape AI employees for<br /><span class="text-[var(--navy)]">the work behind a company.</span>
       </h1>
 
       <p class="lead text-base sm:text-lg text-[var(--ink-2)] leading-relaxed mb-6">
-        Shiba is completely open-source (AGPL-3.0-only). You don't need permission or an invite code to self-host it. Start with the repository's setup guide to check prerequisites and configure your Cloudflare account.
+        Follow our work on AI employees for engineering, design, marketing, sales, operations, finance, and research. Sign up for project updates and ways to contribute.
       </p>
 
       <div class="truth-box">
-        <div class="text-[var(--navy)] text-xl font-bold">✦</div>
+        <div class="text-[var(--navy)] text-xl font-bold" aria-hidden="true">✦</div>
         <div>
-          <h4 class="text-[var(--ink)] font-bold text-sm mb-1">Why join this list?</h4>
+          <h2 class="text-[var(--ink)] font-bold text-sm mb-1">No invite needed to self-host</h2>
           <p class="text-[var(--ink-2)] text-xs leading-relaxed">
-            Sign up for project updates and contributor opportunities. Shiba is open source and available to self-host; this list is not required for access.
+            Shiba is free, open-source software under AGPL-3.0-only. You can explore the source and self-host now. Hosting and model usage cost extra.
           </p>
         </div>
       </div>
 
-      <!-- WATCH THE BUILD QUICK LINKS -->
-      <div class="mt-8 pt-8 border-t border-[var(--line)] space-y-3 font-mono text-xs">
-        <div class="text-[var(--navy)] uppercase tracking-wider font-bold text-[11px]">Ways to follow the build</div>
+      <!-- WAYS TO FOLLOW -->
+      <div class="mt-8 pt-6 border-t border-[var(--line)] space-y-3 font-mono text-xs">
+        <div class="text-[var(--navy)] uppercase tracking-wider font-bold text-[11px]">Ways to follow the project</div>
         <div class="flex flex-wrap gap-3">
-          <a href="https://github.com/princepal9120/shiba" target="_blank" rel="noopener noreferrer" class="watch-link">
+          <a href="https://github.com/opentoolsorg/shiba" target="_blank" rel="noopener noreferrer" class="watch-link">
             <span>⭐ Star on GitHub</span>
-            <span class="text-[var(--navy)]">↗</span>
+            <span class="text-[var(--navy)]" aria-hidden="true">↗</span>
           </a>
-          <a href="https://github.com/princepal9120/shiba/watchers" target="_blank" rel="noopener noreferrer" class="watch-link">
-            <span>👀 Watch Releases</span>
-            <span class="text-[var(--navy)]">↗</span>
+          <a href="/why-shiba/" class="watch-link">
+            <span>Why I Built Shiba</span>
+            <span class="text-[var(--navy)]" aria-hidden="true">→</span>
+          </a>
+          <a href="/open-source-devin-alternative/" class="watch-link">
+            <span>Devin Alternative Guide</span>
+            <span class="text-[var(--navy)]" aria-hidden="true">→</span>
           </a>
         </div>
       </div>
-
     </div>
 
     <!-- RIGHT: INTERACTIVE FORM CARD -->
     <div class="form-pane">
       <div class="form-card" aria-labelledby="form-heading">
-        
         <div class="flex items-center justify-between border-b border-[var(--line)] pb-4 mb-6">
           <div>
             <span class="text-[var(--navy)] font-mono text-[10px] font-medium uppercase tracking-[0.14em]">Project Updates &amp; Community</span>
-            <h2 id="form-heading" class="text-3xl text-[var(--ink)] font-bold tracking-tight mt-1">Join the build.</h2>
+            <h2 id="form-heading" class="text-2xl sm:text-3xl text-[var(--ink)] font-bold tracking-tight mt-1">Join the community.</h2>
           </div>
-          <span class="w-2.5 h-2.5 bg-[var(--navy)] shadow-[0_0_10px_var(--navy)]"></span>
+          <span class="w-2.5 h-2.5 bg-[var(--navy)] shadow-[0_0_10px_var(--navy)]" aria-hidden="true"></span>
         </div>
 
         <noscript>
-          <div class="p-3 bg-red-950/40 border border-red-500/30 text-red-200 text-xs mb-4 font-mono">
-            Please enable JavaScript in your browser to submit this form directly to the Cloudflare Worker API.
+          <div class="p-3 bg-[var(--panel-2)] border border-[var(--danger)] text-[var(--danger)] text-xs mb-4 font-mono">
+            Enable JavaScript to submit this form.
           </div>
         </noscript>
 
         <form id="waitlist-form" method="post" action="/api/waitlist" class="space-y-4 font-mono text-xs">
-          
           <div>
             <label for="email" class="block text-[10px] uppercase tracking-[0.12em] font-medium text-[var(--ink)] mb-1.5">
               Work or Personal Email <span class="text-[var(--navy)]">*</span>
@@ -102,33 +103,33 @@ const waitlistSchema = {
               placeholder="alex@company.com"
               maxlength="254"
               required
-              class="w-full bg-[var(--card)] border border-[var(--line-2)] px-3.5 py-3 text-[var(--ink)] placeholder:text-[var(--ink-2)] focus:border-[var(--navy)] focus:outline-none transition-colors"
+              class="w-full bg-[var(--card)] border border-[var(--input-line)] px-3.5 py-3 text-[var(--ink)] placeholder:text-[var(--ink-2)] focus:border-[var(--navy)] focus:outline-none transition-colors"
             />
           </div>
 
           <div>
             <label for="interest" class="block text-[10px] uppercase tracking-[0.12em] font-medium text-[var(--ink)] mb-1.5">
-              How would you like to participate? <span class="text-[var(--navy)]">*</span>
+              Primary Interest <span class="text-[var(--navy)]">*</span>
             </label>
             <select
               id="interest"
               name="interest"
               required
-              class="w-full bg-[var(--card)] border border-[var(--line-2)] px-3.5 py-3 text-[var(--ink)] focus:border-[var(--navy)] focus:outline-none transition-colors"
+              class="w-full bg-[var(--card)] border border-[var(--input-line)] px-3.5 py-3 text-[var(--ink)] focus:border-[var(--navy)] focus:outline-none transition-colors"
             >
               <option value="" disabled selected>Select an option</option>
-              <option value="early-access">Self-host Shiba and share setup feedback</option>
-              <option value="contribute">Open Source Contributor (Write code, docs, tests, design)</option>
-              <option value="both">Both (Deploy Shiba and contribute to the repository)</option>
+              <option value="early-access">Try self-hosting Shiba &amp; share feedback</option>
+              <option value="contribute">Contribute code, docs, tests, or design</option>
+              <option value="both">Both try Shiba and contribute</option>
             </select>
           </div>
 
           <div>
             <label for="github" class="block text-[10px] uppercase tracking-[0.12em] font-medium text-[var(--ink)] mb-1.5">
-              GitHub Username <span class="text-[var(--ink-2)] font-normal">(optional, for contributor recognition)</span>
+              GitHub Username <span class="text-[var(--ink-2)] font-normal">(optional)</span>
             </label>
-            <div class="field-wrap flex items-center bg-[var(--card)] border border-[var(--line-2)] px-3.5 py-2.5 focus-within:border-[var(--navy)] transition-colors">
-              <span class="text-[var(--navy)] mr-1.5">@</span>
+            <div class="field-wrap flex items-center bg-[var(--card)] border border-[var(--input-line)] px-3.5 py-2.5 focus-within:border-[var(--navy)] transition-colors">
+              <span class="text-[var(--navy)] mr-1.5" aria-hidden="true">@</span>
               <input
                 id="github"
                 name="github"
@@ -156,7 +157,7 @@ const waitlistSchema = {
                 required
                 class="mt-0.5 bg-[var(--card)] border-[var(--line-2)] text-[var(--navy)] focus:ring-0 focus:ring-offset-0"
               />
-              <span>I agree to receive Shiba project release updates and contributor notices. Submissions are stored privately in a Cloudflare Durable Object and never published publicly.</span>
+              <span>Send me Shiba project updates and contributor invitations.</span>
             </label>
           </div>
 
@@ -164,100 +165,102 @@ const waitlistSchema = {
             type="submit"
             class="button w-full justify-center text-sm py-3.5 mt-2"
           >
-            <span>Submit Registration →</span>
+            <span>Sign up for updates →</span>
           </button>
 
-          <div id="form-status" role="status" aria-live="polite" class="min-h-[24px] text-center text-xs font-mono font-bold text-[var(--navy)]"></div>
-
+          <div id="form-status" role="status" aria-live="polite" class="min-h-[28px] text-center text-xs font-mono font-bold text-[var(--navy)]"></div>
         </form>
 
         <div class="border-t border-[var(--line)] pt-4 mt-4 text-[11px] text-[var(--ink-2)] leading-relaxed font-mono">
-          Stored directly in a dedicated SQLite-backed Cloudflare Durable Object. Rate-limited at edge with cryptographic IP hash buckets.
+          We use the details you submit for this project list. Read our <a href="/privacy/" class="text-[var(--navy)] underline">privacy policy</a> before signing up.
         </div>
-
       </div>
     </div>
-
   </section>
 
   <!-- CONTRIBUTOR TRACKS SECTION -->
-  <section class="shell mt-24 pt-16 border-t border-[var(--line)]">
+  <section class="shell mt-24 pt-16 border-t border-[var(--line)]" aria-labelledby="contribute-heading">
     <div class="max-w-2xl mb-12">
-      <span class="micro">WANT TO CONTRIBUTE?</span>
-      <h2 class="text-3xl sm:text-4xl font-bold text-[var(--ink)] tracking-tight mt-2 mb-4">
-        Where we need your help right now
+      <span class="micro">COMMUNITY SPRINT</span>
+      <h2 id="contribute-heading" class="text-3xl sm:text-4xl font-bold text-[var(--ink)] tracking-tight mt-2 mb-4">
+        Where we welcome contributions
       </h2>
       <p class="text-[var(--ink-2)] text-sm leading-relaxed">
-        Whether you are a backend systems engineer, frontend designer, security researcher, or technical writer, there is high-impact work ready for you.
+        Help make Shiba more useful: improve a task flow, test a real use case, fix a bug, or make a guide easier to follow.
       </p>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      
       <div class="contrib-card">
-        <div class="contrib-icon">01</div>
-        <h3 class="text-base font-bold text-[var(--ink)] mb-2">Edge Orchestrator</h3>
-        <p class="text-xs text-[var(--ink-2)] leading-relaxed mb-4">
-          Improve the TypeScript planning agent, durable tool loops, Claude Code / OpenCode / Codex harnesses, and task queuing logic.
-        </p>
-        <a href="https://github.com/princepal9120/shiba/tree/main/apps/backend" target="_blank" rel="noopener noreferrer" class="contrib-cta">
-          <span>Inspect Backend Code</span>
-          <span>↗</span>
+        <div>
+          <div class="contrib-icon" aria-hidden="true">01</div>
+          <h3 class="text-base font-bold text-[var(--ink)] mb-2">Task execution</h3>
+          <p class="text-xs text-[var(--ink-2)] leading-relaxed mb-4">
+            Improve how tasks are planned, approved, and reported. Clear failures and useful results matter as much as a finished run.
+          </p>
+        </div>
+        <a href="https://github.com/opentoolsorg/shiba/tree/main/apps/backend" target="_blank" rel="noopener noreferrer" class="contrib-cta">
+          <span>Backend Code</span>
+          <span aria-hidden="true">↗</span>
         </a>
       </div>
 
       <div class="contrib-card">
-        <div class="contrib-icon">02</div>
-        <h3 class="text-base font-bold text-[var(--ink)] mb-2">Sandbox containers</h3>
-        <p class="text-xs text-[var(--ink-2)] leading-relaxed mb-4">
-          Optimize container boot time, expand pre-installed CLI environments, and stress-test egress proxy TLS interception.
-        </p>
-        <a href="https://github.com/princepal9120/shiba/blob/main/apps/backend/Dockerfile" target="_blank" rel="noopener noreferrer" class="contrib-cta">
-          <span>View Container Spec</span>
-          <span>↗</span>
+        <div>
+          <div class="contrib-icon" aria-hidden="true">02</div>
+          <h3 class="text-base font-bold text-[var(--ink)] mb-2">Reliable environments</h3>
+          <p class="text-xs text-[var(--ink-2)] leading-relaxed mb-4">
+            Help tasks run in a predictable environment and check that setup and access boundaries behave as intended.
+          </p>
+        </div>
+        <a href="https://github.com/opentoolsorg/shiba/blob/main/apps/backend/Dockerfile" target="_blank" rel="noopener noreferrer" class="contrib-cta">
+          <span>Dockerfile Spec</span>
+          <span aria-hidden="true">↗</span>
         </a>
       </div>
 
       <div class="contrib-card">
-        <div class="contrib-icon">03</div>
-        <h3 class="text-base font-bold text-[var(--ink)] mb-2">Web Dashboard</h3>
-        <p class="text-xs text-[var(--ink-2)] leading-relaxed mb-4">
-          Polish the real-time WebSocket diff viewer, terminal emulator, memory explorer, and mobile responsive controls.
-        </p>
-        <a href="https://github.com/princepal9120/shiba/tree/main/apps/frontend" target="_blank" rel="noopener noreferrer" class="contrib-cta">
-          <span>Explore Frontend</span>
-          <span>↗</span>
+        <div>
+          <div class="contrib-icon" aria-hidden="true">03</div>
+          <h3 class="text-base font-bold text-[var(--ink)] mb-2">Web Dashboard</h3>
+          <p class="text-xs text-[var(--ink-2)] leading-relaxed mb-4">
+            Make threads, approvals, file review, and mobile controls easier to use.
+          </p>
+        </div>
+        <a href="https://github.com/opentoolsorg/shiba/tree/main/apps/frontend" target="_blank" rel="noopener noreferrer" class="contrib-cta">
+          <span>Frontend Source</span>
+          <span aria-hidden="true">↗</span>
         </a>
       </div>
 
       <div class="contrib-card">
-        <div class="contrib-icon">04</div>
-        <h3 class="text-base font-bold text-[var(--ink)] mb-2">Docs &amp; Tutorials</h3>
-        <p class="text-xs text-[var(--ink-2)] leading-relaxed mb-4">
-          Write step-by-step guides for deploying on Cloudflare, Slack bot setup walkthroughs, and custom model provider recipes.
-        </p>
+        <div>
+          <div class="contrib-icon" aria-hidden="true">04</div>
+          <h3 class="text-base font-bold text-[var(--ink)] mb-2">Docs &amp; Recipes</h3>
+          <p class="text-xs text-[var(--ink-2)] leading-relaxed mb-4">
+            Write clear task examples and guides for the people using and self-hosting Shiba.
+          </p>
+        </div>
         <a href="/docs/contributing/" class="contrib-cta">
-          <span>Read Contributor Docs</span>
-          <span>→</span>
+          <span>Contributor Guide</span>
+          <span aria-hidden="true">→</span>
         </a>
       </div>
-
     </div>
 
     <!-- QUICK GITHUB JUMP -->
     <div class="mt-12 p-6 bg-[var(--card)] border border-[var(--line-2)] flex flex-col sm:flex-row items-center justify-between gap-6 shadow-[2px_2px_0_var(--paper-shadow)]">
       <div class="space-y-1">
-        <h4 class="text-[var(--ink)] font-bold text-base">Ready to submit a pull request?</h4>
-        <p class="text-[var(--ink-2)] text-xs">Review open issues labeled <code>good first issue</code> or open a technical discussion thread.</p>
+        <h3 class="text-[var(--ink)] font-bold text-base">Ready to submit a pull request?</h3>
+        <p class="text-[var(--ink-2)] text-xs">Browse the issues, choose a focused improvement, and check the contributor guide before starting.</p>
       </div>
       <div class="flex items-center gap-3 shrink-0 font-mono text-xs">
-        <a href="https://github.com/princepal9120/shiba/issues" target="_blank" rel="noopener noreferrer" class="button">
+        <a href="https://github.com/opentoolsorg/shiba/issues" target="_blank" rel="noopener noreferrer" class="button">
           <span>Browse GitHub Issues ↗</span>
         </a>
       </div>
     </div>
   </section>
-
 </MarketingPage>
 
 <script>
@@ -271,8 +274,8 @@ const waitlistSchema = {
     const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
     const data = new FormData(form);
 
-    status.textContent = 'Registering with Cloudflare Durable Object…';
-    status.className = 'min-h-[24px] text-center text-xs font-mono font-bold text-[var(--navy)]';
+    status.textContent = 'Joining the list…';
+    status.className = 'min-h-[28px] text-center text-xs font-mono font-bold text-[var(--navy)]';
     if (button) button.disabled = true;
 
     try {
@@ -288,20 +291,19 @@ const waitlistSchema = {
         }),
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(result.error ?? 'Could not save your registration. Please try again.');
       }
 
       status.textContent = result.alreadyJoined
-        ? "✓ You're already registered! Thanks for being an early supporter."
-        : "✓ You're in! Thank you for supporting this approval-gated open-source project.";
-      status.className = 'min-h-[24px] text-center text-xs font-mono font-bold status-ok';
+        ? "✓ You're already registered! Thank you for supporting Shiba."
+        : "✓ You're in! Thank you for supporting open-source development.";
+      status.className = 'min-h-[28px] text-center text-xs font-mono font-bold status-ok p-2 bg-[var(--card)] border border-[var(--line-2)]';
       form.reset();
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : 'Registration failed. Please check your connection and try again.';
-      status.className = 'min-h-[24px] text-center text-xs font-mono font-bold status-err';
-    } finally {
+      status.className = 'min-h-[28px] text-center text-xs font-mono font-bold status-err p-2 bg-[var(--card)] border border-[var(--line-2)]';
       if (button) button.disabled = false;
     }
   });
@@ -315,6 +317,14 @@ const waitlistSchema = {
     padding-top: clamp(60px, 8vw, 100px);
     align-items: start;
   }
+  .manifesto-title {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: clamp(2rem, 4.5vw, 3.8rem);
+    font-weight: 400;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 24px;
+  }
   .truth-box {
     display: flex;
     gap: 16px;
@@ -325,10 +335,14 @@ const waitlistSchema = {
     box-shadow: 2px 2px 0 var(--paper-shadow);
     max-width: 620px;
   }
+  .truth-box h2 {
+    font-family: 'Geist', sans-serif;
+  }
   .watch-link {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    min-height: 44px;
     padding: 8px 14px;
     background: var(--card);
     border: 1px solid var(--line-2);
@@ -350,6 +364,9 @@ const waitlistSchema = {
     border: 1px solid var(--line-2);
     padding: clamp(24px, 4vw, 36px);
     box-shadow: 3px 3px 0 var(--paper-shadow);
+  }
+  .form-card h2 {
+    font-family: 'Instrument Serif', Georgia, serif;
   }
   .contrib-card {
     background: var(--card);
@@ -379,6 +396,7 @@ const waitlistSchema = {
     display: inline-flex;
     align-items: center;
     justify-content: space-between;
+    min-height: 44px;
     font-family: 'Geist Mono', monospace;
     font-size: 11px;
     font-weight: 700;
@@ -387,7 +405,6 @@ const waitlistSchema = {
     padding-top: 12px;
     border-top: 1px solid var(--line);
   }
-  /* ≥16px stops iOS Safari zooming on focus; ID selector outranks the Tailwind text-xs on the form. */
   #waitlist-form :is(input:not([type='checkbox']), select, textarea) {
     font-size: 16px;
     min-height: 44px;
@@ -395,9 +412,9 @@ const waitlistSchema = {
   }
   #waitlist-form > div > :is(input, select):focus-visible,
   #waitlist-form .field-wrap:focus-within {
-    outline: none;
+    outline: 2px solid var(--navy);
+    outline-offset: 2px;
     border-color: var(--navy);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--navy) 22%, transparent);
   }
   #waitlist-form .field-wrap { min-height: 44px; padding-block: 0; }
   #waitlist-form .field-wrap input { min-height: 42px; }
