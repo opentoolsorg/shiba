@@ -1,5 +1,20 @@
 # Verification Results
 
+**2026-10-31 — PR #166 Viktor/Grok Bot coworker + skills library + Spaces (branch `cursor/viktor-skills-spaces-scaffold-13c5`).**
+
+*Code-proven locally:*
+- **Spaces index:** `spaces_index.updated_at` uses `MAX(updated_at, ?)` on rename/touch; create inserts the D1 row before DO `init` and rolls the index back when init or template application fails; item routes refuse writes after index delete (`spaces-index-store.test.ts`, `spaces-routes.test.ts`).
+- **Skills library + Spaces API/UI:** curated `/api/skills/library`, install→draft, `/api/spaces` + Spaces DO stub (existing suite from this PR).
+- **MCP coworker path:** docs section [Grok Bot / Viktor coworker](/docs/mcp/#grok-bot-viktor-coworker); Integrations **MCP coworker** panel + capability catalog row; `mcp-coworker-contract.test.ts` + existing `mcp-gateway.test.ts` / `mcp-run-tools.test.ts` for 401, scope-filtered tool discovery, and `queue_run` → `pending_approval`.
+
+*Still blocked on live deployment (Prince CF account / secrets — see slice1 blockers):*
+- Minting `shb_…` into the production `shiba-agent-tokens` KV on the account that owns `app.tryshiba.dev` (wrong-account `wrangler whoami` has been observed).
+- Grok Bot connector registration with custom Authorization header (product support unconfirmed).
+- Slack approval cards (`SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, approvers) and a cloud end-to-end approved run with model inference (`AI_GATEWAY_TOKEN` / subscription lanes as applicable).
+- Live `@shiba` Slack mention loop and Worker deploy to the intended host.
+
+*Commands run for this slice:* targeted vitest (`spaces-*`, `skill-library*`, `mcp-coworker-contract`, `mcp-gateway`, `mcp-run-tools`, `IntegrationsView`, `SkillLibraryCards`, `SpacesView`) + `pnpm typecheck`.
+
 **2026-10-25 — P12 Capy parity: T72 opt-in repo setup, plus T71 and T87 (branch `capy-parity`).**
 
 *T72 (owner chose opt-in per run):*
@@ -1131,7 +1146,13 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
   status as the computer-use tools).
 ## 2026-10-08 — Shiba Desktop (T59–T66): local-prototype verification
 
-**Status: local prototype. Not accepted against a real deployment.** Per-task evidence lives in `apps/web/docs/evidence/desktop/`; this entry only summarizes it.
+**Status: local prototype. Not accepted against a real deployment.** Per-task evidence lives in `apps/web/docs/evidence/desktop/`; **`VERIFICATION/desktop.md`** is the operator + manual acceptance checklist (automated slices and remaining blockers).
+
+### 2026-10-31 — Desktop path wiring (unit)
+- Remote Access **Connections** row shows `This computer · idle` (and harness summary) from the desktop bridge when running inside Shiba Desktop.
+- Successful **Connect this computer** re-probes the daemon supervisor so tray/bridge status resyncs after pairing.
+- Shared labels: `packages/shared/src/desktop-connection-label.ts`; tests in `apps/frontend/src/desktop-connection-label.test.ts` and extended `apps/desktop/test/pairing.test.ts`.
+- **Still blocked-for-manual:** DESKTOP-PLAN §7 on macOS with a real Access-fronted deployment, signing/notarization, tray/notification click-through, T62 credential spike.
 
 ### Verified so far (unit / integration / static)
 - T59 (`T59-docs.md`): `spec/GOAL.md` item 15, ADR 0001, PLAN §21 + tracker row; `pnpm docs:verify` passed (49 pages, 2479 links).
@@ -1196,3 +1217,12 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
 - Final checks: typecheck, lint, import lint, static checks, build/link scan (78 pages; 5,919 references), eight marketing/SEO tests, built-page test, environment validation, and secret scan pass. Browser QA: 49 marketing cases, 55 docs cases, and eight API viewport/theme combinations plus no-JavaScript disclosure pass.
 - Full workspace tests still fail two existing daemon deadline cases. Both affected files pass in the focused rerun (7 tests); no daemon code changed. No claim of a fully green suite.
 - Full cleanup plan, classifications, changed-file map, independent review, team fallback and verification: [Company-wide copy cleanup report](apps/web/docs/evidence/2026-11-01-company-copy.md). Changes remain local; no push/deployment.
+
+## 2026-10-31 — PR #166 review fixes
+
+- Worker ingress accepts the exact skill-library and Spaces API families; route authentication and bearer read/write scopes still apply. Lookalike paths and legacy Skills routes retain their dashboard gate.
+- Library installs are scoped by organization, owner, and slug. Atomic claims and compare-and-swap replacements converge concurrent installs and disable losing drafts. Migration 0007 preserves existing install rows when upgrading the original 0005 schema.
+- Failed Space templates return an error and erase partial Space data; failed erasure preserves the index for retry. Space deletion atomically clears metadata, memberships, and items before removing its index. Successful item additions synchronize index timestamps.
+- Space detail navigation ignores cancelled successes and errors and only renders the selected ID. SkillsView test fixtures now account for the library request.
+- Passed: `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm test` (3,834 passed, 3 skipped across workspace packages), `pnpm build`, `pnpm test:built`, `pnpm check:ci`, `pnpm check:deploy`, `pnpm env:load`, and `pnpm env:scan`. Lint/static checks retain existing warnings.
+- Deployment dry-run attempted with `pnpm exec wrangler deploy --dry-run --config apps/backend/wrangler.jsonc`; blocked by unavailable Docker daemon/tool launch. No production deployment or live-provider execution performed.

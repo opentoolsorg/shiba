@@ -8,7 +8,13 @@ vi.mock("@cloudflare/sandbox", () => ({
 }));
 const routed = vi.hoisted(() => ({ requests: [] as Request[] }));
 vi.mock("agents/routing", () => ({
-  getAgentByName: async () => ({ fetch: async () => new Response("{}", { status: 404 }) }),
+  getAgentByName: async () => ({ fetch: async (request: Request | string) => {
+    if (request instanceof Request && new URL(request.url).pathname === "/agents/coding-orchestrator/default") {
+      routed.requests.push(request);
+      return new Response("ok");
+    }
+    return new Response("{}", { status: 404 });
+  } }),
   routeAgentRequest: async (request: Request) => {
     if (new URL(request.url).pathname !== "/agents/coding-orchestrator/default") return null;
     routed.requests.push(request);
@@ -44,6 +50,7 @@ import worker from "../src/index.js";
 import type { Env } from "../src/env.js";
 import {
   createToken,
+  hashToken,
   type AgentTokensEnv,
   type TokenRecord,
 } from "../src/agent-tokens.js";
@@ -53,6 +60,7 @@ import {
   hashToolArgs,
   MCP_PRINCIPAL_HEADER,
   principalFor,
+  visibleToolsForPrincipal,
 } from "../src/mcp-gateway.js";
 
 /** In-memory KV, same fake as the token-store suite. */
@@ -77,18 +85,43 @@ interface D1Call {
 /** In-memory D1 recording (sql, params) pairs like the real binding. */
 class FakeD1 {
   readonly calls: D1Call[] = [];
+  readonly invocations = new Map<string, Record<string, unknown>>();
+  fail = false;
   prepare(sql: string) {
     const calls = this.calls;
+    const invocations = this.invocations;
+    const execute = async (params: unknown[]) => {
+      if (this.fail) throw new Error("D1 unavailable");
+      calls.push({ sql, params });
+      if (sql.includes("INSERT OR IGNORE INTO capability_invocations")) {
+        const [id, orgId, principal, tool, argsHash, key, createdAt, updatedAt] = params;
+        const composite = key == null ? String(id) : `${orgId}\u0000${principal}\u0000${key}`;
+        if (invocations.has(composite)) return { success: true, results: [], meta: { changes: 0 } };
+        invocations.set(composite, { invocation_id: id, org_id: orgId, principal, tool, args_hash: argsHash, idempotency_key: key, status: "dispatching", created_at: createdAt, updated_at: updatedAt, approval_id: null, error_code: null });
+        return { success: true, results: [], meta: { changes: 1 } };
+      }
+      if (sql.includes("UPDATE capability_invocations SET")) {
+        const row = [...invocations.values()].find((item) => item.invocation_id === params[4]);
+        if (!row || row.status !== "dispatching") return { success: true, results: [], meta: { changes: 0 } };
+        Object.assign(row, { status: params[0], updated_at: params[1], approval_id: params[2], error_code: params[3] });
+        return { success: true, results: [], meta: { changes: 1 } };
+      }
+      return { success: true, results: [], meta: { changes: 1 } };
+    };
     return {
       run: async () => {
-        calls.push({ sql, params: [] });
-        return { success: true, results: [], meta: {} };
+        return execute([]);
       },
       bind: (...params: unknown[]) => ({
-        run: async () => {
+        run: async () => execute(params),
+        first: async <T,>() => {
+          if (this.fail) throw new Error("D1 unavailable");
           calls.push({ sql, params });
-          return { success: true, results: [], meta: {} };
+          const [orgId, principal, key] = params;
+          const row = [...invocations.values()].find((item) => item.org_id === orgId && item.principal === principal && item.idempotency_key === key);
+          return (row ?? null) as T | null;
         },
+        all: async <T,>() => ({ results: [] as T[], success: true, meta: { changes: 0 } }),
       }),
     };
   }
@@ -307,6 +340,23 @@ describe("/mcp route auth", () => {
     // The bearer itself still rides along — the transport copies all headers.
     expect(forwarded.headers.get("authorization")).toBe(`Bearer ${token}`);
   });
+
+  it("preserves org and token lifecycle metadata through the authenticated /mcp handler", async () => {
+    const { env } = makeEnv();
+    const { token, record } = await createToken(env as unknown as AgentTokensEnv, "same-name", ["email:read"]);
+    const scoped: TokenRecord = {
+      ...record,
+      orgId: "workspace-b",
+      kind: "agent",
+      expiresAt: Date.now() + 60_000,
+    };
+    await env.AGENT_TOKENS.put(`tok_${await hashToken(token)}`, JSON.stringify(scoped));
+    served.requests.length = 0;
+    const response = await worker.fetch(mcpRequest({ authorization: `Bearer ${token}` }), env, ctx);
+    expect(response.status).toBe(200);
+    expect(served.requests).toHaveLength(1);
+    expect(principalFor(served.requests[0]!)).toEqual(scoped);
+  });
 });
 
 describe("principalFor", () => {
@@ -333,6 +383,20 @@ describe("principalFor", () => {
         }),
       ),
     ).toBeNull();
+  });
+
+  it("preserves verified organization, token kind, label, key id, and expiry", () => {
+    const scoped: TokenRecord = {
+      ...record,
+      orgId: "workspace-b",
+      kind: "api_key",
+      label: "Build worker",
+      keyId: "key_b",
+      expiresAt: 12_000,
+    };
+    expect(principalFor(mcpRequest({ [MCP_PRINCIPAL_HEADER]: JSON.stringify(scoped) }))).toEqual(scoped);
+    expect(principalFor(mcpRequest({ [MCP_PRINCIPAL_HEADER]: JSON.stringify({ ...scoped, expiresAt: Number.NaN }) }))).toBeNull();
+    expect(principalFor(mcpRequest({ [MCP_PRINCIPAL_HEADER]: JSON.stringify({ ...scoped, scopes: ["unknown:scope"] }) }))).toBeNull();
   });
 });
 
@@ -372,6 +436,21 @@ describe("tool registry", () => {
   };
   const okResult = { content: [{ type: "text" as const, text: "done" }] };
 
+  it("filters tool discovery by verified principal scopes before exposing schemas", () => {
+    const registry = createToolRegistry({} as Env);
+    registry.registerTool("read_mail", "email:read", async () => okResult, { inputSchema: { query: ({} as never) } });
+    registry.registerTool("send_mail", "email:send", async () => okResult, { inputSchema: { body: ({} as never) } });
+    expect(visibleToolsForPrincipal(registry.tools(), principal).map((tool) => tool.name)).toEqual(["read_mail"]);
+    expect(visibleToolsForPrincipal(registry.tools(), { ...principal, revoked: true })).toEqual([]);
+    expect(visibleToolsForPrincipal(registry.tools(), null)).toEqual([]);
+  });
+
+  it("rejects duplicate tool names instead of silently replacing a registered handler", () => {
+    const registry = createToolRegistry({} as Env);
+    registry.registerTool("same", "email:read", async () => okResult);
+    expect(() => registry.registerTool("same", "email:send", async () => okResult)).toThrow(/Duplicate MCP tool name/);
+  });
+
   it("runs a scoped call and audits ok with the hashed args", async () => {
     const { env, d1 } = makeEnv();
     const registry = createToolRegistry(env);
@@ -379,12 +458,13 @@ describe("tool registry", () => {
     registry.registerTool("search_emails", "email:read", handler);
     const args = { query: "s3cr3t-token-value", mailbox: "agent@shiba.dev" };
     const result = await registry.invoke("search_emails", args, principal);
-    expect(result).toBe(okResult);
+    expect(result.content).toEqual(okResult.content);
+    expect(result._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded", invocationId: expect.any(String) });
     expect(handler).toHaveBeenCalledWith(
       args,
       expect.objectContaining({ env, principal }),
     );
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"));
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"));
     expect(insert).toBeDefined();
     const [, , principal_, tool, argsHash, outcome] = insert!.params;
     expect(principal_).toBe("scout");
@@ -394,6 +474,74 @@ describe("tool registry", () => {
     expect(String(argsHash)).toMatch(/^[0-9a-f]{64}$/);
     expect(String(argsHash)).not.toContain("s3cr3t");
     expect(outcome).toBe("ok");
+  });
+
+  it("records approval-queued MCP calls as pending instead of successful execution", async () => {
+    const { env, d1 } = makeEnv();
+    const registry = createToolRegistry(env);
+    registry.registerTool("queue_email", "email:send", async () => ({
+      content: [{ type: "text", text: "Approval required." }],
+      structuredContent: { status: "pending_approval", approvalId: "approval-123" },
+    }));
+    const result = await registry.invoke("queue_email", { body: "private body" }, { ...principal, scopes: ["email:send"] });
+    expect(result.structuredContent).toMatchObject({ status: "pending_approval" });
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
+    expect(insert.params[5]).toBe("pending_approval");
+    expect(insert.params[6]).toBe("approval_id:approval-123");
+    expect(JSON.stringify(insert.params)).not.toContain("private body");
+  });
+
+  it("links snake-case email approval ids into the invocation receipt", async () => {
+    const { env } = makeEnv();
+    const registry = createToolRegistry(env);
+    registry.registerTool("send_email", "email:send", async () => ({
+      content: [{ type: "text", text: "Approval required." }],
+      structuredContent: { status: "pending_approval", approval_id: "email-approval-7" },
+    }));
+    const result = await registry.invoke("send_email", { body: "private" }, { ...principal, scopes: ["email:send"] });
+    expect(result._meta?.["com.shiba/invocation"]).toMatchObject({ status: "pending_approval", approvalId: "email-approval-7" });
+  });
+
+  it("persists and replays one exact idempotency key without a second dispatch", async () => {
+    const { env } = makeEnv();
+    const registry = createToolRegistry(env);
+    const handler = vi.fn(async () => okResult);
+    registry.registerTool("local_fixture_read", "email:read", handler);
+    const first = await registry.invoke("local_fixture_read", { q: "synthetic" }, principal, { idempotencyKey: "fixture-request-1" });
+    const replay = await registry.invoke("local_fixture_read", { q: "synthetic" }, principal, { idempotencyKey: "fixture-request-1" });
+    const changed = await registry.invoke("local_fixture_read", { q: "changed" }, principal, { idempotencyKey: "fixture-request-1" });
+    expect(first._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded", invocationId: expect.any(String) });
+    expect(replay._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded", replayed: true });
+    expect(changed.isError).toBe(true);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("keeps same-named MCP principals and replay keys isolated across organizations", async () => {
+    const { env } = makeEnv();
+    const registry = createToolRegistry(env);
+    const handler = vi.fn(async () => okResult);
+    registry.registerTool("local_fixture_read", "email:read", handler);
+    const orgA = { ...principal, orgId: "org-a" };
+    const orgB = { ...principal, orgId: "org-b" };
+    const a = await registry.invoke("local_fixture_read", { q: "same" }, orgA, { idempotencyKey: "same-key" });
+    const b = await registry.invoke("local_fixture_read", { q: "same" }, orgB, { idempotencyKey: "same-key" });
+    expect(a._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded" });
+    expect(b._meta?.["com.shiba/invocation"]).toMatchObject({ status: "succeeded" });
+    expect((a._meta?.["com.shiba/invocation"] as { invocationId: string }).invocationId)
+      .not.toBe((b._meta?.["com.shiba/invocation"] as { invocationId: string }).invocationId);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not call the handler when the durable invocation store is unavailable", async () => {
+    const { env, d1 } = makeEnv();
+    d1.fail = true;
+    const registry = createToolRegistry(env);
+    const handler = vi.fn(async () => okResult);
+    registry.registerTool("local_fixture_read", "email:read", handler);
+    const result = await registry.invoke("local_fixture_read", { q: "synthetic" }, principal);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toMatchObject({ text: "Tool invocation could not be durably recorded; no tool was dispatched." });
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("denies a missing scope without calling the handler, and audits denied", async () => {
@@ -408,7 +556,7 @@ describe("tool registry", () => {
       text: 'Forbidden: missing scope "email:send".',
     });
     expect(handler).not.toHaveBeenCalled();
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
     expect(insert.params[5]).toBe("denied");
     expect(insert.params[2]).toBe("scout");
     expect(insert.params[6]).toBe("missing scope: email:send");
@@ -430,7 +578,8 @@ describe("tool registry", () => {
     });
     const result = await registry.invoke("boom", {}, principal);
     expect(result.isError).toBe(true);
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    expect(result._meta?.["com.shiba/invocation"]).toMatchObject({ status: "unknown_outcome" });
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
     expect(insert.params[5]).toBe("error");
     expect(String(insert.params[6])).toContain("store unreachable");
   });
@@ -441,7 +590,7 @@ describe("tool registry", () => {
     const result = await registry.invoke("nope", {}, principal);
     expect(result.isError).toBe(true);
     // Every tool call leaves an audit row, even one no handler served.
-    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+    const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
     expect(insert.params[2]).toBe("scout");
     expect(insert.params[3]).toBe("nope");
     expect(insert.params[5]).toBe("error");
@@ -460,7 +609,7 @@ describe("tool registry", () => {
       const result = await registry.invoke("search_emails", args, principal);
       expect(result.isError).toBe(true);
       expect(handler).not.toHaveBeenCalled();
-      const insert = d1.calls.find((c) => c.sql.startsWith("INSERT"))!;
+      const insert = d1.calls.find((c) => c.sql.startsWith("INSERT INTO audit_log"))!;
       expect(insert.params[2]).toBe("scout");
       expect(insert.params[3]).toBe("search_emails");
       expect(insert.params[4]).toBe("<unhashable>");

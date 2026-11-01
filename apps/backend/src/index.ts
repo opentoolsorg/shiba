@@ -20,6 +20,9 @@ import { ContainerProxy } from "./sandbox/npm-shim.js";
 import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
+import { handleOnboardingProgress } from "./onboarding-progress.js";
+import { handleCollaboration } from "./collaboration-routes.js";
+import { handleReasonNetwork } from "./reason-network/routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
 import { handleAudit } from "./audit-routes.js";
@@ -27,6 +30,7 @@ import { handleAutomations } from "./automations-routes.js";
 import { handleComputers } from "./computers-routes.js";
 import { handleGitHubWebhook } from "./github-webhook-routes.js";
 import { handleIntegrationsRoutes } from "./integrations-routes.js";
+import { handleIntegrationProviderRoutes } from "./integrations-provider-routes.js";
 import { handleLinearWebhook } from "./linear/routes.js";
 import { handleGmail } from "./gmail-routes.js";
 import { handleSentryWebhook } from "./sentry-webhook-routes.js";
@@ -37,8 +41,16 @@ import { handleMcp } from "./mcp-routes.js";
 import { handleMemory } from "./memory-routes.js";
 import { handleOAuth } from "./oauth-mcp.js";
 import { handleAcpProviders } from "./acp-provider-routes.js";
+import { handleCapabilityCatalog } from "./capability-catalog-routes.js";
+import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import { handleApiKeys } from "./api-keys-routes.js";
 import { handleCustomAgents } from "./custom-agents-routes.js";
+import { handleEmployeeTools } from "./employee-tool-routes.js";
+import { handleSkillLibrary } from "./skill-library-routes.js";
+import { handleSkills } from "./skills-routes.js";
+import { handleSpaces } from "./spaces-routes.js";
+import { Spaces } from "./spaces-do.js";
+import { handleFounderSkills } from "./founder-skills-routes.js";
 import { handleOrgSandboxSettings } from "./org-sandbox-routes.js";
 import { handleOrgModelKeys } from "./org-model-keys-routes.js";
 import { handleMeta } from "./meta-routes.js";
@@ -57,6 +69,7 @@ import { getUserId, isAccessConfigured, isAuthenticated, isAuthorizedRequest, re
 import { handleSlackInteract } from "./slack-approval.js";
 import { handleSlackEvents } from "./slack-events.js";
 import { handleSlackEvent } from "./slack-mention.js";
+import { handleSlackRoomEvent } from "./slack-room-bridge.js";
 import { ORCHESTRATOR_NAME, handleSlackCommand } from "./slack-routes.js";
 import { handleDiscordInteractions } from "./discord.js";
 import { handleTelegramWebhook } from "./telegram.js";
@@ -89,6 +102,7 @@ export {
   SandboxOutbound,
   ContainerProxy,
   Waitlist,
+  Spaces,
 };
 export { assertLiveCodingModel } from "./coding-model.js";
 // Kept public for consumers that import the auth surface from the entry.
@@ -120,13 +134,16 @@ export const DASHBOARD_VIEWS = new Set([
   "diff",
   "approvals",
   "swarm",
+  "collaboration",
   "agents",
   "inbox",
   "memory",
   "automations",
   "providers",
+  "employee-tools",
   "integrations",
   "skills",
+  "spaces",
   "custom-agents",
   "remote",
   "settings",
@@ -169,11 +186,12 @@ export default {
     // a D1 hiccup warns and retries on the next tick, never blocks it.
     if (env.AGENT_AUDIT !== undefined) {
       ctx.waitUntil(
-        pruneAuditLog(env, Date.now() - AUDIT_RETENTION_MS)
-          .then((deleted) => {
-            if (deleted > 0) {
-              console.log(`audit prune deleted ${deleted} row(s) older than 90 days`);
-            }
+        Promise.all([
+          pruneAuditLog(env, Date.now() - AUDIT_RETENTION_MS),
+          pruneCapabilityInvocations(env, Date.now() - AUDIT_RETENTION_MS),
+        ]).then(([auditDeleted, invocationDeleted]) => {
+            if (auditDeleted > 0) console.log(`audit prune deleted ${auditDeleted} row(s) older than 90 days`);
+            if (invocationDeleted > 0) console.log(`capability invocation prune deleted ${invocationDeleted} row(s) older than 90 days`);
           })
           .catch((error: unknown) => {
             console.warn(
@@ -224,6 +242,9 @@ export default {
         if (DASHBOARD_VIEWS.has(section) && /^\/[^/]*\/?$/.test(url.pathname)) {
           return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
         }
+        if (/^\/spaces\/[^/]+\/?$/.test(url.pathname)) {
+          return env.ASSETS.fetch(new Request(new URL("/app/", url), request));
+        }
       }
       if (!isPublicRequest(request) && !isOrgApiPath(url.pathname) && !(await isAuthorizedRequest(request, env))) {
         // A signed-out browser on the consent screen goes to sign-in and
@@ -260,12 +281,28 @@ export default {
       }
       const metaResponse = await handleMeta(request, env);
       if (metaResponse) return metaResponse;
+      const onboardingResponse = await handleOnboardingProgress(request, env);
+      if (onboardingResponse) return onboardingResponse;
       const acpProviderResponse = await handleAcpProviders(request, env);
       if (acpProviderResponse) return acpProviderResponse;
+      const capabilityCatalogResponse = await handleCapabilityCatalog(request, env);
+      if (capabilityCatalogResponse) return capabilityCatalogResponse;
       const apiKeysResponse = await handleApiKeys(request, env);
       if (apiKeysResponse) return apiKeysResponse;
       const customAgentsResponse = await handleCustomAgents(request, env);
       if (customAgentsResponse) return customAgentsResponse;
+      const employeeToolsResponse = await handleEmployeeTools(request, env);
+      if (employeeToolsResponse) return employeeToolsResponse;
+      const reasonNetworkResponse = await handleReasonNetwork(request, env);
+      if (reasonNetworkResponse) return reasonNetworkResponse;
+      const skillLibraryResponse = await handleSkillLibrary(request, env);
+      if (skillLibraryResponse) return skillLibraryResponse;
+      const skillsResponse = await handleSkills(request, env);
+      if (skillsResponse) return skillsResponse;
+      const spacesResponse = await handleSpaces(request, env);
+      if (spacesResponse) return spacesResponse;
+      const founderSkillsResponse = await handleFounderSkills(request, env);
+      if (founderSkillsResponse) return founderSkillsResponse;
       const orgSandboxResponse = await handleOrgSandboxSettings(request, env);
       if (orgSandboxResponse) return orgSandboxResponse;
       const orgModelKeysResponse = await handleOrgModelKeys(request, env);
@@ -298,6 +335,8 @@ export default {
       if (approvalsResponse) {
         return approvalsResponse;
       }
+      const collaborationResponse = await handleCollaboration(request, env);
+      if (collaborationResponse) return collaborationResponse;
       const computersResponse = await handleComputers(request, env);
       if (computersResponse) {
         return computersResponse;
@@ -375,6 +414,7 @@ export default {
         {
           dedupe: (eventId) => seenDelivery(env, `slack-event:${eventId}`),
           onEvent: async (body, eventEnv) => {
+            await handleSlackRoomEvent(body, eventEnv);
             await handleSlackEvent(body, eventEnv);
             try {
               const response = await automationsStub(eventEnv).fetch(
@@ -427,6 +467,10 @@ export default {
       if (integrationsResponse) {
         return integrationsResponse;
       }
+      const integrationProviderResponse = await handleIntegrationProviderRoutes(request, env);
+      if (integrationProviderResponse) {
+        return integrationProviderResponse;
+      }
       const sentryResponse = await handleSentryWebhook(request, env);
       if (sentryResponse) {
         return sentryResponse;
@@ -463,6 +507,16 @@ export default {
         if (route[2]?.startsWith("api/") || route[2]?.startsWith("internal/")) {
           return Response.json({ error: "Not found." }, { status: 404 });
         }
+        const suffix = route[2];
+        const canonicalAgentPath = `/agents/coding-orchestrator/${encodeURIComponent(name)}${
+          suffix ? `/${suffix}` : ""
+        }`;
+        const agentRequest =
+          canonicalAgentPath === url.pathname
+            ? request
+            : new Request(new URL(`${canonicalAgentPath}${url.search}`, url.origin), request);
+        const agent = await getAgentByName(env.CodingOrchestrator, name);
+        return agent.fetch(agentRequest);
       }
       const agentResponse = await routeAgentRequest(request, {
         CodingOrchestrator: env.CodingOrchestrator,

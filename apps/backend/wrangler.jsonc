@@ -29,6 +29,11 @@
     { "pattern": "app.tryshiba.dev", "custom_domain": true },
   ],
   "vars": {
+    // No upstream MCP host is enabled by default. Operators must list exact public
+    // hostnames here and pre-provision referenced MCP_CREDENTIAL_* secrets.
+    "MCP_TRUSTED_HOSTS": "",
+    "INTEGRATIONS_PROVIDER": "composio",
+    // Composio SaaS connectors (optional secret COMPOSIO_API_KEY; session API defaults to v3.1).
     "GATEWAY_ID": "default",
     "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",
     "CODING_MODEL": "google/gemini-3.5-flash-lite",
@@ -143,6 +148,7 @@
       { "name": "LocalDispatch", "class_name": "LocalDispatch" },
       { "name": "ChatGptAuth", "class_name": "ChatGptAuth" },
       { "name": "UserProviderOAuth", "class_name": "UserProviderOAuth" },
+      { "name": "Spaces", "class_name": "Spaces" },
     ],
   },
   // Email attachment bodies >256KB go here, keyed `emailId/partId`
@@ -213,5 +219,6 @@
     // Live script tag after the Oct 20 alchemy deploy; all classes above already exist.
     { "tag": "alchemy:v22" },
     { "tag": "v13", "new_sqlite_classes": ["UserProviderOAuth"] },
+    { "tag": "v14", "new_sqlite_classes": ["Spaces"] },
   ],
 }

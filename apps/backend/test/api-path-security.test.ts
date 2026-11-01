@@ -31,6 +31,39 @@ function fixture() {
 }
 
 describe("Worker path and explicit-credential isolation", () => {
+  it("forwards authenticated automation item updates to the Automations DO", async () => {
+    const f = fixture();
+    const forwarded = vi.fn(async (request: Request) => {
+      expect(new URL(request.url).pathname).toBe("/api/automations/weekly-brief");
+      return Response.json({ automation: { id: "weekly-brief", enabled: false } });
+    });
+    f.env.Automations = {
+      idFromName: vi.fn(() => "automations-default"),
+      get: vi.fn(() => ({ fetch: forwarded })),
+    } as unknown as DurableObjectNamespace;
+
+    const denied = await worker.fetch(new Request("https://worker.test/api/automations/weekly-brief", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
+    }), f.env);
+    expect(denied.status).toBe(401);
+    expect(forwarded).not.toHaveBeenCalled();
+
+    const response = await worker.fetch(new Request("https://worker.test/api/automations/weekly-brief", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        "CF-Access-Authenticated-User-Email": "owner@example.com",
+      },
+      body: JSON.stringify({ enabled: false }),
+    }), f.env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ automation: { id: "weekly-brief", enabled: false } });
+    expect(forwarded).toHaveBeenCalledTimes(1);
+    expect(forwarded.mock.calls[0]?.[0].method).toBe("PATCH");
+  });
+
   it.each([
     "/api/custom-agents/../runs",
     "/api/custom-agents/%2e%2e/runs",

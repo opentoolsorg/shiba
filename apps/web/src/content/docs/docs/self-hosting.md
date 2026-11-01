@@ -7,6 +7,12 @@ Shiba is **AGPL-3.0-only** software you run in **your** Cloudflare account. Comp
 
 This page is the operator guide for a fresh account. It does not deploy anything from the docs site itself — run commands on a machine where you are signed in to Cloudflare (`npx wrangler whoami`) and where Docker can build the Sandbox image.
 
+## Local and cloud boundaries
+
+For a credentials-free local boot check, clone the repository, install the lockfile dependencies, then run `corepack pnpm selfhost:smoke` (details in [Local development](/docs/local-development/)). This exercises a local Worker, D1 migrations, the app shell, and a safe API route using temporary state. It does not contact AI providers or prove Cloudflare-hosted services work.
+
+Shiba is not an offline inference package: it does not ship model weights or a local model server. Local dashboard/API development and local D1/DO state are available through Wrangler. Real agent execution still needs a configured model path and repository access; local container execution also needs Docker. Deployed Containers, Workers AI, managed Access, public webhooks, Vectorize-backed semantic memory, and product-managed storage depend on your Cloudflare account and configured bindings. Optional external integrations need their own credentials and setup. An unset integration is not connected.
+
 ## Prerequisites
 
 | Requirement | Why |
@@ -78,6 +84,8 @@ node scripts/check-dev-vars-example.mjs
 node scripts/validate-credentials.mjs --offline
 ```
 
+The complete local state directory is `.shiba/local-state`; it contains local D1 and Durable Object persistence. Stop Wrangler before copying it. Back it up outside the repository and encrypt backups because task and conversation data may be sensitive. `.dev.vars` contains credentials and key material and must be protected separately. The [local development guide](/docs/local-development/#local-data-backup-and-restore) has copy/restore commands. Those filesystem instructions do not cover remote Cloudflare resources. The repository has no coordinated remote backup/restore command, so operators must plan product-specific backups and a recovery rehearsal for each enabled remote service.
+
 ## Choose one deploy path
 
 ### Path A — Alchemy (recommended for first production)
@@ -134,6 +142,15 @@ Redirect `/app*` from Pages to your Worker host via `apps/web/public/_redirects`
 1. `/api/setup/status` returns JSON when the API is up (not SPA HTML).
 2. Submit a throwaway task on a test repo with publishing disabled; approve; confirm a single sandbox container and an honest diff.
 3. When ready, enable PR + review and record evidence in `VERIFICATION.md` (see [Readiness](/docs/readiness/)).
+
+## Operator checklist before public use
+
+- [ ] Put Cloudflare Access in front of the only public Worker hostname; verify the exact hostname and policy while signed out. Do not expose a hostname just because the app URL is hard to guess.
+- [ ] Keep the default deny gate enabled (`REQUIRE_ACCESS=1` with the matching `ACCESS_AUD`) unless you have deliberately configured the built-in dashboard auth lane and its owner bootstrap controls.
+- [ ] Use a fine-grained GitHub credential scoped to the repositories this installation needs. Keep it in the selected deploy secret store; never put it in a task, log, URL, or sandbox.
+- [ ] Add only the integrations and model credentials you intend to use. Check `/api/setup/status` after signing in; a configured flag is not proof that a third-party task succeeded.
+- [ ] Apply D1 migrations, then create a test run with publishing disabled. Confirm approval is required before execution.
+- [ ] Decide retention and deletion needs, protect local backups or configure product-specific Cloudflare backups, and rehearse recovery before storing important work.
 
 ## Related pages
 

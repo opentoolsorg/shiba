@@ -17,6 +17,7 @@ import type { Env } from "../src/env.js";
 import { opencodeHarness } from "../src/harness/opencode.js";
 import type { CodingTaskResult } from "../src/opencode-input.js";
 import { guardRunEnvLeak, openRunEnv, runEnvScrubber, sealRunEnv } from "../src/run-env-seal.js";
+import { signInternalRequest } from "../src/edge-identity.js";
 import { makeReceipt } from "../src/receipts.js";
 import { handleRuns } from "../src/runs-routes.js";
 import { LocalRuntimeAdapter, SandboxRuntimeAdapter, type LocalDispatchClient, type SandboxOps } from "../src/runtime.js";
@@ -54,7 +55,8 @@ vi.mock("agents/mcp", () => ({
   createMcpHandler: () => ({ fetch: async () => Response.json({ mcp: "served" }), notify: {} }),
 }));
 
-const KEY = { MODEL_CREDENTIAL_KEY: "ab".repeat(32) };
+const SIGNING_KEY = "cd".repeat(16);
+const KEY = { MODEL_CREDENTIAL_KEY: "ab".repeat(32), INTERNAL_SIGNING_KEY: SIGNING_KEY };
 const SECRET = "s3cr3t-value-7f2a";
 const VARS = [{ name: "DATABASE_URL", value: SECRET }];
 
@@ -153,17 +155,20 @@ describe("/api/runs intake", () => {
       state: { pendingApprovals?: { approvalId: string; envNames?: string[]; envDigest?: string; envSealed?: string }[] };
     };
   }
-  const queue = (body: Record<string, unknown>, headers: Record<string, string> = {}) =>
-    new Request("https://internal/api/runs", {
+  const queue = async (body: Record<string, unknown>, headers: Record<string, string> = {}, env: Record<string, unknown> = {}) => {
+    const request = new Request("https://internal/api/runs", {
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "fix the tests", ...body }),
     });
+    await signInternalRequest(request, { ...KEY, ...productionEnvStubs(), ...env });
+    return request;
+  };
 
   it("freezes names, digest and the sealed blob — never the value", async () => {
     const orchestrator = makeOrchestrator();
     const environment = await sealRunEnv(KEY, "default", VARS);
-    const res = await orchestrator.onRequest(queue({ environment }));
+    const res = await orchestrator.onRequest(await queue({ environment }));
     expect(res.status).toBe(200);
     const approval = orchestrator.state.pendingApprovals?.[0];
     expect(approval?.envNames).toEqual(["DATABASE_URL"]);
@@ -173,21 +178,21 @@ describe("/api/runs intake", () => {
 
   it("refuses a blob sealed for another orchestrator", async () => {
     const orchestrator = makeOrchestrator();
-    const res = await orchestrator.onRequest(queue({ environment: await sealRunEnv(KEY, "someone-else", VARS) }));
+    const res = await orchestrator.onRequest(await queue({ environment: await sealRunEnv(KEY, "someone-else", VARS) }));
     expect(res.status).toBe(400);
     expect(orchestrator.state.pendingApprovals ?? []).toHaveLength(0);
   });
 
   it("refuses env when the deployment default runtime is local", async () => {
     const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1", RUNTIME: "local" });
-    const res = await orchestrator.onRequest(queue({ environment: await sealRunEnv(KEY, "default", VARS) }));
-    expect(res.status).toBe(400);
-    expect(await res.text()).toContain("local runtime");
+    const res = await orchestrator.onRequest(await queue({ environment: await sealRunEnv(KEY, "default", VARS) }));
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("dashboard");
   });
 
   it("hands the sealed blob to the minted run and keeps no copy on the decided approval", async () => {
-    const orchestrator = makeOrchestrator();
-    const queued = await orchestrator.onRequest(queue({ environment: await sealRunEnv(KEY, "default", VARS) }));
+    const orchestrator = makeOrchestrator({ DASHBOARD_APPROVERS: "owner" });
+    const queued = await orchestrator.onRequest(await queue({ environment: await sealRunEnv(KEY, "default", VARS) }));
     const { approvalId } = (await queued.json()) as { approvalId: string };
     const approve = await orchestrator.onRequest(
       new Request("https://internal/api/approvals", {
@@ -215,7 +220,7 @@ describe("/api/runs intake", () => {
 
   it("never lists the sealed blob", async () => {
     const orchestrator = makeOrchestrator();
-    await orchestrator.onRequest(queue({ environment: await sealRunEnv(KEY, "default", VARS) }));
+    await orchestrator.onRequest(await queue({ environment: await sealRunEnv(KEY, "default", VARS) }));
     const listing = await (await orchestrator.onRequest(new Request("https://internal/api/approvals"))).text();
     expect(listing).toContain("DATABASE_URL");
     expect(listing).not.toContain("envSealed");
@@ -224,7 +229,7 @@ describe("/api/runs intake", () => {
   it("refuses env on the local runtime", async () => {
     const orchestrator = makeOrchestrator({ [LOCAL_RUNTIME_FLAG]: "1" });
     const res = await orchestrator.onRequest(
-      queue(
+      await queue(
         { runtime: "local", harness: "opencode", environment: await sealRunEnv(KEY, "default", VARS) },
         { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD },
       ),
@@ -340,12 +345,13 @@ describe("leak guard", () => {
     expect(guarded).toContain("[redacted:DATABASE_URL]");
   });
 
-  it("fails the run and drops a change that contains an approved value", () => {
+  it("fails a run and drops a change that contains an approved value", () => {
     for (const leak of [
       { diff: `+const url = "${SECRET}";` },
       { diff: `+++${SECRET}` },
       { diff: `+++ ${SECRET}` },
       { files: [{ path: "b.bin", content: btoa(`raw ${SECRET}`), encoding: "base64" as const }] },
+      { files: [{ path: "config.ts", content: `export const url = "${SECRET}";`, encoding: "utf8" as const }] },
     ]) {
       const guarded = guardRunEnvLeak({ ...RESULT, ...leak }, values);
       expect(guarded.status).toBe("error");
@@ -355,7 +361,19 @@ describe("leak guard", () => {
     }
   });
 
-  it("ignores a value the repo already had — context, removed lines and file bodies aren't leaks", () => {
+  it("fails when a UTF-8 file body adds a secret the diff omits", () => {
+    const guarded = guardRunEnvLeak(
+      {
+        ...RESULT,
+        diff: "",
+        files: [{ path: "secret.env", content: `DATABASE_URL=${SECRET}`, encoding: "utf8" }],
+      },
+      values,
+    );
+    expect(guarded.status).toBe("error");
+  });
+
+  it("fails closed on a file-body secret even when diff context contains an approved value", () => {
     const guarded = guardRunEnvLeak(
       {
         ...RESULT,
@@ -364,8 +382,19 @@ describe("leak guard", () => {
       },
       values,
     );
-    expect(guarded.status).toBe("completed");
-    expect(guarded.files).toHaveLength(1);
+    expect(guarded.status).toBe("error");
+    expect(guarded.files).toEqual([]);
+  });
+
+  it("does not use a different approved value in another file as a baseline", () => {
+    const otherSecret = "another-approved-secret";
+    const guarded = guardRunEnvLeak({
+      ...RESULT,
+      diff: `diff --git a/old.ts b/old.ts\n const old = "${SECRET}";\n+const added = 1;`,
+      files: [{ path: "hidden.env", content: otherSecret, encoding: "utf8" }],
+    }, { ...values, OTHER_SECRET: otherSecret });
+    expect(guarded.status).toBe("error");
+    expect(guarded.files).toEqual([]);
   });
 
   it("scrubs the JSON-escaped form a harness event line carries", () => {

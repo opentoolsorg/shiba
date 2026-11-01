@@ -33,6 +33,9 @@ describe("decideNavigation", () => {
   const cases: Array<[string, string, "allow" | "external" | "deny"]> = [
     ["configured origin", `${ORIGIN}/app/`, "allow"],
     ["configured origin other path", `${ORIGIN}/api/x?y=1`, "allow"],
+    ["credentials on configured origin", "https://user:secret@shiba.example.com/app/", "deny"],
+    ["credentials on external origin", "https://user:secret@example.org/", "deny"],
+    ["credentials on auth host", "https://user:secret@accounts.google.com/", "deny"],
     ["cloudflareaccess team host", "https://acme.cloudflareaccess.com/cdn-cgi/access/login", "allow"],
     ["cloudflareaccess lookalike", "https://cloudflareaccess.com.evil.com/", "external"],
     ["cloudflareaccess suffix trick", "https://evilcloudflareaccess.com/", "external"],

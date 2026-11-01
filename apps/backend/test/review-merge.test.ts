@@ -19,4 +19,14 @@ describe("mergePullRequest", () => {
     expect(body.merge_method).toBe("squash");
     expect(body.sha).toHaveLength(40);
   });
+
+  it("rejects owner names that would alter the request path", async () => {
+    await expect(
+      mergePullRequest(
+        { owner: "acme/extra", repo: "widgets", number: 2, expectedHeadSha: "a".repeat(40) },
+        "token",
+        { fetchImpl: vi.fn(), apiBase: "https://api.example.com" },
+      ),
+    ).rejects.toThrow(/owner/i);
+  });
 });

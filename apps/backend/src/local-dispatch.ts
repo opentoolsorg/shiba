@@ -20,7 +20,6 @@
  * bearer — the DO trusts the intra-deployment channel the same way the
  * orchestrator's https://internal routes do).
  */
-import { DurableObject } from "cloudflare:workers";
 import {
   type ConnectedComputer,
   LOCAL_CLAIM_STALE_MS,
@@ -32,11 +31,14 @@ import {
   localRunEnvelopeSchema,
   localRunResultSchema,
 } from "@shiba/shared";
+import { DurableObject } from "cloudflare:workers";
 import { sha256Hex } from "./agent-tokens.js";
 import { decodeOrNull, HeartbeatRequestSchema, PairRequestSchema } from "./local-fleet-schema.js";
 import { randomHex } from "./mailbox-store.js";
 
 const RECORD_PREFIX = "run:";
+const MAX_LOCAL_EVENT_BATCH = 64;
+const MAX_SESSION_EVENTS = 200;
 const COMPUTER_PREFIX = "computer:";
 /** Locally runnable lane IDs mapped to the executable names the daemon probes. */
 const LOCAL_DAEMON_HARNESSES: Readonly<Record<string, string>> = {
@@ -48,6 +50,10 @@ const LOCAL_DAEMON_HARNESSES: Readonly<Record<string, string>> = {
 const PAIR_PREFIX = "pair:";
 /** Worker-vouched calling machine on /claim; local-routes strips any inbound copy. */
 export const LOCAL_MACHINE_HEADER = "X-Shiba-Machine-Id";
+/** Dashboard harness routes stamp the authenticated owner for run-scoped control. */
+export const LOCAL_DASHBOARD_OWNER_HEADER = "X-Shiba-Dashboard-Owner";
+/** Set when the caller may operate shared harness approvals (DASHBOARD_APPROVERS). */
+export const LOCAL_DASHBOARD_SHARED_HEADER = "X-Shiba-Dashboard-Shared";
 
 /** Stored machine record: the adapter token lives only as its sha256 — never readable back. */
 type ComputerRecord = Omit<ConnectedComputer, "status"> & { tokenHash?: string };
@@ -81,6 +87,17 @@ export class LocalDispatch extends DurableObject {
   }
 
   /** The claim token is the write credential for live session traffic. */
+  private harnessAllowed(
+    record: LocalDispatchRecord,
+    request: Request,
+  ): boolean {
+    const owner = record.dashboardOwnerId;
+    if (owner === undefined) return true;
+    const caller = request.headers.get(LOCAL_DASHBOARD_OWNER_HEADER)?.trim() ?? "";
+    if (caller === owner) return true;
+    return request.headers.get(LOCAL_DASHBOARD_SHARED_HEADER) === "1";
+  }
+
   private async claimedRecord(
     body: Record<string, unknown>,
   ): Promise<LocalDispatchRecord | Response> {
@@ -191,10 +208,15 @@ export class LocalDispatch extends DurableObject {
         // A live busy machine can claim this pending run after its current
         // run settles. Only availability and compatibility gate dispatch.
       }
+      const dashboardOwnerId =
+        typeof body.dashboardOwnerId === "string" && body.dashboardOwnerId.trim() !== ""
+          ? body.dashboardOwnerId.trim().slice(0, 200)
+          : undefined;
       const record: LocalDispatchRecord = {
         envelope: parsed.data,
         status: "pending",
         ...(target !== "" ? { targetMachineId: target } : {}),
+        ...(dashboardOwnerId !== undefined ? { dashboardOwnerId } : {}),
       };
       await this.putRecord(record);
       return Response.json({ ok: true });
@@ -380,6 +402,7 @@ export class LocalDispatch extends DurableObject {
         lastHeartbeat: now,
         ...(existing?.pairedAt !== undefined ? { pairedAt: existing.pairedAt } : {}),
         ...(heartbeat.activeRunId !== undefined ? { activeRunId: heartbeat.activeRunId } : {}),
+        ...(heartbeat.reasonNetworkCompanion !== undefined ? { reasonNetworkCompanion: heartbeat.reasonNetworkCompanion } : {}),
         ...(existing?.tokenHash !== undefined ? { tokenHash: existing.tokenHash } : {}),
       };
       await this.ctx.storage.put(`${COMPUTER_PREFIX}${heartbeat.machineId}`, record);
@@ -404,7 +427,13 @@ export class LocalDispatch extends DurableObject {
         : body.event !== undefined
           ? [body.event]
           : [];
-      const events = [...(held.sessionEvents ?? [])];
+      if (incoming.length > MAX_LOCAL_EVENT_BATCH) {
+        return Response.json(
+          { error: `At most ${MAX_LOCAL_EVENT_BATCH} events per request.` },
+          { status: 400 },
+        );
+      }
+      let events = [...(held.sessionEvents ?? [])];
       let liveDiff = held.liveDiff;
       let next = events.reduce((max, event) => Math.max(max, event.seq), 0);
       for (const item of incoming) {
@@ -420,7 +449,9 @@ export class LocalDispatch extends DurableObject {
         if (typeof row.patch === "string" && row.patch !== "")
           liveDiff = row.patch.slice(0, 100_000);
       }
-      while (events.length > 200) events.shift();
+      if (events.length > MAX_SESSION_EVENTS) {
+        events = events.slice(-MAX_SESSION_EVENTS);
+      }
       await this.putRecord({
         ...held,
         sessionEvents: events,
@@ -478,6 +509,7 @@ export class LocalDispatch extends DurableObject {
       const records = await this.ctx.storage.list<LocalDispatchRecord>({ prefix: RECORD_PREFIX });
       const runs = [...records.values()]
         .filter((record) => record.status === "claimed")
+        .filter((record) => this.harnessAllowed(record, request))
         .map((record) => ({
           sandboxId: record.envelope.sandboxId,
           events: record.sessionEvents ?? [],
@@ -508,6 +540,9 @@ export class LocalDispatch extends DurableObject {
           { status: 409 },
         );
       }
+      if (!this.harnessAllowed(record, request)) {
+        return Response.json({ error: "Forbidden." }, { status: 403 });
+      }
       const approvals = (record.harnessApprovals ?? []).map((item) =>
         item.requestId === requestId ? { ...item, decision } : item,
       );
@@ -525,6 +560,9 @@ export class LocalDispatch extends DurableObject {
       const record = await this.getRecord(sandboxId);
       if (record === null || record.status !== "claimed") {
         return Response.json({ error: "Run is not claimed." }, { status: 409 });
+      }
+      if (!this.harnessAllowed(record, request)) {
+        return Response.json({ error: "Forbidden." }, { status: 403 });
       }
       if (body.interrupt !== true)
         return Response.json({ error: "interrupt is required." }, { status: 400 });

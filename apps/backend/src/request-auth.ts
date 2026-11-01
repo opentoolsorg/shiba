@@ -20,6 +20,30 @@ export function isLoopbackRequest(request: Request): boolean {
   return LOOPBACK_HOSTS.has(hostname) || hostname.endsWith(".localhost");
 }
 
+/** Reject cross-site browser mutations against the dashboard API (CSRF). */
+export function rejectCrossSiteDashboardMutation(request: Request): Response | null {
+  if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
+    return null;
+  }
+  const origin = request.headers.get("Origin");
+  const url = new URL(request.url);
+  if (origin !== null && origin !== url.origin) {
+    return Response.json({ error: "Same-origin request required." }, { status: 403 });
+  }
+  if (request.headers.get("Sec-Fetch-Site") === "cross-site") {
+    return Response.json({ error: "Same-origin request required." }, { status: 403 });
+  }
+  return null;
+}
+
+export function requireJsonContentType(request: Request): Response | null {
+  const type = request.headers.get("Content-Type")?.split(";")[0]?.trim().toLowerCase();
+  if (type !== "application/json") {
+    return Response.json({ error: "Content-Type must be application/json." }, { status: 415 });
+  }
+  return null;
+}
+
 export function isAccessConfigured(env: Env): boolean {
   return Boolean(env.REQUIRE_ACCESS || env.ACCESS_AUD);
 }
@@ -113,6 +137,33 @@ export async function isAuthorizedRequest(
  * Access email when Access is configured, the better-auth session email
  * for the built-in lane, else the raw header (loopback dev) or null.
  */
+export function requireSameOriginBrowserMutation(request: Request): Response | null {
+  if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
+    return null;
+  }
+  if (request.headers.has("authorization")) return null;
+  const url = new URL(request.url);
+  if (request.headers.get("Origin") !== url.origin || request.headers.get("Sec-Fetch-Site") === "cross-site") {
+    return Response.json(
+      { error: "Same-origin request required." },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  return null;
+}
+
+/** Reject simple HTML form posts that smuggle JSON through text/plain bodies. */
+export function requireApplicationJson(request: Request): Response | null {
+  const type = (request.headers.get("Content-Type") ?? "").toLowerCase();
+  if (!type.startsWith("application/json")) {
+    return Response.json(
+      { error: "Content-Type must be application/json." },
+      { status: 415, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  return null;
+}
+
 export async function resolveUserId(
   request: Request,
   env: Env,

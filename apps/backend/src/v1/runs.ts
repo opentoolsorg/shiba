@@ -6,7 +6,14 @@ import type { V1Context } from "./context.js";
 export function runDeliverableFields(run: DelegatedRun) {
   return {
     ...(run.expectedDeliverables !== undefined ? { expectedDeliverables: [...run.expectedDeliverables] } : {}),
-    ...(run.deliverables !== undefined ? { deliverables: run.deliverables.map(({ path, mediaType, bytes, sha256 }) => ({ path, mediaType, bytes, sha256 })) } : {}),
+    ...(run.deliverables !== undefined ? { deliverables: run.deliverables.map((item) => ({
+      path: item.path, mediaType: item.mediaType, bytes: item.bytes, sha256: item.sha256,
+      ...(item.artifactId ? { artifactId: item.artifactId } : {}),
+      ...(item.version ? { version: item.version } : {}),
+      ...(item.sourceRunId ? { sourceRunId: item.sourceRunId } : {}),
+      ...(item.provenance ? { provenance: item.provenance } : {}),
+      ...(item.review ? { review: item.review } : {}),
+    })) } : {}),
   };
 }
 

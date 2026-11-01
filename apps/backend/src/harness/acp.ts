@@ -156,7 +156,11 @@ export class AcpHarness implements AgentHarness {
 
   egressHosts(model: string): string[] {
     const provider = assertSupportedModel(this.name, this.spec.providers, model);
-    return [PROVIDER_HOSTS[provider] as string, ...(this.spec.extraEgress ?? [])];
+    const hosts = [PROVIDER_HOSTS[provider] as string, ...(this.spec.extraEgress ?? [])];
+    if (provider === "opencode-go") {
+      hosts.push("api.deepseek.com");
+    }
+    return hosts;
   }
 
   configFile(input: CodingTaskInput, sandboxId: string): HarnessConfigFile | HarnessConfigFile[] {

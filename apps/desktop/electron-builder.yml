@@ -24,6 +24,8 @@ extraResources:
   # Outside the asar so main can fork it, but sealed by the macOS signature.
   - from: ../../scripts/shiba-local-daemon.mjs
     to: daemon/shiba-local-daemon.mjs
+  - from: ../../scripts/reason-network-companion.mjs
+    to: daemon/reason-network-companion.mjs
   - from: ../../scripts/link-operator-auth.mjs
     to: daemon/link-operator-auth.mjs
   - from: ../../scripts/agent-harness.mjs

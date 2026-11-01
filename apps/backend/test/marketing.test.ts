@@ -4,8 +4,9 @@
  * than the page sources, so `pnpm test` does not depend on a prior `pnpm build`.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
 
 const webRoot = join(import.meta.dirname, "..", "..", "web");
@@ -31,11 +32,23 @@ function landingBuildIsCurrent(): boolean {
 
 function ensureLandingBuild(): void {
   if (landingBuildIsCurrent()) return;
-  const result = spawnSync("pnpm", ["exec", "astro", "build"], {
-    cwd: webRoot,
-    stdio: "inherit",
-    env: process.env,
-  });
+  const astroBin = join(webRoot, "node_modules", ".bin", process.platform === "win32" ? "astro.cmd" : "astro");
+  const astroConfigHome = mkdtempSync(join(tmpdir(), "shiba-marketing-astro-"));
+  let result;
+  try {
+    result = spawnSync(astroBin, ["build"], {
+      cwd: webRoot,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        XDG_CONFIG_HOME: astroConfigHome,
+        XDG_CACHE_HOME: astroConfigHome,
+        XDG_DATA_HOME: astroConfigHome,
+      },
+    });
+  } finally {
+    rmSync(astroConfigHome, { recursive: true, force: true });
+  }
   if (result.status !== 0 || !existsSync(indexPath)) {
     throw new Error(`astro build failed (${result.status ?? "no exit"})`);
   }

@@ -25,6 +25,7 @@ import type { Env } from "./env.js";
 import { LOCAL_MACHINE_HEADER, localDispatchStub } from "./local-dispatch.js";
 import { decodeOrNull, HeartbeatRequestSchema, PairRequestSchema } from "./local-fleet-schema.js";
 import { timingSafeEqualString } from "./security.js";
+import { handleReasonNetworkCompanion } from "./reason-network/companion-routes.js";
 
 export function isLocalRuntimePath(pathname: string): boolean {
   return pathname === "/api/local" || pathname.startsWith("/api/local/");
@@ -83,6 +84,7 @@ export async function handleLocalAdapter(request: Request, env: Env): Promise<Re
     if (!authorized.ok) return Response.json({ error: "Unauthorized." }, { status: 401 });
     machineId = ((await authorized.json()) as { machineId: string }).machineId;
   }
+  if (sub.startsWith("reason-network/v1/")) return handleReasonNetworkCompanion(request, env, machineId);
   if (!DAEMON_VERBS.has(sub)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }

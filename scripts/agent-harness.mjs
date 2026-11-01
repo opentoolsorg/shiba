@@ -93,6 +93,14 @@ function bound(value, max) {
   return text.length <= max ? text : text.slice(0, max);
 }
 
+const APPROVAL_TITLE_LIMIT = 200;
+const APPROVAL_DETAIL_LIMIT = 2000;
+
+function approvalReviewText(value, max) {
+  const text = String(value ?? "");
+  return { text: bound(text, max), reviewIncomplete: text.length > max };
+}
+
 /**
  * @param {PermissionMode} mode
  */
@@ -338,12 +346,16 @@ function codexApproval(method, params) {
       ? "permission"
       : "command";
   const title = command || reason || method;
+  const titleReview = approvalReviewText(title, APPROVAL_TITLE_LIMIT);
+  const detailSource = [command, reason, record.grantRoot].filter(Boolean).join("\n");
+  const detailReview = approvalReviewText(detailSource, APPROVAL_DETAIL_LIMIT);
   return {
     requestId: String(record.approvalId || record.itemId || randomUUID()),
     kind,
     name: command ? "command" : method,
-    title: bound(title, 200),
-    detail: bound([command, reason, record.grantRoot].filter(Boolean).join("\n"), 2000),
+    title: titleReview.text,
+    detail: detailReview.text,
+    reviewIncomplete: titleReview.reviewIncomplete || detailReview.reviewIncomplete,
   };
 }
 
@@ -584,6 +596,10 @@ async function resolveDecision(spec, emit, request) {
     title: request.title,
     detail: request.detail,
   });
+  if (request.reviewIncomplete) {
+    emit({ type: "approval.resolved", requestId: request.requestId, decision: "deny" });
+    return "deny";
+  }
   const automatic = autoDecision(mode, request);
   const decision = automatic ?? (await spec.onApproval?.(request)) ?? "deny";
   const normalized = decision === "allow" ? "allow" : "deny";
@@ -674,6 +690,9 @@ async function openClaude(spec, emit) {
       const name = typeof request.tool_name === "string" ? request.tool_name : "tool";
       const requestId = String(record.request_id ?? randomUUID());
       const readOnly = name === "Read" || name === "Grep" || name === "Glob";
+      const titleReview = approvalReviewText(command || name, APPROVAL_TITLE_LIMIT);
+      const detailSource = command || JSON.stringify(input);
+      const detailReview = approvalReviewText(detailSource, APPROVAL_DETAIL_LIMIT);
       void resolveDecision(spec, emit, {
         requestId,
         kind: readOnly
@@ -682,8 +701,9 @@ async function openClaude(spec, emit) {
             ? "file_change"
             : "command",
         name,
-        title: bound(command || name, 200),
-        detail: bound(command || JSON.stringify(input), 2000),
+        title: titleReview.text,
+        detail: detailReview.text,
+        reviewIncomplete: titleReview.reviewIncomplete || detailReview.reviewIncomplete,
       })
         .then((decision) => {
           send({
@@ -814,7 +834,9 @@ async function openLoggedSession(spec) {
   const id = spec.id || randomUUID();
   // Never the worktree: `git add -A` would otherwise record the JSONL as a change.
   const logDir = spec.logDir || path.join(os.tmpdir(), "shiba-sessions");
-  await fs.mkdir(logDir, { recursive: true });
+  await fs.mkdir(logDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(logDir, 0o700).catch(() => undefined);
+  spec.signal?.throwIfAborted();
   const logPath = path.join(logDir, `${id.replace(/[^A-Za-z0-9_-]/g, "_")}.jsonl`);
   /** @type {Array<{ seq: number, at: number, event: SessionEvent }>} */
   const records = [];
@@ -826,7 +848,10 @@ async function openLoggedSession(spec) {
     const record = { seq: ++seq, at: Date.now(), event };
     records.push(record);
     writeChain = writeChain
-      .then(() => fs.appendFile(logPath, `${JSON.stringify(record)}\n`))
+      .then(async () => {
+        await fs.appendFile(logPath, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+        await fs.chmod(logPath, 0o600).catch(() => undefined);
+      })
       .catch(() => undefined);
     spec.onEvent?.(event);
   };

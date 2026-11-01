@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
+  MessagesSquare,
   HelpCircle,
   SlidersHorizontal,
   SunMoon,
@@ -23,6 +24,7 @@ import {
   GitCompareArrows,
   Inbox,
   LayoutDashboard,
+  LayoutGrid,
   List,
   LogOut,
   Monitor,
@@ -50,6 +52,7 @@ export type AppNavView =
   | "diff"
   | "approvals"
   | "swarm"
+  | "collaboration"
   | "agents"
   | "inbox"
   | "memory"
@@ -57,7 +60,9 @@ export type AppNavView =
   | "providers"
   | "integrations"
   | "skills"
+  | "spaces"
   | "custom-agents"
+  | "employee-tools"
   | "remote"
   | "settings";
 
@@ -75,9 +80,12 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "diff", label: "Pull requests", description: "Code Changes & Git Diffs" },
   { id: "approvals", label: "Approvals", description: "Review & Decision Queue" },
   { id: "swarm", label: "Swarm", description: "Run Lanes, Modes & Share Links" },
+  { id: "collaboration", label: "Collaboration", description: "Private rooms for people and agents" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
+  { id: "spaces", label: "Spaces", description: "Hosted coworker mini-apps" },
   { id: "custom-agents", label: "Bots", description: "Reusable bot profiles & defaults" },
+  { id: "employee-tools", label: "Tool policy", description: "Employee tool grants & approvals" },
   { id: "agents", label: "Agents & MCP", description: "MCP Gateway & Agent Tokens" },
   { id: "inbox", label: "Mailbox", description: "Cloudflare Email Routing & Send" },
   { id: "memory", label: "Memory", description: "Vectorize Long-Term Semantic Memory" },
@@ -139,10 +147,13 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   integrations: Blocks,
   providers: Terminal,
   skills: BookMarked,
+  spaces: LayoutGrid,
   "custom-agents": Bot,
+  "employee-tools": ShieldCheck,
   settings: Settings,
   remote: Monitor,
   swarm: SquareCheckBig,
+  collaboration: MessagesSquare,
 };
 
 export function navStatusDotClass(status: string, live?: boolean): string {
@@ -249,12 +260,15 @@ export function AppNavRail({
     "analytics",
     "approvals",
     "swarm",
+    "collaboration",
     "agents",
     "inbox",
     "memory",
     "providers",
     "skills",
+    "spaces",
     "custom-agents",
+    "employee-tools",
     "integrations",
     "remote",
     "settings",

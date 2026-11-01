@@ -55,7 +55,7 @@ describe("chat gate composer pin", () => {
       repoUrl: "https://github.com/o/a", runtime: "local", role: "fixer", authAccount: "evil", testCommand: ["rm"],
     })]));
     expect(record?.repoUrl).toBe("https://github.com/o/a");
-    expect(record).not.toHaveProperty("runtime");
+    expect(record?.runtime).toBe("sandbox");
     expect(record).not.toHaveProperty("role");
     expect(record).not.toHaveProperty("authAccount");
     expect(record).not.toHaveProperty("testCommand");

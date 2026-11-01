@@ -8,6 +8,7 @@ describe("restart policy", () => {
     const p = createRestartPolicy();
     expect(p(78, ctx(), 1)).toEqual({ kind: "revoked" });
     expect(p(75, ctx(), 1)).toEqual({ kind: "conflict" });
+    expect(p(70, ctx(), 1)).toEqual({ kind: "crashed" });
     expect(p(143, ctx(), 1)).toEqual({ kind: "stopped" });
     expect(p(130, ctx(), 1)).toEqual({ kind: "stopped" });
   });

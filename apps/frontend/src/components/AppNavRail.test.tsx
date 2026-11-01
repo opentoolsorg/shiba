@@ -100,4 +100,12 @@ describe("AppNavRail", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Bots" }));
     expect(onNavigate).toHaveBeenCalledWith("custom-agents");
   });
+
+  it("makes Tool policy reachable from More and labels its active view", () => {
+    const { onNavigate } = renderRail({ activeView: "employee-tools" });
+    const more = screen.getByRole("button", { name: "Tool policy" });
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Tool policy" }));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("employee-tools");
+  });
 });

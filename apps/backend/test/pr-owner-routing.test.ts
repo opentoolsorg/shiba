@@ -63,16 +63,20 @@ import { Automations } from "../src/automations-do.js";
 import type { Env } from "../src/env.js";
 
 function makeDo(storage: Map<string, unknown>, env: Partial<Env> = {}) {
+  const storageApi = {
+    get: async (key: string) => storage.get(key),
+    put: async (key: string, value: unknown) => void storage.set(key, value),
+    list: async (opts?: { prefix?: string }) =>
+      new Map([...storage.entries()].filter(([k]) => (opts?.prefix ? k.startsWith(opts.prefix) : true))),
+    delete: async (keys: string | string[]) => {
+      const list = Array.isArray(keys) ? keys : [keys];
+      for (const k of list) storage.delete(k);
+    },
+  };
   const ctx = {
     storage: {
-      get: async (key: string) => storage.get(key),
-      put: async (key: string, value: unknown) => void storage.set(key, value),
-      list: async (opts?: { prefix?: string }) =>
-        new Map([...storage.entries()].filter(([k]) => (opts?.prefix ? k.startsWith(opts.prefix) : true))),
-      delete: async (keys: string | string[]) => {
-        const list = Array.isArray(keys) ? keys : [keys];
-        for (const k of list) storage.delete(k);
-      },
+      ...storageApi,
+      transaction: async (callback: (transaction: typeof storageApi) => Promise<unknown>) => callback(storageApi),
     },
   } as unknown as DurableObjectState;
   const fullEnv = {

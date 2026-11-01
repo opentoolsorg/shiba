@@ -2,8 +2,10 @@
  * Pasted provider keys leave the Worker at egress, aimed at the provider host.
  */
 import { describe, expect, it } from "vitest";
-import { forwardClaudeSubscription, forwardDeepSeek, forwardGoogle, type EgressEnv } from "../src/egress.js";
-import { putUserProviderSecret } from "../src/user-provider-keys.js";
+import { forwardClaudeSubscription, forwardDeepSeek, type EgressEnv } from "../src/egress.js";
+import { dispatchOutboundRequest } from "../src/sandbox/outbound-dispatch.js";
+import { loadOutboundConfig } from "../src/sandbox/outbound-config.js";
+import { putUserProviderSecret, readProviderSecretForOrg } from "../src/user-provider-keys.js";
 
 class FakeKV {
   readonly map = new Map<string, string>();
@@ -47,10 +49,14 @@ describe("user provider key egress", () => {
       return new Response("ok", { status: 200 });
     }) as typeof fetch;
     try {
-      const response = await forwardGoogle(
+      const response = await dispatchOutboundRequest(
         new Request("https://generativelanguage.googleapis.com/v1beta/models", { method: "POST", body: "{}" }),
         deployment,
-        { orgId: "ada" },
+        loadOutboundConfig({
+          orgId: "self-hosted", initiatorUserId: "ada",
+          allowedHosts: ["generativelanguage.googleapis.com"],
+          outboundByHost: { "generativelanguage.googleapis.com": { kind: "builtin", host: "generativelanguage.googleapis.com" } },
+        }),
       );
       expect(response.status).toBe(200);
       expect(seen.url).toContain("generativelanguage.googleapis.com");
@@ -75,7 +81,11 @@ describe("user provider key egress", () => {
     const kv = new FakeKV();
     const deployment = env(kv);
     const secret = "sk-ant-setup-token-value";
-    await putUserProviderSecret(deployment, "self-hosted", "claude-setup", secret);
+    await putUserProviderSecret(deployment, "ada", "claude-setup", secret);
+    await kv.put(
+      "auth_flow_claude-sub:default",
+      JSON.stringify({ phase: "succeeded", ownerSessionId: "self-hosted" }),
+    );
     let auth: string | null = null;
     const original = globalThis.fetch;
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -83,10 +93,14 @@ describe("user provider key egress", () => {
       return new Response("ok", { status: 200 });
     }) as typeof fetch;
     try {
-      const response = await forwardClaudeSubscription(
+      const response = await dispatchOutboundRequest(
         new Request("https://api.anthropic.com/v1/messages", { method: "POST", body: "{}" }),
         deployment,
-        { orgId: "self-hosted" },
+        loadOutboundConfig({
+          orgId: "self-hosted", initiatorUserId: "ada",
+          allowedHosts: ["api.anthropic.com"],
+          outboundByHost: { "api.anthropic.com": { kind: "named", handler: "claudeSubscription" } },
+        }),
       );
       expect(response.status).toBe(200);
       expect(auth).toBe(`Bearer ${secret}`);
@@ -94,4 +108,27 @@ describe("user provider key egress", () => {
       globalThis.fetch = original;
     }
   });
+
+  it("refuses Claude subscription egress after the auth flow is cleared", async () => {
+    const kv = new FakeKV();
+    const deployment = env(kv);
+    await kv.put(
+      "auth_flow_claude-sub:default",
+      JSON.stringify({ phase: "cleared", ownerSessionId: null, generation: 2 }),
+    );
+    await putUserProviderSecret(deployment, "self-hosted", "claude-setup", "sk-ant-setup-token-value");
+    const response = await forwardClaudeSubscription(
+      new Request("https://api.anthropic.com/v1/messages", { method: "POST", body: "{}" }),
+      deployment,
+      { orgId: "self-hosted" },
+    );
+    expect(response.status).toBe(403);
+  });
+  it("does not let a self-hosted initiator read another user's personal key", async () => {
+    const deployment = env(new FakeKV());
+    await putUserProviderSecret(deployment, "alice", "google", "AIza-alice-private-key");
+    expect(await readProviderSecretForOrg(deployment, "self-hosted", "google", "bob")).toBeNull();
+    expect(await readProviderSecretForOrg(deployment, "self-hosted", "google", "alice")).toBe("AIza-alice-private-key");
+  });
+
 });

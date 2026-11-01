@@ -136,6 +136,26 @@ describe("probe rule — only verify() sets succeeded", () => {
 });
 
 describe("ordered, idempotent sign-out", () => {
+  it("verify does not overwrite a flow cleared while the probe is in flight", async () => {
+    const { env } = makeEnv();
+    let releaseProbe: (() => void) | undefined;
+    const probeGate = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    const controller = createAuthController<TestEnv>(env, ID, {
+      probe: async () => {
+        await probeGate;
+        return { ok: true };
+      },
+    });
+    await controller.begin("sess-A");
+    const verifyPromise = controller.verify("sess-A");
+    await controller.clear("sess-A");
+    releaseProbe?.();
+    await expect(verifyPromise).rejects.toMatchObject({ reason: "invalid_phase" });
+    expect((await controller.snapshot()).phase).toBe("cleared");
+  });
+
   it("clear runs closeAdmission → stopInFlight → metadata wipe, in that order", async () => {
     const { env } = makeEnv();
     const order: string[] = [];

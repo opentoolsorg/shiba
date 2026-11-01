@@ -65,6 +65,7 @@ interface RefreshRecord {
   expiresAt: number;
   revoked: boolean;
   clientId: string;
+  consumeTicket?: string;
 }
 
 /**
@@ -127,6 +128,42 @@ async function kvPut(env: OAuthEnv, key: string, value: unknown, ttlMs?: number)
     JSON.stringify(value),
     ttlMs !== undefined ? { expirationTtl: Math.ceil(ttlMs / 1000) } : undefined,
   );
+}
+
+type KvReadResult =
+  | { ok: true; value: unknown }
+  | { ok: false; unavailable: true };
+
+async function kvGetStrict(env: OAuthEnv, key: string): Promise<KvReadResult> {
+  try {
+    const raw = await env.AGENT_TOKENS.get(key, { type: "text" });
+    return { ok: true, value: raw === null ? null : JSON.parse(raw) };
+  } catch (error) {
+    console.warn(`oauth: KV get failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    return { ok: false, unavailable: true };
+  }
+}
+
+/** Exclusive refresh consumption — concurrent replays must not mint two pairs. */
+async function claimRefreshRecord(env: OAuthEnv, key: string): Promise<RefreshRecord | null> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const record = asRecord<RefreshRecord>(await kvGet(env, key), ["principal", "expiresAt", "revoked", "clientId"]);
+    if (record === null || record.revoked || record.expiresAt < Date.now()) return null;
+    const ticket = randomHex(16);
+    await kvPut(env, key, { ...record, revoked: true, consumeTicket: ticket }, REFRESH_TOKEN_TTL_MS);
+    const verified = asRecord<RefreshRecord>(
+      await kvGet(env, key),
+      ["principal", "expiresAt", "revoked", "clientId", "consumeTicket"],
+    );
+    if (verified?.consumeTicket !== ticket) continue;
+    try {
+      await env.AGENT_TOKENS.delete(key);
+    } catch {
+      return null;
+    }
+    return record;
+  }
+  return null;
 }
 
 function asRecord<T extends object>(value: unknown, required: readonly string[]): T | null {
@@ -491,15 +528,16 @@ async function handleToken(request: Request, env: OAuthEnv): Promise<Response> {
       return jsonError(400, "invalid_grant", "unknown refresh token.");
     }
     const key = `${REFRESH_PREFIX}${await sha256Hex(refresh)}`;
-    const record = asRecord<RefreshRecord>(await kvGet(env, key), ["principal", "expiresAt", "revoked", "clientId"]);
-    if (record === null || record.revoked || record.expiresAt < Date.now()) {
+    const claimed = await claimRefreshRecord(env, key);
+    if (claimed === null) {
       return jsonError(400, "invalid_grant", "refresh token is unknown, revoked, or expired.");
     }
-    // Rotation: the presented refresh is revoked in the same breath as the
-    // new pair is minted — a refresh token is used exactly once.
-    record.revoked = true;
-    await kvPut(env, key, record, REFRESH_TOKEN_TTL_MS);
-    return issueTokenPair(env, record.clientId, record.principal.replace(/^oauth:[^:]+:/, ""), record.scopes);
+    return issueTokenPair(
+      env,
+      claimed.clientId,
+      claimed.principal.replace(/^oauth:[^:]+:/, ""),
+      claimed.scopes,
+    );
   }
 
   return jsonError(400, "unsupported_grant_type", "authorization_code and refresh_token are supported.");
@@ -521,7 +559,11 @@ async function handleRevoke(request: Request, env: OAuthEnv): Promise<Response> 
   const prefix = REFRESH_TOKEN_RE.test(token) ? REFRESH_PREFIX : ACCESS_TOKEN_RE.test(token) ? ACCESS_PREFIX : null;
   if (prefix !== null) {
     const key = `${prefix}${await sha256Hex(token)}`;
-    const record = asRecord<AccessRecord>(await kvGet(env, key), ["revoked"]);
+    const loaded = await kvGetStrict(env, key);
+    if (!loaded.ok) {
+      return jsonError(503, "server_error", "Credential store unavailable.");
+    }
+    const record = asRecord<AccessRecord>(loaded.value, ["revoked"]);
     if (record !== null && !record.revoked) {
       record.revoked = true;
       await kvPut(env, key, record);

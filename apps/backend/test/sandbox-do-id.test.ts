@@ -55,4 +55,14 @@ describe("Sandbox organization binding", () => {
     const { sandbox } = sandboxForTest();
     await expect(sandbox.setOutboundOrgId("  ")).rejects.toThrow(/required/);
   });
+  it("persists the initiator and rejects changing its credential identity", async () => {
+    const { sandbox } = sandboxForTest();
+    await sandbox.setOutboundInitiatorUserId(" alice ");
+    await sandbox.setOutboundInitiatorUserId("alice");
+    expect(sandbox.getOutboundConfig().initiatorUserId).toBe("alice");
+    await expect(sandbox.setOutboundInitiatorUserId("bob")).rejects.toThrow(/different initiator/);
+    expect(sandbox.getOutboundConfig().initiatorUserId).toBe("alice");
+    await expect(sandbox.setOutboundInitiatorUserId(" ")).rejects.toThrow(/required/);
+  });
+
 });
