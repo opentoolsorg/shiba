@@ -19,9 +19,10 @@ import { McpCoworkerPanel } from "./McpCoworkerPanel";
 import { providerLifecycleStatus, providerTestDescription } from "./provider-lifecycle";
 import { ToneChip } from "./ToneChip";
 import { ReasonNetworkSetup } from "./ReasonNetworkSetup";
-import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
-import { CuratedMcpConnections } from "./CuratedMcpConnections";
 import type { IntegrationBindingInputs } from "../integration-connection-bindings";
+import { SkillsView } from "./SkillsView";
+import { ExtensionMcpServersView } from "./ExtensionMcpServersView";
+import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
 
 function IntegrationRow({
   name,
@@ -128,8 +129,10 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
 
 export function IntegrationsView({
   onNavigate,
+  initialTab,
 }: {
   onNavigate?: (view: AppNavView) => void;
+  initialTab?: "skills" | "mcp" | "connectors";
 }): JSX.Element {
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
@@ -153,6 +156,25 @@ export function IntegrationsView({
   const [setupSearch, setSetupSearch] = useState("");
   const [libraryCatalog, setLibraryCatalog] = useState<Array<{ slug: string; name: string; summary: string; installed: boolean }>>([]);
   const [spacesCatalog, setSpacesCatalog] = useState<Array<{ id: string; name: string; template: string }>>([]);
+  const [activeTab, setActiveTab] = useState<"skills" | "mcp" | "connectors">(() => {
+    if (initialTab) return initialTab;
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const val = params.get("tab") || params.get("view");
+      if (val === "skills") return "skills";
+      if (val === "mcp" || val === "mcps") return "mcp";
+      if (val === "connectors" || val === "integrations") return "connectors";
+    }
+    return "connectors";
+  });
+  const selectTab = (tab: "skills" | "mcp" | "connectors") => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", tab);
+      window.history.replaceState(null, "", url.toString());
+    }
+  };
 
   const setupQuery = setupSearch.trim().toLowerCase();
   const rowVisible = (name: string) => !setupQuery || name.toLowerCase().includes(setupQuery);
@@ -471,7 +493,7 @@ export function IntegrationsView({
             Third-party apps and channels your agents can reach — connect once, use everywhere.
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
+        {activeTab === "connectors" ? <div className="flex shrink-0 flex-wrap gap-2">
           {showCapabilityCatalog ? (
             <button
               type="button"
@@ -507,9 +529,16 @@ export function IntegrationsView({
           >
             {showCapabilityCatalog ? "Back to integration catalog" : "Browse capability catalog"}
           </button>
-        </div>
+        </div> : null}
       </div>
-      {showCapabilityCatalog ? (
+      <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8" role="tablist" aria-label="Integration category">
+        {([['skills', 'Skills'], ['mcp', 'MCP servers'], ['connectors', 'Connectors']] as const).map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => selectTab(id)} className={`min-h-11 shrink-0 border-b-2 px-3 text-xs font-semibold transition-colors ${activeTab === id ? "border-[var(--primary)] text-[var(--primary)]" : "border-transparent text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {activeTab === "skills" ? <SkillsView embedded /> : activeTab === "mcp" ? <ExtensionMcpServersView /> : showCapabilityCatalog ? (
         <div className="min-h-0 flex-1">
           {providersError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{providersError} Provider state may be stale. Retry refresh before relying on the last displayed state.</p> : null}
           {toolDirectoryError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{toolDirectoryError} MCP schemas are withheld from the dashboard directory.</p> : null}
@@ -682,12 +711,7 @@ export function IntegrationsView({
               <LoadErrorState message={failed.message} onRetry={reloadAll} />
             </div>
           ) : null}
-          <div className="border-b border-[var(--border-1)] px-4 py-4 lg:px-8">
-            <div className="mx-auto max-w-6xl">
-              <CuratedMcpConnections onChanged={() => setCatalogRefresh((value) => value + 1)} />
-            </div>
-          </div>
-          <IntegrationCatalogDirectory bindingInputs={bindingInputs} />
+          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} onChanged={() => setCatalogRefresh((value) => value + 1)} />
         </>
       )}
     </div>

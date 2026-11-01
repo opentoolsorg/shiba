@@ -18,7 +18,7 @@ import { FounderSkillLibrary } from "./FounderSkillLibrary";
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
 
-export function SkillsView(): JSX.Element {
+export function SkillsView({ embedded = false }: { embedded?: boolean } = {}): JSX.Element {
   const savedSkills = useSavedSkills();
   const skills = savedSkills.skills;
   const [name, setName] = useState("");
@@ -112,15 +112,15 @@ export function SkillsView(): JSX.Element {
   const showLoadMore = savedSkills.hasMore;
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0">
+    <div className={`flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg)] text-[var(--fg)] ${embedded ? "" : "h-full"}`}>
+      {!embedded ? <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0">
         <h2 className="text-base font-semibold text-[var(--fg)]">Skills</h2>
         <p className="text-xs text-[var(--muted-foreground-2)]">
           Versioned instruction bundles scoped to your signed-in account or workspace. Review a draft before activating it. Source links are labels only; Shiba never downloads or executes their contents.
         </p>
-      </div>
+      </div> : null}
 
-      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
           <SkillLibraryCards />
           <FounderSkillLibrary />
