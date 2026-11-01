@@ -31,13 +31,18 @@ afterAll(async () => {
 });
 
 // Fresh userData per launch so one test's saved URL/state can't leak into the next.
-const launch = (env: Record<string, string>) => {
-  const userData = mkdtempSync(path.join(tmpdir(), "shiba-e2e-"));
+const launch = (env: Record<string, string>, links: string[] = [], userData = mkdtempSync(path.join(tmpdir(), "shiba-e2e-"))) => {
   userDataDirs.push(userData);
   return electron.launch({
     chromiumSandbox: true,
-    args: ["dist/main.js", `--user-data-dir=${userData}`],
-    env: { ...(process.env as Record<string, string>), ...env },
+    args: ["test/electron-bootstrap.cjs", ...links],
+    env: {
+      ...(process.env as Record<string, string>),
+      ...env,
+      SHIBA_DESKTOP_TEST_USER_DATA: userData,
+      SHIBA_LOCAL_RUN_ROOT: path.join(userData, "local"),
+      SHELL: "",
+    },
   });
 };
 
@@ -55,6 +60,83 @@ test("setup page renders when no URL is configured", async () => {
       return { hasSetup: w.shibaSetup !== undefined, hasDesktop: w.shibaDesktop !== undefined };
     });
     expect(bridges).toEqual({ hasSetup: true, hasDesktop: false });
+  } finally {
+    await app.close();
+  }
+});
+
+test("cold-start deep link opens its requested dashboard view", async () => {
+  const app = await launch({ SHIBA_DESKTOP_URL: stubUrl }, ["shiba://open/providers"]);
+  try {
+    const win = await app.firstWindow();
+    await win.waitForURL(`${stubUrl}/app/?tab=providers`);
+    expect(await win.evaluate(() => typeof (window as unknown as { shibaDesktop?: unknown }).shibaDesktop)).toBe("object");
+    expect(await app.evaluate(() => (globalThis as { __protocolRegistrations?: number }).__protocolRegistrations)).toBe(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("native sign-in bridge receives a matching loopback callback", async () => {
+  const portProbe = createServer();
+  await new Promise<void>((resolve) => portProbe.listen(0, "127.0.0.1", resolve));
+  const port = (portProbe.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => portProbe.close(() => resolve()));
+  const callbackUrl = `http://127.0.0.1:${port}/auth/callback?code=fixture-code&state=fixture-state`;
+  const authorizationUrl = new URL("https://auth.openai.com/oauth/authorize");
+  authorizationUrl.search = new URLSearchParams({
+    redirect_uri: `http://127.0.0.1:${port}/auth/callback`,
+    state: "fixture-state",
+    code_challenge: "fixture-challenge",
+    code_challenge_method: "S256",
+  }).toString();
+  const app = await launch({ SHIBA_DESKTOP_URL: stubUrl });
+  try {
+    const win = await app.firstWindow();
+    await win.waitForURL(`${stubUrl}/app/**`);
+    await app.evaluate(({ shell }) => {
+      shell.openExternal = async () => undefined;
+    });
+    const received = win.evaluate((url) => {
+      const bridge = (window as unknown as {
+        shibaDesktop: { receiveCodexCallback(url: string): Promise<unknown> };
+      }).shibaDesktop;
+      return bridge.receiveCodexCallback(url);
+    }, authorizationUrl.toString());
+    await expect.poll(async () => {
+      const response = await fetch(callbackUrl).catch(() => null);
+      return response?.status;
+    }).toBe(200);
+    expect(await received).toEqual({ ok: true, callbackUrl });
+  } finally {
+    await app.close();
+  }
+});
+
+test("saved deployment survives restart and recovers after an unavailable origin", async () => {
+  const userData = mkdtempSync(path.join(tmpdir(), "shiba-restart-"));
+  let app = await launch({ SHIBA_DESKTOP_URL: "" }, [], userData);
+  try {
+    const setup = await app.firstWindow();
+    await setup.waitForURL(/setup\.html/);
+    await setup.locator("input#url").fill(stubUrl);
+    const opened = app.waitForEvent("window");
+    await setup.getByRole("button", { name: "Continue", exact: true }).click();
+    await (await opened).waitForURL(`${stubUrl}/app/**`);
+    await app.close();
+
+    app = await launch({ SHIBA_DESKTOP_SETUP: "0" }, [], userData);
+    const dashboard = await app.firstWindow();
+    await dashboard.waitForURL(`${stubUrl}/app/**`);
+    await app.close();
+
+    app = await launch({ SHIBA_DESKTOP_URL: "http://127.0.0.1:1" }, [], userData);
+    const recovery = await app.firstWindow();
+    await recovery.waitForURL(/setup\.html/);
+    await recovery.locator("input#url").fill(stubUrl);
+    const reopened = app.waitForEvent("window");
+    await recovery.getByRole("button", { name: "Continue", exact: true }).click();
+    await (await reopened).waitForURL(`${stubUrl}/app/**`);
   } finally {
     await app.close();
   }
@@ -119,6 +201,14 @@ test("app loads after URL, bridge exposed, no Node, foreign nav blocked", async 
         g.__opened!.push(url);
       };
     });
+
+    await win.evaluate(() => {
+      window.open("https://user:secret@example.com/private");
+      window.location.href = "https://user:secret@example.com/private";
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await app.evaluate(() => (globalThis as { __opened?: string[] }).__opened ?? [])).toEqual([]);
+    expect(win.url().startsWith(stubUrl)).toBe(true);
 
     // Foreign navigation must not stay in-app (D6 allowlist): it is handed to the OS browser.
     await win.evaluate(() => {

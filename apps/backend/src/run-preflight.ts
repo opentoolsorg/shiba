@@ -11,7 +11,7 @@ import type { ApprovedRoute } from "./model-connections.js";
 import { validateConnectionModel } from "./model-connections.js";
 import type { ModelConfigSnapshot } from "./model-policy.js";
 import type { CodingTaskInput } from "./opencode-input.js";
-import { verifyStandinEnabled } from "@shiba/shared";
+import { verifyStandinEnabled, type ExecutionTarget } from "@shiba/shared";
 import { assertSandboxRunPreflight, DEFAULT_CODING_RUN_FEATURES } from "./sandbox/preflight.js";
 
 export interface RunPreflightInput {
@@ -26,17 +26,19 @@ export interface RunPreflightInput {
   orgId?: string;
   initiatorUserId?: string;
   runtime?: string;
+  executionTarget?: ExecutionTarget;
 }
 
 function minimalCodingInput(params: RunPreflightInput): CodingTaskInput {
   return {
-    repoUrl: params.repoUrl ?? "https://github.com/example/repo",
+    repoUrl: params.executionTarget?.kind === "artifact-workspace" ? "" : params.repoUrl ?? "https://github.com/example/repo",
     task: "preflight",
     baseBranch: "main",
     publishPullRequest: params.publishPullRequest ?? false,
     sandboxId: "preflight",
     codingModel: params.codingModel,
     harness: params.harness as CodingTaskInput["harness"],
+    ...(params.executionTarget ? { executionTarget: params.executionTarget } : {}),
     ...(params.authAccount !== undefined ? { authAccount: params.authAccount } : {}),
     route: params.route,
     ...(params.initiatorUserId ? { initiatorUserId: params.initiatorUserId } : {}),

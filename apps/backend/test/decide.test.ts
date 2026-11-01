@@ -138,6 +138,16 @@ describe("decideRunTransition — queue", () => {
     expect(next).toEqual(run);
   });
 
+  it("replays only the identical collaboration handoff identity", () => {
+    const run = pendingRun({ collaborationHandoffId: "handoff-a" });
+    const same = decideRunTransition({ run }, queue({ input: { ...INPUT, collaborationHandoffId: "handoff-a" } }));
+    expect("events" in same && same.events[0]).toMatchObject({ replayed: true });
+    for (const input of [INPUT, { ...INPUT, collaborationHandoffId: "handoff-b" }]) {
+      expectError(run, queue({ input }), "input_conflict");
+    }
+    expectError(pendingRun(), queue({ input: { ...INPUT, collaborationHandoffId: "handoff-a" } }), "input_conflict");
+  });
+
   it("rejects queue for an existing runId with different input", () => {
     expectError(
       pendingRun(),
@@ -575,6 +585,16 @@ describe("approvalEvidenceFor + runInputHash", () => {
     expect(pinned).not.toBe(legacy);
     expect(runInputHash({ ...local, targetMachineId: "m-2" })).not.toBe(pinned);
     expect(runInputHash({ ...local, targetMachineId: undefined })).toBe(legacy);
+  });
+
+  it("pins the exact reviewed skill versions into the approval hash and queued run", () => {
+    const skillPins = [{ skillId: `skill-${"a".repeat(24)}`, version: 3, name: "Security", sourceUrl: "https://example.test/security" }];
+    const withSkill = { ...INPUT, skillPins };
+    expect(runInputHash(withSkill)).not.toBe(runInputHash(INPUT));
+    expect(runInputHash({ ...withSkill, skillPins: [{ ...skillPins[0]!, version: 4 }] })).not.toBe(runInputHash(withSkill));
+    const queued = apply(null, queue({ input: withSkill, approval: evidence({ inputHash: runInputHash(withSkill) }) })).run!;
+    expect(queued.skillPins).toEqual(skillPins);
+    expect(queued.approval?.inputHash).toBe(runInputHash(withSkill));
   });
 
   it("start/approve reject evidence hashed for a different target; queue replay rejects a mismatched target", () => {

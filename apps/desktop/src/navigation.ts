@@ -47,7 +47,7 @@ export function decideNavigation(
   authHosts: readonly string[] = DEFAULT_AUTH_HOSTS,
 ): NavigationDecision {
   const url = tryParse(target);
-  if (!url) return "deny";
+  if (!url || url.username || url.password) return "deny";
   if (configuredOrigin && url.origin === configuredOrigin) return "allow";
   if (url.protocol !== "https:") return "deny";
   if (url.hostname.endsWith(".cloudflareaccess.com")) return "allow";

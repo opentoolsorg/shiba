@@ -25,8 +25,19 @@ vi.mock("../src/v1-auth.js", async (importOriginal) => {
 describe("custom agent archive and version HTTP contracts", () => {
   const config = { name: "Scout", instructions: "Read before changing code.", harness: "opencode" };
   const request = (path: string, method = "GET", body?: unknown) => new Request(`https://x/api/custom-agents${path}`, {
-    method, headers: { "content-type": "application/json" },
+    method, headers: { "content-type": "application/json", ...(authState.principal ? { authorization: "Bearer api-key" } : { origin: "https://x" }) },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  it("allows API-key writes without Origin but requires Origin for ambient sessions", async () => {
+    const bindings = env();
+    authState.principal = { principal: "writer", orgId: "org-a", scopes: ["api:read", "api:write"] };
+    const created = await handleCustomAgents(request("", "POST", { slug: "api-scout", config }), bindings);
+    expect(created?.status).toBe(201);
+    authState.principal = null;
+    authState.dashboard = true;
+    const denied = await handleCustomAgents(new Request("https://x/api/custom-agents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slug: "browser-scout", config }) }), bindings);
+    expect(denied?.status).toBe(403);
   });
 
   it("archives/restores a profile independently from its retained configuration and history", async () => {
@@ -136,7 +147,7 @@ describe("custom agents HTTP authz", () => {
     const createRes = await handleCustomAgents(
       new Request("https://x/api/custom-agents", {
         method: "POST",
-        headers: { authorization: "Bearer shk_a" },
+        headers: { authorization: "Bearer shk_a", "content-type": "application/json" },
         body: JSON.stringify({
           slug: "scout",
           config: { name: "Scout", instructions: "Go", harness: "opencode" },

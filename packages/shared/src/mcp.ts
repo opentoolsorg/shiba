@@ -58,6 +58,14 @@ export const queueRunInputSchema = z.object({
   testCommand: testCommandSchema
     .optional()
     .describe("Project test command as an argv array, e.g. [\"pnpm\", \"test\"]."),
+  commandId: z
+    .string()
+    .optional()
+    .describe("Idempotency key for this queue request."),
+  threadKey: z
+    .string()
+    .optional()
+    .describe("Approval routing key; dashboard intake overwrites unless ACP-bound."),
 });
 
 export type QueueRunInput = z.infer<typeof queueRunInputSchema>;
@@ -65,6 +73,12 @@ export type QueueRunInput = z.infer<typeof queueRunInputSchema>;
 export const runStatusInputSchema = z.object({
   runId: z.string().min(1).describe("Run id, e.g. agent-tool:<approvalId>."),
 });
+
+export {
+  queueGrokbotBridgeTaskInputSchema,
+  grokbotBridgeStatusInputSchema,
+  completeGrokbotBridgeTaskInputSchema,
+} from "./grokbot-bridge.js";
 
 const screenRunId = z.string().min(1).describe("Run id whose sandbox screen to drive — the run must be running.");
 

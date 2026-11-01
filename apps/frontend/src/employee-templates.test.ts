@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { EMPLOYEE_TEMPLATES } from "./employee-templates";
 
 describe("employee role templates", () => {
-  it("offers four distinct editable bot identities without claiming an external integration", () => {
-    expect(EMPLOYEE_TEMPLATES.map((template) => template.label)).toEqual(["Engineering", "Marketing", "Research", "Operations"]);
-    expect(new Set(EMPLOYEE_TEMPLATES.map((template) => template.slug)).size).toBe(4);
+  it("offers seven distinct editable bot identities without claiming an external integration", () => {
+    expect(EMPLOYEE_TEMPLATES.map((template) => template.label)).toEqual([
+      "Engineering", "Marketing", "Research", "Operations", "Sales", "Product development", "Design",
+    ]);
+    expect(new Set(EMPLOYEE_TEMPLATES.map((template) => template.slug)).size).toBe(7);
     for (const template of EMPLOYEE_TEMPLATES) {
       expect(template.slug).toMatch(/^[a-z0-9-]{1,48}$/);
       expect(template.config.name).toBe(`${template.label} bot`);
@@ -23,6 +25,9 @@ describe("employee role templates", () => {
       ["marketing/brief.md", "marketing/campaign.md"],
       ["research/report.md", "research/sources.json"],
       ["operations/runbook.md"],
+      ["sales/account-brief.md", "sales/outreach-draft.md"],
+      ["product/requirements.md", "product/backlog.md"],
+      ["design/experience-brief.md", "design/interface-spec.md"],
     ]);
     for (const template of EMPLOYEE_TEMPLATES) {
       for (const file of template.config.expectedDeliverables ?? []) {
@@ -40,5 +45,17 @@ describe("employee role templates", () => {
     expect(research?.config.instructions).toContain("Never invent citations");
     expect(operations?.config.instructions).toContain("rollback or recovery steps");
     expect(operations?.config.instructions).toContain("Do not claim a schedule, notification, backup, or deployment exists");
+  });
+
+  it("keeps sales, product, and design work in reviewable repository drafts", () => {
+    const sales = EMPLOYEE_TEMPLATES.find((template) => template.id === "sales");
+    const product = EMPLOYEE_TEMPLATES.find((template) => template.id === "product");
+    const design = EMPLOYEE_TEMPLATES.find((template) => template.id === "design");
+    expect(sales?.config.instructions).toContain("Do not send messages, update a CRM, contact a prospect");
+    expect(sales?.config.instructions).toContain("clearly labeled placeholders");
+    expect(product?.config.instructions).toContain("acceptance criteria");
+    expect(product?.config.instructions).toContain("dependency-ordered");
+    expect(design?.config.instructions).toContain("accessibility requirements");
+    expect(design?.config.instructions).toContain("If the task requires a visual asset or design tool that is unavailable");
   });
 });

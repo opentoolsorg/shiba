@@ -5,6 +5,7 @@ import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
 import { resolveOrgForApiRequest } from "../src/org-request-auth.js";
 import { authorizeV1Request } from "../src/v1-auth.js";
+import { isOrgApiPath } from "../src/public-routes.js";
 import { handleV1 } from "../src/v1-routes.js";
 
 vi.mock("@cloudflare/sandbox", () => ({
@@ -35,6 +36,7 @@ function fixture() {
   const bindings: unknown[][] = [];
   const env = {
     REQUIRE_ACCESS: "1",
+    Spaces: {} as DurableObjectNamespace,
     AGENT_TOKENS: new FakeKV() as unknown as KVNamespace,
     AGENT_AUDIT: {
       prepare: () => ({
@@ -71,7 +73,7 @@ describe("Worker API credential boundaries", () => {
     expect((await worker.fetch(f.request("/api/v1/openapi.json", undefined, "POST"), f.env)).status).toBe(401);
   });
 
-  it.each(["/api/custom-agents", "/api/org/model-keys"])(
+  it.each(["/api/custom-agents", "/api/org/model-keys", "/api/skills/library", "/api/spaces"])(
     "lets a valid org-scoped bearer reach %s without an Access session",
     async (path) => {
       const f = fixture();
@@ -93,6 +95,20 @@ describe("Worker API credential boundaries", () => {
     expect((await worker.fetch(f.request("/api/api-keys", token), f.env)).status).toBe(403);
     expect(f.bindings).toEqual([]);
   });
+
+  it.each(["/api/skills/library", "/api/skills/library/write-tests-first/install", "/api/spaces", "/api/spaces/templates", "/api/spaces/space-aaaaaaaaaaaaaaaaaaaaaaaa/items"])(
+    "authenticates and scope-checks new org API path %s through Worker ingress",
+    async (path) => {
+      const f = fixture();
+      expect(isOrgApiPath(path)).toBe(true);
+      for (const token of [undefined, "invalid"]) {
+        expect((await worker.fetch(f.request(path, token), f.env)).status).toBe(401);
+      }
+      const { token } = await f.key();
+      expect((await worker.fetch(f.request(path, token, "POST"), f.env)).status).toBe(403);
+      expect(f.bindings).toEqual([]);
+    },
+  );
 
   it("lists API keys only in the bearer's org, including with an ambient dashboard identity", async () => {
     const f = fixture();
@@ -129,7 +145,7 @@ describe("Worker API credential boundaries", () => {
   it("keeps unrelated dashboard and shared run surfaces behind their existing identity gate", async () => {
     const f = fixture();
     const { token } = await f.key();
-    for (const path of ["/api/runs", "/api/v1/threads", "/api/memory/facts", "/api/custom-agents-extra"]) {
+    for (const path of ["/api/runs", "/api/v1/threads", "/api/memory/facts", "/api/custom-agents-extra", "/api/skills", "/api/skills/library-extra", "/api/spaces-extra"]) {
       expect((await worker.fetch(f.request(path, token), f.env)).status, path).toBe(401);
     }
   });

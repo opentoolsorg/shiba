@@ -12,6 +12,10 @@
  *   LOCAL_ADAPTER_TOKEN=<the deployment's daemon bearer> \
  *   node scripts/shiba-local-daemon.mjs [--once] [--poll <ms>]
  *
+ * Optional paired Reason Network lane (off by default):
+ *   SHIBA_REASON_NETWORK_COMPANION=1 \
+ *   SHIBA_REASON_NETWORK_EXECUTABLE=/absolute/path/reason-network
+ *
  * Or pair once with a dashboard-minted token (saves ~/.shiba-local/config.json):
  *   node scripts/shiba-local-daemon.mjs --connect <workerUrl> --pair <token>
  *
@@ -38,7 +42,8 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { copyOperatorAuth } from "./link-operator-auth.mjs";
-import { captureExpectedDeliverables } from "./local-deliverables.mjs";
+import { captureExpectedDeliverables, readContainedChangedFile } from "./local-deliverables.mjs";
+import { connectReasonNetworkStdio, createReasonNetworkCompanion } from "./reason-network-companion.mjs";
 
 const LOCAL_RUN_ROOT_TOKEN = "${SHIBA_LOCAL_RUN_ROOT}";
 const MAX_STDERR_TAIL_CHARS = 8_000;
@@ -51,10 +56,48 @@ const DEFAULT_POLL_MS = 3_000;
 const DAEMON_VERSION = "0.1.0";
 const HEARTBEAT_MS = 30_000;
 const PROBED_HARNESSES = ["claude", "codex", "opencode", "agy"];
-// EX_CONFIG: a revoked token needs operator action, not a restart loop.
-const EXIT_REVOKED = 78;
+// EX_CONFIG: misconfiguration the operator must fix before retrying.
+const EXIT_USAGE = 64;
 // EX_TEMPFAIL: a second daemon over the same run root exits fast.
 const EXIT_LOCKED = 75;
+// EX_SOFTWARE: execution may still be alive; require operator intervention.
+const EXIT_TERMINATION_UNKNOWN = 70;
+// Cloudflare Access (or similar) returned HTML instead of JSON.
+const EXIT_ACCESS = 76;
+// Pairing token rejected (expired, reused, or malformed server-side).
+const EXIT_PAIR_TOKEN = 77;
+// EX_CONFIG: adapter token revoked — re-pair required.
+const EXIT_REVOKED = 78;
+// Worker has no local runtime (SHIBA_LOCAL_RUNTIME / LocalDispatch).
+const EXIT_RUNTIME_OFF = 79;
+
+const HELP_TEXT = `shiba-local-daemon — poll a Shiba deployment for local runs.
+
+Usage:
+  shiba-local-daemon [--once] [--poll <ms>]
+  shiba-local-daemon --connect <workerUrl> --pair <token>
+
+Environment:
+  SHIBA_WORKER_URL          Worker origin (https://…), unless saved by --pair
+  LOCAL_ADAPTER_TOKEN       Deployment daemon bearer (legacy) or use --pair
+  SHIBA_LOCAL_RUN_ROOT      State directory (default ~/.shiba-local)
+  SHIBA_REASON_NETWORK_COMPANION=1
+  SHIBA_REASON_NETWORK_EXECUTABLE=/absolute/path/reason-network
+
+Exit codes:
+  0   success (--once with no work, or completed run)
+  1   run failed or transient claim/network error
+  64  invalid CLI arguments
+  70  process termination unconfirmed — stop remaining tools before retrying
+  75  another daemon holds the lock on this run root
+  76  HTML login page instead of JSON — bypass Access for /api/local/*
+  77  pairing token expired, reused, or invalid
+  78  adapter token revoked — mint a new pairing token
+  79  local runtime disabled on the deployment (SHIBA_LOCAL_RUNTIME=1)
+ 130  SIGINT graceful stop
+ 143  SIGTERM graceful stop
+
+See docs/remote-access.md and VERIFICATION/desktop.md.`;
 
 /** Status hook for a host process (worker_thread); a no-op under plain node. */
 const report = (msg) => process.parentPort?.postMessage({ type: "status", ...msg });
@@ -73,16 +116,14 @@ function parseArgs(argv) {
     else if (argv[i] === "--poll" && argv[i + 1]) {
       args.pollMs = Math.max(500, Number(argv[++i]) || DEFAULT_POLL_MS);
     } else if (argv[i] === "--help" || argv[i] === "-h") {
-      console.log(
-        "Usage: shiba-local-daemon [--once] [--poll <ms>] [--connect <workerUrl> --pair <token>]\n  Env: SHIBA_WORKER_URL, LOCAL_ADAPTER_TOKEN, SHIBA_LOCAL_RUN_ROOT",
-      );
+      console.log(HELP_TEXT);
       process.exit(0);
     } else {
-      fail(`Unknown argument ${argv[i]}`);
+      fail(`Unknown argument ${argv[i]}`, EXIT_USAGE);
     }
   }
   if (Boolean(args.connect) !== Boolean(args.pair))
-    fail("--connect and --pair must be given together.");
+    fail("--connect and --pair must be given together.", EXIT_USAGE);
   return args;
 }
 
@@ -93,37 +134,71 @@ const hostname = os.hostname();
 const platform = `${process.platform}-${process.arch}`;
 let workerUrl = "";
 let AUTH = {};
+let reasonNetworkEnabled = false;
+let reasonNetworkExecutablePath = "";
+let reasonNetworkExecutableReady = false;
 let machineId = "";
 let harnesses = [];
 let activeRunId;
 let activeHarnessChild;
 let heldClaim;
+let stopActiveExecution;
+let terminationFailure;
+let onTerminationFailure;
 const groupedChildren = new WeakSet();
+const ownedChildren = new Set();
+const childTerminations = new WeakMap();
+
+function unconfirmedTermination(detail) {
+  terminationFailure ??= new Error(`Local process termination unconfirmed (${detail}); child processes may still be running. Stop them before restarting the daemon.`);
+  console.error(`shiba-local: ${terminationFailure.message}`);
+  onTerminationFailure?.(terminationFailure);
+}
 
 /** Signal only a group that this daemon explicitly created for this child. */
 function signalOwnedChild(child, signal) {
   if (!child) return;
-  if (groupedChildren.has(child) && Number.isInteger(child.pid) && child.pid > 1 && child.pid !== process.pid) {
-    try { process.kill(-child.pid, signal); } catch (error) { if (error.code !== "ESRCH") throw error; }
-  } else {
-    child.kill(signal);
+  try {
+    if (groupedChildren.has(child) && Number.isInteger(child.pid) && child.pid > 1 && child.pid !== process.pid) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch (error) {
+    if (error.code === "ESRCH") return;
+    unconfirmedTermination(`${signal}: ${error.code ?? "signal failed"}`);
+    return false;
   }
 }
 
 function terminateOwnedChild(child) {
-  signalOwnedChild(child, "SIGTERM");
-  const escalation = setTimeout(() => signalOwnedChild(child, "SIGKILL"), 1500);
-  escalation.unref();
-  child.once("close", () => clearTimeout(escalation));
+  // One termination owns escalation when deadline and command timeout coincide.
+  if (childTerminations.has(child)) return childTerminations.get(child);
+  const termination = new Promise((resolve) => {
+    const escalation = setTimeout(() => signalOwnedChild(child, "SIGKILL"), 1500);
+    const confirmation = setTimeout(() => {
+      if (!terminationFailure) unconfirmedTermination("SIGKILL: exit not observed");
+      resolve(false);
+    }, 1700);
+    child.once("close", () => {
+      clearTimeout(escalation);
+      clearTimeout(confirmation);
+      resolve(true);
+    });
+    signalOwnedChild(child, "SIGTERM");
+  });
+  childTerminations.set(child, termination);
+  return termination;
 }
 
 function ownChild(child, detached, execution) {
+  ownedChildren.add(child);
+  child.once("close", () => ownedChildren.delete(child));
   if (detached) {
     groupedChildren.add(child);
     // A CLI must not leave its tools running after its own process exits.
     child.once("exit", () => {
-      signalOwnedChild(child, "SIGKILL");
-      groupedChildren.delete(child);
+      if (signalOwnedChild(child, "SIGKILL") !== false) groupedChildren.delete(child);
     });
   }
   if (execution) {
@@ -138,16 +213,140 @@ function ownChild(child, detached, execution) {
 async function post(sub, body) {
   const res = await fetch(`${workerUrl}/api/local/${sub}`, {
     method: "POST",
+    redirect: "manual",
     headers: { ...AUTH, "content-type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
   const text = await res.text();
-  if (!res.ok)
+  return parseLocalApiResponse(sub, res, text);
+}
+
+async function get(sub) {
+  const res = await fetch(`${workerUrl}/api/local/${sub}`, { headers: AUTH, redirect: "manual", signal: AbortSignal.timeout(10_000) });
+  const text = await res.text();
+  return parseLocalApiResponse(sub, res, text);
+}
+
+function looksLikeHtml(text) {
+  const sample = text.trimStart().slice(0, 256).toLowerCase();
+  return sample.startsWith("<!doctype") || sample.startsWith("<html") || (sample.startsWith("<") && sample.includes("cloudflare access"));
+}
+
+/** Turn Worker responses into JSON or operator-actionable errors (Access HTML, runtime off). */
+function parseLocalApiResponse(sub, res, text) {
+  if (res.status >= 300 && res.status < 400) {
+    throw Object.assign(new Error(`${sub}: HTTP ${res.status} redirected instead of JSON — check the Cloudflare Access bypass for ${workerUrl}/api/local/*. Credentials were not forwarded.`), { status: res.status, accessHtml: true });
+  }
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw Object.assign(
+        new Error(
+          `${sub}: local runtime is not enabled on this deployment — set SHIBA_LOCAL_RUNTIME=1, bind LocalDispatch, and configure PAIRING_SECRET or LOCAL_ADAPTER_TOKEN.`,
+        ),
+        { status: res.status, runtimeOff: true },
+      );
+    }
+    if (looksLikeHtml(text)) {
+      throw Object.assign(
+        new Error(
+          `${sub}: got an HTML login page instead of JSON — bypass Cloudflare Access (or similar) for ${workerUrl}/api/local/* before pairing or claiming runs.`,
+        ),
+        { status: res.status, accessHtml: true },
+      );
+    }
     throw Object.assign(new Error(`${sub}: HTTP ${res.status} ${text.slice(0, 300)}`), {
       status: res.status,
     });
-  return text === "" ? {} : JSON.parse(text);
+  }
+  if (text === "") return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    if (looksLikeHtml(text)) {
+      throw Object.assign(new Error(`${sub}: got an HTML login page instead of JSON — bypass Cloudflare Access for ${workerUrl}/api/local/*.`), { status: res.status, accessHtml: true });
+    }
+    throw Object.assign(
+      new Error(`${sub}: response was not JSON (${text.slice(0, 120)}…)`),
+      { status: res.status, badJson: true },
+    );
+  }
+}
+
+function rethrowLocalApiError(error, context) {
+  if (error?.runtimeOff) fail(error.message, EXIT_RUNTIME_OFF);
+  if (error?.accessHtml) fail(error.message, EXIT_ACCESS);
+  if (context === "pair" && error?.status === 401) {
+    fail("pairing token expired, reused, or invalid — mint a new one in Remote Access.", EXIT_PAIR_TOKEN);
+  }
+  if (context === "pair") fail(`pairing failed: ${error instanceof Error ? error.message : String(error)}`);
+  if (error instanceof Error) throw error;
+  throw new Error(String(error));
+}
+
+/** Validate the local opt-in before pairing or heartbeat, and refresh it to withdraw stale capability. */
+async function refreshReasonNetworkCapability({ strict = false } = {}) {
+  reasonNetworkEnabled = process.env.SHIBA_REASON_NETWORK_COMPANION === "1";
+  reasonNetworkExecutablePath = process.env.SHIBA_REASON_NETWORK_EXECUTABLE ?? "";
+  reasonNetworkExecutableReady = false;
+  if (!reasonNetworkEnabled) return false;
+  if (process.env.LOCAL_ADAPTER_TOKEN)
+    return strict ? fail("Reason Network companion requires a paired per-machine daemon credential; deployment-wide LOCAL_ADAPTER_TOKEN mode cannot claim scoped Reason operations.") : false;
+  if (!reasonNetworkExecutablePath.startsWith("/"))
+    return strict ? fail("Set SHIBA_REASON_NETWORK_EXECUTABLE to the absolute path of an already-installed reason-network binary; Shiba will not install it.") : false;
+  try {
+    const executable = await fs.stat(reasonNetworkExecutablePath);
+    if (!executable.isFile() || (process.platform !== "win32" && (executable.mode & 0o111) === 0))
+      return strict ? fail("SHIBA_REASON_NETWORK_EXECUTABLE must point to an executable regular file.") : false;
+    reasonNetworkExecutableReady = true;
+  } catch (error) {
+    if (strict) {
+      if (error?.code === "ENOENT" || error?.code === "EACCES") fail("SHIBA_REASON_NETWORK_EXECUTABLE must point to an existing executable; Shiba will not install it.");
+      throw error;
+    }
+  }
+  return reasonNetworkExecutableReady;
+}
+
+/** Only an explicitly enabled daemon may spawn the already-installed Reason MCP executable. */
+async function sendReasonNetworkMessage(operation, onSendAttempt) {
+  const executablePath = process.env.SHIBA_REASON_NETWORK_EXECUTABLE ?? "";
+  if (!executablePath.startsWith("/")) throw new Error("SHIBA_REASON_NETWORK_EXECUTABLE must be an absolute path to the user-installed reason-network binary.");
+  return createReasonNetworkCompanion({
+    connect: () => connectReasonNetworkStdio({ executablePath, onSendAttempt }),
+    // MCP initialization and tools/list can take time. Revalidate the claim only
+    // after setup, immediately before the outbound send call.
+    beforeSend: async (claimedOperation) => {
+      const current = await get(`reason-network/v1/operations/${encodeURIComponent(claimedOperation.operationId)}`);
+      if (current.state === "unknown") return "expired";
+      return current.state === "claimed" && current.cancelRequested !== true && current.sendAllowed === true;
+    },
+  })(operation);
+}
+
+async function processReasonNetworkClaim(claim) {
+  const operation = claim.operation;
+  if (!operation) return false;
+  const settle = async (state, messageId) => post("reason-network/v1/result", { operationId: operation.operationId, claimToken: operation.claimToken, state, ...(messageId ? { messageId } : {}) });
+  let attempted = false;
+  try {
+    const current = await get(`reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`);
+    if (current.state === "unknown") return true;
+    if (current.state !== "claimed" || current.cancelRequested || current.sendAllowed !== true) { await settle("cancelled"); return true; }
+    // Close the grant-revocation/cancellation window as far as the protocol allows.
+    const latest = await get(`reason-network/v1/operations/${encodeURIComponent(operation.operationId)}`);
+    if (latest.state === "unknown") return true;
+    if (latest.state !== "claimed" || latest.cancelRequested || latest.sendAllowed !== true) { await settle("cancelled"); return true; }
+    const result = await sendReasonNetworkMessage(operation, () => { attempted = true; });
+    if (result.state === "expired") return true;
+    await settle(result.state, result.messageId);
+  } catch (error) {
+    // Only the send_message RPC write can make delivery uncertain, not connection or discovery.
+    console.error(`shiba-local: Reason Network operation ${operation.operationId} ${attempted ? "outcome is unknown" : "was not sent"}: ${error.message}`);
+    if (error.status === 401) revoked();
+    await settle(attempted ? "unknown" : "rejected").catch(() => {});
+  }
+  return true;
 }
 
 // ── Signal receipts — same shape the sandbox adapter emits ──────────────
@@ -325,7 +524,7 @@ function childEnvironment(harness) {
 function runProcess(argv, opts = {}) {
   const execution = opts.execution;
   if (execution && Date.now() >= execution.deadlineAt) execution.stop("Local run deadline exceeded.");
-  if (stopping || execution?.signal.aborted || execution?.finished()) {
+  if (stopping || terminationFailure || execution?.signal.aborted || execution?.finished()) {
     return Promise.resolve({ stdout: "", stderr: "Local execution was stopped before spawning a command.", exitCode: -2, timedOut: true });
   }
   return new Promise((resolve) => {
@@ -401,7 +600,7 @@ function errorResult(summary, exitCode = -1) {
   return {
     status: "error",
     exitCode,
-    summary: boundTail(summary, 16_384),
+    summary: boundTail(terminationFailure ? `${summary} ${terminationFailure.message}` : summary, 16_384),
     stderrTail: "",
     changedFiles: [],
     diff: "",
@@ -423,12 +622,14 @@ async function collectResult(envelope, root, execution) {
     return { error: `git status failed: ${status.stderr.slice(0, 500)}` };
   }
   const changedFiles = [];
+  const deletedFiles = new Set();
   for (const line of status.stdout.split("\n")) {
     if (line.trim() === "") continue;
     const spec = line.slice(3).trim();
     // rename lines read "old -> new"; the new path is what the PR writes.
     const filePath = spec.includes(" -> ") ? spec.split(" -> ").pop().trim() : spec;
     changedFiles.push(filePath);
+    if (line.slice(0, 2).includes("D")) deletedFiles.add(filePath);
     if (changedFiles.length >= 500) break;
   }
   // Stage everything (this workspace is disposable) so the diff covers
@@ -441,20 +642,19 @@ async function collectResult(envelope, root, execution) {
   const remainingFiles = changedFiles.filter((filePath) => !requestedPaths.has(filePath))
     .slice(0, Math.max(0, MAX_CAPTURED_FILES - files.length));
   for (const filePath of remainingFiles) {
-    const absolute = path.join(cloneDir, filePath);
+    if (deletedFiles.has(filePath)) {
+      files.push({ path: filePath, content: null, encoding: "utf8" });
+      continue;
+    }
     try {
-      const stat = await fs.stat(absolute);
-      if (!stat.isFile()) continue;
-      if (stat.size > MAX_FILE_CHARS * 2) {
-        files.push({ path: filePath, content: null, encoding: "utf8" });
-        continue;
-      }
-      const content = await fs.readFile(absolute, "utf8");
+      const content = await readContainedChangedFile(cloneDir, filePath, {
+        maxBytes: MAX_FILE_CHARS * 2,
+      });
       if (totalChars + content.length > MAX_TOTAL_FILE_CHARS) break;
       totalChars += content.length;
       files.push({ path: filePath, content, encoding: "utf8" });
-    } catch {
-      files.push({ path: filePath, content: null, encoding: "utf8" });
+    } catch (error) {
+      return { error: `Changed file ${filePath} could not be captured: ${error.message}` };
     }
   }
   return { changedFiles, diff: boundTail(diff.stdout, 2_000_000), files };
@@ -486,6 +686,7 @@ async function execute(envelope, claimToken) {
     stopReason = reason;
     abortController.abort();
   };
+  stopActiveExecution = stopExecution;
   const execution = { signal: abortController.signal, deadlineAt: envelope.deadlineAt,
     stop: stopExecution, finished: () => executionFinished };
   const stopped = () => {
@@ -595,6 +796,7 @@ async function execute(envelope, claimToken) {
       const texts = [];
       const session = envelope.session;
       const outcome = await runSessionJob({
+        signal: execution.signal,
         provider: session.provider,
         model: session.model,
         ...(session.reasoningEffort ? { reasoningEffort: session.reasoningEffort } : {}),
@@ -754,6 +956,8 @@ async function execute(envelope, claimToken) {
     abortController.abort();
     clearInterval(controlTimer);
     clearTimeout(deadlineTimer);
+    await Promise.all([...ownedChildren].map(terminateOwnedChild));
+    stopActiveExecution = undefined;
     await releaseLease(envelope.sandboxId);
   }
 }
@@ -793,8 +997,19 @@ async function localMachineId() {
   return id;
 }
 
+function deploymentOrigin(value) {
+  let url;
+  try { url = new URL(value); } catch { fail("Worker URL must be an HTTPS origin (HTTP loopback is allowed for local development)."); }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
+      url.username || url.password || url.search || url.hash || /[^/]/.test(url.pathname)) {
+    fail("Worker URL must be an HTTPS origin (HTTP loopback is allowed for local development).");
+  }
+  return url.origin;
+}
+
 async function pair(url, pairingToken) {
-  workerUrl = url.replace(/\/+$/, "");
+  workerUrl = deploymentOrigin(url);
   let paired;
   try {
     paired = await post("pair", {
@@ -805,11 +1020,7 @@ async function pair(url, pairingToken) {
       harnesses,
     });
   } catch (error) {
-    fail(
-      error.status === 401
-        ? "pairing token expired, reused, or invalid — mint a new one in Remote Access."
-        : `pairing failed: ${error.message}`,
-    );
+    rethrowLocalApiError(error, "pair");
   }
   await writeConfig({ workerUrl, adapterToken: paired.adapterToken, machineId: paired.machineId });
   console.log(`shiba-local: paired as ${paired.machineId}; saved ${configPath}`);
@@ -822,6 +1033,7 @@ function revoked() {
 }
 
 async function heartbeat() {
+  await refreshReasonNetworkCapability();
   try {
     await post("heartbeat", {
       machineId,
@@ -829,12 +1041,15 @@ async function heartbeat() {
       platform,
       daemonVersion: DAEMON_VERSION,
       harnesses,
+      reasonNetworkCompanion: reasonNetworkExecutableReady,
       ...(activeRunId ? { activeRunId } : {}),
     });
     report({ state: "heartbeat", ok: true });
   } catch (error) {
     report({ state: "heartbeat", ok: false });
     if (error.status === 401) revoked();
+    if (error.accessHtml) fail(error.message, EXIT_ACCESS);
+    if (error.runtimeOff) fail(error.message, EXIT_RUNTIME_OFF);
     // Network blips are expected; the next tick retries.
     console.error(`shiba-local: heartbeat failed: ${error.message}`);
   }
@@ -867,18 +1082,29 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   await acquireLock();
   harnesses = probeHarnesses();
+  await refreshReasonNetworkCapability({ strict: process.env.SHIBA_REASON_NETWORK_COMPANION === "1" });
   if (args.connect) await pair(args.connect, args.pair);
   // Env vars win so the pre-pairing deployment-bearer setup keeps working unchanged.
   const config = await readConfig();
-  workerUrl = (process.env.SHIBA_WORKER_URL ?? config.workerUrl ?? "").replace(/\/+$/, "");
+  const configuredUrl = process.env.SHIBA_WORKER_URL ?? config.workerUrl ?? "";
+  workerUrl = configuredUrl ? deploymentOrigin(configuredUrl) : "";
   const adapterToken = process.env.LOCAL_ADAPTER_TOKEN ?? config.adapterToken ?? "";
+  // A saved machine credential belongs only to the deployment that issued it.
+  if (!process.env.LOCAL_ADAPTER_TOKEN && config.adapterToken &&
+      (!config.workerUrl || deploymentOrigin(config.workerUrl) !== workerUrl)) {
+    fail("Saved pairing belongs to another Worker URL; re-pair or provide LOCAL_ADAPTER_TOKEN explicitly.");
+  }
+  if (reasonNetworkEnabled && !config.machineId)
+    fail("Reason Network companion requires the paired per-machine daemon credential saved by Remote Access.");
   if (workerUrl === "")
     fail(
       "SHIBA_WORKER_URL is required (e.g. https://shiba.example.com), or pair with --connect/--pair.",
+      EXIT_USAGE,
     );
   if (adapterToken === "")
     fail(
       "LOCAL_ADAPTER_TOKEN is required — the deployment's daemon bearer — or pair with --connect/--pair.",
+      EXIT_USAGE,
     );
   AUTH = { Authorization: `Bearer ${adapterToken}` };
   machineId =
@@ -892,11 +1118,28 @@ async function main() {
   for (;;) {
     // gracefulStop owns settlement once stopping; never claim a run it will abandon.
     if (stopping) return new Promise(() => {});
+    if (reasonNetworkEnabled) await refreshReasonNetworkCapability();
+    if (reasonNetworkEnabled && reasonNetworkExecutableReady) {
+      try {
+        const reasonClaim = await post("reason-network/v1/claim", {});
+        if (reasonClaim.operation) {
+          await processReasonNetworkClaim(reasonClaim);
+          if (args.once) process.exit(0);
+          continue;
+        }
+      } catch (error) {
+        if (error.status === 401) revoked();
+        console.error(`shiba-local: Reason Network companion poll failed: ${error.message}`);
+        if (args.once) process.exit(1);
+      }
+    }
     let claim;
     try {
       claim = await post("claim", { operator });
     } catch (error) {
       if (error.status === 401) revoked();
+      if (error.accessHtml) fail(error.message, EXIT_ACCESS);
+      if (error.runtimeOff) fail(error.message, EXIT_RUNTIME_OFF);
       console.error(`shiba-local: claim failed: ${error.message}`);
       if (args.once) process.exit(1);
       await new Promise((r) => setTimeout(r, Math.min(args.pollMs * 4, 30_000)));
@@ -926,13 +1169,14 @@ async function main() {
     let result;
     activeRunId = envelope.sandboxId;
     heldClaim = { sandboxId: envelope.sandboxId, claimToken: claim.claimToken };
+    const failedTermination = new Promise((_, reject) => { onTerminationFailure = reject; });
     try {
-      result = await execute(envelope, claim.claimToken);
+      result = await Promise.race([execute(envelope, claim.claimToken), failedTermination]);
     } catch (error) {
-      result = errorResult(
-        `daemon error: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      result = errorResult(terminationFailure ? "Local execution failed." :
+        `daemon error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
+      onTerminationFailure = undefined;
       activeRunId = undefined;
     }
     if (stopping) return new Promise(() => {});
@@ -962,6 +1206,8 @@ async function main() {
       // The DO holds the claim stale-window; the record reaps at 45min.
     }
     heldClaim = undefined;
+    // Termination is unknown: report the error, then refuse all further claims.
+    if (terminationFailure) process.exit(EXIT_TERMINATION_UNKNOWN);
     if (args.once) process.exit(result.status === "completed" ? 0 : 1);
   }
 }
@@ -976,9 +1222,10 @@ let stopping = false;
 async function gracefulStop(code) {
   if (stopping) return;
   stopping = true;
+  stopActiveExecution?.("daemon stopped");
   const held = heldClaim;
   if (held === undefined) process.exit(code);
-  signalOwnedChild(activeHarnessChild, "SIGTERM");
+  await Promise.all([...ownedChildren].map(terminateOwnedChild));
   try {
     await Promise.race([
       post("result", {
@@ -992,8 +1239,7 @@ async function gracefulStop(code) {
     ]);
   } catch {}
   await releaseLease(held.sandboxId).catch(() => {});
-  if (activeHarnessChild?.exitCode === null) signalOwnedChild(activeHarnessChild, "SIGKILL");
-  process.exit(code);
+  process.exit(terminationFailure ? EXIT_TERMINATION_UNKNOWN : code);
 }
 process.on("SIGINT", () => void gracefulStop(130));
 process.on("SIGTERM", () => void gracefulStop(143));

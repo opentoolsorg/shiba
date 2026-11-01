@@ -30,6 +30,8 @@ settings:
     request_url: https://YOUR-WORKER.workers.dev/api/slack/events
     bot_events:
       - app_mention
+      - message.channels
+      - message.groups
       - message.im
   interactivity:
     is_enabled: true

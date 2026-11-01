@@ -49,14 +49,14 @@ import { createRun } from "../src/runs.js";
 
 class FakeD1 {
   readonly rows: unknown[][] = [];
-  prepare(_sql: string) {
+  prepare(sql: string) {
     const rows = this.rows;
     return {
-      run: async () => ({ success: true }),
+      run: async () => ({ success: true, meta: { changes: 1 } }),
       bind: (...params: unknown[]) => ({
         run: async () => {
-          rows.push(params);
-          return { success: true };
+          if (sql.startsWith("INSERT INTO audit_log")) rows.push(params);
+          return { success: true, meta: { changes: 1 } };
         },
       }),
     };
@@ -133,7 +133,7 @@ describe("registerRunTools", () => {
 
     const listed = await registry.invoke("list_approvals", {}, agent);
     expect((data(listed).approvals as Array<{ approvalId: string }>).map((a) => a.approvalId)).toEqual([approvalId]);
-    expect(outcomes()).toEqual(["queue_run:ok", "list_approvals:ok"]);
+    expect(outcomes()).toEqual(["queue_run:pending_approval", "list_approvals:ok"]);
   });
 
   it("refuses a token without sandbox:exec before reaching the orchestrator", async () => {

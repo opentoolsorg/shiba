@@ -1,4 +1,5 @@
 import { useEffect, useMemo, type JSX } from "react";
+import { redactSecrets } from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
 import { useSpine, type OutboxEntryWire, type SpineEventWire } from "../live-status";
 import { documentVisibilityPause } from "../polling";
@@ -47,6 +48,7 @@ export function ActivityView({
 
   const events = state.kind === "data" ? state.data.events : [];
   const outbox = state.kind === "data" ? state.data.outbox : [];
+  const executionBudget = state.kind === "data" ? state.data.executionBudget : undefined;
   // Bounded (≤ MAX_SPINE_EVENTS) but still worth memoizing: every render used
   // to re-allocate a sorted copy and re-filter the outbox.
   const sortedEvents = useMemo(
@@ -85,6 +87,30 @@ export function ActivityView({
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-5xl mx-auto grid gap-4 lg:grid-cols-[1fr_320px]">
+          <section aria-label="Execution limits and usage" className="lg:col-span-2 border border-[var(--border-1)] bg-[var(--card)] px-4 py-3">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <div className="text-xs font-semibold text-[var(--fg)]">Execution limits</div>
+              {executionBudget?.dailyLimitUsd !== undefined ? (
+                <div className="text-xs text-[var(--fg)] tabular-nums">
+                  ${executionBudget.spentUsd.toFixed(4)} / ${executionBudget.dailyLimitUsd.toFixed(2)} daily reported cost
+                  <span className={`ml-2 text-[10px] font-semibold uppercase ${executionBudget.dispatchAvailable ? "text-[var(--success)]" : "text-[var(--destructive)]"}`}>
+                    {executionBudget.limitReached ? "daily cap reached" : executionBudget.dispatchAvailable ? "new runs allowed" : "concurrency full"}
+                  </span>
+                </div>
+              ) : (
+                <div className="text-xs text-[var(--muted-foreground-2)]">No daily cost limit is configured.</div>
+              )}
+              <div className="text-[10px] text-[var(--muted-foreground-2)]">
+                {executionBudget ? `${executionBudget.reportedRuns} ${executionBudget.reportedRuns === 1 ? "run" : "runs"} reported cost · ${executionBudget.unreportedRuns} ${executionBudget.unreportedRuns === 1 ? "run has" : "runs have"} no cost report` : "Usage unavailable"}
+              </div>
+              {executionBudget ? (
+                <div className="text-[10px] tabular-nums text-[var(--muted-foreground-2)]">{executionBudget.activeRuns} / {executionBudget.maxConcurrentRuns} active tasks</div>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">
+              Costs are harness-reported and may be incomplete. A configured daily limit blocks new dispatches at the limit; it does not stop active tasks. Cancel fences the run and signals its executor; if the executor cannot confirm its final state, the outcome remains unknown.
+            </p>
+          </section>
           <section
             aria-label="Event log"
             className="border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)]"
@@ -150,7 +176,7 @@ function eventSummary(event: SpineEventWire): string {
   if (typeof p.summary === "string") return p.summary;
   if (typeof p.status === "string") return p.status;
   if (typeof p.target === "string") return `${p.effectKind ?? "effect"} → ${p.target}`;
-  if (typeof p.error === "string") return p.error;
+  if (typeof p.error === "string") return redactSecrets(p.error).slice(0, 500);
   if (typeof p.result === "string") return p.result;
   if (p.forkedFrom && typeof p.forkedFrom === "object") {
     const f = p.forkedFrom as Record<string, unknown>;
@@ -218,7 +244,7 @@ function OutboxRow({ entry }: { entry: OutboxEntryWire }): JSX.Element {
         {entry.summary ? ` — ${entry.summary}` : ""}
       </div>
       {entry.lastError ? (
-        <div className="text-[10px] text-[var(--destructive)] truncate">{entry.lastError}</div>
+        <div className="text-[10px] text-[var(--destructive)] truncate">{redactSecrets(entry.lastError).slice(0, 500)}</div>
       ) : null}
     </li>
   );

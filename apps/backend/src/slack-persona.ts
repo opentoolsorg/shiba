@@ -68,8 +68,13 @@ export function slackAskForTask(): string {
  * Ack a queued task. The approval card below it carries the exact input;
  * this line is just the coworker "on it".
  */
-export function slackAck(input: { repoUrl: string; harness?: string }): string {
-  return `on it — queued ${agentPhrase(input.harness)} run for ${shortRepoName(input.repoUrl)}. tap approve and i'll start.`;
+export function slackAck(input: { repoUrl?: string; harness?: string; employeeLabel?: string }): string {
+  const target = input.employeeLabel
+    ? input.employeeLabel
+    : input.repoUrl
+      ? shortRepoName(input.repoUrl)
+      : "this workspace task";
+  return `on it — queued ${agentPhrase(input.harness)} run for ${target}. tap approve and i'll start.`;
 }
 
 /** Queueing itself failed before any run existed. */

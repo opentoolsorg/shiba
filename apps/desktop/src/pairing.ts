@@ -167,9 +167,16 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
       return { ok: false, error: "Invalid pairing token." };
     }
     return singleFlight(connectionChange, async () => {
+      const local = deps.readLocalConfig();
+      const savedOrigin = local?.workerUrl ? originOf(local.workerUrl) : undefined;
       const status = deps.supervisor.status();
-      if (status.state === "paired-elsewhere") {
-        const confirmed = await deps.confirmPairElsewhere(status.pairedTo);
+      const replacingOtherDeployment =
+        status.state === "paired-elsewhere" ||
+        (savedOrigin !== undefined && savedOrigin !== origin);
+      if (replacingOtherDeployment) {
+        const pairedTo =
+          status.state === "paired-elsewhere" ? status.pairedTo : savedOrigin;
+        const confirmed = await deps.confirmPairElsewhere(pairedTo);
         if (!confirmed) return { ok: false, error: "Pairing cancelled." };
       }
       // Read before stop(): stopping resets the live status and drops machineId.
@@ -178,7 +185,11 @@ export function registerDesktopIpc(deps: DesktopIpcDeps): { unpair(): Promise<Pa
       const child = deps.supervisor.forkDaemon(["--connect", origin, "--pair", token]);
       const result = await waitForPair(child, deps.pairTimeoutMs ?? PAIR_TIMEOUT_MS);
       // Only after the new pairing lands: a failed re-pair must not leave the old token revoked.
-      if (result.ok) await revokeStaleMachine(origin, staleId);
+      if (result.ok) {
+        await revokeStaleMachine(origin, staleId);
+        // Re-read config and refresh tray/bridge status if the polling message raced IPC return.
+        void deps.supervisor.probe?.();
+      }
       return result;
     });
   });

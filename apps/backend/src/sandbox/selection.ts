@@ -4,6 +4,8 @@ import { getOrgSandboxProvider, type OrgSandboxSettings } from "../org-sandbox-s
 
 export interface SandboxSelectionContext {
   orgId?: string;
+  initiatorUserId?: string;
+  gatewayByokAlias?: string;
   /** Per-task override (composer / API body). */
   taskProviderId?: string;
   /** Resolved custom agent sandbox provider. */

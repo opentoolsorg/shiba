@@ -1,3 +1,4 @@
+import { onboardingRunFields, type OnboardingRunFields } from "./onboarding.js";
 /**
  * Pure run-lifecycle decider (PLAN.md §18.1, T40). Transition legality is a
  * pure function of the run record, the approval pointer, and the command —
@@ -19,7 +20,9 @@
  */
 import type { ApprovalEvidence, PendingApproval, RunInputFields } from "./approvals.js";
 import { runInputHash } from "./approvals.js";
+import type { SkillExecutionPin } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
+import type { ExecutionTarget } from "./execution-target.js";
 import type { ApprovedRoute } from "./model.js";
 import { MAX_RECEIPTS } from "./receipts.js";
 import type { Receipt, ReceiptKind } from "./receipts.js";
@@ -29,9 +32,10 @@ import type { DelegatedRun, ForkLineage, RunPatch } from "./runs.js";
 import { isActiveStatus, isTerminalStatus, normalizeRun } from "./runs.js";
 
 /** The creation payload a `queue` command carries — createRun's args. */
-export interface QueuedRunInput {
+export interface QueuedRunInput extends OnboardingRunFields {
   sandboxId: string;
   repoUrl: string;
+  executionTarget?: ExecutionTarget;
   task: string;
   baseBranch: string;
   publishPullRequest: boolean;
@@ -42,7 +46,10 @@ export interface QueuedRunInput {
   orgId?: string;
   sandboxProvider?: string;
   customAgentId?: string;
+  collaborationHandoffId?: string;
   customAgentVersion?: number;
+  employeeToolPolicyVersion?: number;
+  skillPins?: SkillExecutionPin[];
   route?: ApprovedRoute;
   /**
    * T48: this run's harness continuation identity (e.g. `claude:home:<dir>`).
@@ -150,7 +157,9 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
   return (
     evidence.inputHash ===
     runInputHash({
+      ...onboardingRunFields(run),
       repoUrl: run.repoUrl,
+      ...(run.executionTarget !== undefined ? { executionTarget: run.executionTarget } : {}),
       task: run.task,
       baseBranch: run.baseBranch,
       publishPullRequest: run.publishPullRequest,
@@ -173,7 +182,10 @@ function hashMatchesRun(evidence: ApprovalEvidence, run: RunInputFields): boolea
       ...(run.runSetup === true ? { runSetup: true } : {}),
       ...(run.sandboxProvider !== undefined ? { sandboxProvider: run.sandboxProvider } : {}),
       ...(run.customAgentId !== undefined ? { customAgentId: run.customAgentId } : {}),
+      ...(run.collaborationHandoffId !== undefined ? { collaborationHandoffId: run.collaborationHandoffId } : {}),
       ...(run.customAgentVersion !== undefined ? { customAgentVersion: run.customAgentVersion } : {}),
+      ...(run.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: run.employeeToolPolicyVersion } : {}),
+      ...(run.skillPins !== undefined ? { skillPins: run.skillPins } : {}),
     })
   );
 }
@@ -215,7 +227,9 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
         const queued: DelegatedRun = {
           runId: command.runId,
           sandboxId: command.input.sandboxId,
+          ...onboardingRunFields(command.input),
           repoUrl: command.input.repoUrl,
+          ...(command.input.executionTarget !== undefined ? { executionTarget: command.input.executionTarget } : {}),
           task: command.input.task,
           baseBranch: command.input.baseBranch,
           publishPullRequest: command.input.publishPullRequest,
@@ -226,7 +240,10 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           ...(command.input.orgId !== undefined ? { orgId: command.input.orgId } : {}),
           ...(command.input.sandboxProvider !== undefined ? { sandboxProvider: command.input.sandboxProvider } : {}),
           ...(command.input.customAgentId !== undefined ? { customAgentId: command.input.customAgentId } : {}),
+          ...(command.input.collaborationHandoffId !== undefined ? { collaborationHandoffId: command.input.collaborationHandoffId } : {}),
           ...(command.input.customAgentVersion !== undefined ? { customAgentVersion: command.input.customAgentVersion } : {}),
+          ...(command.input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: command.input.employeeToolPolicyVersion } : {}),
+          ...(command.input.skillPins !== undefined ? { skillPins: command.input.skillPins.map((pin) => ({ ...pin })) } : {}),
           ...(command.input.route !== undefined ? { route: command.input.route } : {}),
           ...(command.input.continuationKey !== undefined ? { continuationKey: command.input.continuationKey } : {}),
           ...(command.input.authAccount !== undefined ? { authAccount: command.input.authAccount } : {}),
@@ -274,6 +291,7 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
         const sameInput =
           run.sandboxId === command.input.sandboxId &&
           run.repoUrl === command.input.repoUrl &&
+          JSON.stringify(run.executionTarget) === JSON.stringify(command.input.executionTarget) &&
           run.task === command.input.task &&
           run.baseBranch === command.input.baseBranch &&
           run.publishPullRequest === command.input.publishPullRequest &&
@@ -284,7 +302,11 @@ export function decideRunTransition(state: RunMachineState, command: RunCommand)
           run.orgId === command.input.orgId &&
           run.sandboxProvider === command.input.sandboxProvider &&
           run.customAgentId === command.input.customAgentId &&
+          run.collaborationHandoffId === command.input.collaborationHandoffId &&
           run.customAgentVersion === command.input.customAgentVersion &&
+          run.employeeToolPolicyVersion === command.input.employeeToolPolicyVersion &&
+          JSON.stringify(onboardingRunFields(run)) === JSON.stringify(onboardingRunFields(command.input)) &&
+          JSON.stringify(run.skillPins ?? []) === JSON.stringify(command.input.skillPins ?? []) &&
           sameRoute &&
           run.continuationKey === command.input.continuationKey &&
           (command.input.continuesKey === undefined ||
@@ -464,7 +486,14 @@ function applyPatch(run: DelegatedRun, patch: RunPatch | undefined): void {
   if (patch.errorCode !== undefined) run.errorCode = patch.errorCode;
   if (patch.diff !== undefined) run.diff = patch.diff;
   if (patch.deliverables !== undefined) {
-    run.deliverables = patch.deliverables.map(({ path, mediaType, bytes, sha256 }) => ({ path, mediaType, bytes, sha256 }));
+    run.deliverables = patch.deliverables.map((item) => ({
+      path: item.path, mediaType: item.mediaType, bytes: item.bytes, sha256: item.sha256,
+      ...(item.artifactId ? { artifactId: item.artifactId } : {}),
+      ...(item.version ? { version: item.version } : {}),
+      ...(item.sourceRunId ? { sourceRunId: item.sourceRunId } : {}),
+      ...(item.provenance ? { provenance: structuredClone(item.provenance) } : {}),
+      ...(item.review ? { review: structuredClone(item.review) } : {}),
+    }));
   }
   if (patch.pullUrl !== undefined) run.pullUrl = patch.pullUrl;
   if (patch.screenshotUrl !== undefined) run.screenshotUrl = patch.screenshotUrl;

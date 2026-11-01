@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenCodeAgent } from "../src/agents/opencode-agent.js";
+import { sealChildDispatch } from "../src/child-dispatch.js";
 import { formatAgentToolInput, parseAgentResultText, type CodingTaskInput } from "../src/opencode-input.js";
 
 const mocks = vi.hoisted(() => ({ run: vi.fn(), publish: vi.fn(), sandbox: vi.fn(), progress: vi.fn() }));
@@ -88,7 +89,17 @@ describe("verify stand-in agent safety", () => {
     mocks.run.mockResolvedValue({
       status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: "real",
     });
-    const { result } = await run(agent({ ...INPUT, publishPullRequest: false }, { GITHUB_TOKEN: "t" }));
+    const dispatchKey = "fe".repeat(32);
+    const input = {
+      ...INPUT,
+      publishPullRequest: false,
+      ...(await sealChildDispatch({ MODEL_CREDENTIAL_KEY: dispatchKey }, {
+        approvalId: "agent-tool:test",
+        sandboxId: INPUT.sandboxId,
+        inputHash: "a".repeat(64),
+      })),
+    };
+    const { result } = await run(agent(input, { GITHUB_TOKEN: "t", MODEL_CREDENTIAL_KEY: dispatchKey }));
     expect(result.summary).toBe("real");
     expect(mocks.run).toHaveBeenCalledTimes(1);
   });

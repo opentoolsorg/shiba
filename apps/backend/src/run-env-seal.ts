@@ -118,12 +118,18 @@ export function guardRunEnvLeak(result: CodingTaskResult, values: Record<string,
       ? { signals: result.signals.map((s) => (s.detail !== undefined ? { ...s, detail: scrub(s.detail) } : s)) }
       : {}),
   };
-  // Text files show up in the diff's added lines; binary files only through their content.
+  // Text files show up in the diff's added lines; file bodies catch secrets
+  // when Git attributes suppress textual hunks for valid UTF-8 paths.
   const leaked =
     runEnvDiffLeakName(result.diff, values) ??
     result.files
-      .filter((f) => f.encoding === "base64" && f.content !== null)
-      .map((f) => runEnvLeakName(atob(f.content as string), values))
+      .filter((f) => f.content !== null)
+      .map((f) => {
+        const body =
+          f.encoding === "base64" ? atob(f.content as string) : (f.content as string);
+        // File bodies have no trustworthy per-file baseline: fail closed.
+        return runEnvLeakName(body, values);
+      })
       .find(Boolean);
   if (leaked === undefined) return scrubbed;
   return {

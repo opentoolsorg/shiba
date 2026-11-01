@@ -26,6 +26,9 @@ export interface OutboundConfig {
   outboundByHost: Record<string, OutboundHostRule>;
   /** Org context for per-org credential injection at egress. */
   orgId?: string;
+  initiatorUserId?: string;
+  /** Approved AI Gateway BYOK alias for this run. */
+  gatewayByokAlias?: string;
 }
 
 export const OUTBOUND_CONFIG_KEY = "outbound-config-v1";
@@ -64,5 +67,16 @@ export function loadOutboundConfig(raw: unknown): OutboundConfig {
       ? { ...(raw as OutboundConfig).outboundByHost }
       : defaultOutboundConfig().outboundByHost;
   const orgId = typeof (raw as OutboundConfig).orgId === "string" ? (raw as OutboundConfig).orgId : undefined;
-  return { allowedHosts, outboundByHost, ...(orgId ? { orgId } : {}) };
+  const gatewayByokAlias =
+    typeof (raw as OutboundConfig).gatewayByokAlias === "string"
+      ? (raw as OutboundConfig).gatewayByokAlias
+      : undefined;
+  return {
+    allowedHosts,
+    outboundByHost,
+    ...(orgId ? { orgId } : {}),
+    ...(typeof (raw as OutboundConfig).initiatorUserId === "string"
+      ? { initiatorUserId: (raw as OutboundConfig).initiatorUserId } : {}),
+    ...(gatewayByokAlias ? { gatewayByokAlias } : {}),
+  };
 }

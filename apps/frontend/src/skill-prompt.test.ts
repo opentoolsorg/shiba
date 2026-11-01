@@ -1,23 +1,38 @@
 import { describe, expect, it } from "vitest";
 import { formatSkillInstructions, taskWithSkillInstructions } from "./skill-prompt";
+import type { SavedSkill } from "./saved";
+
+const active = (overrides: Partial<SavedSkill> = {}): SavedSkill => ({
+  id: "skill-a1b2c3",
+  version: 3,
+  status: "active",
+  owned: true,
+  name: "Security",
+  sourceUrl: "https://github.com/example/security",
+  instructions: "Check authorization.\nTest cross-user access.",
+  activeVersion: 3,
+  createdAt: 10,
+  updatedAt: 12,
+  ...overrides,
+});
 
 describe("selected skill instructions", () => {
-  it("includes instruction text and source for every attached skill", () => {
-    const text = formatSkillInstructions([
-      { id: "a", name: "Security", repoUrl: "https://github.com/example/security", notes: "  Check authorization.\nTest cross-user access.  " },
-      { id: "b", name: "Testing", notes: "Run the regression suite." },
-    ]);
-    expect(text).toBe("Skills:\nSkill: Security\nSource: https://github.com/example/security\nInstructions:\nCheck authorization.\nTest cross-user access.\n\nSkill: Testing\nInstructions:\nRun the regression suite.");
+  it("includes an immutable version pin, provenance and reviewed text", () => {
+    expect(formatSkillInstructions([active()])).toBe(
+      "Skills:\nSkill: Security (skill-a1b2c3@3)\nSource: https://github.com/example/security\nReviewed instructions:\nCheck authorization.\nTest cross-user access.",
+    );
   });
 
-  it("keeps bookmark-only skills useful without inventing instructions", () => {
-    expect(formatSkillInstructions([{ id: "a", name: "Review", notes: "   " }])).toBe("Skills:\nSkill: Review");
+  it("formats without source metadata and preserves the selected version", () => {
+    expect(formatSkillInstructions([active({ sourceUrl: undefined, instructions: "Run the tests." })]))
+      .toBe("Skills:\nSkill: Security (skill-a1b2c3@3)\nReviewed instructions:\nRun the tests.");
     expect(formatSkillInstructions([])).toBe("");
   });
 
-  it("freezes instructions into the task sent to both local and cloud coding runs", () => {
-    expect(taskWithSkillInstructions("  Fix login  ", [{ id: "security", name: "Security", notes: "Check the session cookie." }]))
-      .toBe("Fix login\n\nSkills:\nSkill: Security\nInstructions:\nCheck the session cookie.");
+  it("freezes reviewed text into the task sent to execution", () => {
+    expect(taskWithSkillInstructions("  Fix login  ", [active()])).toBe(
+      "Fix login\n\nSkills:\nSkill: Security (skill-a1b2c3@3)\nSource: https://github.com/example/security\nReviewed instructions:\nCheck authorization.\nTest cross-user access.",
+    );
     expect(taskWithSkillInstructions("  Fix login  ", [])).toBe("Fix login");
   });
 });

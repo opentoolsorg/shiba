@@ -49,6 +49,67 @@ describe("TaskComposer", () => {
     expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("lets a user select project context and explicitly apply its employee defaults", () => {
+    const onProjectContextChange = vi.fn();
+    const onApplyProjectDefaults = vi.fn();
+    renderComposer("docked", {
+      task: "Fix launch issue",
+      repoUrl: "https://github.com/example/project",
+      projectContextId: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa",
+      projects: [{ id: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa", name: "Launch", purpose: "Release project", defaultCustomAgentId: "employee-1", defaultHarness: "opencode" }],
+      onProjectContextChange,
+      onApplyProjectDefaults,
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Project context" }), { target: { value: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa" } });
+    expect(onProjectContextChange).toHaveBeenCalledWith("memproj_aaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(onApplyProjectDefaults).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Apply project defaults" }));
+    expect(onApplyProjectDefaults).toHaveBeenCalledWith({ defaultCustomAgentId: "employee-1", defaultHarness: "opencode" });
+  });
+
+  it("allows an artifact-workspace draft without a GitHub repository and keeps connected-app unavailable", () => {
+    renderComposer("docked", {
+      executionTargetKind: "artifact-workspace",
+      onExecutionTargetKindChange: vi.fn(),
+      artifactWorkspaceName: "Quarterly planning",
+      artifactDeliverables: "deliverables/brief.md",
+      task: "Draft a grounded product brief",
+      repoUrl: "",
+    });
+    expect(screen.getByRole("button", { name: "Work in: Artifact workspace" })).toBeTruthy();
+    expect((screen.getByLabelText("Artifact workspace name") as HTMLInputElement).value).toBe("Quarterly planning");
+    expect((screen.getByLabelText("Artifact deliverables") as HTMLTextAreaElement).value).toBe("deliverables/brief.md");
+    expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Work in: Artifact workspace" }));
+    expect(screen.getByText("Unavailable — no permissioned write adapter")).toBeTruthy();
+  });
+
+  it("blocks unsafe artifact output paths before a task can be sent", () => {
+    renderComposer("docked", {
+      executionTargetKind: "artifact-workspace",
+      artifactDeliverables: "../secrets.md",
+      task: "Draft a brief",
+      repoUrl: "",
+    });
+    expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it.each(["", " \n\t"])("blocks sending an artifact task with an empty output list (%j)", (artifactDeliverables) => {
+    const onSubmit = vi.fn();
+    renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables, task: "Draft a brief", repoUrl: "", onSubmit });
+    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("submits valid artifact input with Ctrl+Enter without requiring a repository", () => {
+    const onSubmit = vi.fn();
+    renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables: "reports/brief.md", task: "Draft a brief", repoUrl: "", onSubmit });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
   it("docks without the empty-thread heading once a run is going", () => {
     renderComposer("docked");
     expect(screen.queryByRole("heading", { name: "What should Shiba change?" })).toBeNull();
