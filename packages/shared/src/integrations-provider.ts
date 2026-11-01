@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { integrationDomainSchema, integrationKindSchema, integrationPrioritySchema } from "./integration-catalog.js";
 
-export const integrationsProviderIdSchema = z.enum(["composio", "none", "grokbot"]);
+export const integrationsProviderIdSchema = z.enum(["openconnector"]);
 export type IntegrationsProviderId = z.infer<typeof integrationsProviderIdSchema>;
 
 export const integrationProviderHealthStatusSchema = z.enum([
@@ -32,7 +32,7 @@ export const integrationProviderCatalogItemSchema = z.object({
   docsUrl: z.string().url().optional(),
   isConnected: z.boolean(),
   connectionId: z.string().nullable().optional(),
-  source: z.enum(["composio", "static", "grokbot", "native"]),
+  source: z.enum(["static", "native", "openconnector"]),
   connectable: z.boolean(),
 });
 export type IntegrationProviderCatalogItem = z.infer<typeof integrationProviderCatalogItemSchema>;
@@ -84,7 +84,7 @@ export type IntegrationProviderBeginConnectResponse = z.infer<
 
 export const INTEGRATIONS_PROVIDER_PAGE_SIZE_DEFAULT = 8;
 
-/** BroadcastChannel + postMessage type for Composio OAuth popup completion. */
+/** BroadcastChannel + postMessage type for integration OAuth popup completion. */
 export const SHIBA_INTEGRATIONS_OAUTH_CHANNEL = "shiba-integrations-oauth";
 
 export const integrationProviderExecuteRequestSchema = z.object({
@@ -112,10 +112,6 @@ export const integrationProviderSessionResponseSchema = z.object({
 });
 export type IntegrationProviderSessionResponse = z.infer<typeof integrationProviderSessionResponseSchema>;
 
-export function parseIntegrationsProviderId(raw: string | undefined): IntegrationsProviderId {
-  const normalized = raw?.trim().toLowerCase();
-  if (normalized === "composio" || normalized === "none" || normalized === "grokbot") {
-    return normalized;
-  }
-  return "composio";
+export function parseIntegrationsProviderId(_raw: string | undefined): IntegrationsProviderId {
+  return "openconnector";
 }

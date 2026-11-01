@@ -44,7 +44,14 @@
     "test:ephemeral": "node scripts/ephemeral-stack.mjs --alchemy",
     "test:live": "pnpm -C apps/backend test:live",
     "typecheck": "turbo run typecheck && tsc -b && pnpm sdk:check-types",
-    "verify-shiba:ci": "bash .cursor/skills/verify-shiba/scripts/run-ci.sh"
+    "verify-shiba:ci": "bash .cursor/skills/verify-shiba/scripts/run-ci.sh",
+    "prepare:openconnector": "node infra/openconnector.mjs prepare",
+    "provision:openconnector": "node infra/openconnector.mjs provision",
+    "configure:openconnector": "node infra/openconnector.mjs configure",
+    "apply-openconnector-d1": "node infra/openconnector.mjs apply-d1",
+    "deploy:openconnector": "node infra/openconnector.mjs deploy",
+    "secret:openconnector": "node infra/openconnector.mjs secret",
+    "test:openconnector-deploy": "node --test infra/openconnector.test.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

@@ -189,7 +189,7 @@ describe("dashboard rendering", () => {
       task: "Implement feature",
       baseBranch: "main",
       publishPullRequest: false,
-      status: "completed",
+      status: "completed" as const,
       createdAt: Date.now() - 10000,
       updatedAt: Date.now(),
       agentType: "coding-agent",

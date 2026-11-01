@@ -17,6 +17,8 @@ const SCOPES = [
   "runs:read",
   "sandbox:exec",
   "mcp:external",
+  "integrations:read",
+  "integrations:execute",
   "admin:tokens",
   "api:read",
   "api:write",

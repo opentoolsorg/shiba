@@ -86,6 +86,6 @@ it("names the same principal in the mint command and setup instruction", async (
   render(<AgentsView />);
   await screen.findByText("No clients yet");
   fireEvent.click(screen.getByRole("button", { name: "Mint token CLI" }));
-  expect(screen.getByText(/node scripts\/mint-token.mjs --agent grok-bot/)).toBeTruthy();
-  expect(screen.getByText("grok-bot").closest("p")?.textContent).toContain("Replace grok-bot with the principal assigned in Inbox");
+  expect(screen.getByText(/node scripts\/mint-token.mjs --agent scout --scopes email:read/)).toBeTruthy();
+  expect(screen.getByText("scout").closest("p")?.textContent).toContain("Replace scout with the principal assigned in Inbox");
 });
