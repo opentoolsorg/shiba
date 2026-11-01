@@ -1188,6 +1188,36 @@ Audit findings T1-T7 / D9-D12-D13 against `devin/1791266355-tests-dx`.
 - **Packaged-only defects found by actually launching the unsigned .app** (REVIEW3-fixes.md P1–P4): unsigned fused binaries are kernel-killed on arm64 until re-signed ad-hoc inside-out (`scripts/adhoc-sign.sh`, wired as `pnpm dist:local`); `file://` can't see inside app.asar on Electron 44, so setup.html/setup.js ship via `asarUnpack`; `app.setName("Shiba")` pins userData to the documented path; the electron-updater import needed the CJS `.default` interop fallback.
 - Post-fix artifact: `release/Shiba-0.1.0-{arm64,}*.dmg/.zip` + `release/mac-arm64/Shiba.app` — fuses re-verified = D8 on both arches; `pnpm test` 119/119 and `test:e2e` 2/2 after the fixes; the re-signed .app launches with no load errors.
 
+## 2026-11-01 — Documentation workspace refresh (local)
+
+- Added a responsive Starlight header, section navigation, and documentation styling inspired by Capy and Overlay while retaining Shiba's cream/navy identity and native search, theme control, and mobile sidebar.
+- Reorganized the existing URLs into Get started, Employees & work, Workspace, Integrations, Self-hosting, Developer reference, and Help. Rebuilt `/docs/overview/` as the welcome page; legacy `/welcome/` redirects there.
+- Added Employees and Skills guides, rewrote Quickstart, and reconciled Threads/results guidance with the marketing branch's implementation. This branch offers Engineering, Marketing, Research, and Operations presets; Design/QA use custom profiles. Skills remain browser-local notes.
+- Updated built-marketing assertions for the existing employee positioning. Sitemap verification now excludes explicitly noindex redirects and design previews.
+- Passed: `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm check:ci`, `pnpm test` (3,453 passed, 3 skipped), `pnpm build`, `pnpm test:built`, `pnpm check:deploy`, `pnpm env:load`, and `pnpm env:scan`. Existing non-blocking static warnings remain.
+- Production docs verified: 67 assembled HTML pages, 4,497 local link/asset/anchor references, generated Pagefind search, and 44 markdown files checked for stale claims.
+- Browser QA: 55 checks across 390/768/1440px in light/dark themes for welcome, quickstart, employees, skills, threads, self-hosting, API, and approvals; search results, theme switching, native mobile navigation, and no-JavaScript mobile navigation passed. Fixed mobile menu stacking found during these checks. Screenshots/results: `/tmp/shiba-docs-evidence/`; script: `/tmp/shiba-docs-ui-check.cjs`.
+- Preview: `http://127.0.0.1:4399/docs/overview/`. Changes remain local in the marketing worktree; no push, deployment, provider call, or sandbox execution performed.
+
+## 2026-11-01 — API reference design and reusable UI skill (local)
+
+- Reworked `/docs/api/` as an API-scoped MDX reference: concise introduction and jump links, aligned authentication cards, labeled method/path endpoint cards, native titled JSON examples/copy controls, and expandable coverage details. Corrected source-verified authentication, run-store, and webhook descriptions.
+- Created `.agents/skills/shiba-ui-polish/SKILL.md` and `agents/openai.yaml`, adapted from UI Skills guidance to Shiba's established identity and Starlight controls. Added AGENTS routing and the repo-authored skill allowlist. Installed the same validated skill into the primary and marketing worktrees; no package dependency or MCP configuration added.
+- Skill validation passed in both worktrees. The implementation agent read and applied the new skill; screenshot review corrected native Markdown sibling margins and API heading selectors.
+- Passed: typecheck, lint, import lint, CI static checks, production build/link scan (67 pages, 4,524 link/asset/anchor references), built-page test, environment validation, and secret scan.
+- API browser QA passed at 390/768/1024/1440px in light and dark themes: no page overflow, aligned cards, labeled methods, 44px-or-larger new controls, section anchors, actual clipboard copy, keyboard focus/disclosure, and native mobile menu. Disclosure also works without JavaScript. Evidence: `/tmp/shiba-api-evidence/`; script: `/tmp/shiba-api-ui-check.cjs`.
+- Full workspace tests were attempted twice: each had 3,452 passing tests, 3 skipped tests, and one unrelated daemon deadline failure (`local-daemon-control.test.ts` initially; `local-daemon-cancel-phases.test.ts` with bounded workers). Both files passed together in a focused rerun (7 tests). No daemon source or tests changed; full-suite timing remains a validation limitation.
+- Preview remains `http://127.0.0.1:4399/docs/api/`. No push or deployment performed.
+
+## 2026-11-01 — Plain-language docs and company-wide copy (local)
+
+- Completed ai-slop-cleaner and copy-editing passes with disjoint native writing lanes and an independent reviewer. OMX Team was unavailable because this session has no tmux leader; no runtime launch or shutdown is claimed.
+- Everyday copy across 16 docs is 57% shorter; setup/API internals moved into 11 linked references. Removed repeated welcome decoration and unsupported approval/Missions claims.
+- Public copy now describes AI employees for company work, including engineering/design/marketing/sales/operations/finance/revenue. Four built-in presets remain distinct from custom-role examples; finance/revenue output is limited to supplied-information drafts.
+- Final checks: typecheck, lint, import lint, static checks, build/link scan (78 pages; 5,919 references), eight marketing/SEO tests, built-page test, environment validation, and secret scan pass. Browser QA: 49 marketing cases, 55 docs cases, and eight API viewport/theme combinations plus no-JavaScript disclosure pass.
+- Full workspace tests still fail two existing daemon deadline cases. Both affected files pass in the focused rerun (7 tests); no daemon code changed. No claim of a fully green suite.
+- Full cleanup plan, classifications, changed-file map, independent review, team fallback and verification: [Company-wide copy cleanup report](apps/web/docs/evidence/2026-11-01-company-copy.md). Changes remain local; no push/deployment.
+
 ## 2026-10-31 — PR #166 review fixes
 
 - Worker ingress accepts the exact skill-library and Spaces API families; route authentication and bearer read/write scopes still apply. Lookalike paths and legacy Skills routes retain their dashboard gate.

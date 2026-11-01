@@ -1,30 +1,33 @@
 ---
 title: Product status
-description: What is in the shiba tree, and what has not been live-verified.
+description: What you can try today and what to check before relying on it.
 ---
 
-This page is the short version of the repo file `ROADMAP.md` (2026-10-19). “In code” means a path and tests exist. “Live” means a dated entry in `VERIFICATION.md` from a real account, container, model, and GitHub.
+Shiba is an early-stage project under active development. Start with a small task you can review, and check the result before using it.
 
-## In the tree
+<span id="in-the-tree"></span>
 
-- Approval-gated task, sandbox run, diff, optional pull request, optional review round (`apps/backend/src/agents/orchestrator.ts`).
-- Cloudflare Sandbox SDK 1.0 with `SandboxOutbound` (`apps/backend/package.json`, `apps/backend/src/sandbox/`).
-- Den/pack coordinator and subagent tree (`apps/backend/src/den-routes.ts`, dashboard Swarm desk).
-- Browser E2E capture code (`apps/backend/src/browser-e2e/capture.ts`).
-- Review finding triage; `review-loop` PATCH returns 501 (`apps/backend/src/v1/pulls.ts`).
-- Linear webhook and automations (`apps/backend/src/linear/routes.ts`).
-- `/api/v1` and `@shiba/sdk`.
-- Custom agents (`/api/custom-agents`).
-- Sandbox providers: Cloudflare default, `docker-local`, ComputeSDK adapter (`apps/web/src/content/docs/docs/sandbox-providers.md`).
-- `pnpm shiba dev`, `pnpm shiba doctor`, `pnpm check:deploy`.
+## What you can try
 
-## Not live-verified
+- Create an employee with instructions for work you repeat.
+- Give it a task in a thread and review the request before approving it.
+- Inspect the returned files, changes, and reported checks.
+- Request a pull request or use a connected chat service when your installation supports it.
 
-- A real container plus a live model plus a live GitHub pull request on an owner deploy.
-- ComputeSDK backends (E2B, Daytona, Modal, and the rest) against shiba’s egress rules.
-- Slack, Telegram, Discord, and Linear against a real workspace (the landing page says “in code” for that reason).
-- Electron desktop (parked; evidence under `apps/web/docs/evidence/desktop/`).
+Every task needs a repository and a working model connection. Your workspace owner chooses which services are available.
 
-## Next
+<span id="not-live-verified"></span>
 
-Live end-to-end on the owner’s machine, a signed desktop build, a reviewer re-run that is more than posting the same round, and a real review-loop endpoint.
+## What still needs checking
+
+The project has not yet verified the full live workflow in its acceptance record. Test a small task with your own model and repository before relying on it.
+
+Chat connections also need testing in your own workspace. The desktop app remains a local prototype rather than a signed public release.
+
+<span id="next"></span>
+
+## Choose your next step
+
+Use [Your first task](/docs/getting-started/) to try the workflow, or [Common questions](/docs/troubleshooting/) if you're stuck.
+
+If you manage an installation, use the [readiness checklist](/docs/readiness/). The [implementation status reference](/docs/implementation-status/) keeps the dated engineering inventory separate from everyday help.

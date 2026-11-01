@@ -25,3 +25,10 @@ Locked by `apps/backend/test/phase1-core-loop.integration.test.ts` ("does not st
 Until a run is approved for one repository path, GitHub egress is denied. After approval, requests outside that path are refused. The token is not a general GitHub credential for repository code.
 
 Locked by `apps/backend/test/tradeoff-contracts.test.ts` ("refuses GitHub traffic until a repo scope is approved").
+
+## UI polish skill
+
+For Shiba web, docs, or dashboard visual-polish requests, read
+`.agents/skills/shiba-ui-polish/SKILL.md` and apply its UI Skills guidance
+alongside the relevant framework skill. Keep the requested scope and
+existing product contracts.

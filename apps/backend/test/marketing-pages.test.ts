@@ -17,7 +17,7 @@ describe.skipIf(!built)("new marketing pages", () => {
     const waitlist = page("waitlist/index.html");
     expect(why).toContain('href="https://tryshiba.dev/why-shiba/"');
     expect(waitlist).toContain('href="https://tryshiba.dev/waitlist/"');
-    expect(why).toContain("How Shiba Compares to Devin Cloud");
+    expect(why).toContain("Factual comparison: Devin Cloud vs. Shiba");
     expect(why).not.toMatch(/cloudroom/i);
     expect(waitlist).toContain('id="waitlist-form"');
     expect(waitlist).toContain('name="consent"');
@@ -28,7 +28,7 @@ describe.skipIf(!built)("new marketing pages", () => {
     expect(why).toContain("theme-toggle-btn");
     expect(waitlist).toContain("shiba-theme");
     // Founder-voice narrative body copy, not just layout chrome.
-    expect(why).toContain("I wanted Devin-style autonomy and computer use");
+    expect(why).toContain("I wanted Devin-level background execution");
     expect(why).toContain("AGPL-3.0-only");
   });
 });

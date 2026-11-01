@@ -1,24 +1,29 @@
 ---
 title: Pull request review
-description: One approval covers a read-only review that the Worker posts to GitHub.
+description: Open a pull request, read the findings, and decide what to do with the changes.
 ---
 
-After a task opens a pull request, Shiba can run a reviewer on that pull request and post one GitHub review.
+Shiba can open a pull request for a task and review the proposed changes. Your team decides whether to accept or merge them.
 
-## What you approve
+## Request a review
 
-In the task composer, turn on **Create pull request**. **Read-only review after publish** is on by default. The approval card states that a read-only review will run after the pull request opens and that Shiba will post the findings. That flag is part of the frozen input hash. Rejecting the card starts nothing.
+1. In the task composer, turn on **Create pull request**.
+2. Check **Read-only review after publish** if you want Shiba to review the pull request after it opens.
+3. Read the approval card. It explains whether the request includes publication and a review.
+4. Approve only when that request matches your intent.
 
-The reviewer does not get a second approval. The original approval covers the coding run, the pull request, and one review on that pull request. Webhook reviews of other people's pull requests still wait for their own approval.
+That approval covers the task, its pull request, and the review described on the card. The review does not ask for a second approval. Approving one task does not approve reviews of other pull requests.
 
-## What gets posted
+## Read the findings
 
-The reviewer must not modify code. It returns findings in the result envelope. The Worker, not the container, calls `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` with event `COMMENT`. Findings at `medium` or `high` are inline comments. Lower findings stay in the review body. The body includes `<!-- shiba-review-round:ROUND_ID -->`. A retry reuses that review instead of posting another one.
+Open the task's thread and find **Review findings**. Each finding points to a file and line and explains a possible problem. You can also read the review on GitHub.
 
-The thread shows the run, a pull request card (link, state, checks), and one list row per finding.
+Check the finding against the change and the relevant tests. A review with no findings is not a guarantee that the code is correct. The reviewer reports problems; it does not edit the code.
 
-`GET /api/v1/threads/:id/pr/review` returns the round. The Tasks timeline shows loading, waiting, failed (with retry), and empty-findings states in the **Review findings** panel. `POST /api/v1/threads/:id/pr/review/retry` re-runs the reviewer when the round failed before a postable result. If the reviewer already finished and only the GitHub post failed, the same round is posted again. A round that already posted is left as-is. `GET` and `PATCH /api/v1/threads/:id/pr/review-loop` store `{ enabled, autoMerge }` on the thread. `autoMerge` queues a merge approval after a clean posted review; it does not merge by itself.
+## If the review fails
 
-## Local proof
+Read the error in **Review findings**, address the reported problem, then choose **Retry review**. If the review is finished but its GitHub post failed, Shiba retries the post without running the reviewer again.
 
-`GITHUB_TOKEN` stays on the Worker. A container never receives it. When no test repository is configured, the verify-shiba skill points `GITHUB_API_BASE` at a local stub and labels the evidence **mock GitHub**. That is not a live GitHub success. Dated evidence is in `VERIFICATION.md`.
+Reviewing does not merge the pull request. Inspect the diff and checks, then follow your team's usual merge process.
+
+For integration details, see the [review reference](/docs/review-reference/). To review work without publishing it, use [Threads and results](/docs/dashboard/).

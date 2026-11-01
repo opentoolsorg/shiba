@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shiba UI Polish"
+  short_description: "Polish Shiba interfaces with verified UI guidance"
+  default_prompt: "Use $shiba-ui-polish to improve this Shiba interface and verify its responsive behavior."

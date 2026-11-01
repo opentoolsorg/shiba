@@ -18,12 +18,15 @@ export async function GET() {
 
 	const body = `# Shiba
 
-> Shiba is a free, open-source, self-hosted AI coding agent on Cloudflare: you approve every task, it runs in an isolated sandbox, you review the diff and ship a PR.
+> AI employees for the work behind your company. Describe a task, review the proposed action, approve repository execution, and inspect the files and changes returned.
 
-- Who it is for: developers and teams who want a self-hosted, approval-gated alternative to managed cloud coding agents like Devin, running in their own Cloudflare account.
-- Pricing: free and open source (AGPL-3.0-only). You pay your own Cloudflare and model-provider costs.
-- Status: early prototype, not production-ready. The homepage roadmap lists what is not live-verified.
-- Supported harnesses: OpenCode, Claude Code, Codex, Devin CLI, Cursor, Antigravity, Grok.
+- Audience: solo builders and teams working across engineering, design, marketing, sales, operations, finance, research, and revenue planning.
+- Example outputs: a code change, design specification, campaign draft, account brief, operating checklist, pipeline summary, or draft budget using supplied figures.
+- Roles: Engineering, Marketing, Research, and Operations have built-in templates in this branch. Other responsibilities use custom employee instructions. Roles do not grant connected service access.
+- Execution: a GitHub repository is required even for non-code drafts. Human approval covers the exact requested work; external publishing is a separate supported/configured action.
+- Finance and revenue: draft analysis from supplied information, not bookkeeping sync, payroll, payments, autonomous CRM updates, or guaranteed financial outcomes.
+- Ownership and costs: free, open-source software (AGPL-3.0-only). Hosting and model usage are paid to the configured providers. No free managed plan is offered.
+- Status: under active development. Supported connections still need validation in the installation; see ${SITE}/docs/readiness/ for current verification limits.
 - Maintainer: Prince Pal (https://github.com/princepal9120)
 
 ## Links
@@ -31,20 +34,20 @@ export async function GET() {
 - Website: ${SITE}/
 - Docs: ${SITE}/docs/overview/
 - GitHub source (AGPL-3.0-only): https://github.com/princepal9120/shiba
-- Shiba vs Devin / managed cloud agents (comparison table): ${SITE}/#compare-title
 - Open-source Devin alternative guide: ${SITE}/open-source-devin-alternative/
 - Why I am building Shiba: ${SITE}/why-shiba/
-- Journal (guides and engineering notes): ${SITE}/blog/
+- Integrations (availability and configuration): ${SITE}/integrations/
+- How work moves through Shiba: ${SITE}/network/
+- Journal (building notes and guides): ${SITE}/blog/
 - Join waitlist & contribute: ${SITE}/waitlist/
 - Privacy notice: ${SITE}/privacy/
 - Terms of use: ${SITE}/terms/
-- Docs welcome splash: ${SITE}/welcome/
 
-## Core Architecture & Security
+## Installation and security
 
 - Edge Orchestrator: Cloudflare Workers + Agents SDK (TypeScript) routing requests at the edge.
 - Sandbox containers: Cloudflare Sandbox SDK + Containers provide isolated Linux containers per task.
-- Credentials: Provider credentials are added by Worker-side egress handling and are not passed into the sandbox process.
+- Credentials: Supported provider-backed execution uses Worker-side egress authorization. Review the authentication-mode limits in ${SITE}/docs/configuration/ and ${SITE}/docs/security/ before choosing a connection.
 - State & Memory: Cloudflare Durable Objects + SQLite for human approval queues, live logs, and Vectorize for long-term memory.
 - Access: Designed to sit behind operator-configured Cloudflare Access for dashboard and runner endpoints.
 
@@ -56,7 +59,7 @@ ${
 		? `
 ## Journal
 
-Long-form guides and engineering notes. Opinionated prose, same product claims as the docs.
+Building notes and guides. Dated articles describe the product and evidence available when they were written.
 
 ${postLinks}
 `

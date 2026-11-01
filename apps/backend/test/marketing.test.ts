@@ -61,18 +61,18 @@ describe("marketing landing page", () => {
 
   test("renders the custom landing page, not the Starlight splash", () => {
     const markup = html();
-    expect(markup).toContain("Shiba: open-source, self-hosted Devin-style coding agent");
-    expect(markup).toContain("pnpm shiba dev");
-    // Hero headline as shipped: it asks before it writes code.
-    expect(markup).toContain("It asks before");
-    expect(markup).toContain("it writes code.");
-    expect(markup).toContain("Approval before execution");
-    expect(markup).toContain("shiba.workspace");
+    expect(markup).toContain("Shiba — AI Employees for the Work Behind Your Company");
+    expect(markup).toContain('href="/docs/self-hosting/"');
+    expect(markup).toContain('id="home-title"');
+    expect(markup).toContain("AI employees for");
+    expect(markup).toContain("the work behind your company.");
+    expect(markup).toContain('id="dashboard"');
+    expect(markup).toContain('id="employees"');
     expect(markup).not.toContain("manga-panel");
-    expect(markup).toContain('data-theme="dark"');
+    expect(markup).toContain('prefers-color-scheme: dark');
     expect(markup).toContain("theme-toggle-btn");
     expect(markup).toContain("AGPL-3.0");
-    for (const harness of ["OpenCode", "Claude Code", "Codex", "Devin CLI"]) {
+    for (const harness of ["OpenCode", "Claude Code", "Codex"]) {
       expect(markup).toContain(harness);
     }
   });

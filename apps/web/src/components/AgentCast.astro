@@ -1,0 +1,59 @@
+---
+import ShibaMascot from './ShibaMascot.astro';
+
+// Built-in templates follow employee-templates.ts; other roles are custom-instruction examples.
+// Original Shiba characters represent responsibilities, not models or service connections.
+const agents = [
+  {"character": "marketing", "name": "Marketing", "kind": "Built-in template", "role": "Turn a product brief into campaign drafts for your review.", "deliverables": ["Launch brief", "Campaign copy"]},
+  {"character": "sales", "name": "Sales", "kind": "Custom role example", "role": "Prepare account research and outreach drafts from supplied context.", "deliverables": ["Account brief", "Draft outreach"]},
+  {"character": "research", "name": "Research", "kind": "Built-in template", "role": "Answer a focused question with sources and gaps made clear.", "deliverables": ["Research report", "Sources and open questions"]},
+  {"character": "product", "name": "Product", "kind": "Custom role example", "role": "Turn customer evidence into a product brief your team can discuss.", "deliverables": ["Product brief", "Scope and acceptance checks"]},
+  {"character": "design", "name": "Design", "kind": "Custom role example", "role": "Map a user flow and draft interface copy before you build.", "deliverables": ["Design specification", "States and accessibility checks"]},
+  {"character": "engineering", "name": "Engineering", "kind": "Built-in template", "role": "Make a focused code change and report the checks run.", "deliverables": ["Code changes and tests", "Review handoff"]},
+  {"character": "engineering", "name": "QA & Testing", "kind": "Custom role example", "role": "Check a feature and document what passed, failed, or needs another look.", "deliverables": ["Test report", "Reproduction steps"]},
+  {"character": "operations", "name": "Operations", "kind": "Built-in template", "role": "Turn a recurring process into a checklist someone can follow.", "deliverables": ["Operating runbook", "Readiness and recovery steps"]},
+  {"character": "custom", "name": "Your custom role", "kind": "Custom role", "role": "Give an employee instructions for the work your team repeats.", "deliverables": ["Your working brief", "The files you need"]}] as const;
+interface Props { size?: 'card' | 'hero'; }
+const { size = 'card' } = Astro.props;
+---
+<section class:list={['agent-cast', { 'hero-cast': size === 'hero' }]} aria-label="Shiba employee role examples">
+  <div class="cast-grid">
+    {agents.map((agent, index) => (
+      <article class="agent-card" data-character={agent.character}>
+        <div class="card-top"><span class="template-label">{agent.kind}</span><span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span></div>
+        <div class="avatar"><ShibaMascot character={agent.character} size={size === 'card' ? 96 : 'hero'} /></div>
+        <h3>{agent.name}</h3>
+        <p class="role">{agent.role}</p>
+        <div class="deliverables"><h4>{agent.name === 'Your custom role' ? 'You define' : 'Example outputs'}</h4><ul>{agent.deliverables.map(deliverable => <li>{deliverable}</li>)}</ul></div>
+      </article>
+    ))}
+  </div>
+  <div class="cast-notes">
+    <p>Engineering, Marketing, Research, and Operations have built-in templates. The other roles shown here are examples you can create with custom instructions.</p>
+    <p>Roles use information you supply to prepare drafts. A role alone does not connect accounts, make payments, update external services, or grant permission to publish.</p>
+    <a href="/docs/employees/">Create your first employee <span aria-hidden="true">→</span></a>
+  </div>
+</section>
+<style>
+  .agent-cast { --body-ink: color-mix(in srgb, var(--ink-2) 70%, var(--ink)); color: var(--ink); font-family: 'Geist Mono', monospace; }
+  .cast-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+  .agent-card { min-width: 0; display: flex; flex-direction: column; padding-top: 20px; border-top: 1px solid var(--hairline); }
+  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--body-ink); font-size: 12px; line-height: 1.5; font-weight: 500; font-family: 'Geist Mono', monospace; }
+  .template-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .avatar { width: 104px; max-width: 100%; min-height: 96px; display: grid; place-items: center; margin: 8px auto; }
+  .hero-cast .cast-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero-cast .avatar { width: 240px; }
+  .agent-card h3 { color: var(--ink); font: 400 28px/1.05 'Instrument Serif', Georgia, serif; letter-spacing: 0.02em; text-transform: none; margin: 0 0 10px; }
+  .agent-card .role { color: var(--body-ink); font: 400 14px/1.5 'Geist Mono', monospace; margin: 0 0 12px; text-wrap: pretty; }
+  .deliverables { margin-top: auto; padding-top: 12px; }
+  .agent-card .deliverables h4 { color: var(--body-ink, var(--ink)); font: 600 11px/16px 'Geist Mono', monospace; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 10px; }
+  ul { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+  li { color: var(--ink); font: 400 14px/1.5 'Geist Mono', monospace; overflow-wrap: anywhere; }
+  .cast-notes { max-width: 900px; margin-top: 32px; font-family: 'Geist Mono', monospace; }
+  .cast-notes p { margin: 0 0 12px; font: 400 14px/1.5 'Geist Mono', monospace; color: var(--body-ink, var(--ink)); text-wrap: pretty; }
+  .cast-notes a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--accent); font: 600 13px/20px 'Geist Mono', monospace; text-underline-offset: 4px; }
+  .cast-notes a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+  .cast-notes .readiness-note { margin-top: 8px; font: 400 14px/1.5 'Geist Mono', monospace; }
+  @media (max-width: 1100px) { .cast-grid, .hero-cast .cast-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .cast-grid, .hero-cast .cast-grid { grid-template-columns: 1fr; gap: 32px; } }
+</style>

@@ -1,0 +1,20 @@
+---
+interface Props {
+  method: 'GET' | 'POST' | 'DELETE';
+  path: string;
+  title: string;
+  response?: string;
+}
+const { method, path, title, response } = Astro.props;
+---
+<article class="api-endpoint">
+  <div class="api-endpoint-header">
+    <span class:list={['api-method', `api-method-${method.toLowerCase()}`]}>{method}</span>
+    <code class="api-endpoint-path">{path}</code>
+  </div>
+  <div class="api-endpoint-body">
+    <strong>{title}</strong>
+    <slot />
+    {response && <p class="api-endpoint-response"><span>Returns</span><code>{response}</code></p>}
+  </div>
+</article>
