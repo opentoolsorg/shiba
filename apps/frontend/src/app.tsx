@@ -19,6 +19,7 @@ import { SkillsView } from "./components/SkillsView";
 import { SpacesView } from "./components/SpacesView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
+import { AgentDetailsPanel, AgentPageHeader, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { useProjectContexts } from "./project-contexts";
@@ -35,6 +36,7 @@ import {
   useModelConfig,
 } from "./live-status";
 import { DashboardView } from "./components/DashboardView";
+import { WorkView } from "./components/WorkView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
 import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
 import { OnboardingProgressClient, type FirstRunProgressUpdate } from "./onboarding-progress-client";
@@ -353,18 +355,21 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 }
 
 type MainView = AppNavView;
+const DEFAULT_VIEW: MainView = "work";
 
 const VIEW_ALIASES: Record<string, AppNavView> = {
   "run-registry": "analytics",
   orchestrator: "activity",
   mailbox: "inbox",
+  threads: "tasks",
+  work: "work",
 };
 
 // Each sidebar view owns a root path (/dashboard/, /skills/ …); legacy ?tab=/?view=/?run= still resolve.
 function viewFromUrl(): AppNavView | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
-  if (params.get("run")) return "dashboard";
+  if (params.has("run") || readPromptParam(window.location.search).prompt !== null) return "tasks";
   const toView = (raw: string | null) => {
     const view = raw ? (VIEW_ALIASES[raw] ?? raw) : null;
     return APP_NAV_ITEMS.some((item) => item.id === view) ? (view as AppNavView) : null;
@@ -376,7 +381,7 @@ function viewFromUrl(): AppNavView | null {
 }
 
 function pathForView(view: MainView): string {
-  return view === "tasks" ? "/" : `/${view}/`;
+  return view === "work" ? "/" : `/${view}/`;
 }
 
 const SETUP_TOTAL_STEPS = 6;
@@ -405,6 +410,10 @@ const STARTER_TEMPLATES = [
 ];
 
 export function App(): React.JSX.Element {
+  const [mainView, setMainView] = useState<MainView>(() => {
+    const view = viewFromUrl();
+    return view && view !== "settings" ? view : DEFAULT_VIEW;
+  });
   const [repoUrl, setRepoUrl] = useState("");
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const savedRepos = useSavedRepos();
@@ -436,6 +445,14 @@ export function App(): React.JSX.Element {
   const [runSetup, setRunSetup] = useState(false);
   const [harness, setHarness] = useState("opencode");
   const [customAgentId, setCustomAgentId] = useState("");
+  const [agentDetailsOpen, setAgentDetailsOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280);
+  const [employeeOnboardingDismissed, setEmployeeOnboardingDismissed] = useState(() => {
+    try { return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true"; } catch { return false; }
+  });
+  const dismissEmployeeOnboarding = () => {
+    try { localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true"); } catch { /* The current session can still dismiss it. */ }
+    setEmployeeOnboardingDismissed(true);
+  };
   const [projectContextId, setProjectContextId] = useState("");
   const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
@@ -465,10 +482,6 @@ export function App(): React.JSX.Element {
     if (notice) toast(notice);
   }, [notice]);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [mainView, setMainView] = useState<MainView>(() => {
-    const view = viewFromUrl();
-    return view && view !== "settings" ? view : "tasks";
-  });
   const [memoryInitialView, setMemoryInitialView] = useState<"facts" | "sources">("facts");
   // Settings is a Kosuke-style popup, not a full view — every nav path that
   // would land on "settings" opens the modal over the current view instead.
@@ -492,7 +505,7 @@ export function App(): React.JSX.Element {
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
-  const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
+const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [taskHistoryError, setTaskHistoryError] = useState<string | null>(null);
   const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
   const [conversationMode, setConversationModeState] = useState<ConversationMode>(() => readConversationMode("default"));
@@ -503,6 +516,7 @@ export function App(): React.JSX.Element {
     setConversationModeState(mode);
     writeConversationMode(selectedSessionId, mode);
   }, [selectedSessionId]);
+
   // Local runs use the authenticated paired fleet in both web and desktop.
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
   const [appToolsWork, setAppToolsWork] = useState(false);
@@ -580,7 +594,7 @@ export function App(): React.JSX.Element {
       const view = viewFromUrl();
       if (view === "settings") setSettingsModalOpen(true);
       else {
-        setMainView(view ?? "tasks");
+        setMainView(view ?? DEFAULT_VIEW);
         setSettingsModalOpen(false);
       }
     };
@@ -614,6 +628,7 @@ export function App(): React.JSX.Element {
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
   const composerScope = signedIn && orchestratorName ? composerDraftScope(orchestratorName, selectedSessionId) : null;
+  const quickDraft = useRef<{ scope: string; text: string } | null>(null);
   const draftScope = useRef<string | null>(null);
   const [restoredComposerScope, setRestoredComposerScope] = useState<string | null>(null);
   const composerVisible = composerScope !== null && restoredComposerScope === composerScope;
@@ -629,7 +644,9 @@ export function App(): React.JSX.Element {
       const keepCurrentTask = draftScope.current === null && composerScope !== null && task !== "";
       draftScope.current = composerScope;
       setRestoredComposerScope(composerScope);
-      const restored = keepCurrentTask ? task : composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
+      const quick = quickDraft.current?.scope === composerScope ? quickDraft.current : null;
+      const restored = quick ? quick.text : keepCurrentTask ? task : composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
+      quickDraft.current = null;
       if (composerScope) initialComposerPrompt.current = "";
       selectedOnboardingTaskText.current = restored;
       setTask(restored);
@@ -637,6 +654,7 @@ export function App(): React.JSX.Element {
       return;
     }
     if (!composerScope) return;
+    if (quickDraft.current?.scope === composerScope && quickDraft.current.text === task) quickDraft.current = null;
     const linked = task === selectedOnboardingTaskText.current ? selectedOnboardingDraftRef : null;
     if (selectedOnboardingDraftRef && !linked) setSelectedOnboardingDraftRef(null);
     pendingDraft.current = { scope: composerScope, text: task, onboardingDraft: linked };
@@ -1034,7 +1052,7 @@ export function App(): React.JSX.Element {
     // Approvals data renders on the approvals board, the tasks strip, and
     // the dashboard decided tail — the nav badge between them refreshes
     // on entry to any of the three.
-    signedIn && (mainView === "approvals" || mainView === "tasks" || mainView === "dashboard"),
+    signedIn && (mainView === "approvals" || mainView === "tasks" || mainView === "dashboard" || mainView === "work"),
   );
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
@@ -1045,7 +1063,7 @@ export function App(): React.JSX.Element {
   }, [storedApprovals]);
   const agentPrincipals = useAgentPrincipals(
     refreshToken,
-    signedIn && (mainView === "tasks" || mainView === "dashboard"),
+    signedIn && (mainView === "tasks" || mainView === "dashboard" || mainView === "work"),
   );
 
   const toolRuns = useMemo(() => Object.values(runsById) as ToolRunRecord[], [runsById]);
@@ -1973,8 +1991,8 @@ export function App(): React.JSX.Element {
     if (mainView === "tasks") {
       reloadModelConfig();
       reloadAgentsDirectory();
-      refreshCustomAgents();
     }
+    if (mainView === "tasks" || mainView === "work") refreshCustomAgents();
   }, [mainView, reloadModelConfig, reloadAgentsDirectory, refreshCustomAgents]);
 
   const repoSuggestions = useMemo(() => {
@@ -2126,22 +2144,14 @@ export function App(): React.JSX.Element {
     void handleSelectSession(id);
   };
 
+  const threadCreationPending = useRef(false);
   const handleNewTask = useCallback(async () => {
+    if (threadCreationPending.current) return null;
     if (!sessionApiAvailable) {
-      setSelectedSessionId("default");
-      writeRememberedSessionId("default");
-      setCustomAgentId("");
-      setMobileSessionsOpen(false);
-      setMainView("tasks");
-      window.setTimeout(
-        () =>
-          document
-            .querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')
-            ?.focus(),
-        0,
-      );
-      return;
+      setNotice("Session creation is unavailable. Your existing draft has been kept.");
+      return null;
     }
+    threadCreationPending.current = true;
     try {
       const response = await fetch("/api/sessions", {
         method: "POST",
@@ -2150,19 +2160,8 @@ export function App(): React.JSX.Element {
       });
       if (response.status === 404 || response.status === 405) {
         setSessionApiAvailable(false);
-        setSelectedSessionId("default");
-        writeRememberedSessionId("default");
-        setCustomAgentId("");
-        setMobileSessionsOpen(false);
-        setMainView("tasks");
-        window.setTimeout(
-          () =>
-            document
-              .querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')
-              ?.focus(),
-          0,
-        );
-        return;
+      setNotice("Session creation is unavailable. Your existing draft has been kept.");
+      return null;
       }
       if (!response.ok) throw new Error(`Could not create session: ${response.status}`);
       const body = (await response.json()) as {
@@ -2175,36 +2174,71 @@ export function App(): React.JSX.Element {
       setSelectedSessionId(body.session.id);
       writeRememberedSessionId(body.session.id);
       setCustomAgentId("");
+      setNotice(null);
+      setMobileSessionsOpen(false);
+      setMainView("tasks");
+      window.setTimeout(() => {
+        document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
+      }, 0);
+      return body.session.id;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
+      return null;
+    } finally {
+      threadCreationPending.current = false;
     }
-    setMobileSessionsOpen(false);
-    setMainView("tasks");
-    window.setTimeout(() => {
-      document
-        .querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')
-        ?.focus();
-    }, 0);
   }, [sessionApiAvailable]);
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
-    const session = await createAgentThread(profile);
-    setSessionRegistryOwner(orchestratorName);
-    setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
-    setSessionApiAvailable(true);
-    setSelectedSessionId(session.id);
-    writeRememberedSessionId(session.id);
-    setSelectedRunId(null);
-    setCustomAgentId(profile.id);
-    applyThreadProfile(profile);
-    setNotice(null);
-    refreshCustomAgents();
-    setMainView("tasks");
-    setMobileSessionsOpen(false);
-    window.setTimeout(() => {
-      document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
-    }, 0);
-  }, [refreshCustomAgents, applyThreadProfile, orchestratorName]);
+    if (threadCreationPending.current) throw new Error("Another thread is being created. Wait, then try again.");
+    threadCreationPending.current = true;
+    try {
+      const session = await createAgentThread(profile);
+      setSessionRegistryOwner(orchestratorName);
+      setWebSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
+      setSessionApiAvailable(true);
+      setSelectedSessionId(session.id);
+      writeRememberedSessionId(session.id);
+      setSelectedRunId(null);
+      setCustomAgentId(profile.id);
+      applyThreadProfile(profile);
+      setNotice(null);
+      refreshCustomAgents();
+      setMainView("tasks");
+      setMobileSessionsOpen(false);
+      window.setTimeout(() => {
+        document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
+      }, 0);
+      return session.id;
+    } finally {
+      threadCreationPending.current = false;
+    }
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents]);
+
+  const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
+    try {
+      if (profile) await handleStartAgentThread(profile);
+      else await handleNewTask();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not start a thread. Try again from the sidebar.");
+    }
+  };
+  const setupEmployee = async (template: EmployeeTemplate) => {
+    const profile = await createEmployeeAgent(template);
+    try {
+      await handleStartAgentThread(profile);
+      setTask("");
+      dismissEmployeeOnboarding();
+    } catch (error) {
+      dismissEmployeeOnboarding();
+      setMainView("tasks");
+      setNotice(`Agent created. Start a new thread from its sidebar row. ${error instanceof Error ? error.message : "Thread creation failed."}`);
+      refreshCustomAgents();
+    }
+  };
+  const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
+  const employeeName = activeEmployee?.config.name ?? "Shiba";
+  const showEmployeeOnboarding = !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
   const activeSandboxCount = useMemo(() => {
     return (
@@ -2354,6 +2388,9 @@ export function App(): React.JSX.Element {
         onOpenSearch={() => setCommandMenuOpen(true)}
         onToggleCollapse={toggleSessionsCollapsed}
         threadsLoading={threadsLoading}
+        customAgentRecords={customAgentRecords}
+        agentThreads={webSessions}
+        onNewAgentThread={startSidebarAgentThread}
         connectionLabel={connectionState}
         connectionTone={
           identityError || agent.connectionError
@@ -2409,6 +2446,9 @@ export function App(): React.JSX.Element {
                 setMobileNavOpen(false);
               }}
               threadsLoading={threadsLoading}
+              customAgentRecords={customAgentRecords}
+              agentThreads={webSessions}
+              onNewAgentThread={(profile) => { startSidebarAgentThread(profile); setMobileNavOpen(false); }}
               onOpenSearch={() => {
                 setMobileNavOpen(false);
                 setCommandMenuOpen(true);
@@ -2448,7 +2488,7 @@ export function App(): React.JSX.Element {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <nav aria-label="Breadcrumb" className="flex items-center gap-2 min-w-0">
+          <nav aria-label="Breadcrumb" hidden={mainView === "work"} className={mainView === "work" ? "hidden" : "flex items-center gap-2 min-w-0"}>
             <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
               Shiba
             </span>
@@ -2538,14 +2578,44 @@ export function App(): React.JSX.Element {
               </div>
             </div>
           ) : null}
-          {showFirstRun ? (
+{showFirstRun ? (
             <ConversationalOnboarding key={orchestratorName ?? "pending"} progress={firstRunProgress}
               onUpdate={updateFirstRunProgress} onResume={resumeFirstRunProgress} onRefresh={refreshFirstRunProgress}
               onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={(view) => { if (view === "memory") setMemoryInitialView("sources"); openView(view); }}
               onLegacyGuide={() => { setShowFirstRun(false); setShowLegacyFirstRun(true); }}
               onConfigureEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
               onUseDraft={applyOnboardingDraft} employees={customAgentRecords} draftScope={orchestratorName ?? undefined} />
-          ) : mainView === "inbox" ? null : mainView === "dashboard" ? (
+          ) : mainView === "inbox" ? null : mainView === "work" ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
+            <WorkView
+              runs={retainedRuns}
+              sessions={sessions}
+              storedApprovals={visibleStoredApprovals}
+              pendingApprovals={pendingApprovals}
+              onSelectTask={(id, kind) => {
+                if (kind === "approval") { setMainView("approvals"); return; }
+                void handleSelectSession(id);
+                setMainView("tasks");
+              }}
+              onNewTask={handleNewTask}
+              onQuickAddTask={async (taskText) => {
+                const id = await handleNewTask();
+                if (!id) return false;
+                if (!orchestratorName) return false;
+                const scope = composerDraftScope(orchestratorName, id);
+                quickDraft.current = { scope, text: taskText };
+                writeDraft(scope, taskText);
+                setTask(taskText);
+                return true;
+              }}
+              onReviewApproval={() => {
+                setMainView("approvals");
+              }}
+            />
+            </div>
+          ) : mainView === "dashboard" ? (
+
             <DashboardView
               runs={retainedRuns}
               pendingApprovals={pendingApprovals}
@@ -2569,7 +2639,7 @@ export function App(): React.JSX.Element {
               }}
             />
           ) : mainView === "tasks" ? (
-            <div className="flex-1 flex overflow-hidden">
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
               {/* Mobile sessions drawer (below lg) */}
               {mobileSessionsOpen ? (
                 <div className="fixed inset-0 z-40 lg:hidden">
@@ -2609,11 +2679,14 @@ export function App(): React.JSX.Element {
 
               {/* CENTER: conversation timeline + composer */}
               <main
-                className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[var(--bg)]"
+                className="flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
                 aria-busy={busy}
               >
-                {/* SESSION HEADER */}
-                <div className="border-b border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
+                <AgentPageHeader name={employeeName} slug={activeEmployee?.slug} detailsOpen={agentDetailsOpen} onToggleDetails={() => setAgentDetailsOpen((open) => !open)} onExpandSidebar={sessionsCollapsed ? toggleSessionsCollapsed : undefined} />
+                {showEmployeeOnboarding ? <div className="max-h-[65vh] shrink-0 overflow-y-auto"><EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /></div> : null}
+                {!threadHasWork && sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? <div className="shrink-0 px-4 py-2"><ThreadTitleEditor key={selectedSessionId} sessionId={selectedSessionId} name={activeWebSession.name} onRenamed={(renamed) => setWebSessions((current) => applyThreadRename(current, renamed))} /></div> : null}
+                {/* Keep the existing session actions on nonempty threads. */}
+                <div className={`${threadHasWork ? "flex" : "hidden"} border-b border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-6 py-2.5 items-center justify-between gap-3 shrink-0`}>
                   <div className="flex items-center gap-2.5 min-w-0">
                     {/* Desktop sidebar toggle button */}
                     <Tooltip
@@ -2686,7 +2759,7 @@ export function App(): React.JSX.Element {
                         className="w-6 h-6 rounded-full bg-white object-contain border border-[var(--primary)]/40 shrink-0 cursor-default"
                       />
                     </Tooltip>
-                    <ConversationWorkspaceHeading
+<ConversationWorkspaceHeading
                       title={appToolsWork && conversationMode === "work" ? activeWebSession?.name ?? "New app task" : liveSession ? liveSession.title : "New coding task"}
                       mode={conversationMode}
                       appToolsWork={appToolsWork}
@@ -2696,7 +2769,7 @@ export function App(): React.JSX.Element {
                       artifactWorkspaceName={artifactWorkspaceName}
                       machineName={localComputers.find((computer) => computer.machineId === selectedLocalMachineId)?.hostname}
                     />
-                    {sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? (
+                    {threadHasWork && sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? (
                       <ThreadTitleEditor
                         key={selectedSessionId}
                         sessionId={selectedSessionId}
@@ -2895,7 +2968,6 @@ export function App(): React.JSX.Element {
                       starters={STARTER_TEMPLATES}
                       onStarter={(starterTask) => {
                         setTask(starterTask);
-                        if (!repoUrl) setRepoUrl("https://github.com/cloudflare/ai-chat");
                       }}
                     />
                   ) : null}
@@ -3069,12 +3141,15 @@ export function App(): React.JSX.Element {
                     envVars={envVars}
                     onEnvVarsChange={setEnvVars}
                     variant={threadHasWork ? "docked" : "hero"}
+                    agentName={employeeName}
+                    examplePrompts={employeeExamples(activeEmployee)}
                     onSubmit={submitTask}
                     onClear={() => setShowClearModal(true)}
                   />
                   )}
                 </div>
               </main>
+              {agentDetailsOpen ? <AgentDetailsPanel key={customAgentId || "shiba"} agent={activeEmployee} onClose={() => setAgentDetailsOpen(false)} onEdit={() => openView("custom-agents")} /> : null}
             </div>
           ) : mainView === "activity" ? (
             // Remount on session switch so the previous session's spine never
@@ -3196,7 +3271,7 @@ export function App(): React.JSX.Element {
             <CustomAgentsView
               key={orchestratorName ?? "manual"}
               draftScope={orchestratorName ?? undefined}
-              onStartThread={handleStartAgentThread}
+              onStartThread={async (profile) => { await handleStartAgentThread(profile); }}
               initialTemplateId={initialEmployeeTemplateId}
               onInitialTemplateApplied={() => setInitialEmployeeTemplateId(null)}
               connections={modelConnections}

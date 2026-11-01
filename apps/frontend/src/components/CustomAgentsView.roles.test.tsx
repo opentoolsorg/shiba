@@ -38,6 +38,7 @@ const value = (label: string | RegExp) => (screen.getByLabelText(label) as HTMLI
 const connections = [{ id: "conn-openai", label: "Approved OpenAI", service: "openai", status: "ready" as const }];
 
 describe("role drafts in the Bots directory", () => {
+
   it("creates from the primary fields using the keyboard and leaves optional settings collapsed", async () => {
     const server = stubDirectory();
     render(<CustomAgentsView />);
@@ -131,12 +132,29 @@ describe("role drafts in the Bots directory", () => {
     await screen.findByText("Bot created.");
   });
 
+  it("renders a renamed employee by slug and an unknown slug as custom without saving", async () => {
+    const server = stubDirectory([
+      { id: "known", slug: "design-bot", version: 1, config: { name: "Interface partner", harness: "codex", instructions: "Review the interface" } },
+      { id: "custom", slug: "my-design-bot", version: 1, config: { name: "Design bot", harness: "opencode", instructions: "My own role" } },
+    ]);
+    render(<CustomAgentsView />);
+    const known = (await screen.findByText("Interface partner")).closest("li");
+    const custom = screen.getByText("Design bot").closest("li");
+    expect(known?.querySelector('[data-employee-role="design"]')).toBeTruthy();
+    expect(custom?.querySelector('[data-employee-role="custom"]')).toBeTruthy();
+    expect(known?.textContent).toContain("Runs on codex");
+    expect(server.writes).toEqual([]);
+
+  });
+
   it.each(EMPLOYEE_TEMPLATES)("turns $label into an editable draft, then saves only when Create bot is chosen", async (template) => {
     const server = stubDirectory();
     const launch = vi.fn();
     render(<CustomAgentsView onStartThread={launch} />);
     await screen.findByText("No bots");
-    fireEvent.click(screen.getByRole("button", { name: template.label }));
+    const roleCard = screen.getByRole("button", { name: template.label });
+    expect(roleCard.querySelector(`[data-employee-role="${template.id}"]`)).toBeTruthy();
+    fireEvent.click(roleCard);
     expect(value("Name")).toBe(template.config.name);
     expect(value("Slug")).toBe(template.slug);
     expect(value("Mark")).toBe(template.config.emoji);

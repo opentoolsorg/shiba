@@ -1,7 +1,5 @@
 import React from "react";
-import { PassThrough } from "node:stream";
-import { renderToStaticMarkup, renderToPipeableStream } from "react-dom/server";
-import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -52,39 +50,22 @@ import { Tooltip } from "../../frontend/src/components/Tooltip";
 
 afterEach(() => {
   delete (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent;
-  vi.unstubAllGlobals();
   mocks.chat.messages = [];
   mocks.chat.error = null;
   mocks.chat.isStreaming = false;
   mocks.chat.status = "ready";
   mocks.runsById = {};
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
-function renderApp(): Promise<string> {
+function renderApp(view?: "tasks") {
   (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent = "ada@example.com";
-  vi.stubGlobal("fetch", vi.fn(async () => Response.json({})));
-  const router = createRouter({
-    routeTree: createRootRoute({ component: App }),
-    history: createMemoryHistory({ initialEntries: ["/app"] }),
-  });
-  return router.load().then(() => new Promise((resolve, reject) => {
-    const html = new PassThrough();
-    let markup = "";
-    html.setEncoding("utf8");
-    html.on("data", (chunk: string) => { markup += chunk; });
-    html.on("error", reject);
-    html.on("end", () => resolve(markup.replace(/<!--.*?-->/gs, "")));
-    let pipe: (() => void) | undefined;
-    const stream = renderToPipeableStream(
-      React.createElement(RouterProvider, { router }),
-      {
-        onAllReady() { pipe?.(); },
-        onShellError: reject,
-      },
-    );
-    pipe = () => stream.pipe(html);
-  }));
+  if (view) {
+    vi.stubGlobal("window", { location: new URL(`https://app.tryshiba.dev/${view}/`) });
+    vi.stubGlobal("localStorage", { getItem: () => null });
+  }
+  return renderToStaticMarkup(React.createElement(App));
 }
 
 describe("dashboard rendering", () => {
@@ -110,19 +91,28 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("No runs yet.");
   });
 
-  it("shows useful empty states when no task has started", async () => {
-    const markup = await renderApp();
+  it("shows useful empty states when no task has started", () => {
+    const markup = renderApp();
 
-    expect(markup).toContain('data-testid="chat-composer"');
-    expect(markup).toContain("What should we explore?");
-    expect(markup).toContain("Chat mode has no task tools");
-    expect(markup).toContain('aria-label="Conversation mode"');
+    expect(markup).toContain('aria-label="Work views"');
+    expect(markup).toContain('aria-label="Draft a task and press Enter"');
+    expect(markup).toContain("Nothing waiting");
+    expect(markup).toContain("No tasks in Running");
+    expect(markup).toContain("New task");
     expect(markup).toContain("New thread");
     expect(markup).toContain("Threads");
-
   });
 
-  it("renders a pending approval with its tool input and actions", async () => {
+  it("shows the thread composer when opening Threads", () => {
+    const markup = renderApp("tasks");
+
+    expect(markup).toContain('data-testid="task-composer"');
+    expect(markup).toContain('aria-label="Task description"');
+    expect(markup).toContain("What do you want to get done?");
+    expect(markup).toContain('aria-label="Thread configuration"');
+  });
+
+  it("renders a pending approval with its tool input and actions", () => {
     mocks.chat.messages = [
       {
         id: "message-1",
@@ -139,17 +129,21 @@ describe("dashboard rendering", () => {
       },
     ];
 
-    const markup = await renderApp();
+    const workMarkup = renderApp();
+    expect(workMarkup).toContain("Approve tool: runSandbox");
+    expect(workMarkup).toContain("Review");
 
-    expect(markup).toContain("waiting for your approval");
-    expect(markup).toContain("Action Required");
+    const markup = renderApp("tasks");
+
+    expect(markup).toContain("Waiting for your approval");
+    expect(markup).toContain("Needs approval");
     expect(markup).toContain("runSandbox");
     expect(markup).toContain("&quot;command&quot;: &quot;npm test&quot;");
     expect(markup).toContain("Approve");
     expect(markup).toContain("Reject");
   });
 
-  it("renders chat errors and live run output without hiding the run state", async () => {
+  it("renders chat errors and live run output without hiding the run state", () => {
     mocks.chat.error = new Error("stream failed");
     mocks.runsById = {
       "run-1": {
@@ -163,14 +157,14 @@ describe("dashboard rendering", () => {
       },
     };
 
-    const markup = await renderApp();
+    const markup = renderApp("tasks");
 
     expect(markup).toContain("Chat error: stream failed");
     expect(markup).toContain("run-1");
 
   });
 
-  it("renders task submission form", async () => {
+  it("renders task submission form", () => {
     const formMarkup = renderToStaticMarkup(React.createElement(TaskForm));
 
     expect(formMarkup).toContain('data-testid="task-submission-form"');
@@ -180,12 +174,11 @@ describe("dashboard rendering", () => {
     expect(formMarkup).toContain('type="checkbox"');
     expect(formMarkup).toContain('value="main"');
 
-    const appMarkup = await renderApp();
+    const appMarkup = renderApp("tasks");
 
-    expect(appMarkup).toContain('data-testid="chat-composer"');
-    expect(appMarkup).toContain("What should we explore?");
+    expect(appMarkup).toContain('data-testid="task-composer"');
     expect(appMarkup).toContain("<textarea");
-    expect(appMarkup).toContain("CONVERSATION · NO TASK TOOLS");
+    expect(appMarkup).toContain('aria-label="Thread configuration"');
   });
 
   it("renders diff output for completed runs in standalone DiffView", () => {
@@ -196,7 +189,7 @@ describe("dashboard rendering", () => {
       task: "Implement feature",
       baseBranch: "main",
       publishPullRequest: false,
-      status: "completed" as const,
+      status: "completed",
       createdAt: Date.now() - 10000,
       updatedAt: Date.now(),
       agentType: "coding-agent",
@@ -222,8 +215,8 @@ describe("dashboard rendering", () => {
     expect(diffMarkup).toContain("<code");
   });
 
-  it("renders the top navigation bar without the retired Architecture view", async () => {
-    const markup = await renderApp();
+  it("renders the top navigation bar without the retired Architecture view", () => {
+    const markup = renderApp();
     expect(markup).toContain("New thread");
     expect(markup).toContain("Threads");
     expect(markup).toContain("Pull requests");
@@ -244,7 +237,7 @@ describe("dashboard rendering", () => {
       })
     );
     expect(diffMarkup).toContain("Pull requests");
-    expect(diffMarkup).toContain("No runs yet");
+    expect(diffMarkup).toContain("No changes to review");
 
     const approvalsMarkup = renderToStaticMarkup(
       React.createElement(ApprovalsView, {
@@ -259,8 +252,8 @@ describe("dashboard rendering", () => {
       })
     );
     expect(approvalsMarkup).toContain("Approvals");
-    expect(approvalsMarkup).toContain("Nothing waiting");
-    expect(approvalsMarkup).toContain("0 waiting");
+    expect(approvalsMarkup).toContain("Nothing needs you");
+    expect(approvalsMarkup).toContain("0 open");
     expect(approvalsMarkup).toContain("Audit log");
     expect(approvalsMarkup).not.toContain("Zero-Trust");
   });
@@ -293,11 +286,15 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("owner/repo");
   });
 
-  it("renders AutomationsView with webhook endpoints", () => {
+  it("renders AutomationsView with navigation to recipes and inbound triggers", () => {
     const markup = renderToStaticMarkup(React.createElement(AutomationsView));
-    expect(markup).toContain("Automations &amp; Inbound Triggers");
-    expect(markup).toContain("/api/github/webhook");
-    expect(markup).toContain("/api/slack/command");
+    expect(markup).toContain("Automations");
+    expect(markup).toContain('aria-label="Automation views"');
+    expect(markup).toContain(">Recipes</button>");
+    expect(markup).toContain(">Triggers</button>");
+    expect(markup).toContain("New automation");
+    expect(markup).toContain('aria-label="Deployed automations"');
+    expect(markup).toContain("Runs still need your approval.");
   });
 
   it("renders OnboardingModal with steps from PLAN.md", () => {
@@ -314,11 +311,12 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Operator &amp; Self-Hosting Setup");
     expect(markup).toContain('role="checkbox"');
   });
-  it("renders sidebar toggle button and keyboard shortcuts for sidebar", async () => {
-    const markup = await renderApp();
+  it("renders the sidebar toggle, search, and thread group controls", () => {
+    const markup = renderApp();
     expect(markup).toContain('aria-label="Collapse sidebar"');
     expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain('aria-label="Open sessions"');
+    expect(markup).toContain('aria-label="Search"');
+    expect(markup).toContain("Threads");
   });
 
   it("renders Tooltip component wrapping trigger elements", () => {
