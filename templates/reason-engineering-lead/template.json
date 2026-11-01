@@ -1,0 +1,19 @@
+{
+  "id": "reason-engineering-lead",
+  "name": "Shiba Engineering Lead",
+  "description": "Break engineering goals into reviewable tasks and coordinate evidence-based handoffs.",
+  "categories": [
+    "competitor-inspired",
+    "engineering"
+  ],
+  "appearance": "🧭",
+  "skills": [
+    "task-breakdown"
+  ],
+  "plugins": [],
+  "harness": "opencode",
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}
