@@ -89,7 +89,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
       response = await fetcher(`${base}${path}`, {
         ...init,
         headers,
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(35_000),
       });
     } catch {
