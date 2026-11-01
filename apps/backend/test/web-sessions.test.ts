@@ -78,6 +78,7 @@ import {
 } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import worker from "../src/index.js";
+import { handleWebSessions } from "../src/sessions-routes.js";
 import type { Env } from "../src/env.js";
 import type { PendingApproval } from "../src/pending-approvals.js";
 
@@ -653,6 +654,7 @@ function makeMockEnv() {
     const activeRunsMap = new Map<string, number>();
     const orchestratorStubs = new Map<string, any>();
     const teardownCalls: string[] = [];
+    const roomRequests: Array<{ name: string; request: Request }> = [];
 
     const getStub = (name: string) => {
       if (!orchestratorStubs.has(name)) {
@@ -779,14 +781,76 @@ function makeMockEnv() {
         get: vi.fn((id: unknown) => getStub(String(id))),
         idFromName: vi.fn((name: string) => name),
       },
+      ConversationRoom: {
+        getByName: vi.fn((name: string) => ({
+          fetch: async (request: Request) => {
+            roomRequests.push({ name, request });
+            return Response.json({ routed: true });
+          },
+        })),
+      },
       REQUIRE_ACCESS: "1",
       ASSETS: { fetch: vi.fn() },
     } as unknown as Env;
 
-    return { env, sessionMap, runsMap, approvalsMap, activeRunsMap, teardownCalls };
+    return { env, sessionMap, runsMap, approvalsMap, activeRunsMap, teardownCalls, roomRequests };
   }
 
 describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agents/", () => {
+
+  it("routes authenticated session room sockets only after the owner and session are verified", async () => {
+    const { env, sessionMap, roomRequests } = makeMockEnv();
+    const roomEnv = { ...env, REQUIRE_ACCESS: undefined } as unknown as Env;
+    const owner = "alice@example.com";
+    const session = createWebSession(owner, { name: "Realtime session" });
+    sessionMap.set(owner, [session]);
+    const viewerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const headers = {
+      "CF-Access-Authenticated-User-Email": owner,
+      Upgrade: "websocket",
+      Origin: "https://example.com",
+    };
+
+    const disconnected = await handleWebSessions(
+      new Request(`https://localhost/api/sessions/${session.id}/realtime?viewer=${viewerId}`, {
+        headers: { ...headers, Origin: "https://localhost" },
+      }),
+      roomEnv,
+    );
+    expect(disconnected?.status).toBe(200);
+    expect(roomRequests).toHaveLength(1);
+    expect(roomRequests[0]?.name).toBe(JSON.stringify([owner, session.id]));
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-owner")).toBe(owner);
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-session")).toBe(session.id);
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-viewer")).toBe(viewerId);
+
+    const crossOrigin = await handleWebSessions(
+      new Request(`https://localhost/api/sessions/${session.id}/realtime?viewer=${viewerId}`, {
+        headers: { ...headers, Origin: "https://attacker.example" },
+      }),
+      roomEnv,
+    );
+    expect(crossOrigin?.status).toBe(403);
+    expect(roomRequests).toHaveLength(1);
+
+    const missing = await handleWebSessions(
+      new Request(`https://localhost/api/sessions/${mintSessionId()}/realtime?viewer=${viewerId}`, {
+        headers: { ...headers, Origin: "https://localhost" },
+      }),
+      roomEnv,
+    );
+    expect(missing?.status).toBe(404);
+    expect(roomRequests).toHaveLength(1);
+
+    const unauthenticated = await handleWebSessions(
+      new Request(`https://example.com/api/sessions/${session.id}/realtime?viewer=${viewerId}`, {
+        headers: { Upgrade: "websocket", Origin: "https://example.com" },
+      }),
+      roomEnv,
+    );
+    expect(unauthenticated?.status).toBe(401);
+    expect(roomRequests).toHaveLength(1);
+  });
 
   it("enforces Access authentication on /api/sessions", async () => {
     const { env } = makeMockEnv();

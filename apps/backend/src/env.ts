@@ -6,6 +6,7 @@
 import type { OpenCodeAgent } from "./agents/opencode-agent.js";
 import type { CodingOrchestrator } from "./agents/orchestrator.js";
 import type { Sandbox } from "./sandbox.js";
+import type { ConversationRoom } from "./conversation-room-do.js";
 
 export interface Env {
   AI: Ai;
@@ -16,6 +17,8 @@ export interface Env {
    */
   LOADER?: WorkerLoader;
   CodingOrchestrator: DurableObjectNamespace<CodingOrchestrator>;
+  /** Per-owner, per-session live viewer presence and persisted chat stream deltas. */
+  ConversationRoom: DurableObjectNamespace<ConversationRoom>;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;
   /** Bound to the Automations Durable Object class in wrangler.jsonc. */
