@@ -81,6 +81,7 @@ import { Waitlist } from "./waitlist-do.js";
 import { ModelConfig } from "./model-config-do.js";
 import { ChatGptAuth } from "./chatgpt-auth-do.js";
 import { UserProviderOAuth } from "./user-provider-oauth-do.js";
+import { ConversationRoom } from "./conversation-room-do.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -91,6 +92,7 @@ import {
 export {
   Automations,
   ChatGptAuth,
+  ConversationRoom,
   UserProviderOAuth,
   CodingOrchestrator,
   LocalDispatch,

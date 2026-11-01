@@ -56,6 +56,7 @@ import type { Memory } from "./apps/backend/src/memory-do.js";
 import type { Sandbox } from "./apps/backend/src/sandbox.js";
 import type { Waitlist } from "./apps/backend/src/waitlist-do.js";
 import type { Spaces } from "./apps/backend/src/spaces-do.js";
+import type { ConversationRoom } from "./apps/backend/src/conversation-room-do.js";
 import type { ModelConfig } from "./apps/backend/src/model-config-do.js";
 
 // alchemy loads .env into its own config store, not process.env — which
@@ -232,6 +233,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     }),
     Spaces: Cloudflare.DurableObject<Spaces>("Spaces", {
       className: "Spaces",
+    }),
+    ConversationRoom: Cloudflare.DurableObject<ConversationRoom>("ConversationRoom", {
+      className: "ConversationRoom",
     }),
 
     // Megaplan stores — wrangler keeps `__PENDING__` ids until the resources
