@@ -22,6 +22,13 @@ describe("ApprovalCard", () => {
     expect(decide).toHaveBeenCalledWith("approval-1", false);
   });
 
+  it("shows a neutral status for a recorded decision with an unavailable outcome", () => {
+    render(<ApprovalCard approval={approval} decided onDecideApproval={vi.fn()} />);
+    expect(screen.getByRole("status").textContent).toBe("Decision recorded");
+    expect(screen.queryByText("Needs approval")).toBeNull();
+    for (const button of screen.getAllByRole("button")) expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it.each([[true, "Approved — sandbox starting"], [false, "Rejected — nothing ran"]] as const)("explains settled decision %s", (decision, message) => {
     render(<ApprovalCard approval={approval} decided decision={decision} onDecideApproval={vi.fn()} />);
     expect(screen.getByRole("status").textContent).toBe(message);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { ChevronDown, ChevronRight, Plus, Search, Zap } from "lucide-react";
 import { LoadErrorState } from "./LoadErrorState";
 import { useCustomAgentOptions } from "./CustomAgentsView";
@@ -70,11 +70,20 @@ export function AutomationsView(): JSX.Element {
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  const copyTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+  }, []);
+
   const copyToClipboard = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      setNotice(null);
       setCopiedEndpoint(label);
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCopiedEndpoint(null), 2000);
     } catch {
+      setCopiedEndpoint(null);
       setNotice("Could not copy the endpoint. Select and copy it instead.");
     }
   };
@@ -131,6 +140,21 @@ export function AutomationsView(): JSX.Element {
     finally { setBusyId(null); }
   };
 
+  const setAutomationEnabled = async (id: string, enabled: boolean) => {
+    setBusyId(`toggle-${id}`);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/automations/${encodeURIComponent(id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) setNotice(body.error ?? `Could not update automation (${response.status}).`);
+      else refresh();
+    } catch { setNotice("Could not update automation: the backend could not be reached."); }
+    finally { setBusyId(null); }
+  };
+
   const matches = (value: string) => value.toLowerCase().includes(query.trim().toLowerCase());
   const filtered = automations?.filter((a) => matches(`${a.id} ${a.repoUrl} ${a.prompt} ${a.triggers.map((t) => t.kind).join(" ")}`)) ?? [];
   const recipes = RECIPES.filter((recipe) => matches(`${recipe.name} ${recipe.description} ${recipe.cadence}`));
@@ -170,6 +194,7 @@ export function AutomationsView(): JSX.Element {
                     <Zap aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
                     <div className="min-w-0 flex-1"><p className="text-sm truncate">{RECIPES.find((recipe) => recipe.id === a.id)?.name ?? a.id}</p><p className="text-xs text-[var(--muted-foreground-1)] break-all">{a.repoUrl}{a.customAgentId ? ` · Bot: ${a.customAgentId}` : ""}{a.lastSkip ? ` · Last skip: ${a.lastSkip.reason}` : ""}</p></div>
                     <span className="text-xs text-[var(--muted-foreground-1)]">{a.triggers.map((t) => t.kind).join(" + ")} · {a.runCount ?? 0} runs</span>
+                    <button type="button" aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.id}`} disabled={busyId !== null} onClick={() => void setAutomationEnabled(a.id, !a.enabled)} className={controlClass}>{busyId === `toggle-${a.id}` ? "Updating…" : a.enabled ? "Disable" : "Enable"}</button>
                     {a.triggers.some((t) => t.kind === "manual") ? <button type="button" disabled={busyId !== null} onClick={() => void triggerNow(a.id)} className={controlClass}>{busyId === `run-${a.id}` ? "Queuing…" : "Run now"}</button> : null}
                   </div>)}
                 </div>

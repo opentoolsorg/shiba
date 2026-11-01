@@ -58,6 +58,22 @@ describe("TaskComposer", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("keeps the work target available and explains a blocked submission", () => {
+    const onSubmit = vi.fn();
+    const onAppToolsWorkChange = vi.fn();
+    const onExecutionTargetKindChange = vi.fn();
+    renderComposer("docked", { repoUrl: "https://github.com/example/work", task: "Prepare a brief",
+      blockedReason: "Review the saved first task before sending.", onSubmit,
+      onAppToolsWorkChange, onExecutionTargetKindChange });
+    expect(screen.getByRole("status").textContent).toBe("Review the saved first task before sending.");
+    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.submit(screen.getByRole("form", { name: "Task composer" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("combobox", { name: "Work target" }), { target: { value: "artifact-workspace" } });
+    expect(onAppToolsWorkChange).toHaveBeenCalledWith(false);
+    expect(onExecutionTargetKindChange).toHaveBeenCalledWith("artifact-workspace");
+  });
+
   it("preserves the selected employee in configuration without a bot identity line in the prompt", () => {
     const onCustomAgentChange = vi.fn();
     const onSubmit = vi.fn();
@@ -212,6 +228,8 @@ describe("TaskComposer", () => {
       repoUrl: "",
     });
     expect(screen.getByRole("button", { name: "Work in: Artifact workspace" })).toBeTruthy();
+    expect(screen.getByText("Outputs are saved in an artifact workspace. No repository required.")).toBeTruthy();
+    expect(screen.queryByText(/Connect a repository — required for execution/)).toBeNull();
     expect((screen.getByLabelText("Artifact workspace name") as HTMLInputElement).value).toBe("Quarterly planning");
     expect((screen.getByLabelText("Artifact deliverables") as HTMLTextAreaElement).value).toBe("deliverables/brief.md");
     expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(false);
@@ -243,7 +261,7 @@ describe("TaskComposer", () => {
     renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables: "reports/brief.md", task: "Draft a brief", repoUrl: "", onSubmit });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
     expect(onSubmit).toHaveBeenCalledOnce();
-
+  });
 
   it("explains the approval gate and labels the deployment default truthfully", () => {
     renderComposer("hero");

@@ -21,7 +21,7 @@ it("shows the chosen bot's required output contract before submission and update
   const outputs = screen.getByRole("list", { name: "Required deliverables" });
   expect(within(outputs).getByText("marketing/brief.md")).toBeTruthy();
   expect(within(outputs).getByText("marketing/campaign.md")).toBeTruthy();
-  expect(screen.getByRole("textbox", { name: "Task description" }).getAttribute("placeholder")).toContain("goal, context, and output");
+  expect(screen.getByRole("textbox", { name: "Task description" }).getAttribute("placeholder")).toBe("Describe the outcome and facts this bot should use");
   expect(props.onSubmit).not.toHaveBeenCalled();
 
   rerender(<TaskComposer {...props} customAgentId="research" />);
