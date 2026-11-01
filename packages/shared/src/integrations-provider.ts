@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { integrationDomainSchema, integrationKindSchema, integrationPrioritySchema } from "./integration-catalog.js";
 
-export const integrationsProviderIdSchema = z.enum(["composio", "none", "grokbot"]);
+export const integrationsProviderIdSchema = z.enum(["composio", "none", "grokbot", "openconnector"]);
 export type IntegrationsProviderId = z.infer<typeof integrationsProviderIdSchema>;
 
 export const integrationProviderHealthStatusSchema = z.enum([
@@ -32,7 +32,7 @@ export const integrationProviderCatalogItemSchema = z.object({
   docsUrl: z.string().url().optional(),
   isConnected: z.boolean(),
   connectionId: z.string().nullable().optional(),
-  source: z.enum(["composio", "static", "grokbot", "native"]),
+  source: z.enum(["composio", "static", "grokbot", "native", "openconnector"]),
   connectable: z.boolean(),
 });
 export type IntegrationProviderCatalogItem = z.infer<typeof integrationProviderCatalogItemSchema>;
@@ -114,7 +114,7 @@ export type IntegrationProviderSessionResponse = z.infer<typeof integrationProvi
 
 export function parseIntegrationsProviderId(raw: string | undefined): IntegrationsProviderId {
   const normalized = raw?.trim().toLowerCase();
-  if (normalized === "composio" || normalized === "none" || normalized === "grokbot") {
+  if (normalized === "composio" || normalized === "none" || normalized === "grokbot" || normalized === "openconnector") {
     return normalized;
   }
   return "composio";

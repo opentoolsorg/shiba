@@ -3,9 +3,10 @@ import type { Env } from "../env.js";
 import type { IntegrationProvider } from "./contracts.js";
 import { ComposioIntegrationProvider } from "./composio-provider.js";
 import { GrokbotBridgeIntegrationProvider } from "./grokbot-bridge-provider.js";
+import { OpenConnectorIntegrationProvider } from "./openconnector-provider.js";
 import { NoneIntegrationProvider } from "./none-provider.js";
 
-let cached: { key: string; provider: IntegrationProvider } | null = null;
+let cached: { env: Env; key: string; provider: IntegrationProvider } | null = null;
 
 function configHash(env: Env, selected: IntegrationsProviderId): string {
   if (selected === "composio") {
@@ -25,16 +26,18 @@ export function getSelectedIntegrationsProviderId(env: Env): IntegrationsProvide
 export function getIntegrationProvider(env: Env): IntegrationProvider {
   const selected = getSelectedIntegrationsProviderId(env);
   const key = configHash(env, selected);
-  if (cached?.key === key) return cached.provider;
+  if (cached?.key === key && (selected !== "openconnector" || cached.env === env)) return cached.provider;
 
   const provider: IntegrationProvider =
     selected === "none"
       ? new NoneIntegrationProvider()
       : selected === "grokbot"
         ? new GrokbotBridgeIntegrationProvider()
-        : new ComposioIntegrationProvider({ env });
+        : selected === "openconnector"
+          ? new OpenConnectorIntegrationProvider({ env })
+          : new ComposioIntegrationProvider({ env });
 
-  cached = { key, provider };
+  cached = { env, key, provider };
   return provider;
 }
 
