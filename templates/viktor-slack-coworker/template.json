@@ -1,0 +1,18 @@
+{
+  "id": "viktor-slack-coworker",
+  "name": "Shiba Slack Coworker",
+  "description": "Coordinate a Slack-first coworker that turns requests into reviewable work.",
+  "categories": [
+    "competitor-inspired",
+    "ops"
+  ],
+  "appearance": "🐕",
+  "skills": [
+    "slack-summary"
+  ],
+  "plugins": [],
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}

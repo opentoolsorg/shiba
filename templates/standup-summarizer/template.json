@@ -1,0 +1,18 @@
+{
+  "id": "standup-summarizer",
+  "name": "Standup Summarizer",
+  "description": "Create a concise team update from supplied work notes and thread context.",
+  "categories": [
+    "ops",
+    "product"
+  ],
+  "appearance": "📋",
+  "skills": [
+    "standup-format"
+  ],
+  "plugins": [],
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}
