@@ -262,4 +262,24 @@ describe("IntegrationsView capability catalog", () => {
     expect(screen.getAllByText("Test stale").length).toBeGreaterThan(0);
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith("/api/providers")).every(([, init]) => init?.cache === "no-store")).toBe(true);
   });
+
+  it("switches between Skills, MCP servers, and Connectors tabs", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    expect(await screen.findByRole("tab", { name: "Connectors" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Skills" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "MCP servers" })).toBeTruthy();
+
+    // Switch to Skills tab
+    fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
+    expect(await screen.findByRole("heading", { name: "Skill library" })).toBeTruthy();
+
+    // Switch to MCP servers tab
+    fireEvent.click(screen.getByRole("tab", { name: "MCP servers" }));
+    expect(await screen.findByLabelText("Search servers")).toBeTruthy();
+
+    // Switch back to Connectors tab
+    fireEvent.click(screen.getByRole("tab", { name: "Connectors" }));
+    expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
+  });
 });

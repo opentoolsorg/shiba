@@ -233,9 +233,21 @@ function IntegrationSection({
 export function IntegrationCatalogDirectory({
   bindingInputs,
   onOpenDocs,
+  linkedConnectorKeys,
+  onLinkExisting,
+  linkActionLabel,
+  linkingKey,
+  onConnectStarted,
+  onOAuthComplete,
 }: {
   bindingInputs: IntegrationBindingInputs;
   onOpenDocs?: (entry: IntegrationCatalogEntry) => void;
+  linkedConnectorKeys?: ReadonlySet<string>;
+  onLinkExisting?: (item: IntegrationProviderCatalogItem) => void;
+  linkActionLabel?: string;
+  linkingKey?: string | null;
+  onConnectStarted?: (providerKey: string) => void;
+  onOAuthComplete?: () => void;
 }): JSX.Element {
   const [search, setSearch] = useState("");
   const [domain, setDomain] = useState<IntegrationDomain | "all">("all");
@@ -303,27 +315,28 @@ export function IntegrationCatalogDirectory({
   }, [refreshProvider]);
 
   useEffect(() => {
-    const onOAuthComplete = () => {
+    const handleOAuthComplete = () => {
       void refreshProvider();
+      onOAuthComplete?.();
     };
     let channel: BroadcastChannel | null = null;
     try {
       channel = new BroadcastChannel(SHIBA_INTEGRATIONS_OAUTH_CHANNEL);
-      channel.onmessage = onOAuthComplete;
+      channel.onmessage = handleOAuthComplete;
     } catch {
       channel = null;
     }
     const onWindowMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       const data = event.data as { type?: string } | null;
-      if (data?.type === SHIBA_INTEGRATIONS_OAUTH_CHANNEL) onOAuthComplete();
+      if (data?.type === SHIBA_INTEGRATIONS_OAUTH_CHANNEL) handleOAuthComplete();
     };
     window.addEventListener("message", onWindowMessage);
     return () => {
       channel?.close();
       window.removeEventListener("message", onWindowMessage);
     };
-  }, [refreshProvider]);
+  }, [refreshProvider, onOAuthComplete]);
 
   const filteredCatalog = useMemo(() => {
     let entries = searchIntegrationCatalog(INTEGRATION_CATALOG, search);
@@ -360,6 +373,7 @@ export function IntegrationCatalogDirectory({
       }
       const target = new URL(body.redirectUrl);
       if (target.protocol !== "https:") throw new Error("Connect returned an unsafe redirect URL.");
+      onConnectStarted?.(item.providerKey);
       window.open(target.href, "shiba-integrations-oauth", "width=520,height=720,noopener,noreferrer");
       await refreshProvider();
     } catch (error) {
@@ -367,7 +381,7 @@ export function IntegrationCatalogDirectory({
     } finally {
       setConnectingKey(null);
     }
-  }, [refreshProvider]);
+  }, [onConnectStarted, refreshProvider]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -482,6 +496,10 @@ export function IntegrationCatalogDirectory({
         onClose={() => setBrowseOpen(false)}
         onConnect={(item) => void beginConnect(item)}
         connectingKey={connectingKey}
+        linkedConnectorKeys={linkedConnectorKeys}
+        onLinkExisting={onLinkExisting}
+        linkActionLabel={linkActionLabel}
+        linkingKey={linkingKey}
       />
     </div>
   );
