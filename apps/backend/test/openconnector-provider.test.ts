@@ -45,6 +45,45 @@ describe("OpenConnector adapter", () => {
     expect(http).not.toHaveBeenCalled();
   });
 
+  it.each(["http", "binding"] as const)("checks health with Workers-compatible redirect handling through %s", async (transport) => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.redirect === "error") throw new TypeError("Unsupported redirect mode");
+      return Response.json({ ok: true });
+    });
+    const http = vi.fn();
+    const env = transport === "binding"
+      ? { ...configured, OPEN_CONNECTOR: { fetch: fetchImpl } as unknown as Fetcher }
+      : configured;
+    expect((await provider(transport === "binding" ? http : fetchImpl, env).health()).status).toBe("healthy");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[1]?.redirect).toBe("manual");
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it.each(["http", "binding"] as const)("rejects upstream redirects through %s without following them or exposing credentials", async (transport) => {
+    for (const status of [301, 302, 303, 307, 308]) {
+      const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response("admin-secret runtime-secret private-output", {
+        status,
+        headers: { location: "https://untrusted.example.test/collect" },
+      }));
+      const http = vi.fn();
+      const env = transport === "binding"
+        ? { ...configured, OPEN_CONNECTOR: { fetch: fetchImpl } as unknown as Fetcher }
+        : configured;
+      const adapter = provider(transport === "binding" ? http : fetchImpl, env);
+      await expect(adapter.listConnections({ userId: "alice" })).rejects.toThrow(`OpenConnector request failed (HTTP ${status}).`);
+      expect(await adapter.executeTool({ userId: "alice", toolSlug: "github.get_current_user", arguments: {} })).toEqual({
+        ok: false, status: "failed", error: `OpenConnector request failed (HTTP ${status}).`,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      for (const [input, init] of fetchImpl.mock.calls) {
+        expect(new URL(String(input)).hostname).toBe(transport === "binding" ? "open-connector.internal" : "connector.example.test");
+        expect(init?.redirect).toBe("manual");
+      }
+      expect(http).not.toHaveBeenCalled();
+    }
+  });
+
   it("filters connection rows by authenticated alias and excludes virtual, unconfigured and stale grants", async () => {
     const own = await openConnectorConnectionName("alice");
     const base = { id: "own", service: "github", connectionName: own, configured: true, virtual: false, profile: { displayName: "Alice" } };
@@ -128,7 +167,7 @@ describe("OpenConnector adapter", () => {
       expect(headers.get("authorization")).toBe("Bearer runtime-secret");
       expect(headers.get("x-oo-connector-alias")).toBe("u_2bd806c97f0e00af");
       expect(headers.has("x-oo-connector-app-id")).toBe(false);
-      expect(init?.redirect).toBe("error");
+      expect(init?.redirect).toBe("manual");
       expect(init?.signal).toBeInstanceOf(AbortSignal);
       expect(JSON.parse(String(init?.body))).toEqual({ input: { limit: 2 } });
       return Response.json({ success: true, data: { login: "alice" }, meta: {} });
