@@ -10,19 +10,25 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const checkout = resolve(root, ".openconnector", release);
 const run = (command, args, cwd = checkout) => execFileSync(command, args, { cwd, stdio: "inherit" });
 
-export function configure(example, { databaseId, worker = "shiba-openconnector", bucket = "shiba-openconnector-transit", origin }) {
+export function configure(example, { databaseId, worker = "shiba-openconnector", bucket = "shiba-openconnector-transit", backend = "r2", namespaceId, origin }) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(databaseId ?? "")) throw new Error("Set OPEN_CONNECTOR_D1_ID to the provisioned D1 database UUID");
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(worker) || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("Invalid Worker or R2 bucket name");
+  if (!["r2", "kv"].includes(backend)) throw new Error("OPEN_CONNECTOR_TRANSIT_BACKEND must be r2 or kv");
+  if (backend === "kv" && !/^[a-f0-9]{32}$/i.test(namespaceId ?? "")) throw new Error("Set OPEN_CONNECTOR_KV_ID to the transit KV namespace ID");
   let config = example.replace('"name": "open-connector"', `"name": ${JSON.stringify(worker)}`)
     .replace('"database_name": "open-connector"', '"database_name": "shiba-openconnector"')
     .replace('"<your-d1-database-id>"', JSON.stringify(databaseId))
     .replace('"<your-bucket-name>"', JSON.stringify(bucket));
+  if (backend === "kv") {
+    config = config.replace(/"r2_buckets":\s*\[[\s\S]*?\]/, `"kv_namespaces": [{ "binding": "TRANSIT_FILES", "id": ${JSON.stringify(namespaceId)} }]`);
+  }
   // Bound requests have an internal origin; upstream needs its public origin for OAuth and files.
   if (!origin) throw new Error("Set OOMOL_CONNECT_ORIGIN to the sibling public HTTPS origin");
   if (origin) {
     const url = new URL(origin);
     if (url.protocol !== "https:" || url.origin !== origin) throw new Error("OOMOL_CONNECT_ORIGIN must be an HTTPS origin without a trailing slash");
-    config = config.replace('"triggers":', `"vars": { "OOMOL_CONNECT_ORIGIN": ${JSON.stringify(origin)} },\n  "triggers":`);
+    const vars = { OOMOL_CONNECT_ORIGIN: origin, ...(backend === "kv" ? { TRANSIT_FILES_BACKEND: "kv" } : {}) };
+    config = config.replace('"triggers":', `"vars": ${JSON.stringify(vars)},\n  "triggers":`);
   }
   return config;
 }
@@ -33,10 +39,16 @@ function verifyCheckout() {
   if (execFileSync("git", ["diff", "HEAD", "--"], { cwd: checkout, encoding: "utf8" }).trim()) throw new Error("Upstream tracked files were modified; restore them before continuing");
 }
 
+// Applying pending migrations is idempotent; a failed migration must prevent deployment.
+export function deploy(wrangler, npm = run) {
+  wrangler(["d1", "migrations", "apply", "shiba-openconnector", "--remote", "--config", "wrangler.local.jsonc"]);
+  npm("npm", ["run", "deploy:cloudflare"]);
+}
+
 function main() {
   const command = process.argv[2];
   if (!["prepare", "provision", "configure", "apply-d1", "deploy", "secret"].includes(command)) {
-    console.log("Usage: node infra/openconnector.mjs prepare|provision|configure|apply-d1|deploy|secret NAME\nSee docs/OPENCONNECTOR.md. No command deploys or provisions implicitly.");
+    console.log("Usage: node infra/openconnector.mjs prepare|provision|configure|apply-d1|deploy|secret NAME\nSee docs/OPENCONNECTOR.md. Deploy applies pending D1 migrations first; provision creates remote resources.");
     return;
   }
   if (command === "prepare") {
@@ -51,8 +63,11 @@ function main() {
   verifyCheckout();
   const wrangler = (args) => run("npm", ["exec", "--", "wrangler", ...args]);
   if (command === "provision") {
+    const backend = process.env.OPEN_CONNECTOR_TRANSIT_BACKEND || "r2";
+    if (!["r2", "kv"].includes(backend)) throw new Error("OPEN_CONNECTOR_TRANSIT_BACKEND must be r2 or kv");
     wrangler(["d1", "create", "shiba-openconnector"]);
-    wrangler(["r2", "bucket", "create", process.env.OPEN_CONNECTOR_R2_BUCKET || "shiba-openconnector-transit"]);
+    if (backend === "kv") wrangler(["kv", "namespace", "create", "shiba-openconnector-transit"]);
+    else wrangler(["r2", "bucket", "create", process.env.OPEN_CONNECTOR_R2_BUCKET || "shiba-openconnector-transit"]);
     console.log("Copy the database_id into OPEN_CONNECTOR_D1_ID, then run pnpm configure:openconnector");
     return;
   }
@@ -61,13 +76,15 @@ function main() {
       databaseId: process.env.OPEN_CONNECTOR_D1_ID,
       worker: process.env.OPEN_CONNECTOR_WORKER || "shiba-openconnector",
       bucket: process.env.OPEN_CONNECTOR_R2_BUCKET || "shiba-openconnector-transit",
+      backend: process.env.OPEN_CONNECTOR_TRANSIT_BACKEND || "r2",
+      namespaceId: process.env.OPEN_CONNECTOR_KV_ID,
       origin: process.env.OOMOL_CONNECT_ORIGIN,
     }));
     return;
   }
   if (!existsSync(resolve(checkout, "wrangler.local.jsonc"))) throw new Error("Run pnpm configure:openconnector first");
   if (command === "apply-d1") wrangler(["d1", "migrations", "apply", "shiba-openconnector", "--remote", "--config", "wrangler.local.jsonc"]);
-  if (command === "deploy") run("npm", ["run", "deploy:cloudflare"]);
+  if (command === "deploy") deploy(wrangler);
   if (command === "secret") {
     const name = process.argv[3];
     if (!["OOMOL_CONNECT_ADMIN_TOKEN", "OOMOL_CONNECT_ENCRYPTION_KEY"].includes(name)) throw new Error("Unsupported secret name");

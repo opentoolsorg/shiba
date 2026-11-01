@@ -19,11 +19,11 @@ function post(path: string, body: unknown, sameOrigin = true): Request {
 describe("openconnector runtime and routes", () => {
   beforeEach(() => { resetIntegrationProviderCacheForTests(); vi.restoreAllMocks(); });
 
-  it("accepts the fourth provider and catalog source, preserving the default", () => {
+  it("accepts the default openconnector provider and catalog source", () => {
     expect(integrationsProviderIdSchema.parse("openconnector")).toBe("openconnector");
     expect(parseIntegrationsProviderId(" OPENCONNECTOR ")).toBe("openconnector");
-    expect(parseIntegrationsProviderId(undefined)).toBe("composio");
-    expect(parseIntegrationsProviderId("unknown")).toBe("composio");
+    expect(parseIntegrationsProviderId(undefined)).toBe("openconnector");
+    expect(parseIntegrationsProviderId("unknown")).toBe("openconnector");
     expect(integrationProviderCatalogItemSchema.parse({
       id: "github", providerKey: "github", name: "GitHub", description: "", source: "openconnector",
       isConnected: false, connectable: true,
@@ -53,19 +53,20 @@ describe("openconnector runtime and routes", () => {
     });
   });
 
-  it("keeps sessions Composio-only and rejects cross-origin execute", async () => {
+  it("reports unsupported sessions and rejects cross-origin execute", async () => {
     const env = { INTEGRATIONS_PROVIDER: "openconnector" } as Env;
     const execute = vi.spyOn(getIntegrationProvider(env), "executeTool");
     const session = await handleIntegrationProviderRoutes(post("session", { toolkitSlug: "github" }), env);
     expect(session?.status).toBe(503);
-    expect(await session?.json()).toMatchObject({ error: expect.stringContaining("INTEGRATIONS_PROVIDER=composio") });
+    expect(await session?.json()).toMatchObject({ status: "unsupported", error: expect.stringContaining("unsupported") });
     const crossOrigin = await handleIntegrationProviderRoutes(post("execute", { toolSlug: "github/list-issues" }, false), env);
     expect(crossOrigin?.status).toBe(403);
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("fails closed for providers without execute support", async () => {
-    const response = await handleIntegrationProviderRoutes(post("execute", { toolSlug: "x" }), { INTEGRATIONS_PROVIDER: "none" } as Env);
+  it("returns unsupported sessions with the default provider", async () => {
+    const response = await handleIntegrationProviderRoutes(post("session", {}), {} as Env);
     expect(response?.status).toBe(503);
+    expect(await response?.json()).toMatchObject({ ok: false, status: "unsupported", error: expect.stringContaining("unsupported") });
   });
 });

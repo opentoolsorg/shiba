@@ -16,7 +16,7 @@ describe("integration provider OAuth callback", () => {
     const url = new URL("https://app.example.test/api/integrations/provider/callback");
     url.searchParams.set("x", "</script><script>alert(1)</script>\u2028\u2029");
     url.searchParams.set("connectedAccountId", "secret-account");
-    const response = await handleIntegrationProviderRoutes(new Request(url), { INTEGRATIONS_PROVIDER: "none" } as Env);
+    const response = await handleIntegrationProviderRoutes(new Request(url), { INTEGRATIONS_PROVIDER: "openconnector" } as Env);
     expect(response?.status).toBe(200);
     if (!response) throw new Error("Callback route did not respond.");
     const body = await response.text();

@@ -681,16 +681,6 @@ export function createAutomation(input: CreateAutomationInput): CreatedAutomatio
         workspaceName: executionTarget.workspaceName ?? "My workspace",
         expectedDeliverables: [...executionTarget.expectedDeliverables],
       };
-    } else {
-      if (repoUrl) throw new InputError("Grok Bot bridge automations must not name a repository.");
-      if (!Array.isArray(input.triggers) || input.triggers.some((trigger) => trigger.kind !== "schedule")) {
-        throw new InputError("Grok Bot bridge automations support schedule triggers only.");
-      }
-      executionTarget = {
-        ...executionTarget,
-        workspaceName: executionTarget.workspaceName ?? "Founder skill",
-        expectedDeliverables: [...executionTarget.expectedDeliverables],
-      };
     }
   } else {
     if (!repoUrl) throw new InputError("Automation needs a GitHub repo URL or a supported execution target.");
@@ -1012,16 +1002,6 @@ export function authorizeAutomationRun(
       };
     }
     return { allowed: true, requiresApproval: true, reason: "Artifact-workspace runs require human approval." };
-  }
-  if (automation.executionTarget?.kind === "grokbot-bridge") {
-    if (request.publishPullRequest || (request.otherMutations ?? []).length > 0) {
-      return {
-        allowed: false,
-        requiresApproval: true,
-        reason: "Grok Bot bridge schedules cannot publish or perform connected-app mutations.",
-      };
-    }
-    return { allowed: true, requiresApproval: false, reason: "Founder bridge cron posts via configured Slack gates." };
   }
   const prOnly = request.publishPullRequest && (request.otherMutations ?? []).length === 0;
   if (!automation.unattended) {

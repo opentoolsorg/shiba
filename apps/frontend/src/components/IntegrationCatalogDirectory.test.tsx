@@ -7,7 +7,7 @@ import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
 vi.mock("./IntegrationsBrowseCatalogDialog", () => ({
   IntegrationsBrowseCatalogDialog: ({ onConnect }: { onConnect: (item: IntegrationProviderCatalogItem) => void }) => (
     <button type="button" onClick={() => onConnect({
-      id: "fixture", providerKey: "fixture", name: "Fixture", description: "", source: "composio",
+      id: "fixture", providerKey: "fixture", name: "Fixture", description: "", source: "openconnector",
       connectable: true, isConnected: false,
     })}>Connect fixture</button>
   ),
@@ -29,7 +29,7 @@ describe("IntegrationCatalogDirectory OAuth redirects", () => {
       }} />);
       fireEvent.click(screen.getByRole("button", { name: "Connect fixture" }));
       if (redirectUrl.startsWith("https:")) {
-        await waitFor(() => expect(open).toHaveBeenCalledWith(redirectUrl, "shiba-composio-oauth", "width=520,height=720,noopener,noreferrer"));
+        await waitFor(() => expect(open).toHaveBeenCalledWith(redirectUrl, "shiba-integrations-oauth", "width=520,height=720,noopener,noreferrer"));
       } else {
         expect(await screen.findByText("Connect returned an unsafe redirect URL.")).toBeTruthy();
         expect(open).not.toHaveBeenCalled();
