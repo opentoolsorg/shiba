@@ -32,7 +32,7 @@ interface DialogState {
 const CONTROL = "min-h-11 inline-flex items-center justify-center gap-2 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50";
 const FIELD = "min-h-11 w-full border border-[var(--border-1)] bg-[var(--input)] px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus:outline focus:outline-2 focus:outline-[var(--ring)]";
 
-export function ExtensionSkillsView({ onOpenRunSkills }: { onOpenRunSkills?: () => void } = {}): JSX.Element {
+export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onOpenRunSkills?: () => void; embedded?: boolean } = {}): JSX.Element {
   const [view, setView] = useState<ExtensionSkillView>("personal");
   const [skills, setSkills] = useState<ExtensionSkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -142,8 +142,8 @@ export function ExtensionSkillsView({ onOpenRunSkills }: { onOpenRunSkills?: () 
       <header className="shrink-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-4 lg:px-8">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 id="extension-skills-title" className="text-xl text-[var(--fg)]">Skills</h2>
-            <p className="mt-1 max-w-2xl text-xs text-[var(--muted-foreground-2)]">
+            <h2 id="extension-skills-title" className={embedded ? "sr-only" : "text-xl text-[var(--fg)]"}>Skills</h2>
+            <p className={embedded ? "sr-only" : "mt-1 max-w-2xl text-xs text-[var(--muted-foreground-2)]"}>
               Reusable instructions for Shiba agents. Keep skills personal or share them with your workspace.
             </p>
           </div>

@@ -58,6 +58,7 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
   const reason = reasonNetworkJson();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.startsWith("/api/v1/extensions/skills")) return Response.json([]);
     if (url === "/api/setup/status") return Response.json(setup);
     if (url === "/api/mailboxes") return Response.json({ mailboxes: [{ address: "ops@example.test" }] });
     if (url === "/api/connections/gmail") return Response.json({ configured: false, connection: null, grants: [] });
@@ -261,5 +262,29 @@ describe("IntegrationsView capability catalog", () => {
     expect(await screen.findByText(/Provider state may be stale/)).toBeTruthy();
     expect(screen.getAllByText("Test stale").length).toBeGreaterThan(0);
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith("/api/providers")).every(([, init]) => init?.cache === "no-store")).toBe(true);
+  });
+
+  it("switches between Skills, MCP servers, and Connectors tabs", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    expect(await screen.findByRole("tab", { name: "Connectors" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Skills" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "MCP servers" })).toBeTruthy();
+
+    // Switch to Skills tab
+    fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
+    expect(await screen.findByRole("tablist", { name: "Skill scope" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Run-attached skills" }));
+    expect(await screen.findByRole("heading", { name: "Skill library" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workspace skills" }));
+    expect(await screen.findByRole("tablist", { name: "Skill scope" })).toBeTruthy();
+
+    // Switch to MCP servers tab
+    fireEvent.click(screen.getByRole("tab", { name: "MCP servers" }));
+    expect(await screen.findByLabelText("Search servers")).toBeTruthy();
+
+    // Switch back to Connectors tab
+    fireEvent.click(screen.getByRole("tab", { name: "Connectors" }));
+    expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
   });
 });

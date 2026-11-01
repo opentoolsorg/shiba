@@ -16,7 +16,7 @@ export interface ExtensionSkillRow extends ExtensionSkillRecord {
 }
 
 const TABLES = [
-  `CREATE TABLE IF NOT EXISTS extension_skills (
+  `CREATE TABLE IF NOT EXISTS org_extension_skills (
     id TEXT PRIMARY KEY,
     org_id TEXT NOT NULL,
     owner_id TEXT NOT NULL,
@@ -33,12 +33,12 @@ const TABLES = [
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   )`,
-  `CREATE INDEX IF NOT EXISTS extension_skills_org_scope_updated
-    ON extension_skills(org_id, scope, archived_at, updated_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS extension_skills_owner_updated
-    ON extension_skills(org_id, owner_id, updated_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS extension_skills_workspace_scope
-    ON extension_skills(workspace_id, scope, archived_at)`,
+  `CREATE INDEX IF NOT EXISTS org_extension_skills_org_scope_updated
+    ON org_extension_skills(org_id, scope, archived_at, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS org_extension_skills_owner_updated
+    ON org_extension_skills(org_id, owner_id, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS org_extension_skills_workspace_scope
+    ON org_extension_skills(workspace_id, scope, archived_at)`,
 ];
 
 const initialized = new WeakSet<D1Database>();
@@ -109,7 +109,7 @@ async function readById(
   id: string,
 ): Promise<ExtensionSkillRow | null> {
   await ensureTables(env);
-  const row = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM extension_skills WHERE org_id = ? AND id = ?`)
+  const row = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM org_extension_skills WHERE org_id = ? AND id = ?`)
     .bind(orgId, id).first();
   return row ? skillFromRow(row as Record<string, unknown>) : null;
 }
@@ -121,7 +121,7 @@ export async function listExtensionSkills(
   options: { workspaceId?: string; view?: ExtensionSkillView } = {},
 ): Promise<ExtensionSkillRecord[]> {
   await ensureTables(env);
-  const results = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM extension_skills WHERE org_id = ? ORDER BY updated_at DESC, id ASC`)
+  const results = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM org_extension_skills WHERE org_id = ? ORDER BY updated_at DESC, id ASC`)
     .bind(orgId).all();
   const rows = (results.results ?? [])
     .map((row) => skillFromRow(row as Record<string, unknown>))
@@ -140,7 +140,7 @@ export async function listExtensionSkillDirectory(
   options: { workspaceId?: string; workspaceOnly?: boolean; scope?: ExtensionSkillScope } = {},
 ): Promise<ExtensionSkillDirectoryEntry[]> {
   await ensureTables(env);
-  const results = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM extension_skills WHERE org_id = ? ORDER BY updated_at DESC, id ASC`)
+  const results = await env.AGENT_AUDIT.prepare(`SELECT ${COLUMNS} FROM org_extension_skills WHERE org_id = ? ORDER BY updated_at DESC, id ASC`)
     .bind(orgId).all();
   return (results.results ?? [])
     .map((row) => skillFromRow(row as Record<string, unknown>))
@@ -189,7 +189,7 @@ export async function createExtensionSkill(
   if (input.scope === "workspace" && !input.workspaceId) throw new Error("workspace_required");
   const id = `skill_${randomHex(12)}`;
   await env.AGENT_AUDIT.prepare(
-    `INSERT INTO extension_skills
+    `INSERT INTO org_extension_skills
       (id, org_id, owner_id, workspace_id, scope, name, description, instructions, enabled, version, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
   ).bind(
@@ -222,7 +222,7 @@ export async function updateExtensionSkill(
   if (textChanged) { assignments.push("version = ?"); values.push(current.version + 1); }
   values.push(orgId, id, userId, canManageWorkspace ? 1 : 0);
   await env.AGENT_AUDIT.prepare(
-    `UPDATE extension_skills SET ${assignments.join(", ")} WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))`,
+    `UPDATE org_extension_skills SET ${assignments.join(", ")} WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))`,
   ).bind(...values).run();
   return "updated";
 }
@@ -238,7 +238,7 @@ export async function removeExtensionSkill(
   if (!current || !readableBy(current, userId)) return "not_found";
   const canManageWorkspace = options.canManageWorkspace === true;
   if (!canEditSkill(current, userId, canManageWorkspace)) return "forbidden";
-  await env.AGENT_AUDIT.prepare("DELETE FROM extension_skills WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))")
+  await env.AGENT_AUDIT.prepare("DELETE FROM org_extension_skills WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))")
     .bind(orgId, id, userId, canManageWorkspace ? 1 : 0).run();
   return "removed";
 }
@@ -260,7 +260,7 @@ export async function setExtensionSkillScope(
   if (current.archivedAt !== undefined) return { ok: false, reason: "archived" };
   if (effectiveScope(current) === to) return { ok: false, reason: "same_scope" };
   if (to === "workspace" && !current.workspaceId) return { ok: false, reason: "workspace_required" };
-  await env.AGENT_AUDIT.prepare("UPDATE extension_skills SET scope = ? WHERE org_id = ? AND id = ? AND owner_id = ?")
+  await env.AGENT_AUDIT.prepare("UPDATE org_extension_skills SET scope = ? WHERE org_id = ? AND id = ? AND owner_id = ?")
     .bind(to, orgId, id, userId).run();
   return { ok: true };
 }
@@ -279,7 +279,7 @@ export async function archiveExtensionSkill(
   if (!canEditSkill(current, userId, canManageWorkspace)) return { ok: false, reason: "forbidden" };
   if (current.archivedAt !== undefined) return { ok: false, reason: "already_archived" };
   await env.AGENT_AUDIT.prepare(
-    `UPDATE extension_skills SET archived_at = ?, archived_by = ?, archived_from_scope = ?
+    `UPDATE org_extension_skills SET archived_at = ?, archived_by = ?, archived_from_scope = ?
      WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))`,
   ).bind(now, userId, effectiveScope(current), orgId, id, userId, canManageWorkspace ? 1 : 0).run();
   return { ok: true };
@@ -298,7 +298,7 @@ export async function restoreExtensionSkill(
   if (!canEditSkill(current, userId, canManageWorkspace)) return { ok: false, reason: "forbidden" };
   if (current.archivedAt === undefined) return { ok: false, reason: "not_archived" };
   await env.AGENT_AUDIT.prepare(
-    `UPDATE extension_skills SET scope = ?, archived_at = NULL, archived_by = NULL, archived_from_scope = NULL
+    `UPDATE org_extension_skills SET scope = ?, archived_at = NULL, archived_by = NULL, archived_from_scope = NULL
      WHERE org_id = ? AND id = ? AND (owner_id = ? OR (? = 1 AND scope = 'workspace'))`,
   ).bind(current.archivedFromScope ?? current.scope ?? "personal", orgId, id, userId, canManageWorkspace ? 1 : 0).run();
   return { ok: true };
