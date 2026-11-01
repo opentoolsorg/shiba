@@ -38,6 +38,7 @@ import {
 } from "./live-status";
 import { DashboardView } from "./components/DashboardView";
 import { WorkView } from "./components/WorkView";
+import { TasksHomeView } from "./components/TasksHomeView";
 import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal";
 import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
 import { OnboardingProgressClient, type FirstRunProgressUpdate } from "./onboarding-progress-client";
@@ -363,7 +364,6 @@ const VIEW_ALIASES: Record<string, AppNavView> = {
   "run-registry": "analytics",
   orchestrator: "activity",
   mailbox: "inbox",
-  threads: "tasks",
   work: "work",
 };
 
@@ -371,7 +371,7 @@ const VIEW_ALIASES: Record<string, AppNavView> = {
 function viewFromUrl(): AppNavView | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
-  if (params.has("run") || readPromptParam(window.location.search).prompt !== null) return "tasks";
+  if (params.has("run") || readPromptParam(window.location.search).prompt !== null) return "threads";
   const toView = (raw: string | null) => {
     const view = raw ? (VIEW_ALIASES[raw] ?? raw) : null;
     return APP_NAV_ITEMS.some((item) => item.id === view) ? (view as AppNavView) : null;
@@ -537,7 +537,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [webSessions, setWebSessions] = useState<WebThread[]>([]);
   const [sessionRegistryOwner, setSessionRegistryOwner] = useState<string | null>(null);
-  // Persistent workspace panel removed from tasks view; functionality promoted to standalone views.
+  // Persistent workspace panel removed from the thread view; functionality promoted to standalone views.
   const [mobileSessionsOpen, setMobileSessionsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const mobileNavTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -776,7 +776,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const dismissFirstRunProgress = useCallback((currentStep: FirstRunStepId) => updateFirstRunProgress({ action: "dismiss", currentStep }), [updateFirstRunProgress]);
   const dismissOutcomeSetup = useCallback(() => updateFirstRunProgress({ action: "dismiss" }), [updateFirstRunProgress]);
   const openFirstRun = useCallback(() => {
-    setMainView("tasks");
+    setMainView("threads");
     if (authMode === "better-auth") setShowFirstRun(true);
     else setShowLegacyFirstRun(true);
   }, [authMode]);
@@ -806,7 +806,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (!composerScope) { setNotice("Sign in before selecting a task draft."); return; }
     const text = onboardingTaskText(firstRunProgress.draftTask);
     if (!replace && task.trim() && task !== text) {
-      setPendingOnboardingDraft(selection); setShowFirstRun(false); setMainView("tasks"); setConversationMode("work"); return;
+      setPendingOnboardingDraft(selection); setShowFirstRun(false); setMainView("threads"); setConversationMode("work"); return;
     }
     const reference = { draftTaskId: selection.draftTaskId, version: selection.version };
     selectedOnboardingTaskText.current = text;
@@ -815,7 +815,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     writeDraft(composerScope, text, reference);
     setPendingOnboardingDraft(null);
     setShowFirstRun(false);
-    setMainView("tasks");
+    setMainView("threads");
     setConversationMode("work");
   }, [firstRunProgress, task, composerScope, openFirstRun, setConversationMode]);
   useEffect(() => {
@@ -832,13 +832,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (!cancelled && progress) {
         const show = progress.activatedAt === null && progress.dismissedAt === null && !progress.draftTask?.preparedAt;
         setShowFirstRun(show);
-        if (show) setMainView("tasks");
+        if (show) setMainView("threads");
       }
     }).catch(() => {
       if (!cancelled) {
         setFirstRunProgress(null);
         setShowFirstRun(true);
-        setMainView("tasks");
+        setMainView("threads");
       }
     });
     return () => { cancelled = true; };
@@ -1042,7 +1042,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       signedIn,
     );
   useEffect(() => {
-    if (!signedIn || mainView !== "tasks") return;
+    if (!signedIn || mainView !== "threads") return;
     let cancelled = false;
     let generation = 0;
     setTaskHistoryLoading(true);
@@ -1079,7 +1079,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     // Approvals data renders on the approvals board, the tasks strip, and
     // the dashboard decided tail — the nav badge between them refreshes
     // on entry to any of the three.
-    signedIn && (mainView === "approvals" || mainView === "tasks" || mainView === "dashboard" || mainView === "work"),
+    signedIn && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work"),
   );
   const reviewAfterPublishById = useMemo(() => {
     const map: Record<string, boolean> = {};
@@ -1090,7 +1090,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [storedApprovals]);
   const agentPrincipals = useAgentPrincipals(
     refreshToken,
-    signedIn && (mainView === "tasks" || mainView === "dashboard" || mainView === "work"),
+    signedIn && (mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work"),
   );
 
   const toolRuns = useMemo(() => Object.values(runsById) as ToolRunRecord[], [runsById]);
@@ -1270,11 +1270,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   );
 
   const submitTask = useCallback(
-    async (event?: React.FormEvent) => {
+    async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string }) => {
+      const selectedCustomAgentId = options?.customAgentId ?? customAgentId;
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current) return;
       if (!composerScope || !composerVisible) { setNotice("Wait for your conversation draft to reconnect before sending."); return; }
-      if (conversationMode === "chat") {
+      if (!options?.forceWork && conversationMode === "chat") {
         if (!task.trim()) {
           setNotice("Enter a message first.");
           return;
@@ -1356,7 +1357,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
         return;
       }
-      if (customAgentId && (customAgentsLoading || customAgentsError || !customAgentRecords.some((profile) => profile.id === customAgentId))) {
+      if (selectedCustomAgentId && (customAgentsLoading || customAgentsError || !customAgentRecords.some((profile) => profile.id === selectedCustomAgentId))) {
         setNotice(customAgentsLoading
           ? "Wait for the selected bot to load before sending."
           : "The selected bot is unavailable. Choose an available bot before sending.");
@@ -1381,7 +1382,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ? reasoningEffort
           : "";
       const attachedSkills = selectableSkills.filter((skill) => selectedSkillIds.includes(skill.id));
-      if (runTarget === "local" || customAgentId || executionTargetKind === "artifact-workspace") {
+      if (runTarget === "local" || selectedCustomAgentId || executionTargetKind === "artifact-workspace") {
         if (runTarget === "local" && (!selectedLocalMachineId || localComputersLoading || localComputersError)) {
           setNotice(localComputersError ?? (localComputersLoading
             ? "Wait for paired computers to be checked before sending."
@@ -1424,7 +1425,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ...(effort ? { reasoningEffort: effort } : {}),
           publishPullRequest,
           ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
-          ...(customAgentId ? { customAgentId } : {}),
+          ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
           ...(projectContextId ? { projectContextId } : {}),
         };
         const body = {
@@ -1601,7 +1602,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               ...(effort ? { reasoningEffort: effort } : {}),
               ...(sealedEnv ? { environment: { sealed: sealedEnv.sealed, digest: sealedEnv.digest } } : {}),
               ...(runSetup ? { runSetup: true } : {}),
-              ...(customAgentId ? { customAgentId } : {}),
+              ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
               ...(projectContextId ? { projectContextId } : {}),
             },
           },
@@ -2031,11 +2032,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const reloadModelConfig = modelConfig.reload;
   const reloadAgentsDirectory = agentsDirectory.reload;
   useEffect(() => {
-    if (mainView === "tasks") {
+    if (mainView === "threads") {
       reloadModelConfig();
       reloadAgentsDirectory();
     }
-    if (mainView === "tasks" || mainView === "work") refreshCustomAgents();
+    if (mainView === "tasks" || mainView === "threads" || mainView === "work") refreshCustomAgents();
   }, [mainView, reloadModelConfig, reloadAgentsDirectory, refreshCustomAgents]);
 
   const repoSuggestions = useMemo(() => {
@@ -2156,7 +2157,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               writeRememberedSessionId("default");
               setMobileSessionsOpen(false);
               setSelectedRunId(null);
-              setMainView("tasks");
+              setMainView("threads");
               setNotice("That session no longer exists — it was removed from the list.");
               return;
             }
@@ -2176,7 +2177,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setCustomAgentId(threadAgentId(session));
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
-      setMainView("tasks");
+      setMainView("threads");
     },
     [webSessions],
   );
@@ -2219,7 +2220,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setCustomAgentId("");
       setNotice(null);
       setMobileSessionsOpen(false);
-      setMainView("tasks");
+      setMainView("threads");
       window.setTimeout(() => {
         document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
       }, 0);
@@ -2247,7 +2248,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       applyThreadProfile(profile);
       setNotice(null);
       refreshCustomAgents();
-      setMainView("tasks");
+      setMainView("threads");
       setMobileSessionsOpen(false);
       window.setTimeout(() => {
         document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
@@ -2274,12 +2275,16 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       dismissEmployeeOnboarding();
     } catch (error) {
       dismissEmployeeOnboarding();
-      setMainView("tasks");
+      setMainView("threads");
       setNotice(`Agent created. Start a new thread from its sidebar row. ${error instanceof Error ? error.message : "Thread creation failed."}`);
       refreshCustomAgents();
     }
   };
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
+  useEffect(() => {
+    if (mainView !== "tasks" || customAgentId || customAgentRecords.length === 0) return;
+    applyThreadProfile(customAgentRecords[0]!);
+  }, [mainView, customAgentId, customAgentRecords, applyThreadProfile]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
   const showEmployeeOnboarding = !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
@@ -2639,7 +2644,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onSelectTask={(id, kind) => {
                 if (kind === "approval") { setMainView("approvals"); return; }
                 void handleSelectSession(id);
-                setMainView("tasks");
+                setMainView("threads");
               }}
               onNewTask={handleNewTask}
               onQuickAddTask={async (taskText) => {
@@ -2655,6 +2660,45 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onReviewApproval={() => {
                 setMainView("approvals");
               }}
+            />
+            </div>
+          ) : mainView === "tasks" ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
+            <TasksHomeView
+              task={composerVisible ? task : ""}
+              onTaskChange={setTask}
+              agents={customAgentRecords.map((profile) => ({
+                id: profile.id,
+                name: profile.config.name,
+                slug: profile.slug,
+                emoji: profile.config.emoji,
+                defaultRepoUrl: profile.config.defaultRepoUrl,
+              }))}
+              agentsLoading={customAgentsLoading}
+              selectedAgentId={customAgentId || customAgentRecords[0]?.id || ""}
+              onAgentChange={(id) => {
+                const profile = customAgentRecords.find((candidate) => candidate.id === id);
+                if (profile) {
+                  applyThreadProfile(profile);
+                  if (!profile.config.defaultRepoUrl && !repoUrl) setRepoUrl(repoSuggestions[0] ?? "");
+                } else {
+                  setCustomAgentId(id);
+                }
+              }}
+              repoUrl={repoUrl}
+              repoSuggestions={repoSuggestions}
+              onRepoUrlChange={setRepoUrl}
+              runs={retainedRuns}
+              approvals={visibleStoredApprovals}
+              busy={busy}
+              onSubmit={(event, agentId) => {
+                void submitTask(event, { forceWork: true, customAgentId: agentId });
+              }}
+              onOpenRun={(runId) => { void handleSelectSession(runId); }}
+              onOpenApproval={() => setMainView("approvals")}
+              onToggleAgents={toggleSessionsCollapsed}
+              agentsOpen={!sessionsCollapsed}
             />
             </div>
           ) : mainView === "dashboard" ? (
@@ -2681,7 +2725,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 setMainView("analytics");
               }}
             />
-          ) : mainView === "tasks" ? (
+          ) : mainView === "threads" ? (
             <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
               {/* Mobile sessions drawer (below lg) */}
               {mobileSessionsOpen ? (
@@ -3290,7 +3334,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
               onApplyIntake={(prompt) => {
                 setTask(prompt);
-                setMainView("tasks");
+                setMainView("threads");
                 window.setTimeout(() => {
                   document.querySelector<HTMLTextAreaElement>('[data-testid="task-composer"] textarea')?.focus();
                 }, 0);
@@ -3356,7 +3400,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 }
               }}
               onOpenSessions={() => {
-                setMainView("tasks");
+                setMainView("threads");
                 if (window.matchMedia("(min-width: 1024px)").matches) {
                   setSessionsCollapsed((collapsed) => {
                     if (collapsed) {
