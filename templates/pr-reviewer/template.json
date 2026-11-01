@@ -1,0 +1,18 @@
+{
+  "id": "pr-reviewer",
+  "name": "PR Reviewer",
+  "description": "Review a pull request for concrete defects and explain each finding with evidence.",
+  "categories": [
+    "engineering"
+  ],
+  "appearance": "🔎",
+  "skills": [
+    "diff-review"
+  ],
+  "plugins": [],
+  "harness": "opencode",
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}

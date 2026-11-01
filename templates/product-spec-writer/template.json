@@ -1,0 +1,18 @@
+{
+  "id": "product-spec-writer",
+  "name": "Product Spec Writer",
+  "description": "Shape a product request into a testable, evidence-aware specification.",
+  "categories": [
+    "product",
+    "featured"
+  ],
+  "appearance": "📝",
+  "skills": [
+    "spec-outline"
+  ],
+  "plugins": [],
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "competitor-watch",
+  "name": "Competitor Watch",
+  "description": "Track supplied public sources and summarize relevant product changes with citations.",
+  "categories": [
+    "product",
+    "competitor-inspired"
+  ],
+  "appearance": "📡",
+  "skills": [
+    "source-log"
+  ],
+  "plugins": [],
+  "chat_lanes": [
+    "slack"
+  ],
+  "version": "1.0.0"
+}
