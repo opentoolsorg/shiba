@@ -183,7 +183,7 @@ export async function dispatchEmployeeTool(input: EmployeeToolDispatchInput): Pr
 }
 
 export function capabilityId(toolName: string): string {
-  if (!/^[a-z][a-z0-9_]{0,63}$/.test(toolName)) throw new Error("Invalid registered employee tool name.");
+  if (!isEmployeeToolName(toolName)) throw new Error("Invalid registered employee tool name.");
   return `${EMPLOYEE_TOOL_SOURCE}:${toolName}`;
 }
 
@@ -204,7 +204,7 @@ function validateCapabilityIds(values: readonly string[]): Set<string> {
   if (!Array.isArray(values) || values.length > MAX_EMPLOYEE_TOOL_IDS * 4) throw new Error("Invalid employee capability grants.");
   const result = new Set<string>();
   for (const value of values) {
-    if (typeof value !== "string" || value.length > MAX_EMPLOYEE_TOOL_ID_LENGTH || !/^mcp:shiba:[a-z][a-z0-9_]{0,63}$/.test(value)) {
+    if (typeof value !== "string" || value.length > MAX_EMPLOYEE_TOOL_ID_LENGTH || (!value.startsWith("mcp:shiba:") || !isEmployeeToolName(value.slice("mcp:shiba:".length)))) {
       throw new Error("Unsupported employee capability id.");
     }
     result.add(value);
@@ -216,4 +216,9 @@ function boundedLimit(value: number | undefined): number {
   if (value === undefined) return MAX_EMPLOYEE_TOOL_IDS;
   if (!Number.isInteger(value) || value < 1) throw new Error("Employee capability limit must be positive.");
   return Math.min(value, MAX_EMPLOYEE_TOOL_IDS);
+}
+
+/** Dotted built-ins are deliberately enumerated; arbitrary provider tools are never capabilities. */
+export function isEmployeeToolName(name: string): boolean {
+  return /^[a-z][a-z0-9_]{0,63}$/.test(name) || name === "integrations.search_actions" || name === "integrations.execute";
 }

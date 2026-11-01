@@ -33,18 +33,18 @@ claude mcp add --transport http shiba https://<worker-host>/mcp --header "Author
 
 Run `claude mcp list` to confirm that `shiba` connects. A 401 means the token is missing, malformed, revoked, expired, or was written to a different namespace.
 
-## Grok Bot / Viktor coworker {#grok-bot-viktor-coworker}
+## External coworkers
 
-External coworkers (Grok Bot on X, a Viktor-style background agent, or any Streamable HTTP MCP client) use the same `/mcp` gateway and `shb_…` tokens as Claude Code. The usual pairing for run queueing:
+External coworkers (a background agent or any Streamable HTTP MCP client) use the same `/mcp` gateway and `shb_…` tokens as Claude Code. The usual pairing for run queueing:
 
 ```bash
-node scripts/mint-token.mjs --agent grok-bot --scopes sandbox:exec,runs:read --ttl-days 30 \
+node scripts/mint-token.mjs --agent scout --scopes sandbox:exec,runs:read --ttl-days 30 \
   --host <worker-host> --namespace-id <shiba-agent-tokens-id> --write
 ```
 
 Register the connector with URL `https://<worker-host>/mcp` and header `Authorization: Bearer shb_…` (store the token in the client vault, not in chat). Smoke-test with `list_runs` (expect `[]`, not `401`). Queue work with `queue_run` — the response is `{ approvalId, runId: "agent-tool:<approvalId>", status: "pending_approval" }` until a human approves in the dashboard or Slack. Poll with `run_status` and `list_approvals`. There is still **no approve tool** on `/mcp`.
 
-Pair `sandbox:exec` with `runs:read` on tokens that both queue and poll. Run visibility is per-principal (`grok-bot` only sees runs it queued). Revoke by deleting the KV entry (`tok_<sha256>`) as in section 4 below.
+Pair `sandbox:exec` with `runs:read` on tokens that both queue and poll. Run visibility is per-principal (`scout` only sees runs it queued). Revoke by deleting the KV entry (`tok_<sha256>`) as in section 4 below.
 
 Before minting, confirm `npx wrangler whoami` shows the Cloudflare account that owns your Worker host and that `--namespace-id` targets the live `shiba-agent-tokens` namespace.
 
@@ -104,9 +104,6 @@ The gateway has no approve tool. This MCP tool accepts repository/task/branch/pu
 
 Run visibility is per-principal: `run_status`, `list_runs`, and `list_approvals` only return records the calling token's principal queued (`queuedBy` is stamped at intake). Operator surfaces — dashboard, Slack, `/api/runs` with an Access identity — still see everything. Pair `sandbox:exec` with `runs:read` on tokens that queue and poll runs.
 
-### Grok Bot bridge (founder skills)
-
-SaaS connectors that live in Grok Bot use the **`grokbot-bridge`** execution target and MCP tools `queue_grokbot_bridge_task`, `grokbot_bridge_status`, and `complete_grokbot_bridge_task`. See [Grok Bot bridge](/docs/grokbot-bridge/) for pairing, founder skill library ids, and the live-vs-blocked checklist.
 
 ## 4. How `/mcp` is authenticated
 

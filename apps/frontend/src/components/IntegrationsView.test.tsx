@@ -44,12 +44,12 @@ function reasonNetworkJson() {
 function providerMetaUnconfigured() {
   return {
     ok: true,
-    provider: "composio",
+    provider: "openconnector",
     health: {
-      provider: "composio",
+      provider: "openconnector",
       status: "unconfigured",
       checkedAt: Date.now(),
-      message: "Set COMPOSIO_API_KEY",
+      message: "Set OPEN_CONNECTOR_ADMIN_TOKEN",
     },
   };
 }
@@ -65,10 +65,10 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
     if (url === "/api/v1/mcp/catalog-connections") return Response.json({ ok: true, connections: [] });
     if (url === "/api/integrations/provider/meta") return Response.json(providerMetaUnconfigured());
     if (url.startsWith("/api/integrations/provider/catalog")) {
-      return Response.json({ ok: true, provider: "composio", items: [], nextCursor: null, hasMore: false, fallbackCatalog: true });
+      return Response.json({ ok: true, provider: "openconnector", items: [], nextCursor: null, hasMore: false, fallbackCatalog: true });
     }
     if (url === "/api/integrations/provider/connections") {
-      return Response.json({ ok: true, provider: "composio", connections: [] });
+      return Response.json({ ok: true, provider: "openconnector", connections: [] });
     }
     if (url.endsWith("/api/reason-network/status")) return Response.json(reason.status);
     if (url.endsWith("/api/reason-network/grants") && (init?.method ?? "GET") === "GET") {
@@ -95,7 +95,7 @@ describe("IntegrationsView Viktor catalog", () => {
     render(<IntegrationsView />);
     expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Available" })).toBeTruthy();
-    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} Viktor catalog rows`))).toBeTruthy();
+    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} catalog rows`))).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     expect(await screen.findByTestId("integration-catalog-row-hubspot")).toBeTruthy();
@@ -118,8 +118,8 @@ describe("IntegrationsView Viktor catalog", () => {
     expect(githubRow.textContent).toMatch(/Connected/);
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     const hubspotRow = await screen.findByTestId("integration-catalog-row-hubspot");
-    expect(hubspotRow.textContent).toMatch(/Available|Catalog|Grok/i);
-    expect(screen.getByText(/COMPOSIO_API_KEY/i)).toBeTruthy();
+    expect(hubspotRow.textContent).toMatch(/Available|Catalog/i);
+    expect(screen.getByText(/OPEN_CONNECTOR_ADMIN_TOKEN/i)).toBeTruthy();
   });
 
   it("preserves setup detail panels behind Show setup details", async () => {

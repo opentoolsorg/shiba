@@ -6,6 +6,7 @@
  * provider connection or successful health check.
  */
 import { z } from "zod";
+import { isEmployeeToolName } from "./employee-tool-policy.js";
 import type { TokenRecord } from "./agent-tokens.js";
 import { orgIdForRecord } from "./agent-tokens.js";
 import type { Env } from "./env.js";
@@ -21,7 +22,6 @@ export const BUILTIN_CAPABILITY_VERSION = "1" as const;
 export const DEFAULT_CAPABILITY_LIMIT = 40;
 export const MAX_CAPABILITY_LIMIT = 50;
 export const MAX_CAPABILITY_SCHEMA_BYTES = 12_000;
-const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 export interface CapabilityCatalogOptions {
   /** Return only requested namespaced IDs, after permission filtering. */
@@ -102,7 +102,7 @@ export function buildCapabilityDirectory(
   const tools = registry.tools();
   const seen = new Set<string>();
   const all = tools.map((tool): CapabilityDirectoryEntry => {
-    if (!TOOL_NAME.test(tool.name)) throw new Error("Invalid registered capability name.");
+    if (!isEmployeeToolName(tool.name)) throw new Error("Invalid registered capability name.");
     const id = `${BUILTIN_CAPABILITY_SOURCE}:${tool.name}`;
     if (seen.has(id)) throw new Error("Duplicate capability id.");
     seen.add(id);
@@ -180,7 +180,7 @@ export async function projectRegisteredTools(
   const result: CapabilityCatalogEntry[] = [];
   const seen = new Set<string>();
   for (const tool of tools) {
-    if (!TOOL_NAME.test(tool.name)) throw new Error("Invalid registered capability name.");
+    if (!isEmployeeToolName(tool.name)) throw new Error("Invalid registered capability name.");
     const id = `${BUILTIN_CAPABILITY_SOURCE}:${tool.name}`;
     if (seen.has(id)) throw new Error("Duplicate capability id.");
     seen.add(id);
@@ -226,7 +226,7 @@ function filterRegisteredTools(
   const result: RegisteredCapabilityTool[] = [];
   const seen = new Set<string>();
   for (const tool of tools) {
-    if (!TOOL_NAME.test(tool.name)) throw new Error("Invalid registered capability name.");
+    if (!isEmployeeToolName(tool.name)) throw new Error("Invalid registered capability name.");
     const id = `${BUILTIN_CAPABILITY_SOURCE}:${tool.name}`;
     if (seen.has(id)) throw new Error("Duplicate capability id.");
     seen.add(id);

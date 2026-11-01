@@ -11,9 +11,9 @@ describe("founder skill library", () => {
     }
   });
 
-  it("includes stripe revenue pulse with bridge metadata", () => {
+  it("includes stripe revenue pulse with integration metadata", () => {
     const entry = getFounderSkillLibraryEntry("founder-stripe-revenue-pulse");
-    expect(entry?.bridgeCatalogIds).toContain("stripe");
+    expect(entry?.integrationCatalogIds).toContain("stripe");
     expect(entry?.requiresSensitiveApproval).toBe(false);
   });
 });
