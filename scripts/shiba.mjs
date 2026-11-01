@@ -395,6 +395,7 @@ async function fetchDoctor(host) {
 }
 
 function escapeTerminal(text) {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional terminal control char escaping
   return String(text ?? "").replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g, (ch) => {
     const code = ch.charCodeAt(0).toString(16).padStart(2, "0");
     return `\\x${code}`;
