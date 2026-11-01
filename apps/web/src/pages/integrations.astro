@@ -12,26 +12,23 @@ import { integrationGroups, integrations } from '../data/integrations';
 >
   <div class="integrations-page">
     <section class="intro" aria-labelledby="integrations-title">
-      <p class="eyebrow">INTEGRATIONS / YOUR TOOLS, YOUR ACCOUNT</p>
-      <h1 id="integrations-title">Connect your team’s work<br />to the tools you use</h1>
-      <p class="intro-copy">Bring a campaign brief, account research, design task, operating plan, or budget draft into one workflow. Connect the services your installation supports, give an employee the context, and review the result. Every run needs a GitHub repository—even when the output is a document.</p>
-      <div class="intro-links">
-        <a class="primary-link" href="/docs/self-hosting/">Self-host Shiba</a>
-        <a class="text-link" href="https://github.com/princepal9120/shiba">Explore the source <span aria-hidden="true">↗</span></a>
+      <div class="intro-copy-block">
+        <p class="eyebrow">SHIBA / INTEGRATIONS</p>
+        <h1 id="integrations-title">AI employees,<br />connected to your stack.</h1>
+        <p class="intro-copy">Browse the services, AI tools, and workspace components Shiba can work with. Connect the tools your installation supports, give an employee a task, then review the result.</p>
+        <div class="intro-links">
+          <a class="primary-link" href="#catalog-title">Browse connections <span aria-hidden="true">↓</span></a>
+          <a class="text-link" href="/docs/self-hosting/">Set up Shiba <span aria-hidden="true">↗</span></a>
+        </div>
       </div>
-      <aside class="readiness" aria-label="How to read integration status">
-        <span class="readiness-mark" aria-hidden="true">i</span>
-        <p><strong>Check the setup before you rely on it.</strong> This directory describes supported connections, not the status of your account. Entries marked “Needs live verification” still need a successful test in your installation. See the <a href="/docs/readiness/">readiness guide</a>.</p>
+      <aside class="intro-aside" aria-label="Integration setup note">
+        <p class="aside-label">MADE FOR YOUR WORKSPACE</p>
+        <div class="tool-chips" aria-label="Examples in the directory">
+          {['GitHub', 'Slack', 'Linear', 'Gmail', 'OpenCode', 'Codex'].map((name) => <span>{name}</span>)}
+        </div>
+        <p class="aside-note">Shiba is self-hosted, so you choose which connections to configure and verify.</p>
+        <a href="/docs/readiness/">Check connection readiness <span aria-hidden="true">→</span></a>
       </aside>
-    </section>
-
-    <section class="catalog" aria-labelledby="workspace-tools-title">
-      <div class="catalog-heading"><div><p class="eyebrow">SET UP FOR THE TASK</p><h2 id="workspace-tools-title">Connections, skills and MCP</h2></div><p class="catalog-meta">Connect a service, save instructions, or bring work from another AI app.</p></div>
-      <div class="integration-grid">
-        <article class="integration-card"><div class="card-heading"><span class="monogram" aria-hidden="true">◇</span><h3>Integrations</h3></div><p class="card-description">Use GitHub for the working repository and a supported chat service to send a brief. Your workspace owner sets up each service before the team can use it.</p><div class="card-bottom"><p class="verification">Available services depend on your installation. Ask the workspace owner if a connection is missing.</p><a class="docs-link" href="/docs/configuration/">Connection setup <span aria-hidden="true">→</span></a></div></article>
-        <article class="integration-card"><div class="card-heading"><span class="monogram" aria-hidden="true">▤</span><h3>Saved skills</h3></div><p class="card-description">Save the writing guide, review checklist, or testing notes you reuse. Select those skills when a task needs them.</p><div class="card-bottom"><p class="verification">Skills are saved in this browser. A source link is a reference, not an installed tool.</p><a class="docs-link" href="/docs/skills/">Save a skill <span aria-hidden="true">→</span></a></div></article>
-        <article class="integration-card"><div class="card-heading"><span class="monogram" aria-hidden="true">&#123; &#125;</span><h3>MCP clients</h3></div><p class="card-description">Use a supported AI app to request work from Shiba and read the task status. Your workspace owner configures its access.</p><div class="card-bottom"><p class="verification">A client can request a task; it cannot approve the run for you. Test the connection before relying on it.</p><a class="docs-link" href="/docs/mcp/">MCP client setup <span aria-hidden="true">→</span></a></div></article>
-      </div>
     </section>
 
     <section class="catalog" aria-labelledby="catalog-title">
@@ -131,11 +128,17 @@ import { integrationGroups, integrations } from '../data/integrations';
 </script>
 
 <style>
-  .integrations-page { max-width: 1160px; margin: 0 auto; padding: 0 32px; color: var(--ink); }
+  .integrations-page { width: min(100% - 64px, 1440px); margin: 0 auto; color: var(--ink); }
   .eyebrow { font-family: 'Geist Mono', monospace; font-size: 11px; line-height: 1.6; letter-spacing: .12em; color: var(--navy); margin: 0 0 20px; }
-  .intro { padding: 90px 0 56px; }
-  h1 { font-size: clamp(44px, 6.7vw, 80px); line-height: 1.02; letter-spacing: -.055em; font-weight: 500; margin: 0 0 28px; }
-  .intro-copy { max-width: 640px; font-size: 19px; line-height: 1.65; color: var(--ink-2); }
+  .intro { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .7fr); align-items: end; gap: clamp(40px, 8vw, 128px); padding: 96px 0 72px; }
+  h1 { max-width: 900px; font-size: clamp(48px, 5.5vw, 76px); line-height: 1.02; letter-spacing: -.055em; font-weight: 500; margin: 0 0 28px; text-wrap: pretty; }
+  .intro-copy { max-width: 680px; font-size: 19px; line-height: 1.65; color: var(--ink-2); }
+  .intro-aside { border-top: 1px solid var(--line-2); padding-top: 20px; }
+  .aside-label { color: var(--ink-2); font: 11px/1.5 'Geist Mono', monospace; letter-spacing: .1em; margin: 0 0 16px; }
+  .tool-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tool-chips span { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border: 1px solid var(--line-2); background: var(--card); font-size: 12px; font-weight: 600; }
+  .aside-note { color: var(--ink-2); font-size: 13px; line-height: 1.7; margin: 18px 0 12px; }
+  .intro-aside > a { color: var(--navy); font-size: 13px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
   .intro-links { display: flex; gap: 24px; flex-wrap: wrap; align-items: center; margin-top: 30px; }
   .primary-link, .text-link { display: inline-flex; align-items: center; justify-content: center; gap: 16px; min-height: 48px; font-size: 14px; font-weight: 600; }
   .primary-link { background: var(--navy); color: var(--on-accent); border: 1px solid var(--navy); padding: 10px 20px; }
@@ -150,12 +153,12 @@ import { integrationGroups, integrations } from '../data/integrations';
   .readiness p { margin: 0; font-size: 14px; line-height: 1.75; color: var(--ink-2); }
   .readiness strong { color: var(--ink); }
   .readiness a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
-  .catalog { padding: 40px 0 64px; border-top: 1px solid var(--line-2); }
+  .catalog { padding: 48px 0 80px; border-top: 1px solid var(--line-2); }
   .catalog-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 28px; }
   .catalog-heading .eyebrow { margin-bottom: 10px; }
   h2 { font-size: clamp(28px, 3vw, 38px); font-weight: 500; letter-spacing: -.035em; line-height: 1.2; margin: 0; }
   .catalog-meta { color: var(--ink-2); max-width: 230px; font-size: 13px; line-height: 1.65; margin: 0; }
-  .filters { padding: 20px 0; border-block: 1px solid var(--line-2); }
+  .filters { position: sticky; top: 0; z-index: 5; padding: 16px 0; border-block: 1px solid var(--line-2); background: var(--paper); }
   .filter-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
   .filter-buttons button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--input-line); background: var(--card); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
   .filter-buttons button[aria-pressed='true'] { background: var(--navy); border-color: var(--navy); color: var(--on-accent); }
@@ -163,13 +166,14 @@ import { integrationGroups, integrations } from '../data/integrations';
   input { width: min(100%, 340px); min-height: 44px; background: var(--card); color: var(--ink); border: 1px solid var(--input-line); padding: 10px 14px; border-radius: var(--r-sm); font: inherit; }
   input::placeholder { color: var(--ink-2); opacity: 1; }
   .results { font-family: 'Geist Mono', monospace; font-size: 11px; line-height: 1.7; color: var(--ink-2); margin: 18px 0 32px; }
-  .integration-group { margin-bottom: 48px; }
+  .integration-group { margin-bottom: 56px; scroll-margin-top: 100px; }
   .group-heading { display: flex; gap: 16px; margin-bottom: 20px; align-items: flex-start; }
   .section-number { color: var(--navy); font: 12px/2 'Geist Mono', monospace; }
   h3 { font-size: 22px; line-height: 1.3; font-weight: 500; letter-spacing: -.025em; margin: 0 0 6px; }
   .group-heading p { font-size: 14px; line-height: 1.6; color: var(--ink-2); margin: 0; }
-  .integration-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  .integration-card { display: flex; flex-direction: column; min-width: 0; background: var(--card); border: 1px solid var(--line-2); padding: 24px; }
+  .integration-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .integration-card { display: flex; flex-direction: column; min-width: 0; background: var(--card); border: 1px solid var(--line-2); padding: 22px; transition: border-color 160ms ease, transform 160ms ease; }
+  @media (hover: hover) { .integration-card:hover { border-color: var(--navy); transform: translateY(-2px); } }
   .card-heading { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
   .monogram { display: grid; place-items: center; flex: 0 0 44px; height: 44px; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--navy); font: 15px 'Geist Mono', monospace; }
   .monogram.brand-chip, .brand-chip { background: #ffffff !important; }
@@ -194,10 +198,12 @@ import { integrationGroups, integrations } from '../data/integrations';
   .closing { padding: 80px 0 96px; }
   .closing h2 { font-size: clamp(36px, 5vw, 58px); letter-spacing: -.045em; }
   .closing > p:not(.eyebrow) { font-size: 16px; line-height: 1.7; color: var(--ink-2); max-width: 520px; margin-top: 24px; }
-  @media (max-width: 900px) { .integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .approval-note { gap: 32px; } }
+  @media (max-width: 1100px) { .integration-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 900px) { .intro { grid-template-columns: 1fr; gap: 40px; } .intro-aside { max-width: 560px; } .integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .approval-note { gap: 32px; } }
   @media (max-width: 600px) {
-    .integrations-page { padding-inline: 16px; }
-    .intro { padding-top: 56px; }
+    .integrations-page { width: calc(100% - 40px); }
+    .intro { display: block; padding: 56px 0 48px; }
+    .intro-aside { margin-top: 44px; }
     .intro-copy { font-size: 17px; }
     .readiness { padding: 18px; margin-top: 36px; }
     .catalog-heading { display: block; }
@@ -208,4 +214,5 @@ import { integrationGroups, integrations } from '../data/integrations';
     .integration-card { padding: 22px; }
     .closing { padding-block: 56px; }
   }
+  @media (prefers-reduced-motion: reduce) { .integration-card { transition: none; } }
 </style>
