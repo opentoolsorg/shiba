@@ -98,7 +98,7 @@ describe("app employee onboarding", () => {
     fireEvent.click(screen.getByRole("button", { name: /Research Produce/ }));
     await screen.findAllByRole("heading", { name: "Research bot" });
     expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Research bot", metadata: { customAgentId: "research-agent" } }) }));
-    expect(window.location.pathname).toBe("/tasks/");
+    expect(window.location.pathname).toBe("/threads/");
     expect(localStorage.getItem(ONBOARDING_DISMISSED_KEY)).toBe("true");
     expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
   });
@@ -109,7 +109,7 @@ describe("app Work and Threads routing", () => {
     window.history.replaceState(null, "", "/?prompt=x");
     render(<App />);
     await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("x"));
-    expect(window.location.pathname).toBe("/tasks/");
+    expect(window.location.pathname).toBe("/threads/");
     expect(window.location.search).toBe("");
   });
 
@@ -134,7 +134,7 @@ describe("app Work and Threads routing", () => {
     fireEvent.submit(input.closest("form")!);
     await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Investigate latency"));
     expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST" }));
-    expect(window.location.pathname).toBe("/tasks/");
+    expect(window.location.pathname).toBe("/threads/");
     expect(readDraft(composerDraftScope("test-operator", "new-thread"))).toBe("Investigate latency");
     expect(readDraft("new-thread")).toBe("");
     expect(readDraft(composerDraftScope("another-operator", "new-thread"))).toBe("");
@@ -217,6 +217,6 @@ describe("app Work and Threads routing", () => {
     window.history.replaceState(null, "", "/?run=run-1");
     render(<App />);
     await screen.findByRole("textbox", { name: "Task draft" });
-    expect(window.location.pathname).toBe("/tasks/");
+    expect(window.location.pathname).toBe("/threads/");
   });
 });
