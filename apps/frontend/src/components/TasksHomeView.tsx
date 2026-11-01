@@ -359,7 +359,7 @@ export function TasksHomeView({
           </div>
         </form>
 
-        <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="Task queues">
+        <div role="group" className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="Task queues">
           <TaskQueue title="Needs you" items={buckets.needsYou} emptyText="Nothing waiting for review." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
           <TaskQueue title="Working" items={buckets.working} emptyText="No agents currently running." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
           <TaskQueue title="Waiting" items={buckets.waiting} emptyText="No tasks in queue." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />

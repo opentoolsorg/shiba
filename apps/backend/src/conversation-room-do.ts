@@ -293,11 +293,20 @@ export class ConversationRoom extends DurableObject<Env> {
         socket.serializeAttachment({ ...attachment, typing: false, typingAt: 0 } satisfies RoomSocketAttachment);
       }
     }
-    this.ctx.storage.sql.exec(
-      "UPDATE room_streams SET status = 'failed', updated_at = ? WHERE status = 'streaming' AND updated_at <= ?",
+    const expiredStreams = this.ctx.storage.sql.exec<{ [key: string]: string; stream_id: string; viewer_id: string }>(
+      "UPDATE room_streams SET status = 'failed', updated_at = ? WHERE status = 'streaming' AND updated_at <= ? RETURNING stream_id, viewer_id",
       now,
       now - STREAM_TTL_MS,
-    );
+    ).toArray();
+    for (const stream of expiredStreams) {
+      this.broadcast({
+        type: "stream:end",
+        streamId: stream.stream_id,
+        viewerId: stream.viewer_id,
+        status: "failed",
+        updatedAt: now,
+      });
+    }
     this.broadcastPresence();
     await this.scheduleMaintenanceAlarm();
   }

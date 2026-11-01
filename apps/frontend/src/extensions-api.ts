@@ -61,7 +61,7 @@ export interface OpenConnectorConnection {
 }
 
 // ---------------------------------------------------------------------------
-// Client stub store fixtures (used when backend /api/v1/extensions/* routes 404)
+// Client fixtures, enabled explicitly by tests or local review.
 // ---------------------------------------------------------------------------
 
 const MCP_STORAGE_KEY = "shiba-extensions-mcp-v1";
@@ -161,14 +161,18 @@ let forceStubMode = false;
 
 function getMcpStore(): McpExtensionServer[] {
   if (!memoryMcpStore) {
-    memoryMcpStore = readStorage(MCP_STORAGE_KEY, DEFAULT_MCP_FIXTURES.map((s) => ({ ...s })));
+    return saveMcpStore(readStorage(MCP_STORAGE_KEY, DEFAULT_MCP_FIXTURES.map((s) => ({ ...s }))));
   }
   return memoryMcpStore;
 }
 
-function saveMcpStore(items: McpExtensionServer[]): void {
-  memoryMcpStore = items;
-  writeStorage(MCP_STORAGE_KEY, items);
+function saveMcpStore(items: McpExtensionServer[]): McpExtensionServer[] {
+  memoryMcpStore = items.map((item) => {
+    const { authConfig: _authConfig, clearAuthConfig: _clearAuthConfig, ...server } = item as McpExtensionServer & Partial<Pick<McpServerInput, "authConfig" | "clearAuthConfig">>;
+    return server;
+  });
+  writeStorage(MCP_STORAGE_KEY, memoryMcpStore);
+  return memoryMcpStore;
 }
 
 function getConnectorsStore(): WorkspaceConnector[] {
@@ -184,7 +188,7 @@ function saveConnectorsStore(items: WorkspaceConnector[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP helpers with seamless stub fallback
+// HTTP helpers; fixture responses require explicit opt-in.
 // ---------------------------------------------------------------------------
 
 async function requestJson<T>(
@@ -195,34 +199,28 @@ async function requestJson<T>(
   if (forceStubMode) {
     return await stubFallback();
   }
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    cache: "no-store",
+    ...init,
+    ...(init?.body
+      ? { headers: { "content-type": "application/json", ...init.headers } }
+      : {}),
+  });
+  let body: {
+    error?: string;
+    message?: string;
+  } & T;
   try {
-    const response = await fetch(path, {
-      credentials: "same-origin",
-      cache: "no-store",
-      ...init,
-      ...(init?.body
-        ? { headers: { "content-type": "application/json", ...init.headers } }
-        : {}),
-    });
-
-    if (response.status === 404) {
-      // Backend route missing — fall back to typed in-browser stubs
-      return await stubFallback();
-    }
-
-    const body = (await response.json().catch(() => ({}))) as {
-      error?: string;
-      message?: string;
-    } & T;
-
-    if (!response.ok) {
-      throw new Error(body.message ?? body.error ?? `Request failed (${response.status})`);
-    }
-    return body;
-  } catch (err) {
-    // If the network request failed (connection refused in tests/dev without backend), use stub fallback
-    return await stubFallback();
+    body = await response.json();
+  } catch {
+    throw new Error(response.ok ? "Invalid extensions API response" : `Request failed (${response.status})`);
   }
+
+  if (!response.ok) {
+    throw new Error(body.message ?? body.error ?? `Request failed (${response.status})`);
+  }
+  return body;
 }
 
 const mcpBase = "/api/v1/extensions/mcp-servers";
@@ -298,13 +296,14 @@ export const extensionsApi = {
         const store = getMcpStore();
         const existing = store.find((s) => s.id === id);
         if (!existing) throw new Error("MCP server not found");
+        const { authConfig, clearAuthConfig, ...fields } = input;
         const updated: McpExtensionServer = {
           ...existing,
-          ...input,
-          hasAuth: input.clearAuthConfig
+          ...fields,
+          hasAuth: clearAuthConfig
             ? false
-            : input.authConfig
-              ? Boolean(input.authConfig.bearerToken || input.authConfig.headerValue)
+            : authConfig
+              ? Boolean(authConfig.bearerToken || authConfig.headerValue)
               : existing.hasAuth,
         };
         saveMcpStore(store.map((s) => (s.id === id ? updated : s)));
