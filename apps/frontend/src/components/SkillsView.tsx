@@ -19,12 +19,12 @@ import { ExtensionSkillsView } from "./ExtensionSkillsView";
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
 
-export function SkillsView(): JSX.Element {
+export function SkillsView({ embedded = false }: { embedded?: boolean } = {}): JSX.Element {
   const [surface, setSurface] = useState<"extensions" | "run">("extensions");
   return (
     <div className="flex h-full min-h-0 flex-1 bg-[var(--bg)] text-[var(--fg)]">
       {surface === "extensions"
-        ? <ExtensionSkillsView onOpenRunSkills={() => setSurface("run")} />
+        ? <ExtensionSkillsView embedded={embedded} onOpenRunSkills={() => setSurface("run")} />
         : <RunAttachedSkillsView onOpenExtensions={() => setSurface("extensions")} />}
     </div>
   );
@@ -124,7 +124,7 @@ function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => v
   const showLoadMore = savedSkills.hasMore;
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+    <div className="min-h-0 flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
       <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -137,7 +137,7 @@ function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => v
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
           <SkillLibraryCards />
           <FounderSkillLibrary />
