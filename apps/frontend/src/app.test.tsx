@@ -14,6 +14,16 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("agents/react", () => ({ useAgent: () => mocks.agent, useAgentToolEvents: () => mocks.tools }));
 vi.mock("@cloudflare/ai-chat/react", () => ({ useAgentChat: () => mocks.chat }));
+vi.mock("./conversation-room-realtime", () => ({
+  useConversationRoomRealtime: () => ({
+    viewerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    status: "offline",
+    viewers: [],
+    remoteStream: null,
+    startStream: () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    finishStream: vi.fn(),
+  }),
+}));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => mocks.router }));
 vi.mock("./socket-liveness", () => ({ useSocketLiveness: vi.fn() }));
 vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));

@@ -3,6 +3,7 @@
  * Approval-gated coding tasks delegated to isolated Cloudflare Sandbox containers running OpenCode.
  */
 import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { useConversationRoomRealtime, type ConversationRoomMessage } from "./conversation-room-realtime";
 import { useAgent, useAgentToolEvents } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HARNESS_REASONING_EFFORTS, onboardingTaskText, type ReasoningEffort } from "@shiba/shared";
@@ -44,6 +45,7 @@ import { ConversationalOnboarding } from "./components/ConversationalOnboarding"
 import type { OnboardingDraftRef, SelectedOnboardingDraft } from "./onboarding-draft";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
 import { ConversationWorkspaceHeading } from "./components/ConversationWorkspaceHeading";
+import { ConversationRoomPresence, RemoteAgentStream } from "./components/ConversationRoomPresence";
 import { ConversationModeSwitch } from "./components/ConversationModeSwitch";
 import { ChatMessageComposer } from "./components/ChatMessageComposer";
 import {
@@ -948,6 +950,31 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       submitFailed.current = true;
     },
   });
+  const receiveRoomMessage = useCallback((message: ConversationRoomMessage) => {
+    chat.setMessages((current) => current.some((item) => item.id === message.messageId)
+      ? current
+      : [...current, {
+          id: message.messageId,
+          role: "user",
+          metadata: { shibaRoomViewerId: message.viewerId },
+          parts: [{ type: "text", text: message.text }],
+        }]);
+  }, [chat.setMessages]);
+  const conversationRealtime = useConversationRoomRealtime({
+    sessionId: selectedSessionId,
+    enabled: signedIn && mainView === "work",
+    typingText: task,
+    messages: chat.messages,
+    onMessage: receiveRoomMessage,
+  });
+  const {
+    viewerId: realtimeViewerId,
+    status: realtimeStatus,
+    viewers: realtimeViewers,
+    remoteStream: realtimeRemoteStream,
+    startStream: startRealtimeStream,
+    finishStream: finishRealtimeStream,
+  } = conversationRealtime;
   const { runsById } = useAgentToolEvents({ agent });
   const appToolsContext = useMemo(() => ({
     sessionId: selectedSessionId,
@@ -1270,7 +1297,20 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         submitFailed.current = false;
         setIsSubmitting(true);
         try {
-          await chat.sendMessage({ text: draft.trim(), metadata: { shibaMode: "chat" } });
+          const streamId = startRealtimeStream(draft.trim());
+          try {
+            await chat.sendMessage({
+              text: draft.trim(),
+              metadata: {
+                shibaMode: "chat",
+                shibaRoomViewerId: realtimeViewerId,
+              },
+            });
+            finishRealtimeStream(streamId, "complete");
+          } catch (error) {
+            finishRealtimeStream(streamId, "failed");
+            throw error;
+          }
           // The failed user turn remains in the transcript; retrying it must
           // regenerate that turn rather than append a duplicate user message.
         } catch (error) {
@@ -1610,6 +1650,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       envVars,
       connectionId,
       chat,
+      realtimeViewerId,
+      startRealtimeStream,
+      finishRealtimeStream,
       agent,
       orchestratorName,
       identityError,
@@ -2957,6 +3000,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 <div
                   className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
                 >
+                  {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
                   {chat.messages.length > 0 ? (
                     <StepTimeline
                       messages={chat.messages}
@@ -3007,6 +3051,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
+                  {conversationMode === "chat" ? (
+                    <ConversationRoomPresence
+                      status={realtimeStatus}
+                      viewers={realtimeViewers}
+                      viewerId={realtimeViewerId}
+                    />
+                  ) : null}
                   <ConversationModeSwitch
                     value={conversationMode}
                     onChange={setConversationMode}
