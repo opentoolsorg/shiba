@@ -14,11 +14,23 @@ import {
   useSavedSkills,
 } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
+import { ExtensionSkillsView } from "./ExtensionSkillsView";
 
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
 
 export function SkillsView(): JSX.Element {
+  const [surface, setSurface] = useState<"extensions" | "run">("extensions");
+  return (
+    <div className="flex h-full min-h-0 flex-1 bg-[var(--bg)] text-[var(--fg)]">
+      {surface === "extensions"
+        ? <ExtensionSkillsView onOpenRunSkills={() => setSurface("run")} />
+        : <RunAttachedSkillsView onOpenExtensions={() => setSurface("extensions")} />}
+    </div>
+  );
+}
+
+function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => void }): JSX.Element {
   const savedSkills = useSavedSkills();
   const skills = savedSkills.skills;
   const [name, setName] = useState("");
@@ -114,10 +126,15 @@ export function SkillsView(): JSX.Element {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
       <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0">
-        <h2 className="text-base font-semibold text-[var(--fg)]">Skills</h2>
-        <p className="text-xs text-[var(--muted-foreground-2)]">
-          Versioned instruction bundles scoped to your signed-in account or workspace. Review a draft before activating it. Source links are labels only; Shiba never downloads or executes their contents.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--fg)]">Run-attached skills</h2>
+            <p className="text-xs text-[var(--muted-foreground-2)]">
+              Versioned instruction bundles scoped to your signed-in account or workspace. Review a draft before activating it. Source links are labels only; Shiba never downloads or executes their contents.
+            </p>
+          </div>
+          <button type="button" onClick={onOpenExtensions} className="min-h-11 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs hover:bg-[var(--secondary)]">Workspace skills</button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">

@@ -23,6 +23,10 @@ const deferred = <T,>() => {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 };
+function renderRunAttachedSkills() {
+  render(<SkillsView />);
+  fireEvent.click(screen.getByRole("button", { name: "Run-attached skills" }));
+}
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -32,12 +36,13 @@ describe("SkillsView recovery and draft races", () => {
     let reads = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.startsWith("/api/v1/extensions/skills")) return json([]);
       if (url === "/api/skills/library") return json({ ok: true, skills: [] });
       if (url.includes("/api/founder-skills")) return json({ skills: [] });
       reads += 1;
       return reads === 1 ? json({ error: "temporarily unavailable" }, 503) : json({ skills: [serverSkill({ name: "Recovered" })] });
     }));
-    render(<SkillsView />);
+    renderRunAttachedSkills();
     expect((await screen.findByRole("alert")).textContent).toContain("temporarily unavailable");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("Recovered")).toBeTruthy();
@@ -51,13 +56,14 @@ describe("SkillsView recovery and draft races", () => {
     const requests: Array<{ url: string; method: string; body?: Record<string, unknown> }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); const method = init?.method ?? "GET";
+      if (url.startsWith("/api/v1/extensions/skills")) return json([]);
       if (url === "/api/skills/library") return json({ ok: true, skills: [] });
       const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ url, method, body });
       if (url.includes("/api/founder-skills")) return json({ skills: [] });
       return method === "GET" ? json({ skills: [] }) : json({ skill: serverSkill({ name: String(body?.name), instructions: String(body?.instructions), sourceUrl: body?.sourceUrl }) }, 201);
     }));
-    render(<SkillsView />);
+    renderRunAttachedSkills();
     fireEvent.click(await screen.findByRole("button", { name: "Import legacy skills as drafts" }));
     await screen.findByRole("status");
     await waitFor(() => expect(screen.getByText("draft · v1")).toBeTruthy());
@@ -77,12 +83,13 @@ describe("SkillsView recovery and draft races", () => {
     const post = deferred<Response>();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.startsWith("/api/v1/extensions/skills")) return json([]);
       if (url === "/api/skills/library") return json({ ok: true, skills: [] });
       if (url.includes("/api/founder-skills")) return json({ skills: [] });
       if (init?.method === "POST") return post.promise;
       return json({ skills: [] });
     }));
-    render(<SkillsView />);
+    renderRunAttachedSkills();
     fireEvent.change(await screen.findByLabelText("Skill name"), { target: { value: "First version" } });
     fireEvent.change(screen.getByLabelText("Skill instructions"), { target: { value: "First instructions" } });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
@@ -98,6 +105,7 @@ describe("SkillsView recovery and draft races", () => {
     const alpha = deferred<Response>(); const beta = deferred<Response>();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.startsWith("/api/v1/extensions/skills")) return json([]);
       if (url === "/api/skills/library") return json({ ok: true, skills: [] });
       if (url.includes("/api/founder-skills")) return json({ skills: [] });
       if (url.startsWith("/api/skills?") ) return json({ skills: [
@@ -108,7 +116,7 @@ describe("SkillsView recovery and draft races", () => {
       if (url.includes("skill-bbbbbbbbbbbbbbbbbbbbbbbb/versions")) return beta.promise;
       return json({ skills: [] });
     }));
-    render(<SkillsView />);
+    renderRunAttachedSkills();
     await screen.findByText("Alpha");
     const versionButtons = screen.getAllByRole("button", { name: "Versions" });
     fireEvent.click(versionButtons[0]!);

@@ -25,6 +25,7 @@ import { createToolRegistry, type ToolRegistry } from "./mcp-gateway.js";
 import { registerEmailTools } from "./mcp-email-tools.js";
 import { registerMemoryTools, registerOwnerMemoryTools } from "./mcp-memory-tools.js";
 import { registerRunTools } from "./mcp-run-tools.js";
+import { registerExtensionSkillMcpTools } from "./extension-skills-tools.js";
 
 /** The shared cross-user principal must never inherit personal Gmail access. */
 export const ORCHESTRATOR_SCOPES: Scope[] = SCOPES.filter((s) => s !== "admin:tokens" && s !== "gmail:read");
@@ -65,6 +66,7 @@ function buildRegistry(env: Env, ownerMemoryId?: string): ToolRegistry {
   registerMemoryTools(registry, env);
   if (ownerMemoryId) registerOwnerMemoryTools(registry, env, ownerMemoryId);
   registerRunTools(registry, env);
+  registerExtensionSkillMcpTools(registry, env);
   return registry;
 }
 
