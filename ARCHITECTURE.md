@@ -89,6 +89,19 @@ approves it, and the container's outbound network is allowlisted per run.
 
 ---
 
+### Optional integration sibling
+
+`INTEGRATIONS_PROVIDER=openconnector` selects an adapter to a separately deployed,
+unmodified upstream open-connector Worker. Composio remains the default. The
+backend prefers the `OPEN_CONNECTOR` service binding, with `OPEN_CONNECTOR_URL`
+as the HTTP alternative. Admin and runtime tokens stay in backend Worker secrets.
+Connection names are `u_` plus the first 16 hexadecimal characters of SHA-256 of
+the authenticated owner ID; request-supplied account IDs cannot select another
+owner's connection. The sibling owns its own D1 and temporary-file R2 bucket.
+Its source and upstream license stay outside Shiba's AGPL source tree.
+See [the deployment guide](docs/OPENCONNECTOR.md) for the separate migration,
+secrets, and deployment sequence.
+
 ## 4. Durable Objects — the state map
 
 | DO | Owns | Migration |

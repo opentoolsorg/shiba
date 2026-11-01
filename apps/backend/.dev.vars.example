@@ -136,3 +136,9 @@
 # SHIBA_LOCAL_RUNTIME=1
 # LOCAL_ADAPTER_TOKEN=
 # PAIRING_SECRET=
+
+# Optional open-connector HTTP fallback (local Worker has no sibling binding).
+# INTEGRATIONS_PROVIDER=openconnector
+# OPEN_CONNECTOR_URL=
+# OPEN_CONNECTOR_ADMIN_TOKEN=
+# OPEN_CONNECTOR_RUNTIME_TOKEN=

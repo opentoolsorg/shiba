@@ -312,6 +312,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       "GMAIL_CLIENT_SECRET",
       "GMAIL_TOKEN_KEY",
       "COMPOSIO_API_KEY",
+      "OPEN_CONNECTOR_ADMIN_TOKEN",
+      "OPEN_CONNECTOR_RUNTIME_TOKEN",
       "MODEL_CREDENTIAL_KEY",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
@@ -390,6 +392,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       "DISCORD_AGENT_HARNESS",
       "GMAIL_CLIENT_ID",
       "GMAIL_REDIRECT_URI",
+      "INTEGRATIONS_PROVIDER",
+      "OPEN_CONNECTOR_URL",
     ]),
   },
 });
@@ -427,7 +431,14 @@ export default Alchemy.Stack(
         ),
       );
     }
-    yield* Worker;
+    const worker = yield* Worker;
+    // The sibling is deployed separately from unmodified upstream source. Only
+    // opt-in deployments bind it; ordinary Composio installs need no sibling.
+    if (process.env.OPEN_CONNECTOR_WORKER) {
+      yield* worker.bind`OPEN_CONNECTOR`({
+        bindings: [{ type: "service", name: "OPEN_CONNECTOR", service: process.env.OPEN_CONNECTOR_WORKER }],
+      });
+    }
     // Scoped memory recall filters on `agent`; Vectorize ignores unindexed metadata.
     yield* Cloudflare.Vectorize.MetadataIndex("MemoryAgentIndex", {
       indexName: `shiba-memory${resSuffix}`,

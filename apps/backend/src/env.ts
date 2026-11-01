@@ -500,6 +500,11 @@ export interface Env {
    * MCP and native Slack/GitHub paths are independent of this selector.
    */
   INTEGRATIONS_PROVIDER?: string;
+  /** Optional sibling Worker; preferred over OPEN_CONNECTOR_URL. */
+  OPEN_CONNECTOR?: Fetcher;
+  OPEN_CONNECTOR_URL?: string;
+  OPEN_CONNECTOR_ADMIN_TOKEN?: string;
+  OPEN_CONNECTOR_RUNTIME_TOKEN?: string;
   /** Composio platform API key — Worker secret; never sent to sandboxes. */
   COMPOSIO_API_KEY?: string;
   /** Typo alias read by composioApiKey(); prefer COMPOSIO_API_KEY in wrangler secrets. */

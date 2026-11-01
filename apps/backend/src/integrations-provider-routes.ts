@@ -197,10 +197,9 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   if (suffix === "/execute" && request.method === "POST") {
     const sameOrigin = requireSameOrigin(request);
     if (sameOrigin) return sameOrigin;
-    const composio = asComposio(provider);
-    if (!composio) {
+    if (!provider.executeTool) {
       return json(
-        { ok: false, status: "failed", error: "Composio tool execution requires INTEGRATIONS_PROVIDER=composio." },
+        { ok: false, status: "failed", error: "Selected integration provider does not support tool execution." },
         503,
       );
     }
@@ -211,7 +210,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
       body?.arguments && typeof body.arguments === "object" && !Array.isArray(body.arguments)
         ? (body.arguments as Record<string, unknown>)
         : {};
-    const result = await composio.executeTool({
+    const result = await provider.executeTool({
       userId: owner,
       toolSlug,
       arguments: args,

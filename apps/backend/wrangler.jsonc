@@ -124,6 +124,10 @@
   "ai": {
     "binding": "AI",
   },
+  // Optional sibling: deploy it first, then uncomment this service binding.
+  // Alchemy equivalent: OPEN_CONNECTOR_WORKER=shiba-openconnector.
+  // "services": [{ "binding": "OPEN_CONNECTOR", "service": "shiba-openconnector" }],
+  // HTTP fallback: set OPEN_CONNECTOR_URL to the sibling HTTPS origin in vars.
   "worker_loaders": [
     { "binding": "LOADER" },
   ],

@@ -50,3 +50,6 @@ audit/
 .hermes/
 graphify-out/
 .verify/
+
+# Unmodified external open-connector checkout, dependencies and local config.
+.openconnector/
