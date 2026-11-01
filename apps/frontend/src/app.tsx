@@ -20,7 +20,6 @@ import { SpacesView } from "./components/SpacesView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { AgentDetailsPanel, AgentPageHeader, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
-import type { EmployeeTemplate } from "./employee-templates";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { useProjectContexts } from "./project-contexts";
@@ -518,37 +517,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     writeConversationMode(selectedSessionId, mode);
   }, [selectedSessionId]);
 
-// Per-session composer draft: a scope change loads that scope's draft
-  // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
-  const quickDraft = useRef<string | null>(null);
-  const draftScope = useRef<string | null>("default");
-  const pendingDraft = useRef<{ scope: string; text: string } | null>(null);
-  const flushDraft = useCallback(() => {
-    const pending = pendingDraft.current;
-    pendingDraft.current = null;
-    if (pending) writeDraft(pending.scope, pending.text);
-  }, []);
-  useEffect(() => {
-    if (draftScope.current !== selectedSessionId) {
-      flushDraft(); // the old scope's unwritten keystrokes land before switching
-      draftScope.current = selectedSessionId;
-      setTask(quickDraft.current ?? readDraft(selectedSessionId));
-      quickDraft.current = null;
-      return;
-    }
-    if (task === quickDraft.current) quickDraft.current = null;
-    pendingDraft.current = { scope: selectedSessionId, text: task };
-    // An emptied composer (submit or clear) flushes now; typing waits for 300 ms idle.
-    if (!task.trim()) return flushDraft();
-    const timer = window.setTimeout(flushDraft, 300);
-    return () => window.clearTimeout(timer);
-  }, [selectedSessionId, task, flushDraft, mainView]);
-  // A failed submit restores its text only into the session it came from.
-  const restoreDraft = useCallback((scope: string, text: string) => {
-    if (draftScope.current === scope) setTask((current) => (current === "" ? text : current));
-    else writeDraft(scope, text);
-  }, []);
-
   // Local runs use the authenticated paired fleet in both web and desktop.
   const [runTarget, setRunTarget] = useState<"sandbox" | "local">("sandbox");
   const [appToolsWork, setAppToolsWork] = useState(false);
@@ -660,6 +628,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Per-session composer draft: a scope change loads that scope's draft
   // instead of writing the old text into it; otherwise edits persist after 300 ms idle.
   const composerScope = signedIn && orchestratorName ? composerDraftScope(orchestratorName, selectedSessionId) : null;
+  const quickDraft = useRef<{ scope: string; text: string } | null>(null);
   const draftScope = useRef<string | null>(null);
   const [restoredComposerScope, setRestoredComposerScope] = useState<string | null>(null);
   const composerVisible = composerScope !== null && restoredComposerScope === composerScope;
@@ -675,7 +644,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       const keepCurrentTask = draftScope.current === null && composerScope !== null && task !== "";
       draftScope.current = composerScope;
       setRestoredComposerScope(composerScope);
-      const restored = keepCurrentTask ? task : composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
+      const quick = quickDraft.current?.scope === composerScope ? quickDraft.current : null;
+      const restored = quick ? quick.text : keepCurrentTask ? task : composerScope ? readDraft(composerScope) || initialComposerPrompt.current : "";
+      quickDraft.current = null;
       if (composerScope) initialComposerPrompt.current = "";
       selectedOnboardingTaskText.current = restored;
       setTask(restored);
@@ -683,6 +654,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       return;
     }
     if (!composerScope) return;
+    if (quickDraft.current?.scope === composerScope && quickDraft.current.text === task) quickDraft.current = null;
     const linked = task === selectedOnboardingTaskText.current ? selectedOnboardingDraftRef : null;
     if (selectedOnboardingDraftRef && !linked) setSelectedOnboardingDraftRef(null);
     pendingDraft.current = { scope: composerScope, text: task, onboardingDraft: linked };
@@ -2241,6 +2213,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents]);
 
   const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
     try {
@@ -2629,8 +2602,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onQuickAddTask={async (taskText) => {
                 const id = await handleNewTask();
                 if (!id) return false;
-                writeDraft(id, taskText);
-                quickDraft.current = taskText;
+                if (!orchestratorName) return false;
+                const scope = composerDraftScope(orchestratorName, id);
+                quickDraft.current = { scope, text: taskText };
+                writeDraft(scope, taskText);
                 setTask(taskText);
                 return true;
               }}

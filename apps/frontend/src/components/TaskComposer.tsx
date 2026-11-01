@@ -632,18 +632,9 @@ export function TaskComposer({
     </div>
   );
 
-  const form = (
-    <form
-      data-testid="task-composer"
-      aria-label="Task composer"
-      onSubmit={handleSubmit}
-      className={`w-full rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] flex flex-col shadow-[var(--sh-composer)] relative group focus-within:border-[var(--ring)] transition-colors ${
-        hero ? "p-4 sm:p-5 gap-3" : "p-3 gap-2.5"
-      }`}
-    >
-      {/* Top Chips Row: Project (Repo) + Run Target */}
-      {blockedReason ? <p role="status" className="text-xs text-[var(--warning-fg)]">{blockedReason}</p> : null}
-      <div className="flex items-center gap-1.5 flex-wrap">
+  const connectionControls = (
+    <fieldset aria-label="Execution workspace" className="flex min-w-0 flex-col gap-2 border-t border-[var(--border-1)] pt-3">
+      <div className="flex flex-wrap items-center gap-1.5">
         {workTargetPicker}
         {!onAppToolsWorkChange && onExecutionTargetKindChange ? (
           <div className="relative">
@@ -682,12 +673,11 @@ export function TaskComposer({
             </Popover>
           </div>
         ) : null}
-
-
-  const connectionControls = (
-    <fieldset aria-label="Execution workspace" className="flex min-w-0 flex-col gap-2 border-t border-[var(--border-1)] pt-3">
+      </div>
       <p className="text-xs text-[var(--muted-foreground-2)]">
-        {repoUrl.trim() ? "Repository selected for execution." : "Connect a repository — required for execution, including reports and research."}
+        {executionTargetKind === "artifact-workspace"
+          ? "Outputs are saved in an artifact workspace. No repository required."
+          : repoUrl.trim() ? "Repository selected for execution." : "Connect a repository — required for execution, including reports and research."}
       </p>
       <div className="flex min-w-0 items-center gap-1.5 flex-wrap">
 
@@ -936,6 +926,7 @@ export function TaskComposer({
     >
 
 
+      {blockedReason ? <p role="status" className="text-xs text-[var(--warning-fg)]">{blockedReason}</p> : null}
       {/* Main Textarea */}
       {onProjectContextChange ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">

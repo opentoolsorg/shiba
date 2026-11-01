@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 import { ONBOARDING_DISMISSED_KEY } from "./components/AgentExperience";
 import { EMPLOYEE_TEMPLATES } from "./employee-templates";
-import { readDraft, writeDraft } from "./saved";
+import { composerDraftScope, readDraft, writeDraft } from "./saved";
 
 const mocks = vi.hoisted(() => ({
   agent: { identified: true, readyState: 1, connectionError: null, addEventListener: vi.fn(), removeEventListener: vi.fn() },
@@ -20,6 +20,7 @@ vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
 vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task }: { task: string }) => <div data-testid="task-composer"><textarea aria-label="Task draft" value={task} readOnly /></div> }));
+vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
 
 beforeEach(() => {
   localStorage.clear();
@@ -134,10 +135,31 @@ describe("app Work and Threads routing", () => {
     await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Investigate latency"));
     expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST" }));
     expect(window.location.pathname).toBe("/tasks/");
+    expect(readDraft(composerDraftScope("test-operator", "new-thread"))).toBe("Investigate latency");
+    expect(readDraft("new-thread")).toBe("");
+    expect(readDraft(composerDraftScope("another-operator", "new-thread"))).toBe("");
+  });
+
+  it("keeps a quick-add draft when browser storage rejects draft writes", async () => {
+    const originalSetItem = Storage.prototype.setItem;
+    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (key === "shiba-composer-drafts-v1") throw new Error("Storage blocked");
+      originalSetItem.call(this, key, value);
+    });
+    try {
+      render(<App />);
+      const input = await screen.findByRole("textbox", { name: "Draft a task and press Enter" });
+      await act(async () => {});
+      fireEvent.change(input, { target: { value: "Keep this task without storage" } });
+      fireEvent.submit(input.closest("form")!);
+      await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Keep this task without storage"));
+    } finally {
+      storage.mockRestore();
+    }
   });
 
   it.each([503, 404])("preserves the current draft when quick-add session creation returns %s", async (status) => {
-    writeDraft("default", "Original unfinished task");
+    writeDraft(composerDraftScope("test-operator", "default"), "Original unfinished task");
     const originalFetch = fetch;
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       if (String(url) === "/api/sessions" && options?.method === "POST") return Response.json({}, { status });
@@ -153,12 +175,12 @@ describe("app Work and Threads routing", () => {
     expect((screen.getByRole("textbox", { name: "Draft a task and press Enter" }) as HTMLInputElement).value).toBe("Different quick task");
     fireEvent.click(screen.getByRole("button", { name: "Threads" }));
     expect((await screen.findByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Original unfinished task");
-    expect(readDraft("default")).toBe("Original unfinished task");
+    expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Original unfinished task");
   });
 
   it.each(["quick-add", "new-thread"])("shares one session creation guard across rapid and mixed activation starting with %s", async (entry) => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    writeDraft("default", "Existing thread draft");
+    writeDraft(composerDraftScope("test-operator", "default"), "Existing thread draft");
     const originalFetch = fetch;
     const template = EMPLOYEE_TEMPLATES.find((item) => item.id === "research")!;
     const profile = { id: "research-agent", slug: template.slug, version: 1, config: { ...template.config, harness: "opencode" } };
@@ -184,7 +206,7 @@ describe("app Work and Threads routing", () => {
     expect(createSession).toHaveBeenCalledOnce();
     await act(async () => finish(Response.json({}, { status: 503 })));
     expect(input.value).toBe("Keep quick-add draft");
-    expect(readDraft("default")).toBe("Existing thread draft");
+    expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Existing thread draft");
     fireEvent.submit(form);
     expect(createSession).toHaveBeenCalledTimes(2);
     await act(async () => finish(Response.json({ session: { id: "mixed-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } })));

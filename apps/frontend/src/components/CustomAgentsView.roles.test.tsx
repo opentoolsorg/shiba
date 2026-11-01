@@ -130,7 +130,7 @@ describe("role drafts in the Bots directory", () => {
     expect(request.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     finish?.(Response.json({ agent: { id: "operations", slug: "operations-bot", version: 1, config: { name: "Operations bot", instructions: "Write a runbook", harness: "opencode" } } }));
     await screen.findByText("Bot created.");
-
+  });
 
   it("renders a renamed employee by slug and an unknown slug as custom without saving", async () => {
     const server = stubDirectory([

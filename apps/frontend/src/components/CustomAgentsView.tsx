@@ -443,7 +443,8 @@ export function CustomAgentsView({
                       <button key={template.id} type="button" aria-label={template.label} disabled={busy || editingId !== null}
                         onClick={(event) => chooseTemplate(template, event.currentTarget)}
                         className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] p-3 text-left disabled:opacity-50">
-                        <span className="block text-xs font-medium text-[var(--fg)]">{template.config.emoji} {template.label}</span>
+                        <RoleShiba role={template.id} decorative className="mb-2 size-9" />
+                        <span className="block text-xs font-medium text-[var(--fg)]">{template.label}</span>
                         <span className="mt-1 block text-[11px] text-[var(--muted-foreground-2)]">{template.description}</span>
                       </button>
                     ))}

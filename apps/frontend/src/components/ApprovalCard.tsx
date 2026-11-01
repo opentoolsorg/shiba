@@ -35,7 +35,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
       <div className="flex items-center px-4 min-h-11 text-xs text-[var(--muted-foreground-2)]" role="status">
         {decided && decision !== undefined
           ? decision ? "Approved — sandbox starting" : "Rejected — nothing ran"
-          : "Waiting for your approval"}
+          : decided ? "Decision recorded" : "Waiting for your approval"}
       </div>
       <div className="p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
@@ -59,7 +59,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
           </span>
         ) : (
           <span className="text-xs font-medium bg-[var(--warning-fg)]/15 border border-[color-mix(in_oklch,var(--warning-fg)_30%,transparent)] text-[var(--warning-fg)] px-2 py-0.5 rounded-[var(--radius-button)] shrink-0">
-            Needs approval
+            {decided ? "Decision recorded" : "Needs approval"}
           </span>
         )}
       </div>

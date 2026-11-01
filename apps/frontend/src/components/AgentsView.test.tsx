@@ -3,6 +3,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AgentsView } from "./AgentsView";
 
+vi.mock("./ExternalMcpManagement", () => ({ ExternalMcpManagement: () => null }));
+
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 it("shows the gateway, switches configuration, and filters client rows", async () => {
@@ -77,4 +79,13 @@ it("keeps token setup reachable in the quiet empty state", async () => {
   expect(await screen.findByText("No clients yet")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Open Inbox setup" }).getAttribute("href")).toBe("/?tab=inbox");
   expect(screen.getByText(/Without it, the token cannot authenticate/)).toBeTruthy();
+});
+
+it("names the same principal in the mint command and setup instruction", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ principals: [] })));
+  render(<AgentsView />);
+  await screen.findByText("No clients yet");
+  fireEvent.click(screen.getByRole("button", { name: "Mint token CLI" }));
+  expect(screen.getByText(/node scripts\/mint-token.mjs --agent grok-bot/)).toBeTruthy();
+  expect(screen.getByText("grok-bot").closest("p")?.textContent).toContain("Replace grok-bot with the principal assigned in Inbox");
 });

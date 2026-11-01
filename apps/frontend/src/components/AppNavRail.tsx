@@ -24,6 +24,7 @@ import {
   List,
   LogOut,
   Monitor,
+  MessagesSquare,
   MoreHorizontal,
   Search,
   Settings,

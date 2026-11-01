@@ -132,7 +132,7 @@ export function DiffView({
             <div className="size-10 text-[var(--muted-foreground-2)] flex items-center justify-center mb-3">
               <GitCompareArrows aria-hidden="true" className="w-6 h-6" strokeWidth={1.8} />
             </div>
-            <h3 className="text-sm font-normal text-[var(--muted-foreground-2)]">No changes to review</h3>
+            <h3 className="text-sm font-normal text-[var(--muted-foreground-2)]">No runs yet</h3>
           </div>
         ) : activeRun ? (
           <div className="max-w-6xl mx-auto flex flex-col gap-4">

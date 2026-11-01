@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SpineWire } from "../live-status";
 
 const state: { current: SpineWire } = { current: {
@@ -20,16 +20,18 @@ const state: { current: SpineWire } = { current: {
   },
 } };
 
-vi.mock("../live-status", () => ({
-  useSpine: () => ({ state: { kind: "data", data: state.current }, reload: vi.fn(), inFlight: false }),
-}));
+const { reload, useSpine } = vi.hoisted(() => ({ reload: vi.fn(), useSpine: vi.fn() }));
+vi.mock("../live-status", () => ({ useSpine }));
+beforeEach(() => {
+  useSpine.mockReturnValue({ state: { kind: "data", data: state.current }, reload, inFlight: false });
+});
 vi.mock("../polling", () => ({
   documentVisibilityPause: () => ({ isPaused: () => true, subscribe: () => () => undefined }),
 }));
 
 import { ActivityView } from "./ActivityView";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("ActivityView execution controls", () => {
   it("shows an enforced dispatch boundary and distinguishes unknown usage", () => {
@@ -45,14 +47,7 @@ describe("ActivityView execution controls", () => {
     expect(screen.queryByText("xoxb-superlongtoken123")).toBeNull();
   });
 
-
-import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ActivityView } from "./ActivityView";
-
-const { reload, useSpine } = vi.hoisted(() => ({ reload: vi.fn(), useSpine: vi.fn() }));
-vi.mock("../live-status", () => ({ useSpine }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+});
 
 it("shows quiet empty groups and retains refresh", () => {
   useSpine.mockReturnValue({ state: { kind: "data", data: { events: [], outbox: [] } }, reload, inFlight: true });
