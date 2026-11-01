@@ -153,6 +153,7 @@
       { "name": "ChatGptAuth", "class_name": "ChatGptAuth" },
       { "name": "UserProviderOAuth", "class_name": "UserProviderOAuth" },
       { "name": "Spaces", "class_name": "Spaces" },
+      { "name": "ConversationRoom", "class_name": "ConversationRoom" },
     ],
   },
   // Email attachment bodies >256KB go here, keyed `emailId/partId`
@@ -224,5 +225,6 @@
     { "tag": "alchemy:v22" },
     { "tag": "v13", "new_sqlite_classes": ["UserProviderOAuth"] },
     { "tag": "v14", "new_sqlite_classes": ["Spaces"] },
+    { "tag": "v15", "new_sqlite_classes": ["ConversationRoom"] },
   ],
 }

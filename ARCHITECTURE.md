@@ -17,10 +17,10 @@ this) · `PLAN.md` §17 (parity roadmap).
 ## 1. The one-paragraph version
 
 A single Cloudflare Worker is both the **API** and the **static host** for the
-React dashboard. Nine **Durable Objects** hold all state — the orchestrator
-conversation, the coding sub-agent, per-run sandbox control, automations,
-mailbox, memory, waitlist, and model config. The MCP gateway is stateless
-(`createMcpHandler` per request), not a DO. Work happens in an
+React dashboard. **Durable Objects** hold coordinated state — the orchestrator
+conversation, coding sub-agent, per-run sandbox control, automations, mailbox,
+memory, model config, session chat rooms, and other per-user services. The MCP
+gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in an
 **ephemeral Sandbox container** (one per run, destroyed at the end) that clones
 a GitHub repo and executes one of six agent binaries. Nothing starts until a human
 approves it, and the container's outbound network is allowlisted per run.
@@ -49,6 +49,7 @@ approves it, and the container's outbound network is allowlisted per run.
    │  Automations         cron/webhook/event triggers, budget, kill switch  │
    │  Mailbox             inbound email       Memory  banked facts          │
    │  ModelConfig         model conns         Waitlist  signups             │
+   │  ConversationRoom    session presence and live chat streams            │
    └──────────────────────────────┬─────────────────────────────────────────┘
                                           ▼  delegate_coding_task (approved)
    ┌─────────────────── Sandbox container — ephemeral, 1 per run ──────────┐
@@ -115,6 +116,7 @@ secrets, and deployment sequence.
 | `Waitlist` | signups | v6 |
 | `ModelConfig` | model connections + purpose policy | v7 |
 | `LocalDispatch` | local-runtime dispatch mailbox: pending/claimed/settled run envelopes | v9 |
+| `ConversationRoom` | per-owner/session presence, typing, room messages, and persisted live assistant streams | v15 |
 
 Logical task history is an additive `tasks` field on each existing
 `CodingOrchestrator` state, not a new Durable Object or SQLite schema. Existing

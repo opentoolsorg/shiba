@@ -60,7 +60,7 @@ async function validateThreadAgent(
  */
 export async function handleWebSessions(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!/^\/api\/sessions(?:\/[^/]+(?:\/resume)?)?$/.test(url.pathname)) {
+  if (!/^\/api\/sessions(?:\/[^/]+(?:\/resume|\/realtime)?)?$/.test(url.pathname)) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {
@@ -69,6 +69,52 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
 
   const userId = (await resolveUserId(request, env)) ?? "default";
   const stub = await getAgentByName(env.CodingOrchestrator, userId);
+
+  const realtimeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/realtime$/);
+  if (realtimeMatch) {
+    if (request.method !== "GET") {
+      return Response.json({ error: "Method not allowed." }, { status: 405 });
+    }
+    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("WebSocket upgrade required.", { status: 426 });
+    }
+    if (request.headers.get("Origin") !== url.origin) {
+      return Response.json({ error: "Cross-origin room connections are not allowed." }, { status: 403 });
+    }
+
+    let sessionId: string;
+    try {
+      sessionId = decodeURIComponent(realtimeMatch[1]!);
+    } catch {
+      return Response.json({ error: "Invalid session id." }, { status: 400 });
+    }
+    if (!isValidSessionId(sessionId)) {
+      return Response.json({ error: "Invalid session id." }, { status: 400 });
+    }
+    if (sessionId !== DEFAULT_SESSION_ID) {
+      try {
+        const check = await stub.fetch(
+          `https://internal/internal/web-sessions/${encodeURIComponent(sessionId)}`,
+        );
+        if (check.status === 404) return Response.json({ error: "Session not found." }, { status: 404 });
+        if (!check.ok) return Response.json({ error: "Failed to verify session." }, { status: check.status });
+      } catch (error) {
+        console.error("Failed to verify realtime session:", redactSecrets(String(error)));
+        return Response.json({ error: "Failed to verify session." }, { status: 503 });
+      }
+    }
+
+    const viewerId = url.searchParams.get("viewer") ?? "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(viewerId)) {
+      return Response.json({ error: "Invalid viewer identity." }, { status: 400 });
+    }
+    const headers = new Headers(request.headers);
+    headers.set("x-shiba-room-owner", userId.trim().toLowerCase());
+    headers.set("x-shiba-room-session", sessionId);
+    headers.set("x-shiba-room-viewer", viewerId);
+    const roomName = JSON.stringify([userId.trim().toLowerCase(), sessionId]);
+    return env.ConversationRoom.getByName(roomName).fetch(new Request(request, { headers }));
+  }
 
   // GET /api/sessions — list user's sessions (always includes base session)
   // POST /api/sessions — create new named session (server-mints session ID)
