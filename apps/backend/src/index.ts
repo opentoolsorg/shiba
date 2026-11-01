@@ -132,6 +132,7 @@ export const DASHBOARD_VIEWS = new Set([
   "work",
   "dashboard",
   "tasks",
+  "threads",
   "activity",
   "analytics",
   "diff",
