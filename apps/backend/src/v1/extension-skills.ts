@@ -57,7 +57,7 @@ function scopeFailure(result: { ok: false; reason: string }): Response {
 function decodeSkillId(raw: string): string | null {
   try {
     const id = decodeURIComponent(raw);
-    return id && id.length <= 160 && !/[\\/\u0000]/.test(id) ? id : null;
+    return id && id.length <= 160 && !/[\\/]/.test(id) && !id.includes("\0") ? id : null;
   } catch {
     return null;
   }

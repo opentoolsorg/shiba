@@ -179,6 +179,8 @@ export function useConversationRoomRealtime({
         const publisher = publisherRef.current;
         if (publisher) {
           send({ type: "stream:start", streamId: publisher.streamId });
+          // stream:start resets the persisted body, so replay from its beginning.
+          publisher.lastText = "";
           for (const message of messagesRef.current) {
             if (
               message.role === "user" && belongsToLocalPublisher(message, publisher, viewerId) &&
