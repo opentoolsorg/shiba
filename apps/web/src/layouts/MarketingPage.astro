@@ -94,13 +94,13 @@ const finalSchemas = schema
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance." />
+    <meta property="og:image:alt" content="Shiba: open-source AI employees for the work behind your company, with every run approved by you." />
     {publishedTime && <meta property="article:published_time" content={publishedTime} />}
     {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image:alt" content="Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance." />
+    <meta name="twitter:image:alt" content="Shiba: open-source AI employees for the work behind your company, with every run approved by you." />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
@@ -108,7 +108,7 @@ const finalSchemas = schema
     <!-- Preconnect Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
 
     <!-- Structured Data (JSON-LD) -->
     {finalSchemas.map((s) => (
@@ -175,13 +175,13 @@ const finalSchemas = schema
           <a href="/why-shiba/" class="nav-link" aria-current={path === '/why-shiba/' ? 'page' : undefined}>Why Shiba</a>
           <a href="/#employees" class="nav-link">Employees</a>
           <a href="/integrations/" class="nav-link" aria-current={path === '/integrations/' ? 'page' : undefined}>Integrations</a>
+          <a href="/docs/costs/" class="nav-link" aria-current={path === '/docs/costs/' ? 'page' : undefined}>Costs</a>
           <a href="/docs/overview/" class="nav-link" aria-current={path === '/docs/overview/' ? 'page' : undefined}>Docs</a>
           <a href="https://github.com/princepal9120/shiba" class="nav-link" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
           <div class="nav-more">
             <button type="button" id="nav-more-btn" class="nav-link nav-more-btn" aria-expanded="false" aria-controls="nav-more-panel" class:list={{ 'has-current': !!morePage }} hidden>{morePage ? `More · ${morePage.label}` : 'More'} <span aria-hidden="true">⌄</span></button>
             <div id="nav-more-panel" class="nav-more-panel" hidden>
               <a href="/network/" aria-current={path === '/network/' ? 'page' : undefined}>Network</a>
-              <a href="/docs/costs/" aria-current={path === '/docs/costs/' ? 'page' : undefined}>Cost</a>
               <a href="/blog/" aria-current={path.startsWith('/blog') ? 'page' : undefined}>Journal</a>
               <a href="/docs/architecture/" aria-current={path === '/docs/architecture/' ? 'page' : undefined}>Architecture</a>
               <a href="/docs/security/" aria-current={path === '/docs/security/' ? 'page' : undefined}>Security</a>

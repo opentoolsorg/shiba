@@ -4,7 +4,6 @@ export const integrationGroups = [
   { id: 'triggers', name: 'Start work', description: 'Bring a task from a conversation, a schedule, or your own tools.' },
   { id: 'code', name: 'Repository', description: 'Work against a repository you control, with reviewable changes.' },
   { id: 'agents', name: 'AI tools', description: 'Choose the configured AI tool that will carry out the approved task.' },
-  { id: 'infrastructure', name: 'Workspace hosting', description: 'Run the underlying services in your own Cloudflare account.' },
 ] as const;
 
 type Integration = {
@@ -107,46 +106,5 @@ export const integrations: Integration[] = [
     status: 'Needs live verification', verification: 'Provider routing is implemented; successful model inference is not established.', docs: '/docs/configuration/',
     evidence: [readiness, verification, 'apps/web/src/content/docs/docs/configuration.md'],
   },
-  {
-    name: 'Cloudflare Workers', monogram: 'Wk', group: 'infrastructure',
-    description: 'Host the workspace and receive requests from your connected tools.',
-    status: 'Needs live verification', verification: 'Local checks and dry runs are not cloud end-to-end acceptance.', docs: '/docs/architecture/',
-    evidence: [readiness, verification, 'apps/backend/wrangler.jsonc', 'apps/web/src/content/docs/docs/architecture.md'],
-  },
-  {
-    name: 'Sandbox & Containers', monogram: 'Sb', group: 'infrastructure',
-    description: 'Provide the environment where approved repository work takes place.',
-    status: 'Needs live verification', verification: 'Local container execution exists; a cloud coding journey remains unverified.', docs: '/docs/sandbox-providers/',
-    evidence: [readiness, verification, 'apps/backend/wrangler.jsonc', 'apps/web/src/content/docs/docs/architecture.md'],
-  },
-  {
-    name: 'Durable Objects', monogram: 'DO', group: 'infrastructure',
-    description: 'Keep task progress and approval decisions together.',
-    status: 'Needs live verification', verification: 'Local dispatch is exercised; cloud eviction and resume acceptance is pending.', docs: '/docs/architecture/',
-    evidence: [readiness, verification, 'apps/backend/wrangler.jsonc', 'apps/web/src/content/docs/docs/architecture.md'],
-  },
-  {
-    name: 'D1', monogram: 'D1', group: 'infrastructure',
-    description: 'Store account records and activity history for the installation.',
-    status: 'Needs live verification', verification: 'Binding and storage code exist; account-owned acceptance is still required.', docs: '/docs/architecture/#source-map',
-    evidence: [readiness, verification, 'apps/backend/wrangler.jsonc', 'apps/web/src/content/docs/docs/architecture.md'],
-  },
-  {
-    name: 'Workers KV', monogram: 'KV', group: 'infrastructure',
-    description: 'Store access records for configured clients.',
-    status: 'Needs live verification', verification: 'Token storage has tests; live authenticated client acceptance is pending.', docs: '/docs/architecture/#source-map',
-    evidence: [readiness, verification, 'apps/backend/src/oauth-mcp.ts', 'apps/web/src/content/docs/docs/architecture.md'],
-  },
-  {
-    name: 'Vectorize', monogram: 'Vx', group: 'infrastructure',
-    description: 'Support the configured memory features for recalling relevant context.',
-    status: 'Needs live verification', verification: 'Bound in the deployment; live Vectorize behavior is explicitly unverified.', docs: '/docs/architecture/#source-map',
-    evidence: [readiness, verification, 'apps/backend/wrangler.jsonc', 'apps/web/src/content/docs/docs/architecture.md'],
-  },
-  {
-    name: 'Cloudflare Access', monogram: 'Ac', group: 'infrastructure',
-    description: 'Control who can open the workspace through your identity provider.',
-    status: 'Needs live verification', verification: 'Forged headers were rejected in a deployed check; full account acceptance is pending.', docs: '/docs/security/',
-    evidence: [readiness, verification, 'apps/web/src/content/docs/docs/architecture.md'],
-  },
+
 ];
