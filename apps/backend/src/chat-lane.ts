@@ -6,7 +6,7 @@
  * approval; nothing here starts a container.
  */
 import { parseChatThreadName } from "@shiba/shared";
-import type { ChatPlatform, ChatTaskRequest } from "@shiba/shared";
+import type { ChatPlatform, ChatTaskRequest, ExecutionTarget } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
 import { extractGitHubRepoUrl, parseChannelRepoMap } from "./slack-context.js";
@@ -45,15 +45,24 @@ export function parseChatTaskRequest(input: {
 
 // Discord caps a message at 2000 chars; oversized tasks post as follow-up
 // chunks in the same thread — the card can never hide approved text.
-const CARD_TASK_LIMIT = 1500;
+export const CARD_TASK_LIMIT = 1500;
+const TELEGRAM_CHUNK_SIZE = 3900;
 
 /** Plain-text card body: the exact frozen input the approver is deciding on. */
-export function chatApprovalText(input: { repoUrl: string; task: string; approvalId: string; route?: string }): string {
+export function chatApprovalText(input: {
+  repoUrl: string;
+  task: string;
+  approvalId: string;
+  route?: string;
+  employeeLabel?: string;
+}): string {
   const task = input.task.length <= CARD_TASK_LIMIT
     ? input.task
     : `${input.task.slice(0, CARD_TASK_LIMIT)}… (${input.task.length - CARD_TASK_LIMIT} more chars — full task in this thread)`;
   const route = input.route ? `\nRoute: ${input.route}` : "";
-  return `Approval requested\nRepo: ${input.repoUrl}\nTask: ${task}${route}\napproval ${input.approvalId}`;
+  const bot = input.employeeLabel ? `\nBot: ${input.employeeLabel}` : "";
+  const repoLine = input.repoUrl ? `Repo: ${input.repoUrl}\n` : "";
+  return `Approval requested\n${repoLine}Task: ${task}${bot}${route}\napproval ${input.approvalId}`;
 }
 
 /**
@@ -61,11 +70,26 @@ export function chatApprovalText(input: { repoUrl: string; task: string; approva
  * Lanes post these as follow-ups next to the card so an approver can always
  * read the entire task before pressing Approve.
  */
-export function chatTaskChunks(task: string, limit: number): string[] {
-  if (task.length <= limit) return [];
+/** Follow-ups when the card truncates at {@link CARD_TASK_LIMIT}; optional platform message cap. */
+export function chatTaskChunks(
+  task: string,
+  cardLimit: number,
+  messageLimit = cardLimit,
+): string[] {
+  if (task.length <= cardLimit) return [];
   const chunks: string[] = [];
-  for (let i = 0; i < task.length; i += limit) {
-    chunks.push(task.slice(i, i + limit));
+  for (let i = 0; i < task.length; i += messageLimit) {
+    chunks.push(task.slice(i, i + messageLimit));
+  }
+  return chunks;
+}
+
+/** Follow-up messages when the approval card truncates the frozen task. */
+export function chatTaskFollowUpChunks(task: string, chunkSize = TELEGRAM_CHUNK_SIZE): string[] {
+  if (task.length <= CARD_TASK_LIMIT) return [];
+  const chunks: string[] = [];
+  for (let i = 0; i < task.length; i += chunkSize) {
+    chunks.push(task.slice(i, i + chunkSize));
   }
   return chunks;
 }
@@ -87,7 +111,21 @@ function defaultResolver(env: Env): ResolveOrchestrator {
 /** Queue a pending approval on the conversation's orchestrator. Never throws. */
 export async function queueChatRun(
   env: Env,
-  input: { platform: ChatPlatform; threadKey: string; repoUrl: string; task: string; userId: string; harness?: string },
+  input: {
+    platform: ChatPlatform;
+    threadKey: string;
+    repoUrl: string;
+    task: string;
+    userId: string;
+    harness?: string;
+    orgId?: string;
+    customAgentId?: string;
+    customAgentVersion?: number;
+    employeeToolPolicyVersion?: number;
+    executionTarget?: ExecutionTarget;
+    publishPullRequest?: boolean;
+    employeeLabel?: string;
+  },
   resolve: ResolveOrchestrator = defaultResolver(env),
 ): Promise<{ approvalId: string; route?: string } | { error: string }> {
   let response: Response;
@@ -102,11 +140,18 @@ export async function queueChatRun(
           repoUrl: input.repoUrl,
           task: input.task,
           baseBranch: "main",
-          publishPullRequest: true,
+          publishPullRequest: input.publishPullRequest ?? true,
           threadKey: input.threadKey,
           source: input.platform,
           ...(input.harness ? { harness: input.harness } : {}),
           ...(input.userId ? { user_id: input.userId } : {}),
+          ...(input.orgId ? { orgId: input.orgId } : {}),
+          ...(input.customAgentId ? { customAgentId: input.customAgentId } : {}),
+          ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+          ...(input.employeeToolPolicyVersion !== undefined
+            ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion }
+            : {}),
+          ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}),
         }),
       }),
     );
@@ -133,7 +178,7 @@ export async function decideChatApproval(
   env: Env,
   input: { platform: ChatPlatform; threadKey: string; approvalId: string; approved: boolean; decidedBy: string },
   resolve: ResolveOrchestrator = defaultResolver(env),
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; approved: boolean; requestedApproved: boolean } | { ok: false; error: string }> {
   let response: Response;
   try {
     const stub = await resolve(input.threadKey);
@@ -165,7 +210,8 @@ export async function decideChatApproval(
   if (body.result !== "approved" && body.result !== "rejected") {
     return { ok: false, error: "This approval is already resolved or expired — nothing to do." };
   }
-  return { ok: true };
+  const approved = body.result === "approved";
+  return { ok: true, approved, requestedApproved: input.approved };
 }
 
 /** Bounded insertion-ordered set of delivery ids already acked. */

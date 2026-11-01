@@ -66,12 +66,30 @@ async function listenForCallback(redirectUri: string): Promise<string> {
   });
 }
 
+function assertHttpBrowserUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("authorizeUrl is not a valid URL.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("authorizeUrl must use http or https.");
+  }
+  return parsed.href;
+}
+
 async function maybeOpenBrowser(url: string): Promise<void> {
   if (process.argv.includes("--no-open")) return;
+  const href = assertHttpBrowserUrl(url);
   const platform = process.platform;
-  const command = platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
-  await execFileAsync(command, args).catch(() => undefined);
+  if (platform === "win32") {
+    // Avoid cmd.exe — a backend-controlled URL must not pass through a shell.
+    await execFileAsync("rundll32", ["url.dll,FileProtocolHandler", href]).catch(() => undefined);
+    return;
+  }
+  const command = platform === "darwin" ? "open" : "xdg-open";
+  await execFileAsync(command, [href]).catch(() => undefined);
 }
 
 async function main(): Promise<void> {

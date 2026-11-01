@@ -2,7 +2,7 @@
   "name": "@shiba/frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "Shiba AI Coworker dashboard: TanStack Start SPA served by the backend Worker.",
+  "description": "Shiba dashboard: TanStack Start SPA for AI employees served by the backend Worker.",
   "type": "module",
   "scripts": {
     "build": "vite build",

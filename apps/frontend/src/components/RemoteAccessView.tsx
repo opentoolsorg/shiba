@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { toast } from "sonner";
-import type { ComputerStatus, ConnectedComputer, PairingTokenResponse } from "@shiba/shared";
+import {
+  formatDesktopConnectionLabel,
+  formatDesktopHarnessSummary,
+  type ComputerStatus,
+  type ConnectedComputer,
+  type PairingTokenResponse,
+} from "@shiba/shared";
 import { LoadErrorState } from "./LoadErrorState";
 import { createLatest, shouldShowConnect, useDesktopStatus } from "../desktop-status";
 
@@ -292,6 +298,39 @@ export function RemoteAccessView(): JSX.Element {
                 <span className="text-[var(--muted-foreground-2)]">Signed in as</span>
                 <span className="font-mono text-[var(--fg)] truncate">{identity.kind === "ok" ? identity.agent : "—"}</span>
               </div>
+              {bridge ? (
+                <div
+                  className="sm:col-span-2 flex flex-col gap-1 border-t border-[var(--border-1)] pt-3"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`size-2 rounded-full shrink-0 ${
+                        desktopStatus?.state === "idle"
+                          ? "bg-[var(--success)]"
+                          : desktopStatus?.state === "busy"
+                            ? "bg-[var(--warning)] animate-pulse"
+                            : desktopStatus?.state === "starting"
+                              ? "bg-[var(--warning)]"
+                              : "bg-[var(--muted-foreground-3)]/50"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <span className="text-[var(--muted-foreground-2)]">This app</span>
+                    <span className="font-mono text-[var(--fg)] truncate">
+                      {desktopStatus
+                        ? formatDesktopConnectionLabel(desktopStatus)
+                        : "Checking desktop connection…"}
+                    </span>
+                  </div>
+                  {desktopStatus?.harnesses?.length ? (
+                    <p className="text-[10px] font-mono text-[var(--muted-foreground-2)] pl-4">
+                      Harnesses: {formatDesktopHarnessSummary(desktopStatus.harnesses)}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </section>
 

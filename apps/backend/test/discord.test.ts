@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildEmployeeDecisionData } from "@shiba/shared";
+import { createCustomAgent } from "../src/custom-agents-store.js";
+import { requestEmployeeActionApproval } from "../src/employee-tool-store.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import type { Env } from "../src/env.js";
 import {
   DISCORD_INTERACTIONS_PATH,
   DISCORD_REPLAY_WINDOW_SECONDS,
@@ -537,4 +542,28 @@ describe("handleDiscordInteractions approval buttons", () => {
     const json = await responseJson(response);
     expect((json?.data as { content: string }).content).toBe("Unsupported interaction.");
   });
+});
+
+
+it.each([`discord:${CHANNEL_ID}`, "discord:43", "slack:T:C:123.456"])("binds signed Discord employee decisions to stored thread %s", async (executionContextId) => {
+  const { database, sqlite } = customAgentD1();
+  const { keyPair, publicKeyHex } = await makeKeys();
+  const routeEnv = env({ DISCORD_PUBLIC_KEY: publicKeyHex, DISCORD_APPROVERS: "42", AGENT_AUDIT: database }) as Env;
+  const agent = await createCustomAgent(routeEnv, "self-hosted", "writer", { name: "Writer", instructions: "Write.", harness: "opencode" });
+  const pending = await requestEmployeeActionApproval(routeEnv, {
+    orgId: "self-hosted", employeeId: agent.id, employeeVersion: agent.version,
+    actorId: "owner@example.test", connectionId: "conn-1", connectionGeneration: 1,
+    capability: { kind: "mcp", id: "mcp:shiba:send_email" }, action: "send_email",
+    argumentDigest: "abc", payload: { subject: "Hi" }, policyVersion: "current",
+    expiresAt: Date.now() + 60_000, executionContextId,
+  });
+  const { deps, sends } = makeDeps();
+  const response = await handleDiscordInteractions(
+    await signedRequest(keyPair, componentBody(buildEmployeeDecisionData(true, pending.approvalId))), routeEnv, undefined, deps,
+  );
+  expect(await responseJson(response)).toEqual({ type: 6 });
+  const matching = executionContextId === `discord:${CHANNEL_ID}`;
+  expect(sqlite.prepare("SELECT status FROM employee_tool_approvals WHERE approval_id = ?").get(pending.approvalId)).toMatchObject({ status: matching ? "approved" : "pending" });
+  expect(sends.some((call) => call.method === "PATCH")).toBe(matching);
+  expect(sends.some((call) => call.method === "POST")).toBe(!matching);
 });

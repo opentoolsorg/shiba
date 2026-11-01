@@ -1,4 +1,5 @@
 import type { Env } from "./env.js";
+import { assertSandboxArtifactAccess, readArtifactAccessAgent } from "./artifact-access.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { isValidSandboxId } from "./sandbox-routes.js";
 import { e2eManifestKey } from "./browser-e2e/evidence-urls.js";
@@ -40,6 +41,13 @@ export async function handleE2eEvidence(request: Request, env: Env): Promise<Res
   if (!object) {
     return Response.json({ error: "Evidence not found." }, { status: 404 });
   }
+  let accessAgent = readArtifactAccessAgent(object);
+  if (!accessAgent && artifact !== "manifest.json") {
+    const manifest = await env.ATTACHMENTS.get(e2eManifestKey(sandboxId));
+    if (manifest) accessAgent = readArtifactAccessAgent(manifest);
+  }
+  const denied = await assertSandboxArtifactAccess(request, env, sandboxId, accessAgent);
+  if (denied) return denied;
   const contentType =
     artifact === "manifest.json" ? "application/json" : artifact.endsWith(".png") ? "image/png" : "application/octet-stream";
   return new Response(object.body, {

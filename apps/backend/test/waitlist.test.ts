@@ -104,7 +104,9 @@ describe("waitlist storage", () => {
     expect((await submit(payload)).status).toBe(200);
     const repeat = await submit(payload);
     expect(repeat.status).toBe(200);
-    expect(((await repeat.json()) as { alreadyJoined?: boolean }).alreadyJoined).toBe(true);
+    const repeatBody = (await repeat.json()) as { ok?: boolean; alreadyJoined?: boolean };
+    expect(repeatBody.ok).toBe(true);
+    expect(repeatBody.alreadyJoined).toBeUndefined();
     expect(sql.signups.size).toBe(1);
     expect((await (await object.fetch(new Request("https://internal/internal/waitlist"))).json() as { signups: unknown[] }).signups).toHaveLength(1);
     for (let i = 0; i < 3; i++) await submit({ ...payload, email: `user${i}@example.com` });

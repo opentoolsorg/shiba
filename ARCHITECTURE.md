@@ -17,10 +17,10 @@ this) · `PLAN.md` §17 (parity roadmap).
 ## 1. The one-paragraph version
 
 A single Cloudflare Worker is both the **API** and the **static host** for the
-React dashboard. Nine **Durable Objects** hold all state — the orchestrator
-conversation, the coding sub-agent, per-run sandbox control, automations,
-mailbox, memory, waitlist, and model config. The MCP gateway is stateless
-(`createMcpHandler` per request), not a DO. Work happens in an
+React dashboard. **Durable Objects** hold coordinated state — the orchestrator
+conversation, coding sub-agent, per-run sandbox control, automations, mailbox,
+memory, model config, session chat rooms, and other per-user services. The MCP
+gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in an
 **ephemeral Sandbox container** (one per run, destroyed at the end) that clones
 a GitHub repo and executes one of six agent binaries. Nothing starts until a human
 approves it, and the container's outbound network is allowlisted per run.
@@ -49,6 +49,7 @@ approves it, and the container's outbound network is allowlisted per run.
    │  Automations         cron/webhook/event triggers, budget, kill switch  │
    │  Mailbox             inbound email       Memory  banked facts          │
    │  ModelConfig         model conns         Waitlist  signups             │
+   │  ConversationRoom    session presence and live chat streams            │
    └──────────────────────────────┬─────────────────────────────────────────┘
                                           ▼  delegate_coding_task (approved)
    ┌─────────────────── Sandbox container — ephemeral, 1 per run ──────────┐
@@ -89,11 +90,24 @@ approves it, and the container's outbound network is allowlisted per run.
 
 ---
 
+### Integration sibling
+
+`openconnector` is Shiba's sole integrations provider, backed by a separately
+deployed, unmodified upstream open-connector Worker. The backend prefers
+the `OPEN_CONNECTOR` service binding, with `OPEN_CONNECTOR_URL`
+as the HTTP alternative. Admin and runtime tokens stay in backend Worker secrets.
+Connection names are `u_` plus the first 16 hexadecimal characters of SHA-256 of
+the authenticated owner ID; request-supplied account IDs cannot select another
+owner's connection. The sibling owns its own D1 and temporary-file R2 bucket or KV namespace.
+Its source and upstream license stay outside Shiba's AGPL source tree.
+See [the deployment guide](docs/OPENCONNECTOR.md) for the separate migration,
+secrets, and deployment sequence.
+
 ## 4. Durable Objects — the state map
 
 | DO | Owns | Migration |
 |---|---|---|
-| `CodingOrchestrator` | one conversation per repo/project; approval state; `delegate_coding_task` | v1 |
+| `CodingOrchestrator` | conversation, approval, retained-run state, and additive logical task/attempt lineage; `delegate_coding_task` | v1 |
 | `OpenCodeAgent` | the sandbox-side coding agent session | v1 |
 | `Sandbox` | container lifecycle for one run | v1 |
 | `Automations` | automation records, dedupe, daily budget | v2 |
@@ -102,6 +116,13 @@ approves it, and the container's outbound network is allowlisted per run.
 | `Waitlist` | signups | v6 |
 | `ModelConfig` | model connections + purpose policy | v7 |
 | `LocalDispatch` | local-runtime dispatch mailbox: pending/claimed/settled run envelopes | v9 |
+| `ConversationRoom` | per-owner/session presence, typing, room messages, and persisted live assistant streams | v15 |
+
+Logical task history is an additive `tasks` field on each existing
+`CodingOrchestrator` state, not a new Durable Object or SQLite schema. Existing
+run IDs and `/api/runs` remain canonical; unlinked retained runs are backfilled
+as one-attempt legacy tasks on task-history reads. Frozen approval snapshots
+stay in orchestrator state and are omitted from the authenticated history DTO.
 
 Migration tag **v4** created `McpGateway`. T29a moved the MCP gateway to a
 stateless `createMcpHandler` server (`mcp-gateway.ts` builds an SDK v2

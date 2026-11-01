@@ -106,3 +106,38 @@ export async function captureExpectedDeliverables(cloneDir, requested) {
   }
   return files;
 }
+
+/** Read one changed worktree file with symlink/hard-link containment (local daemon). */
+export async function readContainedChangedFile(cloneDir, relativePath, limits = {}) {
+  const maxBytes = limits.maxBytes ?? 400_000;
+  const root = path.resolve(cloneDir);
+  const rootStat = await fs.lstat(root);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw new Error("Repository root must be a regular directory.");
+  const realRoot = await fs.realpath(root);
+  const leaf = await checkedLeaf(root, realRoot, relativePath);
+  if (leaf.stat.size > maxBytes) throw new Error("file exceeds capture size limit");
+  const handle = await fs.open(leaf.absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const before = await handle.stat();
+    if (before.nlink !== 1 || !before.isFile()) throw new Error("hard-linked files are not allowed");
+    const bytes = Buffer.alloc(Math.min(maxBytes, before.size) + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const read = await handle.read(bytes, length, bytes.length - length, length);
+      if (read.bytesRead === 0) break;
+      length += read.bytesRead;
+    }
+    if (length > maxBytes) throw new Error("file exceeds capture size limit");
+    const after = await handle.stat();
+    const current = await checkedLeaf(root, realRoot, relativePath);
+    if (before.ino !== leaf.stat.ino || before.dev !== leaf.stat.dev
+      || before.ino !== after.ino || before.dev !== after.dev
+      || before.size !== length || after.size !== length || before.mtimeMs !== after.mtimeMs
+      || after.nlink !== 1 || current.stat.ino !== before.ino || current.stat.dev !== before.dev) {
+      throw new Error("file changed during capture");
+    }
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, length));
+  } finally {
+    await handle.close();
+  }
+}

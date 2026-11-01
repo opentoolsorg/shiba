@@ -107,7 +107,7 @@ describe("egress branch", () => {
     expect(
       (
         await forwardCursorSubscription(
-          new Request("http://api2.cursor.sh/auth/exchange_user_api_key"),
+          new Request("https://api2.cursor.sh/auth/exchange_user_api_key", { method: "POST", body: "{}" }),
           env,
         )
       ).status,
@@ -158,7 +158,7 @@ describe("egress branch", () => {
           body: "{}",
         }),
         env,
-        { params: { account: "work" } },
+        { params: { account: "work", allowCredentialExchange: "1" } },
       );
       expect(seen.auth).toBe("Bearer key-work");
       await forwardCursorSubscription(new Request("https://repo2.cursor.sh/context"), env, {

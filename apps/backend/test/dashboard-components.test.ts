@@ -104,8 +104,12 @@ describe("dashboard components SSR (T14 sweep)", () => {
   it("AgentsView shows a usable, scoped token command and no false connection claim", () => {
     const html = renderToStaticMarkup(React.createElement(AgentsView));
     expect(html).toContain("--agent scout --scopes email:read");
-    expect(html).toContain("Minting without --write only prints a token");
-    expect(html).toContain("Open Inbox setup");
+    expect(html).toContain("Use <code>--write</code> to store the token hash");
+    expect(html).toContain("Without it, the token cannot authenticate.");
+    expect(html).toContain("Never paste tokens into a mailbox or public log.");
+    expect(html).toContain("Loading clients");
+    expect(html).not.toContain("No clients yet");
+    expect(html).not.toContain("Open Inbox setup");
     expect(html).not.toContain("--principal=agent-1");
     expect(html).not.toContain("MCP 1.30.0 Active");
   });
@@ -130,6 +134,8 @@ describe("dashboard components SSR (T14 sweep)", () => {
           connectionId: "",
           onCodingModelChange: () => {},
           onConnectionChange: () => {},
+          reasoningEffort: "",
+          onReasoningEffortChange: () => {},
         },
         busy: false,
         isSubmitting: false,
@@ -149,7 +155,10 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain('aria-label="Thread configuration"');
     expect(html).toContain('aria-label="Add to message"');
     expect(html).not.toContain('aria-label="Voice input"');
-    expect(html).toContain("Describe the change in this repository");
+    expect(html).toContain("What do you want to get done? Share the goal, context, and output you need.");
+    expect(html).toContain('aria-label="Execution workspace"');
+    expect(html.indexOf('aria-label="Execution workspace"')).toBeGreaterThan(html.indexOf("</textarea>"));
+    expect(html.indexOf('aria-label="Execution workspace"')).toBeGreaterThan(html.indexOf('aria-label="Send task"'));
   });
 
   it("TaskForm includes Pi in the coding agent picker", () => {
@@ -209,7 +218,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
         task: "Refactor router to standalone views",
         baseBranch: "main",
         publishPullRequest: true,
-        status: "completed",
+        status: "completed" as const,
         createdAt: Date.now() - 5000,
         updatedAt: Date.now(),
         diff: `diff --git a/routes.ts b/routes.ts
@@ -273,7 +282,8 @@ describe("dashboard components SSR (T14 sweep)", () => {
       })
     );
     expect(html).toContain(">Approvals<");
-    expect(html).toContain("2 waiting");
+    expect(html).toContain("2 open");
+    expect(html).toContain("Needs approval");
     expect(html).toContain("run_sandbox");
     expect(html).toContain("Email send");
     expect(html).toContain("Decided");

@@ -31,10 +31,10 @@ import {
   type CodingTaskInput,
   type CodingTaskResult,
 } from "../opencode-input.js";
+import { parseReviewEnvelope } from "@shiba/shared";
 import {
   createRuntimeAdapter,
   LOCAL_DISPATCH_MESSAGE,
-  resolveRuntimeName,
   type LocalDispatchClient,
   type ProgressEvent,
   type SandboxOps,
@@ -57,6 +57,8 @@ import type { RunSignal } from "@shiba/shared";
 import { boundTail, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { captureBrowserE2eEvidence, formatBrowserE2ePrSection } from "../browser-e2e/capture.js";
 import { captureRunPreview } from "../screenshot.js";
+import { guardRunEnvLeak, openRunEnv, runEnvDiffLeakName, runEnvScrubber } from "../run-env-seal.js";
+import { assertChildDispatchAuthorized } from "../child-dispatch.js";
 import { postSlackMessage } from "../slack.js";
 import { SlackProgressReporter } from "../slack-persona.js";
 import { messageText, renderRunTranscript } from "../transcript.js";
@@ -64,7 +66,7 @@ import { messageText, renderRunTranscript } from "../transcript.js";
 export async function pinSandboxEgress(
   env: Env,
   sandboxId: string,
-  repoUrl: string,
+  repoUrl: string | null,
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
   selection: SandboxSelectionContext = {},
@@ -84,12 +86,16 @@ export async function pinSandboxEgress(
           ]),
         )
       : undefined;
-  const { owner, repo } = parseGitHubRepoUrl(repoUrl);
+  const githubRepoPath = repoUrl === null ? undefined : (() => {
+    const { owner, repo } = parseGitHubRepoUrl(repoUrl);
+    return `/${owner}/${repo}`;
+  })();
   await instance.pinEgress({
     allowedHosts: egressHosts ?? [],
     ...(outboundByHost ? { outboundByHost } : {}),
-    githubRepoPath: `/${owner}/${repo}`,
+    ...(githubRepoPath ? { githubRepoPath } : {}),
     ...(selection.orgId ? { orgId: selection.orgId } : {}),
+    ...(selection.initiatorUserId ? { initiatorUserId: selection.initiatorUserId } : {}),
   });
 }
 
@@ -119,6 +125,9 @@ export function createSandboxOps(
     return instancePromise;
   };
   return {
+    async pinEgress() {
+      await pinSandboxEgress(env, sandboxId, null, egressHosts, egressOverrides, selection);
+    },
     async gitCheckout(repoUrl, opts) {
       // The clone runs before anything else, so it is where this run's egress
       // is pinned down: the selected harness's hosts only (T22), and the
@@ -170,11 +179,11 @@ export function createSandboxOps(
 function workerLocalDispatchClient(env: Env): LocalDispatchClient {
   const stub = () => localDispatchStub(env);
   return {
-    async dispatch(envelope, targetMachineId) {
+    async dispatch(envelope, targetMachineId, dashboardOwnerId) {
       const res = await stub().fetch(new Request("https://local-dispatch/dispatch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ envelope, ...(targetMachineId !== undefined ? { targetMachineId } : {}) }),
+        body: JSON.stringify({ envelope, ...(targetMachineId !== undefined ? { targetMachineId } : {}), ...(dashboardOwnerId !== undefined ? { dashboardOwnerId } : {}) }),
       }));
       if (!res.ok) throw new Error(`dispatch: ${res.status} ${await res.text()}`);
     },
@@ -241,6 +250,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             role: message.role,
             text: messageText(message),
           })));
+          if (!verifyStandinEnabled(this.env)) {
+            await assertChildDispatchAuthorized(this.env, input);
+          }
           if (input.publishPullRequest && !this.env.GITHUB_TOKEN) {
             throw new Error("publishPullRequest was requested but GITHUB_TOKEN is not configured.");
           }
@@ -256,11 +268,12 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             // flow before a container spins up — assert at the admission seam,
             // after the harness is resolved, before any sandbox work starts.
             await assertHarnessAuthorized(this.env, harness, input);
-            // T51: the approved input's runtime wins over the deployment's
-            // RUNTIME default. "local" needs both the deployment flag and the
-            // dispatch mailbox; every other surface refused it at intake, and
-            // this is the last place a forged envelope could reach.
-            const runtimeName = input.runtime ?? resolveRuntimeName(this.env.RUNTIME);
+            // T51: only the runtime frozen on the approved envelope may run.
+            // The deployment RUNTIME default never upgrades an absent field to local.
+            const runtimeName = input.runtime ?? "sandbox";
+            if (runtimeName === "local" && input.runtime !== "local") {
+              throw new Error('runtime "local" was not approved for this task.');
+            }
             let adapter;
             if (runtimeName === "local") {
               if (this.env[LOCAL_RUNTIME_FLAG] !== "1") {
@@ -305,24 +318,56 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                 };
               }
             }
+            // T68: a wrong owner or digest fails to open — the run fails rather than running unapproved env.
+            const runEnv =
+              runInput.envSealed === undefined
+                ? undefined
+                : await openRunEnv(this.env, runInput.envOwner ?? "", runInput.envSealed, runInput.envDigest ?? "");
+            this.envScrub = runEnv !== undefined ? runEnvScrubber(runEnv) : null;
             const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
             const overrides = harness.egressOverrides?.(runInput);
-            const effectiveOrgId = runInput.orgId || "self-hosted";
+            const effectiveOrgId = runInput.orgId || runInput.initiatorUserId || "self-hosted";
             const ops = await acquireSandboxOps(this.env, runInput.sandboxId, hosts, overrides, {
               orgId: effectiveOrgId,
+              initiatorUserId: runInput.initiatorUserId,
               taskProviderId: runInput.sandboxProvider,
             });
             result = await adapter.runCodingTask(ops, runInput, emit, {
               signal,
               signals: runSignals,
+              ...(runEnv !== undefined && this.envScrub !== null ? { env: runEnv, scrub: this.envScrub } : {}),
               // T44: an oversize diff lands in R2 instead of being truncated
               // away — the settle receipt carries this key.
               exportDiff: async (diff) => {
+                const leaked = runEnv !== undefined ? runEnvDiffLeakName(diff, runEnv) : undefined;
+                if (leaked !== undefined) {
+                  throw new Error(`The change contains the value of approved environment variable ${leaked}; refusing to export it.`);
+                }
                 const key = `diffs/${input.sandboxId}.patch`;
                 await this.env.ATTACHMENTS.put(key, diff, { httpMetadata: { contentType: "text/plain" } });
                 return key;
               },
             });
+            if (runEnv !== undefined) result = guardRunEnvLeak(result, runEnv);
+            if (input.role === "reviewer" && result.status === "completed") {
+              const rawFindings = (result as CodingTaskResult & { findings?: unknown }).findings;
+              const envelope = parseReviewEnvelope(
+                rawFindings !== undefined ? { summary: result.summary, findings: rawFindings } : result.summary,
+              );
+              if (!envelope.findingsPresent || envelope.rejected > 0) {
+                result = {
+                  ...result,
+                  status: "error",
+                  summary: envelope.rejected > 0 ? "Review output contains invalid structured findings." : "Review output is missing structured findings.",
+                };
+              } else {
+                result = {
+                  ...result,
+                  findings: envelope.findings,
+                  summary: envelope.summary || result.summary,
+                };
+              }
+            }
           }
           checkCancelled();
           if (result.status === "completed" && input.expectedDeliverables?.length) {
@@ -402,10 +447,14 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     return createUIMessageStreamResponse({ stream });
   }
 
+  /** T68: set once the run's sealed env opens; every safeText output passes through it. */
+  private envScrub: ((text: string) => string) | null = null;
+
   private safeText(text: string, maxChars: number): string {
     const token = this.env.GITHUB_TOKEN;
     const withoutToken = token ? text.split(token).join("[redacted]") : text;
-    return boundTail(redactSecrets(withoutToken), maxChars);
+    const withoutEnv = this.envScrub ? this.envScrub(withoutToken) : withoutToken;
+    return boundTail(redactSecrets(withoutEnv), maxChars);
   }
 
   private uiResult(result: CodingTaskResult): CodingTaskResult {
@@ -418,6 +467,13 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       diff: this.safeText(result.diff, 20_000),
       files: [],
       ...(result.deliverables ? { deliverables: result.deliverables } : {}),
+      ...(result.usage ? { usage: result.usage } : {}),
+      ...(result.findings ? { findings: parseReviewEnvelope({ findings: result.findings }).findings.map((finding) => ({
+        ...finding,
+        path: this.safeText(finding.path, 1024),
+        title: this.safeText(finding.title, 4000),
+        failureScenario: this.safeText(finding.failureScenario, 8000),
+      })) } : {}),
       ...(result.testEvidence
         ? {
             testEvidence: {
@@ -444,10 +500,11 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     // or sandbox problem can never lose a publish.
     const capture = verifyStandinEnabled(this.env)
       ? null
-      : await captureRunPreview(this.env, { sandboxId: input.sandboxId });
+      : await captureRunPreview(this.env, { sandboxId: input.sandboxId, accessAgent: input.accessAgent });
     const e2eCapture = verifyStandinEnabled(this.env)
       ? null
-      : await captureBrowserE2eEvidence(this.env, { sandboxId: input.sandboxId });
+      : await captureBrowserE2eEvidence(this.env, { sandboxId: input.sandboxId, accessAgent: input.accessAgent });
+    signal?.throwIfAborted();
     const bodyLines = [
       this.safeText(result.summary, 4000),
       "",

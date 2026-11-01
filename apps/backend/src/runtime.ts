@@ -1,3 +1,4 @@
+import { onboardingSourceInstructions } from "@shiba/shared";
 /**
  * Runtime adapter seam. The default adapter wraps the Sandbox SDK.
  * An experimental adapter for @cloudflare/computer exists only as a
@@ -46,6 +47,7 @@ import { HARNESS_RETRY, withRetry } from "./harness/retry.js";
 import type { AgentHarness } from "./harness/types.js";
 import type { CodingTaskInput, CodingTaskResult } from "./opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "./provider-gateway.js";
+import { runRepoSetup, setupOverlap } from "./repo-setup.js";
 import { boundTail, redactSecrets, shellJoin, shellQuote } from "./security.js";
 
 function sessionProvider(name: string): "codex" | "claude" | null {
@@ -87,6 +89,8 @@ export interface ExecResult {
 }
 
 export interface SandboxOps {
+  /** Pin only the selected model/provider hosts, with no GitHub repository scope. */
+  pinEgress?(): Promise<void>;
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
   writeFile(path: string, content: string): Promise<void>;
   exec(
@@ -126,6 +130,10 @@ export interface RuntimeAdapter {
     emit: ProgressEmitter,
     opts?: {
       signal?: AbortSignal;
+      /** T68: approved per-run env, already opened. Harness env wins on any shared key. */
+      env?: Record<string, string>;
+      /** T68: applied to sandbox output before truncation, so a cut can't leave part of a value behind. */
+      scrub?: (text: string) => string;
       /**
        * T42 run-signal collector: the adapter appends each milestone it
        * crosses, in order, and the result envelope carries the same list
@@ -192,6 +200,8 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     emit: ProgressEmitter,
     opts?: {
       signal?: AbortSignal;
+      env?: Record<string, string>;
+      scrub?: (text: string) => string;
       signals?: RunSignal[];
       exportDiff?: (diff: string) => Promise<string>;
     },
@@ -208,6 +218,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         detail !== undefined ? { kind, at: Date.now(), detail } : { kind, at: Date.now() },
       );
     };
+    const scrub = opts?.scrub ?? ((text: string) => text);
 
     // T45: every exec this run sends to the sandbox goes through the scoped
     // executor — argv-prefix allowlist (adapter-internal git + the harness's
@@ -248,19 +259,49 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     };
 
     throwIfAborted(opts?.signal);
-    await emit({
-      phase: "clone",
-      message: `Cloning ${input.repoUrl} (branch ${input.baseBranch}).`,
-      fraction: 0.05,
-    });
-    // The ops handle being bound is the readiness claim; egress pinning
-    // runs inside this first call as one retried unit with the clone.
-    milestone("sandbox.ready", input.sandboxId);
-    try {
-      await ops.gitCheckout(input.repoUrl, { branch: input.baseBranch, targetDir: workdir });
-      milestone("clone.complete", input.baseBranch);
-    } catch (error) {
-      return failureResult(`Clone failed: ${shortError(error)}`, 0, "", signals);
+    if (input.executionTarget?.kind === "artifact-workspace") {
+      await emit({ phase: "clone", message: "Preparing an isolated artifact workspace.", fraction: 0.05 });
+      milestone("sandbox.ready", input.sandboxId);
+      try {
+        if (!ops.pinEgress) throw new Error("Sandbox provider cannot pin artifact-workspace egress.");
+        await ops.pinEgress();
+        const init = await scoped.exec(shellJoin(["git", "init", "--initial-branch=main", workdir]), { cwd: "/workspace", signal: opts?.signal });
+        if (init.exitCode !== 0) throw new Error(boundTail(init.stderr, 1000) || "git init failed.");
+        const baseline = await scoped.exec(shellJoin(["git", "-C", workdir, "-c", "user.name=shiba", "-c", "user.email=shiba@shiba.local", "commit", "--allow-empty", "-m", "shiba artifact workspace baseline"]), { cwd: "/workspace", signal: opts?.signal });
+        if (baseline.exitCode !== 0) throw new Error(boundTail(baseline.stderr, 1000) || "Could not initialize artifact workspace baseline.");
+        milestone("clone.complete", "artifact-workspace");
+      } catch (error) {
+        return failureResult(`Artifact workspace initialization failed: ${shortError(error)}`, 0, "", signals);
+      }
+    } else {
+      await emit({
+        phase: "clone",
+        message: `Cloning ${input.repoUrl} (branch ${input.baseBranch}).`,
+        fraction: 0.05,
+      });
+      // The ops handle being bound is the readiness claim; egress pinning
+      // runs inside this first call as one retried unit with the clone.
+      milestone("sandbox.ready", input.sandboxId);
+      try {
+        await ops.gitCheckout(input.repoUrl, { branch: input.baseBranch, targetDir: workdir });
+        milestone("clone.complete", input.baseBranch);
+      } catch (error) {
+        return failureResult(`Clone failed: ${shortError(error)}`, 0, "", signals);
+      }
+    }
+
+    // T72: only when the human opted in; before the baseline so installs and generated files aren't part of the change.
+    let setupCommit: string | null = null;
+    if (input.runSetup === true) {
+      const setup = await runRepoSetup(ops, workdir, {
+        ...(opts?.env !== undefined ? { env: opts.env } : {}),
+        scrub,
+        signals,
+        signal: opts?.signal,
+        emit,
+      });
+      if (setup.failure !== null) return failureResult(setup.failure, 0, "", signals);
+      setupCommit = setup.commit;
     }
 
     // T44: baseline checkpoint — the whole worktree at post-clone, before
@@ -294,7 +335,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         });
         if (result.exitCode !== 0) {
           return failureResult(
-            `Home layout setup failed (${argv.join(" ")}): ${boundTail(result.stderr, 500)}`,
+            `Home layout setup failed (${argv.join(" ")}): ${boundTail(scrub(result.stderr), 500)}`,
             0,
             "",
             signals,
@@ -324,6 +365,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         provider: sessionKind,
         cwd: workdir,
         model: bareModelId(input.codingModel),
+        ...(input.route?.reasoningEffort ? { reasoningEffort: input.route.reasoningEffort } : {}),
         prompt: input.task,
         permissionMode: "accept-edits",
         checkpoints: true,
@@ -334,7 +376,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       argv = ["node", sessionScript, jobPath];
     }
     let run: ExecResult;
-    const output = streamProgress(this.harness, emit, opts?.signal);
+    const output = streamProgress(this.harness, emit, opts?.signal, scrub);
     try {
       milestone("harness.started", this.harness.name);
       // Only thrown errors are retry candidates: a returned nonzero
@@ -347,7 +389,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
             timeoutMs: OPENCODE_TIMEOUT_MS,
             signal: opts?.signal,
             onOutput: output.onData,
-            env: this.harness.env(input, config?.path ?? null),
+            env: { ...opts?.env, ...this.harness.env(input, config?.path ?? null) },
           }),
         opts?.signal,
       );
@@ -382,14 +424,14 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         return failureResult(error.message, 0, "", signals, output.usage);
       }
       return failureResult(
-        `${this.harness.name} execution failed: ${shortError(error)}`,
+        `${this.harness.name} execution failed: ${scrub(shortError(error))}`,
         0,
         "",
         signals,
         output.usage,
       );
     }
-    const stderrTail = redactSecrets(boundTail(run.stderr, MAX_STDERR_TAIL_CHARS));
+    const stderrTail = redactSecrets(boundTail(scrub(run.stderr), MAX_STDERR_TAIL_CHARS));
     if (run.exitCode !== 0) {
       // stderr is the only diagnostic a harness failure carries; fold the tail
       // into the summary so the run record shows why the CLI died.
@@ -423,6 +465,33 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         opts?.signal,
       );
       milestone("collect.complete", `${collection.changedFiles.length} files`);
+      // A path both setup and the agent changed would publish setup's edits (and anything it wrote) as the agent's.
+      let overlap: string[] = [];
+      if (setupCommit !== null) {
+        try {
+          const overlapPaths = [
+            ...new Set([
+              ...collection.changedFiles,
+              ...(input.expectedDeliverables ?? []),
+            ]),
+          ];
+          overlap = await setupOverlap(ops, workdir, setupCommit, overlapPaths, {
+            signals,
+            signal: opts?.signal,
+          });
+        } catch (error) {
+          return failureResult(`Repo setup check failed: ${shortError(error)}`, 0, stderrTail, signals, output.usage);
+        }
+      }
+      if (overlap.length > 0) {
+        return failureResult(
+          `The agent changed files the repo setup also changed (${overlap.slice(0, 5).join(", ")}); keep .shiba/setup.json from editing tracked files.`,
+          0,
+          stderrTail,
+          signals,
+          output.usage,
+        );
+      }
       await emit({
         phase: "collect",
         message: `Done: ${collection.changedFiles.length} changed files.`,
@@ -440,7 +509,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           this.harness.name,
           input,
           collection.changedFiles,
-          boundTail(run.stdout, MAX_STDOUT_TAIL_CHARS),
+          boundTail(scrub(run.stdout), MAX_STDOUT_TAIL_CHARS),
         ),
         // Only what the harness stream actually reported — never estimated.
         ...(output.usage !== undefined ? { usage: output.usage } : {}),
@@ -458,6 +527,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           });
           const testRun = await scoped.exec(shellJoin(input.testCommand), {
             cwd: workdir,
+            ...(opts?.env !== undefined ? { env: opts.env } : {}),
             timeoutMs: TEST_COMMAND_TIMEOUT_MS,
             signal: opts?.signal,
           });
@@ -467,7 +537,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
             command: shellJoin(input.testCommand),
             exitCode: testRun.exitCode,
             outputTail: boundTail(
-              `${testRun.stdout}\n${testRun.stderr}`.trim(),
+              scrub(`${testRun.stdout}\n${testRun.stderr}`.trim()),
               TEST_EVIDENCE_TAIL_CHARS,
             ),
           };
@@ -538,6 +608,7 @@ export interface LocalDispatchClient {
   dispatch(
     envelope: import("@shiba/shared").LocalRunEnvelope,
     targetMachineId?: string,
+    dashboardOwnerId?: string,
   ): Promise<void>;
   status(sandboxId: string): Promise<{
     status: "pending" | "claimed" | "settled" | "cancelled";
@@ -584,7 +655,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     _ops: SandboxOps,
     input: CodingTaskInput,
     emit: ProgressEmitter,
-    opts?: { signal?: AbortSignal; signals?: RunSignal[] },
+    opts?: { signal?: AbortSignal; signals?: RunSignal[]; env?: Record<string, string> },
   ): Promise<CodingTaskResult> {
     input = withDeliverableInstructions(input);
     const signals = opts?.signals ?? [];
@@ -593,6 +664,13 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         detail !== undefined ? { kind, at: Date.now(), detail } : { kind, at: Date.now() },
       );
     };
+    // ponytail: intake refuses env for local runs; this guards a forged envelope. Lift when the daemon can take sealed env.
+    if (opts?.env !== undefined) {
+      return failureResult("Per-run environment variables are not supported on the local runtime.", 0, "", signals);
+    }
+    if (input.runSetup === true) {
+      return failureResult("Repo setup is not supported on the local runtime.", 0, "", signals);
+    }
     if (!this.harness.capabilities(input.codingModel).supportedRuntimes.includes("local")) {
       return failureResult(
         `Harness ${this.harness.name} does not run on the local runtime.`,
@@ -619,6 +697,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         task: input.task,
         ...(input.customAgentId !== undefined ? { customAgentId: input.customAgentId } : {}),
         ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
+        ...(input.skillPins !== undefined ? { skillPins: input.skillPins.map((pin) => ({ ...pin })) } : {}),
         ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
         ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
         ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
@@ -641,6 +720,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
             session: {
               provider: sessionKindLocal,
               model: bareModelId(input.codingModel),
+              ...(input.route?.reasoningEffort ? { reasoningEffort: input.route.reasoningEffort } : {}),
               permissionMode: "approval-required" as const,
             },
           }
@@ -654,7 +734,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
       fraction: 0.05,
     });
     try {
-      await this.client.dispatch(envelope, input.targetMachineId);
+      await this.client.dispatch(envelope, input.targetMachineId, input.initiatorUserId);
     } catch (error) {
       return failureResult(`Local dispatch failed: ${shortError(error)}`, 0, "", signals);
     }
@@ -852,6 +932,7 @@ function streamProgress(
   harness: AgentHarness,
   emit: ProgressEmitter,
   _signal?: AbortSignal,
+  scrub: (text: string) => string = (text) => text,
 ): OutputStream {
   let buffer = "";
   // Index into buffer that is already known newline-free; searching resumes
@@ -907,7 +988,8 @@ function streamProgress(
         buffer = buffer.slice(newline + 1);
         searchFrom = 0;
         try {
-          const event = harness.parseEvent(line);
+          // Scrub before parsers bound text; truncation can otherwise expose part of a value.
+          const event = harness.parseEvent(scrub(line));
           if (event === null || event === undefined) continue;
           // Usage events carry real reported numbers: per-step deltas sum,
           // a cumulative report replaces (it already includes the deltas).
@@ -952,9 +1034,14 @@ function streamProgress(
 }
 
 function withDeliverableInstructions(input: CodingTaskInput): CodingTaskInput {
+  const sourceContext = onboardingSourceInstructions(input.onboardingSourceSnapshot);
+  if (sourceContext) input = { ...input, task: input.task + sourceContext };
   const expected = expectedDeliverablesSchema.parse(input.expectedDeliverables ?? []);
   if (!expected.length) return input;
-  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to the approved repository workspace):\n${expected.map((path) => `- ${path}`).join("\n")}\nWrite complete nonempty UTF-8 text files at these exact paths. JSON files must parse. Each file must be at most 16384 UTF-8 bytes, and all requested files together at most 65536 bytes. A completion claim without these files will fail verification.` };
+  const workspace = input.executionTarget?.kind === "artifact-workspace"
+    ? `the approved artifact workspace${input.executionTarget.workspaceName ? ` (${input.executionTarget.workspaceName})` : ""}`
+    : "the approved repository workspace";
+  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to ${workspace}):\n${expected.map((path) => `- ${path}`).join("\n")}\nWrite complete nonempty UTF-8 text files at these exact paths. JSON files must parse. Each file must be at most 16384 UTF-8 bytes, and all requested files together at most 65536 bytes. A completion claim without these files will fail verification.` };
 }
 
 /** Read regular files from the settled Git snapshot. Symlinks (including

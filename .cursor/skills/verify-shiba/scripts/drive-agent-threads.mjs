@@ -24,13 +24,22 @@ const renamed = `Renamed audit ${stamp}`;
 const passed = (step) => report.steps.push({ step, status: "PASS" });
 let fixtureAgentId;
 let fixtureSessionId;
-async function openBotsDirectory() {
+async function openAgentsDirectory() {
   await page.goto(new URL("/app/", base).href);
-  await page.getByRole("navigation", { name: "Main", exact: true }).locator('button[aria-haspopup="true"]').click();
-  await page.getByRole("menuitem", { name: "Bots", exact: true }).click();
+  await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
+}
+async function assertThreadProfile(profileName, choiceText = profileName) {
+  await page.getByRole("main").locator("header").getByRole("heading", { name: profileName, exact: true }).waitFor();
+  const composer = page.getByRole("form", { name: "Task composer", exact: true });
+  await composer.getByRole("button", { name: "Thread configuration", exact: true }).click();
+  const config = composer.getByRole("menu", { name: "Thread configuration", exact: true });
+  const choice = config.getByRole("menuitemradio").filter({ hasText: choiceText });
+  assert.equal(await choice.getAttribute("aria-checked"), "true", `Thread configuration did not select ${choiceText}`);
+  await choice.press("Escape");
+  await config.waitFor({ state: "hidden" });
 }
 try {
-  await openBotsDirectory();
+  await openAgentsDirectory();
   await page.getByRole("button", { name: "Create bot", exact: true }).waitFor();
   await page.getByLabel("Slug", { exact: true }).fill(`browser-auditor-${stamp}`);
   await page.getByLabel("Name", { exact: true }).fill(name);
@@ -52,7 +61,7 @@ try {
   const { session } = await sessionCreated.json();
   fixtureSessionId = session.id;
   assert.equal(session.metadata.customAgentId, agent.id);
-  await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
+  await assertThreadProfile(name);
   await page.getByLabel("Task composer").waitFor();
   passed("Start a fresh bot-associated thread and select its profile in the composer");
 
@@ -81,24 +90,26 @@ try {
   await page.screenshot({ path: resolve(output, "renamed-thread.png"), fullPage: true });
 
   await page.reload();
-  await page.getByRole("option").filter({ hasText: renamed }).first().click();
-  await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
+  await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
+  await page.getByRole("list", { name: `${name} threads`, exact: true }).getByRole("button").filter({ hasText: renamed }).click();
+  await assertThreadProfile(name);
   await page.getByRole("button", { name: "Rename thread", exact: true }).waitFor();
   const persisted = await (await page.request.get(new URL("/api/sessions", base).href)).json();
   assert(persisted.sessions.some((item) => item.id === session.id && item.name === renamed && item.metadata?.customAgentId === agent.id));
   passed("Refresh preserves the renamed thread and restores its bot profile on selection");
 
-  await page.getByRole("option").filter({ hasText: "Default Session" }).first().click();
-  await page.getByText(`Bot: ${name}`, { exact: true }).waitFor({ state: "hidden" });
+  const threadList = page.getByRole("complementary", { name: "Primary Left Rail", exact: true }).getByRole("listbox", { name: "Threads", exact: true });
+  await threadList.getByRole("option").filter({ hasText: "Default Session" }).click();
+  await assertThreadProfile("Shiba", "Default (no bot)");
   assert.equal(await page.getByRole("button", { name: "Rename thread", exact: true }).count(), 0);
-  await page.getByRole("option").filter({ hasText: renamed }).first().click();
-  await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
+  await threadList.getByRole("option").filter({ hasText: renamed }).click();
+  await assertThreadProfile(name);
   passed("Switching to the protected default session clears the bot; returning restores it");
 
-  await openBotsDirectory();
+  await openAgentsDirectory();
   const botThreads = page.getByRole("list", { name: `${name} threads`, exact: true });
   await botThreads.getByRole("button").filter({ hasText: renamed }).click();
-  await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
+  await assertThreadProfile(name);
   await page.getByRole("button", { name: "Rename thread", exact: true }).waitFor();
   passed("The bot card lists and reopens its persisted associated conversation");
 

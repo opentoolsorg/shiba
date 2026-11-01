@@ -22,7 +22,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 /** Muted default; non-ok outcomes get a quiet status tint. */
 function outcomeClass(outcome: string): string {
   if (outcome === "error") return "text-[var(--destructive)]";
-  if (outcome === "denied") return "text-[var(--warning-fg)]";
+  if (outcome === "denied" || outcome === "pending_approval") return "text-[var(--warning-fg)]";
   return "text-[var(--muted-foreground-2)]";
 }
 
@@ -103,8 +103,8 @@ export function AuditPanel(): JSX.Element {
                   <td className="px-2 py-1.5 max-w-[110px] truncate" title={entry.tool}>
                     {entry.tool}
                   </td>
-                  <td className={`px-2 py-1.5 ${outcomeClass(entry.outcome)}`}>
-                    {entry.outcome}
+                  <td className={`px-2 py-1.5 ${outcomeClass(entry.outcome)}`} title={entry.detail ?? undefined}>
+                    {entry.outcome === "pending_approval" ? "approval requested" : entry.outcome}
                   </td>
                   <td className="px-2 py-1.5 whitespace-nowrap" title={entry.args_hash}>
                     {entry.args_hash.slice(0, 12)}…

@@ -50,4 +50,11 @@ describe("Access JWT verification", () => {
     });
     expect((await withVerifiedAccessIdentity(real, { ACCESS_AUD: AUD })).headers.get(ACCESS_EMAIL_HEADER)).toBe("owner@example.com");
   });
+
+  it("strips a client email header when REQUIRE_ACCESS is set without ACCESS_AUD", async () => {
+    const forged = new Request("https://w/api/runs", { headers: { [ACCESS_EMAIL_HEADER]: "attacker@evil.test" } });
+    expect(
+      (await withVerifiedAccessIdentity(forged, { REQUIRE_ACCESS: "1" })).headers.get(ACCESS_EMAIL_HEADER),
+    ).toBeNull();
+  });
 });

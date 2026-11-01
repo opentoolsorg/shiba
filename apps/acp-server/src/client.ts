@@ -103,6 +103,7 @@ export class ShibaClient {
     codingModel?: string;
     testCommand?: string[];
     commandId?: string;
+    threadKey?: string;
   }): Promise<QueuedApproval> {
     const parsed = queueRunInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -145,8 +146,12 @@ export class ShibaClient {
   }
 
   /** GET /api/runs/<id>. */
-  getRun(runId: string): Promise<RunRecord> {
-    return this.call("GET", `/api/runs/${encodeURIComponent(runId)}`);
+  async getRun(runId: string): Promise<RunRecord> {
+    const payload = await this.call<{ run?: RunRecord } & RunRecord>("GET", `/api/runs/${encodeURIComponent(runId)}`);
+    if (typeof payload === "object" && payload !== null && "run" in payload && payload.run) {
+      return payload.run;
+    }
+    return payload as RunRecord;
   }
 
   /** DELETE /api/runs/<id> — cancel a live run. */

@@ -514,11 +514,9 @@ describe("T10 orchestrator wiring", () => {
     const { instance, pending } = makeOrchestrator(env);
     // delegate.execute throws before its inner `finish` seam ran, so the
     // dispatch fallback is the terminal transition.
-    instance.getTools = () => ({
-      delegate_coding_task: {
-        execute: async () => {
-          throw new Error("tool dispatch failed");
-        },
+    instance.approvedRunDelegate = () => ({
+      execute: async () => {
+        throw new Error("tool dispatch failed");
       },
     });
     queueRunApproval(instance, "ap-fallback");
@@ -545,16 +543,14 @@ describe("T10 orchestrator wiring", () => {
     // delegate.execute lands a terminal transition itself (the inner
     // `finish` seam's job), then throws — the fallback's fenced write must
     // drop instead of overwriting, and must not distill twice.
-    instance.getTools = () => ({
-      delegate_coding_task: {
-        execute: async (_input: unknown, options?: { toolCallId?: string }) => {
-          const runId = `agent-tool:${options?.toolCallId}`;
-          instance.store.transition(runId, "error", {
-            error: "inner finish landed",
-            errorCode: "internal_error",
-          });
-          throw new Error("dispatch failed after finish");
-        },
+    instance.approvedRunDelegate = () => ({
+      execute: async (_input: unknown, options?: { toolCallId?: string }) => {
+        const runId = `agent-tool:${options?.toolCallId}`;
+        instance.store.transition(runId, "error", {
+          error: "inner finish landed",
+          errorCode: "internal_error",
+        });
+        throw new Error("dispatch failed after finish");
       },
     });
     queueRunApproval(instance, "ap-fenced");
@@ -578,11 +574,9 @@ describe("T10 orchestrator wiring", () => {
     const { instance, pending } = makeOrchestrator(env);
     const abort = new Error("dispatch aborted");
     abort.name = "AbortError";
-    instance.getTools = () => ({
-      delegate_coding_task: {
-        execute: async () => {
-          throw abort;
-        },
+    instance.approvedRunDelegate = () => ({
+      execute: async () => {
+        throw abort;
       },
     });
     queueRunApproval(instance, "ap-abort");

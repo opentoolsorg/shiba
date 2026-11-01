@@ -95,6 +95,32 @@ export async function getCustomAgentById(
   return row ? rowToRecord(row as Record<string, unknown>) : null;
 }
 
+/** Resolve a saved, immutable profile version while the profile is available. */
+export async function getCustomAgentVersion(
+  env: AuditEnv,
+  orgId: string,
+  id: string,
+  version: number,
+): Promise<CustomAgentRecord | null> {
+  const current = await getCustomAgentById(env, orgId, id);
+  if (!current || !Number.isSafeInteger(version) || version < 1) return null;
+  await ensureTables(env);
+  const row = await env.AGENT_AUDIT.prepare(
+    `SELECT config_json,saved_at FROM org_custom_agent_versions WHERE org_id=? AND agent_id=? AND version=?`,
+  ).bind(orgId, id, version).first<Record<string, unknown>>();
+  if (!row) return null;
+  try {
+    return {
+      ...current,
+      version,
+      config: JSON.parse(String(row.config_json)) as CustomAgentRecord["config"],
+      updatedAt: Number(row.saved_at),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getCustomAgentBySlug(
   env: AuditEnv,
   orgId: string,

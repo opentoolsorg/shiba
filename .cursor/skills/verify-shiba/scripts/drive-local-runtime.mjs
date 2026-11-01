@@ -16,9 +16,14 @@ import {spawn, execFile} from 'node:child_process';
 import {mkdirSync, writeFileSync} from 'node:fs';
 import {promisify} from 'node:util';
 import {createHash} from 'node:crypto';
+import {createRequire} from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import {chromium} from 'playwright';
+// Reuse the repository's existing Playwright Core dependency from the desktop
+// workspace. The fixture supplies its own installed Chromium executable, so
+// it does not need Playwright's browser-download package.
+const desktopRequire=createRequire(new URL('../../../../apps/desktop/package.json',import.meta.url));
+const {chromium}=desktopRequire('playwright-core');
 import {launchLifecycleTarget} from './lifecycle-target.mjs';
 const exec=promisify(execFile);
 const origin=process.env.VERIFY_LOCAL_WORKER_URL??'http://localhost:8794';
@@ -80,6 +85,28 @@ const config={name:(marketing?'Marketing fixture bot ':'Local fixture bot ')+sta
 target=await launchLifecycleTarget(new URL(origin),chromium);page=target.page;page.setDefaultTimeout(30000);
 const browserCookies=signup.res.headers.getSetCookie().map(raw=>{const pair=raw.split(';')[0];const split=pair.indexOf('=');return {name:pair.slice(0,split),value:pair.slice(split+1),url:origin,httpOnly:true,sameSite:'Lax'};});
 await target.context.addCookies(browserCookies);
+await page.goto(origin+'/app/?tab=integrations');
+const initialSetupClose=page.getByRole('button',{name:'Close setup',exact:true});await initialSetupClose.waitFor({timeout:10000}).catch(()=>{});if(await initialSetupClose.isVisible())await initialSetupClose.click();
+await page.getByRole('heading',{name:'Integrations',exact:true}).waitFor();
+await page.getByRole('button',{name:'Browse capability catalog',exact:true}).click();
+const catalog=await api('/api/capabilities?limit=50');
+assert(catalog.res.ok,'Authenticated capability directory returns '+catalog.res.status);
+assert(catalog.data.entries.length>0,'Built-in MCP tools come from the backend registry');
+assert(catalog.data.entries.every(entry=>entry.allowed===false&&!Object.hasOwn(entry,'inputSchema')),'Dashboard directory is metadata-only, with no permission grant or schemas');
+const invocations=await api('/api/capabilities/invocations?limit=25');
+assert(invocations.res.ok,'Authenticated invocation history returns '+invocations.res.status);
+assert(Array.isArray(invocations.data.entries),'Invocation history returns durable receipt rows');
+await page.getByRole('button',{name:/gmail_search/}).click();
+await page.getByText('gmail:read',{exact:true}).first().waitFor();
+await page.getByText(/This is a catalog entry, not an assigned permission/).waitFor();
+await page.getByText(/No recorded calls for this tool\./).waitFor();
+assert.equal(await page.getByRole('button',{name:'Reconnect',exact:true}).count(),0,'MCP catalog rows cannot trigger fake reconnects');
+await page.getByRole('searchbox',{name:'Search capabilities'}).fill('gmail_search');
+await page.getByRole('button',{name:/gmail_search/}).waitFor();
+await page.getByRole('combobox',{name:'Filter by type'}).selectOption('mcp');
+await page.getByRole('combobox',{name:'Filter by status'}).selectOption('available');
+await page.screenshot({path:artifactDir+'/capability-catalog.png',fullPage:true});
+passed('Browse the authenticated registry-backed catalog, inspect required scope, search/filter MCP tools, and withhold unsupported actions');
 await page.goto(origin+'/app/?tab=custom-agents');
 const setupClose=page.getByRole('button',{name:'Close setup',exact:true});await setupClose.waitFor({timeout:10000}).catch(()=>{});if(await setupClose.isVisible())await setupClose.click();
 await page.getByRole('button',{name:'Create bot',exact:true}).waitFor();

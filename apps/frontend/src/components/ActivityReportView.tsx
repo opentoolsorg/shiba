@@ -13,6 +13,7 @@ import {
 } from "../live-status";
 import { parseRepoName } from "../ui-helpers";
 import { LoadErrorState } from "./LoadErrorState";
+import { ViewEmpty, ViewGroup, ViewHeader } from "./ui/ViewChrome";
 
 type Period = "7" | "30" | "90" | "custom";
 type RuntimeFilter = "all" | "cloud" | "local";
@@ -62,7 +63,7 @@ const METRICS: {
 ];
 
 const FILTER_INPUT_CLASS =
-  "bg-[var(--card)] border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1.5 text-xs text-[var(--fg)] focus:border-[var(--primary)] focus:outline-none";
+  "min-h-11 bg-[var(--input)] border border-[var(--border-1)] rounded-lg px-3 py-2 text-xs text-[var(--fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 
 function SegmentedControl<T extends string>({
   label,
@@ -79,7 +80,7 @@ function SegmentedControl<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className="flex items-center gap-1 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] p-1"
+      className="flex flex-wrap items-center gap-1 rounded-lg bg-[var(--secondary)] p-1"
     >
       {options.map((option) => (
         <button
@@ -88,10 +89,10 @@ function SegmentedControl<T extends string>({
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={
-            "rounded-[var(--radius-button)] px-3 py-1 text-[11px] font-medium transition-all touch:min-h-11 " +
+            "min-h-11 rounded-md px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] " +
             (value === option.value
-              ? "bg-[var(--card)] font-semibold text-[var(--fg)] shadow-[var(--sh-card)]"
-              : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]")
+              ? "bg-[var(--card)] text-[var(--fg)] shadow-plate"
+              : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)]")
           }
         >
           {option.label}
@@ -143,7 +144,7 @@ function KpiCell({
   const max = Math.max(now, last);
   return (
     <div className="bg-[var(--card)] p-4">
-      <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+      <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
         {label}
       </p>
       <p className="mt-1.5 font-sans text-xl text-[var(--fg)]">
@@ -176,10 +177,8 @@ function ContributionSection({ days }: { days: { date: string; count: number }[]
   );
 
   return (
-    <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
-      <header className="border-b border-[var(--border-1)] px-4 py-2.5">
-        <h3 className="text-xs font-semibold text-[var(--fg)]">Contribution</h3>
-      </header>
+    <section className="border-b border-[var(--border-1)] bg-[var(--bg)]">
+      <ViewGroup title="Contribution" count={total}>
       <div className="overflow-x-auto px-4 py-4">
         <div className="w-max">
           <div className="mb-1 flex" style={{ gap: GAP_PX, paddingLeft: ROW_LABEL_PX + GAP_PX }}>
@@ -244,6 +243,7 @@ function ContributionSection({ days }: { days: { date: string; count: number }[]
           More
         </span>
       </footer>
+      </ViewGroup>
     </section>
   );
 }
@@ -275,7 +275,7 @@ function MemberPrBars({ rows }: { rows: { member: string; count: number }[] }): 
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
       {sorted.map((row) => (
-        <div key={row.member} className="flex items-center gap-3">
+        <div key={row.member} className="flex min-h-11 items-center gap-3 border-b border-[var(--border-1)]">
           <span
             className="w-36 shrink-0 truncate font-mono text-[11px] text-[var(--fg)]"
             title={row.member}
@@ -306,10 +306,10 @@ function PullRequestsSection({
   const totalCount = pullRequests.total.reduce((sum, day) => sum + day.count, 0);
   const empty = totalCount === 0 && pullRequests.byMember.length === 0;
   return (
-    <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
+    <section className="border-b border-[var(--border-1)] bg-[var(--bg)]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5">
         <h3 className="text-xs font-semibold text-[var(--fg)]">
-          Pull requests opened by the agent
+          Agent pull requests
         </h3>
         <SegmentedControl
           label="Pull request breakdown"
@@ -322,9 +322,7 @@ function PullRequestsSection({
         />
       </header>
       {empty || (view === "member" && pullRequests.byMember.length === 0) ? (
-        <div className="px-4 py-10 text-center text-xs text-[var(--muted-foreground-2)]">
-          No pull requests in selected period
-        </div>
+        <ViewEmpty>No pull requests in this period</ViewEmpty>
       ) : view === "total" ? (
         <DailyPrBars days={pullRequests.total} />
       ) : (
@@ -394,14 +392,7 @@ export function ActivityReportView({
 
   return (
     <div className="bg-[var(--bg)] text-[var(--fg)]">
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-4 lg:px-8">
-        <div className="max-w-6xl mx-auto">
-          <h2 className="text-base font-semibold text-[var(--fg)]">Activity</h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">
-            What your agent got done for this workspace
-          </p>
-        </div>
-      </div>
+      <ViewHeader section="Activity" view="Overview" count={report ? `${report.metrics.contribution.now ?? "—"} contributions` : undefined} />
 
       <div className="p-4 lg:p-8">
         <div className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -482,7 +473,7 @@ export function ActivityReportView({
             <>
               <section
                 aria-label="Key metrics"
-                className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--border-1)] shadow-[var(--sh-card)] md:grid-cols-3 lg:grid-cols-6"
+                className="grid grid-cols-2 gap-px overflow-hidden border-b border-[var(--border-1)] bg-[var(--border-1)] md:grid-cols-3 lg:grid-cols-6"
               >
                 {METRICS.map((metric) => (
                   <KpiCell

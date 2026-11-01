@@ -12,9 +12,10 @@
  * custom_id is a pointer: only DISCORD_APPROVERS may press it, and the
  * orchestrator honors it only while the approval is still pending.
  */
-import { buildChatThreadName, buildDecisionData, parseDecisionData } from "@shiba/shared";
+import { buildChatThreadName, buildDecisionData, parseDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
 import { seenDelivery } from "./automations-stub.js";
 import {
+  CARD_TASK_LIMIT,
   chatApprovalText,
   chatTaskChunks,
   decideChatApproval,
@@ -25,6 +26,12 @@ import {
   queueChatRun,
   type ResolveOrchestrator,
 } from "./chat-lane.js";
+import {
+  chatEmployeeQueueExtras,
+  decideChatEmployeeToolApproval,
+  resolveChatEmployeeFromText,
+  resolveChatEmployeeOrgId,
+} from "./chat-employee.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
@@ -197,18 +204,59 @@ export async function handleDiscordInteractions(
       mapName: "DISCORD_CHANNEL_REPOS",
       usage: DISCORD_USAGE,
     });
-    if ("error" in parsed) {
+    const taskOption = option("task");
+    const employeeResolution = await resolveChatEmployeeFromText(env, taskOption);
+    if (employeeResolution.kind === "error") {
+      return ephemeral(employeeResolution.error);
+    }
+    let queueBody: Parameters<typeof queueChatRun>[1] | null = null;
+    if (employeeResolution.kind === "ok") {
+      const repoFromCommand = "error" in parsed ? null : parsed.repoUrl;
+      const extras = await chatEmployeeQueueExtras(
+        env,
+        employeeResolution.agent,
+        employeeResolution.orgId,
+        employeeResolution.taskText,
+        repoFromCommand,
+      );
+      if (!extras.ok) {
+        const repoError = "error" in parsed ? parsed.error : "No repository: include a repo URL or map this channel.";
+        return ephemeral(extras.error || repoError);
+      }
+      queueBody = {
+        platform: "discord",
+        threadKey,
+        repoUrl: extras.extras.repoUrl ?? "",
+        task: extras.task,
+        userId,
+        harness: extras.extras.harness ?? env.DISCORD_AGENT_HARNESS ?? env.AGENT_HARNESS,
+        orgId: extras.extras.orgId,
+        customAgentId: extras.extras.customAgentId,
+        customAgentVersion: extras.extras.customAgentVersion,
+        ...(extras.extras.employeeToolPolicyVersion !== undefined
+          ? { employeeToolPolicyVersion: extras.extras.employeeToolPolicyVersion }
+          : {}),
+        ...(extras.extras.executionTarget ? { executionTarget: extras.extras.executionTarget } : {}),
+        publishPullRequest: extras.extras.publishPullRequest,
+        employeeLabel: extras.extras.employeeLabel,
+      };
+    }
+    if ("error" in parsed && !queueBody) {
       return ephemeral(parsed.error);
     }
-    await schedule(async () => {
-      const queued = await queueChatRun(env, {
+    if (!queueBody) {
+      if ("error" in parsed) return ephemeral(parsed.error);
+      queueBody = {
         platform: "discord",
         threadKey,
         repoUrl: parsed.repoUrl,
         task: parsed.task,
         userId,
         harness: env.DISCORD_AGENT_HARNESS ?? env.AGENT_HARNESS,
-      }, deps.resolveOrchestrator);
+      };
+    }
+    await schedule(async () => {
+      const queued = await queueChatRun(env, queueBody!, deps.resolveOrchestrator);
       if ("error" in queued) {
         await send("PATCH", `${webhook}/messages/@original`, {
           content: `Failed to queue the task. ${queued.error}`,
@@ -217,13 +265,17 @@ export async function handleDiscordInteractions(
         return;
       }
       await send("PATCH", `${webhook}/messages/@original`, {
-        content: chatApprovalText({ ...parsed, approvalId: queued.approvalId, route: queued.route }),
+        content: chatApprovalText({
+          repoUrl: queueBody!.repoUrl,
+          task: queueBody!.task,
+          approvalId: queued.approvalId,
+          route: queued.route,
+          employeeLabel: queueBody!.employeeLabel,
+        }),
         components: decisionButtons(queued.approvalId),
         allowed_mentions: NO_MENTIONS,
       });
-      // Discord's cap is 2000; the full task follows the card so an approver
-      // never signs off on text hidden by the truncation.
-      for (const chunk of chatTaskChunks(parsed.task, 1900)) {
+      for (const chunk of chatTaskChunks(queueBody!.task, CARD_TASK_LIMIT, 1900)) {
         await send("POST", webhook, { content: chunk, allowed_mentions: NO_MENTIONS });
       }
     });
@@ -231,6 +283,31 @@ export async function handleDiscordInteractions(
   }
 
   if (interaction.type === MESSAGE_COMPONENT) {
+    const employeeDecision = parseEmployeeDecisionData(interaction.data?.custom_id ?? "");
+    if (employeeDecision) {
+      if (!isApprover(userId, parseApproverAllowlist(env.DISCORD_APPROVERS))) {
+        return ephemeral("You are not on the approver list.");
+      }
+      await schedule(async () => {
+        const result = await decideChatEmployeeToolApproval(env, {
+          orgId: resolveChatEmployeeOrgId(env),
+          threadKey,
+          approvalId: employeeDecision.approvalId,
+          approved: employeeDecision.approved,
+          decidedBy: `discord:${userId}`,
+        });
+        if (!result.ok) {
+          await send("POST", webhook, { content: result.error, flags: EPHEMERAL, allowed_mentions: NO_MENTIONS });
+          return;
+        }
+        await send("PATCH", `${webhook}/messages/@original`, {
+          content: `${interaction.message?.content ?? "Employee approval"}\n\n${decisionLine(employeeDecision.approved, `<@${userId}>`)}`,
+          components: [],
+          allowed_mentions: NO_MENTIONS,
+        });
+      });
+      return Response.json({ type: 6 });
+    }
     const decision = parseDecisionData(interaction.data?.custom_id ?? "");
     if (!decision) {
       return ephemeral("This button is not a Shiba approval.");
@@ -253,7 +330,7 @@ export async function handleDiscordInteractions(
       }
       // Empty components retire the buttons so the card can't be pressed again.
       await send("PATCH", `${webhook}/messages/@original`, {
-        content: `${interaction.message?.content ?? "Approval"}\n\n${decisionLine(decision.approved, `<@${userId}>`)}`,
+        content: `${interaction.message?.content ?? "Approval"}\n\n${decisionLine(result.approved, result.approved === decision.approved ? `<@${userId}>` : "an earlier decision")}`,
         components: [],
         allowed_mentions: NO_MENTIONS,
       });

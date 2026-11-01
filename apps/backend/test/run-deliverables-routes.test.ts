@@ -19,6 +19,25 @@ vi.mock("agents/routing", () => ({
       return state.sessions.get(actor)?.includes(id) ? Response.json({ session: { id } }) : Response.json({ error: "Session not found." }, { status: 404 });
     }
     if (typeof request !== "string") state.requests.push(request);
+    if (url.pathname.startsWith("/api/employee-drafts")) return Response.json({ scope: actor });
+    const action = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/([0-7])\/(review|history|revision)$/);
+    if (action) {
+      const target = state.runs.get(actor+"|"+decodeURIComponent(action[1]!)) as {
+        runId: string; deliverables: Array<Record<string, unknown>>;
+      } | undefined;
+      if (!target) return Response.json({ error: "Run not found." }, { status: 404 });
+      if (action[3] === "history") return Response.json({ artifactId: target.deliverables?.[Number(action[2])]?.artifactId, versions: [{ runId: target.runId, index: Number(action[2]), version: 1 }] });
+      if (typeof request === "string" || request.method !== "POST") return Response.json({ error: "Method not allowed." }, { status: 405 });
+      const body = await request.json() as { status: string; note?: string; expectedRevision?: number };
+      if (action[3] === "revision") return Response.json({ ok: true, approvalId: "fresh-approval", started: false });
+      target.deliverables[Number(action[2])]!.review = {
+        status: body.status,
+        ...(body.note ? { note: body.note } : {}),
+        revision: (body.expectedRevision ?? 0) + 1,
+        updatedAt: 500,
+      };
+      return Response.json({ ok: true, deliverable: target.deliverables[Number(action[2])] });
+    }
     const runId = decodeURIComponent(url.pathname.split("/").pop()!);
     const run = state.runs.get(actor+"|"+runId);
     return run ? Response.json({ run }) : Response.json({ error: "Run not found." }, { status: 404 });
@@ -54,6 +73,42 @@ function request(path = "/api/runs/same-run/deliverables/0", user = "owner-a", m
     "X-Agent-Principal": "spoofed-owner", "X-Shiba-Intake": "forged",
   } });
 }
+
+describe("authenticated artifact mutations and internal draft forwarding", () => {
+  it.each([undefined, "null", "https://sibling.dashboard.test", "https://attacker.test"])("rejects review/revision from origin %s before forwarding", async (origin) => {
+    for (const path of ["/api/runs/same-run/deliverables/0/review", "/api/runs/same-run/deliverables/0/revision", `/api/employee-drafts/draft_${"a".repeat(64)}/review`]) {
+      const headers = new Headers(request().headers);
+      if (origin !== undefined) headers.set("origin", origin);
+      const response = await handleRuns(new Request(`https://dashboard.test${path}`, { method: "POST", headers, body: "{}" }), env);
+      expect(response?.status).toBe(403);
+      expect(response?.headers.get("cache-control")).toBe("no-store");
+    }
+    expect(state.requests).toHaveLength(0);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it("forwards internal drafts only to the caller's verified selected session", async () => {
+    state.sessions.set("owner-a", [SESSION]);
+    const path = `/api/employee-drafts?session=${SESSION}`;
+    const response = await handleRuns(request(path), env);
+    expect(await response?.json()).toEqual({ scope: buildSessionAgentName("owner-a", SESSION) });
+    expect(state.requests[0]?.headers.has("X-Agent-Principal")).toBe(false);
+    expect((await handleRuns(request(path, "owner-b"), env))?.status).toBe(404);
+    expect((await handleRuns(request(path, "owner-a", "GET", false), env))?.status).toBe(401);
+    expect((await handleRuns(request(path, "owner-a", "POST"), env))?.status).toBe(405);
+    expect(state.requests).toHaveLength(1);
+  });
+
+  it("does not let review payloads redirect the request to the shared mailbox store", async () => {
+    state.sessions.set("owner-a", [SESSION]);
+    const response = await handleRuns(new Request(`https://dashboard.test/api/employee-drafts/draft_${"a".repeat(64)}/review?session=${SESSION}`, {
+      method: "POST",
+      headers: { ...Object.fromEntries(request().headers), origin: "https://dashboard.test", "content-type": "application/json" },
+      body: JSON.stringify({ kind: "email_send", status: "approved", expectedRevision: 0 }),
+    }), env);
+    expect(await response?.json()).toEqual({ scope: buildSessionAgentName("owner-a", SESSION) });
+  });
+});
 
 describe("authenticated requested-deliverable downloads", () => {
   it("downloads exact requested bytes as an attachment after owner lookup and hash validation", async () => {
@@ -94,6 +149,35 @@ describe("authenticated requested-deliverable downloads", () => {
     expect(scoped?.status).toBe(200);
     state.runs.clear(); await seed("default");
     expect((await handleRuns(request(), env))?.status).toBe(404);
+  });
+
+  it("forwards review updates and history only through the authenticated owning run store", async () => {
+    const { run } = await seed();
+    const reviewRequest = new Request("https://dashboard.test/api/runs/same-run/deliverables/0/review", {
+      method: "POST", headers: { Authorization: "Bearer fixture", "X-Fixture-User": "owner-a", "content-type": "application/json", origin: "https://dashboard.test" },
+      body: JSON.stringify({ status: "approved", expectedRevision: 0 }),
+    });
+    expect((await handleRuns(reviewRequest, env))?.status).toBe(200);
+    expect(run.deliverables[0]?.review).toEqual({ status: "approved", revision: 1, updatedAt: 500 });
+    const history = await handleRuns(request("/api/runs/same-run/deliverables/0/history"), env);
+    expect(history?.status).toBe(200);
+    expect((await history!.json() as { versions: unknown[] }).versions).toHaveLength(1);
+    expect((await handleRuns(request("/api/runs/same-run/deliverables/0/history", "owner-b"), env))?.status).toBe(404);
+    expect(state.requests.filter((item) => item.url.includes("/history"))).toHaveLength(2);
+    expect(state.runs.has("owner-b|same-run")).toBe(false);
+  });
+
+  it("forwards explicit artifact revision requests through the authenticated session store", async () => {
+    await seed(buildSessionAgentName("owner-a", SESSION));
+    state.sessions.set("owner-a", [SESSION]);
+    const response = await handleRuns(new Request(`https://dashboard.test/api/runs/same-run/deliverables/0/revision?session=${SESSION}`, {
+      method: "POST", headers: { Authorization: "Bearer fixture", "X-Fixture-User": "owner-a", "content-type": "application/json", origin: "https://dashboard.test" },
+      body: JSON.stringify({ commandId: "artifact-revision:abc-12345" }),
+    }), env);
+    expect(response?.status).toBe(200);
+    expect(await response!.json()).toMatchObject({ approvalId: "fresh-approval", started: false });
+    expect(state.requests.at(-1)?.url).toContain("/deliverables/0/revision");
+    expect(state.requests.at(-1)?.url).toContain(`session=${SESSION}`);
   });
 
   it("keeps same run/sandbox identifiers isolated across owners by manifest and content-addressed storage", async () => {

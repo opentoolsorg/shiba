@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { SandboxError } from "../errors.js";
 import type {
   ExecResult,
@@ -21,13 +22,24 @@ export interface DockerLocalSandboxProviderOptions {
   dockerExec?: DockerExecutor;
 }
 
-export type DockerExecutor = {
-  run(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+export type DockerRunOptions = {
+  timeoutMs?: number;
+  maxOutputBytes?: number;
 };
+
+export type DockerExecutor = {
+  run(
+    args: string[],
+    opts?: DockerRunOptions,
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+};
+
+const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+const INSTANCE_LABEL = "shiba.instance_id";
 
 const CAPABILITIES: SandboxCapabilities = {
   edgeEgressEnforcement: false,
-  previewUrls: true,
+  previewUrls: false,
   snapshots: false,
   streamingExec: false,
   backgroundProcesses: true,
@@ -36,27 +48,63 @@ const CAPABILITIES: SandboxCapabilities = {
 
 function defaultDockerExec(bin: string): DockerExecutor {
   return {
-    run(args) {
+    run(args, opts) {
       return new Promise((resolve, reject) => {
         const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
         let stdout = "";
         let stderr = "";
-        child.stdout.on("data", (chunk: Uint8Array | string) => {
-          stdout += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
-        });
-        child.stderr.on("data", (chunk: Uint8Array | string) => {
-          stderr += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
-        });
-        child.on("error", reject);
-        child.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
+        let outputBytes = 0;
+        let settled = false;
+        const finish = (result: { stdout: string; stderr: string; exitCode: number }) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(result);
+        };
+        const fail = (error: Error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(error);
+        };
+        const append = (target: "stdout" | "stderr", chunk: Uint8Array | string) => {
+          const text = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+          outputBytes += text.length;
+          if (outputBytes > (opts?.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES)) {
+            child.kill("SIGTERM");
+            fail(
+              new SandboxError("io_failed", "Command output exceeded byte limit.", {
+                provider: "docker-local",
+              }),
+            );
+            return;
+          }
+          if (target === "stdout") stdout += text;
+          else stderr += text;
+        };
+        child.stdout.on("data", (chunk: Uint8Array | string) => append("stdout", chunk));
+        child.stderr.on("data", (chunk: Uint8Array | string) => append("stderr", chunk));
+        child.on("error", fail);
+        child.on("close", (code) => finish({ stdout, stderr, exitCode: code ?? 1 }));
+        const timer =
+          opts?.timeoutMs !== undefined && opts.timeoutMs > 0
+            ? setTimeout(() => {
+                child.kill("SIGTERM");
+                fail(
+                  new SandboxError("timeout", "Docker command timed out.", {
+                    provider: "docker-local",
+                  }),
+                );
+              }, opts.timeoutMs)
+            : undefined;
       });
     },
   };
 }
 
 function containerName(instanceId: string): string {
-  const safe = instanceId.replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 120);
-  return `shiba-sandbox-${safe}`;
+  const digest = createHash("sha256").update(instanceId).digest("hex").slice(0, 32);
+  return `shiba-sandbox-${digest}`;
 }
 
 export function createDockerLocalSandboxProvider(
@@ -69,8 +117,19 @@ export function createDockerLocalSandboxProvider(
   const execEnvPassthrough = options.execEnvPassthrough ?? {};
   async function ensureContainer(instanceId: string): Promise<void> {
     const name = containerName(instanceId);
-    const inspect = await docker.run(["inspect", "-f", "{{.State.Running}}", name]);
-    if (inspect.exitCode === 0 && inspect.stdout.trim() === "true") return;
+    const inspect = await docker.run([
+      "inspect",
+      "-f",
+      "{{.State.Running}}|{{index .Config.Labels \"shiba.instance_id\"}}",
+      name,
+    ]);
+    if (inspect.exitCode === 0) {
+      const [running, label] = inspect.stdout.trim().split("|");
+      if (running === "true" && label === instanceId) return;
+      if (running === "true" && label !== instanceId) {
+        await docker.run(["rm", "-f", name]);
+      }
+    }
 
     const run = await docker.run([
       "run",
@@ -81,6 +140,8 @@ export function createDockerLocalSandboxProvider(
       "host",
       "--label",
       "shiba.sandbox=1",
+      "--label",
+      `${INSTANCE_LABEL}=${instanceId}`,
       image,
       "sleep",
       "infinity",
@@ -160,12 +221,15 @@ export function createDockerLocalSandboxProvider(
 
       async exposePort(port) {
         await ensureContainer(instanceId);
-        // Host networking: container port is reachable on the same host port.
-        return { url: `http://${previewHost}:${port}/` };
+        throw new SandboxError(
+          "capability_unsupported",
+          "docker-local preview URLs are not authenticated; use a provider with edge preview forwarding.",
+          { provider: "docker-local" },
+        );
       },
 
       async unexposePort(_port) {
-        // No-op with --network host.
+        // Matched to exposePort — no direct host preview surface.
       },
 
       async startProcess(command, options) {
@@ -240,7 +304,7 @@ async function dockerExecIn(
     : [];
   const cwdFlag = opts?.cwd ? ["-w", opts.cwd] : [];
   const args = ["exec", ...cwdFlag, ...envFlags, container, "sh", "-c", command];
-  const result = await docker.run(args);
+  const result = await docker.run(args, { timeoutMs: opts?.timeoutMs });
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
 }
 

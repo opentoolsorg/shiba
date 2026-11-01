@@ -1,0 +1,128 @@
+---
+title: API reference
+description: Core dashboard routes, run requests, email operations, and approval transport for your Shiba installation.
+---
+
+import ApiEndpoint from '../../../components/ApiEndpoint.astro';
+import '../../../styles/api-reference.css';
+
+<div class="api-intro">
+  <p class="api-eyebrow"><span>Developer reference</span><span aria-hidden="true">/</span><span>HTTP · JSON</span></p>
+  <p class="api-lede">Connect your tools to the work happening in Shiba.</p>
+  <p>Read run records, queue work for approval, and work with your installation's email API. All paths below are relative to your Worker origin.</p>
+</div>
+
+<nav class="api-quicklinks" aria-label="API starting points">
+  <a href="#run-registry">Explore endpoints <span aria-hidden="true">↓</span></a>
+  <a href="#submit-and-approve">Queue a task <span aria-hidden="true">↓</span></a>
+  <a href="/docs/sdk/">TypeScript SDK <span aria-hidden="true">↗</span></a>
+</nav>
+
+## Authentication
+
+Dashboard endpoints use your installation's configured identity system: Cloudflare Access or the built-in sign-in session. Authenticate before calling the routes on this page. A local loopback development server can run without an identity provider when neither system is configured.
+
+<div class="api-auth-grid">
+  <div class="api-auth-card"><strong>Dashboard routes</strong><p>Use the authenticated dashboard session for <code>/api/runs</code> and the email routes below. An MCP bearer token does not authenticate these routes.</p></div>
+  <div class="api-auth-card"><strong>Agent and v1 clients</strong><p>The <code>/mcp</code> gateway and documented <code>/api/v1</code> routes have their own token and scope rules. See <a href="/docs/mcp/">MCP clients</a> or the <a href="/docs/sdk/">SDK guide</a> for that transport.</p></div>
+</div>
+
+This is a focused reference, not a complete endpoint catalog. The [coverage note](#reference-coverage) lists the additional surfaces and source references.
+
+## Run registry
+
+Inspect retained run records or request cancellation. URL-encode the **entire** run ID, including any colons.
+
+<div class="api-endpoint-list">
+  <ApiEndpoint method="GET" path="/api/runs" title="List runs" response='{ "runs": […] }'><p>Returns a JSON object containing the visible run records.</p></ApiEndpoint>
+  <ApiEndpoint method="GET" path="/api/runs/:id" title="Get a run" response='{ "run": … }'><p>Returns one retained run. An unknown ID returns <code>404</code>.</p></ApiEndpoint>
+  <ApiEndpoint method="DELETE" path="/api/runs/:id" title="Request cancellation" response='{ "run": … }'><p>Updates cancellation state before best-effort cleanup. An unknown ID returns <code>404</code>.</p></ApiEndpoint>
+  <ApiEndpoint method="DELETE" path="/api/runs" title="Clear the registry" response='{ "ok": true }'><p>Clears retained run records. This does not stop active work or erase child storage.</p></ApiEndpoint>
+</div>
+
+Records include `runId`, `sandboxId`, `repoUrl`, `task`, `baseBranch`, `publishPullRequest`, `status`, `createdAt`, `updatedAt`, and optional summary or error information. Timestamps are Unix milliseconds. Status values include `pending`, `running`, `completed`, `error`, `aborted`, and `cancelled`. Inspect the transcript and returned result for available diffs and files.
+
+Other unsupported methods return `405`. The response shapes above are structural sketches, not recorded execution results.
+
+## Submit and approve
+
+<ApiEndpoint method="POST" path="/api/runs" title="Queue a run for approval"><p>Submits work to the orchestrator. Queueing does not start sandbox execution before human approval.</p></ApiEndpoint>
+
+Include the repository, a bounded task, and the checks you want run. Keep pull request publication off until you are ready to review that action. The delegation tool accepts a request such as:
+
+```json title="Example task input"
+{
+  "repoUrl": "https://github.com/owner/repository",
+  "task": "Describe a bounded coding task",
+  "baseBranch": "main",
+  "publishPullRequest": false,
+  "testCommand": ["pnpm", "test"],
+  "harness": "opencode"
+}
+```
+
+<div class="api-note"><strong>Approval is part of the contract.</strong><p>The exact input, including the optional <code>testCommand</code> argv array, is frozen with the approval. Execution waits for a human decision. Harness and model values are optional and validated before the run is approved.</p></div>
+
+The dashboard also uses the `coding-orchestrator` agent SDK routes under `/agents/`. The tool declares `needsApproval: true`; SDK approval decisions use `addToolApprovalResponse({ id, approved })`, and delegated events use `useAgentToolEvents`. HTTP requests use the approval endpoints or the configured Slack interaction. Read [Approval gates](/docs/approval-gates/) for the flow.
+
+Harness unit coverage is not proof of successful inference. Review the [readiness checklist](/docs/readiness/) for recorded verification and current limits.
+
+## Email API
+
+<ApiEndpoint method="GET" path="/api/email/openapi.json" title="Read the email contract" response="OpenAPI 3.1"><p>Machine-readable schema for this installation's mailbox, email, thread, draft, and attachment routes.</p></ApiEndpoint>
+
+This is **Shiba's own API**, not Goshen Email's `/v1` API. It uses the dashboard authentication described above. Provision Cloudflare Email Routing, Email Sending, R2, and access controls before using it.
+
+### Receive mail
+
+1. Register an address with `POST /api/mailboxes`. Set `agent` to the exact MCP token principal allowed to use the mailbox.
+2. Configure Cloudflare Email Routing to deliver that address to the Worker. Registration alone does not change DNS or routing.
+3. List messages with `GET /api/emails?mailbox=agent%40example.com`. Read a message with `GET /api/emails/{emailId}`.
+
+```json title="Mailbox registration body"
+{
+  "address": "agent@example.com",
+  "agent": "scout"
+}
+```
+
+Omit `agent` for a new dashboard-only mailbox. Omitting it when re-registering preserves the assignment; send `"agent": null` to unassign an existing mailbox.
+
+Incoming mail is accepted only for registered addresses. Message data lives in the Mailbox Durable Object and attachment bytes in R2. Message detail includes the body and attachment manifest; `GET /api/emails/{emailId}/attachments/{partId}` streams a manifest-backed attachment as a forced download.
+
+### Send through approval
+
+Create a draft with `POST /api/drafts`, then request `POST /api/drafts/{draftId}/send`. This queues a frozen `email_send` approval. The draft remains queued until a human approves it in **Approvals** or the configured Slack channel. Only then does the Worker call `SEND_EMAIL`; rejection releases the draft for editing.
+
+The scoped email tools exposed through `/mcp` follow the same approval boundary. Treat mail content and attachments as untrusted data, not instructions for an agent.
+
+## Provider traffic
+
+There is no public `/api/provider` route. Supported provider-backed sandbox execution uses Worker-side egress authorization and placeholder container credentials. Keep provider keys in the configured gateway rather than sending them in a task or container environment. Review [Security](/docs/security/) and [Configuration](/docs/configuration/) for the deployment boundaries.
+
+## GitHub webhook
+
+<ApiEndpoint method="POST" path="/api/github/webhook" title="Receive a verified GitHub delivery"><p>Requires the configured webhook secret, a valid signature, and a delivery identifier. Verified, deduplicated events can be forwarded to configured automations.</p></ApiEndpoint>
+
+| Header | Purpose |
+| --- | --- |
+| `x-hub-signature-256` | Verify the body against `GITHUB_WEBHOOK_SECRET`. |
+| `x-github-delivery` | Identify the delivery for replay protection. |
+| `x-github-event` | Name the GitHub event. |
+
+Missing webhook configuration returns `503`; an invalid signature returns `401`. Invalid JSON or a missing delivery identifier returns `400`. Dedupe unavailability returns `503` for retry. An accepted delivery returns `ok`, the event name, and an optional action; duplicates can return `deduped: true`.
+
+See [GitHub](/docs/github/) and [Automations](/docs/automations/) for setup and configured event behavior. An accepted delivery is not evidence that coding work completed.
+
+## Reference coverage
+
+<details class="api-coverage">
+  <summary>Additional routes and source references</summary>
+  <div class="api-coverage-content">
+    <p>The Worker exposes more surfaces than this page documents, including approvals, sessions, audit and usage, screenshots, sandbox and computer controls, automations, memory, account setup, model configuration, authentication, subscriptions, channel callbacks, OAuth discovery, and MCP.</p>
+    <p>Use <code>apps/backend/src/index.ts</code> for dispatch order and <code>apps/backend/src/request-auth.ts</code> for authentication boundaries. Run routing is implemented in <code>runs-routes.ts</code>; the email schema lives in <code>email-openapi.json</code>; webhook verification and fan-out live in <code>github-webhook-routes.ts</code>.</p>
+    <p>The <code>/agents/coding-orchestrator/*</code> SDK lane is distinct from the HTTP endpoints shown here. Consult the implementation and transport-specific schema before using an undocumented route.</p>
+  </div>
+</details>
+
+<p class="api-source-note">Next: <a href="/docs/sdk/">use the TypeScript SDK</a> or <a href="/docs/mcp/">connect an MCP client</a>.</p>

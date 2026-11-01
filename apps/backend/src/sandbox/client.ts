@@ -20,6 +20,7 @@ export function getSandbox(
 export type SandboxRpcFacade = Pick<
   Sandbox,
   | "setOutboundOrgId"
+  | "setOutboundGatewayByokAlias"
   | "approveHarnessEgress"
   | "approveEgressOverrides"
   | "approveRepoScope"

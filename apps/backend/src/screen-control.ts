@@ -62,7 +62,37 @@ const coord = (value: unknown, name: string): number => {
 };
 
 /** xdotool key names are a small closed alphabet — anything else refuses. */
-const KEY_NAME = /^[A-Za-z0-9_+.\-]+$/;
+const XDOTOOL_CHAIN_COMMANDS = new Set([
+  "exec",
+  "key",
+  "type",
+  "mousemove",
+  "click",
+  "getwindowfocus",
+  "search",
+  "selectwindow",
+]);
+
+const KEY_MODIFIER = /^(?:shift|alt|ctrl|meta|super)$/i;
+
+const KEY_SINGLE =
+  /^(?:[a-z0-9]|F(?:[1-9]|1[0-9]|2[0-9]|3[0-5])|Return|Escape|Tab|space|BackSpace|Delete|Insert|Home|End|Page_Up|Page_Down|Left|Right|Up|Down|Print|plus|minus)$/i;
+
+function assertKeyChord(chord: string): void {
+  const tokens = chord.split("+");
+  if (tokens.length === 0 || tokens.some((token) => token === "")) {
+    throw new ScreenActionError(`invalid key name: ${chord.slice(0, 40)}`);
+  }
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    if (XDOTOOL_CHAIN_COMMANDS.has(lower)) {
+      throw new ScreenActionError(`invalid key name: ${token.slice(0, 40)}`);
+    }
+    if (!(KEY_MODIFIER.test(token) || KEY_SINGLE.test(token))) {
+      throw new ScreenActionError(`invalid key name: ${token.slice(0, 40)}`);
+    }
+  }
+}
 
 const buttonId = (button: ButtonName | 1 | 2 | 3 | undefined): number => {
   if (button === undefined) return 1;
@@ -95,8 +125,8 @@ export function screenActionArgv(action: ScreenAction): string[][] {
       if (action.text.length > MAX_TYPE_CHARS) {
         throw new ScreenActionError(`text is capped at ${MAX_TYPE_CHARS} characters.`);
       }
-      // The text is one argv element — shell metacharacters are literal.
-      return [["xdotool", "type", "--delay", "15", action.text]];
+      // End-of-options keeps leading-dash text literal for xdotool's parser.
+      return [["xdotool", "type", "--delay", "15", "--", action.text]];
     }
     case "scroll": {
       const dx = coord(Math.abs(action.dx), "|dx|");
@@ -124,9 +154,7 @@ export function screenActionArgv(action: ScreenAction): string[][] {
         throw new ScreenActionError(`at most ${MAX_KEYS} keys per call.`);
       }
       for (const key of keys) {
-        if (!KEY_NAME.test(key)) {
-          throw new ScreenActionError(`invalid key name: ${key.slice(0, 40)}`);
-        }
+        assertKeyChord(key);
       }
       return [["xdotool", "key", ...keys]];
     }

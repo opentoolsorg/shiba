@@ -3,8 +3,9 @@ import { verifiedAccessOwner } from "./access-jwt.js";
 import { betterAuthFor, ensureBetterAuthSchema, isBetterAuthConfigured } from "./better-auth.js";
 import type { Env } from "./env.js";
 import { beginGmailConnect, cancelGmailConnect, disconnectGmail, finishGmailConnect, GMAIL_BASE, GmailError,
-  gmailStatus, grantGmail, revokeGmailGrant } from "./gmail.js";
+  gmailStatus, grantGmail, revokeGmailGrant, searchGmailResourceCandidates } from "./gmail.js";
 import { isAccessConfigured, isAuthorizedRequest } from "./request-auth.js";
+import { hasSameOriginIntent } from "./route-utils.js";
 
 /** Separate resolver: do not change resolveUserId's legacy session/email semantics. */
 export async function gmailOwner(request: Request, env: Env): Promise<string | null> {
@@ -26,8 +27,7 @@ function json(value: unknown, status = 200): Response {
 function requireSameOrigin(request: Request): void {
   // Cookie-authenticated mutations require explicit same-origin intent. OAuth GET
   // callbacks instead use the single-use owner-bound state + PKCE capability.
-  if (request.headers.get("origin") !== new URL(request.url).origin ||
-      request.headers.get("sec-fetch-site") === "cross-site") {
+  if (!hasSameOriginIntent(request)) {
     throw new GmailError("Same-origin request required.", 403);
   }
 }
@@ -66,6 +66,15 @@ export async function handleGmail(request: Request, env: Env): Promise<Response 
     const path = url.pathname.slice(GMAIL_BASE.length);
     if (request.method !== "GET") requireSameOrigin(request);
     if (path === "" && request.method === "GET") return json(await gmailStatus(env, owner));
+    if (path === "/resources" && request.method === "GET") {
+      const queries = url.searchParams.getAll("q");
+      const limits = url.searchParams.getAll("limit");
+      if (queries.length !== 1 || limits.length > 1 || (limits.length === 1 && !/^\d+$/.test(limits[0]!))) {
+        throw new GmailError("A Gmail search query and an optional numeric limit are required.");
+      }
+      const results = await searchGmailResourceCandidates(env, owner, queries[0]!, limits.length ? Number(limits[0]) : 25);
+      return json({ results });
+    }
     if (path === "/connect" && request.method === "POST") return json(await beginGmailConnect(env, owner));
     if (path === "/callback" && request.method === "GET") {
       const states = url.searchParams.getAll("state");

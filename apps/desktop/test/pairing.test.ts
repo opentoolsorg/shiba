@@ -149,6 +149,25 @@ describe("desktop:pair", () => {
     expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
   });
 
+  it("requires native confirmation when saved config points at another deployment", async () => {
+    const OTHER = "https://other.example.com";
+    const confirmPairElsewhere = vi.fn(async () => false);
+    const { deps, handlers } = makeDeps({
+      readLocalConfig: () => ({ workerUrl: OTHER, machineId: "old-id" }),
+      supervisor: {
+        status: () => ({ state: "unpaired" }),
+        stop: vi.fn(),
+        forkDaemon: vi.fn(() => fakeChild()),
+      },
+      confirmPairElsewhere,
+    });
+    registerDesktopIpc(deps);
+    const res = await invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    expect(confirmPairElsewhere).toHaveBeenCalledWith(OTHER);
+    expect(res).toEqual({ ok: false, error: "Pairing cancelled." });
+    expect(deps.supervisor.forkDaemon).not.toHaveBeenCalled();
+  });
+
   const LOCAL_HERE = { workerUrl: ORIGIN, machineId: "old-id" };
   const polling = { type: "status", state: "polling", machineId: "new-id", harnesses: [] };
 
@@ -181,6 +200,25 @@ describe("desktop:pair", () => {
     child.emit("message", polling);
     expect(await pending).toEqual({ ok: true });
     expect(order).toEqual(["stop", "fork", `fetch ${ORIGIN}/api/computers/revoke {"machineId":"old-id"}`]);
+  });
+
+  it("re-probes after a successful pair so the bridge resyncs", async () => {
+    const child = fakeChild();
+    const probe = vi.fn();
+    const { deps, handlers } = makeDeps({
+      supervisor: {
+        status: () => ({ state: "unpaired" }),
+        stop: vi.fn(),
+        forkDaemon: () => child,
+        probe,
+      },
+    });
+    registerDesktopIpc(deps);
+    const pending = invoke(handlers, "desktop:pair", `${ORIGIN}/app/`, "nonce.sig");
+    await new Promise((r) => setTimeout(r, 0));
+    child.emit("message", polling);
+    expect(await pending).toEqual({ ok: true });
+    expect(probe).toHaveBeenCalledOnce();
   });
 
   it("keeps the old pairing untouched when the new pair fails", async () => {

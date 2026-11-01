@@ -1,12 +1,14 @@
 /**
- * `/api/memory/*` — cross-agent reads through the shared "global" Memory DO
- * registry stub (T8 contract: a JSON fetch API mirroring mailbox); 503 until
- * that binding ships. Extracted from index.ts.
+ * `/api/memory/*` — owner-scoped source library plus compatibility reads for
+ * legacy facts/sessions. Legacy rows have no owner column, so only an exact
+ * owner-to-agent name match is exposed; ambiguous global data is never merged.
  */
 import type { Env } from "./env.js";
-import { memoryRegistryStub } from "./memory-do.js";
-import { isAuthorizedRequest } from "./request-auth.js";
-import { methodNotAllowed } from "./route-utils.js";
+import { MEMORY_REGISTRY_NAME, memoryRegistryStub, memoryStub, ownerMemoryStub } from "./memory-do.js";
+import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
+import { hasSameOriginIntent, methodNotAllowed } from "./route-utils.js";
+import { readMemoryUpload } from "./owner-memory-ingestion.js";
+import { InputError } from "./security.js";
 
 const MEMORY_DO_BASE = "https://internal/internal/memory";
 
@@ -14,11 +16,17 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
   const url = new URL(request.url);
   const { pathname } = url;
   const factId = /^\/api\/memory\/facts\/([^/]+)$/.exec(pathname)?.[1];
-  if (pathname !== "/api/memory/facts" && pathname !== "/api/memory/sessions" && factId === undefined) {
+  const ownerSources = /^\/api\/memory\/sources(?:\/[^/]+)?$/.test(pathname);
+  const ownerProjects = /^\/api\/memory\/projects(?:\/[^/]+)?$/.test(pathname);
+  const ownerRecall = pathname === "/api/memory/recall";
+  if (pathname !== "/api/memory/facts" && pathname !== "/api/memory/sessions" && factId === undefined && !ownerSources && !ownerProjects && !ownerRecall) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
+  }
+  if (["POST", "PATCH", "DELETE"].includes(request.method) && !hasSameOriginIntent(request)) {
+    return Response.json({ error: "Same-origin request required." }, { status: 403 });
   }
   if (env.Memory === undefined) {
     return Response.json(
@@ -26,20 +34,54 @@ export async function handleMemory(request: Request, env: Env): Promise<Response
       { status: 503 },
     );
   }
-  // Cross-agent reads route through the shared registry stub (T8).
-  const stub = memoryRegistryStub(env);
+  if (ownerSources || ownerProjects || ownerRecall) {
+    const userId = await resolveUserId(request, env);
+    // The route has already passed its own auth check. A loopback-only
+    // development session has no account identity, so it receives a
+    // deliberately local partition that cannot collide with real accounts.
+    const owner = userId ?? "local-development-owner";
+    const stub = await ownerMemoryStub(env, owner);
+    // Scope is derived exclusively from the verified dashboard identity;
+    // never relay caller-supplied owner/workspace query params to the DO.
+    const target = `https://internal${pathname.replace("/api/memory", "/internal/memory")}${ownerRecall ? url.search : ""}`;
+    const init: RequestInit = { method: request.method };
+    const contentType = request.headers.get("content-type");
+    if (contentType !== null) init.headers = { "Content-Type": contentType };
+    if (pathname === "/api/memory/sources/upload" && request.method === "POST") {
+      try {
+        const upload = await readMemoryUpload(request);
+        init.body = upload.bytes as Uint8Array<ArrayBuffer>;
+        init.headers = { "Content-Type": upload.mediaType, "X-Source-Filename": upload.filename };
+      } catch (error) {
+        if (error instanceof InputError) return Response.json({ error: error.message }, { status: 400 });
+        throw error;
+      }
+    } else if (request.method === "POST" || request.method === "PATCH") init.body = await request.text();
+    return stub.fetch(target, init);
+  }
+  // Legacy Memory facts and session records have only an agent name, not an
+  // owner key. Treat exact identity-name matches as the only established
+  // ownership relation. The loopback-only development session uses its one
+  // local `default` agent partition; it never expands to the global registry.
+  const userId = await resolveUserId(request, env);
+  const legacyAgent = userId ?? "default";
+  if (legacyAgent === MEMORY_REGISTRY_NAME) {
+    return Response.json({ error: "No owner-scoped legacy memory partition exists." }, { status: 404 });
+  }
   if (factId !== undefined) {
     if (request.method !== "DELETE") return methodNotAllowed();
     // `pathname` is still percent-encoded — forward the segment verbatim:
     // the DO decodes once, so re-encoding here double-encodes caller ids
     // that legitimately contain escapable characters (`bank` allows them).
-    return stub.fetch(`${MEMORY_DO_BASE}/facts/${factId}`, {
+    return memoryStub(env, legacyAgent).fetch(`${MEMORY_DO_BASE}/facts/${factId}`, {
       method: "DELETE",
     });
   }
   if (request.method !== "GET") return methodNotAllowed();
+  const stub = memoryRegistryStub(env);
   const query = new URLSearchParams();
-  for (const key of ["agent", "limit"] as const) {
+  query.set("agent", legacyAgent);
+  for (const key of ["limit"] as const) {
     const value = url.searchParams.get(key);
     if (value !== null && value !== "") {
       query.set(key, value);

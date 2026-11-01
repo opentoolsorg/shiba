@@ -43,9 +43,9 @@ export async function copyOperatorAuth(homeDir, userHome) {
     } catch {
       continue;
     }
-    await fs.mkdir(destDir, { recursive: true });
-    await fs.writeFile(dest, data, { flag: "wx", mode: 0o444 });
-    await fs.chmod(dest, 0o444);
+    await fs.mkdir(destDir, { recursive: true, mode: 0o700 });
+    await fs.writeFile(dest, data, { flag: "wx", mode: 0o400 });
+    await fs.chmod(dest, 0o400);
     copied.push(relative);
   }
   return copied;

@@ -6,7 +6,8 @@ import type { UserOAuthRecord } from "./types.js";
 
 const XAI_OAUTH_ISSUER = "https://auth.x.ai";
 export const XAI_OAUTH_DISCOVERY_URL = `${XAI_OAUTH_ISSUER}/.well-known/openid-configuration`;
-export const XAI_OAUTH_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
+// Public native-app client ID; PKCE authenticates each authorization exchange, not a client secret.
+export const XAI_OAUTH_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"; // gitleaks:allow
 export const XAI_OAUTH_SCOPE = "openid profile email offline_access grok-cli:access api:access";
 export const XAI_REDIRECT_URI = "http://127.0.0.1:56121/callback";
 const REFRESH_SKEW_MS = 2 * 60 * 1000;

@@ -63,8 +63,9 @@ export function putCommandReceipt(
  * fires — nothing distinguishes a caller retry from a repeat request).
  * GitHub events key on the delivery id when forwarded, else a
  * fingerprint of the whole mapped event; Slack keys on the envelope
- * `event_id` or the same fallback; schedule ticks key on the minute
- * bucket of the firing instant so a retried tick cannot double-queue.
+ * `event_id` or the same fallback; schedule ticks key on the UTC minute
+ * supplied by the scheduler (which normalizes retries inside its coalescing
+ * window to one occurrence).
  * The `event` is the caller's mapped event object (kind + fields) — the
  * fingerprint hashes it whole.
  */

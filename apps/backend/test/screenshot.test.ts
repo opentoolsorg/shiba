@@ -41,6 +41,7 @@ function makeDeps(): CaptureDeps & {
     goto: ReturnType<typeof vi.fn>;
     screenshot: ReturnType<typeof vi.fn>;
     setRequestInterception: ReturnType<typeof vi.fn>;
+    evaluateOnNewDocument: ReturnType<typeof vi.fn>;
     on: ReturnType<typeof vi.fn>;
   };
   sandbox: {
@@ -57,6 +58,7 @@ function makeDeps(): CaptureDeps & {
     goto: vi.fn(async () => ({})),
     screenshot: vi.fn(async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47])),
     setRequestInterception: vi.fn(async () => undefined),
+    evaluateOnNewDocument: vi.fn(async () => undefined),
     on: vi.fn((_event: string, handler: (request: MockInterceptedRequest) => void) => {
       requestHandler = handler;
     }),
@@ -139,6 +141,29 @@ describe("captureRunPreview", () => {
     // The render page must be locked to its own origin.
     expect(deps.page.setRequestInterception).toHaveBeenCalledWith(true);
     expect(deps.page.on).toHaveBeenCalledWith("request", expect.any(Function));
+  });
+
+  it("preserves WebSocket constants and instance checks on the guarded constructor", async () => {
+    const deps = makeDeps();
+    await captureRunPreview(makeEnv(), { sandboxId: "sandbox-abc123" }, deps);
+    const install = deps.page.evaluateOnNewDocument.mock.calls[0]![0] as (origin: string) => void;
+    class NativeSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+    }
+    vi.stubGlobal("WebSocket", NativeSocket);
+    try {
+      install("https://preview.example");
+      expect([WebSocket.CONNECTING, WebSocket.OPEN, WebSocket.CLOSING, WebSocket.CLOSED]).toEqual([0, 1, 2, 3]);
+      const socket = new WebSocket("https://preview.example/socket");
+      expect(socket).toBeInstanceOf(WebSocket);
+      expect(socket).toBeInstanceOf(NativeSocket);
+      expect(() => new WebSocket("https://other.example/socket")).toThrow(/blocked/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("aborts cross-origin requests and continues same-origin ones", async () => {

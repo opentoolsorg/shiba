@@ -67,7 +67,7 @@ function approveRun(instance: CodingOrchestrator, approvalId: string) {
     new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "test" }),
     }),
   );
 }

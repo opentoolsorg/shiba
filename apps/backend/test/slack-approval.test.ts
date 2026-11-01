@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+import { createCustomAgent } from "../src/custom-agents-store.js";
+import { requestEmployeeActionApproval } from "../src/employee-tool-store.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import type { Env } from "../src/env.js";
 import {
   SLACK_INTERACT_PATH,
   approvalCardText,
   buildApprovalBlocks,
   buildApprovalValue,
+  buildEmployeeToolApprovalValue,
   handleSlackInteract,
   isApprover,
   parseApprovalValue,
@@ -42,8 +47,12 @@ function slackHeaders(timestamp: string, signature: string): Record<string, stri
 function testDeps(overrides: Partial<{ pending: boolean }> = {}) {
   const pending = overrides.pending ?? true;
   return {
-    dispatchApprove: vi.fn(async (_pointer: ApprovalPointer, _userId: string): Promise<void> => {}),
-    dispatchReject: vi.fn(async (_pointer: ApprovalPointer, _userId: string): Promise<void> => {}),
+    dispatchApprove: vi.fn(async (_pointer: ApprovalPointer, _userId: string): Promise<{ result: string }> => ({
+      result: "approved",
+    })),
+    dispatchReject: vi.fn(async (_pointer: ApprovalPointer, _userId: string): Promise<{ result: string }> => ({
+      result: "rejected",
+    })),
     respond: vi.fn(async (_responseUrl: string, _text: string): Promise<void> => {}),
     replaceCard: vi.fn(async (_responseUrl: string, _body: Record<string, unknown>): Promise<void> => {}),
     isUnresolved: vi.fn(async (_pointer: ApprovalPointer): Promise<boolean> => pending),
@@ -61,7 +70,8 @@ function routeEnv(approvers: string | undefined) {
 /** Build a signed block_actions request carrying an approve/reject button. */
 async function signedInteractRequest(args: {
   userId: string;
-  actionId: "approve" | "reject";
+  actionId: "approve" | "reject" | "employee_approve";
+  chatContext?: { team: { id: string }; channel: { id: string }; message: { thread_ts: string } };
   threadKey: string;
   approvalId: string;
   responseUrl?: string;
@@ -77,6 +87,7 @@ async function signedInteractRequest(args: {
     actions: [{ action_id: args.actionId, value }],
     response_url: args.responseUrl ?? "https://hooks.slack.com/actions/T/B/XXXX",
     ...(args.blocks ? { message: { blocks: args.blocks } } : {}),
+    ...args.chatContext,
   };
   const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
   const timestamp = String(Math.floor(Date.now() / 1000));
@@ -124,6 +135,18 @@ describe("approval pointer value", () => {
 });
 
 describe("buildApprovalBlocks", () => {
+  it("escapes thread and approval identifiers in context mrkdwn", () => {
+    const blocks = buildApprovalBlocks({
+      repoUrl: "https://github.com/o/r",
+      task: "t",
+      threadKey: "evil` · <!channel>",
+      approvalId: "appr`<!here>",
+    });
+    const context = JSON.stringify(blocks[1]);
+    expect(context).not.toContain("<!channel>");
+    expect(context).toContain("&lt;!channel&gt;");
+  });
+
   it("renders the exact structured input and pointer-valued buttons", () => {
     const pointer = { threadKey: "slack:T:C:123.456", approvalId: "appr_1" };
     const blocks = buildApprovalBlocks({
@@ -405,6 +428,24 @@ describe("handleSlackInteract", () => {
     expect(respond.mock.calls[0]![1]).toContain("could not be recorded");
   });
 
+  it("records the orchestrator outcome on the card, not the clicked button when they differ", async () => {
+    const deps = testDeps();
+    deps.dispatchApprove.mockResolvedValueOnce({ result: "rejected" });
+    const blocks = buildApprovalBlocks({ threadKey: THREAD, approvalId: "appr_1", repoUrl: "https://github.com/o/r", task: "fix it" });
+    const request = await signedInteractRequest({
+      userId: "U1",
+      actionId: "approve",
+      threadKey: THREAD,
+      approvalId: "appr_1",
+      blocks,
+    });
+    await handleSlackInteract(request, routeEnv("U1"), deps);
+    expect(deps.replaceCard).toHaveBeenCalledOnce();
+    const body = deps.replaceCard.mock.calls[0]![1] as { blocks: unknown[] };
+    expect(JSON.stringify(body.blocks)).toContain("*Rejected*");
+    expect(JSON.stringify(body.blocks)).not.toContain("*Approved* by");
+  });
+
   it("approve replaces the card: buttons gone, approver and running status shown", async () => {
     const deps = testDeps();
     const blocks = buildApprovalBlocks({ threadKey: THREAD, approvalId: "appr_1", repoUrl: "https://github.com/o/r", task: "fix it" });
@@ -450,3 +491,45 @@ describe("handleSlackInteract", () => {
     expect(response).toBeNull();
   });
 });
+
+
+describe("Slack employee approval thread provenance", () => {
+  it.each([undefined, { team: { id: "T" }, channel: { id: "other" }, message: { thread_ts: "123.456" } }])(
+    "refuses a pointer without matching authenticated chat metadata", async (chatContext) => {
+      const deps = testDeps();
+      const request = await signedInteractRequest({
+        userId: "U1", actionId: "employee_approve", threadKey: "slack:T:C:123.456", approvalId: "appr_1", chatContext,
+        rawValue: buildEmployeeToolApprovalValue({ kind: "employee_tool", threadKey: "slack:T:C:123.456", approvalId: "appr_1", employeeId: "employee-1", orgId: "self-hosted" }),
+      });
+      const response = await handleSlackInteract(request, routeEnv("U1"), deps);
+      expect(response?.status).toBe(400);
+      expect(deps.replaceCard).not.toHaveBeenCalled();
+      expect(deps.dispatchApprove).not.toHaveBeenCalled();
+    },
+  );
+});
+
+
+it.each(["slack:T:C:123.456", "slack:T:other:123.456"])("binds signed Slack employee decisions to stored thread %s", async (executionContextId) => {
+  const { database, sqlite } = customAgentD1();
+  const env = { SLACK_SIGNING_SECRET: SECRET, SLACK_APPROVERS: "U1", AGENT_AUDIT: database } as Env;
+  const agent = await createCustomAgent(env, "self-hosted", "writer", { name: "Writer", instructions: "Write.", harness: "opencode" });
+  const pending = await requestEmployeeActionApproval(env, {
+    orgId: "self-hosted", employeeId: agent.id, employeeVersion: agent.version,
+    actorId: "owner@example.test", connectionId: "conn-1", connectionGeneration: 1,
+    capability: { kind: "mcp", id: "mcp:shiba:send_email" }, action: "send_email",
+    argumentDigest: "abc", payload: { subject: "Hi" }, policyVersion: "current",
+    expiresAt: Date.now() + 60_000, executionContextId,
+  });
+  const deps = testDeps();
+  const response = await handleSlackInteract(await signedInteractRequest({
+    userId: "U1", actionId: "employee_approve", threadKey: "slack:T:C:123.456", approvalId: pending.approvalId,
+    chatContext: { team: { id: "T" }, channel: { id: "C" }, message: { thread_ts: "123.456" } },
+    rawValue: buildEmployeeToolApprovalValue({ kind: "employee_tool", threadKey: "slack:T:C:123.456", approvalId: pending.approvalId, employeeId: agent.id, orgId: "self-hosted" }),
+  }), env, deps);
+  expect(response?.status).toBe(200);
+  const matching = executionContextId === "slack:T:C:123.456";
+  expect(sqlite.prepare("SELECT status FROM employee_tool_approvals WHERE approval_id = ?").get(pending.approvalId)).toMatchObject({ status: matching ? "approved" : "pending" });
+  expect(deps.replaceCard).toHaveBeenCalledTimes(matching ? 1 : 0);
+  expect(deps.respond).toHaveBeenCalledTimes(matching ? 0 : 1);
+}, 15_000);

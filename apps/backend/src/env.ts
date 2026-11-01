@@ -6,6 +6,7 @@
 import type { OpenCodeAgent } from "./agents/opencode-agent.js";
 import type { CodingOrchestrator } from "./agents/orchestrator.js";
 import type { Sandbox } from "./sandbox.js";
+import type { ConversationRoom } from "./conversation-room-do.js";
 
 export interface Env {
   AI: Ai;
@@ -16,6 +17,8 @@ export interface Env {
    */
   LOADER?: WorkerLoader;
   CodingOrchestrator: DurableObjectNamespace<CodingOrchestrator>;
+  /** Per-owner, per-session live viewer presence and persisted chat stream deltas. */
+  ConversationRoom: DurableObjectNamespace<ConversationRoom>;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;
   /** Bound to the Automations Durable Object class in wrangler.jsonc. */
@@ -44,6 +47,8 @@ export interface Env {
   ChatGptAuth?: DurableObjectNamespace;
   /** Per-user Antigravity / Cursor / xAI OAuth on the Providers card. */
   UserProviderOAuth?: DurableObjectNamespace;
+  /** Viktor-class hosted Space mini-apps (one DO stub per org:space id). */
+  Spaces?: DurableObjectNamespace;
   /** Google OAuth client id for Antigravity sign-in (defaults to the public Antigravity IDE client). */
   GOOGLE_ANTIGRAVITY_CLIENT_ID?: string;
   /** Google OAuth client secret for Antigravity token exchange — Worker secret, never in the container. */
@@ -86,6 +91,8 @@ export interface Env {
    * would be a quota-exhaustion vector. Keyed on `cf-connecting-ip`.
    */
   MCP_RATE_LIMIT?: RateLimit;
+  /** Comma-separated exact HTTPS destination hostnames trusted for outbound MCP. Empty means disabled. */
+  MCP_TRUSTED_HOSTS?: string;
   /**
    * Optional. Workers Browser Rendering endpoint (wrangler `browser` binding,
    * megaplan T33). `puppeteer.launch()` accepts the Fetcher shape directly;
@@ -162,6 +169,12 @@ export interface Env {
   DISCORD_AGENT_HARNESS?: string;
   /** Optional. Harness for Slack-originated runs; defaults to AGENT_HARNESS, then "claude-code". */
   SLACK_AGENT_HARNESS?: string;
+  /** Default employee slug when chat text omits `bot:<slug>` (Slack/Discord/Telegram). */
+  CHAT_EMPLOYEE_DEFAULT?: string;
+  /** Org partition for chat-resolved employee profiles; defaults to self-hosted. */
+  CHAT_EMPLOYEE_ORG_ID?: string;
+  /** Dashboard actor id whose employee-tool grants apply to chat thread orchestrators. */
+  CHAT_EMPLOYEE_ACTOR?: string;
   /** "sandbox" (default), "computer" (preview-only refusal), or "local". */
   RUNTIME?: string;
   /**
@@ -170,6 +183,8 @@ export interface Env {
    * local-runtime request refuses 403 before any approval exists.
    */
   SHIBA_LOCAL_RUNTIME?: string;
+  /** Reason Network local companion dispatch is explicitly disabled unless set to "1". */
+  REASON_NETWORK_ENABLED?: string;
   /** verify-shiba: "1" runs deterministic publish/review without containers. */
   SHIBA_VERIFY_STANDIN?: string;
   /**
@@ -252,6 +267,8 @@ export interface Env {
    * Unset = the dashboard Approvals surface is their only resolve path.
    */
   SLACK_APPROVALS_CHANNEL?: string;
+  /** Optional. Must be exactly `true` to enable approved collaboration-room outbox delivery. */
+  SLACK_ROOM_OUTBOX_ENABLED?: string;
   /** Optional. Daily USD budget for the /api/usage report's budget line. */
   USAGE_BUDGET_USD?: string;
   /** Optional. JSON map `{channelId: "https://github.com/owner/repo"}` for bare mentions. */
@@ -479,4 +496,15 @@ export interface Env {
   SHIBA_ELEVATED_CONCURRENCY?: string;
   /** Phase 2b: optional UTC-day USD cap on summed run.usage.costUsd. */
   SHIBA_DAILY_CONTAINER_BUDGET_USD?: string;
+  /**
+   * SaaS integrations use the openconnector sibling Worker.
+   * Retained as a deployment configuration value; only openconnector is supported.
+   */
+  INTEGRATIONS_PROVIDER?: string;
+  /** Optional sibling Worker; preferred over OPEN_CONNECTOR_URL. */
+  OPEN_CONNECTOR?: Fetcher;
+  OPEN_CONNECTOR_URL?: string;
+  OPEN_CONNECTOR_ADMIN_TOKEN?: string;
+  OPEN_CONNECTOR_RUNTIME_TOKEN?: string;
+
 }

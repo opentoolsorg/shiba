@@ -75,8 +75,6 @@ export const ACP_LANES = {
         ...(configPath ? { OPENCODE_CONFIG: configPath } : {}),
         OPENCODE_DISABLE_AUTOUPDATE: "true",
       }),
-      // Same saved key is attached at api.deepseek.com when a run calls it.
-      extraEgress: ["api.deepseek.com"],
     },
     mirrorOf: "opencode",
   },
@@ -238,12 +236,14 @@ export function resolveRunHarness(input: string | undefined, envDefault: string 
  * Hosts a run may reach: the SELECTED harness's provider host plus git.
  * Never the union across harnesses — deny-by-default stays deny-by-default.
  */
-export function allowedHostsFor(harness: AgentHarness, model: string, input?: Pick<CodingTaskInput, "codexAuthMode">): string[] {
+export function allowedHostsFor(harness: AgentHarness, model: string, input?: Pick<CodingTaskInput, "codexAuthMode" | "executionTarget">): string[] {
   const providerHosts =
     harness.name === "codex-subscription" && input && usesCodexDeviceAuth(input)
       ? [...CODEX_DEVICE_AUTH_HOSTS]
       : harness.egressHosts(model);
-  return [...providerHosts, ...GIT_EGRESS_HOSTS];
+  return input?.executionTarget?.kind === "artifact-workspace"
+    ? [...providerHosts]
+    : [...providerHosts, ...GIT_EGRESS_HOSTS];
 }
 
 export type { AgentHarness };

@@ -10,6 +10,7 @@
  * thrown error — so capture can never fail a run or its PR publish.
  */
 import type { Env } from "./env.js";
+import { artifactAccessAgentMetadata } from "./artifact-access.js";
 import { gotoPreview, withStaticPreview, type StaticPreviewDeps } from "./preview/with-static-preview.js";
 import { PREVIEW_PORT } from "./preview/types.js";
 
@@ -43,7 +44,7 @@ export type CaptureDeps = StaticPreviewDeps;
  */
 export async function captureRunPreview(
   env: Env,
-  input: { sandboxId: string; workdir?: string },
+  input: { sandboxId: string; workdir?: string; accessAgent?: string },
   deps: CaptureDeps = {},
 ): Promise<PreviewCapture | null> {
   try {
@@ -64,8 +65,10 @@ export async function captureRunPreview(
     if (!png) return null;
 
     const screenshotKey = screenshotKeyFor(input.sandboxId);
+    const accessMeta = input.accessAgent ? artifactAccessAgentMetadata(input.accessAgent) : {};
     await env.ATTACHMENTS.put(screenshotKey, png, {
       httpMetadata: { contentType: "image/png" },
+      ...(Object.keys(accessMeta).length ? { customMetadata: accessMeta } : {}),
     });
     return {
       previewUrl,

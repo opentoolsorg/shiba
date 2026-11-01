@@ -1,11 +1,21 @@
 import type { JSX } from "react";
-import { LoaderCircle } from "lucide-react";
-import type { RetainedRun } from "../types";
+import { LoaderCircle, X } from "lucide-react";
+import type { RunProgressRecord } from "../types";
 import { statusChipClass, statusLabel } from "../ui-helpers";
 import { RunDeliverables } from "./RunDeliverables";
 
 /** Latest retained run for the active task thread — honest status, not a spinner that never ends. */
-export function RunProgressCard({ run, sessionId }: { run: RetainedRun | undefined; sessionId?: string }): JSX.Element | null {
+export function RunProgressCard({
+  run,
+  sessionId,
+  onCancel,
+  cancelling = false,
+}: {
+  run: RunProgressRecord | undefined;
+  sessionId?: string;
+  onCancel?: (runId: string) => void;
+  cancelling?: boolean;
+}): JSX.Element | null {
   if (!run) return null;
   const inFlight = run.status === "pending" || run.status === "running";
   const failed = run.status === "error" || run.status === "aborted" || run.status === "cancelled" || run.status === "unknown";
@@ -13,15 +23,29 @@ export function RunProgressCard({ run, sessionId }: { run: RetainedRun | undefin
     <section
       data-testid="run-progress"
       data-run-status={run.status}
-      className="border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] p-3 flex flex-col gap-2"
+      className="border border-[var(--border-1)] rounded-[10px] bg-[var(--bg)] p-4 flex flex-col gap-3"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-[var(--fg)]">Run progress</h3>
-        <span
-          className={`text-[10px] uppercase tracking-wider font-bold border px-2 py-0.5 rounded-[var(--radius-button)] ${statusChipClass(run.status)}`}
-        >
-          {statusLabel(run.status)}
-        </span>
+<div className="flex items-center gap-2">
+          <span
+            className={`text-xs font-medium border px-2 py-0.5 rounded-[var(--radius-button)] ${statusChipClass(run.status)}`}
+          >
+            {statusLabel(run.status)}
+          </span>
+          {inFlight && onCancel ? (
+            <button
+              type="button"
+              onClick={() => onCancel(run.runId)}
+              disabled={cancelling}
+              className="inline-flex items-center gap-1 border border-[var(--border-1)] px-2 py-1 text-[10px] font-medium text-[var(--muted-foreground-1)] hover:text-[var(--destructive)] hover:border-[var(--destructive)] disabled:opacity-60 disabled:cursor-wait"
+              aria-label={`Cancel run ${run.runId}`}
+            >
+              {cancelling ? <LoaderCircle className="size-3 animate-spin" aria-hidden="true" /> : <X className="size-3" aria-hidden="true" />}
+              {cancelling ? "Requesting…" : "Cancel run"}
+            </button>
+          ) : null}
+        </div>
       </div>
       <p className="text-xs text-[var(--muted-foreground-2)] line-clamp-2">{run.task}</p>
       {run.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)]" data-testid="run-agent-version">Bot profile v{run.customAgentVersion}</p> : null}
@@ -38,7 +62,7 @@ export function RunProgressCard({ run, sessionId }: { run: RetainedRun | undefin
       ) : null}
       {run.pullUrl ? (
         <a
-          className="text-xs font-medium text-[var(--primary)] underline break-all"
+          className="min-h-11 inline-flex items-center text-xs font-medium text-[var(--text-link)] underline underline-offset-4 break-all rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
           href={run.pullUrl}
           data-testid="run-pull-link"
         >

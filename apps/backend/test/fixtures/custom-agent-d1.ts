@@ -6,6 +6,10 @@ export function customAgentD1() {
   const statement = (sql: string, values: unknown[] = []) => ({
     bind: (...args: unknown[]) => statement(sql, args),
     execute() {
+      if (/\bRETURNING\s+root_handoff_id\b/i.test(sql)) {
+        const results = sqlite.prepare(sql).all(...values as never[]);
+        return { success: true, results, meta: { changes: results.length, last_row_id: 0 } };
+      }
       const result = sqlite.prepare(sql).run(...values as never[]);
       return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
     },
