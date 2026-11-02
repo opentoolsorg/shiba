@@ -12,6 +12,10 @@ This repository intentionally has **two deploy entrypoints** that must declare t
 
 **Cloud agents and CI must not deploy.** No `wrangler deploy`, `wrangler secret put`, `d1 --remote`, `alchemy deploy`, or Pages deploy from automation — only the owner runs the commands below on a trusted Mac (Docker available for image builds).
 
+Existing deployment workflows are legacy configuration, not an exception to this policy. In particular, `build:validate` also starts the preview deployment workflow, and closing a labeled preview PR can trigger teardown. Do not apply that label or dispatch deployment jobs merely to obtain CI evidence. A validation-only workflow must be separated from deployment before automation can safely run the code gate under this policy.
+
+The legacy `deploy-worker.yml` environment is also incomplete for current live preflight (`WORKER_HOSTNAME` and `BETTER_AUTH_*` are absent). Do not try to repair a live setup by running it: Alchemy replaces the declared secret set, so missing environment values can remove existing bindings. Use the complete, stage-specific owner-managed environment described below. Placeholder URLs in a Slack manifest do not establish a deployed webhook or installed app.
+
 ---
 
 ## Prerequisites

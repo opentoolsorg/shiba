@@ -1,5 +1,10 @@
 name: Deploy worker (alchemy)
 
+# Legacy automation, not an exception to docs/DEPLOY.md: deployment and secret
+# changes are owner-Mac-only. Cloud agents/CI must not dispatch this workflow.
+# This environment block is incomplete for live preflight (WORKER_HOSTNAME and
+# BETTER_AUTH_* are absent); follow the trusted local runbook, not this job.
+
 on:
   workflow_dispatch:
     inputs:
@@ -32,11 +37,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALCHEMY_STAGE: ${{ inputs.stage }}
           SANDBOX_IMAGE: ${{ inputs.sandbox_image }}
-          # Operator-managed vars come from repo secrets too — absent names
-          # are skipped by secrets()/configVars() in alchemy.run.ts. The
-          # worker's GITHUB_TOKEN/GITHUB_WEBHOOK_SECRET bindings aren't
-          # mappable here (GitHub forbids repo secrets starting GITHUB_) —
-          # stored values persist across deploys once set via wrangler.
+          # Alchemy replaces declared Worker secret bindings with values present
+          # in its environment; absent values are removed, not preserved. This
+          # job cannot map GITHUB_* repository secrets and is not a complete
+          # deploy environment. Never rely on a previous wrangler secret put
+          # surviving an Alchemy deploy; use the owner-Mac .env runbook.
           # CLOUDFLARE_API_TOKEN needs read+write on every resource alchemy
           # plans (Workers, D1, KV, R2, Vectorize, containers, secrets) or
           # the plan phase 401s — a deploy-only-scoped token can't diff.
