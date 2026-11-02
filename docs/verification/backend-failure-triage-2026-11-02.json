@@ -1,0 +1,844 @@
+{
+  "date": "2026-11-02",
+  "original_code_sha": "f8754ddec899a1a78369e4ff1a6dd8f21bee30f5",
+  "triaged_code_sha": "7126b6914739803448df1d90dccf780fc532f6bd",
+  "baseline_main_sha": "e0b864854905e08409b341a537b301a42320e969",
+  "summary": {
+    "original_failures": 96,
+    "original_cases_now_passing": 95,
+    "remaining_original_failures": 1,
+    "test_fixture_failures": 94,
+    "product_defects": 1,
+    "environment_limitations": 1,
+    "full_backend": {
+      "passed": 3601,
+      "failed": 1,
+      "skipped": 3,
+      "files": 285
+    },
+    "full_frontend": {
+      "passed": 567,
+      "failed": 0,
+      "files": 87
+    }
+  },
+  "clusters": {
+    "approval-authority-fixtures": {
+      "kind": "test fixture",
+      "cause": "Intended shared-approval operator was not explicitly allowlisted; one owner-provenance actor mismatched. Detached fake work needed cleanup once dispatch became reachable.",
+      "files": [
+        "email-approvals.test.ts",
+        "command-receipts.test.ts",
+        "custom-agent-approval-gate.test.ts",
+        "orchestrator-task-attempts.test.ts",
+        "orchestrator.test.ts",
+        "roles.test.ts",
+        "run-fork.test.ts",
+        "spine-route.test.ts"
+      ],
+      "acceptance": "L1 and synthetic L4 approval, execution, replay and outbox verification",
+      "original_failures": 49,
+      "now_passing": 49,
+      "remaining_failures": 0
+    },
+    "mutation-origin-fixtures": {
+      "kind": "test fixture",
+      "cause": "Browser mutation fixtures omitted same-origin Origin required by current production CSRF checks.",
+      "files": [
+        "acp-providers.test.ts",
+        "provider-sign-in-breaker.test.ts",
+        "custom-agent-paths.test.ts"
+      ],
+      "acceptance": "L1 provider setup and mutation boundaries; prerequisite contracts for L4",
+      "original_failures": 30,
+      "now_passing": 30,
+      "remaining_failures": 0
+    },
+    "dashboard-tenant-fixtures": {
+      "kind": "test fixture",
+      "cause": "Dashboard org is self-hosted; fixture incorrectly equated tenant org with authenticated thread owner.",
+      "files": [
+        "v1-run-owner-approval.test.ts"
+      ],
+      "acceptance": "L1 and L5 owner isolation",
+      "original_failures": 3,
+      "now_passing": 3,
+      "remaining_failures": 0
+    },
+    "verified-access-fixtures": {
+      "kind": "test fixture",
+      "cause": "Worker now strips unverified Access email headers; fixtures used a header without a signed JWT/audience. Repaired with real local RS256 verification, retaining forged-header denials.",
+      "files": [
+        "api-path-security.test.ts",
+        "api-surface-security.test.ts",
+        "audit-route.test.ts"
+      ],
+      "acceptance": "L1/L3 auth contracts; no live Access proof",
+      "original_failures": 4,
+      "now_passing": 4,
+      "remaining_failures": 0
+    },
+    "dashboard-route-fixtures": {
+      "kind": "test fixture",
+      "cause": "Fixtures requested Tasks while asserting Threads/Work composer, and expected obsolete empty-state text.",
+      "files": [
+        "dashboard.test.ts"
+      ],
+      "acceptance": "L0/L5 local rendering contracts",
+      "original_failures": 5,
+      "now_passing": 5,
+      "remaining_failures": 0
+    },
+    "browser-only-state-during-ssr": {
+      "kind": "product defect",
+      "cause": "CuratedMcpConnections read window.location during render without a browser. Origin lookup now occurs on OAuth click.",
+      "files": [
+        "gmail-connection-ui.test.ts"
+      ],
+      "acceptance": "L0/L2 integrations rendering; client OAuth redirect regression added",
+      "original_failures": 1,
+      "now_passing": 1,
+      "remaining_failures": 0
+    },
+    "artifact-ownership-fixture": {
+      "kind": "test fixture",
+      "cause": "Artifact fixture mocked auth but omitted owner identity and ownership metadata now required before serving evidence.",
+      "files": [
+        "e2e-evidence-routes.test.ts"
+      ],
+      "acceptance": "L1 artifact authorization / proof visibility",
+      "original_failures": 1,
+      "now_passing": 1,
+      "remaining_failures": 0
+    },
+    "sandbox-egress-fixture": {
+      "kind": "test fixture",
+      "cause": "Sandbox fake omitted approveHarnessEgress, so it failed before the intended terminal repository-scope error.",
+      "files": [
+        "harness-retry.test.ts"
+      ],
+      "acceptance": "L1/L4 preflight and retry safety contracts",
+      "original_failures": 1,
+      "now_passing": 1,
+      "remaining_failures": 0
+    },
+    "usage-clock-fixture": {
+      "kind": "test fixture",
+      "cause": "Route uses current date but fixture records were fixed to October 2. Pin Date.now for the intended aggregation date.",
+      "files": [
+        "usage.test.ts"
+      ],
+      "acceptance": "L1 usage regression; no live-provider evidence",
+      "original_failures": 1,
+      "now_passing": 1,
+      "remaining_failures": 0
+    },
+    "offline-inspection-environment": {
+      "kind": "environment limitation",
+      "cause": "lsof exits 1 with can't stat() mqueue filesystem /dev/mqueue and 'Output information may be incomplete.' Offline backup correctly fails closed. No guard changed and no test skipped.",
+      "files": [
+        "local-state-recovery.test.ts"
+      ],
+      "acceptance": "Outside live coworker L1/L4 slice; complete repository gate remains red",
+      "original_failures": 1,
+      "now_passing": 0,
+      "remaining_failures": 1
+    }
+  },
+  "original_failed_cases": [
+    {
+      "file": "acp-providers.test.ts",
+      "case": "root cause: subscription routes 404 without the flag claude-subscription connect is dark, while /api/providers connect is not",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "sign-in is not a local confirmation code starts a real authorize URL and finishes when the callback is accepted",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "sign-in is not a local confirmation code fails an expired sign-in without calling complete",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "sign-in is not a local confirmation code refuses pasted key material and does not store it",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 400 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "sign-in is not a local confirmation code rejects a camelCase refresh token instead of connecting",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 400 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "API-key fallback connects when the gateway credential the ACP harness uses is present and never echoes the value",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "API-key fallback does not treat the subscription token as the ACP adapter credential",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "API-key fallback stays not connected when no key is pasted and no gateway token is set",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "API-key fallback stores a pasted provider key encrypted and does not echo it",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "API-key fallback refuses unknown provider ids",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 404 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "subscription probe reuse redeems Claude setup-token through the subscription controller when the lane is on",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "subscription probe reuse records a rejected Claude probe as a failed connection",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "subscription probe reuse does not restart a succeeded subscription lane from Finish or Test",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "subscription probe reuse does not write a test result over a disconnect that landed during the read",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "subscription probe reuse does not recreate a provider row when disconnect lands during sign-in confirmation",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "per-org default keeps one org's default off another org, and clears it on disconnect",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "per-org default refuses to default a provider that is not connected",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 409 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "acp-providers.test.ts",
+      "case": "per-org default refuses to test a provider that is not connected",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 409 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "api-path-security.test.ts",
+      "case": "Worker path and explicit-credential isolation forwards authenticated automation item updates to the Automations DO",
+      "cluster": "verified-access-fixtures",
+      "original_error": "AssertionError: expected 401 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "api-path-security.test.ts",
+      "case": "Worker path and explicit-credential isolation keeps normalized v1 org-agent traversal out of shared runtime stores",
+      "cluster": "verified-access-fixtures",
+      "original_error": "AssertionError: expected 401 to be 501 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "api-surface-security.test.ts",
+      "case": "Worker API credential boundaries fails closed for bearer runtime access even with loopback or ambient dashboard authorization",
+      "cluster": "verified-access-fixtures",
+      "original_error": "AssertionError: http://localhost/api/v1/threads: expected 401 to be 501 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "audit-route.test.ts",
+      "case": "GET /api/audit answers 401 without an Access identity when REQUIRE_ACCESS is set",
+      "cluster": "verified-access-fixtures",
+      "original_error": "AssertionError: expected 401 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "command-receipts.test.ts",
+      "case": "approval.resolve command receipt a retried approve dispatches exactly once and re-reads the answer",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected { Object (error) } to match object { result: 'approved' }",
+      "current_status": "passed"
+    },
+    {
+      "file": "command-receipts.test.ts",
+      "case": "approval.resolve command receipt a replay with the wrong threadKey re-litigates instead of reading the receipt",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected { Object (error) } to match object { result: 'unknown' }",
+      "current_status": "passed"
+    },
+    {
+      "file": "command-receipts.test.ts",
+      "case": "approval.resolve command receipt a refused resolve writes no receipt — a legitimate retry re-litigates",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 409 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "command-receipts.test.ts",
+      "case": "approval.resolve command receipt the replayed resolve leaves the run record byte-identical",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected \"vi.fn()\" to be called once, but got 0 times",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-approval-gate.test.ts",
+      "case": "custom agent frozen-input approval boundary freezes profile v1 through http approval, execution, and result after a v2 edit",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-approval-gate.test.ts",
+      "case": "custom agent frozen-input approval boundary freezes profile v1 through chat approval, execution, and result after a v2 edit",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-approval-gate.test.ts",
+      "case": "custom agent frozen-input approval boundary freezes profile required paths through http approval despite client removal and a v2 edit",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-approval-gate.test.ts",
+      "case": "custom agent frozen-input approval boundary freezes profile required paths through chat approval despite client removal and a v2 edit",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-approval-gate.test.ts",
+      "case": "custom agent frozen-input approval boundary does not attach a late stored deliverable manifest after the run was cancelled",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected \"vi.fn()\" to be called once, but got 0 times",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-approval-gate.test.ts",
+      "case": "custom agent frozen-input approval boundary fails a completed child claim when frozen required files have no stored manifest",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'error' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-approval-gate.test.ts",
+      "case": "custom agent frozen-input approval boundary does not approve a profile that became archived after queueing",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 409 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-approval-gate.test.ts",
+      "case": "custom agent frozen-input approval boundary does not approve a profile that became deleted after queueing",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 409 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-paths.test.ts",
+      "case": "custom-agent route boundaries rejects invalid or ambiguous encoded agent id % without storage access",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 400 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-paths.test.ts",
+      "case": "custom-agent route boundaries rejects invalid or ambiguous encoded agent id %E0%A4%A without storage access",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 400 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-paths.test.ts",
+      "case": "custom-agent route boundaries rejects invalid or ambiguous encoded agent id %FF without storage access",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 400 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-paths.test.ts",
+      "case": "custom-agent route boundaries rejects invalid or ambiguous encoded agent id cag%2Fexisting without storage access",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 400 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-paths.test.ts",
+      "case": "custom-agent route boundaries rejects invalid or ambiguous encoded agent id cag%5Cexisting without storage access",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 400 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-paths.test.ts",
+      "case": "custom-agent route boundaries preserves DELETE on the exact resource",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "custom-agent-paths.test.ts",
+      "case": "custom-agent route boundaries applies the same route validation through alias /api/v1/org-agents/%E0%A4%A",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 400 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "dashboard.test.ts",
+      "case": "dashboard rendering shows the thread composer when opening Threads",
+      "cluster": "dashboard-route-fixtures",
+      "original_error": "AssertionError: expected '<link rel=\"preload\" as=\"image\" href=\"…' to contain 'data-testid=\"task-composer\"'",
+      "current_status": "passed"
+    },
+    {
+      "file": "dashboard.test.ts",
+      "case": "dashboard rendering renders a pending approval with its tool input and actions",
+      "cluster": "dashboard-route-fixtures",
+      "original_error": "AssertionError: expected '<link rel=\"preload\" as=\"image\" href=\"…' to contain 'Waiting for your approval'",
+      "current_status": "passed"
+    },
+    {
+      "file": "dashboard.test.ts",
+      "case": "dashboard rendering renders chat errors and live run output without hiding the run state",
+      "cluster": "dashboard-route-fixtures",
+      "original_error": "AssertionError: expected '<link rel=\"preload\" as=\"image\" href=\"…' to contain 'Chat error: stream failed'",
+      "current_status": "passed"
+    },
+    {
+      "file": "dashboard.test.ts",
+      "case": "dashboard rendering renders task submission form",
+      "cluster": "dashboard-route-fixtures",
+      "original_error": "AssertionError: expected '<link rel=\"preload\" as=\"image\" href=\"…' to contain 'data-testid=\"task-composer\"'",
+      "current_status": "passed"
+    },
+    {
+      "file": "dashboard.test.ts",
+      "case": "dashboard rendering renders standalone DiffView and ApprovalsView with empty states",
+      "cluster": "dashboard-route-fixtures",
+      "original_error": "AssertionError: expected '<div class=\"flex-1 flex flex-col h-fu…' to contain 'No changes to review'",
+      "current_status": "passed"
+    },
+    {
+      "file": "e2e-evidence-routes.test.ts",
+      "case": "handleE2eEvidence serves a stored manifest",
+      "cluster": "artifact-ownership-fixture",
+      "original_error": "Error: [vitest] No \"resolveUserId\" export is defined on the \"../src/request-auth.js\" mock. Did you forget to return it from \"vi.mock\"?",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "queueEmailApproval freezes to_addr trimmed — a padded address can't slide past intake onto the wire",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected \"vi.fn()\" to be called with arguments: [ { from: 'agent-a@shiba.dev', …(3) } ]",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution approve sends the frozen payload once, records the outbound copy, and marks the draft sent",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'approved' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution approved replies send In-Reply-To/References from the parent's stored Message-ID",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected \"vi.fn()\" to be called once, but got 0 times",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution a reply whose parent has no stored Message-ID sends unthreaded rather than vetoing the send",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected \"vi.fn()\" to be called with arguments: [ { from: 'agent-a@shiba.dev', …(3) } ]",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution a failed execution writes a durable outcome onto the approval record",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution resolve is replay-guarded: a second approve executes nothing",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution rejection releases the queued draft back to 'draft' and sends nothing",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'rejected' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution rejection of an email_delete does not touch the mailbox",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'rejected' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution a rejection whose unqueue fails is freed by the stale-draft re-sweep",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'rejected' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution a send failure after the claim releases the draft so it can be re-queued",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'approved' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution two live approvals on one draft transmit once — the claim dedupes before the wire",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected \"vi.fn()\" to be called once, but got 0 times",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution rejecting one approval keeps the sibling's queued draft claimable",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected [] to deeply equal [ { method: 'POST', …(2) } ]",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution a post-transmission failure reconciles the draft to 'sent', never re-queues it",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'approved' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution an expired email_send releases its queued draft when a resolve sweeps it",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'approved' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution a stale click on an expired email_send pointer frees its draft",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'unknown' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "email approval execution approve on email_delete issues the mailbox DELETE exactly once",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'approved' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "executeEmailApproval guardrails executes against the registry's canonical address, not the caller's casing",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "GET /api/approvals lists only live pending pointers — decided records leave the list",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'rejected' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "email-approvals.test.ts",
+      "case": "GET /api/approvals decided records stay listed with their execution stamp",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected \"vi.fn()\" to be called once, but got 0 times",
+      "current_status": "passed"
+    },
+    {
+      "file": "gmail-connection-ui.test.ts",
+      "case": "Gmail connection panel SSR is mounted in the Integrations Email group when setup details are shown",
+      "cluster": "browser-only-state-during-ssr",
+      "original_error": "ReferenceError: window is not defined",
+      "current_status": "passed"
+    },
+    {
+      "file": "harness-retry.test.ts",
+      "case": "withRetry wired into createSandboxOps.gitCheckout does not retry a terminal failure from the container-start pair",
+      "cluster": "sandbox-egress-fixture",
+      "original_error": "Error: expected [Function] to throw error including 'status 401' but got 'rpc.approveHarnessEgress is not a fun…'",
+      "current_status": "passed"
+    },
+    {
+      "file": "local-state-recovery.test.ts",
+      "case": "backs up, verifies, restores and rolls back actual stopped Wrangler DO/D1/R2 persistence",
+      "cluster": "offline-inspection-environment",
+      "original_error": "Error: Command failed: /opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node /workspace/shiba/scripts/local-state-recovery.mjs backup --offline /tmp/shiba-local-recovery-E9VHvC/source-state /tmp/shiba-local-recovery-E9VHvC/bundle",
+      "current_status": "failed"
+    },
+    {
+      "file": "orchestrator-task-attempts.test.ts",
+      "case": "orchestrator durable task-attempt routes queues, retries the exact frozen approval, reloads, and cancels without executing a provider",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator-task-attempts.test.ts",
+      "case": "orchestrator durable task-attempt routes preserves queued and updated task attempts when run cleanup is held during cancellation",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "orchestrator run routes approve at the concurrency cap stays pending and returns 409, no execution",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 409 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "orchestrator run routes resolves an approval exactly once; approve runs the frozen input, reject runs nothing",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'rejected' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "approval handoff recovery dispatches a frozen API approval after the latest turn switches to chat",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "approval handoff recovery dispatches a frozen API approval after the latest turn switches to app-tools",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "approval handoff recovery persists decision and run together before dispatch, then fails interrupted work on restart",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "slack thread wiring freezes the queued harness and thread into the executed envelope",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "run reliability runs an approved dispatch under keepAliveWhile so the DO cannot idle out mid-run",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'approved' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "chat approval gate mints the durable pointer at gate time so chat Approve can mint its run",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "orchestrator.test.ts",
+      "case": "chat approval gate freezes owner project provenance into approval and run context",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "provider-sign-in-breaker.test.ts",
+      "case": "provider sign-in breaker finishes a device code and marks Codex connected",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "provider-sign-in-breaker.test.ts",
+      "case": "provider sign-in breaker rejects a forged callback and does not store it",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "provider-sign-in-breaker.test.ts",
+      "case": "provider sign-in breaker does not let one user finish another user's ChatGPT sign-in",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "provider-sign-in-breaker.test.ts",
+      "case": "provider sign-in breaker a thrown complete does not mark the provider connected",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 500 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "provider-sign-in-breaker.test.ts",
+      "case": "provider sign-in breaker overlapping verifies leave one connection record and no token material",
+      "cluster": "mutation-origin-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "roles.test.ts",
+      "case": "role routing in delegation threads the queued role through the approval record into the dispatched envelope",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "run-fork.test.ts",
+      "case": "POST /api/runs/<id>/fork mints an approval carrying the parent's frozen input + lineage",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "run-fork.test.ts",
+      "case": "POST /api/runs/<id>/fork exposes lineage on the run record after approve",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected undefined to be 'run-parent' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "spine-route.test.ts",
+      "case": "GET /api/spine records the queue, then the mint when the approval resolves",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 403 to be 200 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "spine-route.test.ts",
+      "case": "GET /api/spine an agent principal sees only events on its own runs",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected false to be true // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "spine-route.test.ts",
+      "case": "GET /api/spine filters outbox rows to the principal's runs — not vacuously",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "AssertionError: expected 0 to be greater than 0",
+      "current_status": "passed"
+    },
+    {
+      "file": "spine-route.test.ts",
+      "case": "GET /api/spine ?since=<seq> returns only newer events plus the log-window markers",
+      "cluster": "approval-authority-fixtures",
+      "original_error": "TypeError: Cannot read properties of undefined (reading 'seq')",
+      "current_status": "passed"
+    },
+    {
+      "file": "usage.test.ts",
+      "case": "GET /api/usage returns daily aggregates with the budget line when USAGE_BUDGET_USD is set",
+      "cluster": "usage-clock-fixture",
+      "original_error": "AssertionError: expected undefined to be 1 // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "v1-run-owner-approval.test.ts",
+      "case": "trusted run queue ownership reaches actual human approval lets an ordinary owner approve a v1-created personal run without shared approver membership",
+      "cluster": "dashboard-tenant-fixtures",
+      "original_error": "AssertionError: expected 'self-hosted' to be 'ordinary-owner' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "v1-run-owner-approval.test.ts",
+      "case": "trusted run queue ownership reaches actual human approval lets an ordinary owner approve a v1-created named run without shared approver membership",
+      "cluster": "dashboard-tenant-fixtures",
+      "original_error": "AssertionError: expected 'self-hosted' to be 'ordinary-owner' // Object.is equality",
+      "current_status": "passed"
+    },
+    {
+      "file": "v1-run-owner-approval.test.ts",
+      "case": "trusted run queue ownership reaches actual human approval resolves a dashboard-selected profile in the authenticated deployment org despite forged body/header org",
+      "cluster": "dashboard-tenant-fixtures",
+      "original_error": "AssertionError: expected \"vi.fn()\" to be called with arguments: [ { …(10) }, 'ordinary-owner', …(2) ]",
+      "current_status": "passed"
+    }
+  ],
+  "initial_triaged_code_sha": "c1ea78d9e2b735aa3dc1ee209755820b073e7353",
+  "review_corrections": {
+    "post_claim_read_failure": {
+      "commit": "7126b69",
+      "before": "Two injected profile/grant read failures remained dispatching and projected unknown_outcome despite no handler execution.",
+      "after": "Known failed receipt, sanitized503 and failed replay; actual provider throws remain unknown_outcome.",
+      "focused_suites": 9,
+      "focused_tests_passed": 101
+    },
+    "preview_teardown_auth": {
+      "commit": "f566631",
+      "before": "New destroy wiring regression failed public-stage authentication guard.",
+      "after": "Deploy and destroy forward equivalent existing Better Auth settings; all7 config tests pass, no operation executed."
+    }
+  },
+  "remaining_environment_diagnostic": {
+    "command": "lsof -F p +D <isolated-persistence-root>",
+    "exit_code": 1,
+    "stdout_bytes": 0,
+    "stderr": "lsof: WARNING: can't stat() mqueue file system /dev/mqueue\n      Output information may be incomplete.\n",
+    "effect": "Offline recovery refuses to proceed. Guard and failing test retained."
+  }
+}
