@@ -599,19 +599,27 @@ async function refreshBeforeCall(env: Env, server: ExternalMcpServer) {
   return result;
 }
 
-/** Re-read all revocable dispatch state after network awaits and immediately before a call. */
-async function currentExternalCapabilityState(env: Env, expectedServer: ExternalMcpServer, expectedTool: ExternalMcpTool, principal: TokenRecord,
-  employee?: ExternalMcpEmployeeBoundary, args: Record<string, unknown> = {}) {
+async function currentExternalCapability(env: Env, expectedServer: ExternalMcpServer, expectedTool: ExternalMcpTool) {
   const currentServer = await getExternalMcpServer(env, expectedServer.orgId, expectedServer.ownerId, expectedServer.id);
   if (!currentServer || currentServer.generation !== expectedServer.generation || currentServer.status !== "enabled" ||
-      currentServer.schemaVersion !== expectedServer.schemaVersion || currentServer.health !== "healthy" ||
-      !principal.scopes.includes(EXTERNAL_MCP_SCOPE)) return null;
+      currentServer.schemaVersion !== expectedServer.schemaVersion || currentServer.health !== "healthy") return null;
   const currentTool = (await toolsForServer(env, currentServer.id)).find((item) => item.id === expectedTool.id);
   if (!currentTool || !currentTool.enabled || currentTool.schemaVersion !== expectedTool.schemaVersion || currentTool.effect !== expectedTool.effect) return null;
-  if (employee) return await employee.authorize(currentServer, currentTool, args) ? { server: currentServer, tool: currentTool } : null;
-  const grant = await env.AGENT_AUDIT.prepare(`SELECT 1 FROM external_mcp_access WHERE org_id = ? AND server_id = ? AND capability_id = ? AND principal = ? AND enabled = 1`)
-    .bind(currentServer.orgId, currentServer.id, currentTool.capabilityId, principal.principal).first();
-  return grant ? { server: currentServer, tool: currentTool } : null;
+  return { server: currentServer, tool: currentTool };
+}
+
+/** Re-read all revocable dispatch state after network and authorization awaits. */
+async function currentExternalCapabilityState(env: Env, expectedServer: ExternalMcpServer, expectedTool: ExternalMcpTool, principal: TokenRecord,
+  employee?: ExternalMcpEmployeeBoundary, args: Record<string, unknown> = {}) {
+  if (!principal.scopes.includes(EXTERNAL_MCP_SCOPE)) return null;
+  const current = await currentExternalCapability(env, expectedServer, expectedTool);
+  if (!current) return null;
+  const authorized = employee ? await employee.authorize(current.server, current.tool, args)
+    : await env.AGENT_AUDIT.prepare(`SELECT 1 FROM external_mcp_access WHERE org_id = ? AND server_id = ? AND capability_id = ? AND principal = ? AND enabled = 1`)
+      .bind(current.server.orgId, current.server.id, current.tool.capabilityId, principal.principal).first();
+  // Authorization itself can await storage or session/profile lookups. Never
+  // return the server/tool snapshot taken before those checks complete.
+  return authorized ? currentExternalCapability(env, expectedServer, expectedTool) : null;
 }
 
 async function currentApprovedExternalCall(env: Env, expectedServer: ExternalMcpServer, expectedTool: ExternalMcpTool, expectedApproval: EmployeeApprovalRecord) {
@@ -634,7 +642,8 @@ async function currentApprovedExternalCall(env: Env, expectedServer: ExternalMcp
     approval.employeeContext.capabilityId !== `mcp:shiba:${tool.gatewayName}` ||
     approval.payload[approval.employeeContext.resourceArgument] !== approval.employeeContext.resourceIds[0] ||
     !await isEmployeeExternalMcpApprovalCurrent(env, approval.employeeContext, server.id, server.generation, tool.schemaVersion))) return null;
-  return { server, tool, approval };
+  const current = await currentExternalCapability(env, expectedServer, expectedTool);
+  return current ? { ...current, approval } : null;
 }
 
 function inputZodShape(schema: Record<string, unknown>) {

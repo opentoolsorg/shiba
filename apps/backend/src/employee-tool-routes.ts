@@ -14,6 +14,7 @@ import { createToolRegistry, hashToolArgs, type ToolRegistry } from "./mcp-gatew
 import {
   EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX,
   claimEmployeeActionInvocation,
+  finishCapabilityInvocation,
   getCapabilityInvocationByIdempotencyKey,
 } from "./capability-invocations.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
@@ -455,7 +456,7 @@ export async function dispatchEmployeeToolForPrincipal(
   } } : registry);
   const approvedAction = approval;
   const dispatchRegistry: Pick<ToolRegistry, "invoke"> = approvedAction ? {
-    invoke: async (name, toolArgs, callPrincipal, options) => {
+    invoke: async (name, toolArgs, _callPrincipal, options) => {
       const idempotencyKey = options?.idempotencyKey;
       if (!idempotencyKey) return employeeClaimFailure("missing idempotency key");
       const claim = await claimEmployeeActionInvocation(env, {
@@ -463,9 +464,33 @@ export async function dispatchEmployeeToolForPrincipal(
         argsHash: await hashToolArgs(toolArgs), idempotencyKey,
       });
       if (claim.kind === "claimed") {
-        return registeredDispatchRegistry.invoke(name, toolArgs, callPrincipal, {
-          ...options, idempotencyKey, claimedInvocation: claim.receipt,
+        // Claiming is an awaited transaction. Employee membership, capability
+        // intersections and resource/connection grants may change while it runs.
+        const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
+        const freshPolicy = freshEmployee && await resolveEmployeeToolPolicy(env, {
+          orgId, employeeId, employeeVersion: freshEmployee.version, actorId,
         });
+        const freshConnection = freshEmployee && await resolveEmployeeConnectionGrant(env, {
+          orgId, employeeId, employeeVersion: freshEmployee.version, actorId, capabilityId: id, resourceId,
+        });
+        const checked = freshEmployee && freshPolicy && freshConnection
+          ? await dispatchEmployeeTool({
+              registry: { invoke: (dispatchName, dispatchArgs, dispatchPrincipal, dispatchOptions) =>
+                registeredDispatchRegistry.invoke(dispatchName, dispatchArgs, dispatchPrincipal, {
+                  ...options, ...dispatchOptions, idempotencyKey, claimedInvocation: claim.receipt,
+                }) },
+              authority: { ...authority, employeeVersion: freshEmployee.version, employeeRole: freshPolicy.role,
+                workspaceCapabilityIds: freshPolicy.workspaceCapabilityIds, actorCapabilityIds: freshPolicy.actorCapabilityIds,
+                roleCapabilityIds: freshPolicy.roleCapabilityIds, employeeCapabilityIds: freshEmployee.config.toolScopes ?? [] },
+              selection, toolName, args, connection: freshConnection,
+              connectionPolicy: { ...policy, version: freshConnection.policyVersion }, approval: approvedAction,
+              ...(executionContextId ? { executionContextId } : {}), idempotencyKey,
+            })
+          : { allowed: false as const };
+        if (checked.allowed) return checked.result;
+        await finishCapabilityInvocation(env, { invocationId: claim.receipt.invocationId,
+          status: "denied", errorCode: "employee_authority_changed", approvalId: approvedAction.approvalId });
+        return employeeClaimFailure("authority_changed");
       }
       if (claim.kind === "replay") return employeeReceiptReplay(claim.receipt);
       return employeeClaimFailure(claim.kind);
@@ -483,6 +508,7 @@ export async function dispatchEmployeeToolForPrincipal(
     : undefined;
   if (claimMeta && typeof claimMeta === "object" && "reason" in claimMeta && typeof claimMeta.reason === "string") {
     const reason = claimMeta.reason;
+    if (reason === "authority_changed") return jsonError("employee_authority_changed", 403);
     return jsonError(reason === "expired" ? "employee_action_approval_expired"
       : reason === "consumed_receipt_missing" ? "employee_invocation_receipt_pruned_no_replay"
       : reason === "payload_conflict" ? "employee_invocation_payload_conflict"

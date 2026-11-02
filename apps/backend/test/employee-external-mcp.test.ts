@@ -11,8 +11,9 @@ import { createWebSession } from "../src/web-sessions.js";
 import { handleEmployeeTools } from "../src/employee-tool-routes.js";
 import { callEmployeeExternalMcp, employeeExternalMcpCatalog } from "../src/employee-external-mcp.js";
 import { createExternalMcpServer, discoverExternalMcpServer, getExternalMcpServer, listExternalMcpAccess, listExternalMcpTools,
-  registerExternalMcpTools, reviewExternalMcpTool, setExternalMcpAccess, setExternalMcpToolEnabled } from "../src/external-mcp.js";
+  disableExternalMcpServer, registerExternalMcpTools, reviewExternalMcpTool, setExternalMcpAccess, setExternalMcpToolEnabled } from "../src/external-mcp.js";
 import { listEmployeeActionApprovals } from "../src/employee-tool-store.js";
+import * as employeeToolStore from "../src/employee-tool-store.js";
 import { listCapabilityInvocations } from "../src/capability-invocations.js";
 import { createToolRegistry } from "../src/mcp-gateway.js";
 import { handleMcp } from "../src/v1/mcp.js";
@@ -228,5 +229,34 @@ describe("ordinary employee external MCP boundary", () => {
     expect(await employeeExternalMcpCatalog(f.env, f.binding)).toEqual({ actions: [], totalAuthorized: 0, returned: 0 });
     await expect(callEmployeeExternalMcp(f.env, f.binding, f.write.gatewayName, { resourceId: "record-1" }, "after-revoke")).rejects.toThrow("unavailable");
     expect(await listCapabilityInvocations(f.env, { orgId: "self-hosted" })).toMatchObject([expect.objectContaining({ status: "failed" })]);
+  });
+
+  it.each(["server", "tool"])("rechecks %s state after awaited approved-write employee authorization", async (changed) => {
+    const f = await fixture();
+    await callEmployeeExternalMcp(f.env, f.binding, f.write.gatewayName, { resourceId: "record-1", body: "frozen" }, "write-auth-race");
+    const approval = (await listEmployeeActionApprovals(f.env, { orgId: "self-hosted", status: "pending" }))[0]!;
+    let checked = 0;
+    let markAuthorized!: () => void;
+    let releaseAuthorization!: () => void;
+    const authorized = new Promise<void>((resolve) => { markAuthorized = resolve; });
+    const hold = new Promise<void>((resolve) => { releaseAuthorization = resolve; });
+    const current = employeeToolStore.isEmployeeExternalMcpApprovalCurrent;
+    const spy = vi.spyOn(employeeToolStore, "isEmployeeExternalMcpApprovalCurrent").mockImplementation(async (...args) => {
+      const allowed = await current(...args);
+      if (++checked === 3) { markAuthorized(); await hold; }
+      return allowed;
+    });
+    const dispatch = f.approve(approval.approvalId);
+    await authorized;
+    try {
+      const server = (await getExternalMcpServer(f.env, "self-hosted", owner, f.serverId))!;
+      if (changed === "server") await disableExternalMcpServer(f.env, server);
+      else await setExternalMcpToolEnabled(f.env, server, f.write.id, false, f.write.schemaVersion);
+    } finally { releaseAuthorization(); }
+    try {
+      expect(await dispatch).toMatchObject({ dispatch: { status: "failed", errorCode: "approval_stale" } });
+      expect(f.calls).toHaveLength(0);
+      expect(await listCapabilityInvocations(f.env, { orgId: "self-hosted" })).toMatchObject([expect.objectContaining({ status: "failed" })]);
+    } finally { spy.mockRestore(); }
   });
 });

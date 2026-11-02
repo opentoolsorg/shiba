@@ -71,6 +71,7 @@ function setup() {
       ...productionEnvStubs(),
       Sandbox: {},
       GITHUB_TOKEN: "test-token",
+      DASHBOARD_APPROVERS: "human",
       // listApprovals kicks the stale-draft sweep; an empty directory keeps it quiet.
       Mailbox: { idFromName: (n: string) => n, get: () => ({ fetch: async () => Response.json({ mailboxes: [] }) }) },
     },

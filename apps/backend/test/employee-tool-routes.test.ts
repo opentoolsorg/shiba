@@ -544,4 +544,63 @@ describe("employee tool local workflow", () => {
       vi.useRealTimers();
     }
   });
+
+  it.each(["profile", "membership", "role", "resource", "connection"])("rechecks %s authority after an awaited employee action claim", async (changed) => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", `claim-race-${changed}`, {
+      name: "Claim race builder", instructions: "Queue approved work", harness: "opencode",
+    });
+    const repoUrl = "https://github.com/acme/claim-race";
+    expect((await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:queue_run": [repoUrl] }), bindings))?.status).toBe(200);
+    const args = { repoUrl, task: "Do not run after authority changes" };
+    authState.dashboard = false;
+    const pending = await (await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings))!.json() as { approvalId: string };
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${pending.approvalId}`, {
+      method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ employeeId: employee.id, approved: true }),
+    }), bindings))?.status).toBe(200);
+
+    let markClaimed!: () => void;
+    let releaseClaim!: () => void;
+    const claimed = new Promise<void>((resolve) => { markClaimed = resolve; });
+    const held = new Promise<void>((resolve) => { releaseClaim = resolve; });
+    const batch = bindings.AGENT_AUDIT.batch.bind(bindings.AGENT_AUDIT);
+    const spy = vi.spyOn(bindings.AGENT_AUDIT, "batch").mockImplementationOnce(async (statements) => {
+      const result = await batch(statements);
+      markClaimed();
+      await held;
+      return result;
+    });
+    authState.dashboard = false;
+    const dispatch = handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+    await claimed;
+    try {
+      if (changed === "profile") {
+        authState.dashboard = true;
+        expect((await handleEmployeeTools(policyRequest(employee.id, {}, 2), bindings))?.status).toBe(200);
+        authState.dashboard = false;
+      } else if (changed === "membership") {
+        await bindings.AGENT_AUDIT.prepare("DELETE FROM employee_tool_memberships WHERE employee_id = ?").bind(employee.id).run();
+      } else if (changed === "connection") {
+        await bindings.AGENT_AUDIT.prepare("UPDATE employee_tool_grants SET generation = generation + 1 WHERE employee_id = ?").bind(employee.id).run();
+      } else {
+        await bindings.AGENT_AUDIT.prepare("UPDATE employee_tool_grants SET lifecycle = 'revoked' WHERE employee_id = ? AND subject_type = ?")
+          .bind(employee.id, changed === "role" ? "role" : "actor").run();
+      }
+    } finally {
+      releaseClaim();
+      spy.mockRestore();
+    }
+    const response = await dispatch;
+    expect(response?.status).toBe(403);
+    expect(await response?.json()).toMatchObject({ error: "employee_authority_changed" });
+    expect(orchestrator.requests).toHaveLength(0);
+    const receipt = await getCapabilityInvocationByIdempotencyKey(bindings, {
+      orgId: tokenState.orgId, principal: tokenState.principal,
+      idempotencyKey: `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${pending.approvalId}`,
+    });
+    expect(receipt).toMatchObject({ status: "denied", errorCode: "employee_authority_changed" });
+  });
 });

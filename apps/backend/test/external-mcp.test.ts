@@ -218,6 +218,37 @@ describe("owner-scoped external MCP registry", () => {
     }
   });
 
+  it.each(["server", "tool"])("rechecks %s state after awaited employee read authorization", async (changed) => {
+    const { env } = environment(); const fixture = mockMcp();
+    const { server, tool } = await discoveredServer(env, fixture.fetchMock);
+    await reviewExternalMcpTool(env, server, tool.id, "read", tool.schemaVersion);
+    await setExternalMcpToolEnabled(env, (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!, tool.id, true, tool.schemaVersion);
+    let authorizeCalls = 0;
+    let markAuthorized!: () => void;
+    let releaseAuthorization!: () => void;
+    const authorized = new Promise<void>((resolve) => { markAuthorized = resolve; });
+    const hold = new Promise<void>((resolve) => { releaseAuthorization = resolve; });
+    const registry = createToolRegistry(env);
+    await registerExternalMcpTools(registry, env, agent, {
+      toolNames: [tool.gatewayName], allowTool: async () => true,
+      authorize: async () => {
+        if (++authorizeCalls === 3) { markAuthorized(); await hold; }
+        return { orgId: "org-a", actorId: agent.principal, employeeId: "fixture-employee", employeeVersion: 1,
+          executionContextId: "fixture-session", capabilityId: `mcp:shiba:${tool.gatewayName}`,
+          schemaVersion: tool.schemaVersion, resourceArgument: "resourceId", resourceIds: ["fixture"] };
+      },
+    });
+    const attempt = registry.invoke(tool.gatewayName, { a: 2, b: 3 }, agent);
+    await authorized;
+    try {
+      const current = (await getExternalMcpServer(env, "org-a", owner.principal, server.id))!;
+      if (changed === "server") await disableExternalMcpServer(env, current);
+      else await setExternalMcpToolEnabled(env, current, tool.id, false, tool.schemaVersion);
+    } finally { releaseAuthorization(); }
+    expect((await attempt).isError).toBe(true);
+    expect(fixture.calls.filter((method) => method === "tools/call")).toHaveLength(0);
+  });
+
   it("queues unknown effects for exact owner approval, then dispatches only the frozen payload and settles its receipt", async () => {
     const { env } = environment(); const fixture = mockMcp(); vi.stubGlobal("fetch", fixture.fetchMock);
     const { server, tool } = await discoveredServer(env, fixture.fetchMock);
