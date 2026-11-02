@@ -408,15 +408,17 @@ describe("withRetry wired into createSandboxOps.gitCheckout", () => {
   });
 
   it("does not retry a terminal failure from the container-start pair", async () => {
+    const approveHarnessEgress = vi.fn(async () => undefined);
     const approveRepoScope = vi.fn(async () => {
       throw new Error("status 401: unauthorized");
     });
     const gitCheckout = vi.fn();
-    sandboxMock.getSandbox.mockReturnValue({ approveRepoScope, gitCheckout });
+    sandboxMock.getSandbox.mockReturnValue({ approveHarnessEgress, approveRepoScope, gitCheckout });
     await expect(
       createSandboxOps({} as never, INPUT.sandboxId)
         .gitCheckout(INPUT.repoUrl, { branch: "main", targetDir: "/workspace" }),
     ).rejects.toThrow("status 401");
+    expect(approveHarnessEgress).toHaveBeenCalledOnce();
     expect(approveRepoScope).toHaveBeenCalledOnce();
     expect(gitCheckout).not.toHaveBeenCalled();
   });

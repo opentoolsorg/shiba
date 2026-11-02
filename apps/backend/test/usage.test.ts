@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("agents/routing", () => ({
   getAgentByName: async (ns: { get?: (name: string) => unknown }, name: string) => {
@@ -46,6 +46,8 @@ function makeRun(overrides: Partial<DelegatedRun>): DelegatedRun {
 const DAY = 24 * 60 * 60 * 1000;
 // 2026-10-02 12:00 UTC — inside today's bucket.
 const NOW = Date.UTC(2026, 9, 2, 12);
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("mergeRunUsage — delta accumulation", () => {
   it("sums fields only when a side reports them", () => {
@@ -209,6 +211,7 @@ describe("GET /api/usage", () => {
     }) as unknown as Env;
 
   it("returns daily aggregates with the budget line when USAGE_BUDGET_USD is set", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
     const response = await handleUsage(
       new Request("http://localhost/api/usage"),
       envWithRuns({ USAGE_BUDGET_USD: "5" }),
