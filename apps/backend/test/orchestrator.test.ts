@@ -57,7 +57,7 @@ setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
 function agent() {
   const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token" }, state: { runs: [] } as OrchestratorState,
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", DASHBOARD_APPROVERS: "U1,human" }, state: { runs: [] } as OrchestratorState,
     setState(state: OrchestratorState) { setStateLikeProduction(this, state); },
   });
   return instance;
@@ -1945,7 +1945,7 @@ describe("chat approval gate", () => {
     const resolved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "owner@example.test", approvalId: "project-chat-1", approved: true, decidedBy: "human" }),
+      body: JSON.stringify({ threadKey: "owner@example.test", approvalId: "project-chat-1", approved: true, decidedBy: "owner@example.test" }),
     }));
     expect(resolved.status).toBe(200);
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());

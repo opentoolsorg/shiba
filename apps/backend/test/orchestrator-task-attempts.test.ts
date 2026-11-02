@@ -19,7 +19,7 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 function host(state: OrchestratorState = { runs: [] }, name = "task-owner") {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
     name,
-    env: { ...productionEnvStubs(), Sandbox: {} },
+    env: { ...productionEnvStubs(), Sandbox: {}, DASHBOARD_APPROVERS: "test-human" },
     state,
     setState(next: OrchestratorState) { setStateLikeProduction(this, next); },
   });

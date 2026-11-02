@@ -5,7 +5,7 @@
  * approved-but-never-minted run, queue dedupe by caller commandId, and
  * receipt-map eviction.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
@@ -20,10 +20,15 @@ import { createRun, type DelegatedRun } from "../src/runs.js";
 import { approvePointerOnly, SEED_INPUT } from "./seeding.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 
+const pendingWork = vi.hoisted(() => [] as Promise<unknown>[]);
 const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
   execute: vi.fn(),
-  keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
+  keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => {
+    const pending = fn();
+    pendingWork.push(pending);
+    return pending;
+  }),
   schedule: vi.fn(async (..._args: unknown[]) => ({})),
 }));
 vi.mock("@cloudflare/think", () => ({ Think: class {
@@ -39,7 +44,7 @@ setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
 function agent() {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token" }, state: { runs: [] } as OrchestratorState,
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", DASHBOARD_APPROVERS: "U1" }, state: { runs: [] } as OrchestratorState,
     setState(state: OrchestratorState) { setStateLikeProduction(this, state); },
   });
 }
@@ -74,7 +79,35 @@ beforeEach(() => {
   mocks.execute.mockResolvedValue("ok");
 });
 
+afterEach(async () => {
+  // Production retains this work beyond the response; tests must settle it
+  // before resetting shared mocks for the next isolated orchestrator host.
+  while (pendingWork.length) await Promise.all(pendingWork.splice(0));
+});
+
 describe("approval.resolve command receipt", () => {
+  it.each([false, true])("refuses an unlisted actor's approved=%s decision without consuming the approval", async (approved) => {
+    const instance = agent();
+    const queued = await instance.onRequest(queueBody("Only the configured human may decide"));
+    const { approvalId } = await queued.json() as { approvalId: string };
+    const unauthorized = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved, decidedBy: "unlisted-human" }),
+    }));
+    expect(unauthorized.status).toBe(403);
+    expect(await unauthorized.json()).toMatchObject({ error: "Not authorized to resolve shared approvals." });
+    expect(instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId)?.status).toBe("pending");
+    expect(instance.state.commandReceipts?.[`approval:${approvalId}`]).toBeUndefined();
+    expect(instance.state.runs).toEqual([]);
+    expect(mocks.execute).not.toHaveBeenCalled();
+
+    const authorized = await instance.onRequest(resolveBody(approvalId, approved));
+    expect(authorized.status).toBe(200);
+    expect(await authorized.json()).toMatchObject({ result: approved ? "approved" : "rejected" });
+    if (approved) await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
+    else expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
   it("a retried approve dispatches exactly once and re-reads the answer", async () => {
     const instance = agent();
     const queued = await instance.onRequest(queueBody("fix"));

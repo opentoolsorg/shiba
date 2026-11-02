@@ -162,6 +162,7 @@ function agentWithMailbox(opts: {
   const env = {
     Sandbox: {},
     GITHUB_TOKEN: "test-token",
+    DASHBOARD_APPROVERS: "U1",
     SEND_EMAIL: { send },
     Mailbox: {
       idFromName: (address: string) => address.trim().toLowerCase(),

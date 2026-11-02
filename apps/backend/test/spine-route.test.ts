@@ -50,7 +50,7 @@ const AGENT_PRINCIPAL_HEADER = "X-Agent-Principal";
 
 function agent(threadName?: string) {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", SLACK_BOT_TOKEN: "xoxb-test" },
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", SLACK_BOT_TOKEN: "xoxb-test", DASHBOARD_APPROVERS: "U1" },
     name: threadName,
     ctx: { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) },
     state: { runs: [] } as OrchestratorState,

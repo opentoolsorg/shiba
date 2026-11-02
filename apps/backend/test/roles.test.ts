@@ -28,7 +28,7 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
 function env(overrides: Partial<Env> = {}): Env {
-  return { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", ...overrides } as Env;
+  return { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", DASHBOARD_APPROVERS: "U1", ...overrides } as Env;
 }
 
 function agent(overrides: Partial<Env> = {}) {

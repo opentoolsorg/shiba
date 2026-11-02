@@ -32,7 +32,7 @@ function fixture(storage = true) {
     run: async () => ({ success: true }),
     first: async () => null,
   };
-  const env = { ...productionEnvStubs(), Sandbox: {}, ...(storage ? { AGENT_AUDIT: { prepare: () => statement } } : {}) } as unknown as Env;
+  const env = { ...productionEnvStubs(), Sandbox: {}, DASHBOARD_APPROVERS: "human", ...(storage ? { AGENT_AUDIT: { prepare: () => statement } } : {}) } as unknown as Env;
   const instance: CodingOrchestrator = Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
     env,
     state: { runs: [] } as OrchestratorState,
