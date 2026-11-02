@@ -466,13 +466,24 @@ export async function dispatchEmployeeToolForPrincipal(
       if (claim.kind === "claimed") {
         // Claiming is an awaited transaction. Employee membership, capability
         // intersections and resource/connection grants may change while it runs.
-        const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
-        const freshPolicy = freshEmployee && await resolveEmployeeToolPolicy(env, {
-          orgId, employeeId, employeeVersion: freshEmployee.version, actorId,
-        });
-        const freshConnection = freshEmployee && await resolveEmployeeConnectionGrant(env, {
-          orgId, employeeId, employeeVersion: freshEmployee.version, actorId, capabilityId: id, resourceId,
-        });
+        let freshEmployee: Awaited<ReturnType<typeof getCustomAgentById>>;
+        let freshPolicy: Awaited<ReturnType<typeof resolveEmployeeToolPolicy>>;
+        let freshConnection: Awaited<ReturnType<typeof resolveEmployeeConnectionGrant>>;
+        try {
+          freshEmployee = await getCustomAgentById(env, orgId, employeeId);
+          freshPolicy = freshEmployee && await resolveEmployeeToolPolicy(env, {
+            orgId, employeeId, employeeVersion: freshEmployee.version, actorId,
+          });
+          freshConnection = freshEmployee && await resolveEmployeeConnectionGrant(env, {
+            orgId, employeeId, employeeVersion: freshEmployee.version, actorId, capabilityId: id, resourceId,
+          });
+        } catch {
+          // No handler has started: a failed refresh is a known no-dispatch
+          // failure, while the consumed approval must still fence any replay.
+          const saved = await finishCapabilityInvocation(env, { invocationId: claim.receipt.invocationId,
+            status: "failed", errorCode: "employee_authority_refresh_failed", approvalId: approvedAction.approvalId });
+          return employeeClaimFailure(saved ? "authority_refresh_failed" : "receipt_unavailable");
+        }
         const checked = freshEmployee && freshPolicy && freshConnection
           ? await dispatchEmployeeTool({
               registry: { invoke: (dispatchName, dispatchArgs, dispatchPrincipal, dispatchOptions) =>
@@ -509,6 +520,8 @@ export async function dispatchEmployeeToolForPrincipal(
   if (claimMeta && typeof claimMeta === "object" && "reason" in claimMeta && typeof claimMeta.reason === "string") {
     const reason = claimMeta.reason;
     if (reason === "authority_changed") return jsonError("employee_authority_changed", 403);
+    if (reason === "authority_refresh_failed") return jsonError("employee_authority_refresh_failed", 503);
+    if (reason === "receipt_unavailable") return jsonError("employee_invocation_receipt_unavailable", 503);
     return jsonError(reason === "expired" ? "employee_action_approval_expired"
       : reason === "consumed_receipt_missing" ? "employee_invocation_receipt_pruned_no_replay"
       : reason === "payload_conflict" ? "employee_invocation_payload_conflict"

@@ -136,7 +136,7 @@ describe("employee tool local workflow", () => {
     expect(integrations.executeTool).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["provider_failure", "revoked_during_lookup", "wrong_service"])("reports %s through the public MCP tool without an unauthorized write", async (scenario) => {
+  it.each(["provider_failure", "provider_throw", "revoked_during_lookup", "wrong_service"])("reports %s through the public MCP tool without an unauthorized write", async (scenario) => {
     authState.dashboard = true;
     const bindings = env();
     const employee = await createCustomAgent(bindings, "self-hosted", "connector-failure", {
@@ -162,6 +162,8 @@ describe("employee tool local workflow", () => {
     }), bindings))?.status).toBe(200);
     if (scenario === "provider_failure") {
       integrations.executeTool.mockResolvedValueOnce({ ok: false, status: "failed", output: { id: 0 } });
+    } else if (scenario === "provider_throw") {
+      integrations.executeTool.mockRejectedValueOnce(new Error("Connection lost after the provider may have written"));
     } else if (scenario === "wrong_service") {
       integrations.searchActions.mockResolvedValueOnce([{ id: "github.create_issue", service: "slack", name: "Wrong service" }]);
     } else {
@@ -175,9 +177,14 @@ describe("employee tool local workflow", () => {
     authState.dashboard = false;
     const failed = await registry.invoke("integrations.execute", args, principal);
     expect(failed.isError).toBe(true);
-    expect(integrations.executeTool).toHaveBeenCalledTimes(scenario === "provider_failure" ? 1 : 0);
+    const executed = scenario === "provider_failure" || scenario === "provider_throw";
+    expect(integrations.executeTool).toHaveBeenCalledTimes(executed ? 1 : 0);
+    if (scenario === "provider_throw") expect(await getCapabilityInvocationByIdempotencyKey(bindings, {
+      orgId: tokenState.orgId, principal: tokenState.principal,
+      idempotencyKey: `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${approvalId}`,
+    })).toMatchObject({ status: "unknown_outcome", errorCode: "handler_threw" });
     await registry.invoke("integrations.execute", args, principal);
-    expect(integrations.executeTool).toHaveBeenCalledTimes(scenario === "provider_failure" ? 1 : 0);
+    expect(integrations.executeTool).toHaveBeenCalledTimes(executed ? 1 : 0);
   });
 
   it("does not request integration approval when the caller lacks its execute scope", async () => {
@@ -602,5 +609,63 @@ describe("employee tool local workflow", () => {
       idempotencyKey: `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${pending.approvalId}`,
     });
     expect(receipt).toMatchObject({ status: "denied", errorCode: "employee_authority_changed" });
+  });
+
+  it.each(["profile", "grant"])("settles a rejected %s read after a successful claim without dispatching or replaying", async (read) => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", `claim-read-failure-${read}`, {
+      name: "Read failure builder", instructions: "Queue approved work", harness: "opencode",
+    });
+    const repoUrl = "https://github.com/acme/read-failure";
+    expect((await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:queue_run": [repoUrl] }), bindings))?.status).toBe(200);
+    const args = { repoUrl, task: "The handler must not run if authority cannot be read" };
+    authState.dashboard = false;
+    const pending = await (await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings))!.json() as { approvalId: string };
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${pending.approvalId}`, {
+      method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ employeeId: employee.id, approved: true }),
+    }), bindings))?.status).toBe(200);
+
+    let claimed = false;
+    let injected = false;
+    const batch = bindings.AGENT_AUDIT.batch.bind(bindings.AGENT_AUDIT);
+    const batchSpy = vi.spyOn(bindings.AGENT_AUDIT, "batch").mockImplementationOnce(async (statements) => {
+      const result = await batch(statements);
+      claimed = true;
+      return result;
+    });
+    const prepare = bindings.AGENT_AUDIT.prepare.bind(bindings.AGENT_AUDIT);
+    const prepareSpy = vi.spyOn(bindings.AGENT_AUDIT, "prepare").mockImplementation((sql) => {
+      const statement = prepare(sql);
+      const selectedRead = read === "profile" ? sql.includes("SELECT * FROM org_custom_agents")
+        : sql.includes("SELECT * FROM employee_tool_grants") && sql.includes("AND subject_type = 'actor' AND subject_id");
+      if (!claimed || injected || !selectedRead) return statement;
+      injected = true;
+      const bind = statement.bind.bind(statement);
+      return Object.assign(statement, { bind: (...values: unknown[]) => Object.assign(bind(...values), {
+        first: async () => { throw new Error("Injected private D1 read rejection"); },
+      }) });
+    });
+    authState.dashboard = false;
+    let response: Response | null;
+    try {
+      response = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+    } finally {
+      prepareSpy.mockRestore();
+      batchSpy.mockRestore();
+    }
+    expect(claimed && injected).toBe(true);
+    expect(orchestrator.requests).toHaveLength(0);
+    const idempotencyKey = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${pending.approvalId}`;
+    expect(await getCapabilityInvocationByIdempotencyKey(bindings, {
+      orgId: tokenState.orgId, principal: tokenState.principal, idempotencyKey, now: Date.now() + 60_000,
+    })).toMatchObject({ status: "failed", errorCode: "employee_authority_refresh_failed", approvalId: pending.approvalId });
+    expect(response?.status).toBe(503);
+    expect(await response?.json()).toEqual({ ok: false, error: "employee_authority_refresh_failed" });
+    const replay = await handleEmployeeTools(callRequest(employee.id, "queue_run", args), bindings);
+    expect(await replay?.json()).toMatchObject({ result: { _meta: { "com.shiba/invocation": { status: "failed", replayed: true } } } });
+    expect(orchestrator.requests).toHaveLength(0);
   });
 });
