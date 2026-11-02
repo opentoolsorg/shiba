@@ -55,7 +55,7 @@ describe("custom-agent route boundaries", () => {
     "/api/custom-agents//cag-existing",
     "/api/custom-agents//",
   ])("does not delete or read an agent through unsupported path %s", async (path) => {
-    const response = await handleCustomAgents(new Request(`https://worker.test${path}`, { method: "DELETE" }), env);
+    const response = await handleCustomAgents(new Request(`https://worker.test${path}`, { method: "DELETE", headers: { Origin: "https://worker.test" } }), env);
     expect(response?.status).toBe(404);
     untouched();
   });
@@ -63,7 +63,7 @@ describe("custom-agent route boundaries", () => {
   it.each(["%", "%E0%A4%A", "%FF", "cag%2Fexisting", "cag%5Cexisting"])(
     "rejects invalid or ambiguous encoded agent id %s without storage access",
     async (id) => {
-      const response = await handleCustomAgents(new Request(`https://worker.test/api/custom-agents/${id}`, { method: "DELETE" }), env);
+      const response = await handleCustomAgents(new Request(`https://worker.test/api/custom-agents/${id}`, { method: "DELETE", headers: { Origin: "https://worker.test" } }), env);
       expect(response?.status).toBe(400);
       untouched();
     },
@@ -92,9 +92,17 @@ describe("custom-agent route boundaries", () => {
   );
 
   it("preserves DELETE on the exact resource", async () => {
-    const response = await handleCustomAgents(new Request("https://worker.test/api/custom-agents/cag-existing", { method: "DELETE" }), env);
+    const response = await handleCustomAgents(new Request("https://worker.test/api/custom-agents/cag-existing", { method: "DELETE", headers: { Origin: "https://worker.test" } }), env);
     expect(response?.status).toBe(200);
     expect(mocks.remove).toHaveBeenCalledWith(env, "org-a", "cag-existing");
+  });
+
+  it.each([undefined, "https://foreign.test"])("refuses dashboard deletion with invalid Origin %s before storage access", async (origin) => {
+    const response = await handleCustomAgents(new Request("https://worker.test/api/custom-agents/cag-existing", {
+      method: "DELETE", headers: origin ? { Origin: origin } : {},
+    }), env);
+    expect(response?.status).toBe(403);
+    untouched();
   });
 
   it.each([
@@ -102,7 +110,7 @@ describe("custom-agent route boundaries", () => {
     ["/api/v1/org-agents-extra", 404],
     ["/api/v1/org-agents/%E0%A4%A", 400],
   ])("applies the same route validation through alias %s", async (path, status) => {
-    const request = new Request(`https://worker.test${path}`, { method: "DELETE" });
+    const request = new Request(`https://worker.test${path}`, { method: "DELETE", headers: { Origin: "https://worker.test" } });
     const context: V1Context = {
       request, url: new URL(request.url), env,
       principal: { principal: "owner", orgId: "org-a", scopes: ["api:read", "api:write"] },

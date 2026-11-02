@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { signedAccessFixture } from "./access-fixture.js";
+
+afterEach(() => vi.unstubAllGlobals());
 import type { Scope } from "../src/agent-tokens.js";
 import { createApiKey } from "../src/agent-tokens.js";
 import type { Env } from "../src/env.js";
@@ -152,11 +155,13 @@ describe("Worker API credential boundaries", () => {
 
   it("fails closed for bearer runtime access even with loopback or ambient dashboard authorization", async () => {
     const f = fixture();
+    const access = await signedAccessFixture("api-surface-tenant", "owner@example.com");
+    f.env.ACCESS_AUD = access.audience;
     const { token } = await f.key("org-a", ["api:read", "api:write"]);
     for (const path of ["/api/v1/threads", "/api/v1/events", "/api/v1/usage", "/api/v1/projects/acme%2Frepo/automations"]) {
       for (const origin of ["http://localhost", "https://worker.test"]) {
         const request = new Request(`${origin}${path}`, {
-          headers: { authorization: `Bearer ${token}`, "CF-Access-Authenticated-User-Email": "owner@example.com" },
+          headers: { authorization: `Bearer ${token}`, "CF-Access-Authenticated-User-Email": "owner@example.com", ...access.headers },
         });
         const response = await worker.fetch(request, f.env);
         expect(response.status, `${origin}${path}`).toBe(501);

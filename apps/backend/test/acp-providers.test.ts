@@ -48,6 +48,9 @@ function env(extra: Record<string, unknown> = {}, kv: FakeKV = new FakeKV()): En
 
 function request(path: string, init?: RequestInit, email?: string): Request {
   const headers = new Headers(init?.headers);
+  // Dashboard writes originate from the same browser origin. Missing Origin
+  // is deliberately refused by the production mutation guard.
+  if (init?.method && init.method !== "GET") headers.set("Origin", "http://localhost");
   if (init?.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -137,6 +140,25 @@ describe("legacy dashboard connector is gone; harness admission stays", () => {
         authAccount: "default",
       } as never),
     ).rejects.toThrow(/no authenticated account/);
+  });
+});
+
+describe("provider mutation origin boundary", () => {
+  it.each([
+    ["missing Origin", {}],
+    ["foreign Origin", { Origin: "https://foreign.test" }],
+    ["cross-site fetch", { Origin: "http://localhost", "Sec-Fetch-Site": "cross-site" }],
+  ])("rejects %s before beginning sign-in or writing a provider record", async (_label, extraHeaders) => {
+    const kv = new FakeKV();
+    const beginOauth = vi.fn(beginWaiting);
+    const response = await handleAcpProviders(new Request("http://localhost/api/providers/codex/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...extraHeaders },
+      body: JSON.stringify({ mode: "oauth" }),
+    }), env({}, kv), { beginOauth });
+    expect(response?.status).toBe(403);
+    expect(beginOauth).not.toHaveBeenCalled();
+    expect(kv.map.size).toBe(0);
   });
 });
 

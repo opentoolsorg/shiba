@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiKey } from "../src/agent-tokens.js";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
+import { signedAccessFixture } from "./access-fixture.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 vi.mock("@cloudflare/sandbox", () => ({
   Sandbox: class {},
@@ -50,11 +53,22 @@ describe("Worker path and explicit-credential isolation", () => {
     expect(denied.status).toBe(401);
     expect(forwarded).not.toHaveBeenCalled();
 
+    const forged = await worker.fetch(new Request("https://worker.test/api/automations/weekly-brief", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.com" },
+      body: JSON.stringify({ enabled: false }),
+    }), f.env);
+    expect(forged.status).toBe(401);
+    expect(forwarded).not.toHaveBeenCalled();
+    const access = await signedAccessFixture("api-path-owner", "owner@example.com");
+    f.env.ACCESS_AUD = access.audience;
+
     const response = await worker.fetch(new Request("https://worker.test/api/automations/weekly-brief", {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
         "CF-Access-Authenticated-User-Email": "owner@example.com",
+        ...access.headers,
       },
       body: JSON.stringify({ enabled: false }),
     }), f.env);
@@ -84,6 +98,8 @@ describe("Worker path and explicit-credential isolation", () => {
 
   it("keeps normalized v1 org-agent traversal out of shared runtime stores", async () => {
     const f = fixture();
+    const access = await signedAccessFixture("api-path-tenant", "owner@example.com");
+    f.env.ACCESS_AUD = access.audience;
     const { token } = await createApiKey(f.env, {
       orgId: "org-a", principal: "automation", label: "test", scopes: ["api:read", "api:write"],
     });
@@ -91,6 +107,7 @@ describe("Worker path and explicit-credential isolation", () => {
       headers: {
         authorization: `Bearer ${token}`,
         "CF-Access-Authenticated-User-Email": "owner@example.com",
+        ...access.headers,
       },
     });
     expect(new URL(request.url).pathname).toBe("/api/v1/threads");

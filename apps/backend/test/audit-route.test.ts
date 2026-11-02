@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { signedAccessFixture } from "./access-fixture.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 vi.mock("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
@@ -191,9 +194,15 @@ describe("GET /api/audit", () => {
     const { ctx } = makeCtx();
     const denied = await worker.fetch(new Request("https://worker/api/audit"), env, ctx);
     expect(denied.status).toBe(401);
+    const forged = await worker.fetch(new Request("https://worker/api/audit", {
+      headers: { "CF-Access-Authenticated-User-Email": "user@example.com" },
+    }), env, ctx);
+    expect(forged.status).toBe(401);
+    const access = await signedAccessFixture("audit-route-owner", "user@example.com");
+    env.ACCESS_AUD = access.audience;
     const authed = await worker.fetch(
       new Request("https://worker/api/audit", {
-        headers: { "CF-Access-Authenticated-User-Email": "user@example.com" },
+        headers: { "CF-Access-Authenticated-User-Email": "user@example.com", ...access.headers },
       }),
       env,
       ctx,

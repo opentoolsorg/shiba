@@ -76,6 +76,7 @@ function request(path: string, body: unknown, email = "ada@example.com"): Reques
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "Origin": "http://localhost",
       "CF-Access-Authenticated-User-Email": email,
     },
     body: JSON.stringify(body),
@@ -152,6 +153,23 @@ describe("provider sign-in breaker", () => {
     );
     const graceCard = await card(graceGet, "codex");
     expect(graceCard?.connection.phase).toBe("waiting");
+  });
+
+  it("cannot claim another user's pending sign-in when the caller never began one", async () => {
+    const kv = new FakeKV();
+    const users = new Map<string, { connected: boolean }>();
+    const env = deployment(kv, users);
+    const started = await handleAcpProviders(request("/api/providers/codex/connect", { mode: "oauth" }, "ada@example.com"), env);
+    expect(started?.status).toBe(200);
+    const denied = await handleAcpProviders(request("/api/providers/codex/verify", {
+      callbackUrl: "http://127.0.0.1:1455/auth/callback?code=good&state=ada",
+    }, "grace@example.com"), env);
+    expect(denied?.status).toBe(409);
+    expect(users.size).toBe(0);
+    const ada = await card(await handleAcpProviders(new Request("http://localhost/api/providers", {
+      headers: { "CF-Access-Authenticated-User-Email": "ada@example.com" },
+    }), env), "codex");
+    expect(ada?.connection.phase).toBe("waiting");
   });
 
   it("a thrown complete does not mark the provider connected", async () => {
