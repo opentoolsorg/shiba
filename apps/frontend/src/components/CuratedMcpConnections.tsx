@@ -67,8 +67,6 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
   const connectionsFor = (vendor: CuratedMcpVendor) =>
     connections.filter((connection) => connection.catalogId === vendor.catalogId);
 
-  const redirectUri = `${window.location.origin}/api/v1/mcp/oauth/callback`;
-
   return (
     <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
       <div className="border-b border-[var(--border-1)] px-4 py-3">
@@ -161,6 +159,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                 void run(
                   `oauth-${vendor.catalogId}`,
                   async () => {
+                    const redirectUri = `${window.location.origin}/api/v1/mcp/oauth/callback`;
                     const label = (labels[vendor.catalogId] ?? "").trim();
                     if (!label) throw new Error("connection_label_required");
                     const created = await request<{ server: { id: string } }>("/api/v1/mcp/servers", {

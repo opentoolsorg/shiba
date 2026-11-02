@@ -59,11 +59,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderApp(view?: "tasks") {
+function renderApp(view?: "threads") {
   (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent = "ada@example.com";
   if (view) {
     vi.stubGlobal("window", { location: new URL(`https://app.tryshiba.dev/${view}/`) });
-    vi.stubGlobal("localStorage", { getItem: () => null });
+    vi.stubGlobal("localStorage", { getItem: (key: string) => key === "shiba:conversation-mode:default" ? "work" : null });
   }
   return renderToStaticMarkup(React.createElement(App));
 }
@@ -104,7 +104,7 @@ describe("dashboard rendering", () => {
   });
 
   it("shows the thread composer when opening Threads", () => {
-    const markup = renderApp("tasks");
+    const markup = renderApp("threads");
 
     expect(markup).toContain('data-testid="task-composer"');
     expect(markup).toContain('aria-label="Task description"');
@@ -133,7 +133,7 @@ describe("dashboard rendering", () => {
     expect(workMarkup).toContain("Approve tool: runSandbox");
     expect(workMarkup).toContain("Review");
 
-    const markup = renderApp("tasks");
+    const markup = renderApp("threads");
 
     expect(markup).toContain("Waiting for your approval");
     expect(markup).toContain("Needs approval");
@@ -157,7 +157,7 @@ describe("dashboard rendering", () => {
       },
     };
 
-    const markup = renderApp("tasks");
+    const markup = renderApp("threads");
 
     expect(markup).toContain("Chat error: stream failed");
     expect(markup).toContain("run-1");
@@ -174,7 +174,7 @@ describe("dashboard rendering", () => {
     expect(formMarkup).toContain('type="checkbox"');
     expect(formMarkup).toContain('value="main"');
 
-    const appMarkup = renderApp("tasks");
+    const appMarkup = renderApp("threads");
 
     expect(appMarkup).toContain('data-testid="task-composer"');
     expect(appMarkup).toContain("<textarea");
@@ -237,7 +237,8 @@ describe("dashboard rendering", () => {
       })
     );
     expect(diffMarkup).toContain("Pull requests");
-    expect(diffMarkup).toContain("No changes to review");
+    expect(diffMarkup).toContain("No runs yet");
+    expect(diffMarkup).not.toContain("No diff yet");
 
     const approvalsMarkup = renderToStaticMarkup(
       React.createElement(ApprovalsView, {

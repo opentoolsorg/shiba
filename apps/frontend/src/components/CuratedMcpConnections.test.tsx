@@ -6,10 +6,38 @@ import { CuratedMcpConnections } from "./CuratedMcpConnections";
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("CuratedMcpConnections", () => {
+  it("uses the browser origin when an explicit OAuth connection is requested", async () => {
+    const onChanged = vi.fn();
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/catalog-connections")) return Response.json({ connections: [] });
+      if (path === "/api/v1/mcp/servers") return Response.json({ server: { id: "draft" } });
+      if (path.endsWith("/oauth/begin")) {
+        expect(JSON.parse(String(init?.body))).toEqual({ redirectUri: `${window.location.origin}/api/v1/mcp/oauth/callback` });
+        return Response.json({ authorizationUrl: "https://vendor.example/authorize" });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<CuratedMcpConnections onChanged={onChanged} />);
+    const label = screen.getAllByLabelText("Label")[0];
+    const connect = screen.getAllByRole("button", { name: "Connect with OAuth" })[0];
+    if (!label || !connect) throw new Error("Missing vendor connection controls");
+    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.change(label, { target: { value: "prod" } });
+    fireEvent.click(connect);
+    await screen.findByText("OAuth sign-in opened — finish in the vendor window, then refresh.");
+    expect(open).toHaveBeenCalledWith("https://vendor.example/authorize", "_blank", "noopener,noreferrer");
+    expect(onChanged).toHaveBeenCalledOnce();
+  });
+
   it.each(["OAuth", "bearer"])("keeps the original %s error when draft cleanup fails", async (failureMode) => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
