@@ -20,10 +20,13 @@ test("public previews support the existing built-in auth lane with either bootst
   }
 });
 
-test("preview deploy forwards the configured built-in auth lane into Alchemy", () => {
+for (const [action, stepName] of [
+  ["deploy", "Deploy preview stack via alchemy"],
+  ["destroy", "Destroy preview stack"],
+]) test(`preview ${action} forwards the configured built-in auth lane into Alchemy`, () => {
   const workflow = readFileSync(new URL("../.github/workflows/preview-deploy.yml", import.meta.url), "utf8");
-  const deployStep = workflow.split("- name: Deploy preview stack via alchemy")[1]?.split("- name:")[0];
-  assert.ok(deployStep, "preview deployment step must exist");
+  const step = workflow.split(`- name: ${stepName}`)[1]?.split("- name:")[0];
+  assert.ok(step, `preview ${action} step must exist`);
   const secrets = {
     CLOUDFLARE_ACCOUNT_ID: account,
     WORKERS_SUBDOMAIN: "example",
@@ -33,7 +36,7 @@ test("preview deploy forwards the configured built-in auth lane into Alchemy", (
   for (const bootstrap of [{ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" }, { BETTER_AUTH_BOOTSTRAP_TOKEN: "setup-token" }]) {
     const configured = { ...secrets, ...bootstrap };
     const forwarded = Object.fromEntries(
-      [...deployStep.matchAll(/^\s+(\w+): \$\{\{ secrets\.(\w+) \}\}$/gm)]
+      [...step.matchAll(/^\s+(\w+): \$\{\{ secrets\.(\w+) \}\}$/gm)]
         .map(([, name, secret]) => [name, configured[secret]]),
     );
     assert.equal(deploymentConfig({ ...forwarded, ALCHEMY_STAGE: "pr-162" }, preview).accessEnabled, false);
