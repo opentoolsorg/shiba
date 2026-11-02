@@ -20,6 +20,26 @@ test("public previews support the existing built-in auth lane with either bootst
   }
 });
 
+test("preview deploy forwards the configured built-in auth lane into Alchemy", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/preview-deploy.yml", import.meta.url), "utf8");
+  const deployStep = workflow.split("- name: Deploy preview stack via alchemy")[1]?.split("- name:")[0];
+  assert.ok(deployStep, "preview deployment step must exist");
+  const secrets = {
+    CLOUDFLARE_ACCOUNT_ID: account,
+    WORKERS_SUBDOMAIN: "example",
+    ACCESS_EMAILS: "",
+    BETTER_AUTH_SECRET: "s".repeat(32),
+  };
+  for (const bootstrap of [{ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" }, { BETTER_AUTH_BOOTSTRAP_TOKEN: "setup-token" }]) {
+    const configured = { ...secrets, ...bootstrap };
+    const forwarded = Object.fromEntries(
+      [...deployStep.matchAll(/^\s+(\w+): \$\{\{ secrets\.(\w+) \}\}$/gm)]
+        .map(([, name, secret]) => [name, configured[secret]]),
+    );
+    assert.equal(deploymentConfig({ ...forwarded, ALCHEMY_STAGE: "pr-162" }, preview).accessEnabled, false);
+  }
+});
+
 test("reject unsafe account, host, auth and inherited production overrides", () => {
   for (const override of [
     { CLOUDFLARE_ACCOUNT_ID: undefined },

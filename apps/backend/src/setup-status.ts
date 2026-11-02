@@ -10,6 +10,8 @@ import { isBetterAuthConfigured } from "./better-auth.js";
 import { readModelConfig } from "./model-policy.js";
 import { isAccessConfigured } from "./request-auth.js";
 import { runSetupDoctor, type SetupDoctorReport } from "./setup-doctor.js";
+import { parseChannelRepoMap } from "./slack-context.js";
+import { parseGitHubRepoUrl } from "./security.js";
 
 export interface SetupStatus {
   slack: {
@@ -53,18 +55,27 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
     .filter(Boolean);
   const modelSnapshot = await readModelConfig(env);
   const rolePins = modelSnapshot.policy.rolePins;
+  const channelRepos = Object.entries(parseChannelRepoMap(env.SLACK_CHANNEL_REPOS)).some(([channel, repo]) => {
+    if (!channel.trim()) return false;
+    try {
+      parseGitHubRepoUrl(repo);
+      return true;
+    } catch {
+      return false;
+    }
+  });
   const base: Omit<SetupStatus, "doctor"> = {
     slack: {
-      signingSecret: Boolean(env.SLACK_SIGNING_SECRET),
-      botToken: Boolean(env.SLACK_BOT_TOKEN),
+      signingSecret: Boolean(env.SLACK_SIGNING_SECRET?.trim()),
+      botToken: Boolean(env.SLACK_BOT_TOKEN?.trim()),
       approvers: approvers.length,
-      channelRepos: Boolean(env.SLACK_CHANNEL_REPOS),
+      channelRepos,
     },
     github: {
       token: Boolean(env.GITHUB_TOKEN?.trim()),
       app: Boolean(env.GITHUB_APP_ID?.trim() && env.GITHUB_APP_PRIVATE_KEY?.trim()),
       publish: isGitHubPublishConfigured(env),
-      webhookSecret: Boolean(env.GITHUB_WEBHOOK_SECRET),
+      webhookSecret: Boolean(env.GITHUB_WEBHOOK_SECRET?.trim()),
     },
     linear: {
       webhookSecret: Boolean(env.LINEAR_WEBHOOK_SECRET?.trim()),
@@ -76,7 +87,7 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
     },
     gateway: {
       id: env.GATEWAY_ID || "default",
-      token: Boolean(env.AI_GATEWAY_TOKEN),
+      token: Boolean(env.AI_GATEWAY_TOKEN?.trim()),
       reachable: probe ? await probeGateway(env) : "unknown",
     },
     access: { required: isAccessConfigured(env) },
@@ -92,7 +103,7 @@ export async function readSetupStatus(env: Env, probe = true): Promise<SetupStat
         env.AUTOMATIONS_ENABLED !== "false" &&
         env.AUTOMATIONS_ENABLED !== "0" &&
         env.AUTOMATIONS_ENABLED !== "off",
-      typeSafe: Boolean(env.TYPESAFE_API_KEY),
+      typeSafe: Boolean(env.TYPESAFE_API_KEY?.trim()),
     },
     mailbox: {
       addressOverride: Boolean(env.AGENT_MAILBOX?.trim()),

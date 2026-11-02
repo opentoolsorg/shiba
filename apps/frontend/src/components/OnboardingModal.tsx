@@ -52,12 +52,12 @@ SHIBA_COMPUTESDK_PROVIDER=e2b E2B_API_KEY=... SHIBA_COMPUTESDK_RUNNER_TOKEN=secr
   },
   {
     id: "connect-model",
-    title: "Connect Model Keys",
+    title: "Connect a Model",
     category: "Models",
     required: true,
-    summary: "Paste raw provider API keys for Anthropic, OpenAI, Google, or xAI.",
+    summary: "Configure a ready model route with provider keys or a supported subscription lane.",
     detail:
-      "Store native API keys for your preferred model providers encrypted at rest in D1. Outbound requests automatically inject the correct headers at the egress gateway.",
+      "Store native API keys for your preferred model providers encrypted at rest in D1, or connect a supported subscription in Providers. Setup checks the configured role routes; a reachable gateway alone does not prove model access.",
     codeSnippet: `# Models supported:
 Anthropic (x-api-key)
 OpenAI (Authorization: Bearer)
@@ -101,8 +101,9 @@ export const OPERATOR_STEPS = [
     required: false,
     summary: "Enable on-call task approvals directly within Slack channels.",
     detail:
-      "Create a Slack App with chat:write, app_mentions:read, and allowlist specific user IDs permitted to approve coding runs.",
-    codeSnippet: `SLACK_APPROVERS=U01234567,U09876543`,
+      "Create a Slack App with chat:write and app_mentions:read, configure the signing secret and bot token, allowlist specific approver user IDs, and map each allowed channel to its approved repository.",
+    codeSnippet: `SLACK_APPROVERS=U01234567,U09876543
+SLACK_CHANNEL_REPOS={"C01234567":"https://github.com/your-org/your-repo"}`,
     planRef: "PLAN.md §9 (T12)",
     docAnchor: "6-slack-bot-integration-planmd-9-optional",
   },
@@ -113,10 +114,11 @@ export const ONBOARDING_STEPS: SetupStep[] = [...CORE_STEPS, ...OPERATOR_STEPS];
 const STORAGE_KEY = "shiba_onboarding_completed_steps";
 
 interface SetupStatusShape {
-  gateway?: { reachable?: string };
+  gateway?: { token?: boolean; reachable?: string };
+  doctor?: { roles?: Array<{ ok?: boolean }> };
   access?: { required?: boolean };
   github?: { token?: boolean };
-  slack?: { signingSecret?: boolean; botToken?: boolean; approvers?: number };
+  slack?: { signingSecret?: boolean; botToken?: boolean; approvers?: number; channelRepos?: boolean };
 }
 
 export async function detectSetupSteps(): Promise<Set<string>> {
@@ -126,11 +128,16 @@ export async function detectSetupSteps(): Promise<Set<string>> {
     .catch(() => null)) as SetupStatusShape | null;
 
   if (status !== null && typeof status === "object") {
-    found.add("workers-paid");
-    if (status.gateway?.reachable === "yes") found.add("connect-model");
+    // The endpoint responding proves neither the account's paid plan nor
+    // authorized inference. Subscription roles can be ready without a gateway.
+    const roles = status.doctor?.roles;
+    const modelsReady = Array.isArray(roles)
+      ? roles.length > 0 && roles.every((role) => role.ok === true)
+      : status.gateway?.token === true && status.gateway.reachable === "yes";
+    if (modelsReady) found.add("connect-model");
     if (status.access?.required) found.add("access-bypass");
     if (status.github?.token) found.add("github-token");
-    if (status.slack?.signingSecret && status.slack?.botToken && (status.slack?.approvers ?? 0) > 0)
+    if (status.slack?.signingSecret && status.slack?.botToken && (status.slack?.approvers ?? 0) > 0 && status.slack?.channelRepos === true)
       found.add("slack-bot");
   }
 
@@ -141,18 +148,6 @@ export async function detectSetupSteps(): Promise<Set<string>> {
     } | null;
     if (sandboxRes?.settings?.runnerUrl || sandboxRes?.settings?.providerId) {
       found.add("connect-sandbox");
-    }
-  } catch {
-    // ignore
-  }
-
-  // Check org model keys
-  try {
-    const keysRes = (await fetch("/api/org/model-keys").then((r) => (r.ok ? r.json() : null))) as {
-      keys?: Array<{ configured: boolean }>;
-    } | null;
-    if (keysRes?.keys?.some((k) => k.configured)) {
-      found.add("connect-model");
     }
   } catch {
     // ignore
@@ -207,19 +202,13 @@ export function OnboardingModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, connections.modelConfigured]);
 
   useEffect(() => {
     if (connections.sandboxConfigured) {
       setDetected((prev) => new Set([...prev, "connect-sandbox"]));
     }
   }, [connections.sandboxConfigured]);
-
-  useEffect(() => {
-    if (connections.modelConfigured) {
-      setDetected((prev) => new Set([...prev, "connect-model"]));
-    }
-  }, [connections.modelConfigured]);
 
   if (!isOpen) return null;
 

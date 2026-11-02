@@ -47,6 +47,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALCHEMY_STAGE: ${{ env.STAGE }}
           ACCESS_EMAILS: ${{ secrets.ACCESS_EMAILS }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_BOOTSTRAP_TOKEN: ${{ secrets.BETTER_AUTH_BOOTSTRAP_TOKEN }}
+          BETTER_AUTH_OWNER_EMAIL: ${{ secrets.BETTER_AUTH_OWNER_EMAIL }}
           WORKERS_SUBDOMAIN: ${{ secrets.WORKERS_SUBDOMAIN }}
           SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
