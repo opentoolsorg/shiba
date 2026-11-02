@@ -439,6 +439,8 @@ export function App(): React.JSX.Element {
   const [selectedOnboardingDraftRef, setSelectedOnboardingDraftRef] = useState<OnboardingDraftRef | null>(null);
   const latestSelectedDraftRef = useRef(selectedOnboardingDraftRef);
   latestSelectedDraftRef.current = selectedOnboardingDraftRef;
+  // An explicit unlink must survive an older request's delayed failure.
+  const onboardingUnlinkVersions = useRef(new Map<string, number>());
   const selectedOnboardingTaskText = useRef<string | null>(null);
   const initialComposerPrompt = useRef(task);
   const [pendingOnboardingDraft, setPendingOnboardingDraft] = useState<SelectedOnboardingDraft | null>(null);
@@ -666,7 +668,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     return () => window.clearTimeout(timer);
   }, [composerScope, task, selectedOnboardingDraftRef, flushDraft]);
   // A failed submit restores its text only into the session it came from.
-  const restoreDraft = useCallback((scope: string, text: string, reference?: OnboardingDraftRef | null) => {
+  const restoreDraft = useCallback((scope: string, text: string, reference?: OnboardingDraftRef | null, unlinkVersion = 0) => {
+    if ((onboardingUnlinkVersions.current.get(scope) ?? 0) !== unlinkVersion) reference = null;
     if (draftScope.current === scope) {
       if (latestComposerTask.current !== "" && latestComposerTask.current !== text) return;
       const selected = latestSelectedDraftRef.current;
@@ -1275,6 +1278,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current) return;
       if (!composerScope || !composerVisible) { setNotice("Wait for your conversation draft to reconnect before sending."); return; }
+      const unlinkVersion = onboardingUnlinkVersions.current.get(composerScope) ?? 0;
       if (!options?.forceWork && conversationMode === "chat") {
         if (!task.trim()) {
           setNotice("Enter a message first.");
@@ -1315,7 +1319,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           // The failed user turn remains in the transcript; retrying it must
           // regenerate that turn rather than append a duplicate user message.
         } catch (error) {
-          restoreDraft(draftSession, draft, activeOnboardingRef);
+          restoreDraft(draftSession, draft, activeOnboardingRef, unlinkVersion);
           setNotice(`Message could not be sent: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
           submitInFlight.current = false;
@@ -1347,9 +1351,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setTask("");
         try {
           await sendAppToolsWork(appToolsContext, draft, (message) => chat.sendMessage(message), activeOnboardingRef);
-          if (submitFailed.current) restoreDraft(draftSession, draft, activeOnboardingRef);
+          if (submitFailed.current) restoreDraft(draftSession, draft, activeOnboardingRef, unlinkVersion);
         } catch (error) {
-          restoreDraft(draftSession, draft, activeOnboardingRef);
+          restoreDraft(draftSession, draft, activeOnboardingRef, unlinkVersion);
           setNotice(`App task could not be sent: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
           submitInFlight.current = false;
@@ -1474,7 +1478,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               : "Bot task queued — review and approve the run card to launch it.");
           refreshRuns();
         } catch (error) {
-          restoreDraft(draftSession, draft, activeOnboardingRef);
+          restoreDraft(draftSession, draft, activeOnboardingRef, unlinkVersion);
           setNotice(
             `Run could not be queued: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -1609,14 +1613,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         });
         // onError already surfaces chat.error in the notice banner.
         if (submitFailed.current) {
-          restoreDraft(draftSession, draft, activeOnboardingRef);
+          restoreDraft(draftSession, draft, activeOnboardingRef, unlinkVersion);
         } else {
           saveRepo(repoUrl.trim());
           setEnvVars([]);
           refreshRuns();
         }
       } catch (error) {
-        restoreDraft(draftSession, draft, activeOnboardingRef);
+        restoreDraft(draftSession, draft, activeOnboardingRef, unlinkVersion);
         setNotice(
           `Task could not be sent: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -3114,7 +3118,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     <p className="mt-2 text-[var(--muted-foreground-2)]">Saved brief only. Employee configuration and access are checked before work starts.</p>
                     {firstRunProgress.draftTask.employeeTemplateId && !firstRunProgress.draftTask.employeeId ? <button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { setInitialEmployeeTemplateId(firstRunProgress.draftTask?.employeeTemplateId ?? null); openView("custom-agents"); }}>Configure suggested employee</button> : null}
                   </section> : null}
-                  {composerVisible && selectedOnboardingDraftRef ? <div role="group" aria-label="Selected first-task goal" className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--fg)]"><span>First-task goal · v{selectedOnboardingDraftRef.version}{!activeOnboardingRef ? " · saved version needs review" : ""}</span><button type="button" onClick={() => setSelectedOnboardingDraftRef(null)} className="text-[var(--primary)]">Remove first-task goal link</button></div> : null}
+                  {composerVisible && selectedOnboardingDraftRef ? <div role="group" aria-label="Selected first-task goal" className="mx-3 mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--fg)]"><span>First-task goal · v{selectedOnboardingDraftRef.version}{!activeOnboardingRef ? " · saved version needs review" : ""}</span><button type="button" onClick={() => { if (composerScope) onboardingUnlinkVersions.current.set(composerScope, (onboardingUnlinkVersions.current.get(composerScope) ?? 0) + 1); setSelectedOnboardingDraftRef(null); }} className="text-[var(--primary)]">Remove first-task goal link</button></div> : null}
                   {pendingOnboardingDraft ? <section role="alertdialog" aria-modal="false" aria-label="Replace unsent task" className="mx-3 mt-3 border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs text-[var(--fg)]"><p>Replace the unsent task with your saved first task draft?</p><div className="mt-2 flex gap-3"><button type="button" onClick={() => setPendingOnboardingDraft(null)}>Keep current task</button><button type="button" onClick={() => applyOnboardingDraft(pendingOnboardingDraft, true)}>Replace with saved draft</button></div></section> : null}
                   {conversationMode === "chat" && chat.messages.length > 0 ? (
                     <div className="flex justify-end px-3 sm:px-5 xl:px-8 pt-2">

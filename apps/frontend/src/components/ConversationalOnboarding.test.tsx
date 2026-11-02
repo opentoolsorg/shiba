@@ -40,16 +40,59 @@ function harness(options: { draft?: OnboardingDraft; fail?: (update: FirstRunPro
   return { Harness, updates, resume, refresh, dismiss, close, navigate, useDraft, legacy, configure, get server() { return server; } };
 }
 
+const waitForSetupReady = async () => { await waitFor(() => expect(screen.queryByText("Loading saved setup…")).toBeNull()); };
+
 const send = async (label: string, text: string) => {
+  await waitForSetupReady();
   fireEvent.change(screen.getByRole("textbox", { name: `Your answer: ${label}` }), { target: { value: text } });
   fireEvent.keyDown(screen.getByRole("textbox", { name: `Your answer: ${label}` }), { key: "Enter", ctrlKey: true });
   await waitFor(() => expect(screen.queryByText("Saving your setup…")).toBeNull());
 };
 
 describe("conversational first task setup", () => {
+  it("blocks draft changes, preparation, and navigation after the initial read fails until explicit recovery", async () => {
+    const h = harness({ draft: reviewDraft });
+    h.refresh.mockRejectedValueOnce(new Error("offline"));
+    render(<h.Harness />);
+    const create = screen.getByRole("button", { name: "Create first task draft" });
+    expect(create.hasAttribute("disabled")).toBe(true);
+    await screen.findByText("Saved setup could not be loaded. Retry before continuing.");
+    expect(create.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Edit brief" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Configure Research employee" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Skip setup" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(create);
+    fireEvent.click(screen.getByRole("button", { name: "Edit brief" }));
+    fireEvent.click(screen.getByRole("button", { name: "Configure Research employee" }));
+    expect(h.updates).toHaveLength(0);
+    expect(h.dismiss).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading setup" }));
+    await waitForSetupReady();
+    expect(create.hasAttribute("disabled")).toBe(false);
+    expect(h.refresh).toHaveBeenCalledTimes(2);
+    fireEvent.click(create);
+    await screen.findByRole("heading", { name: "First task draft saved" });
+    expect(h.updates).toHaveLength(1);
+  });
+
+  it("allows leaving without a mutation when initial setup cannot be read", async () => {
+    const h = harness();
+    h.resume.mockRejectedValueOnce(new Error("offline"));
+    render(<h.Harness />);
+    await screen.findByRole("alert");
+    expect(screen.getByRole("textbox", { name: "Your answer: Goal" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.submit(screen.getByRole("form", { name: "Setup answer composer" }));
+    fireEvent.click(screen.getByRole("button", { name: "A research brief with sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave without saving" }));
+    expect(h.close).toHaveBeenCalledOnce();
+    expect(h.updates).toHaveLength(0);
+    expect(h.dismiss).not.toHaveBeenCalled();
+  });
+
   it("saves chips and free answers into an honest transcript, then requires explicit draft creation", async () => {
     const h = harness();
     render(<h.Harness />);
+    await waitForSetupReady();
     fireEvent.click(screen.getByRole("button", { name: "A research brief with sources" }));
     await screen.findByRole("textbox", { name: "Your answer: Audience" });
     fireEvent.click(screen.getByRole("button", { name: "A customer" }));
@@ -84,17 +127,20 @@ describe("conversational first task setup", () => {
   it("retains unsent answers across remount, supports Back, and keeps account drafts separate", async () => {
     const h = harness();
     const view = render(<h.Harness />);
+    await waitForSetupReady();
     await send("Goal", "Prepare a sourced brief");
     await screen.findByRole("textbox", { name: "Your answer: Audience" });
     fireEvent.change(screen.getByRole("textbox", { name: "Your answer: Audience" }), { target: { value: "My pending audience" } });
     view.unmount();
     const resumed = render(<h.Harness />);
+    await waitForSetupReady();
     expect((screen.getByRole("textbox", { name: "Your answer: Audience" }) as HTMLTextAreaElement).value).toBe("My pending audience");
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await screen.findByRole("textbox", { name: "Your answer: Goal" });
     await waitFor(() => expect((screen.getByRole("textbox", { name: "Your answer: Goal" }) as HTMLTextAreaElement).value).toBe("Prepare a sourced brief"));
     resumed.unmount();
     render(<h.Harness account="owner-b" />);
+    await waitForSetupReady();
     expect((screen.getByRole("textbox", { name: "Your answer: Goal" }) as HTMLTextAreaElement).value).toBe("Prepare a sourced brief");
     expect(localStorage.getItem("shiba-composer-drafts-v1")).not.toContain('"onboarding:owner-b:audience"');
   });
@@ -104,6 +150,7 @@ describe("conversational first task setup", () => {
     let finish: (() => void) | undefined;
     h.dismiss.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
     render(<h.Harness />);
+    await waitForSetupReady();
     fireEvent.click(screen.getByRole("button", { name: "Review connections, then return" }));
     expect(h.navigate).not.toHaveBeenCalled();
     finish?.();
@@ -115,6 +162,7 @@ describe("conversational first task setup", () => {
     let attempts = 0;
     const h = harness({ fail: async () => { if (++attempts === 1) throw new OnboardingConflictError("Setup changed in another tab."); } });
     render(<h.Harness />);
+    await waitForSetupReady();
     await send("Goal", "Keep my answer");
     await screen.findByRole("alert");
     expect(h.updates).toHaveLength(1);
@@ -129,12 +177,14 @@ describe("conversational first task setup", () => {
     let finish: (() => void) | undefined;
     const h = harness({ draft: reviewDraft, fail: (update) => update.action === "prepare-task" ? new Promise<void>((resolve) => { finish = resolve; }) : Promise.resolve() });
     const view = render(<h.Harness />);
+    await waitForSetupReady();
     const create = screen.getByRole("button", { name: "Create first task draft" });
     fireEvent.click(create); fireEvent.click(create);
     expect(h.updates).toHaveLength(1); expect(h.useDraft).not.toHaveBeenCalled();
     await act(async () => { finish?.(); });
     await screen.findByRole("heading", { name: "First task draft saved" });
     view.unmount(); render(<h.Harness />);
+    await waitForSetupReady();
     expect(screen.getByRole("heading", { name: "First task draft saved" })).toBeTruthy();
     expect(h.updates.filter((body) => body.action === "prepare-task")).toHaveLength(1);
   });
@@ -142,6 +192,7 @@ describe("conversational first task setup", () => {
   it("starts with two roles and reveals alternatives through native details", async () => {
     const h = harness({ draft: { ...reviewDraft, currentStep: "employee" } });
     render(<h.Harness />);
+    await waitForSetupReady();
     expect(within(screen.getByRole("group", { name: "Suggested roles" })).getAllByRole("button")).toHaveLength(2);
     const details = screen.getByText("Other roles").closest("details");
     expect(details?.open).toBe(false);
@@ -155,6 +206,7 @@ describe("conversational first task setup", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ sources: [source, { ...source, id: `memsrc_${"2".repeat(24)}`, title: "Expired facts", expiresAt: 1 }, { ...source, id: `memsrc_${"3".repeat(24)}`, title: "Legacy note", ingestion: undefined, version: undefined }] }) })));
     const h = harness({ draft: { ...reviewDraft, currentStep: "context" } });
     const view = render(<h.Harness />);
+    await waitForSetupReady();
     const ready = await screen.findByRole("checkbox", { name: "Private facts · v3 · ready" });
     expect((screen.getByRole("checkbox", { name: /Expired facts/ }) as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole("checkbox", { name: /Legacy note/ }) as HTMLInputElement).disabled).toBe(true);
@@ -166,6 +218,7 @@ describe("conversational first task setup", () => {
     fireEvent.click(screen.getByRole("button", { name: "Upload or manage sources, then return" }));
     await waitFor(() => expect(h.navigate).toHaveBeenCalledWith("memory"));
     view.unmount(); render(<h.Harness />);
+    await waitForSetupReady();
     expect((screen.getByRole("textbox", { name: "Your answer: Context" }) as HTMLTextAreaElement).value).toBe("Unsent private facts");
     await screen.findByRole("checkbox", { name: "Private facts · v3 · ready", checked: true });
   });
@@ -173,6 +226,7 @@ describe("conversational first task setup", () => {
   it("offers explicit employee configuration and returns to a saved employee selection", async () => {
     const h = harness({ draft: { ...reviewDraft, preparedAt: 100 } });
     render(<h.Harness />);
+    await waitForSetupReady();
     fireEvent.click(screen.getByRole("button", { name: "Configure Research employee" }));
     await waitFor(() => expect(h.configure).toHaveBeenCalledWith("research"));
     expect(h.dismiss).toHaveBeenCalledOnce();
@@ -185,6 +239,7 @@ describe("conversational first task setup", () => {
   it("requires all three outcome answers and saves custom employee needs as unconfigured", async () => {
     const h = harness({ draft: { ...reviewDraft, currentStep: "employee", employeeTemplateId: null, employeeTemplateVersion: null } });
     render(<h.Harness />);
+    await waitForSetupReady();
     await send("Employee", "I need a translator");
     await screen.findByRole("textbox", { name: "Your answer: Context" });
     expect(h.server.draftTask?.employeeAnswer).toBe("I need a translator");
@@ -193,6 +248,7 @@ describe("conversational first task setup", () => {
     cleanup();
     const missing = harness({ draft: { ...reviewDraft, audience: "" } });
     render(<missing.Harness />);
+    await waitForSetupReady();
     expect(screen.getByRole("button", { name: "Create first task draft" }).hasAttribute("disabled")).toBe(true);
   });
 });

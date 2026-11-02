@@ -5,6 +5,9 @@ import { App } from "./app";
 import { ONBOARDING_DISMISSED_KEY } from "./components/AgentExperience";
 import { EMPLOYEE_TEMPLATES } from "./employee-templates";
 import { composerDraftScope, readDraft, writeDraft } from "./saved";
+import type { TaskComposerProps } from "./components/TaskComposer";
+import { EMPTY_ONBOARDING_DRAFT } from "./onboarding-draft";
+import { onboardingTaskText } from "@shiba/shared";
 
 const mocks = vi.hoisted(() => ({
   agent: { identified: true, readyState: 1, connectionError: null, addEventListener: vi.fn(), removeEventListener: vi.fn() },
@@ -29,7 +32,7 @@ vi.mock("./socket-liveness", () => ({ useSocketLiveness: vi.fn() }));
 vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
-vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task }: { task: string }) => <div data-testid="task-composer"><textarea aria-label="Task draft" value={task} readOnly /></div> }));
+vi.mock("./components/TaskComposer", () => ({ TaskComposer: (props: TaskComposerProps) => <form data-testid="task-composer" onSubmit={props.onSubmit}><textarea aria-label="Task draft" value={props.task} readOnly /><button type="button" onClick={() => { props.onRepoUrlChange("https://github.com/acme/repo"); props.onCustomAgentChange?.("research-agent"); }}>Choose configured employee</button><button type="submit">Send work</button></form> }));
 vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
 
 beforeEach(() => {
@@ -115,6 +118,43 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it.each([false, true])("keeps an explicitly removed goal unlinked after an older send fails (unlink=%s)", async (unlink) => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const template = EMPLOYEE_TEMPLATES.find((item) => item.id === "research")!;
+    const profile = { id: "research-agent", slug: template.slug, version: 1, config: { ...template.config, harness: "opencode", defaultRepoUrl: "https://github.com/acme/repo" } };
+    const draftTask = { ...EMPTY_ONBOARDING_DRAFT, version: 1, goal: "Prepare a grounded brief", audience: "My team", acceptance: "Cite supplied facts", preparedAt: 1, employeeId: profile.id, employeeVersion: 1 };
+    const draftTaskId = "draft_00000000-0000-4000-8000-000000000001";
+    const text = onboardingTaskText(draftTask);
+    writeDraft(composerDraftScope("test-operator", "default"), text, { draftTaskId, version: 1 });
+    let finish!: (response: Response) => void;
+    const queueRun = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "better-auth" });
+      if (path === "/api/custom-agents") return Response.json({ agents: [profile] });
+      if (path === "/api/onboarding/progress") return Response.json({ draftTaskId, draftTask, activatedAt: null, dismissedAt: null, revision: 1 });
+      if (path.startsWith("/api/runs") && options?.method === "POST") return queueRun();
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByRole("button", { name: "Use first task draft" });
+    fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose configured employee" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send work" }));
+    await waitFor(() => expect(queueRun).toHaveBeenCalledOnce());
+    // The sent brief cleared. Restore it while the request is pending, then
+    // remove its goal link explicitly before the old request settles.
+    fireEvent.click(screen.getByRole("button", { name: "Use first task draft" }));
+    await screen.findByRole("group", { name: "Selected first-task goal" });
+    if (unlink) fireEvent.click(screen.getByRole("button", { name: "Remove first-task goal link" }));
+    await act(async () => finish(Response.json({ error: "offline" }, { status: 503 })));
+    await screen.findByText("Run could not be queued: offline");
+    expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe(text);
+    expect(Boolean(screen.queryByRole("group", { name: "Selected first-task goal" }))).toBe(!unlink);
+  });
+
   it("opens /?prompt=x in Threads with the prompt visible", async () => {
     window.history.replaceState(null, "", "/?prompt=x");
     render(<App />);

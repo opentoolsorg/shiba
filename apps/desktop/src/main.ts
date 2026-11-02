@@ -39,6 +39,7 @@ import {
 import type { DesktopSupervisor } from "./pairing.js";
 import { emitStatusChanged, registerDesktopIpc } from "./pairing.js";
 import { handleDaemonMessage } from "./run-notify.js";
+import { createQuitHandler } from "./quit.js";
 import type { Env } from "./shell-env.js";
 import { captureShellEnv } from "./shell-env.js";
 import { registerShellIpc } from "./shell-ipc.js";
@@ -82,7 +83,6 @@ let mainLog: Logger | null = null;
 let daemonLog: Logger | null = null;
 let shellEnv: Env = {};
 let runRoot = path.join(os.homedir(), ".shiba-local");
-let shutdownStarted = false;
 let diffPatch = "";
 let diffWindow: BrowserWindow | null = null;
 let desktopActions: ReturnType<typeof registerDesktopIpc> | null = null;
@@ -614,10 +614,9 @@ async function initIntegrations(): Promise<void> {
 }
 
 /** Quit stops the daemon first; a mid-run quit asks, since the run gets reported failed. */
-function onBeforeQuit(event: Electron.Event): void {
-  if (shutdownStarted) return;
-  event.preventDefault();
-  if (controller && shouldConfirmQuit(controller.status().state)) {
+const onBeforeQuit = createQuitHandler({
+  confirm: () => {
+    if (!controller || !shouldConfirmQuit(controller.status().state)) return true;
     const choice = dialog.showMessageBoxSync({
       type: "warning",
       message: "A local run is in progress.",
@@ -626,19 +625,24 @@ function onBeforeQuit(event: Electron.Event): void {
       defaultId: 1,
       cancelId: 1,
     });
-    if (choice !== 0) return;
-  }
-  shutdownStarted = true;
-  quitting = true;
-  poller?.stop();
-  void (controller?.stop() ?? Promise.resolve()).finally(() => {
+    return choice === 0;
+  },
+  stop: async () => {
+    quitting = true;
+    poller?.stop();
+    await controller?.stop();
+  },
+  cleanup: () => {
     controller?.dispose();
     tray?.destroy();
+  },
+  quit: () => {
     // Finish Electron's normal shutdown so renderer storage and session cookies
     // are flushed. app.exit() can discard a just-written unsent draft.
     app.quit();
-  });
-}
+  },
+  onError: (error) => log(`daemon shutdown failed: ${error instanceof Error ? error.message : String(error)}`),
+});
 
 function registerProtocol(): void {
   if (!app.isPackaged) return;
