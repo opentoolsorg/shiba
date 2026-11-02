@@ -8,6 +8,7 @@ import {
   approvalCardText,
   buildApprovalBlocks,
   buildApprovalValue,
+  buildEmployeeToolApprovalBlocks,
   buildEmployeeToolApprovalValue,
   handleSlackInteract,
   isApprover,
@@ -190,7 +191,36 @@ describe("buildApprovalBlocks", () => {
     const headline = (blocks[0] as { text: { text: string } }).text.text;
     expect(headline).not.toContain("<!channel>");
     expect(headline).toContain("&lt;!channel&gt;");
-    expect(headline.length).toBeLessThan(3000);
+    expect(headline.length).toBeLessThanOrEqual(3000);
+  });
+
+  it("shows the complete frozen task within section limits after mrkdwn escaping expands it", () => {
+    const task = `${"<&>😀".repeat(650)} final instruction`;
+    const input = { repoUrl: "https://github.com/owner/repo", task, threadKey: "slack:T:C:123.456", approvalId: "appr_expansion", harness: "codex" };
+    const blocks = buildApprovalBlocks(input) as Array<{ type: string; text?: { text: string }; elements?: Array<{ value?: string }> }>;
+    const sections = blocks.filter((block) => block.type === "section").map((block) => block.text?.text ?? "");
+    expect(sections.length).toBeGreaterThan(1);
+    for (const section of sections) {
+      expect(section.length).toBeLessThanOrEqual(3000);
+      expect(section).not.toMatch(/&(?:a|am|amp|l|lt|g|gt)?$/);
+    }
+    const visible = sections.join("").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    expect(visible).toContain(`*Task:* ${task}`);
+    expect(visible).toContain("*Agent:* codex");
+    const actions = blocks.find((block) => block.type === "actions");
+    expect(actions?.elements?.map((button) => button.value)).toEqual([buildApprovalValue(input), buildApprovalValue(input)]);
+    expect(input.task).toBe(task);
+    expect(blocks.length).toBeLessThanOrEqual(50);
+  });
+
+  it("bounds employee approval preview sections after escaping", () => {
+    const blocks = buildEmployeeToolApprovalBlocks({
+      threadKey: "slack:T:C:123.456", approvalId: "appr_tool", employeeId: "employee", orgId: "self-hosted",
+      tool: "records.update", employeeLabel: "Researcher", payloadPreview: "&".repeat(2500),
+    }) as Array<{ type: string; text?: { text: string } }>;
+    const sections = blocks.filter((block) => block.type === "section");
+    expect(sections.length).toBeGreaterThan(1);
+    expect(sections.every((section) => (section.text?.text.length ?? 0) <= 3000)).toBe(true);
   });
 
   it("renders the megaplan's email-kind copy — agent requests the send", () => {

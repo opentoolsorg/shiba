@@ -22,6 +22,8 @@ import { runInputHash } from "@shiba/shared";
 import { deliverableStorageKey, persistRunDeliverables, verifyExpectedDeliverables } from "../src/run-deliverables.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
+import { handleSlackEvent, type SlackMentionDeps } from "../src/slack-mention.js";
+import { buildApprovalValue, handleSlackInteract, parseApprovalValue } from "../src/slack-approval.js";
 
 const REPO = "https://github.com/o/r";
 const TOKEN = "ghp_testtoken12345678";
@@ -281,6 +283,103 @@ beforeEach(() => {
 });
 
 describe("Phase 1 core loop (integration)", () => {
+  it("runs a mocked same-thread Slack mention, approval, PR result, follow-up, and denial", async () => {
+    const github = createMockGitHubFetch();
+    const messages: Array<{ channel: string; thread_ts: string; text: string; blocks?: unknown[] }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "https://slack.com/api/chat.postMessage") {
+        const message = JSON.parse(String(init?.body));
+        messages.push(message);
+        return Response.json({ ok: true, channel: message.channel, ts: "1758217492.000300" });
+      }
+      return github.fetchImpl(input, init);
+    }));
+    wireFakeHarness(github);
+    const threadKey = "slack:T1:C1:1758217392.000100";
+    const slackEnv = env({
+      AI_GATEWAY_TOKEN: undefined,
+      SHIBA_VERIFY_STANDIN: "1",
+      SLACK_BOT_TOKEN: "xoxb-fixture",
+      SLACK_SIGNING_SECRET: "fixture-signing-secret",
+      SLACK_APPROVERS: "U1",
+      SLACK_AGENT_HARNESS: "codex",
+    });
+    const instance = Object.assign(agent(slackEnv), { name: threadKey });
+    const queueRun: NonNullable<SlackMentionDeps["queueRun"]> = async (input) => {
+      const response = await instance.onRequest(new Request("https://internal/api/runs", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...input, source: "slack", publishPullRequest: true }),
+      }));
+      expect(response.status).toBe(200);
+      return response.json() as Promise<{ approvalId: string }>;
+    };
+    const mention = (text: string, ts: string) => ({
+      type: "event_callback" as const, event_id: `event:${ts}`, team_id: "T1",
+      event: { type: "app_mention", user: "U1", channel: "C1", thread_ts: "1758217392.000100", ts, text },
+    });
+    const mentionDeps: SlackMentionDeps = {
+      queueRun,
+      postMessage: async ({ threadTs, ...message }) => { messages.push({ ...message, thread_ts: threadTs }); },
+      fetchThread: async () => [{ user: "U1", text: `Add a README ${REPO}`, ts: 1758217392.000100 }],
+    };
+    const decide = async (card: typeof messages[number], approved: boolean) => {
+      const blocks = card.blocks as Array<{ type: string; elements?: Array<{ value: string }> }>;
+      const value = blocks.find((block) => block.type === "actions")?.elements?.[0]?.value;
+      expect(value).toBeDefined();
+      if (!value) throw new Error("Expected an actionable Slack approval card.");
+      const pointer = parseApprovalValue(value);
+      const payload = {
+        type: "block_actions", user: { id: "U1" },
+        actions: [{ action_id: approved ? "approve" : "reject", value: buildApprovalValue(pointer) }],
+        response_url: "https://hooks.slack.com/actions/T1/B1/fixture",
+        message: { blocks: card.blocks },
+      };
+      const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(slackEnv.SLACK_SIGNING_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`v0:${timestamp}:${body}`));
+      const signature = `v0=${Array.from(new Uint8Array(mac), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+      const replaceCard = vi.fn(async (_url: string, _body: Record<string, unknown>) => {});
+      const response = await handleSlackInteract(new Request("https://internal/api/slack/interact", {
+        method: "POST", headers: { "x-slack-request-timestamp": timestamp, "x-slack-signature": signature }, body,
+      }), slackEnv, {
+        orchestratorStub: { fetch: (request) => instance.onRequest(request) },
+        respond: async (_url, text) => { throw new Error(`Unexpected interaction failure: ${text}`); },
+        replaceCard,
+      });
+      expect(response?.status).toBe(200);
+      expect(replaceCard).toHaveBeenCalledOnce();
+      const replacement = replaceCard.mock.calls[0]?.[1];
+      expect(JSON.stringify(replacement)).toContain(approved ? "Approved" : "Rejected");
+      expect(JSON.stringify(replacement)).not.toContain('"type":"actions"');
+      return pointer;
+    };
+    try {
+      await handleSlackEvent(mention(`<@U0> Add a README ${REPO}`, "1758217392.000100"), slackEnv, mentionDeps);
+      expect(messages).toHaveLength(1);
+      expect(mocks.execute).not.toHaveBeenCalled();
+      const firstCard = messages[0];
+      if (!firstCard) throw new Error("Expected an initial Slack approval card.");
+      const first = await decide(firstCard, true);
+      await vi.waitFor(() => expect(instance.state.runs.find((run) => run.runId === `agent-tool:${first.approvalId}`)?.status).toBe("completed"));
+      await vi.waitFor(() => expect(messages.some((message) => message.text.includes(PULL_URL))).toBe(true));
+      expect(messages.some((message) => message.text.includes("is starting"))).toBe(true);
+      expect(mocks.execute).toHaveBeenCalledOnce();
+
+      await handleSlackEvent(mention("<@U0> Now add a regression test", "1758217592.000100"), slackEnv, mentionDeps);
+      const followup = messages.at(-1);
+      if (!followup) throw new Error("Expected a follow-up Slack approval card.");
+      expect(JSON.stringify(followup.blocks)).toContain("Now add a regression test");
+      expect(JSON.stringify(followup.blocks)).toContain("Add a README");
+      const denied = await decide(followup, false);
+      expect(instance.state.pendingApprovals?.find((approval) => approval.approvalId === denied.approvalId)?.status).toBe("rejected");
+      expect(mocks.execute).toHaveBeenCalledOnce();
+      expect(messages.every((message) => message.channel === "C1" && message.thread_ts === "1758217392.000100")).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("rejects a disabled computer deployment instead of freezing sandbox approval", async () => {
     const instance = agent({ RUNTIME: "computer", SHIBA_VERIFY_STANDIN: "1" });
     const queued = await instance.onRequest(new Request("https://internal/api/runs", {

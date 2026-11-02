@@ -77,9 +77,25 @@ export function slackAck(input: { repoUrl?: string; harness?: string; employeeLa
   return `on it — queued ${agentPhrase(input.harness)} run for ${target}. tap approve and i'll start.`;
 }
 
-/** Queueing itself failed before any run existed. */
-export function slackQueueFailed(): string {
-  return "couldn't queue that one — try again in a sec, or hit me with /shiba.";
+export type SlackQueueFailure = "github_not_configured" | "provider_not_configured" | "setup" | "unavailable";
+
+/** Queueing itself failed; only closed, operator-safe setup hints are echoed. */
+export function slackQueueFailed(reason: SlackQueueFailure = "unavailable"): string {
+  if (reason === "github_not_configured") {
+    return "couldn't queue that task — GitHub publishing isn't configured. ask the installation administrator to configure GitHub access in Setup Guide, then retry.";
+  }
+  if (reason === "provider_not_configured") {
+    return "couldn't queue that task — AI Gateway isn't configured for the selected coding agent. ask the installation administrator to configure a provider in Setup Guide, then retry.";
+  }
+  if (reason === "setup") {
+    return "couldn't queue that task — its settings or execution route aren't ready. check Setup Guide and Providers before retrying.";
+  }
+  return "couldn't reach the task queue. check its status with the installation administrator before retrying.";
+}
+
+/** A queue receipt exists even when Slack did not confirm the first card POST. */
+export function slackApprovalDeliveryUnconfirmed(): string {
+  return "your task is queued for approval, but Slack didn't confirm the first card delivery. this card uses the same approval — check this thread before sending the task again.";
 }
 
 /** Run admitted and the container is starting. */

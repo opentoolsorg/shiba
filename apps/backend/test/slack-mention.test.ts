@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { getAgentByName } from "agents/routing";
 import { handleSlackEvent, type SlackMentionDeps } from "../src/slack-mention.js";
 import type { SlackEventCallbackBody } from "../src/slack-events.js";
 import { escapeMrkdwn } from "../src/slack-approval.js";
 
 const REPO = "https://github.com/owner/repo";
 const THREAD = "slack:T1:C1:1758217392.000100";
+
+vi.mock("agents/routing", () => ({ getAgentByName: vi.fn() }));
 
 type QueueRun = NonNullable<SlackMentionDeps["queueRun"]>;
 type PostMessage = NonNullable<SlackMentionDeps["postMessage"]>;
@@ -74,6 +77,114 @@ describe("slack mention dispatch", () => {
     const asked = postMessage.mock.calls.at(0)?.at(0);
     expect(asked?.text).toMatch(/which repo/i);
     expect(asked?.blocks).toBeUndefined();
+  });
+
+  it("keeps a second request when the fetched thread has not caught up to its event", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_followup" }));
+    const postMessage = vi.fn<PostMessage>(async () => {});
+    await handleSlackEvent(
+      mention({ thread_ts: "1758217392.000100", ts: "1758217492.000200", text: "<@U0> now add a regression test" }),
+      env(),
+      {
+        queueRun,
+        postMessage,
+        fetchThread: async () => [{ user: "U1", text: `fix the login ${REPO}`, ts: 1758217392.000100 }],
+      },
+    );
+    const queued = queueRun.mock.calls.at(0)?.at(0);
+    expect(queued).toMatchObject({ threadKey: THREAD, repoUrl: REPO });
+    expect(queued?.task).toContain("fix the login");
+    expect(queued?.task).toContain("now add a regression test");
+    expect(queued?.task).toContain("1758217492.0002");
+    expect(postMessage.mock.calls.at(0)?.at(0)).toMatchObject({ channel: "C1", threadTs: "1758217392.000100" });
+  });
+
+  it("includes the current request once when the fetched thread already contains it", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_followup" }));
+    const text = `<@U0> add a regression test ${REPO}`;
+    await handleSlackEvent(
+      mention({ thread_ts: "1758217392.000100", ts: "1758217492.000200", text }),
+      env(),
+      {
+        queueRun,
+        postMessage: async () => {},
+        fetchThread: async () => [
+          { user: "U1", text: "fix the login", ts: 1758217392.000100 },
+          { user: "U1", text, ts: 1758217492.000200 },
+        ],
+      },
+    );
+    expect(queueRun.mock.calls.at(0)?.at(0)?.task.match(/add a regression test/g)).toHaveLength(1);
+  });
+
+  it("timestamps a reply by its own event when fetching context fails", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_followup" }));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await handleSlackEvent(
+        mention({ thread_ts: "1758217392.000100", ts: "1758217492.000200" }),
+        env(),
+        { queueRun, postMessage: async () => {}, fetchThread: async () => { throw new Error("missing_scope"); } },
+      );
+      expect(queueRun.mock.calls.at(0)?.at(0)?.task).toContain("1758217492.0002");
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("retries an unconfirmed approval card with the same pointer and never queues twice", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_delivery" }));
+    const postMessage = vi.fn<PostMessage>()
+      .mockRejectedValueOnce(new Error("connection reset"))
+      .mockResolvedValueOnce(undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await handleSlackEvent(mention(), env(), { queueRun, postMessage, fetchThread: async () => [] });
+      expect(queueRun).toHaveBeenCalledOnce();
+      expect(postMessage).toHaveBeenCalledTimes(2);
+      const [first, retried] = postMessage.mock.calls.map(([message]) => message);
+      expect(retried).toMatchObject({ channel: "C1", threadTs: "1758217392.000100", blocks: first?.blocks });
+      expect(retried?.text).toContain("queued for approval");
+      expect(retried?.text).not.toContain("couldn't queue");
+      expect(JSON.stringify(retried?.blocks)).toContain("appr_delivery");
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("bounds failed card delivery attempts without minting another approval", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_delivery" }));
+    const postMessage = vi.fn<PostMessage>(async () => { throw new Error("Slack unavailable"); });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(handleSlackEvent(mention(), env(), { queueRun, postMessage, fetchThread: async () => [] })).rejects.toThrow("Slack unavailable");
+      expect(queueRun).toHaveBeenCalledOnce();
+      expect(postMessage).toHaveBeenCalledTimes(2);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it.each([
+    ["publishPullRequest was requested but GITHUB_TOKEN is not configured.", "GitHub publishing isn't configured"],
+    ["AI Gateway is not configured (AI_GATEWAY_TOKEN is unset). Add a gateway token.", "AI Gateway isn't configured"],
+    ["Private upstream error with ghp_sensitiveProviderToken12345", "check Setup Guide and Providers"],
+  ])("reports a safe setup hint for queue rejection: %s", async (reason, expected) => {
+    const fetch = vi.fn(async () => Response.json({ error: reason }, { status: 400 }));
+    vi.mocked(getAgentByName).mockResolvedValueOnce({ fetch } as never);
+    const postMessage = vi.fn<PostMessage>(async () => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await handleSlackEvent(mention(), env(), { postMessage, fetchThread: async () => [] });
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(postMessage).toHaveBeenCalledOnce();
+      const message = postMessage.mock.calls[0]?.[0];
+      expect(message?.text).toContain(expected);
+      expect(message?.text).not.toContain("ghp_sensitiveProviderToken12345");
+      expect(message?.blocks).toBeUndefined();
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("starts no run and posts nothing when SLACK_BOT_TOKEN is empty", async () => {

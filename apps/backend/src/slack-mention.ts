@@ -16,9 +16,11 @@ import {
 import type { SlackEventCallbackBody } from "./slack-events.js";
 import {
   slackAck,
+  slackApprovalDeliveryUnconfirmed,
   slackAskForRepo,
   slackAskForTask,
   slackQueueFailed,
+  type SlackQueueFailure,
 } from "./slack-persona.js";
 import {
   buildSlackRunPayload,
@@ -33,6 +35,19 @@ import {
 } from "./chat-employee.js";
 
 const SLACK_REPLIES = "https://slack.com/api/conversations.replies";
+
+/** A rejected queue response carries a safe category, never an upstream body. */
+class SlackQueueRejectedError extends Error {
+  constructor(readonly reason: SlackQueueFailure) {
+    super("The orchestrator rejected the Slack task queue request.");
+  }
+}
+
+function queueFailureReason(status: number, error: unknown): SlackQueueFailure {
+  if (error === "publishPullRequest was requested but GITHUB_TOKEN is not configured.") return "github_not_configured";
+  if (typeof error === "string" && error.startsWith("AI Gateway is not configured (AI_GATEWAY_TOKEN is unset).")) return "provider_not_configured";
+  return (status >= 400 && status < 500) || status === 501 ? "setup" : "unavailable";
+}
 
 export interface SlackMentionQueueResult {
   approvalId: string;
@@ -239,20 +254,28 @@ export async function handleSlackEvent(
   // No bot token: cannot ask or post a card, so start no run.
   if (!postMessage) return;
 
-  let threadMessages: SlackThreadMessage[] = [{
+  const currentMessage: SlackThreadMessage = {
     user: userId || "unknown",
     text: mentionText,
-    ts: Number(threadTs),
-  }];
+    ts: Number(resolveThreadTs({ ts: event.ts }) ?? threadTs),
+  };
+  let threadMessages: SlackThreadMessage[] = [];
   const fetchThread = deps.fetchThread ?? (token ? (ch: string, ts: string) => defaultFetchThread(token, ch, ts) : undefined);
   if (fetchThread) {
     try {
       const fetched = await fetchThread(channelId, threadTs);
-      if (fetched.length > 0) threadMessages = fetched;
+      threadMessages = fetched;
     } catch (error) {
       console.error("Slack thread fetch failed", redactSecrets(String(error)));
     }
   }
+  // conversations.replies can lag behind the Events API (or return an older
+  // page). Keep the signed request even then; otherwise a follow-up silently
+  // queues the previous task. Replace its fetched copy to avoid duplicate asks.
+  threadMessages = [
+    ...threadMessages.filter((message) => message.ts !== currentMessage.ts),
+    currentMessage,
+  ].sort((a, b) => a.ts - b.ts);
 
   const resolution = resolveSlackRepo({
     mentionText,
@@ -369,44 +392,58 @@ ${taskForRun}` : taskForRun;
           body: JSON.stringify({ ...payload, threadKey: input.threadKey }),
         }),
       );
-      if (!queued.ok) throw new Error(`Queue failed (${queued.status}).`);
-      const queuedBody = (await queued.json().catch(() => ({}))) as { approvalId?: string };
+      const queuedBody = (await queued.json().catch(() => ({}))) as { approvalId?: string; error?: unknown };
+      if (!queued.ok) throw new SlackQueueRejectedError(queueFailureReason(queued.status, queuedBody.error));
       if (!queuedBody.approvalId) throw new Error("Orchestrator did not return an approval id.");
       return { approvalId: queuedBody.approvalId };
     });
 
+  let approvalId: string;
   try {
-    const { approvalId } = await queueRun({
+    ({ approvalId } = await queueRun({
       threadKey,
       repoUrl,
       task: payload.task,
       channelId,
       userId,
       harness,
-    });
-    await postMessage({
-      channel: channelId,
-      threadTs,
-      text: slackAck({
-        repoUrl: repoUrl || undefined,
-        harness,
-        ...(employeeExtras?.ok ? { employeeLabel: employeeExtras.extras.employeeLabel } : {}),
-      }),
-      blocks: buildApprovalBlocks({
-        threadKey,
-        approvalId,
-        repoUrl: repoUrl || "(artifact workspace)",
-        task: payload.task,
-        harness,
-        ...(employeeExtras?.ok ? { employeeLabel: employeeExtras.extras.employeeLabel } : {}),
-      }),
-    });
+    }));
   } catch (error) {
-    console.error("Slack mention dispatch failed", redactSecrets(String(error)));
+    console.error("Slack mention queue failed", redactSecrets(String(error)));
     await postMessage({
       channel: channelId,
       threadTs,
-      text: slackQueueFailed(),
+      text: slackQueueFailed(error instanceof SlackQueueRejectedError ? error.reason : "unavailable"),
+    });
+    return;
+  }
+  const card = {
+    channel: channelId,
+    threadTs,
+    text: slackAck({
+      repoUrl: repoUrl || undefined,
+      harness,
+      ...(employeeExtras?.ok ? { employeeLabel: employeeExtras.extras.employeeLabel } : {}),
+    }),
+    blocks: buildApprovalBlocks({
+      threadKey,
+      approvalId,
+      repoUrl: repoUrl || "(artifact workspace)",
+      task: payload.task,
+      harness,
+      ...(employeeExtras?.ok ? { employeeLabel: employeeExtras.extras.employeeLabel } : {}),
+    }),
+  };
+  try {
+    await postMessage(card);
+  } catch (error) {
+    console.error("Slack mention approval card delivery unconfirmed", redactSecrets(String(error)));
+    // One bounded delivery retry reuses the minted pointer. A transport error
+    // can mean the first card landed; both copies then resolve the same approval
+    // rather than minting a second hidden task or falsely reporting queue failure.
+    await postMessage({
+      ...card,
+      text: slackApprovalDeliveryUnconfirmed(),
     });
   }
 }

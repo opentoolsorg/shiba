@@ -135,12 +135,28 @@ export function escapeMrkdwn(text: string): string {
     .replace(/>/g, "&gt;");
 }
 
-// Slack rejects a section over 3000 chars; the full task stays on the dashboard card.
+// Keep the plain-text notification preview concise. Blocks below show the full
+// run task across bounded sections, including expansion from mrkdwn escaping.
 const CARD_TASK_LIMIT = 2500;
 function clipTask(task: string): string {
   return task.length <= CARD_TASK_LIMIT
     ? task
     : `${task.slice(0, CARD_TASK_LIMIT)}… (${task.length - CARD_TASK_LIMIT} more chars, full task on the dashboard)`;
+}
+
+/** Split escaped mrkdwn without cutting an entity or a Unicode code point. */
+function sectionBlocks(text: string): Array<{ type: "section"; text: { type: "mrkdwn"; text: string } }> {
+  const sections: string[] = [];
+  let current = "";
+  for (const [token] of text.matchAll(/&(?:amp|lt|gt);|[\s\S]/gu)) {
+    if (current.length + token.length > 3000) {
+      sections.push(current);
+      current = "";
+    }
+    current += token;
+  }
+  if (current) sections.push(current);
+  return sections.map((section) => ({ type: "section", text: { type: "mrkdwn", text: section } }));
 }
 
 /**
@@ -182,18 +198,12 @@ export function buildApprovalBlocks(input: ApprovalCardInput): unknown[] {
     : "";
   const headline = isEmail
     ? `*${escapeMrkdwn(input.agent ?? input.repoUrl)}* requests ${escapeMrkdwn(input.task)}`
-    : `*Approval requested*\n*Repo:* ${escapeMrkdwn(input.repoUrl)}\n*Task:* ${escapeMrkdwn(clipTask(input.task))}` +
+    : `*Approval requested*\n*Repo:* ${escapeMrkdwn(input.repoUrl)}\n*Task:* ${escapeMrkdwn(input.task)}` +
         (input.employeeLabel ? `\n*Bot:* ${escapeMrkdwn(input.employeeLabel)}` : "") +
         (input.harness ? `\n*Agent:* ${escapeMrkdwn(input.harness)}` : "") +
         testCommand;
   return [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: headline,
-      },
-    },
+    ...sectionBlocks(headline),
     {
       type: "context",
       elements: [{
@@ -276,7 +286,7 @@ export function buildEmployeeToolApprovalBlocks(input: {
     `*Employee action approval*\n*Bot:* ${escapeMrkdwn(input.employeeLabel)}\n*Tool:* ${escapeMrkdwn(input.tool)}\n` +
     `*Payload:* ${escapeMrkdwn(clipTask(input.payloadPreview))}`;
   return [
-    { type: "section", text: { type: "mrkdwn", text: headline } },
+    ...sectionBlocks(headline),
     {
       type: "context",
       elements: [{
