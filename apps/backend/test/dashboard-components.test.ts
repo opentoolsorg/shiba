@@ -93,7 +93,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain("Quick Setup &amp; Onboarding");
     expect(html).toContain("Connect GitHub");
     expect(html).toContain("Connect Sandbox Runner");
-    expect(html).toContain("Connect Model Keys");
+    expect(html).toContain("Connect a Model");
     expect(html).toContain("Mark as Completed ✓");
     expect(html).toContain("Operator &amp; Self-Hosting Setup");
     expect(html).toContain("Open Inbox Setup");

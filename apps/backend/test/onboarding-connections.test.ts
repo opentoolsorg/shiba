@@ -19,7 +19,7 @@ describe("OnboardingModal component tests", () => {
 
     expect(html).toContain("Connect GitHub");
     expect(html).toContain("Connect Sandbox Runner");
-    expect(html).toContain("Connect Model Keys");
+    expect(html).toContain("Connect a Model");
     expect(html).toContain("Test Runner");
     expect(html).toContain("Save Runner");
     expect(html).toContain("cursor-not-allowed");

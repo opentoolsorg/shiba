@@ -65,12 +65,15 @@ try {
   page.setDefaultTimeout(navigationTimeout);
   page.setDefaultNavigationTimeout(navigationTimeout);
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
-  const skip = page.getByRole("button", { name: "Skip setup" });
-  const work = page.getByRole("tab", { name: "Work", exact: true });
-  await skip.or(work).first().waitFor({ timeout: 30000 });
+  const skip = page.getByRole("button", { name: "Skip for now", exact: true });
+  const work = page.getByRole("button", { name: "Work", exact: true }).first();
+  await work.waitFor({ timeout: 30000 });
   if (await skip.isVisible()) await skip.click();
   await work.click();
+  await page.getByRole("button", { name: "New task", exact: true }).click();
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
   await page.getByLabel("Task composer").waitFor({ timeout: 30000 });
+  result.composerOpenedVia = "Work navigation → New task → Work mode";
   await shot("01-app");
   await page.getByLabel("Task description").fill("verify-shiba: describe the README in one sentence");
   await page.getByLabel(/^Project:/).click();
@@ -100,6 +103,11 @@ try {
     process.env.VERIFY_USE_RUNS_API === "1" ||
     process.env.VERIFY_ENABLE_CONTAINERS === "0";
   if (useRunsApi) {
+    // The local API seam queues the implicit default conversation. New task
+    // created a named thread above, so switch through the UI before using it.
+    const everything = page.getByRole("button", { name: "Everything", exact: true }).first();
+    if ((await everything.getAttribute("aria-expanded")) !== "true") await everything.click();
+    await page.getByRole("option", { name: /^Default Session/ }).click();
     const commandId = crypto.randomUUID();
     const queueRes = await page.request.post(`http://127.0.0.1:${port}/api/runs`, {
       data: {
@@ -189,7 +197,8 @@ try {
           // Wait before mounting the read-once findings panel; no synthetic chat messages.
           await pollCodingRunComplete(port, result.codingRunId);
           const round = await pollReviewRoundTerminal(port, result.codingRunId);
-          if (round.status !== "posted") throw new Error(`review round ${round.status}`);
+          writeFileSync(join(outDir, "review-round.json"), JSON.stringify(round, null, 2));
+          if (round.status !== "posted") throw new Error(`review round ${round.status}: ${round.error ?? "no detail"}`);
           // A legacy ?run= deep link forces Dashboard even with ?tab=diff.
           await page.goto(new URL("/diff/", url).href, { waitUntil: "domcontentloaded" });
           await page.getByLabel("Select run for diff inspection").selectOption(result.codingRunId);
@@ -197,8 +206,9 @@ try {
           await findings.waitFor({ timeout: 120_000 });
           result.reviewFindingsVisible = true;
           await shot("06-review-findings");
-        } catch {
+        } catch (error) {
           result.reviewFindingsVisible = false;
+          result.reviewFindingsError = error instanceof Error ? error.message : String(error);
         }
       } else {
         await page.waitForTimeout(4000);

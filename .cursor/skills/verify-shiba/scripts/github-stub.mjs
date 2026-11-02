@@ -42,11 +42,18 @@ const server = createServer((req, res) => {
     calls.push({ method: req.method, url, body: body.slice(0, 4000) });
     save();
     res.setHeader("content-type", "application/json");
+    if (req.method === "GET" && url === "/user") {
+      res.end(JSON.stringify({ id: 1, login: "shiba-verify" }));
+      return;
+    }
     if (req.method === "POST" && /\/pulls\/\d+\/reviews$/.test(url)) {
+      const payload = JSON.parse(body);
       const review = {
         id: reviews.length + 1,
         html_url: "https://github.com/mock/repo/pull/1#review-1",
-        body,
+        body: payload.body,
+        user: { login: "shiba-verify" },
+        commit_id: payload.commit_id,
         state: "COMMENTED",
       };
       reviews.push(review);

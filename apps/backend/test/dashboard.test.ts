@@ -307,7 +307,7 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Quick Setup &amp; Onboarding");
     expect(markup).toContain("Connect GitHub");
     expect(markup).toContain("Connect Sandbox Runner");
-    expect(markup).toContain("Connect Model Keys");
+    expect(markup).toContain("Connect a Model");
     expect(markup).toContain("Operator &amp; Self-Hosting Setup");
     expect(markup).toContain('role="checkbox"');
   });

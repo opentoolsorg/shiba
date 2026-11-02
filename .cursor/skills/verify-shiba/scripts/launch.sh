@@ -65,6 +65,20 @@ RUN_ENV="$VERIFY_DIR/run.env"
     printf 'SHIBA_VERIFY_STANDIN=%s\n' "$STANDIN"
   } > "$RUN_ENV"
 )
+if [ "$STANDIN" = 1 ]; then
+  # Child dispatch still authenticates in mock mode. Give this isolated run an
+  # ephemeral signing key when no operator key is configured; never touch .dev.vars.
+  node - "$RUN_ENV" <<'JS'
+const fs = require("node:fs");
+const { randomBytes } = require("node:crypto");
+const file = process.argv[2];
+const configured = fs.readFileSync(file, "utf8").split(/\r?\n/).some((line) => {
+  const match = line.match(/^(INTERNAL_SIGNING_KEY|MODEL_CREDENTIAL_KEY)=(.*)$/);
+  return match && match[2].trim().replace(/^(["'])(.*)\1$/, "$2").trim().length > 0;
+});
+if (!configured) fs.appendFileSync(file, `INTERNAL_SIGNING_KEY=${randomBytes(32).toString("hex")}\n`);
+JS
+fi
 if [ -n "${VERIFY_PLAN_ONLY:-}" ]; then
   echo plan-only
   exit 0

@@ -52,7 +52,7 @@ type Plan = {
   env: Map<string, string>;
 };
 
-function plan(opts: { docker: "ok" | "fail"; vars: Record<string, string | undefined> }): Plan {
+function plan(opts: { docker: "ok" | "fail"; vars: Record<string, string | undefined>; signingVars?: string }): Plan {
   const dir = mkdtempSync(join(tmpdir(), "verify-launch-"));
   const verifyDir = join(dir, "verify");
   const devVars = join(dir, "dev.vars");
@@ -61,7 +61,7 @@ function plan(opts: { docker: "ok" | "fail"; vars: Record<string, string | undef
   chmodSync(join(dir, "docker"), 0o755);
   writeFileSync(
     devVars,
-    "GITHUB_TOKEN=real-live-token\nGITHUB_API_BASE=http://127.0.0.1:1\nSHIBA_VERIFY_STANDIN=1\nOTHER=keep\n",
+    "GITHUB_TOKEN=real-live-token\nGITHUB_API_BASE=http://127.0.0.1:1\nSHIBA_VERIFY_STANDIN=1\nOTHER=keep\n" + (opts.signingVars ?? ""),
   );
   const env: NodeJS.ProcessEnv = {
     PATH: `${dir}:${process.env.PATH ?? ""}`,
@@ -99,6 +99,14 @@ describe("launch.sh effective mode", () => {
     expect(p.env.get("GITHUB_API_BASE")).toBe("http://127.0.0.1:8799");
     expect(p.env.get("GITHUB_TOKEN")).toBe("mock-github-token");
     expect(p.env.get("OTHER")).toBe("keep");
+    expect(p.env.get("INTERNAL_SIGNING_KEY")).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it.each(["INTERNAL_SIGNING_KEY", "MODEL_CREDENTIAL_KEY"])("preserves an existing %s instead of generating a fixture", (name) => {
+    const p = plan({ docker: "fail", vars: { VERIFY_GITHUB: "mock" }, signingVars: `${name}=existing-fixture-key\n` });
+    expect(p.status).toBe(0);
+    expect(p.env.get(name)).toBe("existing-fixture-key");
+    if (name === "MODEL_CREDENTIAL_KEY") expect(p.env.has("INTERNAL_SIGNING_KEY")).toBe(false);
   });
 
   it("real containers + mock GitHub: stand-in forced off despite a stale persistent flag", () => {
@@ -110,6 +118,7 @@ describe("launch.sh effective mode", () => {
     expect(p.file("containers-mode")).toBe("containers=enabled");
     expect(p.file("standin-mode")).toBe("disabled");
     expect(p.env.get("SHIBA_VERIFY_STANDIN")).toBe("0");
+    expect(p.env.has("INTERNAL_SIGNING_KEY")).toBe(false);
   });
 
   it("live GitHub: stale stand-in flag and mock base are dropped, real token kept", () => {
@@ -120,6 +129,7 @@ describe("launch.sh effective mode", () => {
     expect(p.env.get("SHIBA_VERIFY_STANDIN")).toBe("0");
     expect(p.env.has("GITHUB_API_BASE")).toBe(false);
     expect(p.env.get("GITHUB_TOKEN")).toBe("real-live-token");
+    expect(p.env.has("INTERNAL_SIGNING_KEY")).toBe(false);
   });
 
   it("explicit containers requested but Docker unavailable: fails, no stand-in", () => {
