@@ -102,7 +102,7 @@ describe("trusted Slack canvas provenance", () => {
     expect(input.runRoom).toEqual({ ownerId: expected?.ownerId, sessionId: expected?.sessionId, runId: expected?.runId });
     expect(input.runRoom?.ownerId).not.toContain("intruder");
     const view = await snapshot(context.instance, ORIGIN, approvalId);
-    expect(await view.json()).toMatchObject({ run: { runId: expected?.runId, status: "completed", approval: { approvalId } }, runRoom: input.runRoom });
+    expect(await view.json()).toMatchObject({ run: { runId: expected?.runId, status: "completed", publishPullRequest: false, approval: { approvalId } }, runRoom: input.runRoom });
   });
 
   it("rejects a changed signed body and forged provenance before any approval mutation", async () => {

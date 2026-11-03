@@ -65,6 +65,40 @@ describe("SlackRunCanvas", () => {
     expect(request.mock.calls.every(([url, init]) => url === `/api/slack-canvas?${params}` && !init.method)).toBe(true);
   });
 
+  it.each([true, undefined])("shows a later approved PR without refreshing after coding completes (publication flag: %s)", async (publishPullRequest) => {
+    vi.useFakeTimers();
+    const completed = { ...running, run: { ...running.run, status: "completed", publishPullRequest } };
+    const pullUrl = "https://github.com/owner/repo/pull/42";
+    const request = vi.fn()
+      .mockResolvedValueOnce(Response.json(running))
+      .mockResolvedValueOnce(Response.json(completed))
+      .mockImplementation(async () => Response.json({ ...completed, run: { ...completed.run, pullUrl } }));
+    vi.stubGlobal("fetch", request);
+    render(<SlackRunCanvas search={search} />);
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(screen.getByRole("status").textContent).toBe("completed");
+    expect(screen.queryByRole("link", { name: "View pull request" })).toBeNull();
+    expect(screen.getByLabelText("Live run workspace")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(screen.getByRole("link", { name: "View pull request" }).getAttribute("href")).toBe(pullUrl);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls.every(([url, init]) => url === `/api/slack-canvas?${params}` && !init.method)).toBe(true);
+  });
+
+  it("stops polling completed runs that did not request publication", async () => {
+    vi.useFakeTimers();
+    const request = vi.fn(async () => Response.json({ ...running, run: { ...running.run, status: "completed", publishPullRequest: false } }));
+    vi.stubGlobal("fetch", request);
+    render(<SlackRunCanvas search={search} />);
+    await act(async () => {});
+    expect(screen.getByRole("status").textContent).toBe("completed");
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
   it.each([401, 403, 404])("removes the stream when the next protected read returns %s", async (status) => {
     vi.useFakeTimers();
     const request = vi.fn()

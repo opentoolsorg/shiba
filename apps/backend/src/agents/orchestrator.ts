@@ -6204,7 +6204,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         source: "slack", origin,
         approval: { approvalId, threadKey: approval.threadKey, status: approval.status, kind: approval.kind,
           task: approval.task, repoUrl: approval.repoUrl, executionTarget: approval.executionTarget, createdAt: approval.createdAt },
-        ...(run ? { run: { runId: run.runId, status: run.status, task: run.task, repoUrl: run.repoUrl,
+        ...(run ? { run: { runId: run.runId, status: run.status, task: run.task, repoUrl: run.repoUrl, publishPullRequest: run.publishPullRequest,
           summary: run.summary, error: run.error, pullUrl: run.pullUrl, approval: { approvalId: run.approval?.approvalId } } } : {}),
         ...(room ? { runRoom: room } : {}),
       }, { headers: { "Cache-Control": "no-store" } });
