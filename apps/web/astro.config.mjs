@@ -3,8 +3,6 @@ import { defineConfig, passthroughImageService } from 'astro/config';
 import nimbus, { defineConfig as defineNimbusConfig } from '@cloudflare/nimbus-docs';
 import { tableScroll } from '@cloudflare/nimbus-docs/markdown';
 import tailwindcss from '@tailwindcss/vite';
-import postcss from 'postcss';
-import tailwind3 from 'tailwindcss';
 
 const nimbusConfig = defineNimbusConfig({
   site: 'https://tryshiba.dev',
@@ -20,15 +18,7 @@ const nimbusConfig = defineNimbusConfig({
 export default defineConfig({
 	site: 'https://tryshiba.dev',
 	srcDir: './src',
-	vite: { plugins: [{
-    name: 'shiba-marketing-tailwind-v3',
-    enforce: 'pre',
-    async transform(code, id) {
-      if (!id.split('?')[0].endsWith('/src/styles/tailwind.css')) return;
-      const result = await postcss([tailwind3()]).process(code, { from: id });
-      return { code: result.css, map: null };
-    },
-  }, tailwindcss()] },
+	vite: { plugins: [tailwindcss()] },
 	outDir: 'dist',
 	output: 'static',
 	// sharp's native dep is unavailable in CI; marketing images ship as authored.
