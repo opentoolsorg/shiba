@@ -3,7 +3,7 @@ title: Your first task
 description: Give Shiba a clear brief, approve the work, and review the result.
 ---
 
-Choose one small task you can easily check. A README update, a launch brief, or a test for a known bug is a good place to start.
+Choose one small task you can easily check. A launch brief, a research summary, an operating checklist, or a test for a known bug is a good place to start.
 
 ## 1. Open a thread
 
