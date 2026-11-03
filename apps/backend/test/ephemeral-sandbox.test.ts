@@ -1,4 +1,4 @@
-import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
+import { FIXTURE_BASELINE_COMMIT, repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import { OpenCodeHarness } from "../src/harness/opencode.js";
 import type { CodingTaskInput } from "../src/opencode-input.js";
 import { tokenizeCommand } from "../src/exec-allowlist.js";
 import { collectWorkspaceChanges, SandboxRuntimeAdapter, type SandboxOps } from "../src/runtime.js";
+import { LIVE_DIFF_READER } from "../src/live-diff.js";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -147,9 +148,11 @@ describe("ephemeral sandbox workspace", () => {
           options?.onOutput?.("stdout", "done\n");
           return { stdout: "done\n", stderr: "", exitCode: 0 };
         }
-        if (command.includes("--no-ext-diff") && command.includes("'HEAD'")) {
+        const argv = tokenizeCommand(command);
+        if (argv?.[0] === "node" && argv[1] === "-e" && argv[2] === LIVE_DIFF_READER) {
+          expect(argv[3]).toBe(FIXTURE_BASELINE_COMMIT);
           liveReads++;
-          return { stdout: "+secret-value", stderr: "", exitCode: 0 };
+          return { stdout: JSON.stringify({ status: "ready", diff: "+secret-value" }), stderr: "", exitCode: 0 };
         }
         if (command.includes("'status'")) return { stdout: " M result.txt\n", stderr: "", exitCode: 0 };
         if (command.includes("'diff'")) return { stdout: "final diff", stderr: "", exitCode: 0 };
@@ -176,6 +179,50 @@ describe("ephemeral sandbox workspace", () => {
       release?.();
       vi.useRealTimers();
     }
+  });
+
+  it.each(["limited", "unavailable"] as const)("reports a %s interim preview and republishes the next complete snapshot", async (status) => {
+    vi.useFakeTimers();
+    let release: (() => void) | undefined;
+    let signalStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    let reads = 0;
+    const snapshot = repositorySnapshotFixture({ status: " M result.txt\n", files: { "result.txt": "updated" } });
+    const ops: SandboxOps = {
+      async gitCheckout() {}, async writeFile() {},
+      async readFile() { return { kind: "utf8", content: "updated" }; },
+      async exec(command) {
+        const captured = await snapshot(command);
+        if (captured) return captured;
+        if (command === "'test-harness'") {
+          signalStarted?.();
+          await new Promise<void>((resolve) => { release = resolve; });
+          return { stdout: "", stderr: "", exitCode: 0 };
+        }
+        const argv = tokenizeCommand(command);
+        if (argv?.[2] === LIVE_DIFF_READER) {
+          const preview = ++reads === 2 ? { status, reason: "Preview is incomplete." } : { status: "ready", diff: "+complete snapshot" };
+          return { stdout: JSON.stringify(preview), stderr: "", exitCode: 0 };
+        }
+        if (command.includes("'diff'")) return { stdout: "final diff", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    };
+    const publish = vi.fn(), publishStatus = vi.fn();
+    try {
+      const promise = new SandboxRuntimeAdapter(new TestHarness()).runCodingTask(ops, {
+        repoUrl: "https://github.com/org/repo", baseBranch: "main", task: "Fix it", publishPullRequest: false,
+        sandboxId: "live-diff-status", codingModel: "google/gemini-3.5-flash-lite",
+      }, () => {}, { onDiff: publish, onDiffPreviewStatus: publishStatus });
+      await started;
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(publishStatus).toHaveBeenCalledExactlyOnceWith(status, expect.stringContaining("The final captured diff remains authoritative."));
+      expect(publish.mock.calls).toEqual([["+complete snapshot"], ["+complete snapshot"]]);
+      release?.();
+      expect((await promise).status).toBe("completed");
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(reads).toBe(3);
+    } finally { release?.(); vi.useRealTimers(); }
   });
 
   it.each(["output root", "output child"])("rejects a symlink at the %s without reading its target", async (kind) => {

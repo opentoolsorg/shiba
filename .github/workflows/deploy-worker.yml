@@ -48,11 +48,14 @@ jobs:
           DASHBOARD_APPROVERS: ${{ secrets.DASHBOARD_APPROVERS }}
           SLACK_CHANNEL_REPOS: ${{ secrets.SLACK_CHANNEL_REPOS }}
           SLACK_APPROVALS_CHANNEL: ${{ secrets.SLACK_APPROVALS_CHANNEL }}
+          SLACK_CANVAS_OWNERS: ${{ vars.SLACK_CANVAS_OWNERS || '[]' }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
           CLAUDE_SUBSCRIPTION_TOKEN: ${{ secrets.CLAUDE_SUBSCRIPTION_TOKEN }}
           CODEX_SUBSCRIPTION_AUTH_JSON: ${{ secrets.CODEX_SUBSCRIPTION_AUTH_JSON }}
           LOCAL_ADAPTER_TOKEN: ${{ secrets.LOCAL_ADAPTER_TOKEN }}
+          INTERNAL_SIGNING_KEY: ${{ secrets.INTERNAL_SIGNING_KEY }}
+          ARTIFACT_SIGNING_KEY: ${{ secrets.ARTIFACT_SIGNING_KEY }}
           WORKER_HOSTNAME: app.tryshiba.dev
           BETTER_AUTH_URL: https://app.tryshiba.dev
         # alchemy deploy reads .env via process.loadEnvFile — no file needed;

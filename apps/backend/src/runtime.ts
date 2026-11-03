@@ -29,6 +29,7 @@ import {
   MAX_WORKSPACE_ARTIFACT_TOTAL_BYTES,
 } from "./run-deliverables.js";
 import { ScopedExecRefusal, scopedExec } from "./exec-allowlist.js";
+import { captureLiveDiff } from "./live-diff.js";
 import {
   captureCheckpoint,
   checkpointRef,
@@ -155,6 +156,7 @@ export interface RuntimeAdapter {
       exportDiff?: (diff: string) => Promise<string>;
       onTerminal?: (stream: "stdout" | "stderr", data: string) => void;
       onDiff?: (diff: string) => void;
+      onDiffPreviewStatus?: (status: "limited" | "unavailable", reason?: string) => void;
       onStreamGap?: () => void;
     },
   ): Promise<CodingTaskResult>;
@@ -225,6 +227,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       exportDiff?: (diff: string) => Promise<string>;
       onTerminal?: (stream: "stdout" | "stderr", data: string) => void;
       onDiff?: (diff: string) => void;
+      onDiffPreviewStatus?: (status: "limited" | "unavailable", reason?: string) => void;
       onStreamGap?: () => void;
     },
   ): Promise<CodingTaskResult> {
@@ -435,34 +438,31 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       argv = ["node", sessionScript, jobPath];
     }
     let run: ExecResult;
-    let emittedOutput = false;
+    let harnessDispatched = false;
     let harnessSettled = false;
     let uncertainTransport = false;
     let settledCommit: string;
     const output = streamProgress(this.harness, emit, opts?.signal, scrub);
     const stopLiveDiff = opts?.onDiff && !ephemeral
-      ? startLiveDiff(ops, workdir, opts.onDiff, scrub, signals, opts.signal)
+      ? startLiveDiff(ops, workdir, baselineCommit, opts.onDiff, scrub, signals, opts.signal, opts.onDiffPreviewStatus)
       : async () => {};
     try {
+      const executionEnv = { ...opts?.env, ...this.harness.env(input, config?.path ?? null) };
+      throwIfAborted(opts?.signal);
       milestone("harness.started", this.harness.name);
-      // Only thrown errors are retry candidates: a returned nonzero
-      // exitCode is the harness's verdict, not a transient failure.
-      run = await withRetry(
-        { ...HARNESS_RETRY, retryIf: (error) => !emittedOutput && HARNESS_RETRY.retryIf(error) },
-        () =>
-          scoped.exec(shellJoin(argv), {
-            cwd: workdir,
-            timeoutMs: OPENCODE_TIMEOUT_MS,
-            signal: opts?.signal,
-            onOutput: (stream, data) => {
-              if (data.length > 0) emittedOutput = true;
-              output.onData(stream, data);
-              opts?.onTerminal?.(stream, scrub(data));
-            },
-            env: { ...opts?.env, ...this.harness.env(input, config?.path ?? null) },
-          }),
-        opts?.signal,
-      );
+      // A silent CLI may already have performed work. A lost execution
+      // response never authorizes another launch of the approved task.
+      harnessDispatched = true;
+      run = await scoped.exec(shellJoin(argv), {
+        cwd: workdir,
+        timeoutMs: OPENCODE_TIMEOUT_MS,
+        signal: opts?.signal,
+        onOutput: (stream, data) => {
+          output.onData(stream, data);
+          opts?.onTerminal?.(stream, scrub(data));
+        },
+        env: executionEnv,
+      });
       harnessSettled = true;
       // The harness process resolved — idle covers clean exits and
       // nonzero verdicts alike; a thrown error means it never went idle.
@@ -497,9 +497,9 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       ) {
         return failureResult(error.message, 0, "", signals, output.usage);
       }
-      uncertainTransport = emittedOutput && !harnessSettled;
+      uncertainTransport = harnessDispatched && !harnessSettled && !(error instanceof ScopedExecRefusal);
       return failureResult(
-        `${uncertainTransport ? "Harness transport failed after output. Execution outcome is uncertain. " : ""}${this.harness.name} execution failed: ${scrub(shortError(error))}`,
+        `${uncertainTransport ? "Harness transport failed before its outcome was confirmed. Execution outcome is uncertain. " : ""}${this.harness.name} execution failed: ${scrub(shortError(error))}`,
         0,
         "",
         signals,
@@ -671,33 +671,39 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
   }
 }
 
-/** Read-only snapshots cannot overlap or outlive the active harness turn. */
+/** Bounded read-only snapshots cannot overlap or outlive the active turn. */
 function startLiveDiff(
   ops: SandboxOps,
   workdir: string,
+  baselineCommit: string,
   publish: (diff: string) => void,
   scrub: (text: string) => string,
   signals: RunSignal[],
   signal?: AbortSignal,
+  publishStatus?: (status: "limited" | "unavailable", reason?: string) => void,
 ): () => Promise<void> {
   let pending: Promise<void> | undefined;
   let previous: string | undefined;
+  let previousStatus: string | undefined;
   let stopped = false;
   const tick = () => {
     if (stopped || pending || signal?.aborted) return;
     pending = (async () => {
       try {
-        const diff = await scopedExec(ops, shellJoin(["git", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "HEAD", "--"]), {
-          cwd: workdir, timeoutMs: 5_000, signal, allowlist: [["git", "diff"]], signals, maxOutputChars: 20_001,
-        });
-        if (stopped || diff.exitCode !== 0 || diff.stdout.length > 20_000) return;
-        const safe = scrub(diff.stdout);
-        if (safe !== previous) {
+        const preview = await captureLiveDiff(ops, workdir, baselineCommit, signals, signal);
+        if (stopped || signal?.aborted) return;
+        if (preview.status !== "ready") {
+          const statusKey = `${preview.status}:${preview.reason}`;
+          if (statusKey !== previousStatus) publishStatus?.(preview.status, preview.reason);
+          previousStatus = statusKey;
+          return;
+        }
+        const safe = scrub(preview.diff);
+        if (safe !== previous || previousStatus !== undefined) {
           previous = safe;
           publish(safe);
         }
-      } catch {
-        // Final collection remains authoritative if a live read fails.
+        previousStatus = undefined;
       } finally {
         pending = undefined;
       }

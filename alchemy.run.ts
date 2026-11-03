@@ -122,6 +122,8 @@ export const ACCESS_BYPASS_PATHS = [
   "/api/automations/*/trigger",
   "/api/waitlist",
   "/api/trigger",
+  // Downloads authenticate the exact archive with a short-lived signed capability.
+  "/api/artifacts/download",
 ];
 const DashboardAccess = accessEnabled
   ? Cloudflare.Access.Application("DashboardAccess", {

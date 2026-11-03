@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenCodeAgent, createSandboxOps } from "../src/agents/opencode-agent.js";
 import { sealChildDispatch } from "../src/child-dispatch.js";
 import { formatAgentToolInput, parseAgentResultText, type CodingTaskInput, type CodingTaskResult } from "../src/opencode-input.js";
+import type { ChatRecoveryContext, ChatRecoveryOptions } from "@cloudflare/ai-chat";
 
 const DISPATCH_KEY = "fe".repeat(32);
 
@@ -69,6 +70,41 @@ beforeEach(async () => {
   mocks.run.mockResolvedValue(RESULT);
   mocks.publish.mockResolvedValue({ pullUrl: "https://github.com/owner/repo/pull/1" });
   sealedInput = await sealed();
+});
+
+describe("CLI recovery policy", () => {
+  it.each(["pre-stream", "partial", "lost-partial"])("does not schedule another CLI turn after %s eviction", async (kind) => {
+    const instance = agent();
+    const scheduleRecovery = vi.fn();
+    const skipped = vi.fn();
+    Object.assign(instance, {
+      _chatRecoveryEngine: () => ({ scheduleRecovery }),
+      _updateChatRecoveryIncident: skipped,
+      _findLastAssistantMessage: () => undefined,
+    });
+    const context: ChatRecoveryContext = {
+      incidentId: "incident-1", requestId: "request-1", recoveryRootRequestId: "request-1", attempt: 1, maxAttempts: 10,
+      recoveryKind: kind === "partial" ? "continue" : "retry", streamId: kind === "pre-stream" ? "" : "stored-stream",
+      partialText: kind === "partial" ? "Accepted work\n" : "", partialParts: [], recoveryData: null,
+      messages: [...instance.messages], createdAt: Date.now(),
+    };
+    const policy = instance as unknown as { onChatRecovery(context: ChatRecoveryContext): Promise<ChatRecoveryOptions> };
+    const options = await policy.onChatRecovery(context);
+    const sdk = await vi.importActual<typeof import("@cloudflare/ai-chat")>("@cloudflare/ai-chat");
+    const dispatch = (sdk.AIChatAgent.prototype as unknown as {
+      _dispatchRecoveredChatTurn(input: Record<string, unknown>): Promise<void>;
+    })._dispatchRecoveredChatTurn;
+    await dispatch.call(instance, {
+      incident: { incidentId: context.incidentId }, options, recoveryKind: context.recoveryKind,
+      recoveryRootRequestId: context.recoveryRootRequestId,
+      snapshot: kind === "lost-partial" ? { continuation: false, latestUserMessageId: "input" } : null,
+      detail: { shouldRetryPreStream: kind === "pre-stream" },
+    });
+    expect(scheduleRecovery).not.toHaveBeenCalled();
+    expect(skipped).toHaveBeenCalledExactlyOnceWith(context.incidentId, "skipped", "continue_disabled");
+    expect(mocks.sandbox).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
 });
 
 describe("requested deliverable private persistence", () => {
