@@ -762,6 +762,7 @@ const steps = [
   .hire-section { position: relative; }
   .hire-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
   .hire-card {
+    min-width: 0;
     border: 2px solid var(--border);
     box-shadow: -3px 3px 0 var(--border);
     background: var(--card);
@@ -800,7 +801,7 @@ const steps = [
   .tool-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--hairline); background: var(--card); border-radius: 4px; }
   .tools-caption { margin: 0; font-size: 11px; color: var(--ink-2); }
   .vignette-alert { color: var(--accent); font-weight: 600; font-size: 10px; text-transform: uppercase; }
-  .vignette-approval-row { display: flex; gap: 8px; margin-top: 6px; }
+  .vignette-approval-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
   .vignette-btn {
     padding: 6px 12px;
     border: 1.5px solid var(--border);
@@ -1043,7 +1044,7 @@ const steps = [
 
   /* Responsive Breakpoints */
   @media (max-width: 900px) {
-    .hire-grid, .steps-grid { grid-template-columns: 1fr; }
+    .hire-grid, .steps-grid { grid-template-columns: minmax(0, 1fr); }
     .delivers-panel { grid-template-columns: 1fr; }
     .trust-layout, .proof-layout, .faq-layout { grid-template-columns: 1fr; gap: 32px; }
     .controls-grid { grid-template-columns: 1fr; }
