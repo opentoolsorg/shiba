@@ -1,0 +1,6 @@
+---
+import logo from '../assets/logo.png';
+interface Props { class?: string }
+const { class: className = 'h-8 w-8' } = Astro.props;
+---
+<img src={logo.src} alt="" class={className} />

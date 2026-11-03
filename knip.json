@@ -35,7 +35,7 @@
       "project": ["src/**/*.{ts,tsx}"]
     },
     "apps/web": {
-      "entry": ["astro.config.mjs", "src/content.config.ts", "src/content/**/*.{md,mdx}", "src/pages/**/*", "tailwind.config.js", "postcss.config.js"],
+      "entry": ["astro.config.mjs", "src/content.config.ts", "src/content/**/*.{md,mdx}", "src/pages/**/*", "postcss.config.js"],
       "project": ["src/**/*.{ts,tsx,astro,mjs}"]
     },
     "packages/shared": {

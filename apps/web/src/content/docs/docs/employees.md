@@ -7,7 +7,7 @@ Give an employee a job once, then reuse its instructions for the next task. Open
 
 ## Choose a role
 
-Start with one of four editable templates:
+Start with an editable role or browse the [template catalog](/docs/templates/) for more focused employee packs:
 
 | Role | Try this first |
 | --- | --- |
@@ -15,6 +15,12 @@ Start with one of four editable templates:
 | Marketing | Draft a launch brief and announcement copy. |
 | Research | Answer a question using evidence you provide. |
 | Operations | Write a release or recovery checklist. |
+| Product spec writer | Turn a request into a draft specification with acceptance criteria. |
+| Prototype builder | Prepare a focused prototype using the existing design system. |
+| Competitor watch | Summarize supplied public sources and cite the evidence. |
+| Support triage | Organize reports into reproducible issues and escalation drafts. |
+| Standup summarizer | Turn supplied work notes into a team update. |
+| PR reviewer | Review a proposed change and report findings with evidence. |
 
 Choosing a template fills in a draft. You can change its instructions before saving.
 
@@ -44,7 +50,7 @@ Open the employee's card and choose a conversation under **Threads started with 
 
 ## Add another role
 
-Create custom instructions for Design, QA, Sales, Finance, or other work your company needs. These are custom roles, rather than built-in templates in this version.
+Create custom instructions for Design, QA, Sales, Finance, or other work your company needs. Availability varies by template and configuration; you can also write your own instructions.
 
 For **Design**, ask for a document covering user flows, interface copy, accessibility, and the states people may encounter.
 
