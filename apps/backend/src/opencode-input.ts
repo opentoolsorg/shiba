@@ -8,6 +8,7 @@ import { AGENT_ROLES, HARNESS_IDS, RUN_SIGNAL_KINDS, runtimeSelectionSchema, tes
 import { isApprovedRoute, type ApprovedRoute } from "./model-connections.js";
 import { parseGitHubRepoUrl } from "./security.js";
 import { onboardingSourceSnapshotSchema, draftTaskReferenceSchema } from "@shiba/shared";
+import { prPublicationProposalSchema } from "./pr-publish-approval.js";
 
 export const TOOL_INPUT_MARKER = "SHIBA_AI_COWORKER_CODING_TASK_JSON";
 export const RESULT_MARKER = "SHIBA_AI_COWORKER_CODING_RESULT_JSON";
@@ -22,6 +23,8 @@ const codingTaskInputSchema = z.object({
   task: z.string().min(1),
   baseBranch: z.string().min(1),
   publishPullRequest: z.boolean(),
+  /** Worker-authored. Publishing proposes a separate human action after the sandbox settles. */
+  deferPullRequestPublish: z.boolean().optional(),
   sandboxId: z.string().min(1),
   /** Org context for per-org sandbox settings and model keys. */
   orgId: z.string().min(1).max(128).optional(),
@@ -102,6 +105,12 @@ const codingTaskInputSchema = z.object({
   envDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   /** Orchestrator that owns every artifact, including runs without sealed env. */
   accessAgent: z.string().min(1).max(200).optional(),
+  approvalThreadKey: z.string().min(1).max(512).optional(),
+  runRoom: z.object({
+    ownerId: z.string().min(1).max(200),
+    sessionId: z.string().min(1).max(128),
+    runId: z.string().min(1).max(512),
+  }).strict().optional(),
   envOwner: z.string().min(1).max(200).optional(),
   /**
    * T51: the approved runtime. `"local"` runs on the operator's machine
@@ -114,6 +123,9 @@ const codingTaskInputSchema = z.object({
   /** HMAC seal proving the orchestrator parent dispatched this envelope. */
   dispatchApprovalId: z.string().min(1).max(512).optional(),
   dispatchInputHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  dispatchEnvelopeHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  dispatchIssuedAt: z.number().int().nonnegative().optional(),
+  dispatchExpiresAt: z.number().int().positive().optional(),
   dispatchSig: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
@@ -169,6 +181,16 @@ const codingTaskResultSchema = z.object({
     bytes: z.number().int().positive().max(16_384),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
   })).max(8).refine((items) => items.reduce((sum, item) => sum + item.bytes, 0) <= 65_536).optional(),
+  artifactBundle: z.object({
+    path: z.literal("artifacts.zip"),
+    mediaType: z.literal("application/zip"),
+    bytes: z.number().int().min(22).max(8_500_000),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    fileCount: z.number().int().min(0).max(64),
+    downloadUrl: z.string().url().startsWith("https://").max(4096),
+    expiresAt: z.number().int().positive(),
+  }).strict().optional(),
+  publicationProposal: prPublicationProposalSchema.optional(),
   summary: z.string(),
   /**
    * The PR the child published, when it did. Carried on the envelope so the

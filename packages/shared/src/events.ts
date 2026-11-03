@@ -36,6 +36,10 @@ export type SideEffectKind =
 
 export type SpineKind =
   | RunSpineKind
+  | "ChildTaskSpawned"
+  | "ChildTaskProgress"
+  | "ChildTaskCompleted"
+  | "ChildTaskFailed"
   | "side_effect.requested"
   | "side_effect.dispatched"
   | "side_effect.failed"
@@ -43,6 +47,10 @@ export type SpineKind =
   | "approval.answered";
 
 export const SPINE_KINDS: readonly SpineKind[] = [
+  "ChildTaskSpawned",
+  "ChildTaskProgress",
+  "ChildTaskCompleted",
+  "ChildTaskFailed",
   "run.archived",
   "run.proposed",
   "run.approved",
@@ -72,6 +80,12 @@ const pendingApprovalSchema = z.record(z.string(), z.unknown());
  * all-optional patch arm as `{}`).
  */
 export const spineEventPayloadSchema = z.union([
+  z.strictObject({
+    childTaskId: z.string().min(1).max(512),
+    agent: z.enum(["explorer", "fixer", "reviewer"]),
+    parentName: z.string().min(1).max(1024),
+    summary: z.string().max(4_000).optional(),
+  }),
   z.strictObject({ run: delegatedRunSchema }),
   z.strictObject({
     patch: runPatchSchema.optional(),

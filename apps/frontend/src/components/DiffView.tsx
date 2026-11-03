@@ -12,6 +12,7 @@ import { DiffViewer } from "./DiffViewer";
 import { HarnessSessionPanel } from "./HarnessSessionPanel";
 import { ReviewFindings } from "./ReviewFindings";
 import { SubagentTree } from "./SubagentTree";
+import { RunLivePanel } from "./RunLivePanel";
 
 export interface DiffViewProps {
   runs: VMRun[];
@@ -137,6 +138,7 @@ export function DiffView({
         ) : activeRun ? (
           <div className="max-w-6xl mx-auto flex flex-col gap-4">
             <SubagentTree runs={runs} onSelectRun={handleSelect} />
+            <RunLivePanel key={`${sessionId ?? "default"}:${activeRun.runId}`} runId={activeRun.runId} sessionId={sessionId} showDiff />
             <ReviewFindings key={activeRun.runId} threadId={activeRun.runId} sessionId={sessionId} />
             <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 rounded-[var(--radius-button)] flex items-center justify-between gap-4 flex-wrap shadow-[var(--sh-card)]">
               <div className="min-w-0">

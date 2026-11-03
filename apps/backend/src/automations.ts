@@ -115,12 +115,7 @@ export interface Automation {
   /** Per schedule-trigger last fire (key `t{index}`), so multiple crons do not block each other. */
   scheduleFiredAt?: Record<string, number>;
   runCount: number;
-  /**
-   * T20: opt-in unattended mode. Even when true a run is only unattended if
-   * it mutates nothing but a pull request AND its repo is listed in
-   * {@link unattendedRepos} — a PR is reviewable and revertible, nothing
-   * else is.
-   */
+  /** Legacy stored preference. Every execution still requires human approval. */
   unattended?: boolean;
   unattendedRepos?: string[];
   /** T20 run budget. Defaults to {@link DEFAULT_DAILY_RUN_LIMIT}. */
@@ -952,7 +947,7 @@ export async function evaluateRunWhen(
   return { run: false, reason: `run_when gate failed closed: unparseable answer ${JSON.stringify(answer.trim().slice(0, 80))}` };
 }
 
-/** The one mutation safe to run unattended: a PR is reviewable and revertible. */
+/** Scheduled work always queues a frozen human approval before execution. */
 export interface AutomationRunRequest {
   publishPullRequest: boolean;
   executionTarget?: ExecutionTarget;
@@ -962,7 +957,7 @@ export interface AutomationRunRequest {
 
 export interface AutomationAuthorization {
   allowed: boolean;
-  /** True unless unattended mode was granted. An automation schedules work; it does not authorize it. */
+  /** An automation schedules work. Only a human can authorize execution. */
   requiresApproval: boolean;
   reason: string;
 }
@@ -1003,33 +998,7 @@ export function authorizeAutomationRun(
     }
     return { allowed: true, requiresApproval: true, reason: "Artifact-workspace runs require human approval." };
   }
-  const prOnly = request.publishPullRequest && (request.otherMutations ?? []).length === 0;
-  if (!automation.unattended) {
-    return { allowed: true, requiresApproval: true, reason: "Automated runs require approval by default." };
-  }
-  if (!prOnly) {
-    return {
-      allowed: true,
-      requiresApproval: true,
-      reason: "Unattended mode covers pull requests only; this run mutates more, so it needs approval.",
-    };
-  }
-  let repo: string;
-  try {
-    const parsed = parseGitHubRepoUrl(automation.repoUrl);
-    repo = `${parsed.owner}/${parsed.repo}`.toLowerCase();
-  } catch {
-    return { allowed: false, requiresApproval: true, reason: "Unattended mode needs a valid GitHub repo URL." };
-  }
-  const allowlist = (automation.unattendedRepos ?? []).map((entry) => entry.toLowerCase());
-  if (!allowlist.includes(repo)) {
-    return {
-      allowed: true,
-      requiresApproval: true,
-      reason: `Unattended mode refuses ${repo}: it is not on the automation's allowlist.`,
-    };
-  }
-  return { allowed: true, requiresApproval: false, reason: "Unattended: PR-only run on an allowlisted repo." };
+  return { allowed: true, requiresApproval: true, reason: "Automated runs require explicit human approval." };
 }
 
 /** `AUTOMATIONS_ENABLED` kill switch. Unset means enabled; "false"/"0"/"off" disable. */

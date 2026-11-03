@@ -830,6 +830,32 @@ function makeMockEnv() {
 
 describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agents/", () => {
 
+  it("applies the same authenticated owner and origin gate to the room websocket alias", async () => {
+    const { env, sessionMap, roomRequests } = makeMockEnv();
+    const owner = "alice@example.com";
+    const session = createWebSession(owner, { name: "Run canvas" });
+    sessionMap.set(owner, [session]);
+    const viewer = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const url = `https://example.com/api/rooms/${session.id}/websocket?viewer=${viewer}`;
+    const approved = await worker.fetch(new Request(url, {
+      headers: {
+        ...(await accessHeaders(owner)), Upgrade: "websocket", Origin: "https://example.com",
+        "x-shiba-room-owner": "forged@example.com", "x-shiba-room-session": "default",
+      },
+    }), env);
+    expect(approved.status).toBe(200);
+    expect(roomRequests[0]?.name).toBe(JSON.stringify([owner, session.id]));
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-owner")).toBe(owner);
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-session")).toBe(session.id);
+    const unauthed = await worker.fetch(new Request(url, { headers: { Upgrade: "websocket", Origin: "https://example.com" } }), env);
+    expect(unauthed.status).toBe(401);
+    const crossOrigin = await worker.fetch(new Request(url, {
+      headers: { ...(await accessHeaders(owner)), Upgrade: "websocket", Origin: "https://attacker.example" },
+    }), env);
+    expect(crossOrigin.status).toBe(403);
+    expect(roomRequests).toHaveLength(1);
+  });
+
   it("routes authenticated session room sockets only after the owner and session are verified", async () => {
     const { env, sessionMap, roomRequests } = makeMockEnv();
     const owner = "alice@example.com";

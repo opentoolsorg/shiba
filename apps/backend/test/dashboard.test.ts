@@ -59,11 +59,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderApp(view?: "tasks") {
+function renderApp(view?: "threads", mode: "chat" | "work" = "chat") {
   (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent = "ada@example.com";
   if (view) {
     vi.stubGlobal("window", { location: new URL(`https://app.tryshiba.dev/${view}/`) });
-    vi.stubGlobal("localStorage", { getItem: () => null });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => key === "shiba:conversation-mode:default" ? mode : null,
+    });
   }
   return renderToStaticMarkup(React.createElement(App));
 }
@@ -103,8 +105,8 @@ describe("dashboard rendering", () => {
     expect(markup).toContain("Threads");
   });
 
-  it("shows the thread composer when opening Threads", () => {
-    const markup = renderApp("tasks");
+  it("shows the task composer when Threads has a saved Work mode preference", () => {
+    const markup = renderApp("threads", "work");
 
     expect(markup).toContain('data-testid="task-composer"');
     expect(markup).toContain('aria-label="Task description"');
@@ -133,7 +135,7 @@ describe("dashboard rendering", () => {
     expect(workMarkup).toContain("Approve tool: runSandbox");
     expect(workMarkup).toContain("Review");
 
-    const markup = renderApp("tasks");
+    const markup = renderApp("threads");
 
     expect(markup).toContain("Waiting for your approval");
     expect(markup).toContain("Needs approval");
@@ -157,7 +159,7 @@ describe("dashboard rendering", () => {
       },
     };
 
-    const markup = renderApp("tasks");
+    const markup = renderApp("threads");
 
     expect(markup).toContain("Chat error: stream failed");
     expect(markup).toContain("run-1");
@@ -174,7 +176,7 @@ describe("dashboard rendering", () => {
     expect(formMarkup).toContain('type="checkbox"');
     expect(formMarkup).toContain('value="main"');
 
-    const appMarkup = renderApp("tasks");
+    const appMarkup = renderApp("threads", "work");
 
     expect(appMarkup).toContain('data-testid="task-composer"');
     expect(appMarkup).toContain("<textarea");
@@ -237,7 +239,9 @@ describe("dashboard rendering", () => {
       })
     );
     expect(diffMarkup).toContain("Pull requests");
-    expect(diffMarkup).toContain("No changes to review");
+    expect(diffMarkup).toContain("No runs yet");
+    expect(diffMarkup).toContain("0 with diffs / 0 total");
+    expect(diffMarkup).not.toContain('aria-label="Select run for diff inspection"');
 
     const approvalsMarkup = renderToStaticMarkup(
       React.createElement(ApprovalsView, {

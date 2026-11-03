@@ -9,6 +9,23 @@ FROM docker.io/cloudflare/sandbox:0.12.9-opencode@sha256:7b84b0163bd93f090504daf
 
 COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 
+# Workspace analysis tools live in a dedicated Python environment. Agent Reach
+# source is pinned and verified. Installing its optional integrations is separate.
+ARG AGENT_REACH_COMMIT=7a38047acf26a729cbb27851e3cb81639da86b29
+ARG AGENT_REACH_SHA256=4571f8b312f8dbd22c148a3dd40ddf5694be3edb1f2a3dcb39cd6453823e7d04
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl python3 python3-venv \
+  && rm -rf /var/lib/apt/lists/* \
+  && python3 -m venv /opt/shiba-tools \
+  && curl -sSfL -o /tmp/agent-reach.zip "https://codeload.github.com/Panniantong/Agent-Reach/zip/${AGENT_REACH_COMMIT}" \
+  && echo "${AGENT_REACH_SHA256}  /tmp/agent-reach.zip" | sha256sum -c - \
+  && /opt/shiba-tools/bin/pip install --no-cache-dir duckdb-cli==1.5.6 /tmp/agent-reach.zip \
+  && rm /tmp/agent-reach.zip \
+  && /opt/shiba-tools/bin/duckdb -version \
+  && /opt/shiba-tools/bin/agent-reach help >/dev/null \
+  && command -v curl python3 node
+ENV PATH="/opt/shiba-tools/bin:${PATH}"
+
 # One image carries every harness (opencode, Claude Code, Codex, Grok, Pi);
 # a run picks one at exec time. The credential invariant is unchanged: each
 # gets the dummy key, and the real credential is swapped in at the Worker's

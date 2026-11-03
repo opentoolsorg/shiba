@@ -1942,6 +1942,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         ...(r.customAgentVersion !== undefined ? { customAgentVersion: r.customAgentVersion } : {}),
         ...(r.expectedDeliverables !== undefined ? { expectedDeliverables: r.expectedDeliverables } : {}),
         ...(r.deliverables !== undefined ? { deliverables: r.deliverables } : {}),
+        ...(r.artifactBundle !== undefined ? { artifactBundle: r.artifactBundle } : {}),
         ...(r.executionTarget !== undefined ? { executionTarget: r.executionTarget } : {}),
         status: r.status,
         createdAt: r.createdAt,

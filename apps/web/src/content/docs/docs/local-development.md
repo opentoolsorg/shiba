@@ -102,7 +102,7 @@ The repository does not bundle model weights or a local inference engine. Do not
 
 ## Local data backup and restore
 
-The recovery CLI copies the complete **local Wrangler v3 persistence tree**, including SQLite databases, WAL files and object blobs. It never starts a Worker, resumes work, contacts Cloudflare, or copies configuration implicitly. Prerequisites: installed project dependencies, Node, native `sqlite3`, and `lsof` (macOS/Linux). Restore requires the exact Wrangler version recorded by the backup; keep the matching lockfile and runtime available.
+The recovery CLI copies the complete **local Wrangler v3 persistence tree**, including SQLite databases, WAL files and object blobs. It never starts a Worker, resumes work, contacts Cloudflare, or copies configuration implicitly. Prerequisites: installed project dependencies, Node 22.13 or newer, and `lsof` (macOS/Linux). SQLite integrity checks use Node's built in API in a bounded subprocess. Restore requires the exact Wrangler version recorded by the backup; keep the matching lockfile and runtime available.
 
 Stop every local Worker, daemon, CLI, viewer and other process using the chosen persistence directory. Keep them stopped throughout backup or restore. `--offline` acknowledges this cooperative maintenance window. The tool rejects detected open files and rehashes the source before/after copying, but `lsof` is **not a lock** against a service starting after inspection. Do not use this as a live snapshot mechanism.
 

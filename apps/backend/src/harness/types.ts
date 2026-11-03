@@ -11,6 +11,7 @@
  * the container by the Worker's egress handler (src/egress.ts).
  */
 import type { RunUsage } from "@shiba/shared";
+import { isEphemeralWorkspace } from "@shiba/shared";
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { shellJoin } from "../security.js";
 
@@ -256,7 +257,7 @@ export function verifyRunOutcome(
   capabilities: Pick<HarnessCapabilities, "canRunTests">,
 ): VerificationOutcome {
   if (result.status !== "completed") return { ok: true };
-  if (result.changedFiles.length === 0 && result.diff.trim() === "") {
+  if (result.changedFiles.length === 0 && result.diff.trim() === "" && !isEphemeralWorkspace(input.executionTarget)) {
     return {
       ok: false,
       reason: "Run exited 0 but produced no file changes — refusing to report a no-op as completed.",

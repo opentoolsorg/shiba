@@ -412,7 +412,7 @@ describe("withRetry wired into createSandboxOps.gitCheckout", () => {
       throw new Error("status 401: unauthorized");
     });
     const gitCheckout = vi.fn();
-    sandboxMock.getSandbox.mockReturnValue({ approveRepoScope, gitCheckout });
+    sandboxMock.getSandbox.mockReturnValue({ approveHarnessEgress: vi.fn(async () => {}), approveRepoScope, gitCheckout });
     await expect(
       createSandboxOps({} as never, INPUT.sandboxId)
         .gitCheckout(INPUT.repoUrl, { branch: "main", targetDir: "/workspace" }),

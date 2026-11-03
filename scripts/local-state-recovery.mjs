@@ -11,6 +11,9 @@ import { parseArgs, promisify } from "node:util";
 
 const exec = promisify(execFile);
 const FORMAT = "shiba-wrangler-local-v1";
+const SQLITE_CHECK_SOURCE = `import {DatabaseSync} from 'node:sqlite';
+const database=new DatabaseSync(process.argv[1],{readOnly:true,allowExtension:false});
+try{const rows=database.prepare('PRAGMA quick_check;').all();if(rows.length!==1||rows[0].quick_check!=='ok')process.exitCode=1;else process.stdout.write('ok');}finally{database.close();}`;
 const HELP = "Usage: node scripts/local-state-recovery.mjs backup --offline <persist-root> <new-bundle>\n       node scripts/local-state-recovery.mjs verify <bundle>\n       node scripts/local-state-recovery.mjs restore --offline <bundle> <new-persist-root>\nStop every writer first. --offline acknowledges a cooperative maintenance window, not a filesystem lock. Restore never overwrites or launches anything.";
 
 async function version() {
@@ -45,7 +48,15 @@ async function offline(root) {
     if (error.stdout?.trim()) throw new Error("Persistence files are open. Stop Wrangler and all other readers/writers first.");
     if (error.code === 1 && !error.stdout?.trim()) {
       const stderrLines = String(error.stderr ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
-      const benign = stderrLines.length === 0 || stderrLines.every((line) => line.startsWith("lsof: WARNING:"));
+      const messageQueueMount = "/dev/mqueue";
+      const overlapsMessageQueues = root === path.parse(root).root || root === messageQueueMount ||
+        root.startsWith(`${messageQueueMount}${path.sep}`) || messageQueueMount.startsWith(`${root}${path.sep}`);
+      // Some Linux sandboxes cannot inspect the unrelated POSIX message queue mount.
+      // Its continuation belongs to the warning. Persistence inspection errors still fail closed.
+      const benign = stderrLines.length === 0 || (!overlapsMessageQueues && stderrLines.every((line, index) =>
+        line === "lsof: WARNING: can't stat() mqueue file system /dev/mqueue" ||
+        (line === "Output information may be incomplete." && stderrLines[index - 1] === "lsof: WARNING: can't stat() mqueue file system /dev/mqueue"),
+      ));
       if (benign) return;
     }
     throw new Error(`Cannot establish offline state: lsof inspection failed (${error.code ?? "unknown"}). Stop writers and check permissions.`);
@@ -76,7 +87,7 @@ async function quickCheck(file) {
         throw error;
       }
     }
-    const result = await exec("sqlite3", ["-readonly", database, "PRAGMA quick_check;"], { timeout: 30_000 });
+    const result = await exec(process.execPath, ["--input-type=module", "-e", SQLITE_CHECK_SOURCE, database], { timeout: 30_000 });
     if (result.stdout.trim() !== "ok") throw new Error("integrity failed");
   } catch {
     throw new Error("SQLite read-only integrity check failed; bundle is not usable.");

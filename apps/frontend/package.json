@@ -17,6 +17,7 @@
     "@shiba/shared": "workspace:*",
     "@tanstack/react-router": "^1.170.44",
     "@tanstack/react-start": "^1.169.2",
+    "@xterm/xterm": "6.0.0",
     "agents": "0.23.0",
     "ai": "7.0.102",
     "better-auth": "^1.7.7",

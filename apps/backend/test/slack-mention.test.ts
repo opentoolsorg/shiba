@@ -428,3 +428,63 @@ describe("default Slack Web API calls", () => {
     expect(queueRun).toHaveBeenCalledOnce();
   });
 });
+
+
+describe("Slack follow-up buffering", () => {
+  it("buffers active thread mentions without collecting context or queueing a second run", async () => {
+    const queueRun = vi.fn<QueueRun>();
+    const fetchThread = vi.fn(async () => []);
+    const postMessage = vi.fn<PostMessage>(async () => {});
+    const bufferMessage = vi.fn(async () => ({ buffered: true }));
+    await handleSlackEvent(mention({ thread_ts: "1758217392.000100", text: "<@U0> include tests", ts: "1758217393.000200" }), env(), {
+      queueRun, fetchThread, postMessage, bufferMessage,
+    });
+    expect(bufferMessage).toHaveBeenCalledWith(expect.objectContaining({ threadKey: THREAD, eventId: "Ev1", userId: "U1", text: "<@U0> include tests" }));
+    expect(fetchThread).not.toHaveBeenCalled();
+    expect(queueRun).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it("accepts ordinary human thread comments during an active turn", async () => {
+    const bufferMessage = vi.fn(async () => ({ buffered: true }));
+    const queueRun = vi.fn<QueueRun>();
+    await handleSlackEvent(mention({ type: "message", thread_ts: "1758217392.000100", text: "and include the edge cases" }), env(), {
+      bufferMessage, queueRun, postMessage: async () => {},
+    });
+    expect(bufferMessage).toHaveBeenCalledOnce();
+    expect(queueRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps ordinary idle thread replies from creating a new task", async () => {
+    const queueRun = vi.fn<QueueRun>();
+    await handleSlackEvent(mention({ type: "message", thread_ts: "1758217392.000100", text: "thanks" }), env(), {
+      bufferMessage: async () => ({ buffered: false }), queueRun, postMessage: async () => {},
+    });
+    expect(queueRun).not.toHaveBeenCalled();
+  });
+
+  it("does not silently start a fresh run when durable buffering fails", async () => {
+    const queueRun = vi.fn<QueueRun>();
+    const postMessage = vi.fn<PostMessage>(async () => {});
+    await handleSlackEvent(mention({ thread_ts: "1758217392.000100" }), env(), {
+      bufferMessage: async () => { throw new Error("storage unavailable"); }, queueRun, postMessage,
+    });
+    expect(queueRun).not.toHaveBeenCalled();
+    expect(postMessage.mock.calls[0]?.[0].text).toContain("could not save");
+  });
+});
+
+
+describe("explicit Slack ephemeral workspace intake", () => {
+  it("queues a repo-free workspace target with publication disabled and a visible target label", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_workspace" }));
+    const postMessage = vi.fn<PostMessage>(async () => {});
+    await handleSlackEvent(mention({ text: "<@U0> workspace:research-1 Prepare a report in out/report.md" }), env(), {
+      queueRun, postMessage, fetchThread: async () => [],
+    });
+    expect(queueRun).toHaveBeenCalledWith(expect.objectContaining({ repoUrl: "", workspaceTarget: { type: "ephemeral", workspaceId: "research-1" }, publishPullRequest: false }));
+    const card = JSON.stringify(postMessage.mock.calls[0]?.[0].blocks);
+    expect(card).toContain("Workspace research-1");
+    expect(card).not.toContain("publish a pull request");
+  });
+});

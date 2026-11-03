@@ -485,6 +485,7 @@ function applyPatch(run: DelegatedRun, patch: RunPatch | undefined): void {
   if (patch.error !== undefined) run.error = patch.error;
   if (patch.errorCode !== undefined) run.errorCode = patch.errorCode;
   if (patch.diff !== undefined) run.diff = patch.diff;
+  if (patch.artifactBundle !== undefined) run.artifactBundle = { ...patch.artifactBundle };
   if (patch.deliverables !== undefined) {
     run.deliverables = patch.deliverables.map((item) => ({
       path: item.path, mediaType: item.mediaType, bytes: item.bytes, sha256: item.sha256,

@@ -8,6 +8,7 @@ import { handleRuns } from "../src/runs-routes.js";
 import { handleApprovals } from "../src/approvals-routes.js";
 import { formatAgentResult } from "../src/opencode-input.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
+import { DASHBOARD_ORG_ID } from "../src/org-request-auth.js";
 
 const fixtures = vi.hoisted(() => ({
   actors: new Map<string, { onRequest(request: Request): Promise<Response> }>(),
@@ -24,7 +25,8 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 vi.mock("../src/custom-agents-resolve.js", async (original) => ({
   ...await original<typeof import("../src/custom-agents-resolve.js")>(), resolveCustomAgentForRun: fixtures.resolveProfile,
 }));
-vi.mock("../src/request-auth.js", () => ({
+vi.mock("../src/request-auth.js", async (original) => ({
+  ...await original<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: async () => true,
   resolveUserId: async (request: Request) => request.headers.get("X-Fixture-Owner") ?? "ordinary-owner",
 }));
@@ -54,7 +56,7 @@ beforeEach(() => {
 });
 
 function request(path: string, body: unknown, owner = OWNER) {
-  return new Request("https://worker.test"+path, { method: "POST", headers: { "content-type": "application/json", "X-Fixture-Owner": owner }, body: JSON.stringify(body) });
+  return new Request("https://worker.test"+path, { method: "POST", headers: { "content-type": "application/json", "X-Fixture-Owner": owner, Origin: "https://worker.test" }, body: JSON.stringify(body) });
 }
 
 describe("trusted run queue ownership reaches actual human approval", () => {
@@ -70,7 +72,7 @@ describe("trusted run queue ownership reaches actual human approval", () => {
     expect(queued?.status, await queued?.clone().text()).toBe(200);
     const approval = target.state.pendingApprovals![0]!;
     expect(approval.threadKey).toBe(kind === "personal" ? OWNER : session.agentName);
-    expect(approval.orgId).toBe(OWNER);
+    expect(approval.orgId).toBe(DASHBOARD_ORG_ID);
     expect(fixtures.execute).not.toHaveBeenCalled();
     const resolved = await handleApprovals(request("/api/approvals", { threadKey: approval.threadKey, approvalId: approval.approvalId, approved: true }), env);
     expect(resolved?.status).toBe(200);
@@ -85,7 +87,7 @@ describe("trusted run queue ownership reaches actual human approval", () => {
       config: { name: "Own", instructions: "Use the approved repo", harness: "opencode" } });
     const queued = await handleRuns(request("/api/runs", { repoUrl: "https://github.com/o/r", task: "Inspect", customAgentId: "profile", orgId: "victim-org", threadKey: "victim" }), env);
     expect(queued?.status, await queued?.clone().text()).toBe(200);
-    expect(fixtures.resolveProfile).toHaveBeenCalledWith(env, OWNER, "profile", undefined);
-    expect(user.state.pendingApprovals?.[0]).toMatchObject({ orgId: OWNER, threadKey: OWNER, customAgentId: "profile" });
+    expect(fixtures.resolveProfile).toHaveBeenCalledWith(env, DASHBOARD_ORG_ID, "profile", undefined);
+    expect(user.state.pendingApprovals?.[0]).toMatchObject({ orgId: DASHBOARD_ORG_ID, threadKey: OWNER, customAgentId: "profile" });
   });
 });

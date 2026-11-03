@@ -50,7 +50,7 @@ const AGENT_PRINCIPAL_HEADER = "X-Agent-Principal";
 
 function agent(threadName?: string) {
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", SLACK_BOT_TOKEN: "xoxb-test" },
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", SLACK_BOT_TOKEN: "xoxb-test", DASHBOARD_APPROVERS: "reviewer@example.test" },
     name: threadName,
     ctx: { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) },
     state: { runs: [] } as OrchestratorState,
@@ -81,7 +81,7 @@ const resolveBody = (approvalId: string, approved = true) =>
   new Request("https://internal/api/approvals", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ threadKey: "default", approvalId, approved, decidedBy: "U1" }),
+    body: JSON.stringify({ threadKey: "default", approvalId, approved, decidedBy: "reviewer@example.test" }),
   });
 
 /** Let a fire-and-forget waitUntil chain settle (microtask drain). */

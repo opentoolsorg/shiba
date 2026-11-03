@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleSlackCommand } from "../src/slack-routes.js";
-import { postSlackMessageWithReceipt, SlackPostRejectedError, verifySlackBotInstallation, verifySlackRequest } from "../src/slack.js";
+import { handleSlackCommand, parseSlackCommand } from "../src/slack-routes.js";
+import { postSlackMessageWithReceipt, createSlackRunProgress, SlackPostRejectedError, verifySlackBotInstallation, verifySlackRequest } from "../src/slack.js";
 
 const SECRET = "test-signing-secret-abc123";
 
@@ -98,7 +98,7 @@ describe("verified Slack installation lookup", () => {
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer xoxb-mock-only");
       expect(JSON.parse(String(init?.body))).toEqual({
         channel: "C123", thread_ts: "1710000000.000100", client_msg_id: "00000000-0000-4000-8000-000000000001",
-        text: "Approved room message",
+        text: "Approved room message", username: "Shiba Lead", icon_emoji: ":dog:",
       });
       return new Response(JSON.stringify({ ok: true, channel: "C123", ts: "1710000009.000900" }), { status: 200 });
     });
@@ -151,7 +151,7 @@ describe("slack slash command", () => {
     params: Record<string, string>,
     secret = ROUTE_SECRET,
   ): Promise<Request> {
-    const body = new URLSearchParams(params).toString();
+    const body = new URLSearchParams({ team_id: "T123", channel_id: "C456", ...params }).toString();
     const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = await sign(secret, timestamp, body);
     return new Request("https://example.com/api/slack/command", {
@@ -184,8 +184,9 @@ describe("slack slash command", () => {
     expect(response).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledOnce();
     const forwarded = fetchMock.mock.calls[0]?.[0] as unknown as Request;
-    const payload = (await forwarded.json()) as { repoUrl: string; task: string };
+    const payload = (await forwarded.json()) as { repoUrl: string; task: string; threadKey: string };
     expect(payload.repoUrl).toBe("https://github.com/owner/repo");
+    expect(payload.threadKey).toBe("slack-command:T123:C456");
     expect(payload.task).toContain("Fix the login bug");
     expect(response!.status).toBe(200);
     // The queued reply carries the approval card so a human can act on it.
@@ -193,6 +194,20 @@ describe("slack slash command", () => {
     expect(body.text).toContain("Task queued");
     const actions = body.blocks?.find((b) => b.type === "actions");
     expect(JSON.stringify(actions)).toContain("a-77");
+    expect(JSON.stringify(actions)).toContain("slack-command:T123:C456");
+  });
+
+  it.each([
+    { team_id: "", channel_id: "C456" },
+    { team_id: "T123", channel_id: "" },
+    { team_id: "T123:other", channel_id: "C456" },
+    { team_id: "T123", channel_id: "C456\nother" },
+  ])("refuses a signed command with an invalid origin %j without queueing", async (origin) => {
+    const request = await signedCommandRequest({ command: "/shiba", text: "https://github.com/owner/repo Fix it", ...origin });
+    const fetchMock = vi.fn(async () => Response.json({ approvalId: "never" }));
+    const response = await handleSlackCommand(request, routeEnv(), { orchestratorStub: { fetch: fetchMock } });
+    expect(response?.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid Slack signature with 401 and queues nothing", async () => {
@@ -336,5 +351,51 @@ describe("slack slash command", () => {
       orchestratorStub: { fetch: vi.fn() },
     });
     expect(response).toBeNull();
+  });
+});
+
+
+describe("Slack in-thread progress cards", () => {
+  it("posts one Fixer card and updates that receipt in place", async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      return Response.json({ ok: true, channel: "C1", ts: "123.456" });
+    }));
+    try {
+      const reporter = createSlackRunProgress("xoxb-test", { channelId: "C1", threadTs: "100.200" });
+      await reporter.onEvent({ phase: "clone", message: "cloning" });
+      await reporter.onEvent({ phase: "code", message: "working" });
+      await reporter.onEvent({ phase: "collect", message: "complete" });
+      expect(calls.map((call) => call.url)).toEqual(["https://slack.com/api/chat.postMessage", "https://slack.com/api/chat.update", "https://slack.com/api/chat.update"]);
+      expect(calls[0]?.body).toMatchObject({ username: "Shiba Fixer", icon_emoji: ":hammer_and_wrench:", thread_ts: "100.200" });
+      expect(calls[1]?.body).toMatchObject({ channel: "C1", ts: "123.456" });
+      expect(JSON.stringify(calls[2]?.body.blocks)).toContain("☑ Prepare workspace");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not repost a status card after delivery becomes uncertain", async () => {
+    const fetchMock = vi.fn(async () => { throw new Error("connection lost after write"); });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const reporter = createSlackRunProgress("xoxb-test", { channelId: "C1", threadTs: "100.200" });
+      await reporter.onEvent({ phase: "clone", message: "cloning" });
+      await reporter.onEvent({ phase: "code", message: "working" });
+      await reporter.onEvent({ phase: "collect", message: "complete" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+
+describe("ephemeral Slack slash command", () => {
+  it("parses an explicit workspace without requiring a repository", () => {
+    expect(parseSlackCommand("workspace:research-1 Summarize the market")).toEqual({ repoUrl: "", task: "Summarize the market", workspaceTarget: { type: "ephemeral", workspaceId: "research-1" } });
+    expect(() => parseSlackCommand("workspace:research-1")).toThrow("Describe the task");
+    expect(() => parseSlackCommand("workspace:bad/path Summarize the market")).toThrow("Usage");
   });
 });

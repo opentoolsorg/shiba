@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { getCollection } from 'astro:content';
+import { entryRouteKey, getCollectionUrl, getVersionStatus, getVisibleEntries, isDiscoverable } from '@cloudflare/nimbus-docs/runtime';
 import { getPublishedPosts } from '../lib/journal';
 
 const SITE = 'https://tryshiba.dev';
@@ -37,10 +38,19 @@ export async function GET() {
 		entries.push({ path: `/blog/category/${category}/`, lastmod: newest(posts.filter((p) => p.data.category === category)) });
 	}
 	for (const post of posts) entries.push({ path: `/blog/${post.id}/`, lastmod: postDay(post) });
-	for (const d of docs.filter((d) => d.id !== '404')) {
+	for (const d of docs.filter((d) => d.id !== '404' && isDiscoverable(d))) {
 		entries.push({
-			path: ('/' + d.id.replace(/(^|\/)index$/, '') + '/').replace(/\/+/g, '/'),
+			path: `/${entryRouteKey(d.id)}/`.replace(/\/+/g, '/'),
 			lastmod: d.filePath ? gitDay(d.filePath) : day(new Date()),
+		});
+	}
+	const apiRoot = await getCollectionUrl('api');
+	for (const entry of await getVisibleEntries(['api'])) {
+		const status = entry.data.version ? await getVersionStatus(`api@${entry.data.version}`) : null;
+		if (!isDiscoverable(entry) || status?.isHidden) continue;
+		entries.push({
+			path: `${apiRoot}/${entryRouteKey(entry.id)}/`.replace(/\/+/g, '/'),
+			lastmod: gitDay('../backend/src/v1/openapi.json'),
 		});
 	}
 

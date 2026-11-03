@@ -41,9 +41,9 @@ The condition fails closed: an error, empty answer, or unrecognized answer skips
 
 ## Approval and limits
 
-Automated runs require approval by default. A schedule or event does not grant permission to execute a task.
+Every automated run requires explicit human approval. A schedule or event does not grant permission to execute a task.
 
-The existing advanced unattended mode is a separate, explicit operator opt-in. It requires `unattended: true`, an exact repository entry in `unattendedRepos`, and a pull-request-only request. If those restrictions do not hold, the run still needs approval. It does not authorize arbitrary external mutations or automatic merging. The recipe gallery does not enable this mode.
+Legacy `unattended` and `unattendedRepos` fields remain readable for compatibility. They cannot approve a run or authorize an external mutation. Publishing completed changes requires a separate human approval of the frozen file snapshot.
 
 | Control | Behavior |
 | --- | --- |

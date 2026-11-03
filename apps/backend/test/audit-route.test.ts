@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
@@ -44,6 +44,9 @@ vi.mock("../src/email-approvals.js", () => ({
 import worker from "../src/index.js";
 import { AUDIT_RETENTION_MS } from "../src/audit.js";
 import type { Env } from "../src/env.js";
+import { TEST_ACCESS_AUD, verifiedAccessHeaders } from "./fixtures/access-identity.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 interface D1Call {
   sql: string;
@@ -177,7 +180,7 @@ describe("GET /api/audit", () => {
     const { env, d1 } = makeEnv();
     const { ctx } = makeCtx();
     const response = await worker.fetch(
-      new Request("http://localhost/api/audit", { method: "POST" }),
+      new Request("http://localhost/api/audit", { method: "POST", headers: { Origin: "http://localhost" } }),
       env,
       ctx,
     );
@@ -188,12 +191,13 @@ describe("GET /api/audit", () => {
   it("answers 401 without an Access identity when REQUIRE_ACCESS is set", async () => {
     const { env } = makeEnv();
     (env as { REQUIRE_ACCESS?: string }).REQUIRE_ACCESS = "1";
+    env.ACCESS_AUD = TEST_ACCESS_AUD;
     const { ctx } = makeCtx();
     const denied = await worker.fetch(new Request("https://worker/api/audit"), env, ctx);
     expect(denied.status).toBe(401);
     const authed = await worker.fetch(
       new Request("https://worker/api/audit", {
-        headers: { "CF-Access-Authenticated-User-Email": "user@example.com" },
+        headers: { ...await verifiedAccessHeaders("user@example.com"), "CF-Access-Authenticated-User-Email": "forged@example.test" },
       }),
       env,
       ctx,

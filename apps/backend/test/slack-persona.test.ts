@@ -6,6 +6,7 @@ import {
   describeHarness,
   shortRepoName,
   slackAck,
+  slackAgentPersona,
   slackAskForRepo,
   slackAskForTask,
   slackProgressText,
@@ -179,5 +180,26 @@ describe("extractPullRequestUrl", () => {
 
   it("returns null when no PR was published", () => {
     expect(extractPullRequestUrl("Task: x\nChanged files: a.ts")).toBeNull();
+  });
+});
+
+
+describe("specialist personas and workspace completion", () => {
+  it("assigns the four static names and emoji identities", () => {
+    expect(slackAgentPersona("lead")).toEqual({ username: "Shiba Lead", icon_emoji: ":dog:" });
+    expect(slackAgentPersona("explorer")).toEqual({ username: "Shiba Explorer", icon_emoji: ":mag:" });
+    expect(slackAgentPersona("fixer")).toEqual({ username: "Shiba Fixer", icon_emoji: ":hammer_and_wrench:" });
+    expect(slackAgentPersona("reviewer")).toEqual({ username: "Shiba Reviewer", icon_emoji: ":eyes:" });
+  });
+
+  it("delivers an artifact workspace summary and download link", () => {
+    const text = slackRunCompleted({ repoUrl: "", summary: "Saved the report", downloadUrl: "https://shiba.example/artifact?sig=test" });
+    expect(text).toContain("this workspace");
+    expect(text).toContain("Saved the report");
+    expect(text).toContain("Artifacts: https://shiba.example/artifact?sig=test");
+  });
+
+  it("keeps generated coworker copy free of dash punctuation", () => {
+    for (const text of everyMessage()) expect(text).not.toMatch(/[\u2013\u2014]|--/);
   });
 });

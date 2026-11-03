@@ -24,7 +24,7 @@ A marketing brief, research report, operating checklist, and code change can all
 | **Threads and work** | Keep conversations, tasks, results, and review decisions in context. |
 | **Skills** | Store reusable instructions for work such as research, writing, or review. |
 | **Connections and tools** | Make configured services available within the access and policies granted to the employee. |
-| **Automations** | Request repeat or event-driven work; unattended execution requires explicit configuration and permission. |
+| **Automations** | Request recurring or event driven work. Every execution waits for human approval. |
 
 An employee's role does not grant access to a service by itself. Availability depends on the installation, connected accounts, and tool policy. See [Employees](/docs/employees/), [Skills](/docs/skills/), and [Product status](/docs/product-status/).
 

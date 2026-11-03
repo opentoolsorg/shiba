@@ -160,6 +160,7 @@
   // (megaplan T3). Bucket must exist: `wrangler r2 bucket create shiba-attachments`.
   "r2_buckets": [
     { "binding": "ATTACHMENTS", "bucket_name": "shiba-attachments" },
+    { "binding": "ARTIFACTS", "bucket_name": "shiba-artifacts" },
   ],
   // Megaplan T4: agent bearer tokens, records keyed `tok_<sha256(raw)>`.
   // Provision: `wrangler kv namespace create AGENT_TOKENS` then paste the id.

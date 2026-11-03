@@ -97,7 +97,7 @@ describe("verify stand-in agent safety", () => {
         approvalId: "agent-tool:test",
         sandboxId: INPUT.sandboxId,
         inputHash: "a".repeat(64),
-      })),
+      }, { ...INPUT, publishPullRequest: false })),
     };
     const { result } = await run(agent(input, { GITHUB_TOKEN: "t", MODEL_CREDENTIAL_KEY: dispatchKey }));
     expect(result.summary).toBe("real");

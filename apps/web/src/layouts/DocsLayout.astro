@@ -19,7 +19,7 @@ import { PageActions } from "@/components/ui/page-actions";
 import ConnectMcp from "@/components/ConnectMcp.astro";
 import { capabilities } from "virtual:nimbus/agent-capabilities";
 import { Badge } from "@/components/ui/badge";
-import type { DocsPageProps } from "@cloudflare/nimbus-docs/types";
+import type { DocsPageProps, HeadElement } from "@cloudflare/nimbus-docs/types";
 import { getVersionStatus, getVersionAlternates, withBase } from "@cloudflare/nimbus-docs/runtime";
 
 type Props = Omit<DocsPageProps, "prevNext"> & { audience?: "human" };
@@ -48,6 +48,23 @@ const currentSiblingUrl = versionAlternates?.canonical?.url
   ? withBase(versionAlternates.canonical.url, import.meta.env.BASE_URL)
   : null;
 const homeHref = withBase("/", import.meta.env.BASE_URL);
+const docsHead: HeadElement[] = [...head];
+if (!noindex && !draft && !versionStatus?.isHidden && Astro.site) {
+  const currentUrl = new URL(Astro.url.pathname, Astro.site).href;
+  const linkedCrumbs = breadcrumbs.filter((crumb) => crumb.href).map((crumb) => ({
+    name: crumb.label,
+    item: new URL(withBase(crumb.href ?? "/", import.meta.env.BASE_URL), Astro.site).href,
+  }));
+  if (linkedCrumbs.at(-1)?.item !== currentUrl) linkedCrumbs.push({ name: title, item: currentUrl });
+  if (linkedCrumbs.length > 1) docsHead.push({
+    tag: "script",
+    attrs: { type: "application/ld+json" },
+    content: JSON.stringify({
+      "@context": "https://schema.org", "@type": "BreadcrumbList",
+      itemListElement: linkedCrumbs.map((crumb, index) => ({ "@type": "ListItem", position: index + 1, ...crumb })),
+    }).replaceAll("<", "\\u003c"),
+  });
+}
 
 // Page-body attribute resolution:
 //   - If the user opted out via `searchable: false` (or `noindex: true`
@@ -83,7 +100,7 @@ const hasContentFooter = Astro.slots.has("content-footer");
 const showToc = headings !== false && (hasToc || headings.length > 0);
 ---
 
-<BaseLayout title={title} description={description} noindex={noindex || draft} markdownUrl={markdownUrl} socialImage={socialImage} lastUpdated={lastUpdated} head={head} collection={collection} entryId={entryId}>
+<BaseLayout title={title} description={description} noindex={noindex || draft} markdownUrl={markdownUrl} socialImage={socialImage} lastUpdated={lastUpdated} head={docsHead} collection={collection} entryId={entryId}>
   <div class="flex flex-col min-h-screen">
     {hasHeader ? <slot name="header" /> : <Header collection={collection} entryId={entryId} showSidebar={showSidebar} />}
 

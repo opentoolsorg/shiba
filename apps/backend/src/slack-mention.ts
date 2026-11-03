@@ -6,7 +6,7 @@ import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 import { postSlackMessage, SLACK_POST_TIMEOUT_MS } from "./slack.js";
 import { postSystemOne, readChoiceAnswer, type TypeSafeFetch } from "./typesafe.js";
-import { buildApprovalBlocks } from "./slack-approval.js";
+import { buildApprovalBlocks, slackCanvasUrl } from "./slack-approval.js";
 import {
   gatherSlackContext,
   parseChannelRepoMap,
@@ -26,11 +26,14 @@ import {
   getSlackThreadStub,
   resolveSlackHarness,
   resolveThreadTs,
+  slackWorkspaceTarget,
 } from "./slack-thread.js";
 import {
   chatEmployeeQueueExtras,
   resolveChatEmployeeFromText,
 } from "./chat-employee.js";
+
+import { signSlackBufferRequest } from "./slack-turn-buffer.js";
 
 const SLACK_REPLIES = "https://slack.com/api/conversations.replies";
 
@@ -39,6 +42,13 @@ export interface SlackMentionQueueResult {
 }
 
 export interface SlackMentionDeps {
+  bufferMessage?: (input: {
+    threadKey: string;
+    eventId: string;
+    userId: string;
+    text: string;
+    createdAt: number;
+  }) => Promise<{ buffered: boolean; status?: string }>;
   queueRun?: (input: {
     threadKey: string;
     repoUrl: string;
@@ -46,6 +56,8 @@ export interface SlackMentionDeps {
     channelId: string;
     userId: string;
     harness: string;
+    workspaceTarget?: import("@shiba/shared").WorkspaceTarget;
+    publishPullRequest?: boolean;
   }) => Promise<SlackMentionQueueResult>;
   postMessage?: (input: {
     channel: string;
@@ -87,6 +99,14 @@ function asDirectMessage(event: unknown): AppMentionEvent | null {
   if (candidate.type !== "message" || candidate.channel_type !== "im") return null;
   if (typeof candidate.bot_id === "string" || typeof candidate.subtype === "string") return null;
   if (typeof candidate.thread_ts === "string") return null;
+  return event as AppMentionEvent;
+}
+
+function asThreadReply(event: unknown): AppMentionEvent | null {
+  if (typeof event !== "object" || event === null) return null;
+  const candidate = event as Record<string, unknown>;
+  if (candidate.type !== "message" || typeof candidate.thread_ts !== "string") return null;
+  if (typeof candidate.bot_id === "string" || typeof candidate.subtype === "string") return null;
   return event as AppMentionEvent;
 }
 
@@ -222,7 +242,8 @@ export async function handleSlackEvent(
 ): Promise<void> {
   // @mentions in channels and direct messages both start work; everything
   // else (channel chatter, bot echoes, edits) is ignored.
-  const event = asAppMention(body.event) ?? asDirectMessage(body.event);
+  const reply = asThreadReply(body.event);
+  const event = asAppMention(body.event) ?? asDirectMessage(body.event) ?? reply;
   if (!event) return;
 
   const token = env.SLACK_BOT_TOKEN?.trim() ?? "";
@@ -230,6 +251,7 @@ export async function handleSlackEvent(
   const channelId = event.channel?.trim() ?? "";
   const userId = event.user?.trim() ?? "";
   const mentionText = event.text ?? "";
+  const workspaceTarget = slackWorkspaceTarget(stripMentionMarkers(mentionText));
   const threadTs = resolveThreadTs({ thread_ts: event.thread_ts, ts: event.ts });
   if (!channelId || !threadTs) return;
 
@@ -238,6 +260,35 @@ export async function handleSlackEvent(
     (token ? (input: Parameters<NonNullable<SlackMentionDeps["postMessage"]>>[0]) => defaultPostMessage(token, input) : undefined);
   // No bot token: cannot ask or post a card, so start no run.
   if (!postMessage) return;
+
+  if (event.thread_ts) {
+    const threadKey = buildSlackThreadName(teamId, channelId, threadTs);
+    const buffer = deps.bufferMessage ?? (env.CodingOrchestrator ? async (input: {
+      threadKey: string; eventId: string; userId: string; text: string; createdAt: number;
+    }) => {
+      const stub = await getSlackThreadStub<{ fetch(request: Request): Promise<Response> }>(env, { teamId, channelId, threadTs });
+      const response = await stub.fetch(await signSlackBufferRequest(new Request("https://internal/api/slack/buffer", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+      }), env.INTERNAL_SIGNING_KEY ?? ""));
+      if (!response.ok) throw new Error(`Slack buffer unavailable (${response.status}).`);
+      return await response.json() as { buffered: boolean; status?: string };
+    } : undefined);
+    if (buffer) {
+      try {
+        const result = await buffer({ threadKey, eventId: body.event_id, userId, text: mentionText, createdAt: Date.now() });
+        if (result.buffered || result.status === "duplicate") return;
+        if (result.status === "full" || result.status === "invalid") {
+          await postMessage({ channel: channelId, threadTs, text: "That follow-up could not fit in the queue. Please send a shorter message after this turn completes." });
+          return;
+        }
+      } catch (error) {
+        console.error("Slack turn buffering failed", redactSecrets(String(error)));
+        await postMessage({ channel: channelId, threadTs, text: "I could not save that follow-up. Please try again after this turn completes." });
+        return;
+      }
+    }
+    if (reply) return;
+  }
 
   let threadMessages: SlackThreadMessage[] = [{
     user: userId || "unknown",
@@ -271,7 +322,9 @@ export async function handleSlackEvent(
     return;
   }
 
-  const employeeResolution = await resolveChatEmployeeFromText(env, task);
+  const employeeResolution = workspaceTarget
+    ? { kind: "none" as const, taskText: task }
+    : await resolveChatEmployeeFromText(env, task);
   if (employeeResolution.kind === "error") {
     await postMessage({ channel: channelId, threadTs, text: employeeResolution.error });
     return;
@@ -320,12 +373,12 @@ ${taskForRun}` : taskForRun;
     }
   }
 
-  if (!employeeExtras?.ok && resolution.kind === "ask") {
+  if (!workspaceTarget && !employeeExtras?.ok && resolution.kind === "ask") {
     await postMessage({ channel: channelId, threadTs, text: slackAskForRepo() });
     return;
   }
 
-  const repoUrl = employeeExtras?.ok
+  const repoUrl = workspaceTarget ? "" : employeeExtras?.ok
     ? (employeeExtras.extras.repoUrl ?? "")
     : resolution.kind === "ask"
       ? ""
@@ -335,6 +388,7 @@ ${taskForRun}` : taskForRun;
     : resolveSlackHarness(env);
   const payload = buildSlackRunPayload({
     repoUrl,
+    ...(workspaceTarget ? { workspaceTarget } : {}),
     task: employeeExtras?.ok ? employeeExtras.task : taskWithHint,
     channelId,
     userId,
@@ -380,6 +434,8 @@ ${taskForRun}` : taskForRun;
       threadKey,
       repoUrl,
       task: payload.task,
+      ...(workspaceTarget ? { workspaceTarget } : {}),
+      publishPullRequest: payload.publishPullRequest,
       channelId,
       userId,
       harness,
@@ -398,6 +454,9 @@ ${taskForRun}` : taskForRun;
         repoUrl: repoUrl || "(artifact workspace)",
         task: payload.task,
         harness,
+        canvasUrl: slackCanvasUrl(env.WORKER_HOSTNAME),
+        workspaceLabel: workspaceTarget ? `Workspace ${workspaceTarget.workspaceId}` : repoUrl || "Ephemeral workspace",
+        publishPullRequest: payload.publishPullRequest,
         ...(employeeExtras?.ok ? { employeeLabel: employeeExtras.extras.employeeLabel } : {}),
       }),
     });

@@ -72,6 +72,10 @@ export interface Env {
    * (`wrangler r2 bucket create`).
    */
   ATTACHMENTS: R2Bucket;
+  /** Private ZIP bundles produced by ephemeral workspaces. */
+  ARTIFACTS?: R2Bucket;
+  /** Worker-only HMAC key for bounded artifact download capabilities. */
+  ARTIFACT_SIGNING_KEY?: string;
   /**
    * KV namespace of agent bearer-token records keyed `tok_<sha256(raw)>` —
    * the raw token is never stored (megaplan T4, see `agent-tokens.ts`).

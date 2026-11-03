@@ -45,7 +45,7 @@ export interface JsonObject {
  * written before email approvals existed carry no `kind` — readers treat
  * absent as `"run"`.
  */
-export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge";
+export type ApprovalKind = "run" | "email_send" | "email_delete" | "pr_merge" | "pr_publish";
 
 /** Stable provenance pointer for reviewed skill text frozen into an approval. */
 export interface SkillExecutionPin {
@@ -183,7 +183,7 @@ export interface PendingApproval extends OnboardingRunFields {
 
 /** What the email executor did with an approved payload. */
 export interface ApprovalExecution {
-  status: "executed" | "failed";
+  status: "executing" | "executed" | "failed" | "unknown";
   /** Redacted error text when `status` is `"failed"`. */
   error?: string;
   executedAt: number;

@@ -70,7 +70,7 @@ function routeEnv(approvers: string | undefined) {
 /** Build a signed block_actions request carrying an approve/reject button. */
 async function signedInteractRequest(args: {
   userId: string;
-  actionId: "approve" | "reject" | "employee_approve";
+  actionId: "approve" | "reject" | "employee_approve" | "unknown_action";
   chatContext?: { team: { id: string }; channel: { id: string }; message: { thread_ts: string } };
   threadKey: string;
   approvalId: string;
@@ -87,6 +87,14 @@ async function signedInteractRequest(args: {
     actions: [{ action_id: args.actionId, value }],
     response_url: args.responseUrl ?? "https://hooks.slack.com/actions/T/B/XXXX",
     ...(args.blocks ? { message: { blocks: args.blocks } } : {}),
+    ...((args.actionId === "approve" || args.actionId === "reject") && args.threadKey.startsWith("slack:") ? (() => {
+      const [, team, channel, ...timestamp] = args.threadKey.split(":");
+      return { team: { id: team }, channel: { id: channel }, message: { blocks: args.blocks ?? [], thread_ts: timestamp.join(":") } };
+    })() : {}),
+    ...(args.threadKey.startsWith("slack-command:") ? (() => {
+      const [, team, channel] = args.threadKey.split(":");
+      return { team: { id: team }, channel: { id: channel } };
+    })() : {}),
     ...args.chatContext,
   };
   const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
@@ -293,7 +301,7 @@ describe("handleSlackInteract", () => {
     expect(deps.isUnresolved).not.toHaveBeenCalled();
     expect(deps.respond).toHaveBeenCalledOnce();
     const [, text] = deps.respond.mock.calls[0] as [string, string];
-    expect(text).toMatch(/not on the approver list/i);
+    expect(text).toBe("Unauthorized. You cannot approve this run.");
   });
 
   it("empty allowlist refuses everyone", async () => {
@@ -533,3 +541,102 @@ it.each(["slack:T:C:123.456", "slack:T:other:123.456"])("binds signed Slack empl
   expect(deps.replaceCard).toHaveBeenCalledTimes(matching ? 1 : 0);
   expect(deps.respond).toHaveBeenCalledTimes(matching ? 0 : 1);
 }, 15_000);
+
+
+describe("Slack approval workspace binding", () => {
+  it("blocks a validly signed click copied into another Slack workspace with zero decision side effects", async () => {
+    const deps = testDeps();
+    const request = await signedInteractRequest({
+      userId: "U1", actionId: "approve", threadKey: "slack:T1:C1:123.456", approvalId: "appr_1",
+      chatContext: { team: { id: "T2" }, channel: { id: "C1" }, message: { thread_ts: "123.456" } },
+    });
+    expect((await handleSlackInteract(request, routeEnv("U1"), deps))?.status).toBe(400);
+    expect(deps.dispatchApprove).not.toHaveBeenCalled();
+    expect(deps.dispatchReject).not.toHaveBeenCalled();
+    expect(deps.isUnresolved).not.toHaveBeenCalled();
+    expect(deps.replaceCard).not.toHaveBeenCalled();
+  });
+
+  it("includes the target workspace and a safe web canvas link", () => {
+    const blocks = JSON.stringify(buildApprovalBlocks({ threadKey: "default", approvalId: "appr_1", repoUrl: "", workspaceLabel: "Workspace report-1", task: "Generate report", canvasUrl: "https://shiba.example/app/" }));
+    expect(blocks).toContain("Target Workspace");
+    expect(blocks).toContain("Workspace report-1");
+    expect(blocks).toContain("Live Web Canvas");
+    expect(blocks).toContain("Approve Action");
+    expect(JSON.stringify(buildApprovalBlocks({ threadKey: "default", approvalId: "appr_1", repoUrl: "", task: "Generate report", canvasUrl: "javascript:alert(1)" }))).not.toContain("javascript:");
+  });
+});
+
+
+describe("approval card external action disclosure", () => {
+  it("requires a separate action approval for publication after a run", () => {
+    const input = { threadKey: "default", approvalId: "appr_1", repoUrl: "https://github.com/o/r", task: "Fix it", publishPullRequest: true };
+    expect(approvalCardText(input)).toContain("A separate approval is required");
+    expect(JSON.stringify(buildApprovalBlocks({ ...input, kind: "pr_publish" }))).toContain("External Action");
+  });
+
+  it("bounds the escaped task when untrusted text expands into markup entities", () => {
+    const input = { threadKey: "default", approvalId: "appr_1", repoUrl: "https://github.com/o/r", task: "&<>".repeat(1500) };
+    const section = buildApprovalBlocks(input)[0] as { text: { text: string } };
+    expect(section.text.text.length).toBeLessThan(3000);
+    expect(section.text.text).toContain("full task on the dashboard");
+    expect(section.text.text).not.toContain("&<>");
+  });
+});
+
+
+describe("Slack approval action validation", () => {
+  it("does not reinterpret an unknown signed action as a rejection", async () => {
+    const deps = testDeps();
+    const request = await signedInteractRequest({ userId: "U1", actionId: "unknown_action", threadKey: "default", approvalId: "appr_1" });
+    expect((await handleSlackInteract(request, routeEnv("U1"), deps))?.status).toBe(400);
+    expect(deps.dispatchApprove).not.toHaveBeenCalled();
+    expect(deps.dispatchReject).not.toHaveBeenCalled();
+    expect(deps.isUnresolved).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("slash command approval origin binding", () => {
+  const pointer = { threadKey: "slack-command:T1:C1", approvalId: "command-approval-1" };
+
+  it("dispatches a same-origin signed decision on the default DO with the frozen scoped pointer", async () => {
+    const stub = { fetch: vi.fn(async (_request: Request) => Response.json({ result: "approved" })) };
+    const resolveOrchestrator = vi.fn(async (_name: string) => stub);
+    const replaceCard = vi.fn(async () => {});
+    const response = await handleSlackInteract(await signedInteractRequest({ userId: "U1", actionId: "approve", ...pointer }), routeEnv("U1"), {
+      resolveOrchestrator, replaceCard,
+    });
+    expect(response?.status).toBe(200);
+    expect(resolveOrchestrator).toHaveBeenCalledExactlyOnceWith("default");
+    expect(stub.fetch).toHaveBeenCalledOnce();
+    const request = stub.fetch.mock.calls[0]?.[0] as Request | undefined;
+    expect(request).toBeDefined();
+    expect(await request?.json()).toMatchObject({ ...pointer, approved: true, decidedBy: "U1", source: "slack" });
+    expect(replaceCard).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { team: { id: "T2" }, channel: { id: "C1" }, message: { thread_ts: "123.456" } },
+    { team: { id: "T1" }, channel: { id: "C2" }, message: { thread_ts: "123.456" } },
+  ])("blocks copied card from another signed origin %j with zero decision effects", async (chatContext) => {
+    const deps = testDeps();
+    const resolveOrchestrator = vi.fn(async (_name: string) => ({ fetch: vi.fn() }));
+    const response = await handleSlackInteract(await signedInteractRequest({ userId: "U1", actionId: "approve", ...pointer, chatContext }), routeEnv("U1"), { ...deps, resolveOrchestrator });
+    expect(response?.status).toBe(400);
+    expect(deps.dispatchApprove).not.toHaveBeenCalled();
+    expect(deps.dispatchReject).not.toHaveBeenCalled();
+    expect(deps.isUnresolved).not.toHaveBeenCalled();
+    expect(deps.replaceCard).not.toHaveBeenCalled();
+    expect(deps.respond).not.toHaveBeenCalled();
+    expect(resolveOrchestrator).not.toHaveBeenCalled();
+  });
+
+  it("refuses malformed command scopes instead of falling back to an unbound approval", async () => {
+    const deps = testDeps();
+    const response = await handleSlackInteract(await signedInteractRequest({ userId: "U1", actionId: "approve", threadKey: "slack-command:T1:C1:extra", approvalId: pointer.approvalId }), routeEnv("U1"), deps);
+    expect(response?.status).toBe(400);
+    expect(deps.dispatchApprove).not.toHaveBeenCalled();
+    expect(deps.isUnresolved).not.toHaveBeenCalled();
+  });
+});
