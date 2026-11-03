@@ -60,6 +60,37 @@ afterEach(() => {
 });
 
 describe("Cloudflare source journal adapter", () => {
+  it("attaches read-only from the beginning without sending START, including after the CLI deadline", async () => {
+    const f = fixture(); const now = Date.now();
+    f.read.mockResolvedValue(page({ frames: [frame(1, "complete\n")], cursor: 1 }));
+    const sandbox = await f.provider.get("approved-run");
+    const onJournalFrame = vi.fn(async () => {});
+    await expect(sandbox.exec("approved-command", { journal: { jobId: JOB_ID, deadline: now - 1,
+      mode: "attach", observationDeadline: now + 60_000 }, onJournalFrame })).resolves.toMatchObject({ stdout: "complete\n" });
+    expect(f.start).not.toHaveBeenCalled(); expect(f.legacyExec).not.toHaveBeenCalled();
+    expect(f.read).toHaveBeenCalledExactlyOnceWith(JOB_ID, 0);
+    expect(onJournalFrame).toHaveBeenCalledExactlyOnceWith(frame(1, "complete\n"));
+  });
+
+  it("does not start a missing or replaced job while attaching", async () => {
+    const f = fixture(); f.read.mockResolvedValue(page({ state: "lost", exitCode: undefined }));
+    const sandbox = await f.provider.get("approved-run");
+    await expect(sandbox.exec("approved-command", { journal: { ...journal(), mode: "attach",
+      observationDeadline: Date.now() + 60_000 } })).rejects.toThrow("lost");
+    expect(f.start).not.toHaveBeenCalled(); expect(f.legacyExec).not.toHaveBeenCalled();
+  });
+
+  it("validates a complete page before acknowledging raw frames and stops on failed durable delivery", async () => {
+    const f = fixture(); f.read.mockResolvedValue(page({ frames: [frame(1, "safe"), frame(3, "invalid")], cursor: 2 }));
+    const sandbox = await f.provider.get("approved-run"); const raw = vi.fn(async () => {});
+    await expect(sandbox.exec("approved-command", { journal: journal(), onJournalFrame: raw })).rejects.toThrow("reordered");
+    expect(raw).not.toHaveBeenCalled();
+    f.read.mockResolvedValue(page({ frames: [frame(1, "safe")], cursor: 1 }));
+    const output = vi.fn(); raw.mockRejectedValueOnce(new Error("room persistence unavailable"));
+    await expect(sandbox.exec("approved-command", { journal: journal(), onJournalFrame: raw, onOutput: output })).rejects.toThrow("room persistence unavailable");
+    expect(output).not.toHaveBeenCalled();
+  });
+
   it("preserves the ordinary default workspace when no cwd is supplied", async () => {
     const f = fixture();
     const sandbox = await f.provider.get("approved-run");

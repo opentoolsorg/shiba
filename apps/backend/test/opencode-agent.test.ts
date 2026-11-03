@@ -4,6 +4,8 @@ import { OpenCodeAgent, createSandboxOps } from "../src/agents/opencode-agent.js
 import { sealChildDispatch } from "../src/child-dispatch.js";
 import { formatAgentToolInput, parseAgentResultText, type CodingTaskInput, type CodingTaskResult } from "../src/opencode-input.js";
 import type { ChatRecoveryContext, ChatRecoveryOptions } from "@cloudflare/ai-chat";
+import { ExecutionRecoveryStore } from "../src/execution-recovery-store.js";
+import type { PreparedRuntimeExecution } from "../src/runtime-recovery.js";
 
 const DISPATCH_KEY = "fe".repeat(32);
 
@@ -73,6 +75,104 @@ beforeEach(async () => {
 });
 
 describe("CLI recovery policy", () => {
+  function durable(instance: OpenCodeAgent) {
+    const rows = new Map<string, unknown>();
+    const storage = {
+      async get<T>(key: string) { return structuredClone(rows.get(key)) as T | undefined; },
+      async put(key: string, value: unknown) { rows.set(key, structuredClone(value)); },
+    };
+    Object.assign(instance, { ctx: { storage } });
+    return new ExecutionRecoveryStore(storage);
+  }
+
+  function prepared(input: CodingTaskInput): PreparedRuntimeExecution {
+    return {
+      version: 1, phase: "harness", provider: "cloudflare", sandboxId: input.sandboxId, harness: "opencode",
+      workdir: `/workspace/${input.sandboxId}`, approvalId: input.dispatchApprovalId!, inputHash: input.dispatchInputHash!,
+      envelopeHash: input.dispatchEnvelopeHash!, commandIdentity: "b".repeat(64), jobId: "c".repeat(64),
+      issuedAt: input.dispatchIssuedAt!, preparedAt: Date.now(), deadline: Date.now() + 60_000,
+      recoveryDeadline: input.dispatchExpiresAt!, baseRevision: "a".repeat(40), baselineCommit: "b".repeat(40), setupCommit: null,
+    };
+  }
+
+  it("recovers a prepared child using the exact original capsule and commits a replayable result", async () => {
+    const instance = agent();
+    const store = durable(instance);
+    const capsule = prepared(sealedInput);
+    await store.begin(sealedInput);
+    await store.prepared(sealedInput, capsule);
+    mocks.run.mockImplementation(async (_ops, _input, _emit, opts) => {
+      expect(opts.recovery).toEqual(capsule);
+      expect(opts.approvedInput).toEqual(sealedInput);
+      await opts.onSettlementStarted();
+      return RESULT;
+    });
+    const first = await responseFor(instance);
+    expect(first.result.status).toBe("completed");
+    expect((await store.read(sealedInput))?.phase).toBe("complete");
+    mocks.run.mockClear(); mocks.sandbox.mockClear();
+    expect((await responseFor(instance)).result).toEqual(first.result);
+    expect(mocks.run).not.toHaveBeenCalled();
+    expect(mocks.sandbox).not.toHaveBeenCalled();
+  });
+
+  it.each(["preparing", "settling"])("does not repeat setup or settlement after %s eviction", async (phase) => {
+    const instance = agent();
+    const store = durable(instance);
+    await store.begin(sealedInput);
+    if (phase === "settling") {
+      await store.prepared(sealedInput, prepared(sealedInput));
+      await store.settling(sealedInput);
+    }
+    const { result } = await responseFor(instance);
+    expect(result.summary).toContain("outcome is uncertain");
+    expect(result.errorCode).toBe("outcome_unknown");
+    expect(mocks.run).not.toHaveBeenCalled();
+    expect(mocks.sandbox).not.toHaveBeenCalled();
+  });
+
+  it("uses SDK persisted body for pre-hydration recovery and rejects altered or expired envelopes", async () => {
+    const instance = agent();
+    const store = durable(instance);
+    await store.begin(sealedInput);
+    await store.prepared(sealedInput, prepared(sealedInput));
+    const policy = instance as unknown as { onChatRecovery(context: ChatRecoveryContext): Promise<ChatRecoveryOptions> };
+    const context = { messages: [], lastBody: { agentToolInput: formatAgentToolInput(sealedInput) } } as unknown as ChatRecoveryContext;
+    expect(await policy.onChatRecovery(context)).toEqual({ continue: true });
+    context.lastBody = { agentToolInput: formatAgentToolInput({ ...sealedInput, task: "forged" }) };
+    expect(await policy.onChatRecovery(context)).toEqual({ continue: false });
+    context.lastBody = { agentToolInput: formatAgentToolInput({ ...sealedInput, dispatchExpiresAt: Date.now() - 1 }) };
+    expect(await policy.onChatRecovery(context)).toEqual({ continue: false });
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
+
+  it("refuses a concurrent child turn before acquiring or attaching again", async () => {
+    const instance = agent();
+    let finish!: (result: CodingTaskResult) => void;
+    mocks.run.mockImplementation(() => new Promise<CodingTaskResult>((resolve) => { finish = resolve; }));
+    const first = responseFor(instance);
+    await vi.waitFor(() => expect(mocks.run).toHaveBeenCalledOnce());
+    await expect(responseFor(instance)).rejects.toThrow("already active");
+    expect(mocks.run).toHaveBeenCalledOnce();
+    finish(RESULT);
+    await first;
+  });
+
+  it("commits and replays a legitimate completed result larger than 80,000 characters", async () => {
+    const instance = agent();
+    durable(instance);
+    mocks.run.mockResolvedValue({ ...RESULT,
+      changedFiles: Array.from({ length: 50 }, (_, index) => `${index}/${"a".repeat(1_020)}`),
+      diff: "+".repeat(20_000), stderrTail: "diagnostic".repeat(900), summary: "s".repeat(4_000),
+    });
+    const first = await responseFor(instance);
+    expect(first.result.status).toBe("completed");
+    mocks.run.mockClear();
+    const replay = await responseFor(instance);
+    expect(replay.result).toEqual(first.result);
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
+
   it.each(["pre-stream", "partial", "lost-partial"])("does not schedule another CLI turn after %s eviction", async (kind) => {
     const instance = agent();
     const scheduleRecovery = vi.fn();
@@ -455,6 +555,29 @@ describe("OpenCodeAgent response boundary", () => {
 });
 
 describe("createSandboxOps", () => {
+  it("probes native journal capability without resolving or starting a sandbox", async () => {
+    const ops = createSandboxOps({} as never, INPUT.sandboxId);
+    expect(await ops.supportsJournal?.()).toBe(true);
+    expect(mocks.sandbox).not.toHaveBeenCalled();
+  });
+
+  it("refuses a remote provider journal capability without any instance request", async () => {
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+    try {
+      const ops = createSandboxOps({
+        SHIBA_SANDBOX_PROVIDER: "computesdk", SHIBA_COMPUTESDK_PROVIDER: "e2b",
+        SHIBA_COMPUTESDK_RUNNER_URL: "https://runner.example.test", SHIBA_COMPUTESDK_RUNNER_TOKEN: "worker-only-test-token",
+        SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS: "1",
+      } as never, INPUT.sandboxId);
+      expect(await ops.supportsJournal?.()).toBe(false);
+      expect(request).not.toHaveBeenCalled();
+      expect(mocks.sandbox).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("forwards the frozen journal identity through the provider without callback RPC or another command launch", async () => {
     const jobId = "a".repeat(64);
     const deadline = Date.now() + 60_000;
@@ -466,14 +589,16 @@ describe("createSandboxOps", () => {
     const cancelExecution = vi.fn();
     mocks.sandbox.mockReturnValue({ startExecution, readExecution, cancelExecution, exec });
     const onOutput = vi.fn();
+    const onJournalFrame = vi.fn();
     const signal = new AbortController().signal;
     const env = { OPENCODE_API_KEY: "shiba-egress-placeholder" };
     expect(await createSandboxOps({} as never, INPUT.sandboxId).exec("approved command", {
-      cwd: "/workspace", signal, env, journal: { jobId, deadline }, onOutput,
+      cwd: "/workspace", signal, env, journal: { jobId, deadline }, onOutput, onJournalFrame,
     })).toEqual({ stdout: "journal output\n", stderr: "", exitCode: 0 });
     expect(startExecution).toHaveBeenCalledExactlyOnceWith({ jobId, deadline, command: "approved command", cwd: "/workspace", env });
     expect(readExecution).toHaveBeenCalledExactlyOnceWith(jobId, 0);
     expect(onOutput).toHaveBeenCalledExactlyOnceWith("stdout", "journal output\n");
+    expect(onJournalFrame).toHaveBeenCalledExactlyOnceWith({ sequence: 1, stream: "stdout", dataBase64: btoa("journal output\n") });
     expect(exec).not.toHaveBeenCalled();
     expect(cancelExecution).not.toHaveBeenCalled();
   });

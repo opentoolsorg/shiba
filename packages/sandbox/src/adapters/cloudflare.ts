@@ -31,6 +31,7 @@ export interface CloudflareSandboxRpc {
       env?: Record<string, string>;
       stream?: boolean;
       onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
+      requiredJournalJobId?: string;
     },
   ): Promise<{ stdout?: string; stderr?: string; exitCode?: number }>;
   readFileStream(path: string): Promise<ReadableStream<Uint8Array>>;
@@ -135,6 +136,7 @@ function wrapRpc(
         env: { ...settings.execEnvPassthrough, ...opts?.env },
         stream: opts?.onOutput !== undefined,
         onOutput: opts?.onOutput,
+        requiredJournalJobId: opts?.requiredJournalJobId,
       });
       const result = opts?.signal
         ? await raceAbort(execPromise, opts.signal)

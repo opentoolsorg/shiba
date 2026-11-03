@@ -12,7 +12,7 @@
  * typed error + receipt, never a silent exec.
  */
 import type { RunSignal } from "@shiba/shared";
-import type { JournalExecutionOptions } from "@shiba/sandbox";
+import type { JournalExecutionOptions, JournalFrame } from "@shiba/sandbox";
 import { boundTail } from "./security.js";
 import type { ExecResult, SandboxOps } from "./runtime.js";
 
@@ -43,6 +43,8 @@ export interface ScopedExecOptions {
   receiptLabel?: string;
   /** The caller freezes this identity before the one permitted CLI launch. */
   journal?: JournalExecutionOptions;
+  onJournalFrame?: (frame: JournalFrame) => Promise<void>;
+  requiredJournalJobId?: string;
 }
 
 /** Default output cap for scoped (non-harness) commands. */
@@ -125,6 +127,8 @@ export async function scopedExec(ops: SandboxOps, command: string, opts: ScopedE
       signal: opts.signal,
       onOutput: opts.onOutput,
       journal: opts.journal,
+      onJournalFrame: opts.onJournalFrame,
+      requiredJournalJobId: opts.requiredJournalJobId,
     });
     const truncated =
       result.stdout.length > cap || result.stderr.length > cap;

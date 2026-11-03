@@ -389,12 +389,18 @@ describe("withRetry wired into the runtime adapter", () => {
     const harness = new OpenCodeHarness();
     vi.spyOn(harness, "env").mockImplementation(() => { throw new Error("Invalid frozen harness configuration."); });
     const execute = vi.fn(async (_command: string) => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const checkout = vi.fn(async () => {});
+    const write = vi.fn(async () => {});
     const gap = vi.fn();
-    const result = await new SandboxRuntimeAdapter(harness).runCodingTask(makeFakeOps({ exec: execute }), INPUT, () => {}, { onStreamGap: gap });
+    const result = await new SandboxRuntimeAdapter(harness).runCodingTask(makeFakeOps({ exec: execute, gitCheckout: checkout, writeFile: write }), INPUT, () => {}, { onStreamGap: gap });
     expect(result.status).toBe("error");
     expect(result.summary).toContain("Invalid frozen harness configuration");
     expect(result.summary).not.toContain("uncertain");
     expect(execute.mock.calls.some(([command]) => command.includes("opencode"))).toBe(false);
+    expect(execute).not.toHaveBeenCalled();
+    expect(checkout).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(result.errorCode).toBeUndefined();
     expect(gap).not.toHaveBeenCalled();
   });
 

@@ -275,6 +275,23 @@ describe("Sandbox execution journal RPC", () => {
     expect(item.native.destroy).not.toHaveBeenCalled();
   });
 
+  it("reconciles an unread final receipt before the deadline alarm destroys the container", async () => {
+    const item = await host();
+    await item.sandbox.startExecution(item.input);
+    // Observe process completion outside the DO so its durable claim remains starting.
+    const receipt = path.join(item.root, "journals", item.input.jobId, "receipt.json");
+    const until = Date.now() + 5_000;
+    while (Date.now() < until) {
+      try { await fs.stat(receipt); break; } catch { await pause(20); }
+    }
+    await expect(fs.stat(receipt)).resolves.toBeDefined();
+    expect(item.values.get(`execution-journal:${item.input.jobId}`)).toMatchObject({ state: "starting" });
+    vi.spyOn(Date, "now").mockReturnValue(item.input.deadline + 1_501);
+    await item.sandbox.alarm();
+    expect(item.native.destroy).not.toHaveBeenCalled();
+    expect(item.values.get(`execution-journal:${item.input.jobId}`)).toMatchObject({ state: "exited" });
+  });
+
   it("does not kill a replacement instance for an old execution deadline", async () => {
     const item = await host();
     await item.sandbox.startExecution(item.input);
@@ -282,6 +299,82 @@ describe("Sandbox execution journal RPC", () => {
     vi.spyOn(Date, "now").mockReturnValue(item.input.deadline + 1_501);
     await item.sandbox.alarm();
     expect(item.native.destroy).not.toHaveBeenCalled();
+  });
+
+  it("does not kill a replacement that appears during deadline receipt reconciliation", async () => {
+    const item = await host();
+    await item.sandbox.startExecution(item.input);
+    item.native.inspect.mockResolvedValueOnce({ labels: { [EXECUTION_EPOCH_LABEL]: EPOCH }, image: "pinned-image" });
+    item.native.labels[EXECUTION_EPOCH_LABEL] = "22222222-2222-4222-8222-222222222222";
+    vi.spyOn(Date, "now").mockReturnValue(item.input.deadline + 1_501);
+    await item.sandbox.alarm();
+    expect(item.native.destroy).not.toHaveBeenCalled();
+  });
+
+  it("preserves a new deadline installed while the alarm reconciles an older completed job", async () => {
+    const item = await host(); await item.sandbox.startExecution(item.input);
+    expect((await drain(item.sandbox, item.input.jobId)).page.state).toBe("exited");
+    item.values.set("execution-journal-deadlines:v1", { [item.input.jobId]: { deadline: item.input.deadline, epoch: EPOCH } });
+    const newId = "e".repeat(64); const newer = { deadline: item.input.deadline + 60_000, epoch: EPOCH };
+    item.native.inspect.mockImplementationOnce(async () => {
+      item.values.set("execution-journal-deadlines:v1", { [item.input.jobId]: { deadline: item.input.deadline, epoch: EPOCH }, [newId]: newer });
+      return { labels: { [EXECUTION_EPOCH_LABEL]: EPOCH }, image: "pinned-image" };
+    });
+    vi.spyOn(Date, "now").mockReturnValue(item.input.deadline + 1_501);
+    await item.sandbox.alarm();
+    expect(item.values.get("execution-journal-deadlines:v1")).toEqual({ [newId]: newer });
+  });
+
+  it("bounds a stalled deadline receipt read and rearms the native cleanup backstop", async () => {
+    const item = await host(); await item.sandbox.startExecution({ ...item.input, command: "sleep 100" });
+    item.native.exec.mockImplementationOnce(() => new Promise<never>(() => {}));
+    vi.useFakeTimers(); vi.setSystemTime(item.input.deadline + 1_501);
+    const now = Date.now(); const alarm = item.sandbox.alarm();
+    await vi.advanceTimersByTimeAsync(2_000); await alarm;
+    expect(item.storage.setAlarm).toHaveBeenLastCalledWith(now + 2_000 + 5_000);
+    vi.useRealTimers();
+  });
+
+  it.each(["missing", "stopped", "replaced"] as const)("never starts a container for %s post-attach settlement", async (loss) => {
+    const item = await host();
+    await item.sandbox.startExecution(item.input);
+    expect((await drain(item.sandbox, item.input.jobId)).page.state).toBe("exited");
+    if (loss === "missing") item.values.delete(`execution-journal:${item.input.jobId}`);
+    if (loss === "stopped") item.native.running = false;
+    if (loss === "replaced") item.native.labels[EXECUTION_EPOCH_LABEL] = "22222222-2222-4222-8222-222222222222";
+    const calls = item.native.exec.mock.calls.length;
+    await expect(item.sandbox.exec("git write-tree", { requiredJournalJobId: item.input.jobId })).rejects.toThrow("Settlement was not restarted");
+    expect(item.native.start).not.toHaveBeenCalled();
+    expect(item.native.exec).toHaveBeenCalledTimes(calls);
+  });
+
+  it("executes settlement only inside the original completed journal's kernel", async () => {
+    const item = await host(); await item.sandbox.startExecution(item.input);
+    expect((await drain(item.sandbox, item.input.jobId)).page.state).toBe("exited");
+    const target = path.join(item.root, "settled.txt");
+    expect((await item.sandbox.exec(`printf original > ${quote(target)}`, {
+      cwd: item.root, requiredJournalJobId: item.input.jobId,
+    })).exitCode).toBe(0);
+    expect(await fs.readFile(target, "utf8")).toBe("original");
+    expect(item.native.start).not.toHaveBeenCalled();
+  });
+
+  it.each(["bootId", "pidNamespace", "initStart"] as const)("refuses replaced %s even when inspection returned a stale matching epoch", async (field) => {
+    const item = await host(); await item.sandbox.startExecution(item.input);
+    expect((await drain(item.sandbox, item.input.jobId)).page.state).toBe("exited");
+    const target = path.join(item.root, "must-not-run.txt");
+    item.native.inspect.mockImplementationOnce(async () => {
+      for (const file of ["meta.json", "receipt.json"]) {
+        const name = path.join(item.root, "journals", item.input.jobId, file);
+        const value = JSON.parse(await fs.readFile(name, "utf8"));
+        await fs.writeFile(name, JSON.stringify({ ...value, [field]: "replaced-instance" }));
+      }
+      return { labels: { [EXECUTION_EPOCH_LABEL]: EPOCH }, image: "pinned-image" };
+    });
+    const result = await item.sandbox.exec(`touch ${quote(target)}`, { cwd: item.root, requiredJournalJobId: item.input.jobId });
+    expect(result.exitCode).toBe(125);
+    await expect(fs.stat(target)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(item.native.start).not.toHaveBeenCalled();
   });
 
   it.each(["destroy", "inspect"] as const)("backs off overdue cleanup when native %s fails", async (operation) => {

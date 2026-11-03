@@ -5,7 +5,7 @@
  * It makes no model calls of its own.
  */
 import { AIChatAgent, type ChatRecoveryContext, type ChatRecoveryOptions, type OnChatMessageOptions } from "@cloudflare/ai-chat";
-import { getSandboxInstance } from "../sandbox/provider.js";
+import { getSandboxInstance, resolveSandboxProviderForSelection } from "../sandbox/provider.js";
 import type { SandboxSelectionContext } from "../sandbox/selection.js";
 import type { SandboxInstance } from "@shiba/sandbox";
 import {
@@ -65,6 +65,9 @@ import { messageText, renderRunTranscript } from "../transcript.js";
 import { createRunRoomPublisher } from "../run-room-events.js";
 import { assertWorkspaceArtifactConfiguration } from "../artifact-download.js";
 import { stagePrPublishApproval } from "../pr-publish-approval.js";
+import { ExecutionRecoveryStore, type ExecutionRecoveryStorage } from "../execution-recovery-store.js";
+import { createRunJournalPublisher } from "../run-journal-publisher.js";
+import type { PreparedRuntimeExecution } from "../runtime-recovery.js";
 
 export async function pinSandboxEgress(
   env: Env,
@@ -126,6 +129,9 @@ export function createSandboxOps(
     return instancePromise;
   };
   return {
+    async supportsJournal() {
+      return (await resolveSandboxProviderForSelection(env, selection)).capabilities.journaledExec === true;
+    },
     async pinEgress() {
       await pinSandboxEgress(env, sandboxId, null, egressHosts, egressOverrides, selection);
     },
@@ -151,6 +157,8 @@ export function createSandboxOps(
         onOutput: opts?.onOutput,
         signal: opts?.signal,
         journal: opts?.journal,
+        onJournalFrame: opts?.onJournalFrame,
+        requiredJournalJobId: opts?.requiredJournalJobId,
       });
       if (!opts?.signal) return execPromise;
       if (opts.signal.aborted) {
@@ -221,10 +229,38 @@ async function awaitRunWithSignal<T>(pending: Promise<T>, signal?: AbortSignal):
 }
 
 export class OpenCodeAgent extends AIChatAgent<Env> {
-  protected override async onChatRecovery(_ctx: ChatRecoveryContext): Promise<ChatRecoveryOptions> {
-    // Replaying a chat turn would launch another CLI. Preserve retained
-    // output and let the coordinator reconcile uncertain execution.
-    return { continue: false };
+  private executionActive = false;
+
+  private recoveryStore(): ExecutionRecoveryStore | undefined {
+    const storage = this.ctx?.storage as ExecutionRecoveryStorage | undefined;
+    return storage ? new ExecutionRecoveryStore(storage) : undefined;
+  }
+
+  /** Binding RPC only. The parent checks its existing run registry before resolving this facet. */
+  async inspectExecutionRecovery(input: CodingTaskInput): Promise<{
+    phase: "harness" | "complete"; envelopeHash: string; expiresAt: number;
+  } | null> {
+    try {
+      await assertChildDispatchAuthorized(this.env, input);
+      const record = await this.recoveryStore()?.read(input);
+      if (!record || !["harness", "complete"].includes(record.phase) || record.expiresAt <= Date.now()) return null;
+      return { phase: record.phase as "harness" | "complete", envelopeHash: record.envelopeHash, expiresAt: record.expiresAt };
+    } catch {
+      return null;
+    }
+  }
+
+  protected override async onChatRecovery(ctx: ChatRecoveryContext): Promise<ChatRecoveryOptions> {
+    if (this.executionActive) return { continue: false };
+    try {
+      const savedInput = ctx.lastBody?.agentToolInput;
+      const input = parseAgentToolInput(savedInput !== undefined
+        ? [{ role: "user", text: typeof savedInput === "string" ? savedInput : JSON.stringify(savedInput) }]
+        : ctx.messages.map((message) => ({ role: message.role, text: messageText(message) })));
+      return { continue: await this.inspectExecutionRecovery(input) !== null };
+    } catch {
+      return { continue: false };
+    }
   }
 
   override async onBeforeSubAgent(): Promise<Response> {
@@ -235,6 +271,8 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
     _onFinish: GenerateTextOnFinishCallback<ToolSet>,
     options?: OnChatMessageOptions,
   ): Promise<Response | undefined> {
+    if (this.executionActive) throw new Error("An execution is already active in this child.");
+    this.executionActive = true;
     let signal = options?.abortSignal;
     let deadlineSignal: AbortSignal | undefined;
     const checkCancelled = () => {
@@ -253,6 +291,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
         let progressCount = 0;
         let slackProgress: SlackProgressReporter | null = null;
         let roomPublisher: ReturnType<typeof createRunRoomPublisher> | undefined;
+        let journalPublisher: Awaited<ReturnType<typeof createRunJournalPublisher>> | undefined;
+        let recoveryStore: ExecutionRecoveryStore | undefined;
+        let executionInput: CodingTaskInput | undefined;
+        let recovering = false;
         // T42: the adapter and the publish step append milestones here;
         // the result envelope carries them back to the orchestrator.
         const runSignals: RunSignal[] = [];
@@ -277,10 +319,11 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
         };
         try {
           checkCancelled();
-          const input = parseAgentToolInput(this.messages.map((message) => ({
-            role: message.role,
-            text: messageText(message),
-          })));
+          const savedInput = options?.body?.agentToolInput;
+          const input = parseAgentToolInput(savedInput !== undefined
+            ? [{ role: "user", text: typeof savedInput === "string" ? savedInput : JSON.stringify(savedInput) }]
+            : this.messages.map((message) => ({ role: message.role, text: messageText(message) })));
+          executionInput = input;
           if (!verifyStandinEnabled(this.env)) {
             await assertChildDispatchAuthorized(this.env, input);
             if (input.dispatchExpiresAt !== undefined) {
@@ -288,6 +331,20 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
               signal = signal ? AbortSignal.any([signal, deadlineSignal]) : deadlineSignal;
             }
           }
+          recoveryStore = verifyStandinEnabled(this.env) ? undefined : this.recoveryStore();
+          const recoveryRecord = await recoveryStore?.read(input);
+          recovering = recoveryRecord !== undefined;
+          if (recoveryRecord?.phase === "complete") {
+            write(recoveryRecord.finalText!);
+            writer.write({ type: "text-end", id });
+            writer.write({ type: "finish", finishReason: "stop" });
+            return;
+          }
+          if (recoveryRecord && recoveryRecord.phase !== "harness") {
+            throw new Error("Execution was interrupted outside the recoverable harness phase. Execution outcome is uncertain.");
+          }
+          if (recoveryStore && !recoveryRecord) await recoveryStore.begin(input);
+          const recovery = recoveryRecord?.capsule;
           if (input.runRoom) {
             roomPublisher = createRunRoomPublisher(this.env, input.runRoom, (text) => this.safeText(text, text.length));
           }
@@ -363,6 +420,15 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                 ? undefined
                 : await openRunEnv(this.env, runInput.envOwner ?? "", runInput.envSealed, runInput.envDigest ?? "");
             this.envScrub = runEnv !== undefined ? runEnvScrubber(runEnv) : null;
+            const openJournal = async (capsule: PreparedRuntimeExecution) => {
+              if (!input.runRoom) return;
+              const parts = [this.env.GITHUB_TOKEN ?? "", ...Object.values(runEnv ?? {})]
+                .flatMap((value) => value.split(/\r?\n/)).filter(Boolean).sort((a, b) => b.length - a.length);
+              journalPublisher = await createRunJournalPublisher(this.env, input.runRoom,
+                { jobId: capsule.jobId, generation: capsule.envelopeHash },
+                (text) => this.safeText(parts.reduce((safe, part) => safe.split(part).join("[redacted]"), text), text.length));
+            };
+            if (recovery) await openJournal(recovery);
             const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
             const overrides = harness.egressOverrides?.(runInput);
             const effectiveOrgId = runInput.orgId || runInput.initiatorUserId || "self-hosted";
@@ -374,8 +440,19 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             result = await awaitRunWithSignal(adapter.runCodingTask(ops, runInput, emit, {
               signal,
               signals: runSignals,
+              approvedInput: input,
+              ...(recovery ? { recovery } : {}),
+              ...(recoveryStore ? {
+                onPrepared: async (capsule: PreparedRuntimeExecution) => {
+                  await recoveryStore!.prepared(input, capsule);
+                  await openJournal(capsule);
+                },
+                onSettlementStarted: () => recoveryStore!.settling(input),
+              } : {}),
+              onJournalFrame: async (frame) => { await journalPublisher?.accept(frame); },
+              onJournalEnd: async () => { await journalPublisher?.end(); },
               ...(roomPublisher ? {
-                onTerminal: (stream: "stdout" | "stderr", data: string) => roomPublisher?.terminal(stream, data),
+                onTerminal: (stream: "stdout" | "stderr", data: string) => { if (!journalPublisher) roomPublisher?.terminal(stream, data); },
                 onDiff: (diff: string) => { void roomPublisher?.diff(diff); },
                 onDiffPreviewStatus: (status: "limited" | "unavailable", reason?: string) => {
                   void roomPublisher?.publish({ kind: "status", status: `diff_${status}`,
@@ -488,29 +565,37 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           }
           // pullUrl rides the envelope: the parent's text scrape of the
           // transcript is only a legacy fallback, never the source of truth.
+          let finalText: string;
           if (verifyStandinEnabled(this.env) && isReviewerStandIn(input)) {
-            write(formatStandInReviewOutput({
+            finalText = formatStandInReviewOutput({
               ...safeResult,
               findings: (result as CodingTaskResult & { findings?: unknown[] }).findings ?? [],
-            }));
+            });
           } else {
-            write(formatAgentResult({
+            finalText = formatAgentResult({
               ...safeResult,
               ...(pullUrl ? { pullUrl } : {}),
               ...(screenshotUrl ? { screenshotUrl } : {}),
               ...(browserE2eManifestUrl ? { browserE2eManifestUrl } : {}),
               signals: runSignals,
-            }));
+            });
           }
+          if (recoveryStore) {
+            if (safeResult.status === "completed") await recoveryStore.complete(input, finalText);
+            else await recoveryStore.failed(input);
+          }
+          write(finalText);
           writer.write({ type: "text-end", id });
           if (safeResult.status === "error") writer.write({ type: "error", errorText: safeResult.summary });
           writer.write({ type: "finish", finishReason: safeResult.status === "error" ? "error" : "stop" });
         } catch (error) {
+          if (executionInput && recoveryStore) await recoveryStore.failed(executionInput).catch(() => undefined);
           const summary = deadlineSignal?.aborted
             ? "Run execution deadline expired."
             : signal?.aborted ? "Run cancelled." : this.safeText(error instanceof Error ? error.message : String(error), 4000);
           const result: CodingTaskResult = {
             status: "error", exitCode: -1, summary,
+            ...(recovering && !signal?.aborted ? { errorCode: "outcome_unknown" as const } : {}),
             stderrTail: "", changedFiles: [], diff: "", files: [],
             // Partial signals ride the error envelope too — a waiter's
             // missing milestone names the phase that never completed.
@@ -526,6 +611,8 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           writer.write({ type: "text-end", id });
           writer.write({ type: "error", errorText: summary });
           writer.write({ type: "finish", finishReason: "error" });
+        } finally {
+          this.executionActive = false;
         }
       },
     });
@@ -545,6 +632,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
   private uiResult(result: CodingTaskResult): CodingTaskResult {
     return {
       status: result.status,
+      ...(result.errorCode ? { errorCode: result.errorCode } : {}),
       exitCode: result.exitCode,
       summary: this.safeText(result.summary, 4000),
       stderrTail: this.safeText(result.stderrTail, 8000),

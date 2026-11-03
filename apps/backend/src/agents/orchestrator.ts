@@ -139,6 +139,7 @@ import { makeReceipt } from "../receipts.js";
 import { logStructured } from "../log.js";
 import { runTimedOut } from "../public-error.js";
 import { restartDisposition } from "../run-resume.js";
+import { PARENT_RECOVERY_PREFIX, parentRecoveryKey, validateParentExecutionRecovery, type ParentExecutionRecovery } from "../parent-execution-recovery.js";
 import { fetchAgentsMd } from "../review/agents-md.js";
 import { decideChain } from "../review/chain.js";
 import { mergePullRequest, type MergeMethod } from "../review/merge.js";
@@ -918,10 +919,15 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     for (const review of this.state?.publicationReviews ?? []) {
       if (review.status === "pending" || review.status === "running") this.holdOpen(this.reviewPublication(review.runId));
     }
-    // Pre-sandbox checkpoints resume under the same frozen approval. A run
-    // that may have touched git or a container stays unknown — resuming it
-    // could publish twice.
+    // Pre-sandbox checkpoints retain their approval. An existing journaled
+    // child may attach under its original sealed dispatch; other interrupted
+    // executions become unknown without repeating setup or external writes.
     const interruptedRuns: DelegatedRun[] = [];
+    if (this.ctx?.storage?.list) {
+      const snapshots = await this.ctx.storage.list({ prefix: PARENT_RECOVERY_PREFIX, limit: 32 });
+      const activeIds = new Set(this.store.list().filter((run) => isActiveStatus(run.status)).map((run) => parentRecoveryKey(run.runId)));
+      for (const key of snapshots.keys()) if (!activeIds.has(key)) await this.clearExecutionRecovery(key.slice(PARENT_RECOVERY_PREFIX.length));
+    }
     for (const run of this.store.list()) {
       if (!isActiveStatus(run.status)) continue;
       if (restartDisposition(run) === "resume") {
@@ -935,6 +941,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           checkpoint: run.checkpoint ?? "queued",
         });
         this.dispatchApprovedRun(stamped, approval, approval?.approvalId ?? run.approval?.approvalId ?? run.runId);
+        continue;
+      }
+      const recovery = await this.ctx?.storage?.get<ParentExecutionRecovery>(parentRecoveryKey(run.runId));
+      if (recovery && typeof this.hasAgentToolRun === "function" && this.hasAgentToolRun(OpenCodeAgent, run.runId)) {
+        this.holdOpen(this.keepAliveWhile(() => this.reconcileInterruptedExecution(run, recovery)));
         continue;
       }
       const updated = this.store.transition(run.runId, "unknown", {
@@ -1557,6 +1568,108 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return { harness, codingModel, route };
   }
 
+  private async clearExecutionRecovery(runId: string): Promise<void> {
+    try {
+      await this.ctx?.storage?.delete(parentRecoveryKey(runId));
+    } catch (error) {
+      console.warn("Private execution recovery cleanup failed", redactSecrets(String(error)));
+    }
+  }
+
+  /** Attach to an existing child under its original approval and deadline. */
+  private async reconcileInterruptedExecution(run: DelegatedRun, snapshot: ParentExecutionRecovery): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new AbortController();
+    let cancellation: Promise<void> | undefined;
+    const cancelOriginal = (reason: unknown) => {
+      cancellation ??= this.cancelAgentTool(run.runId, reason).catch(() => undefined);
+      return cancellation;
+    };
+    deadline.signal.addEventListener("abort", () => { void cancelOriginal(deadline.signal.reason); }, { once: true });
+    try {
+      const current = this.store.get(run.runId);
+      const recovery = current && await validateParentExecutionRecovery(this.env, this.name, current, snapshot);
+      if (!current || !recovery || !this.hasAgentToolRun(OpenCodeAgent, run.runId)) {
+        throw toTaggedError("outcome_unknown", "The original execution dispatch cannot be verified after restart.");
+      }
+      const remaining = recovery.input.dispatchExpiresAt! - Date.now();
+      if (remaining <= 0) throw toTaggedError("outcome_unknown", "The original execution deadline expired before recovery.");
+      timer = setTimeout(() => deadline.abort(toTaggedError("timeout_scope", "Run execution deadline expired.")), remaining);
+      this.runControllers.set(run.runId, deadline);
+      const child = await this.subAgent(OpenCodeAgent, run.runId);
+      let probeTimer: ReturnType<typeof setTimeout> | undefined;
+      const probe = await Promise.race([
+        child.inspectExecutionRecovery(recovery.input),
+        new Promise<null>((resolve) => { probeTimer = setTimeout(() => resolve(null), 5_000); }),
+      ]).finally(() => { if (probeTimer) clearTimeout(probeTimer); });
+      if (!probe || probe.envelopeHash !== recovery.input.dispatchEnvelopeHash || probe.expiresAt !== recovery.input.dispatchExpiresAt ||
+          !["harness", "complete"].includes(probe.phase)) {
+        throw toTaggedError("outcome_unknown", "Execution is outside a safely recoverable checkpoint. No work was restarted.");
+      }
+      deadline.signal.throwIfAborted();
+      const reattach: NonNullable<ReturnType<typeof agentTool>["execute"]> = async (_input: unknown, options?: { abortSignal?: AbortSignal; toolCallId?: string }) => {
+        const signal = options?.abortSignal;
+        const cancel = () => { void cancelOriginal(signal?.reason); };
+        signal?.addEventListener("abort", cancel, { once: true });
+        let abortListener: (() => void) | undefined;
+        try {
+          if (signal?.aborted) cancel();
+          signal?.throwIfAborted();
+          const latest = this.store.get(run.runId);
+          if (!latest || latest.status !== "running" || latest.generation !== recovery.generation) {
+            throw toTaggedError("outcome_unknown", "The original run changed before attachment.");
+          }
+          const result = await Promise.race([
+            this.runAgentTool(OpenCodeAgent, {
+              runId: run.runId, input: formatAgentToolInput(recovery.input), parentToolCallId: recovery.toolCallId,
+            }),
+            new Promise<never>((_resolve, reject) => {
+              if (!signal) return;
+              abortListener = () => reject(signal.reason ?? new Error("Run cancelled."));
+              signal.addEventListener("abort", abortListener, { once: true });
+              if (signal.aborted) abortListener();
+            }),
+          ]);
+          if (result.status !== "completed") {
+            throw toTaggedError("outcome_unknown", result.error ?? "The original child execution remains uncertain.");
+          }
+          if (typeof result.summary !== "string") throw toTaggedError("outcome_unknown", "The original child returned no terminal result.");
+          return result.summary;
+        } finally {
+          signal?.removeEventListener("abort", cancel);
+          if (abortListener) signal?.removeEventListener("abort", abortListener);
+        }
+      };
+      await this.executeDelegatedTask({
+        repoUrl: run.repoUrl, task: run.task, baseBranch: run.baseBranch, publishPullRequest: run.publishPullRequest,
+      }, reattach, recovery.toolCallId, deadline.signal, recovery);
+    } catch (error) {
+      const current = this.store.get(run.runId);
+      if (!current || (isActiveStatus(current.status) && current.generation !== run.generation)) return;
+      const failure = classifyRunError(error);
+      const updated = isActiveStatus(current.status) ? this.store.transition(run.runId, "unknown", {
+        error: redactSecrets(failure.message).slice(0, 4000), errorCode: "outcome_unknown",
+      }, run.generation) : current;
+      if (updated) {
+        if (isActiveStatus(current.status)) {
+          this.postOutcomeUnknown(updated);
+          if (updated.reviewOf) this.failReviewRound(updated, updated.error ?? "restart");
+        }
+        let cancelTimer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          cancelOriginal(error),
+          new Promise<void>((resolve) => { cancelTimer = setTimeout(resolve, 2_000); }),
+        ]).finally(() => { if (cancelTimer) clearTimeout(cancelTimer); });
+        await this.releaseSandboxForRun(updated);
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (this.runControllers.get(run.runId) === deadline) this.runControllers.delete(run.runId);
+      const current = this.store.get(run.runId);
+      if (current && !isActiveStatus(current.status)) await this.clearExecutionRecovery(run.runId);
+    }
+  }
+
   /**
    * The run pipeline as an Effect program (spec B6), run to a Promise at
    * the tool boundary via `runWorkerEffect`. Observable behavior is
@@ -1578,6 +1691,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     childExecute: NonNullable<ReturnType<typeof agentTool>["execute"]>,
     toolCallId: string | undefined,
     abortSignal?: AbortSignal,
+    recovery?: ParentExecutionRecovery,
   ): Promise<string> {
     // A pre-aborted call fails fast with the caller's reason, before the
     // program exists — same synchronous checkpoint as before.
@@ -1603,17 +1717,24 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (!reserved && pointer?.status === "approved") {
         return "Run was removed before execution.";
       }
-      if (reserved && reserved.status !== "pending") {
+      if (reserved && reserved.status !== "pending" && !(recovery && reserved.status === "running" && reserved.generation === recovery.generation)) {
         return reserved.summary ?? reserved.error ?? `Run is ${reserved.status}.`;
       }
       // Execution never decides an approval. Only the authenticated resolve
       // path may reserve a run and mark its pointer approved.
       // A chained reviewer already carries the parent's approval evidence. No second card.
       const chained = Boolean(reserved?.reviewOf && reserved.approval);
-      if (!reserved || (pointer?.status !== "approved" && !chained)) {
+      if (!reserved || (!recovery && pointer?.status !== "approved" && !chained)) {
         return "Run is not approved to execute.";
       }
+      if (recovery && pointer && pointer.status !== "approved") {
+        failureRun = reserved;
+        return yield* Effect.fail(toTaggedError("outcome_unknown", "The retained approval pointer no longer authorizes attachment."));
+      }
       failureRun = reserved;
+      if (recovery && !(yield* tryRunPromise(() => validateParentExecutionRecovery(this.env, this.name, reserved, recovery)))) {
+        return yield* Effect.fail(toTaggedError("outcome_unknown", "The original execution dispatch is no longer valid for attachment."));
+      }
       yield* tryRunPromise(() => revalidateOnboardingBinding(this.env, initiatorUserIdFromOrchestratorName(this.name), reserved));
       if (reserved.customAgentId && reserved.employeeToolPolicyVersion !== undefined) {
         yield* tryRunPromise(async () => {
@@ -1716,9 +1837,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         harness: resolvedHarness,
         codingModel,
         route,
-      } = frozen !== undefined && isApprovedRoute(frozen)
-        ? { harness: frozen.harness, codingModel: frozen.modelId, route: frozen }
-        : yield* tryRunPromise(() => this.resolveRoute(input));
+      } = recovery?.input.route
+        ? { harness: recovery.input.route.harness, codingModel: recovery.input.route.modelId, route: recovery.input.route }
+        : frozen !== undefined && isApprovedRoute(frozen)
+          ? { harness: frozen.harness, codingModel: frozen.modelId, route: frozen }
+          : yield* tryRunPromise(() => this.resolveRoute(input));
       const sandboxId = makeSandboxId(input.repoUrl, input.task, callId);
       // Slack thread ids ride the DO name, not the queue body — recovering
       // them here lets the child post progress without new queue plumbing.
@@ -1730,7 +1853,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const canvasRunRoom = expectedCanvasRoom && frozenCanvasRoom && frozenCanvasRoom.ownerId === expectedCanvasRoom.ownerId &&
         frozenCanvasRoom.sessionId === expectedCanvasRoom.sessionId && frozenCanvasRoom.runId === expectedCanvasRoom.runId
         ? frozenCanvasRoom : undefined;
-      const fullInput: CodingTaskInput = {
+      const fullInput: CodingTaskInput = recovery?.input ?? {
         ...onboardingRunFields(reserved),
         repoUrl: input.repoUrl,
         ...(reserved.executionTarget !== undefined ? { executionTarget: reserved.executionTarget } : {}),
@@ -1846,17 +1969,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // approved, otherwise the stored evidence on the record stands.
       const startEvidence =
         pointer?.status === "approved" ? approvalEvidenceFor(pointer, reserved) : reserved.approval;
-      const running = this.store.transition(
+      const running = recovery ? this.store.get(runId) : this.store.transition(
         runId,
         "running",
         undefined,
         this.store.get(runId)?.generation,
         startEvidence,
       );
-      if (running === null || running.status !== "running") {
+      if (running == null || running.status !== "running" || (recovery && running.generation !== recovery.generation)) {
         return `Run ${runId} did not start — it is already ${this.store.get(runId)?.status ?? "missing"}.`;
       }
-      this.relayChildLifecycle(runId, "running", "Shiba Fixer is running the approved task.", running.parentRunId ?? runId);
+      if (!recovery) this.relayChildLifecycle(runId, "running", "Shiba Fixer is running the approved task.", running.parentRunId ?? runId);
       this.stampCheckpoint(runId, "executing");
       logStructured("info", {
         event: "run.executing",
@@ -1870,12 +1993,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // Durable backstop: reclaim fires at the deadline even when no request ever arrives.
       yield* Effect.promise(async () => {
         try {
-          await this.schedule(Math.ceil(RUN_DEADLINE_MS / 1000) + 60, "reclaimRuns");
+          const reclaimDelay = recovery ? Math.max(1, fullInput.dispatchExpiresAt! - Date.now()) : RUN_DEADLINE_MS;
+          await this.schedule(Math.ceil(reclaimDelay / 1000) + 60, "reclaimRuns");
         } catch (error) {
           console.warn(`Run ${runId} reclaim schedule failed`, redactSecrets(String(error)));
         }
       });
-      this.postToThread(
+      if (!recovery) this.postToThread(
         slackRunStarted({
           repoUrl: fullInput.repoUrl,
           baseBranch: fullInput.baseBranch,
@@ -1884,7 +2008,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { runId, ...(pointer?.threadKey ? { threadKey: pointer.threadKey } : {}) },
       );
       const intakeTsKey = this.env.TYPESAFE_API_KEY?.trim() ?? "";
-      if (intakeTsKey && reserved.executionTarget?.kind !== "artifact-workspace") {
+      if (!recovery && intakeTsKey && reserved.executionTarget?.kind !== "artifact-workspace") {
         yield* Effect.forkChild(
           tryRunPromise((signal) =>
             evaluateSessionTriage(intakeTsKey, fullInput.task, fullInput.repoUrl,
@@ -1987,7 +2111,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
               if (!dispatchInputHash) {
                 throw new Error("Approved run is missing dispatch input hash.");
               }
-              const sealedInput: CodingTaskInput = {
+              const sealedInput: CodingTaskInput = recovery?.input ?? {
                 ...fullInput,
                 ...(await sealChildDispatch(this.env, {
                   approvalId: callId,
@@ -1995,6 +2119,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                   inputHash: dispatchInputHash,
                 }, fullInput)),
               };
+              if (!recovery && this.ctx?.storage) {
+                const snapshot: ParentExecutionRecovery = { version: 1, owner: this.name, generation, toolCallId: callId, input: sealedInput };
+                const current = this.store.get(runId);
+                if (!current || current.status !== "running" || current.generation !== generation) throw new Error("Run cancelled before dispatch.");
+                if (await validateParentExecutionRecovery(this.env, this.name, current, snapshot)) {
+                  await this.ctx.storage.put(parentRecoveryKey(runId), snapshot);
+                }
+                const afterSave = this.store.get(runId);
+                if (!afterSave || afterSave.status !== "running" || afterSave.generation !== generation) throw new Error("Run cancelled before dispatch.");
+              }
               return childExecute(formatAgentToolInput(sealedInput), {
                 toolCallId: callId,
                 // The caller's signal and the run-cancel controller reach the
@@ -2047,7 +2181,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                   validatePrPublicationProposal(publicationProposal, {
                     ownerId: this.name, runId, sandboxId, repoUrl: fullInput.repoUrl, baseBranch: fullInput.baseBranch, baseRevision: parsed.baseRevision,
                   });
-                  if (publicationProposal.threadKey !== (pointer?.threadKey ?? this.name)) throw new Error("Publication approval has the wrong owner.");
+                  if (publicationProposal.threadKey !== (pointer?.threadKey ?? fullInput.approvalThreadKey ?? this.name)) throw new Error("Publication approval has the wrong owner.");
                 }
                 const finished = finish(
                   "completed",
@@ -2142,9 +2276,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                   ? `${output}\nSHIBA_PUBLICATION_REVIEW_JSON\n${JSON.stringify({ status: publicationReview.status, publicationSha256: publicationReview.publicationSha256, observation: publicationReview.observation, error: publicationReview.error })}`
                   : output;
               }
-              const failure = classifyExecutorError(
-                new Error(parsed?.summary ?? output.slice(0, 4000)),
-              );
+              const failure = parsed?.errorCode
+                ? { code: parsed.errorCode, message: parsed.summary ?? output.slice(0, 4000) }
+                : classifyExecutorError(new Error(parsed?.summary ?? output.slice(0, 4000)));
               const failureStatus = terminalStatusFor(failure.code);
               finish(
                 failureStatus,
@@ -2216,6 +2350,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           Effect.promise(async () => {
             this.runControllers.delete(runId);
             const settled = this.store.get(runId);
+            if (settled && !isActiveStatus(settled.status)) await this.clearExecutionRecovery(runId);
             if (settled) await this.releaseSandboxForRun(settled);
           }),
       );

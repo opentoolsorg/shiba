@@ -64,6 +64,16 @@ const identity = (pid) => {
     return { start: fields[19], group: Number(fields[2]), session: Number(fields[3]) };
   } catch { return null; }
 };
+const instance = () => {
+  const pidNamespace = fs.readlinkSync("/proc/self/ns/pid");
+  const initStart = identity(1)?.start;
+  if (!/^pid:\[\d+\]$/.test(pidNamespace) || typeof initStart !== "string" || !/^\d+$/.test(initStart)) throw new Error("Container identity unavailable.");
+  return { pidNamespace, initStart };
+};
+const sameInstance = (meta) => {
+  const current = instance();
+  return meta.bootId === boot() && meta.pidNamespace === current.pidNamespace && meta.initStart === current.initStart;
+};
 const alive = (pid, start) => {
   if (!Number.isSafeInteger(pid) || pid < 1 || typeof start !== "string") return false;
   return identity(pid)?.start === start;
@@ -166,6 +176,41 @@ const jobDirectory = () => fs.openSync(name, C.O_RDONLY | C.O_DIRECTORY | C.O_NO
 const result = (data) => process.stdout.write(JSON.stringify(data));
 const lost = () => ({ jobId, state: "lost", frames: [], cursor: Number(cursorText) || 0, done: true, error: "Execution journal is unavailable or invalid." });
 const main = () => {
+  if (action === "settle") {
+    const fd = jobDirectory();
+    try {
+      const dir = "/proc/self/fd/" + fd;
+      const meta = jsonFile(dir + "/meta.json");
+      const receipt = jsonFile(dir + "/receipt.json");
+      if (!expectedDigest || !expectedDeadline || meta.version !== 1 || meta.jobId !== jobId || !sameInstance(meta) ||
+          meta.digest !== expectedDigest || meta.deadline !== Number(expectedDeadline) || receipt.state !== "exited" ||
+          receipt.version !== 1 || receipt.jobId !== jobId || receipt.bootId !== meta.bootId ||
+          receipt.pidNamespace !== meta.pidNamespace || receipt.initStart !== meta.initStart ||
+          receipt.digest !== meta.digest || receipt.deadline !== meta.deadline) throw new Error("Settlement instance changed.");
+      const chunks = [];
+      let size = 0;
+      for (;;) {
+        const bytes = Buffer.alloc(16384);
+        const count = fs.readSync(0, bytes, 0, bytes.length, null);
+        if (!count) break;
+        size += count;
+        if (size > 512000) throw new Error("Settlement request too large.");
+        chunks.push(bytes.subarray(0, count));
+      }
+      const spec = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (typeof spec.command !== "string" || !spec.command || spec.command.includes("\0") || Buffer.byteLength(spec.command) > 65536 ||
+          typeof spec.cwd !== "string" || !spec.cwd.startsWith("/") || spec.cwd.includes("\0") || Buffer.byteLength(spec.cwd) > 1024 ||
+          !spec.env || typeof spec.env !== "object" || Array.isArray(spec.env) || Object.keys(spec.env).length > 128 ||
+          Object.values(spec.env).some(value => typeof value !== "string" || value.includes("\0")) ||
+          Buffer.byteLength(JSON.stringify(spec.env)) > 131072) throw new Error("Invalid settlement input.");
+      const child = cp.spawn("sh", ["-c", spec.command], { cwd: spec.cwd, env: { ...process.env, ...spec.env }, stdio: ["ignore", "inherit", "inherit"] });
+      child.on("error", () => { process.exitCode = 127; });
+      child.on("close", (code, signal) => {
+        process.exitCode = Number.isInteger(code) ? code : signal === "SIGTERM" ? 143 : signal === "SIGKILL" ? 137 : 127;
+      });
+    } finally { fs.closeSync(fd); }
+    return;
+  }
   if (action === "cancel") {
     try {
       const fd = fs.openSync(cancelName, C.O_WRONLY | C.O_CREAT | C.O_EXCL | C.O_NOFOLLOW, 384);
@@ -189,7 +234,7 @@ const main = () => {
         if (e.code === "ENOENT") { result({ jobId, state: "starting", frames: [], cursor, done: false }); return; }
         throw e;
       }
-      if (meta.version !== 1 || meta.jobId !== jobId || meta.bootId !== boot() || !/^[a-f0-9]{64}$/.test(meta.digest || "") || !Number.isSafeInteger(meta.deadline) ||
+      if (meta.version !== 1 || meta.jobId !== jobId || !sameInstance(meta) || !/^[a-f0-9]{64}$/.test(meta.digest || "") || !Number.isSafeInteger(meta.deadline) ||
           (expectedDigest && meta.digest !== expectedDigest) || (expectedDeadline && meta.deadline !== Number(expectedDeadline))) throw new Error("Invalid journal metadata.");
       const readReceipt = () => {
         try { return jsonFile(dir + "/receipt.json"); } catch (e) { if (e.code !== "ENOENT") throw e; }
@@ -201,6 +246,7 @@ const main = () => {
         if (!receipt) throw new Error("Supervisor no longer exists.");
       }
       if (receipt && (receipt.version !== 1 || receipt.jobId !== jobId || receipt.digest !== meta.digest || receipt.bootId !== meta.bootId ||
+          receipt.pidNamespace !== meta.pidNamespace || receipt.initStart !== meta.initStart ||
           receipt.deadline !== meta.deadline ||
           !["exited", "cancelled", "timed_out", "limited", "lost"].includes(receipt.state) || !Number.isSafeInteger(receipt.exitCode) ||
           !Number.isSafeInteger(receipt.lastSequence) || receipt.lastSequence < 0 || receipt.lastSequence > MAX_FRAMES)) throw new Error("Invalid exit receipt.");
@@ -249,14 +295,14 @@ const main = () => {
     const fd = jobDirectory();
     try {
       const previous = jsonFile("/proc/self/fd/" + fd + "/meta.json");
-      if (previous.digest !== spec.digest || previous.deadline !== spec.deadline || previous.bootId !== boot()) throw new Error("Execution claim changed.");
+      if (previous.digest !== spec.digest || previous.deadline !== spec.deadline || !sameInstance(previous)) throw new Error("Execution claim changed.");
     } finally { fs.closeSync(fd); }
     return;
   }
   const jobFd = jobDirectory();
   const dir = "/proc/self/fd/" + jobFd;
   const log = fs.openSync(dir + "/journal.jsonl", C.O_WRONLY | C.O_CREAT | C.O_EXCL | C.O_NOFOLLOW, 384);
-  const meta = { version: 1, jobId, digest: spec.digest, deadline: spec.deadline, bootId: boot(), supervisorPid: process.pid, supervisorStart: identity(process.pid)?.start };
+  const meta = { version: 1, jobId, digest: spec.digest, deadline: spec.deadline, bootId: boot(), ...instance(), supervisorPid: process.pid, supervisorStart: identity(process.pid)?.start };
   let sequence = 0;
   let totalBytes = 0;
   let reason;
@@ -272,7 +318,7 @@ const main = () => {
     const current = identity(child.pid);
     const matchingLeader = current && current.start === childIdentity?.start && current.group === child.pid && current.session === child.pid;
     const send = (signal) => {
-      if (boot() !== meta.bootId) return;
+      if (!sameInstance(meta)) return;
       const current = identity(child.pid);
       if (!current || current.start !== childIdentity?.start || current.group !== child.pid || current.session !== child.pid) return;
       try { process.kill(-child.pid, signal); } catch (e) { if (e.code !== "ESRCH") throw e; }
@@ -337,5 +383,8 @@ const main = () => {
     } catch { terminate("lost"); }
   }, 50);
 };
-try { main(); } catch { result(lost()); process.exitCode = 1; }
+try { main(); } catch {
+  if (action === "settle") { process.stderr.write("The original execution container is unavailable. Settlement refused.\n"); process.exitCode = 125; }
+  else { result(lost()); process.exitCode = 1; }
+}
 `;

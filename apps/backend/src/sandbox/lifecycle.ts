@@ -63,6 +63,8 @@ class ManagedContainerImpl implements ManagedContainer {
     private readonly fallbackSignal?: AbortSignal,
   ) {
     this.ops = {
+      get journaledExec() { return inner.journaledExec; },
+      ...(inner.supportsJournal ? { supportsJournal: () => this.call(() => inner.supportsJournal!()) } : {}),
       ...(inner.pinEgress ? { pinEgress: () => this.call(() => inner.pinEgress!()) } : {}),
       gitCheckout: (repoUrl, opts) => this.call(() => inner.gitCheckout(repoUrl, opts)),
       writeFile: (path, content) => this.call(() => inner.writeFile(path, content)),

@@ -210,6 +210,7 @@ export function createDockerLocalSandboxProvider(
       },
 
       async exec(command, opts) {
+        if (opts?.journal?.mode === "attach" || opts?.requiredJournalJobId !== undefined) throw new SandboxError("capability_unsupported", "This provider cannot attach to a native execution journal. No command was launched.");
         await ensureContainer(instanceId);
         const name = containerName(instanceId);
         return dockerExecIn(docker, name, command, {
