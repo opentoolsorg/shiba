@@ -94,3 +94,12 @@ describe("getSlackThreadStub", () => {
     expect(byName.mock.calls[0]?.[1]).toBe("slack:T123:C456:1758217392.000100");
   });
 });
+
+
+describe("ephemeral Slack workspace payload", () => {
+  it("preserves the explicit workspace and cannot request a pull request", () => {
+    const payload = buildSlackRunPayload({ repoUrl: "", task: "Prepare report", workspaceTarget: { type: "ephemeral", workspaceId: "report-1" }, publishPullRequest: true });
+    expect(payload.workspaceTarget).toEqual({ type: "ephemeral", workspaceId: "report-1" });
+    expect(payload.publishPullRequest).toBe(false);
+  });
+});

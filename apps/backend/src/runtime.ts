@@ -19,8 +19,15 @@ import {
   type LocalRunResult,
   mergeRunUsage,
   RUN_SIGNAL_KINDS,
+  isEphemeralWorkspace,
 } from "@shiba/shared";
-import { verifyExpectedDeliverables } from "./run-deliverables.js";
+import {
+  verifyExpectedDeliverables,
+  isWorkspaceArtifactPath,
+  MAX_WORKSPACE_ARTIFACT_FILES,
+  MAX_WORKSPACE_ARTIFACT_BYTES,
+  MAX_WORKSPACE_ARTIFACT_TOTAL_BYTES,
+} from "./run-deliverables.js";
 import { ScopedExecRefusal, scopedExec } from "./exec-allowlist.js";
 import {
   captureCheckpoint,
@@ -147,6 +154,9 @@ export interface RuntimeAdapter {
        * storage key is receipted as `diff.exported`.
        */
       exportDiff?: (diff: string) => Promise<string>;
+      onTerminal?: (stream: "stdout" | "stderr", data: string) => void;
+      onDiff?: (diff: string) => void;
+      onStreamGap?: () => void;
     },
   ): Promise<CodingTaskResult>;
 }
@@ -186,6 +196,10 @@ export const COMPUTER_PREVIEW_MESSAGE =
 // scoped allowlist permits only this exact script, never arbitrary node -e.
 export const DELIVERABLE_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1];if(!/^[a-f0-9]{40,64}$/.test(id||""))process.exit(2);const out=spawnSync("git",["cat-file","blob",id],{maxBuffer:16385,timeout:60000});if(out.error||out.status!==0||out.stdout.length>16384)process.exit(1);process.stdout.write(out.stdout.toString("base64"));`;
 
+export const WORKSPACE_MANIFEST_READER = `const {spawnSync}=require("node:child_process");const ref=process.argv[1];if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64}|refs\\/shiba\\/checkpoints\\/[A-Za-z0-9_-]+\\/[0-9]+)$/.test(ref||""))process.exit(2);const out=spawnSync("git",["ls-tree","-r","-z",ref,"--","out"],{maxBuffer:65537,timeout:60000});if(out.error||out.status!==0||out.stdout.length>65536)process.exit(1);process.stdout.write(JSON.stringify({tree:out.stdout.toString("base64")}));`;
+const WORKSPACE_BLOB_CHUNK_BYTES = 196_608;
+export const WORKSPACE_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1],offset=Number(process.argv[2]);if(!/^[a-f0-9]{40,64}$/.test(id||"")||!Number.isSafeInteger(offset)||offset<0||offset>1048576)process.exit(2);const out=spawnSync("git",["cat-file","blob",id],{maxBuffer:1048577,timeout:60000});if(out.error||out.status!==0||out.stdout.length>1048576)process.exit(1);process.stdout.write(out.stdout.subarray(offset,offset+196608).toString("base64"));`;
+
 export class SandboxRuntimeAdapter implements RuntimeAdapter {
   readonly name = "sandbox" as const;
   private readonly harness: AgentHarness;
@@ -204,10 +218,14 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       scrub?: (text: string) => string;
       signals?: RunSignal[];
       exportDiff?: (diff: string) => Promise<string>;
+      onTerminal?: (stream: "stdout" | "stderr", data: string) => void;
+      onDiff?: (diff: string) => void;
+      onStreamGap?: () => void;
     },
   ): Promise<CodingTaskResult> {
     input = withDeliverableInstructions(input);
-    const workdir = `/workspace/${input.sandboxId}`;
+    const ephemeral = isEphemeralWorkspace(input.executionTarget);
+    const workdir = ephemeral ? "/workspace" : `/workspace/${input.sandboxId}`;
     const configValue = this.harness.configFile(input, input.sandboxId);
     const configFiles =
       configValue === null ? [] : Array.isArray(configValue) ? configValue : [configValue];
@@ -239,6 +257,10 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     const allowlist: readonly (readonly string[])[] = [
       ["git"],
       ...(input.expectedDeliverables?.length ? [["node", "-e", DELIVERABLE_BLOB_READER] as const] : []),
+      ...(ephemeral ? [
+        ["node", "-e", WORKSPACE_MANIFEST_READER] as const,
+        ["node", "-e", WORKSPACE_BLOB_READER] as const,
+      ] : []),
       harnessExecPrefix,
       ...(sessionScript !== null ? [["node", sessionScript] as const] : []),
       ...capabilities.execAllowlist,
@@ -267,6 +289,17 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         await ops.pinEgress();
         const init = await scoped.exec(shellJoin(["git", "init", "--initial-branch=main", workdir]), { cwd: "/workspace", signal: opts?.signal });
         if (init.exitCode !== 0) throw new Error(boundTail(init.stderr, 1000) || "git init failed.");
+        if (ephemeral) {
+          const directories = await scopedExec(ops, shellJoin(["mkdir", "-p", `${workdir}/.shiba`, `${workdir}/out`]), {
+            cwd: workdir, signal: opts?.signal, allowlist: [["mkdir", "-p"]], signals,
+          });
+          if (directories.exitCode !== 0) throw new Error("Could not initialize workspace directories.");
+          await ops.writeFile(`${workdir}/.shiba/context.json`, `${JSON.stringify({
+            workspaceId: input.executionTarget.kind === "artifact-workspace" ? input.executionTarget.workspaceId : undefined,
+            template: input.executionTarget.kind === "artifact-workspace" ? input.executionTarget.template : undefined,
+            outputDirectory: "/workspace/out",
+          })}\n`);
+        }
         const baseline = await scoped.exec(shellJoin(["git", "-C", workdir, "-c", "user.name=shiba", "-c", "user.email=shiba@shiba.local", "commit", "--allow-empty", "-m", "shiba artifact workspace baseline"]), { cwd: "/workspace", signal: opts?.signal });
         if (baseline.exitCode !== 0) throw new Error(boundTail(baseline.stderr, 1000) || "Could not initialize artifact workspace baseline.");
         milestone("clone.complete", "artifact-workspace");
@@ -376,23 +409,35 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       argv = ["node", sessionScript, jobPath];
     }
     let run: ExecResult;
+    let emittedOutput = false;
+    let harnessSettled = false;
+    let uncertainTransport = false;
+    let settledCommit: string | undefined;
     const output = streamProgress(this.harness, emit, opts?.signal, scrub);
+    const stopLiveDiff = opts?.onDiff && !ephemeral
+      ? startLiveDiff(ops, workdir, opts.onDiff, scrub, signals, opts.signal)
+      : async () => {};
     try {
       milestone("harness.started", this.harness.name);
       // Only thrown errors are retry candidates: a returned nonzero
       // exitCode is the harness's verdict, not a transient failure.
       run = await withRetry(
-        HARNESS_RETRY,
+        { ...HARNESS_RETRY, retryIf: (error) => !emittedOutput && HARNESS_RETRY.retryIf(error) },
         () =>
           scoped.exec(shellJoin(argv), {
             cwd: workdir,
             timeoutMs: OPENCODE_TIMEOUT_MS,
             signal: opts?.signal,
-            onOutput: output.onData,
+            onOutput: (stream, data) => {
+              if (data.length > 0) emittedOutput = true;
+              output.onData(stream, data);
+              opts?.onTerminal?.(stream, scrub(data));
+            },
             env: { ...opts?.env, ...this.harness.env(input, config?.path ?? null) },
           }),
         opts?.signal,
       );
+      harnessSettled = true;
       // The harness process resolved — idle covers clean exits and
       // nonzero verdicts alike; a thrown error means it never went idle.
       milestone("harness.idle", `exitCode:${run.exitCode}`);
@@ -400,7 +445,10 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       throwIfAborted(opts?.signal);
       // T44: settle checkpoint — captures the harness's mutations (incl.
       // untracked files) so the turn diff is baseline→settle commit-diff.
-      await captureCheckpoint(scoped, workdir, input.sandboxId, 1, opts?.signal);
+      settledCommit = await captureCheckpoint(scoped, workdir, input.sandboxId, 1, opts?.signal);
+      if (ephemeral && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(settledCommit)) {
+        throw new Error("The ephemeral workspace checkpoint has no immutable commit identity.");
+      }
       milestone("checkpoint.captured", settleRef);
       await pruneCheckpoints(scoped, workdir, input.sandboxId, 4, opts?.signal);
     } catch (error) {
@@ -423,13 +471,17 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       ) {
         return failureResult(error.message, 0, "", signals, output.usage);
       }
+      uncertainTransport = emittedOutput && !harnessSettled;
       return failureResult(
-        `${this.harness.name} execution failed: ${scrub(shortError(error))}`,
+        `${uncertainTransport ? "Harness transport failed after output. Execution outcome is uncertain. " : ""}${this.harness.name} execution failed: ${scrub(shortError(error))}`,
         0,
         "",
         signals,
         output.usage,
       );
+    } finally {
+      if (uncertainTransport) opts?.onStreamGap?.();
+      await stopLiveDiff();
     }
     const stderrTail = redactSecrets(boundTail(scrub(run.stderr), MAX_STDERR_TAIL_CHARS));
     if (run.exitCode !== 0) {
@@ -452,8 +504,9 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     try {
       const collection = await withRetry(
         HARNESS_RETRY,
-        () =>
-          collectChanges(scoped, workdir, {
+        () => ephemeral
+          ? collectWorkspaceChanges(scoped, workdir, settledCommit ?? settleRef, opts?.signal)
+          : collectChanges(scoped, workdir, {
             signal: opts?.signal,
             expectedDeliverables: input.expectedDeliverables,
             deliverableCheckpoint: settleRef,
@@ -465,6 +518,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         opts?.signal,
       );
       milestone("collect.complete", `${collection.changedFiles.length} files`);
+      opts?.onDiff?.(scrub(collection.diff));
       // A path both setup and the agent changed would publish setup's edits (and anything it wrote) as the agent's.
       let overlap: string[] = [];
       if (setupCommit !== null) {
@@ -591,6 +645,46 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       );
     }
   }
+}
+
+/** Read-only snapshots cannot overlap or outlive the active harness turn. */
+function startLiveDiff(
+  ops: SandboxOps,
+  workdir: string,
+  publish: (diff: string) => void,
+  scrub: (text: string) => string,
+  signals: RunSignal[],
+  signal?: AbortSignal,
+): () => Promise<void> {
+  let pending: Promise<void> | undefined;
+  let previous: string | undefined;
+  let stopped = false;
+  const tick = () => {
+    if (stopped || pending || signal?.aborted) return;
+    pending = (async () => {
+      try {
+        const diff = await scopedExec(ops, shellJoin(["git", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "HEAD", "--"]), {
+          cwd: workdir, timeoutMs: 5_000, signal, allowlist: [["git", "diff"]], signals, maxOutputChars: 20_001,
+        });
+        if (stopped || diff.exitCode !== 0 || diff.stdout.length > 20_000) return;
+        const safe = scrub(diff.stdout);
+        if (safe !== previous) {
+          previous = safe;
+          publish(safe);
+        }
+      } catch {
+        // Final collection remains authoritative if a live read fails.
+      } finally {
+        pending = undefined;
+      }
+    })();
+  };
+  const timer = setInterval(tick, 5_000);
+  return async () => {
+    stopped = true;
+    clearInterval(timer);
+    await pending;
+  };
 }
 
 export class ComputerPreviewAdapter implements RuntimeAdapter {
@@ -1036,6 +1130,10 @@ function streamProgress(
 function withDeliverableInstructions(input: CodingTaskInput): CodingTaskInput {
   const sourceContext = onboardingSourceInstructions(input.onboardingSourceSnapshot);
   if (sourceContext) input = { ...input, task: input.task + sourceContext };
+  if (isEphemeralWorkspace(input.executionTarget)) {
+    const template = input.executionTarget?.kind === "artifact-workspace" ? input.executionTarget.template : undefined;
+    input = { ...input, task: `${input.task}\n\nThis is an ephemeral workspace at /workspace. Read workspace context from /workspace/.shiba/context.json. Place final output files in /workspace/out. Files there are archived as artifacts after execution. Keep each file at most 1048576 bytes, at most 64 files, and at most 8388608 bytes in total. Use ordinary relative filenames without hidden components or symlinks.${template ? ` Requested workspace template: ${JSON.stringify(template)}. Treat this as a format hint, not an executable command.` : ""}` };
+  }
   const expected = expectedDeliverablesSchema.parse(input.expectedDeliverables ?? []);
   if (!expected.length) return input;
   const workspace = input.executionTarget?.kind === "artifact-workspace"
@@ -1085,13 +1183,95 @@ export async function collectExpectedSandboxDeliverables(
   return files;
 }
 
+/** Capture only regular output blobs from the immutable settled snapshot. */
+export async function collectWorkspaceChanges(
+  ops: SandboxOps,
+  workdir: string,
+  checkpoint: string,
+  signal?: AbortSignal,
+): Promise<CollectedChanges> {
+  const manifest = await ops.exec(shellJoin(["node", "-e", WORKSPACE_MANIFEST_READER, checkpoint]), {
+    cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: 90_000,
+  });
+  let tree: string;
+  try {
+    const payload: unknown = JSON.parse(manifest.stdout);
+    if (manifest.exitCode !== 0 || payload === null || typeof payload !== "object" || !("tree" in payload) || typeof payload.tree !== "string") throw new Error("Invalid manifest");
+    const raw = atob(payload.tree);
+    if (btoa(raw) !== payload.tree) throw new Error("Noncanonical manifest");
+    tree = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(raw, (character) => character.charCodeAt(0)));
+    if (tree !== "" && !tree.endsWith("\0")) throw new Error("Truncated manifest");
+  } catch {
+    throw new Error("Workspace output manifest is malformed, truncated, or exceeds its limit.");
+  }
+  const entries = tree === "" ? [] : tree.slice(0, -1).split("\0");
+  if (entries.length > MAX_WORKSPACE_ARTIFACT_FILES) throw new Error("Workspace output exceeds the file count limit.");
+  const files: CollectedChanges["files"] = [];
+  const seen = new Set<string>();
+  let total = 0;
+  for (const entry of entries) {
+    signal?.throwIfAborted();
+    const match = /^(100644|100755) blob ([a-f0-9]{40,64})\t(.+)$/.exec(entry);
+    const path = match?.[3];
+    const objectId = match?.[2];
+    if (!path || !objectId || !isWorkspaceArtifactPath(path) || seen.has(path.toLowerCase())) {
+      throw new Error("Workspace output contains a symlink, unsupported path, or duplicate filename.");
+    }
+    seen.add(path.toLowerCase());
+    const size = await ops.exec(shellJoin(["git", "cat-file", "-s", objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
+    const bytes = Number(size.stdout.trim());
+    if (size.exitCode !== 0 || !/^\d+\s*$/.test(size.stdout) || !Number.isSafeInteger(bytes) || bytes > MAX_WORKSPACE_ARTIFACT_BYTES) {
+      throw new Error(`Workspace output ${path} exceeds its file size limit or could not be read.`);
+    }
+    total += bytes;
+    if (total > MAX_WORKSPACE_ARTIFACT_TOTAL_BYTES) throw new Error("Workspace output exceeds the total byte limit.");
+    let encoded = "";
+    for (let offset = 0; offset < bytes; offset += WORKSPACE_BLOB_CHUNK_BYTES) {
+      const blob = await ops.exec(shellJoin(["node", "-e", WORKSPACE_BLOB_READER, objectId, String(offset)]), {
+        cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: Math.ceil(WORKSPACE_BLOB_CHUNK_BYTES / 3) * 4 + 1,
+      });
+      const chunkLength = Math.min(WORKSPACE_BLOB_CHUNK_BYTES, bytes - offset);
+      if (blob.exitCode !== 0 || blob.stdout.length !== Math.ceil(chunkLength / 3) * 4) {
+        throw new Error(`Workspace output ${path} has truncated byte transport.`);
+      }
+      encoded += blob.stdout;
+    }
+    let data: Uint8Array;
+    try {
+      if (encoded.length !== Math.ceil(bytes / 3) * 4) throw new Error("Truncated blob");
+      const raw = atob(encoded);
+      if (btoa(raw) !== encoded || raw.length !== bytes) throw new Error("Noncanonical blob");
+      data = Uint8Array.from(raw, (character) => character.charCodeAt(0));
+      const header = new TextEncoder().encode(`blob ${bytes}\0`);
+      const objectBytes = new Uint8Array(header.byteLength + bytes);
+      objectBytes.set(header); objectBytes.set(data, header.byteLength);
+      const digest = new Uint8Array(await crypto.subtle.digest(objectId.length === 40 ? "SHA-1" : "SHA-256", objectBytes));
+      const actualId = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      if (actualId !== objectId) throw new Error("Integrity mismatch");
+    } catch {
+      throw new Error(`Workspace output ${path} has invalid, truncated, or corrupt byte transport.`);
+    }
+    try {
+      const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
+      if (data.some((byte) => (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) || byte === 127)) throw new Error("Binary data");
+      files.push({ path, content, encoding: "utf8" });
+    } catch {
+      files.push({ path, content: encoded, encoding: "base64" });
+    }
+  }
+  return { files, changedFiles: files.map((file) => file.path), diff: "" };
+}
+
 function summarizeRun(
   harnessName: string,
   input: CodingTaskInput,
   changedFiles: string[],
   stdoutTail: string,
 ): string {
-  const header = `${harnessName} completed for ${input.repoUrl} (${input.baseBranch}): ${changedFiles.length} changed files.`;
+  const destination = input.executionTarget?.kind === "artifact-workspace"
+    ? `workspace ${input.executionTarget.workspaceName ?? input.executionTarget.workspaceId ?? input.sandboxId}`
+    : `${input.repoUrl} (${input.baseBranch})`;
+  const header = `${harnessName} completed for ${destination}: ${changedFiles.length} changed files.`;
   if (changedFiles.length === 0) {
     return `${header} No file changes detected.`;
   }

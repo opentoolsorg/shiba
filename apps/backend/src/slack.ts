@@ -1,3 +1,5 @@
+import { slackAgentPersona, slackProgressBlocks, SlackProgressReporter, type SlackPersonaRole } from "./slack-persona.js";
+
 /**
  * Slack request verification. HMAC-SHA256 over `v0:{timestamp}:{body}`
  * with a 5-minute replay window, per
@@ -75,7 +77,7 @@ export class SlackPostRejectedError extends Error {
  */
 export async function postSlackMessageWithReceipt(
   token: string,
-  input: { channel: string; threadTs?: string; text: string; blocks?: unknown[]; clientMsgId?: string },
+  input: { channel: string; threadTs?: string; text: string; blocks?: unknown[]; clientMsgId?: string; persona?: SlackPersonaRole },
 ): Promise<{ channel: string; ts: string }> {
   const response = await fetch(SLACK_POST_MESSAGE, {
     method: "POST",
@@ -89,6 +91,7 @@ export async function postSlackMessageWithReceipt(
       ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
       ...(input.clientMsgId ? { client_msg_id: input.clientMsgId } : {}),
       text: input.text,
+      ...slackAgentPersona(input.persona),
       ...(input.blocks ? { blocks: input.blocks } : {}),
     }),
   });
@@ -123,7 +126,7 @@ export async function postSlackMessageWithReceipt(
 /** Backwards-compatible Slack post for best-effort callers that do not need a receipt. */
 export async function postSlackMessage(
   token: string,
-  input: { channel: string; threadTs?: string; text: string; blocks?: unknown[] },
+  input: { channel: string; threadTs?: string; text: string; blocks?: unknown[]; persona?: SlackPersonaRole },
 ): Promise<void> {
   await postSlackMessageWithReceipt(token, input);
 }
@@ -171,4 +174,53 @@ export async function verifySlackRequest(
   }
   const expected = `v0=${await hmacHex(secret, `v0:${timestamp}:${body}`)}`;
   return timingSafeEqual(signature, expected);
+}
+
+
+export async function updateSlackMessage(
+  token: string,
+  input: { channel: string; ts: string; text: string; blocks?: unknown[] },
+): Promise<void> {
+  const response = await fetch("https://slack.com/api/chat.update", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+    signal: AbortSignal.timeout(SLACK_POST_TIMEOUT_MS),
+    body: JSON.stringify(input),
+  });
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new SlackPostRejectedError(body?.error ?? `Slack API ${response.status}`, response.status < 500);
+  }
+}
+
+
+/** One status card is updated in place for this active CLI turn. */
+export function createSlackRunProgress(
+  token: string,
+  thread: { channelId: string; threadTs: string },
+  persona: SlackPersonaRole = "fixer",
+): SlackProgressReporter {
+  let receipt: { channel: string; ts: string } | null = null;
+  let inFlight: Promise<void> = Promise.resolve();
+  let unknownDelivery = false;
+  return new SlackProgressReporter((text, event) => {
+    const send = inFlight.then(async () => {
+      if (unknownDelivery) return;
+      const blocks = slackProgressBlocks(event);
+      if (receipt) {
+        await updateSlackMessage(token, { ...receipt, text, blocks });
+      } else {
+        try {
+          receipt = await postSlackMessageWithReceipt(token, {
+            channel: thread.channelId, threadTs: thread.threadTs, text, blocks, persona,
+          });
+        } catch (error) {
+          if (!(error instanceof SlackPostRejectedError) || !error.outcomeKnown) unknownDelivery = true;
+          throw error;
+        }
+      }
+    });
+    inFlight = send.catch(() => {});
+    return send;
+  });
 }

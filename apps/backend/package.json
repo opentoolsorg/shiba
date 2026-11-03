@@ -12,6 +12,7 @@
     "typecheck": "tsc -b && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
+    "@ai-sdk/provider": "4.0.15",
     "@cloudflare/ai-chat": "0.12.0",
     "@cloudflare/codemode": "0.5.2",
     "@cloudflare/puppeteer": "1.4.0",
@@ -25,8 +26,10 @@
     "agents": "0.23.0",
     "ai": "7.0.102",
     "effect": "4.0.0",
+    "fflate": "0.8.3",
     "jose": "6.2.12",
     "postal-mime": "2.7.6",
+    "workers-ai-provider": "4.0.0",
     "zod": "4.3.2"
   },
   "devDependencies": {

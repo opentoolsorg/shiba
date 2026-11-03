@@ -5,13 +5,103 @@ import {
   MAX_TOTAL_DELIVERABLE_BYTES,
   type RunDeliverable,
   type RunResultArtifact,
+  type RunArtifactBundle,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
+import { zipSync } from "fflate";
+import { assertWorkspaceArtifactConfiguration, createArtifactDownloadUrl, type ArtifactDownloadClaims } from "./artifact-download.js";
 
-interface CapturedFile {
+export interface CapturedFile {
   path: string;
   content: string | null;
   encoding: "utf8" | "base64";
+}
+
+export const MAX_WORKSPACE_ARTIFACT_FILES = 64;
+export const MAX_WORKSPACE_ARTIFACT_BYTES = 1_048_576;
+export const MAX_WORKSPACE_ARTIFACT_TOTAL_BYTES = 8_388_608;
+export const MAX_WORKSPACE_ARCHIVE_BYTES = MAX_WORKSPACE_ARTIFACT_TOTAL_BYTES + MAX_WORKSPACE_ARTIFACT_FILES * 600 + 22;
+
+/** Archive names never follow hidden paths, parent traversal or platform-specific separators. */
+export function isWorkspaceArtifactPath(path: string): boolean {
+  return path.startsWith("out/") && path.length <= 240 && path === path.trim() &&
+    path.split("/").every((part) => part === part.trim() && /^[A-Za-z0-9][A-Za-z0-9._ -]*$/.test(part));
+}
+
+function artifactBytes(file: CapturedFile): Uint8Array {
+  if (file.content === null) throw new Error(`Artifact ${file.path} was not captured completely.`);
+  if (file.encoding === "utf8") {
+    if (file.content.length > MAX_WORKSPACE_ARTIFACT_BYTES) throw new Error(`Artifact ${file.path} exceeds its byte limit.`);
+    const bytes = new TextEncoder().encode(file.content);
+    if (new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) !== file.content) {
+      throw new Error(`Artifact ${file.path} contains invalid Unicode.`);
+    }
+    return bytes;
+  }
+  if (file.content.length > Math.ceil(MAX_WORKSPACE_ARTIFACT_BYTES / 3) * 4 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.content)) {
+    throw new Error(`Artifact ${file.path} has malformed or excessive byte transport.`);
+  }
+  const raw = atob(file.content);
+  if (btoa(raw) !== file.content) throw new Error(`Artifact ${file.path} has noncanonical byte transport.`);
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+}
+
+/** Deterministic ZIP store format. Bounded entries avoid ZIP64 and decompression expansion. */
+export function workspaceArtifactArchive(files: readonly CapturedFile[]): { bytes: Uint8Array<ArrayBuffer>; fileCount: number } {
+  const selected = files.filter((file) => file.path.startsWith("out/"));
+  if (selected.length > MAX_WORKSPACE_ARTIFACT_FILES) throw new Error("Workspace artifact file count exceeds its limit.");
+  const names = new Set<string>();
+  let totalBytes = 0;
+  const entries = selected.map((file) => {
+    if (!isWorkspaceArtifactPath(file.path)) throw new Error("Workspace artifact path is unsafe.");
+    const name = file.path.slice(4);
+    if (names.has(name.toLowerCase())) throw new Error("Workspace artifact paths must be unique.");
+    names.add(name.toLowerCase());
+    const bytes = artifactBytes(file);
+    if (bytes.byteLength > MAX_WORKSPACE_ARTIFACT_BYTES) throw new Error(`Artifact ${file.path} exceeds its byte limit.`);
+    totalBytes += bytes.byteLength;
+    if (totalBytes > MAX_WORKSPACE_ARTIFACT_TOTAL_BYTES) throw new Error("Workspace artifact bytes exceed their total limit.");
+    return { name, bytes };
+  }).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+  const archive = new Uint8Array(zipSync(Object.fromEntries(entries.map((entry) => [entry.name, entry.bytes])), {
+    level: 0,
+    mtime: new Date(1980, 0, 1, 0, 0, 0),
+  }));
+  if (archive.byteLength > MAX_WORKSPACE_ARCHIVE_BYTES) throw new Error("Workspace archive exceeds its size limit.");
+  return { bytes: archive, fileCount: entries.length };
+}
+
+export function workspaceArchiveStorageKey(scope: string, sha256: string): string {
+  if (!/^[a-f0-9]{64}$/.test(scope) || !/^[a-f0-9]{64}$/.test(sha256)) throw new Error("Invalid workspace archive identity.");
+  return `run-archives/${scope}/${sha256}.zip`;
+}
+
+export async function persistWorkspaceArchive(
+  env: Pick<Env, "ARTIFACTS" | "ARTIFACT_SIGNING_KEY" | "WORKER_HOSTNAME">,
+  identity: { ownerId: string; runId: string; sandboxId: string },
+  files: readonly CapturedFile[],
+  now = Date.now(),
+): Promise<RunArtifactBundle> {
+  if (!identity.ownerId || !identity.runId || !identity.sandboxId ||
+      Object.values(identity).some((part) => part.length > 512)) throw new Error("Workspace archive requires an owned run identity.");
+  assertWorkspaceArtifactConfiguration(env);
+  const archive = workspaceArtifactArchive(files);
+  const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", archive.bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const scopeBytes = new TextEncoder().encode(JSON.stringify([identity.ownerId, identity.runId, identity.sandboxId]));
+  const scope = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", scopeBytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const claims: ArtifactDownloadClaims = { version: 1, scope, sha256, bytes: archive.bytes.byteLength, fileCount: archive.fileCount, issuedAt: now, expiresAt: now + 7 * 24 * 60 * 60 * 1000 };
+  // Sign before persisting. Missing signing configuration cannot leave orphaned output behind.
+  const downloadUrl = await createArtifactDownloadUrl(env, claims);
+  const body = new Response(archive.bytes).body;
+  if (!body) throw new Error("Workspace archive stream could not be initialized.");
+  const stored = await env.ARTIFACTS.put(workspaceArchiveStorageKey(scope, sha256), body, {
+    httpMetadata: { contentType: "application/zip", contentDisposition: 'attachment; filename="artifacts.zip"' },
+    customMetadata: { scope, sha256, bytes: String(claims.bytes), fileCount: String(claims.fileCount) },
+    sha256,
+  });
+  if (!stored) throw new Error("Workspace archive could not be stored.");
+  return { path: "artifacts.zip", mediaType: "application/zip", bytes: claims.bytes, sha256, fileCount: claims.fileCount, downloadUrl, expiresAt: claims.expiresAt };
 }
 
 function mediaType(path: string): string {

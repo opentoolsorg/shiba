@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestrator.js";
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
-import { HARNESS_IDS } from "@shiba/shared";
+import { HARNESS_IDS, runInputHash } from "@shiba/shared";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
 import { replaceEmployeeToolGrants } from "../src/employee-tool-store.js";
@@ -57,7 +57,8 @@ setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
 function agent() {
   const instance = Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
-    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token" }, state: { runs: [] } as OrchestratorState,
+    env: { ...productionEnvStubs(), Sandbox: {}, GITHUB_TOKEN: "test-token", DASHBOARD_APPROVERS: "reviewer@example.test" }, state: { runs: [] } as OrchestratorState,
+    name: "default", messages: [],
     setState(state: OrchestratorState) { setStateLikeProduction(this, state); },
   });
   return instance;
@@ -1143,7 +1144,7 @@ describe("orchestrator run routes", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it.each(["/api/runs/subagents/spawn", "/api/runs/r1/subagents"])("hides another principal's subagent parent at %s", async (path) => {
+  it.each(["/api/runs/subagents/spawn", "/api/runs/r1/subagents"])("blocks agent principals before resolving a subagent parent at %s", async (path) => {
     const instance = agent();
     instance.setState({ runs: [{ ...retained(), queuedBy: "owner", subagentBudgetRemaining: 2,
       approval: { approvalId: "parent-plan", decidedBy: "human", decidedAt: Date.now(), inputHash: "parent-input" } }] });
@@ -1151,7 +1152,7 @@ describe("orchestrator run routes", () => {
       method: "POST", headers: { "X-Agent-Principal": "intruder" },
       body: JSON.stringify({ parentRunId: "r1", task: "inspect", sandboxMode: "fresh" }),
     }));
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(403);
     expect(instance.state.runs).toHaveLength(1);
     expect(mocks.execute).not.toHaveBeenCalled();
   });
@@ -1176,7 +1177,7 @@ describe("orchestrator run routes", () => {
     expect(response.status).toBe(400);
   });
 
-  it("preserves the owning principal when spending an approved subagent budget", async () => {
+  it("refuses autonomous spawning even when the agent owns a parent budget", async () => {
     const instance = agent();
     const dispatch = vi.fn();
     Object.assign(instance, { dispatchApprovedRun: dispatch });
@@ -1186,12 +1187,10 @@ describe("orchestrator run routes", () => {
       method: "POST", headers: { "X-Agent-Principal": "owner" },
       body: JSON.stringify({ task: "inspect", sandboxMode: "fresh", queuedBy: "forged" }),
     }));
-    expect(response.status).toBe(200);
-    expect(instance.state.runs).toHaveLength(2);
-    expect(instance.state.runs[0]?.subagentBudgetRemaining).toBe(1);
-    expect(instance.state.runs[1]).toMatchObject({ queuedBy: "owner", parentRunId: "r1", subagentPath: "1",
-      approval: { approvalId: "parent-plan", decidedBy: "human" } });
-    expect(dispatch).toHaveBeenCalledOnce();
+    expect(response.status).toBe(403);
+    expect(instance.state.runs).toHaveLength(1);
+    expect(instance.state.runs[0]?.subagentBudgetRemaining).toBe(2);
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("reclaims a stale run and aborts its child execution", async () => {
@@ -1288,7 +1287,7 @@ describe("orchestrator run routes", () => {
     const response = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     }));
     expect(response.status).toBe(409);
     // Pointer survives: a later approve after a slot frees can still start it.
@@ -1365,7 +1364,7 @@ describe("orchestrator run routes", () => {
     const post = (approved: boolean) => instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...pointer, approved, decidedBy: "U1" }),
+      body: JSON.stringify({ ...pointer, approved, decidedBy: "reviewer@example.test" }),
     }));
 
     const rejected = await post(false);
@@ -1388,7 +1387,7 @@ describe("orchestrator run routes", () => {
     const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId: freshId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId: freshId, approved: true, decidedBy: "reviewer@example.test" }),
     }));
     expect((await approved.json() as { result: string }).result).toBe("approved");
     // Dispatch rides keepAliveWhile — the approval response returns before the
@@ -1417,7 +1416,7 @@ describe("approval handoff recovery", () => {
     }));
     const approve = () => new Request("https://internal/api/approvals", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     });
     expect((await instance.onRequest(approve())).status).toBe(200);
     await vi.waitFor(() => expect(instance.state.runs[0]?.status).toBe("completed"));
@@ -1455,7 +1454,7 @@ describe("approval handoff recovery", () => {
     const request = () => new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     });
     expect((await instance.onRequest(request())).status).toBe(200);
     expect(writes[0]?.pendingApprovals?.[0]?.status).toBe("approved");
@@ -1495,7 +1494,7 @@ describe("approval handoff recovery", () => {
     const approvalId = "ap-exec";
     const approvals = resolvePendingApproval(createPendingApproval([], {
       threadKey: "default", approvalId, repoUrl: "https://github.com/o/r", task: "fix", createdAt: Date.now(),
-    }), { threadKey: "default", approvalId, approved: true, decidedBy: "U1" }, Date.now()).approvals;
+    }), { threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }, Date.now()).approvals;
     instance.setState({
       runs: [{
         ...createRun({
@@ -1572,7 +1571,7 @@ describe("slack thread wiring", () => {
     const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "slack:T1:C1:1758217400.000100", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "slack:T1:C1:1758217400.000100", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     }));
     expect(approved.status).toBe(200);
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalled());
@@ -1617,7 +1616,7 @@ describe("run reliability", () => {
   const INPUT = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false };
 
   /** Slack-thread orchestrator whose post-backs and waitUntil work are captured. */
-  function slackAgent(slackReply: Record<string, unknown> = { ok: true }) {
+  function slackAgent(slackReply: Record<string, unknown> = { ok: true, ts: "1700.0002" }) {
     const instance = agent();
     const pending: Promise<unknown>[] = [];
     const waitUntil = vi.fn((p: Promise<unknown>) => { pending.push(p); });
@@ -1651,7 +1650,7 @@ describe("run reliability", () => {
     const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "U1" }),
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
     }));
     expect((await approved.json() as { result: string }).result).toBe("approved");
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
@@ -1691,7 +1690,7 @@ describe("run reliability", () => {
     const approvalId = "ap-restart";
     const approvals = resolvePendingApproval(createPendingApproval([], {
       threadKey: "default", approvalId, repoUrl: "https://github.com/o/r", task: "fix", createdAt: Date.now(),
-    }), { threadKey: "default", approvalId, approved: true, decidedBy: "U1" }, Date.now()).approvals;
+    }), { threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }, Date.now()).approvals;
     instance.setState({
       runs: [{ ...createRun({ runId: `agent-tool:${approvalId}`, sandboxId: "s-restart", repoUrl: "https://github.com/o/r",
         task: "fix", baseBranch: "main", publishPullRequest: false }), status: "running" }],
@@ -1724,7 +1723,7 @@ describe("run reliability", () => {
     expect(run.status).toBe("completed");
     expect(run.pullUrl).toBe(pullUrl);
     expect(run.summary).not.toContain(pullUrl);
-    const completed = posts.find((post) => post.text.startsWith("done — here's what changed in o/r"));
+    const completed = posts.find((post) => post.text.startsWith("done. here's what changed in o/r"));
     expect(completed?.text).toContain(`PR: ${pullUrl}`);
     expect(completed?.text).toContain("1 changed files.");
     expect(completed!.text.length).toBeLessThan(1200);
@@ -1897,7 +1896,7 @@ describe("chat approval gate", () => {
           threadKey: "default",
           approvalId: "chat-1",
           approved: true,
-          decidedBy: "human",
+          decidedBy: "reviewer@example.test",
         }),
       }),
     );
@@ -1905,7 +1904,7 @@ describe("chat approval gate", () => {
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
     const pointer = instance.state.pendingApprovals?.find((a) => a.approvalId === "chat-1");
     expect(pointer?.status).toBe("approved");
-    expect(pointer?.decidedBy).toBe("human");
+    expect(pointer?.decidedBy).toBe("reviewer@example.test");
     await vi.waitFor(() => {
       const r = instance.state.runs.find((run) => run.runId === "agent-tool:chat-1");
       expect(r?.status).toBe("completed");
@@ -1945,7 +1944,7 @@ describe("chat approval gate", () => {
     const resolved = await instance.onRequest(new Request("https://internal/api/approvals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadKey: "owner@example.test", approvalId: "project-chat-1", approved: true, decidedBy: "human" }),
+      body: JSON.stringify({ threadKey: "owner@example.test", approvalId: "project-chat-1", approved: true, decidedBy: "owner@example.test" }),
     }));
     expect(resolved.status).toBe(200);
     await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledOnce());
@@ -1975,5 +1974,118 @@ describe("chat approval gate", () => {
       ),
     ).rejects.toThrow("Unknown model connection");
     expect(instance.state.pendingApprovals ?? []).toEqual([]);
+  });
+});
+
+
+describe("agent facet routing", () => {
+  it.each(["ExplorerAgent", "ReviewerAgent", "OpenCodeAgent"])("refuses guessed %s children before the SDK wakes them", async (className) => {
+    const instance = agent();
+    const hasAgentToolRun = vi.fn(() => false);
+    Object.assign(instance, { hasAgentToolRun });
+    const response = await instance.onBeforeSubAgent(new Request("https://internal/sub/guessed"), { className, name: "guessed" });
+    expect(response?.status).toBe(404);
+    expect(hasAgentToolRun).toHaveBeenCalledWith(className, "guessed");
+  });
+
+  it("allows a retained approved class while refusing unknown facet classes", async () => {
+    const instance = agent();
+    Object.assign(instance, { hasAgentToolRun: () => true });
+    const request = new Request("https://internal/sub/retained");
+    expect(await instance.onBeforeSubAgent(request, { className: "ExplorerAgent", name: "retained" })).toBeUndefined();
+    expect((await instance.onBeforeSubAgent(request, { className: "UnknownAgent", name: "retained" }))?.status).toBe(404);
+  });
+});
+
+describe("bounded child approval queue", () => {
+  function childHost() {
+    const instance = agent();
+    Object.assign(instance, { name: "default", messages: [] });
+    const parent = { ...retained(), createdAt: Date.now(), updatedAt: Date.now(), queuedBy: "parent-principal", subagentBudgetRemaining: 9 };
+    instance.setState({ runs: [parent] });
+    return { instance, parent };
+  }
+
+  function requestChild(instance: CodingOrchestrator, body: Record<string, unknown> = {}) {
+    return instance.onRequest(new Request("https://internal/api/runs/r1/subagents", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task: "Implement the exact child goal", sandboxMode: "fresh", ...body }),
+    }));
+  }
+
+  it("queues the frozen child goal without starting a sandbox or spending the parent's budget", async () => {
+    const { instance, parent } = childHost();
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    const response = await requestChild(instance, { parentRunId: "forged-parent", subagentPath: "9.9", queuedBy: "forged-owner" });
+    expect(response.status).toBe(200);
+    const { approvalId } = await response.json() as { approvalId: string };
+    const pending = instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId);
+    expect(pending).toMatchObject({ status: "pending", parentRunId: parent.runId, subagentPath: "1", subagentSandbox: "fresh", role: "fixer", publishPullRequest: false });
+    expect(pending?.queuedBy).not.toBe("forged-owner");
+    expect(instance.state.runs).toHaveLength(1);
+    expect(instance.state.runs[0]?.subagentBudgetRemaining).toBe(9);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("mints an isolated child only after a human approves its exact frozen hash", async () => {
+    const { instance, parent } = childHost();
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    const queued = await requestChild(instance);
+    const { approvalId } = await queued.json() as { approvalId: string };
+    const frozen = instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId);
+    if (!frozen) throw new Error("Child approval was not queued.");
+    const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: frozen.threadKey, approvalId, approved: true, decidedBy: "reviewer@example.test", task: "forged replacement" }),
+    }));
+    expect(approved.status).toBe(200);
+    const child = instance.state.runs.find((run) => run.parentRunId === parent.runId);
+    expect(child).toMatchObject({ task: frozen.task, parentRunId: parent.runId, subagentPath: "1", subagentSandbox: "fresh", publishPullRequest: false });
+    expect(child?.sandboxId).not.toBe(parent.sandboxId);
+    expect(child?.approval).toMatchObject({ approvalId, decidedBy: "reviewer@example.test", inputHash: runInputHash({ ...frozen, baseBranch: frozen.baseBranch ?? "main", publishPullRequest: frozen.publishPullRequest ?? false }) });
+    expect(child?.subagentBudgetRemaining).toBeUndefined();
+    expect(dispatch).toHaveBeenCalledOnce();
+  });
+
+  it("serializes overlapping child approval requests and caps total direct children", async () => {
+    const { instance, parent } = childHost();
+    const responses = await Promise.all([requestChild(instance), requestChild(instance)]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 429]);
+    expect(instance.state.pendingApprovals?.filter((approval) => approval.status === "pending")).toHaveLength(1);
+    instance.setState({ runs: [parent, ...Array.from({ length: 3 }, (_, index) => ({ ...parent, runId: `old-child-${index}`, parentRunId: parent.runId, subagentPath: String(index + 1), status: "completed" as const }))] });
+    expect((await requestChild(instance)).status).toBe(429);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it.each(["completed", "cancelled"] as const)("keeps the child pending when its parent becomes %s before approval", async (status) => {
+    const { instance, parent } = childHost();
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    const queued = await requestChild(instance);
+    const { approvalId } = await queued.json() as { approvalId: string };
+    instance.setState({ ...instance.state, runs: [{ ...parent, status }] });
+    const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test" }),
+    }));
+    expect(approved.status).toBe(409);
+    expect(instance.state.pendingApprovals?.find((approval) => approval.approvalId === approvalId)?.status).toBe("pending");
+    expect(instance.state.runs).toHaveLength(1);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("refuses nested delegation, shared workspaces, and publication requests", async () => {
+    const { instance, parent } = childHost();
+    expect((await requestChild(instance, { sandboxMode: "shared" })).status).toBe(400);
+    expect((await requestChild(instance, { publishPullRequest: true })).status).toBe(403);
+    expect((await requestChild(instance, { reviewAfterPublish: true })).status).toBe(403);
+    instance.setState({ runs: [{ ...parent, parentRunId: "root-parent", subagentPath: "1" }] });
+    expect((await requestChild(instance)).status).toBe(403);
+    expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
+    expect(mocks.execute).not.toHaveBeenCalled();
   });
 });

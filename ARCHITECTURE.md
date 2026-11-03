@@ -5,8 +5,7 @@ reader can navigate it without reading 80 files. Derived from the deployed
 configuration (`apps/backend/wrangler.jsonc`, `alchemy.run.ts`) and the Worker
 entry (`apps/backend/src/index.ts`) — as-built, not aspirational.
 
-**Status:** see `PLAN.md` §2.0 for what is verified. Plan and gaps live in
-`PLAN.md`; evidence in `VERIFICATION.md`.
+**Status:** see `PLAN.md` §2.0 for earlier verification. The current control plane upgrade and its live acceptance limits are documented in [control-plane-upgrade.md](docs/control-plane-upgrade.md). Plan and gaps live in `PLAN.md`; evidence in `VERIFICATION.md`.
 
 **Companions:** `spec/GOAL.md` (product contract — *currently contradicted by
 the tree*, see `PLAN.md` §17.2 T27) · `design.md` (visual design system, not
@@ -21,9 +20,7 @@ React dashboard. **Durable Objects** hold coordinated state — the orchestrator
 conversation, coding sub-agent, per-run sandbox control, automations, mailbox,
 memory, model config, session chat rooms, and other per-user services. The MCP
 gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in an
-**ephemeral Sandbox container** (one per run, destroyed at the end) that clones
-a GitHub repo and executes one of six agent binaries. Nothing starts until a human
-approves it, and the container's outbound network is allowlisted per run.
+**ephemeral Sandbox container** (one per run, destroyed at the end) that either clones a GitHub repository or initializes an empty artifact workspace. It executes one selected harness. Nothing starts until a human approves it, and the container's outbound network is allowlisted per run. Read-only Explorer and Reviewer facets inspect explicit snapshots without starting a sandbox. Publication requires a separate human approval of the completed immutable file snapshot.
 
 ---
 
@@ -140,7 +137,7 @@ once). `GET /api/spine` on the DO serves events + owed outbox for the
 dashboard's Activity feed; agent principals see only events on runs
 they queued.
 
-**Supporting stores** (not DOs): **R2** `ATTACHMENTS` (email bodies >256KB) ·
+**Supporting stores** (not DOs): **R2** `ARTIFACTS` (private ZIP bundles), `ATTACHMENTS` (email bodies, text deliverables, and private publication staging) ·
 **KV** `AGENT_TOKENS` (bearer tokens, keyed `tok_<sha256(raw)>`) · **D1**
 `AGENT_AUDIT` (MCP call audit) · **Vectorize** `MEMORY_VECTORS` (768-dim recall).
 
@@ -202,14 +199,14 @@ invariants as non-negotiable acceptance criteria, not as context.
 1  ingress    dashboard / Slack / cron / webhook → auth per surface
 2  intent     orchestrator plans; prose → structured delegate_coding_task
 3  gate       approval card with the exact frozen arguments; human approves
-              (automations: approval by default, narrow opt-in unattended)
+              (automations always wait for human approval)
 4  dispatch   approved input frozen; route revalidated at dispatch
 5  sandbox    ephemeral container: clone (scoped) → run the harness CLI
 6  egress     AI Gateway swaps the dummy key for the real provider key (or injects org-configured provider API key)
 7  collect    diff, exit code, structured result envelope (error ≠ completed)
-8  publish    branch + PR; optional screenshot (T33, shipped — needs
-              WORKER_HOSTNAME for the public asset URL)
-9  cleanup    container destroyed; short sleep tail; result + receipts recorded
+8  propose    stage immutable publication files in private R2
+9  gate       separate human approval permits the branch and PR action
+10 cleanup    container destroyed; short sleep tail; result + receipts recorded
 ```
 
 **Per-org sandbox runners and model keys**: Orgs can bring their own sandbox runners (ComputeSDK remote runner URL and token encrypted at rest via AES-GCM in D1) and paste raw provider API keys (`anthropic`, `openai`, `google`, `xai`, stored encrypted in D1 write-only). At edge egress, `orgId` resolves decrypted keys and injects native auth headers (`x-api-key`, `Authorization: Bearer`, `x-goog-api-key`) through Cloudflare AI Gateway, falling back to deployment BYOK aliases when unconfigured. Runner URLs are HTTPS-only and SSRF-validated against private, loopback, link-local, and CGNAT networks.
@@ -336,8 +333,7 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
   (S256 only), `token` exchange with rotating refresh, and `revoke` —
   static bearer tokens still work. The consent surface is new code, so
   treat its edge cases as under-probed rather than settled.
-- **No interactive web chat.** The dashboard submits a task and polls; there is
-  no conversational steering surface (§17.4).
+- **Live output has bounded replay.** Rooms persist accepted terminal, status, diff, and child frames. Expired cursors and lost container transport produce explicit gap or uncertainty indicators. Browser reconnect does not resume a lost CLI process.
 - **GitHub is the only repo provider — by decision.** The approval gate is
   already provider-agnostic, so adding one later is a provider layer, not a
   redesign. Deferred until GitHub itself is proven live (`PLAN.md` §17.6).

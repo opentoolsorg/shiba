@@ -10,8 +10,8 @@ import { getAgentByName } from "agents/routing";
 import { seenDelivery } from "./automations-stub.js";
 import type { Env } from "./env.js";
 import { parseGitHubRepoUrl, redactSecrets } from "./security.js";
-import { buildApprovalBlocks, type ExecutionContextLike } from "./slack-approval.js";
-import { buildSlackRunPayload, resolveSlackHarness } from "./slack-thread.js";
+import { buildApprovalBlocks, slackCanvasUrl, type ExecutionContextLike } from "./slack-approval.js";
+import { buildSlackCommandScope, buildSlackRunPayload, resolveSlackHarness, slackWorkspaceTarget } from "./slack-thread.js";
 import { verifySlackRequest } from "./slack.js";
 
 export const SLACK_COMMAND_PATH = "/api/slack/command";
@@ -33,6 +33,7 @@ export interface SlackCommandDeps {
 export interface ParsedSlackCommand {
   repoUrl: string;
   task: string;
+  workspaceTarget?: import("@shiba/shared").WorkspaceTarget;
 }
 
 /**
@@ -42,6 +43,12 @@ export interface ParsedSlackCommand {
  */
 export function parseSlackCommand(text: string): ParsedSlackCommand {
   const tokens = text.trim().split(/\s+/).filter(Boolean);
+  const workspaceTarget = tokens[0] ? slackWorkspaceTarget(tokens[0]) : undefined;
+  if (workspaceTarget) {
+    const task = tokens.slice(1).join(" ").trim();
+    if (!task) throw new Error("Usage: /shiba workspace:<id> <task>. Describe the task after the workspace.");
+    return { repoUrl: "", task, workspaceTarget };
+  }
   let repoUrl: string | null = null;
   const rest: string[] = [];
   for (const token of tokens) {
@@ -112,6 +119,7 @@ async function queueSlackRun(
   deps: SlackCommandDeps,
   parsed: ParsedSlackCommand,
   params: URLSearchParams,
+  approvalThreadKey: string,
 ): Promise<Record<string, unknown>> {
   // The card shows the exact agent the human is approving.
   const harness = resolveSlackHarness(env);
@@ -125,8 +133,10 @@ async function queueSlackRun(
         headers: { "Content-Type": "application/json" },
         // Same payload as the mention lane: publishPullRequest on, channel/user carried.
         body: JSON.stringify(buildSlackRunPayload({
+          threadKey: approvalThreadKey,
           repoUrl: parsed.repoUrl,
           task: parsed.task,
+          ...(parsed.workspaceTarget ? { workspaceTarget: parsed.workspaceTarget } : {}),
           channelId: params.get("channel_id") ?? undefined,
           userId: params.get("user_id") ?? undefined,
           harness,
@@ -144,13 +154,16 @@ async function queueSlackRun(
   }
   return {
     response_type: "ephemeral",
-    text: `Task queued for ${parsed.repoUrl}: ${parsed.task}`,
+    text: `Task queued for ${parsed.workspaceTarget?.type === "ephemeral" ? `workspace ${parsed.workspaceTarget.workspaceId}` : parsed.repoUrl}: ${parsed.task}`,
     blocks: buildApprovalBlocks({
-      threadKey: ORCHESTRATOR_NAME,
+      threadKey: approvalThreadKey,
       approvalId: queuedBody.approvalId,
       repoUrl: parsed.repoUrl,
       task: parsed.task,
       harness,
+      canvasUrl: slackCanvasUrl(env.WORKER_HOSTNAME),
+      publishPullRequest: parsed.workspaceTarget?.type !== "ephemeral",
+      workspaceLabel: parsed.workspaceTarget?.type === "ephemeral" ? `Workspace ${parsed.workspaceTarget.workspaceId}` : parsed.repoUrl,
     }),
   };
 }
@@ -189,6 +202,12 @@ export async function handleSlackCommand(
   if ((params.get("command") ?? "").trim() !== SLASH_COMMAND) {
     return Response.json({ error: "Unknown command." }, { status: 400 });
   }
+  let approvalThreadKey: string;
+  try {
+    approvalThreadKey = buildSlackCommandScope(params.get("team_id") ?? "", params.get("channel_id") ?? "");
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Invalid Slack command origin." }, { status: 400 });
+  }
   // Slack retries slash commands inside the signature window; dedupe on the
   // per-invocation trigger_id so a replayed signed payload cannot queue a
   // second run. Dedupe failures fail open — the signature still gates callers.
@@ -213,7 +232,7 @@ export async function handleSlackCommand(
   const responseUrl = params.get("response_url") ?? "";
   if (ctx && isSlackCommandResponseUrl(responseUrl)) {
     ctx.waitUntil(
-      queueSlackRun(env, deps, parsed, params)
+      queueSlackRun(env, deps, parsed, params, approvalThreadKey)
         .then((body) => respondToCommand(responseUrl, body, deps.respond))
         .catch((error: unknown) => {
           console.error("Slack command reply failed", redactSecrets(String(error)));
@@ -221,5 +240,5 @@ export async function handleSlackCommand(
     );
     return Response.json({ response_type: "ephemeral", text: "Queueing your task…" });
   }
-  return Response.json(await queueSlackRun(env, deps, parsed, params));
+  return Response.json(await queueSlackRun(env, deps, parsed, params, approvalThreadKey));
 }

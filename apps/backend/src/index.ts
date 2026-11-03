@@ -6,6 +6,9 @@
 import { getAgentByName, routeAgentRequest } from "agents/routing";
 import { OpenCodeAgent } from "./agents/opencode-agent.js";
 import { CodingOrchestrator } from "./agents/orchestrator.js";
+import { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
+import { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
+import { handleArtifactDownload } from "./artifact-download.js";
 import { AUDIT_RETENTION_MS, pruneAuditLog } from "./audit.js";
 import { Automations } from "./automations-do.js";
 import { automationsStub, seenDelivery } from "./automations-stub.js";
@@ -90,6 +93,8 @@ import {
 } from "./web-sessions.js";
 
 export {
+  ExplorerAgent,
+  ReviewerAgent,
   Automations,
   ChatGptAuth,
   ConversationRoom,
@@ -227,6 +232,8 @@ export default {
         request = new Request(request, { headers });
       }
       const url = new URL(request.url);
+      const artifactDownload = await handleArtifactDownload(request, env);
+      if (artifactDownload) return artifactDownload;
       // Order: the better-auth lane owns `/api/auth/*` (minus the
       // subscription-connect paths it shares that prefix with — those stay
       // gated below), so it is served before the identity gate sees the

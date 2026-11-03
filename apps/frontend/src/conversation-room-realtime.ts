@@ -22,6 +22,21 @@ export interface ConversationRoomStream {
 
 export type ConversationRoomStatus = "offline" | "connecting" | "connected" | "reconnecting";
 
+export interface ConversationRunFrame {
+  sequence: number;
+  runId: string;
+  event: {
+    kind: "terminal" | "status" | "diff" | "child";
+    stream?: "stdout" | "stderr";
+    data?: string;
+    status?: string;
+    childId?: string;
+    message?: string;
+    reset?: boolean;
+    complete?: boolean;
+  };
+}
+
 interface ChatMessageLike {
   id: string;
   role: string;
@@ -35,16 +50,19 @@ interface UseConversationRoomRealtimeOptions {
   typingText: string;
   messages: readonly ChatMessageLike[];
   onMessage: (message: ConversationRoomMessage) => void;
+  onRunEvent?: (event: ConversationRunFrame) => void;
 }
 
 interface LocalPublisher {
   streamId: string;
+  handleId: string;
   baselineAssistantIds: Set<string>;
   baselineUserMessageIds: Set<string>;
   sentUserMessageIds: Set<string>;
   userText: string;
   lastText: string;
   endStatus?: "complete" | "failed";
+  resumeToken?: string;
 }
 
 const MAX_ROOM_STREAM_CHARS = 50_000;
@@ -58,6 +76,19 @@ function newId(): string {
     const value = Math.floor(Math.random() * 16);
     return (slot === "x" ? value : (value & 0x3) | 0x8).toString(16);
   });
+}
+
+function tabViewerId(): string {
+  try {
+    const key = "shiba-room-viewer";
+    const existing = window.sessionStorage.getItem(key);
+    if (existing && /^[0-9a-f-]{36}$/i.test(existing)) return existing;
+    const id = newId();
+    window.sessionStorage.setItem(key, id);
+    return id;
+  } catch {
+    return newId();
+  }
 }
 
 function messageText(message: ChatMessageLike): string {
@@ -117,18 +148,26 @@ export function useConversationRoomRealtime({
   typingText,
   messages,
   onMessage,
+  onRunEvent,
 }: UseConversationRoomRealtimeOptions) {
-  const [viewerId] = useState(newId);
+  const [viewerId] = useState(tabViewerId);
   const [status, setStatus] = useState<ConversationRoomStatus>(enabled ? "connecting" : "offline");
   const [viewers, setViewers] = useState<ConversationRoomViewer[]>([]);
   const [remoteStream, setRemoteStream] = useState<ConversationRoomStream | null>(null);
+  const [replayGap, setReplayGap] = useState(false);
+  const runSequenceRef = useRef(0);
+  const replayPendingRef = useRef(false);
+  const pendingRunFramesRef = useRef<ConversationRunFrame[]>([]);
+  const replaySessionRef = useRef(sessionId);
   const socketRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
+  const onRunEventRef = useRef(onRunEvent);
   const messagesRef = useRef(messages);
   const publisherRef = useRef<LocalPublisher | null>(null);
   const typingSentRef = useRef(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   onMessageRef.current = onMessage;
+  onRunEventRef.current = onRunEvent;
   messagesRef.current = messages;
 
   const send = useCallback((event: unknown) => {
@@ -143,6 +182,14 @@ export function useConversationRoomRealtime({
   }, []);
 
   useEffect(() => {
+    if (replaySessionRef.current !== sessionId) {
+      replaySessionRef.current = sessionId;
+      runSequenceRef.current = 0;
+      pendingRunFramesRef.current = [];
+      publisherRef.current = null;
+      typingSentRef.current = false;
+      setReplayGap(false);
+    }
     if (!enabled) {
       setStatus("offline");
       setViewers([]);
@@ -153,6 +200,13 @@ export function useConversationRoomRealtime({
     let stopped = false;
     let attempt = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let lastHeartbeatAt = Date.now();
+    const acceptRunFrame = (frame: ConversationRunFrame) => {
+      if (frame.sequence <= runSequenceRef.current) return;
+      runSequenceRef.current = frame.sequence;
+      onRunEventRef.current?.(frame);
+    };
 
     const connect = () => {
       if (stopped) return;
@@ -176,9 +230,19 @@ export function useConversationRoomRealtime({
         if (stopped || socketRef.current !== socket) return;
         attempt = 0;
         setStatus("connected");
+        lastHeartbeatAt = Date.now();
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(() => {
+          if (Date.now() - lastHeartbeatAt > 65_000) socket.close();
+          else {
+            try { socket.send("ping"); } catch { socket.close(); }
+          }
+        }, 25_000);
         const publisher = publisherRef.current;
         if (publisher) {
-          send({ type: "stream:start", streamId: publisher.streamId });
+          // A lost first lease cannot authorize a reconnect. Start a fresh wire stream.
+          if (!publisher.resumeToken) publisher.streamId = newId();
+          send({ type: "stream:start", streamId: publisher.streamId, ...(publisher.resumeToken ? { resumeToken: publisher.resumeToken } : {}) });
           // stream:start resets the persisted body, so replay from its beginning.
           publisher.lastText = "";
           for (const message of messagesRef.current) {
@@ -203,8 +267,12 @@ export function useConversationRoomRealtime({
             publisherRef.current = null;
           }
         }
+        replayPendingRef.current = true;
+        send({ type: "subscribe", after: runSequenceRef.current });
       });
       socket.addEventListener("message", (event: MessageEvent<string>) => {
+        if (stopped || socketRef.current !== socket) return;
+        if (event.data === "pong") { lastHeartbeatAt = Date.now(); return; }
         let data: unknown;
         try {
           data = JSON.parse(event.data);
@@ -213,7 +281,22 @@ export function useConversationRoomRealtime({
         }
         if (typeof data !== "object" || data === null) return;
         const frame = data as Record<string, unknown>;
-        if (frame.type === "snapshot") {
+        lastHeartbeatAt = Date.now();
+        if (frame.type === "run:event" && Number.isSafeInteger(frame.sequence) && typeof frame.runId === "string" &&
+          typeof frame.event === "object" && frame.event !== null &&
+          ["terminal", "status", "diff", "child"].includes(String((frame.event as Record<string, unknown>).kind))) {
+          const runFrame = frame as unknown as ConversationRunFrame;
+          if (replayPendingRef.current) pendingRunFramesRef.current.push(runFrame);
+          else acceptRunFrame(runFrame);
+        } else if (frame.type === "run:replay_gap") {
+          setReplayGap(true);
+          if (typeof frame.latest === "number" && frame.latest < runSequenceRef.current) runSequenceRef.current = 0;
+        } else if (frame.type === "run:replay_complete") {
+          const pending = pendingRunFramesRef.current;
+          pendingRunFramesRef.current = [];
+          replayPendingRef.current = false;
+          for (const runFrame of pending.sort((a, b) => a.sequence - b.sequence)) acceptRunFrame(runFrame);
+        } else if (frame.type === "snapshot") {
           setViewers(Array.isArray(frame.viewers) ? frame.viewers as ConversationRoomViewer[] : []);
           if (Array.isArray(frame.messages)) {
             for (const message of frame.messages) {
@@ -246,6 +329,9 @@ export function useConversationRoomRealtime({
             text: frame.text,
             createdAt: frame.createdAt,
           });
+        } else if (frame.type === "stream:lease" && typeof frame.streamId === "string" && typeof frame.resumeToken === "string") {
+          const publisher = publisherRef.current;
+          if (publisher?.streamId === frame.streamId) publisher.resumeToken = frame.resumeToken;
         } else if (frame.type === "stream:start" && frame.viewerId !== viewerId && typeof frame.streamId === "string") {
           setRemoteStream({ streamId: frame.streamId, viewerId: String(frame.viewerId), text: "" });
         } else if (frame.type === "stream:delta" && frame.viewerId !== viewerId &&
@@ -258,6 +344,9 @@ export function useConversationRoomRealtime({
       socket.addEventListener("close", () => {
         if (stopped || socketRef.current !== socket) return;
         socketRef.current = null;
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+        pendingRunFramesRef.current = [];
         setStatus("reconnecting");
         setViewers([]);
         setRemoteStream(null);
@@ -271,6 +360,7 @@ export function useConversationRoomRealtime({
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (socketRef.current) socketRef.current.close();
       socketRef.current = null;
       setViewers([]);
@@ -322,6 +412,7 @@ export function useConversationRoomRealtime({
     }
     publisherRef.current = {
       streamId,
+      handleId: streamId,
       baselineAssistantIds: new Set(messagesRef.current.filter((message) => message.role === "assistant").map((message) => message.id)),
       baselineUserMessageIds: new Set(messagesRef.current.filter((message) => message.role === "user").map((message) => message.id)),
       sentUserMessageIds: new Set(),
@@ -334,14 +425,14 @@ export function useConversationRoomRealtime({
 
   const finishStream = useCallback((streamId: string, status: "complete" | "failed") => {
     const publisher = publisherRef.current;
-    if (!publisher || publisher.streamId !== streamId) return;
+    if (!publisher || publisher.handleId !== streamId) return;
     const contentSynced = sendStreamText(
       send,
       publisher,
       latestLocalAssistantText(messagesRef.current, publisher),
     );
     publisher.endStatus = status;
-    if (contentSynced && send({ type: "stream:end", streamId, status })) publisherRef.current = null;
+    if (contentSynced && send({ type: "stream:end", streamId: publisher.streamId, status })) publisherRef.current = null;
   }, [send]);
 
   return {
@@ -349,6 +440,7 @@ export function useConversationRoomRealtime({
     status,
     viewers,
     remoteStream,
+    replayGap,
     startStream,
     finishStream,
   };

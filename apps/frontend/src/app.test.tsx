@@ -108,7 +108,7 @@ describe("app employee onboarding", () => {
     fireEvent.click(screen.getByRole("button", { name: /Research Produce/ }));
     await screen.findAllByRole("heading", { name: "Research bot" });
     expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Research bot", metadata: { customAgentId: "research-agent" } }) }));
-    expect(window.location.pathname).toBe("/threads/");
+    await waitFor(() => expect(window.location.pathname).toBe("/threads/"));
     expect(localStorage.getItem(ONBOARDING_DISMISSED_KEY)).toBe("true");
     expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
   });

@@ -191,7 +191,7 @@ describe("automation fire path", () => {
     expect(d.queueRun).toHaveBeenCalledOnce();
   });
 
-  it("auto-approves only when unattended is granted", async () => {
+  it("keeps an allowlisted legacy unattended PR run pending human approval", async () => {
     const automation = scheduleAutomation({
       unattended: true,
       unattendedRepos: ["owner/repo"],
@@ -199,16 +199,12 @@ describe("automation fire path", () => {
     const d = deps();
     const result = await fireAutomation(automation, { kind: "schedule", nowMs: d.nowMs! }, d);
     expect(result.fired).toBe(true);
-    expect(d.resolveApproval).toHaveBeenCalledOnce();
-    expect(d.resolveApproval.mock.calls[0]![0]).toMatchObject({
-      threadKey: "automation:nightly",
-      approvalId: "appr_1",
-      approved: true,
-      decidedBy: "automation:nightly",
-    });
+    expect(result.approvalId).toBe("appr_1");
+    expect(d.queueRun).toHaveBeenCalledOnce();
+    expect(d.resolveApproval).not.toHaveBeenCalled();
   });
 
-  it("charges the daily budget when unattended resolution fails after queueing", async () => {
+  it("charges the queue budget without invoking the legacy approval resolution seam", async () => {
     const automation = scheduleAutomation({
       unattended: true,
       unattendedRepos: ["owner/repo"],
@@ -221,9 +217,23 @@ describe("automation fire path", () => {
       }),
     });
     const result = await fireAutomation(automation, { kind: "schedule", nowMs: d.nowMs! }, d);
-    expect(result.fired).toBe(false);
+    expect(result.fired).toBe(true);
     expect(result.automation.runsToday).toBe(1);
     expect(result.approvalId).toBe("appr_1");
+    expect(d.resolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("queues a legacy unattended run when no approval resolver is supplied", async () => {
+    const d = deps();
+    const { resolveApproval: _unusedResolver, ...withoutResolver } = d;
+    const result = await fireAutomation(
+      scheduleAutomation({ unattended: true, unattendedRepos: ["owner/repo"] }),
+      { kind: "schedule", nowMs: d.nowMs! },
+      withoutResolver,
+    );
+    expect(result).toMatchObject({ fired: true, approvalId: "appr_1" });
+    expect(d.queueRun).toHaveBeenCalledOnce();
+    expect(d.resolveApproval).not.toHaveBeenCalled();
   });
 
   it("records a queue failure instead of throwing", async () => {

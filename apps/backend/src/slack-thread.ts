@@ -86,7 +86,35 @@ export function parseSlackThreadName(name: string): SlackThreadIds | null {
   return { teamId, channelId, threadTs };
 }
 
+export interface SlackCommandScope {
+  teamId: string;
+  channelId: string;
+}
+
+/** A slash command shares the default DO while its approval stays bound to its origin. */
+export function buildSlackCommandScope(teamId: string, channelId: string): string {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(teamId) || !/^[A-Za-z0-9_-]{1,128}$/.test(channelId)) {
+    throw new Error("Slack command requires a valid workspace and channel.");
+  }
+  return `slack-command:${teamId}:${channelId}`;
+}
+
+export function parseSlackCommandScope(scope: string): SlackCommandScope | null {
+  const match = /^slack-command:([A-Za-z0-9_-]{1,128}):([A-Za-z0-9_-]{1,128})$/.exec(scope);
+  return match?.[1] && match[2] ? { teamId: match[1], channelId: match[2] } : null;
+}
+
+export function slackApprovalOrchestratorName(threadKey: string): string {
+  return parseSlackCommandScope(threadKey) ? "default" : threadKey || "default";
+}
+
+export function slackWorkspaceTarget(text: string): { type: "ephemeral"; workspaceId: string } | undefined {
+  const match = /(?:^|\s)workspace:([A-Za-z0-9][A-Za-z0-9_-]{0,127})(?=\s|$)/.exec(text);
+  return match?.[1] ? { type: "ephemeral", workspaceId: match[1] } : undefined;
+}
+
 export interface SlackRunPayload {
+  threadKey?: string;
   repoUrl: string;
   task: string;
   baseBranch: string;
@@ -101,6 +129,7 @@ export interface SlackRunPayload {
   customAgentVersion?: number;
   employeeToolPolicyVersion?: number;
   executionTarget?: import("@shiba/shared").ExecutionTarget;
+  workspaceTarget?: import("@shiba/shared").WorkspaceTarget;
 }
 
 /**
@@ -108,6 +137,7 @@ export interface SlackRunPayload {
  * default — the Slack surface reports back with a PR link in-thread.
  */
 export function buildSlackRunPayload(input: {
+  threadKey?: string;
   repoUrl: string;
   task: string;
   baseBranch?: string;
@@ -120,13 +150,15 @@ export function buildSlackRunPayload(input: {
   customAgentVersion?: number;
   employeeToolPolicyVersion?: number;
   executionTarget?: import("@shiba/shared").ExecutionTarget;
+  workspaceTarget?: import("@shiba/shared").WorkspaceTarget;
 }): SlackRunPayload {
   return {
     repoUrl: input.repoUrl,
     task: input.task,
     baseBranch: input.baseBranch ?? "main",
-    publishPullRequest: input.publishPullRequest ?? SLACK_DEFAULT_PUBLISH_PR,
+    publishPullRequest: input.workspaceTarget?.type === "ephemeral" || input.executionTarget?.kind === "artifact-workspace" ? false : input.publishPullRequest ?? SLACK_DEFAULT_PUBLISH_PR,
     source: "slack",
+    ...(input.threadKey ? { threadKey: input.threadKey } : {}),
     ...(input.harness ? { harness: input.harness } : {}),
     ...(input.channelId ? { channel_id: input.channelId } : {}),
     ...(input.userId ? { user_id: input.userId } : {}),
@@ -137,6 +169,7 @@ export function buildSlackRunPayload(input: {
       ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion }
       : {}),
     ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}),
+    ...(input.workspaceTarget ? { workspaceTarget: input.workspaceTarget } : {}),
   };
 }
 

@@ -413,19 +413,21 @@ describe("run_when gate (T19)", () => {
 describe("automation safety (T20)", () => {
   const PR_ONLY = { publishPullRequest: true };
 
-  it("requires approval by default — an automation schedules work, it does not authorize it", () => {
+  it("requires approval by default because an automation schedules work without authorizing it", () => {
     const auth = authorizeAutomationRun(manualAutomation(), PR_ONLY, 0);
     expect(auth.allowed).toBe(true);
     expect(auth.requiresApproval).toBe(true);
   });
 
-  it("grants unattended only for a PR-only run on an allowlisted repo", () => {
+  it("requires human approval for a legacy unattended PR run on an allowlisted repo", () => {
     const auth = authorizeAutomationRun(
       manualAutomation({ unattended: true, unattendedRepos: ["owner/repo"] }),
       PR_ONLY,
       0,
     );
-    expect(auth.requiresApproval).toBe(false);
+    expect(auth.allowed).toBe(true);
+    expect(auth.requiresApproval).toBe(true);
+    expect(auth.reason).toContain("explicit human approval");
   });
 
   it("refuses unattended mode for a repo off the allowlist", () => {
@@ -435,7 +437,8 @@ describe("automation safety (T20)", () => {
       0,
     );
     expect(auth.requiresApproval).toBe(true);
-    expect(auth.reason).toContain("not on the automation's allowlist");
+    expect(auth.allowed).toBe(true);
+    expect(auth.reason).toContain("explicit human approval");
   });
 
   it("refuses unattended mode when the run mutates more than a pull request", () => {
@@ -445,7 +448,18 @@ describe("automation safety (T20)", () => {
       0,
     );
     expect(auth.requiresApproval).toBe(true);
-    expect(auth.reason).toContain("pull requests only");
+    expect(auth.allowed).toBe(true);
+    expect(auth.reason).toContain("explicit human approval");
+  });
+
+  it.each([undefined, false, true])("keeps every execution mode approval gated with unattended=%s", (unattended) => {
+    for (const publishPullRequest of [false, true]) {
+      for (const unattendedRepos of [[], ["owner/repo"], ["other/repo"]]) {
+        const automation = manualAutomation({ unattended, unattendedRepos });
+        const auth = authorizeAutomationRun(automation, { publishPullRequest }, 0);
+        expect(auth).toMatchObject({ allowed: true, requiresApproval: true });
+      }
+    }
   });
 
   it("refuses run N+1 past the daily budget and says why", () => {

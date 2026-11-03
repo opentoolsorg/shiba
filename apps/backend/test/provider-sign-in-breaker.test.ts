@@ -76,6 +76,7 @@ function request(path: string, body: unknown, email = "ada@example.com"): Reques
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Origin: "http://localhost",
       "CF-Access-Authenticated-User-Email": email,
     },
     body: JSON.stringify(body),

@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env.js";
+import { isRunRoomEvent, MAX_RUN_ROOM_EVENTS, type RunRoomEvent, type RunRoomFrame, type RunRoomIdentity } from "./run-room-events.js";
+import { isValidSessionId } from "./web-sessions.js";
+import { timingSafeEqualString } from "./security.js";
 
 const VIEWER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -9,6 +12,7 @@ const MAX_MESSAGE_CHARS = 5_000;
 const MAX_STREAM_DELTA_CHARS = 4_000;
 const MAX_STREAM_CHARS = 50_000;
 const MAX_ROOM_MESSAGES = 200;
+const MAX_ROOM_STREAMS = 200;
 const TYPING_TTL_MS = 5_000;
 const STREAM_TTL_MS = 2 * 60_000;
 
@@ -19,6 +23,7 @@ interface RoomSocketAttachment {
   joinedAt: number;
   typing: boolean;
   typingAt: number;
+  connectionId: string;
 }
 
 interface RoomViewer {
@@ -44,6 +49,15 @@ interface RoomMessageRow {
   created_at: number;
 }
 
+interface RunEventRow {
+  [key: string]: string | number;
+  sequence: number;
+  event_id: string;
+  run_id: string;
+  body: string;
+  created_at: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -56,7 +70,11 @@ function attachmentFor(socket: WebSocket): RoomSocketAttachment | null {
       typeof value.sessionId === "string" && typeof value.viewerId === "string" &&
       typeof value.joinedAt === "number" && typeof value.typing === "boolean" &&
       typeof value.typingAt === "number"
-    ) return value as unknown as RoomSocketAttachment;
+    ) {
+      const attachment = { ...value, connectionId: typeof value.connectionId === "string" && VIEWER_ID.test(value.connectionId) ? value.connectionId : crypto.randomUUID() } as unknown as RoomSocketAttachment;
+      if (attachment.connectionId !== value.connectionId) socket.serializeAttachment(attachment);
+      return attachment;
+    }
   } catch {
     // A missing or stale attachment is not an active viewer.
   }
@@ -84,6 +102,31 @@ export class ConversationRoom extends DurableObject<Env> {
         updated_at INTEGER NOT NULL
       )
     `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS room_stream_owners (
+        stream_id TEXT PRIMARY KEY,
+        connection_id TEXT NOT NULL,
+        resume_token TEXT NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS room_identity (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        owner_id TEXT NOT NULL,
+        session_id TEXT NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS room_run_events (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        run_id TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    // Exact ping frames can be answered while the object is hibernating.
+    ctx.setWebSocketAutoResponse?.(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -93,8 +136,11 @@ export class ConversationRoom extends DurableObject<Env> {
     const ownerId = request.headers.get("x-shiba-room-owner")?.trim().toLowerCase() ?? "";
     const sessionId = request.headers.get("x-shiba-room-session")?.trim() ?? "";
     const viewerId = request.headers.get("x-shiba-room-viewer")?.trim() ?? "";
-    if (!ownerId || !sessionId || !VIEWER_ID.test(viewerId)) {
+    if (!ownerId || !isValidSessionId(sessionId) || !VIEWER_ID.test(viewerId)) {
       return Response.json({ error: "Invalid room identity." }, { status: 400 });
+    }
+    if (!this.bindIdentity(ownerId, sessionId)) {
+      return Response.json({ error: "Room identity does not match." }, { status: 403 });
     }
 
     const pair = new WebSocketPair();
@@ -106,6 +152,7 @@ export class ConversationRoom extends DurableObject<Env> {
       joinedAt: Date.now(),
       typing: false,
       typingAt: 0,
+      connectionId: crypto.randomUUID(),
     };
     server.serializeAttachment(attachment);
     this.ctx.acceptWebSocket(server);
@@ -120,10 +167,41 @@ export class ConversationRoom extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /** RPC is exposed only on the Worker binding, never through a client frame. */
+  async appendRunEvent(identity: RunRoomIdentity, eventId: string, event: RunRoomEvent): Promise<number> {
+    const ownerId = identity.ownerId.trim().toLowerCase();
+    if (!ownerId || ownerId.length > 320 || !isValidSessionId(identity.sessionId) ||
+      typeof identity.runId !== "string" || !identity.runId || identity.runId.length > 200 ||
+      !VIEWER_ID.test(eventId) || !isRunRoomEvent(event)) {
+      throw new Error("Invalid run room event.");
+    }
+    if (!this.bindIdentity(ownerId, identity.sessionId)) throw new Error("Room identity does not match.");
+    const existing = this.ctx.storage.sql.exec<{ sequence: number }>(
+      "SELECT sequence FROM room_run_events WHERE event_id = ?", eventId,
+    ).toArray()[0];
+    if (existing) return existing.sequence;
+    const createdAt = Date.now();
+    const row = this.ctx.storage.sql.exec<{ sequence: number }>(
+      "INSERT INTO room_run_events (event_id, run_id, body, created_at) VALUES (?, ?, ?, ?) RETURNING sequence",
+      eventId, identity.runId, JSON.stringify(event), createdAt,
+    ).toArray()[0];
+    if (!row) throw new Error("Run event was not persisted.");
+    this.ctx.storage.sql.exec(
+      "DELETE FROM room_run_events WHERE sequence IN (SELECT sequence FROM room_run_events ORDER BY sequence DESC LIMIT -1 OFFSET ?)",
+      MAX_RUN_ROOM_EVENTS,
+    );
+    this.broadcast({ type: "run:event", sequence: row.sequence, eventId, runId: identity.runId, createdAt, event } satisfies RunRoomFrame);
+    return row.sequence;
+  }
+
   async webSocketMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     const attachment = attachmentFor(socket);
     if (!attachment) {
       socket.close(1008, "Room identity is unavailable.");
+      return;
+    }
+    if (raw === "ping") {
+      if (socket.readyState === 1) socket.send("pong");
       return;
     }
     if (typeof raw !== "string" || raw.length > MAX_FRAME_CHARS) {
@@ -143,7 +221,21 @@ export class ConversationRoom extends DurableObject<Env> {
       return;
     }
 
-    if (event.type === "typing") {
+    if (event.type === "subscribe") {
+      if (!Number.isSafeInteger(event.after) || (event.after as number) < 0) {
+        this.send(socket, { type: "error", error: "Invalid replay cursor." });
+        return;
+      }
+      this.replayRunEvents(socket, event.after as number);
+      return;
+    }
+
+    if (event.type === "ping") {
+      this.send(socket, { type: "pong" });
+      return;
+    }
+
+    if (event.type === "typing" || event.type === "client_presence") {
       if (typeof event.typing !== "boolean") return;
       socket.serializeAttachment({
         ...attachment,
@@ -155,7 +247,7 @@ export class ConversationRoom extends DurableObject<Env> {
       return;
     }
 
-    if (event.type === "message") {
+    if (event.type === "message" || event.type === "prompt_input") {
       if (
         typeof event.messageId !== "string" || !MESSAGE_ID.test(event.messageId) ||
         typeof event.text !== "string" || !event.text.trim() || event.text.length > MAX_MESSAGE_CHARS
@@ -197,6 +289,18 @@ export class ConversationRoom extends DurableObject<Env> {
         this.send(socket, { type: "error", error: "Invalid stream identity." });
         return;
       }
+      const current = this.getStream(event.streamId);
+      const owner = this.streamOwner(event.streamId);
+      if (current && (!owner || (owner.connection_id !== attachment.connectionId &&
+        (typeof event.resumeToken !== "string" || !timingSafeEqualString(event.resumeToken, owner.resume_token))))) {
+        this.send(socket, { type: "error", error: "Stream belongs to another connection." });
+        return;
+      }
+      const resumeToken = owner?.resume_token ?? crypto.randomUUID();
+      this.ctx.storage.sql.exec(
+        "INSERT INTO room_stream_owners (stream_id, connection_id, resume_token) VALUES (?, ?, ?) ON CONFLICT(stream_id) DO UPDATE SET connection_id=excluded.connection_id",
+        event.streamId, attachment.connectionId, resumeToken,
+      );
       const now = Date.now();
       this.ctx.storage.sql.exec(
         `INSERT INTO room_streams (stream_id, viewer_id, body, status, created_at, updated_at)
@@ -207,7 +311,9 @@ export class ConversationRoom extends DurableObject<Env> {
         now,
         now,
       );
+      this.pruneRelayStreams();
       this.broadcast({ type: "stream:start", streamId: event.streamId, viewerId: attachment.viewerId });
+      this.send(socket, { type: "stream:lease", streamId: event.streamId, resumeToken });
       await this.scheduleMaintenanceAlarm();
       return;
     }
@@ -221,7 +327,7 @@ export class ConversationRoom extends DurableObject<Env> {
         return;
       }
       const current = this.getStream(event.streamId);
-      if (!current || current.viewer_id !== attachment.viewerId || current.status !== "streaming") return;
+      if (!current || this.streamOwner(event.streamId)?.connection_id !== attachment.connectionId || current.status !== "streaming") return;
       const body = `${current.body}${event.delta}`.slice(0, MAX_STREAM_CHARS);
       const updatedAt = Date.now();
       this.ctx.storage.sql.exec(
@@ -252,7 +358,7 @@ export class ConversationRoom extends DurableObject<Env> {
         return;
       }
       const current = this.getStream(event.streamId);
-      if (!current || current.viewer_id !== attachment.viewerId || current.status !== "streaming") return;
+      if (!current || this.streamOwner(event.streamId)?.connection_id !== attachment.connectionId || current.status !== "streaming") return;
       const updatedAt = Date.now();
       this.ctx.storage.sql.exec(
         "UPDATE room_streams SET status = ?, updated_at = ? WHERE stream_id = ? AND viewer_id = ? AND status = 'streaming'",
@@ -277,6 +383,7 @@ export class ConversationRoom extends DurableObject<Env> {
 
   async webSocketClose(): Promise<void> {
     this.broadcastPresence();
+    this.pruneRelayStreams();
     await this.scheduleMaintenanceAlarm();
   }
 
@@ -327,6 +434,40 @@ export class ConversationRoom extends DurableObject<Env> {
     return [...unique.values()].sort((a, b) => a.joinedAt - b.joinedAt);
   }
 
+  private bindIdentity(ownerId: string, sessionId: string): boolean {
+    const current = this.ctx.storage.sql.exec<{ owner_id: string; session_id: string }>(
+      "SELECT owner_id, session_id FROM room_identity WHERE singleton = 1",
+    ).toArray()[0];
+    if (current) return current.owner_id === ownerId && current.session_id === sessionId;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO room_identity (singleton, owner_id, session_id) VALUES (1, ?, ?)", ownerId, sessionId,
+    );
+    return true;
+  }
+
+  private replayRunEvents(socket: WebSocket, after: number): void {
+    const bounds = this.ctx.storage.sql.exec<{ oldest: number | null; latest: number | null }>(
+      "SELECT MIN(sequence) AS oldest, MAX(sequence) AS latest FROM room_run_events",
+    ).toArray()[0];
+    const oldest = bounds?.oldest ?? 0;
+    const latest = bounds?.latest ?? 0;
+    if (after > latest || (oldest > 0 && after < oldest - 1)) {
+      this.send(socket, { type: "run:replay_gap", after, oldest, latest });
+    }
+    const cursor = after > latest ? 0 : after;
+    const rows = this.ctx.storage.sql.exec<RunEventRow>(
+      "SELECT sequence, event_id, run_id, body, created_at FROM room_run_events WHERE sequence > ? ORDER BY sequence ASC LIMIT ?",
+      cursor, MAX_RUN_ROOM_EVENTS,
+    ).toArray();
+    for (const row of rows) {
+      this.send(socket, {
+        type: "run:event", sequence: row.sequence, eventId: row.event_id,
+        runId: row.run_id, createdAt: row.created_at, event: JSON.parse(row.body) as RunRoomEvent,
+      } satisfies RunRoomFrame);
+    }
+    this.send(socket, { type: "run:replay_complete", sequence: latest });
+  }
+
   private activeStreams(): Array<{ streamId: string; viewerId: string; text: string }> {
     const cutoff = Date.now() - STREAM_TTL_MS;
     return this.ctx.storage.sql.exec<LiveStreamRow>(
@@ -357,6 +498,22 @@ export class ConversationRoom extends DurableObject<Env> {
       "SELECT stream_id, viewer_id, body, status, updated_at FROM room_streams WHERE stream_id = ?",
       streamId,
     ).toArray()[0];
+  }
+
+  private streamOwner(streamId: string): { connection_id: string; resume_token: string } | undefined {
+    return this.ctx.storage.sql.exec<{ connection_id: string; resume_token: string }>(
+      "SELECT connection_id, resume_token FROM room_stream_owners WHERE stream_id = ?", streamId,
+    ).toArray()[0];
+  }
+
+  private pruneRelayStreams(): void {
+    this.ctx.storage.sql.exec(
+      "DELETE FROM room_streams WHERE stream_id IN (SELECT stream_id FROM room_streams ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?)",
+      MAX_ROOM_STREAMS,
+    );
+    this.ctx.storage.sql.exec(
+      "DELETE FROM room_stream_owners WHERE stream_id NOT IN (SELECT stream_id FROM room_streams)",
+    );
   }
 
   private send(socket: WebSocket, event: unknown): void {

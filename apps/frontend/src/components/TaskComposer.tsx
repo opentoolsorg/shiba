@@ -889,7 +889,7 @@ export function TaskComposer({
 
       {executionTargetKind === "artifact-workspace" ? (
         <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)]/60 p-2.5 flex flex-col gap-1.5">
-          <label htmlFor={idFor("artifact-deliverables")} className={sectionLabelClass}>Required output files (one path per line)</label>
+          <label htmlFor={idFor("artifact-deliverables")} className={sectionLabelClass}>Output files (optional, one path per line)</label>
           <textarea
             id={idFor("artifact-deliverables")}
             aria-label="Artifact deliverables"
@@ -900,7 +900,7 @@ export function TaskComposer({
             placeholder="deliverables/brief.md"
           />
           <p className="text-[10px] leading-relaxed text-[var(--muted-foreground-2)]">
-            Drafts are saved as workspace artifacts after approval. Connected-app writes are unavailable until a permissioned adapter exists.
+            Leave blank to collect all final files in out/ as a ZIP. Drafts are saved as workspace artifacts after approval.
           </p>
         </div>
       ) : null}

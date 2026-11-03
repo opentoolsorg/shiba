@@ -15,6 +15,8 @@ import {
   withoutSealedEnv,
   type JsonValue,
   executionTargetSchema,
+  workspaceTargetSchema,
+  workspaceTargetToExecutionTarget,
   LOCAL_INTAKE_DASHBOARD,
   LOCAL_INTAKE_HEADER,
   LOCAL_RUNTIME_FLAG,
@@ -58,10 +60,15 @@ import {
 } from "@shiba/shared";
 import { buildDenDigest, buildPackFromRuns } from "../den/digest.js";
 import { sandboxSelectionForRun } from "../sandbox/run-selection.js";
-import { mintSubagentRun, type SpawnSubagentInput } from "../den/spawn.js";
+import { canSpawnSubagentAt, directChildPaths, nextSubagentPath, MAX_SUBAGENT_CHILDREN } from "@shiba/shared";
 import { shouldDestroySandboxAfterRun } from "../sandbox/release-policy.js";
 import type { Connection, ConnectionContext } from "agents";
 import { agentTool } from "agents/agent-tools";
+import { createSpecialistTools, type SpecialistTurnBudget } from "./specialists/tools.js";
+import { MAX_SPECIALIST_TASKS_PER_TURN } from "./specialists/contract.js";
+import { ExplorerAgent } from "./specialists/explorer-agent.js";
+import { ReviewerAgent } from "./specialists/reviewer-agent.js";
+
 import { type ToolSet, tool } from "ai";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -214,7 +221,10 @@ import {
   slackRunFailed,
   slackRunStarted,
 } from "../slack-persona.js";
-import { parseSlackThreadName } from "../slack-thread.js";
+import { parseSlackCommandScope, parseSlackThreadName } from "../slack-thread.js";
+import { SlackTurnBuffer, verifySlackBufferRequest } from "../slack-turn-buffer.js";
+import { publishRunRoomEvent } from "../run-room-events.js";
+import { executePrPublishApproval, validatePrPublicationProposal } from "../pr-publish-approval.js";
 import { extractPullRequestUrl, messageText } from "../transcript.js";
 import {
   isDashboardAgentName,
@@ -240,6 +250,9 @@ export interface OrchestratorState {
   /** Persistent logical-task lineage; runs/approval IDs retain their old contracts. */
   tasks?: DurableTask[];
   pendingApprovals?: PendingApproval[];
+  /** Durable wake hint for signed Slack follow-ups. Contents remain in DO storage. */
+  slackBufferRevision?: number;
+  slackBufferPending?: boolean;
   /** Leaks recorded before a hibernation still get their destroy retried. */
   leakedContainers?: Record<string, LeakedContainer>;
   webSessions?: WebSessionRecord[];
@@ -273,6 +286,8 @@ export interface OrchestratorState {
    */
   events?: SpineEvent[];
   outbox?: OutboxEntry[];
+  /** Specialist fan-out budget survives parent eviction during the same user turn. */
+  specialistBudget?: { turnId: string; remaining: number };
 }
 
 /** A classified error lands as its matching terminal status. */
@@ -288,7 +303,9 @@ function terminalStatusFor(code: RunErrorCode): RunStatus {
 
 /** Exported for tests — the tool-call surface stays the single caller. */
 export const delegateInputSchema = z.object({
-  repoUrl: z.string().describe("HTTPS GitHub repository URL, e.g. https://github.com/owner/repo."),
+  repoUrl: z.string().optional().default("").describe("HTTPS GitHub repository URL. Omit for an ephemeral workspace."),
+  workspaceTarget: workspaceTargetSchema.optional(),
+  executionTarget: executionTargetSchema.optional(),
   task: z.string().describe("The coding task to perform in the repository."),
   baseBranch: z
     .string()
@@ -399,6 +416,9 @@ type FrozenRunEnv = { envNames: string[]; envDigest: string; envSealed: string }
 // Per-field .catch: one bad field drops only itself, not the whole pin.
 const composerPinSchema = z.object({
   repoUrl: z.string().min(1).optional().catch(undefined),
+  workspaceTarget: workspaceTargetSchema.optional(),
+  executionTarget: executionTargetSchema.optional(),
+  expectedDeliverables: expectedDeliverablesSchema.optional(),
   task: z.string().min(1).optional().catch(undefined),
   baseBranch: z.string().min(1).optional().catch(undefined),
   publishPullRequest: z.boolean().optional().catch(undefined),
@@ -483,11 +503,25 @@ function repoPullUrl(output: string, repoUrl: string): string | undefined {
 }
 
 export class CodingOrchestrator extends Think<Env, OrchestratorState> {
+  override maxConcurrentAgentTools = 1;
+  private specialistTurn: { turnId: string; budget: SpecialistTurnBudget } | undefined;
+  private relayChildLifecycle(childId: string, status: string, message?: string, runId?: string): void {
+    const session = parseSessionAgentName(this.name);
+    const ownerId = initiatorUserIdFromOrchestratorName(this.name);
+    if (!isDashboardAgentName(this.name) || !ownerId || !this.env.ConversationRoom?.getByName) return;
+    this.holdOpen(publishRunRoomEvent(this.env, {
+      ownerId,
+      sessionId: session?.sessionId ?? "default",
+      runId: runId ?? `specialist:${this.specialistTurn?.turnId ?? "initial"}`,
+    }, { kind: "child", childId, status, ...(message ? { message: redactSecrets(message).slice(0, 4000) } : {}) })
+      .catch((error) => console.error("Child room event failed", redactSecrets(String(error)))));
+  }
   override async onBeforeSubAgent(
     _request: Request,
     child: { className: string; name: string },
   ): Promise<Response | void> {
-    if (child.className === "OpenCodeAgent" && !this.hasAgentToolRun("OpenCodeAgent", child.name)) {
+    if (!["OpenCodeAgent", "ExplorerAgent", "ReviewerAgent"].includes(child.className) ||
+        !this.hasAgentToolRun(child.className, child.name)) {
       return new Response("Not found.", { status: 404 });
     }
   }
@@ -499,6 +533,44 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   // not just the registry row. Lazy: DO subclasses may be constructed without
   // the base constructor in tests.
   private runControllersMap: Map<string, AbortController> | undefined;
+  private slackBufferDrain: Promise<void> | undefined;
+
+  private flushSlackTurnBuffer(): Promise<void> {
+    if (this.slackBufferDrain) return this.slackBufferDrain;
+    const operation = async () => {
+      if (!this.state.slackBufferPending || !parseSlackThreadName(this.name) || this.store.list().some((run) => isActiveStatus(run.status))) return;
+      const revision = this.state.slackBufferRevision ?? 0;
+      const buffer = new SlackTurnBuffer(this.ctx.storage);
+      const claim = await buffer.claim();
+      if (!claim) {
+        this.setState({ ...this.state, slackBufferPending: false });
+        return;
+      }
+      const previous = this.store.list().at(-1);
+      if (!previous || this.sessionDeleted) return;
+      const response = await this.queueSlackRun({
+        repoUrl: previous.repoUrl,
+        ...(previous.executionTarget ? { executionTarget: previous.executionTarget } : {}),
+        task: claim.prompt,
+        baseBranch: previous.baseBranch,
+        publishPullRequest: false,
+        harness: previous.route?.harness,
+        codingModel: previous.route?.modelId,
+        connectionId: previous.route?.connectionId,
+        ...(previous.orgId ? { orgId: previous.orgId } : {}),
+        threadKey: this.name,
+        commandId: `slack-buffer:${claim.id}`,
+      }, 36_000);
+      if (response.ok) {
+        await buffer.acknowledge(claim.id);
+        if ((this.state.slackBufferRevision ?? 0) === revision) this.setState({ ...this.state, slackBufferPending: false });
+        this.postToThread("Your follow-up messages are ready for a new approval.");
+      }
+    };
+    const pending = operation().finally(() => { this.slackBufferDrain = undefined; });
+    this.slackBufferDrain = pending;
+    return pending;
+  }
   private get runControllers(): Map<string, AbortController> {
     return (this.runControllersMap ??= new Map());
   }
@@ -543,6 +615,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.emitSpine(
       ...spineInputsFromDecider(command.runId, command.commandId, decision.events, command.at),
     );
+    for (const event of decision.events) {
+      const run = event.type === "run.queued" ? event.run : this.store.get(command.runId);
+      if (!run?.parentRunId || event.replayed) continue;
+      const kind = event.type === "run.queued" ? "ChildTaskSpawned"
+        : event.type === "run.started" ? "ChildTaskProgress"
+          : event.type === "run.completed" ? "ChildTaskCompleted"
+            : ["run.failed", "run.aborted", "run.cancelled", "run.reclaimed"].includes(event.type) ? "ChildTaskFailed" : null;
+      if (kind) this.emitSpine({ kind, commandId: event.commandId, runId: command.runId, at: event.at,
+        payload: { childTaskId: command.runId, agent: "fixer", parentName: this.name } });
+    }
   }
 
   /**
@@ -828,6 +910,13 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // could have transmitted before the restart — stamp its outcome
     // unknown instead of risking a second copy.
     for (const approval of this.approvals) {
+      if (approval.kind === "pr_publish" && approval.execution?.status === "executing") {
+        this.writeApprovals(recordApprovalExecution(this.approvals, {
+          threadKey: approval.threadKey, approvalId: approval.approvalId,
+          execution: { status: "unknown", error: "Publication was interrupted. Inspect GitHub before retrying.", executedAt: Date.now() },
+        }));
+        continue;
+      }
       if (approval.status !== "approved" || approval.execution !== undefined) {
         continue;
       }
@@ -851,6 +940,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (approval.kind === "email_send" || approval.kind === "email_delete") {
         this.dispatchApprovedEmail(approval);
       }
+      if (approval.kind === "pr_publish") this.dispatchApprovedPublication(approval);
     }
     // Run-kind mirror of the email re-drive (T41): an eviction between
     // the persisted decision and the dispatch leaves `approved` with no
@@ -863,7 +953,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (
         approval.status !== "approved" ||
         approval.kind === "email_send" ||
-        approval.kind === "email_delete"
+        approval.kind === "email_delete" || approval.kind === "pr_publish" || approval.kind === "pr_merge"
       ) {
         continue;
       }
@@ -925,7 +1015,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return [
       "You are AI Coworker, a planning and delegation agent.",
       "You never edit repositories yourself. When the user describes a coding task,",
-      "call delegate_coding_task with the repository URL and the task.",
+      "Use explore_codebase for read-only inspection of an explicitly supplied file snapshot.",
+      "call delegate_coding_task with the repository URL and the task when implementation is ready.",
+      "Use review_diff to audit the resulting diff against the specification before requesting publication.",
+      "Explorer and Reviewer have isolated context and cannot delegate or approve actions. Supply their exact context explicitly.",
       "Pass the harness id the user asked for verbatim when they name one (API-key lanes like",
       "opencode, claude-code, codex, grok; *-subscription lanes; ACP lanes like claude-acp,",
       "codex-acp, gemini-acp, opencode-acp), a codingModel as provider/model when they",
@@ -992,8 +1085,29 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const delegate = this.approvedRunDelegate();
     const codeOwner = initiatorUserIdFromOrchestratorName(this.name);
+    const turnId = (this.messages ?? []).filter((message) => message.role === "user").at(-1)?.id ?? "initial";
+    if (!this.specialistTurn || this.specialistTurn.turnId !== turnId) {
+      const remaining = this.state?.specialistBudget?.turnId === turnId
+        ? this.state.specialistBudget.remaining : MAX_SPECIALIST_TASKS_PER_TURN;
+      this.specialistTurn = { turnId, budget: { remaining, active: 0 } };
+    }
+    const specialistTools = createSpecialistTools(this.env, this.name, this.specialistTurn.budget, {
+      onEvent: (event) => {
+        const { kind, ...payload } = event;
+        this.emitSpine({ kind, commandId: event.childTaskId, at: Date.now(), payload });
+        this.setState({ ...this.state, specialistBudget: { turnId, remaining: this.specialistTurn?.budget.remaining ?? 0 } });
+        this.relayChildLifecycle(event.childTaskId, kind, event.summary);
+        if (kind === "ChildTaskCompleted" || kind === "ChildTaskFailed") {
+          this.postToThread(`Shiba ${event.agent}: ${event.summary ?? (kind === "ChildTaskCompleted" ? "Inspection completed." : "Inspection failed.")}`, { persona: event.agent });
+        }
+      },
+      cancel: (role, childTaskId) => {
+        this.abortSubAgent(role === "explorer" ? ExplorerAgent : ReviewerAgent, childTaskId, "Specialist execution deadline exceeded.");
+      },
+    });
     const tools: ToolSet = {
       ...super.getTools(),
+      ...specialistTools,
       delegate_coding_task: delegate,
       ...(codeOwner ? createExtensionSkillAgentTools(this.env, this.employeeToolOrgId(), codeOwner) : {}),
       ...createEmployeeRunTools(
@@ -1167,10 +1281,36 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const parsed = composerPinSchema.safeParse(raw);
     if (!parsed.success) {
+      if (raw !== null && typeof raw === "object" &&
+          (Object.hasOwn(raw, "workspaceTarget") || Object.hasOwn(raw, "executionTarget") || Object.hasOwn(raw, "expectedDeliverables"))) {
+        throw new Error("Invalid composer workspace target. Review the selected workspace and required output paths.");
+      }
       if (goal) throw new Error("Invalid composer settings for the onboarding goal.");
       return {};
     }
-    return { ...Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined)), ...goal };
+    const pin = { ...Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined)), ...goal };
+    const { workspaceTarget, executionTarget } = parsed.data;
+    if (workspaceTarget || executionTarget) {
+      const pinnedDeliverables = parsed.data.expectedDeliverables ?? (executionTarget?.kind === "artifact-workspace" ? executionTarget.expectedDeliverables : []);
+      const normalized = workspaceTarget
+        ? workspaceTargetToExecutionTarget(workspaceTarget, pinnedDeliverables)
+        : executionTarget;
+      if (!normalized || (workspaceTarget && executionTarget && JSON.stringify(normalized) !== JSON.stringify(executionTarget))) {
+        throw new Error("Composer workspaceTarget conflicts with executionTarget.");
+      }
+      if (normalized.kind === "artifact-workspace") {
+        if (parsed.data.expectedDeliverables !== undefined && JSON.stringify(parsed.data.expectedDeliverables) !== JSON.stringify(normalized.expectedDeliverables)) {
+          throw new Error("Composer required outputs conflict with the selected workspace.");
+        }
+        return { ...pin, workspaceTarget, executionTarget: normalized, repoUrl: "", baseBranch: "main",
+          publishPullRequest: false, reviewAfterPublish: false, expectedDeliverables: [...normalized.expectedDeliverables] };
+      }
+      if (normalized.kind === "repository") {
+        return { ...pin, workspaceTarget, executionTarget: normalized, repoUrl: normalized.repoUrl, baseBranch: normalized.baseBranch };
+      }
+      return { ...pin, workspaceTarget, executionTarget: normalized };
+    }
+    return pin;
   }
 
   /** Freeze selected owner project context into the approval text. */
@@ -1448,8 +1588,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         task: input.task,
         baseBranch: input.baseBranch,
         publishPullRequest: input.publishPullRequest,
+        deferPullRequestPublish: input.publishPullRequest,
         sandboxId,
         accessAgent: this.name,
+        approvalThreadKey: pointer?.threadKey ?? this.name,
+        ...((() => {
+          const session = parseSessionAgentName(this.name);
+          const ownerId = initiatorUserIdFromOrchestratorName(this.name);
+          return isDashboardAgentName(this.name) && ownerId
+            ? { runRoom: { ownerId, sessionId: session?.sessionId ?? "default", runId } }
+            : {};
+        })()),
         ...(reserved.orgId ? { orgId: reserved.orgId } : pointer?.orgId ? { orgId: pointer.orgId } : {}),
         ...(reserved.sandboxProvider !== undefined ? { sandboxProvider: reserved.sandboxProvider } : {}),
         ...(reserved.customAgentId !== undefined ? { customAgentId: reserved.customAgentId } : {}),
@@ -1508,6 +1657,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           }));
         }
         this.stampCheckpoint(runId, "terminal");
+        this.relayChildLifecycle(runId, status, patch?.error ?? "Fixer task settled.", updated.parentRunId ?? runId);
+        this.holdOpen(this.flushSlackTurnBuffer().catch((error) => {
+          console.error("Slack follow-up queue failed", redactSecrets(String(error)));
+        }));
         logStructured(status === "completed" ? "info" : "error", {
           event: "run.settled",
           runId,
@@ -1549,6 +1702,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (running === null || running.status !== "running") {
         return `Run ${runId} did not start — it is already ${this.store.get(runId)?.status ?? "missing"}.`;
       }
+      this.relayChildLifecycle(runId, "running", "Shiba Fixer is running the approved task.", running.parentRunId ?? runId);
       this.stampCheckpoint(runId, "executing");
       logStructured("info", {
         event: "run.executing",
@@ -1684,7 +1838,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                   approvalId: callId,
                   sandboxId,
                   inputHash: dispatchInputHash,
-                })),
+                }, fullInput)),
               };
               return childExecute(formatAgentToolInput(sealedInput), {
                 toolCallId: callId,
@@ -1728,6 +1882,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                       (candidate) => artifactLineageForRun(tasksAtCommit, candidate),
                     )
                   : preparedDeliverables;
+                const publicationProposal = parsed.publicationProposal;
+                if (fullInput.publishPullRequest && fullInput.deferPullRequestPublish && !publicationProposal) {
+                  throw new Error("The completed changes did not include a publication approval proposal. No publication was authorized.");
+                }
+                if (publicationProposal) {
+                  if (reserved.parentRunId || !fullInput.deferPullRequestPublish) throw new Error("This child cannot propose external publication.");
+                  validatePrPublicationProposal(publicationProposal, {
+                    ownerId: this.name, runId, sandboxId, repoUrl: fullInput.repoUrl, baseBranch: fullInput.baseBranch,
+                  });
+                  if (publicationProposal.threadKey !== (pointer?.threadKey ?? this.name)) throw new Error("Publication approval has the wrong owner.");
+                }
                 const finished = finish(
                   "completed",
                   {
@@ -1744,6 +1909,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                     // Harness-reported token/cost usage; absent when the
                     // stream emitted none — never estimated.
                     usage: parsed.usage,
+                    ...(parsed.artifactBundle ? { artifactBundle: parsed.artifactBundle } : {}),
                     ...(fullInput.expectedDeliverables?.length ? { deliverables: durableDeliverables } : {}),
                   },
                   slackRunCompleted({
@@ -1755,9 +1921,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
                     // A scraped link is accepted only inside the run's own repo,
                     // so a "Pull request: https://evil" line cannot spoof it.
                     pullUrl: parsed.pullUrl ?? repoPullUrl(output, fullInput.repoUrl),
+                    ...(parsed.artifactBundle ? { downloadUrl: parsed.artifactBundle.downloadUrl } : {}),
+                    ...(fullInput.executionTarget?.kind === "artifact-workspace" ? { workspaceLabel: fullInput.executionTarget.workspaceName ?? "Ephemeral workspace" } : {}),
                   }),
                 );
                 if (finished !== null) {
+                  if (publicationProposal && !this.approvals.some((approval) => approval.approvalId === publicationProposal.approvalId)) {
+                    try {
+                      this.writeApprovals(createPendingApproval(this.approvals, publicationProposal));
+                      this.postPublicationCard(publicationProposal.approvalId);
+                    } catch (error) {
+                      this.postToThread(`The changes are ready. Publication approval could not be queued: ${redactSecrets(String(error)).slice(0, 500)}`);
+                    }
+                  }
                   this.stampCheckpoint(runId, "settling");
                   yield* Effect.promise(() => this.afterRunSettled(finished, output));
                 }
@@ -2002,6 +2178,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     customAgentId?: unknown;
     repoUrl?: unknown;
     executionTarget?: unknown;
+    workspaceTarget?: unknown;
     task?: unknown;
     baseBranch?: unknown;
     publishPullRequest?: unknown;
@@ -2031,7 +2208,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     orgId?: unknown;
     projectContextId?: unknown;
     collaborationHandoffId?: unknown;
-  }): Promise<Response> {
+  }, taskLimit = MAX_APPROVED_TASK_CHARS, childFields?: { parentRunId: string; subagentPath: string; subagentSandbox: "fresh" }): Promise<Response> {
     let goalBinding: Awaited<ReturnType<typeof resolveOnboardingTaskBinding>>;
     try {
       const reference = readDraftTaskReference(input);
@@ -2050,6 +2227,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       return Response.json({ error: "Invalid trusted collaboration handoff context." }, { status: 400 });
     }
     const kind = typeof input.kind === "string" && input.kind.trim() ? input.kind.trim() : "run";
+    if (input.workspaceTarget !== undefined) {
+      const parsedTarget = workspaceTargetSchema.safeParse(input.workspaceTarget);
+      if (!parsedTarget.success) return Response.json({ error: "Invalid workspaceTarget." }, { status: 400 });
+      const paths = expectedDeliverablesSchema.safeParse(input.expectedDeliverables ?? []);
+      if (!paths.success) return Response.json({ error: "Invalid expectedDeliverables." }, { status: 400 });
+      const normalized = workspaceTargetToExecutionTarget(parsedTarget.data, paths.data);
+      if (input.executionTarget !== undefined && JSON.stringify(input.executionTarget) !== JSON.stringify(normalized)) {
+        return Response.json({ error: "workspaceTarget conflicts with executionTarget." }, { status: 400 });
+      }
+      input = { ...input, executionTarget: normalized };
+    }
     let executionTarget: ExecutionTarget | undefined;
     if (input.executionTarget !== undefined) {
       const parsed = executionTargetSchema.safeParse(input.executionTarget);
@@ -2230,7 +2418,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       const overrides = overridesFromCustomAgent(agent);
       customAgentVersion = overrides.customAgentVersion;
-      const mergedDeliverables = expectedDeliverablesSchema.safeParse([...new Set([...(overrides.expectedDeliverables ?? []), ...(expectedDeliverables ?? [])])]);
+      const ephemeralWorkspace = executionTarget?.kind === "artifact-workspace" && executionTarget.workspaceId !== undefined;
+      const profileDeliverables = ephemeralWorkspace
+        ? overrides.expectedDeliverables?.map((path) => path.startsWith("out/") ? path : `out/${path}`)
+        : overrides.expectedDeliverables;
+      const mergedDeliverables = expectedDeliverablesSchema.safeParse([...new Set([...(profileDeliverables ?? []), ...(expectedDeliverables ?? [])])]);
       if (!mergedDeliverables.success) return Response.json({ error: "Invalid expected deliverable paths." }, { status: 400 });
       if (overrides.expectedDeliverables !== undefined || expectedDeliverables !== undefined) expectedDeliverables = mergedDeliverables.data;
       // A stored profile is configuration, never approval of this task's
@@ -2245,11 +2437,17 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       if (overrides.instructions) {
         task = `${overrides.instructions}\n\n---\n\n${task}`;
       }
+      if (ephemeralWorkspace && profileDeliverables?.length) {
+        task += `\n\nEphemeral workspace required outputs. Use these paths for the profile outputs:\n${profileDeliverables.map((path) => `- ${path}`).join("\n")}`;
+      }
       if (input.expectedCustomAgentVersion !== undefined && task.length > 4000) {
         return Response.json({ error: "Pinned employee instructions and scheduled task exceed the 4,000-character approval limit. Review and shorten the schedule inputs." }, { status: 400 });
       }
       if (executionTarget?.kind === "artifact-workspace" && expectedDeliverables !== undefined) {
-        executionTarget = { ...executionTarget, expectedDeliverables: [...expectedDeliverables] };
+        const frozenTarget = executionTargetSchema.safeParse({ ...executionTarget, expectedDeliverables: [...expectedDeliverables] });
+        if (!frozenTarget.success) return Response.json({ error: "Profile outputs do not fit the selected workspace." }, { status: 400 });
+        executionTarget = frozenTarget.data;
+        input = { ...input, executionTarget, expectedDeliverables: [...expectedDeliverables], repoUrl: "", publishPullRequest: false };
       }
       (input as { customAgentId?: string }).customAgentId = agent.id;
     }
@@ -2280,7 +2478,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (!task.trim()) {
       return Response.json({ error: "Task description is required." }, { status: 400 });
     }
-    if (task.length > MAX_APPROVED_TASK_CHARS) {
+    if (task.length > taskLimit) {
       return Response.json(
         { error: `The complete task and selected skill instructions exceed the ${MAX_APPROVED_TASK_CHARS}-character limit. Shorten the task or deselect skills.` },
         { status: 400 },
@@ -2472,6 +2670,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return Response.json({ ok: true, approvalId: prior.approvalId, deduped: true });
       }
     }
+    if (childFields && this.approvals.some((approval) => approval.parentRunId === childFields.parentRunId && approval.status === "pending")) {
+      return Response.json({ error: "A child task is already awaiting approval." }, { status: 429 });
+    }
     const approvalId = crypto.randomUUID();
     const threadKey =
       typeof input.threadKey === "string" && input.threadKey.trim()
@@ -2493,6 +2694,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ...onboardingRunFields(goalBinding ?? {}),
           threadKey,
           approvalId,
+          ...(childFields ?? {}),
           repoUrl,
           task,
           baseBranch,
@@ -3005,6 +3207,14 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (approved) {
       await this.reclaimRuns();
       const queued = this.approvals.find((record) => record.approvalId === approvalId && record.threadKey === threadKey);
+      if (queued?.status === "pending" && queued.parentRunId) {
+        const parent = this.store.get(queued.parentRunId);
+        if (!parent || !isActiveStatus(parent.status) || parent.parentRunId || !canSpawnSubagentAt(parent.subagentPath) ||
+            queued.subagentSandbox !== "fresh" || queued.publishPullRequest || queued.reviewAfterPublish ||
+            this.store.list().some((run) => run.parentRunId === parent.runId && isActiveStatus(run.status))) {
+          return Response.json({ error: "The parent no longer permits this isolated child task." }, { status: 409 });
+        }
+      }
       if (queued?.status === "pending" && queued.customAgentId) {
         if (!this.env.AGENT_AUDIT) {
           return Response.json({ error: "Bot storage is not configured." }, { status: 503 });
@@ -3052,7 +3262,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // no repo URL, no publish flag. They execute a mailbox payload.
       const isSideEffect =
         record !== undefined &&
-        (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge");
+        (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge" || record.kind === "pr_publish");
       if (!isSideEffect) {
         if (!this.canScheduleRun()) {
           return Response.json(
@@ -3105,7 +3315,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         : undefined;
     const isSideEffectRecord =
       record !== undefined &&
-      (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge");
+      (record.kind === "email_send" || record.kind === "email_delete" || record.kind === "pr_merge" || record.kind === "pr_publish");
     const run = record && !isSideEffectRecord ? this.mintApprovedRun(record) : undefined;
     // One state write reserves capacity, records the decision, and
     // commits the command receipt — a redelivery after this point
@@ -3145,6 +3355,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     if (record && record.kind === "pr_merge") {
       this.dispatchApprovedMerge(record);
     }
+    if (record?.kind === "pr_publish") this.dispatchApprovedPublication(record);
     // Rejecting frees the queued draft back to `draft`, and expired
     // email approvals leave their queued drafts the same way — without
     // the compensating release the row strands `queued` behind an
@@ -3172,6 +3383,22 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * the same contract intake holds.
    */
   private async mintChatGateApproval(input: DelegateInput, toolCallId: string): Promise<void> {
+    if (input.workspaceTarget) {
+      const normalized = workspaceTargetToExecutionTarget(input.workspaceTarget, input.expectedDeliverables ?? []);
+      if (input.executionTarget && JSON.stringify(input.executionTarget) !== JSON.stringify(normalized)) {
+        throw new Error("workspaceTarget conflicts with executionTarget.");
+      }
+      input = { ...input, executionTarget: normalized };
+    }
+    if (input.executionTarget?.kind === "connected-app") throw new Error("Connected app workspace execution is unavailable.");
+    if (input.executionTarget?.kind === "repository") {
+      if (input.repoUrl && input.repoUrl !== input.executionTarget.repoUrl) throw new Error("Workspace repository conflicts with repoUrl.");
+      input = { ...input, repoUrl: input.executionTarget.repoUrl, baseBranch: input.executionTarget.baseBranch };
+    }
+    if (input.executionTarget?.kind === "artifact-workspace") {
+      if (input.repoUrl || input.publishPullRequest) throw new Error("Ephemeral workspaces cannot publish repository changes.");
+      input = { ...input, repoUrl: "", expectedDeliverables: input.executionTarget.expectedDeliverables, runtime: "sandbox" };
+    }
     if (this.approvals.some((a) => a.approvalId === toolCallId)) return;
     // Same flood bound as /api/approvals intake — pending records persist.
     if (this.approvals.filter((a) => a.status === "pending").length >= MAX_PENDING_APPROVALS) return;
@@ -3214,14 +3441,25 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       }
       const overrides = overridesFromCustomAgent(agent);
       customAgentVersion = overrides.customAgentVersion;
-      expectedDeliverables = expectedDeliverablesSchema.parse([...new Set([...(overrides.expectedDeliverables ?? []), ...(expectedDeliverables ?? [])])]);
-      if (overrides.repoUrl && !repoUrl) repoUrl = overrides.repoUrl;
+      const ephemeralWorkspace = input.executionTarget?.kind === "artifact-workspace" && input.executionTarget.workspaceId !== undefined;
+      const profileDeliverables = ephemeralWorkspace
+        ? overrides.expectedDeliverables?.map((path) => path.startsWith("out/") ? path : `out/${path}`)
+        : overrides.expectedDeliverables;
+      expectedDeliverables = expectedDeliverablesSchema.parse([...new Set([...(profileDeliverables ?? []), ...(expectedDeliverables ?? [])])]);
+      if (input.executionTarget?.kind !== "artifact-workspace" && overrides.repoUrl && !repoUrl) repoUrl = overrides.repoUrl;
       harness = (overrides.harness ?? harness) as DelegateInput["harness"];
       codingModel = overrides.codingModel ?? codingModel;
       connectionId = overrides.connectionId ?? connectionId;
       sandboxProvider = overrides.sandboxProvider;
       if (overrides.instructions) {
         task = `${overrides.instructions}\n\n---\n\n${task}`;
+      }
+      if (ephemeralWorkspace && profileDeliverables?.length) {
+        task += `\n\nEphemeral workspace required outputs. Use these paths for the profile outputs:\n${profileDeliverables.map((path) => `- ${path}`).join("\n")}`;
+      }
+      if (input.executionTarget?.kind === "artifact-workspace") {
+        input = { ...input, repoUrl: "", publishPullRequest: false, expectedDeliverables,
+          executionTarget: executionTargetSchema.parse({ ...input.executionTarget, expectedDeliverables: [...expectedDeliverables] }) };
       }
       customAgentId = agent.id;
     }
@@ -3240,12 +3478,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       connectionId,
       ...(sandboxProvider ? { sandboxProvider } : {}),
     });
-    const runEnv = await this.intakeRunEnv(this.composerEnv(), resolveRuntimeName(this.env.RUNTIME));
     const runSetup = this.composerRunSetup();
-    const deploymentRuntime = resolveRuntimeName(this.env.RUNTIME);
+    const deploymentRuntime = input.executionTarget?.kind === "artifact-workspace" ? "sandbox" : resolveRuntimeName(this.env.RUNTIME);
     if (deploymentRuntime === "computer") throw new Error(COMPUTER_PREVIEW_MESSAGE);
     const chatFrozenRuntime =
       deploymentRuntime === "local" && isDashboardAgentName(this.name) ? ("local" as const) : ("sandbox" as const);
+    const runEnv = await this.intakeRunEnv(this.composerEnv(), chatFrozenRuntime);
     if (runSetup && chatFrozenRuntime === "local") {
       throw new Error("Repo setup isn't supported on the local runtime yet.");
     }
@@ -3257,6 +3495,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...onboardingRunFields(goalBinding ?? {}),
         threadKey: this.name ?? "default",
         approvalId: toolCallId,
+        ...(input.executionTarget ? { executionTarget: input.executionTarget } : {}),
         repoUrl,
         task,
         baseBranch: input.baseBranch,
@@ -3717,6 +3956,70 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         { status: 409 },
       );
     }
+  }
+
+  private postPublicationCard(approvalId: string): void {
+    const approval = this.approvals.find((item) => item.approvalId === approvalId);
+    if (!approval) return;
+    const canvasUrl = this.env.WORKER_HOSTNAME ? `https://${this.env.WORKER_HOSTNAME.replace(/^https?:\/\//, "")}/app/` : undefined;
+    const card: ApprovalCardInput = {
+      threadKey: approval.threadKey, approvalId, repoUrl: approval.repoUrl, task: approval.task,
+      kind: "pr_publish", publishPullRequest: true,
+      ...(canvasUrl ? { canvasUrl } : {}),
+    };
+    const slack = parseSlackThreadName(this.name);
+    const commandScope = parseSlackCommandScope(approval.threadKey);
+    const channel = slack?.channelId ?? commandScope?.channelId;
+    const token = this.env.SLACK_BOT_TOKEN?.trim();
+    if (channel && token) {
+      this.holdOpen(postSlackMessage(token, {
+        channel,
+        ...(slack ? { threadTs: slack.threadTs } : {}), text: approvalCardText(card),
+        blocks: buildApprovalBlocks(card), persona: "reviewer",
+      }).catch((error) => console.error("Publication approval card failed", redactSecrets(String(error)))));
+    } else {
+      this.postEmailApprovalCard(card);
+    }
+  }
+
+  private dispatchApprovedPublication(record: PendingApproval): void {
+    const current = this.approvals.find((item) => item.approvalId === record.approvalId && item.threadKey === record.threadKey);
+    if (!current || current.status !== "approved" || current.execution !== undefined) return;
+    const payload = isJsonObject(record.payload) ? record.payload : {};
+    const runId = typeof payload.runId === "string" ? payload.runId : "";
+    const run = this.store.get(runId);
+    if (!run || run.status !== "completed" || run.parentRunId || payload.ownerId !== this.name) {
+      this.writeApprovals(recordApprovalExecution(this.approvals, {
+        threadKey: record.threadKey, approvalId: record.approvalId,
+        execution: { status: "failed", error: "Publication source run is unavailable or outside this owner.", executedAt: Date.now() },
+      }));
+      return;
+    }
+    this.writeApprovals(recordApprovalExecution(this.approvals, {
+      threadKey: record.threadKey, approvalId: record.approvalId,
+      execution: { status: "executing", executedAt: Date.now() },
+    }));
+    this.holdOpen((async () => {
+      try {
+        const published = await executePrPublishApproval(this.env, record, {
+          ownerId: this.name, runId, sandboxId: run.sandboxId, repoUrl: run.repoUrl, baseBranch: run.baseBranch,
+        });
+        const retained = this.store.get(runId);
+        if (retained) this.store.replace(runId, recordReceipt({ ...retained, pullUrl: published.pullUrl }, makeReceipt("submit", `Pull request: ${published.pullUrl}`)));
+        this.writeApprovals(recordApprovalExecution(this.approvals, {
+          threadKey: record.threadKey, approvalId: record.approvalId,
+          execution: { status: "executed", executedAt: Date.now() },
+        }));
+        this.postToThread(`Published the approved pull request: ${published.pullUrl}`, { runId, persona: "reviewer" });
+      } catch (error) {
+        const message = redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 4000);
+        this.writeApprovals(recordApprovalExecution(this.approvals, {
+          threadKey: record.threadKey, approvalId: record.approvalId,
+          execution: { status: "unknown", error: `Publication stopped. Inspect GitHub before retrying. ${message}`, executedAt: Date.now() },
+        }));
+        this.postToThread("Publication stopped. Inspect the repository before requesting another publication approval.", { runId, persona: "reviewer" });
+      }
+    })());
   }
 
   private dispatchApprovedMerge(record: PendingApproval): void {
@@ -4227,7 +4530,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * into the conversation they came from. Best-effort — the ack already went
    * out and failure must not touch the run.
    */
-  private postToThread(text: string, context?: { runId?: string; causationId?: string }): void {
+  private postToThread(text: string, context?: { runId?: string; causationId?: string; persona?: "lead" | "explorer" | "fixer" | "reviewer" }): void {
     const chat = postToChatThread(this.env, this.name, text);
     const ids = parseSlackThreadName(this.name);
     const token = this.env.SLACK_BOT_TOKEN?.trim();
@@ -4238,6 +4541,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
             channel: ids.channelId,
             threadTs: ids.threadTs,
             text: text.slice(0, 3000),
+            ...(context?.persona ? { persona: context.persona } : {}),
           })
         : null);
     if (send === null) return;
@@ -4521,74 +4825,40 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   private async spawnSubagent(body: Record<string, unknown>, agentPrincipal: string | null): Promise<Response> {
+    if (agentPrincipal !== null) return Response.json({ error: "Agent principals cannot spawn child runs." }, { status: 403 });
     const parentRunId = typeof body.parentRunId === "string" ? body.parentRunId : "";
     const task = typeof body.task === "string" ? body.task.trim() : "";
-    const sandboxMode = body.sandboxMode === "shared" ? "shared" : body.sandboxMode === "fresh" ? "fresh" : null;
-    if (!parentRunId || !task || !sandboxMode) {
-      return Response.json({ error: "parentRunId, task, and sandboxMode (fresh|shared) are required." }, { status: 400 });
+    if (!parentRunId || !task || body.sandboxMode !== "fresh") {
+      return Response.json({ error: "parentRunId, task, and an isolated fresh workspace are required." }, { status: 400 });
     }
-    if (sandboxMode === "shared" && body.publishPullRequest === true) {
-      return Response.json({ error: "Shared sandboxes are read-only — publishPullRequest must be false." }, { status: 400 });
+    if (body.publishPullRequest === true || body.reviewAfterPublish === true) {
+      return Response.json({ error: "Child agents cannot publish external writes." }, { status: 403 });
     }
     const parent = this.store.get(parentRunId);
-    if (!parent || (agentPrincipal !== null && parent.queuedBy !== agentPrincipal)) {
-      return Response.json({ error: "Parent run not found." }, { status: 404 });
+    if (!parent) return Response.json({ error: "Parent run not found." }, { status: 404 });
+    if (!isActiveStatus(parent.status)) return Response.json({ error: "Only active runs can request a child." }, { status: 409 });
+    if (parent.parentRunId || !canSpawnSubagentAt(parent.subagentPath)) {
+      return Response.json({ error: "Child agents cannot delegate." }, { status: 403 });
     }
-    if (!isActiveStatus(parent.status)) {
-      return Response.json({ error: "Only active runs can spawn subagents." }, { status: 409 });
+    const children = this.store.list().filter((run) => run.parentRunId === parentRunId);
+    const pending = this.approvals.filter((approval) => approval.parentRunId === parentRunId && approval.status === "pending");
+    if (children.length + pending.length >= MAX_SUBAGENT_CHILDREN || pending.length || children.some((run) => isActiveStatus(run.status))) {
+      return Response.json({ error: "Child task capacity reached." }, { status: 429 });
     }
-    if (!this.canScheduleRun()) {
-      return Response.json({ error: "Concurrency or daily budget limit reached." }, { status: 429 });
-    }
-    const callId = `subagent:${parentRunId}:${Date.now()}`;
-    const root = this.resolveSubagentBudgetRoot(parent);
-    const remaining = root.subagentBudgetRemaining ?? 0;
-    const spawnInput: SpawnSubagentInput = {
-      parentRunId,
-      task: task.slice(0, 4000),
-      sandboxMode,
-      publishPullRequest: body.publishPullRequest === true,
-      ...(body.reviewAfterPublish === true ? { reviewAfterPublish: true } : {}),
-      ...(typeof body.role === "string" ? { role: body.role as SpawnSubagentInput["role"] } : {}),
-    };
-    const minted = mintSubagentRun({
-      runs: this.store.list(),
-      parent,
-      input: spawnInput,
-      callId,
-      denId: this.isDenInstance() ? this.name : undefined,
-      budgetApproval:
-        remaining > 0 && root.approval
-          ? {
-              approvalId: root.approval.approvalId,
-              decidedBy: root.approval.decidedBy,
-              decidedAt: root.approval.decidedAt,
-              subagentBudget: remaining,
-            }
-          : undefined,
-      parentBudgetRemaining: remaining > 0 ? remaining : undefined,
-      decisionTap: (command, decision) => this.spineTap(command, decision),
-    });
-    if (!minted.ok) {
-      return Response.json({ error: minted.error }, { status: minted.status });
-    }
-    if (remaining > 0) {
-      this.store.replace(root.runId, { ...root, subagentBudgetRemaining: remaining - 1 });
-    }
-    this.store.add(minted.run);
-    this.syncDenPack();
-    this.dispatchApprovedRun(minted.run, undefined, minted.callId);
-    return Response.json({ ok: true, run: this.serializeRun(minted.run) });
-  }
-
-  private resolveSubagentBudgetRoot(run: DelegatedRun): DelegatedRun {
-    let current = run;
-    while (current.parentRunId) {
-      const parent = this.store.get(current.parentRunId);
-      if (!parent) break;
-      current = parent;
-    }
-    return current;
+    const subagentPath = nextSubagentPath(parent.subagentPath, directChildPaths(parent.subagentPath, children));
+    return this.queueSlackRun({
+      repoUrl: parent.repoUrl,
+      ...(parent.executionTarget ? { executionTarget: parent.executionTarget } : {}),
+      task,
+      baseBranch: parent.baseBranch,
+      publishPullRequest: false,
+      role: "fixer",
+      harness: parent.route?.harness,
+      codingModel: parent.route?.modelId,
+      connectionId: parent.route?.connectionId,
+      ...(parent.orgId ? { orgId: parent.orgId } : {}),
+      threadKey: this.name,
+    }, MAX_APPROVED_TASK_CHARS, { parentRunId, subagentPath, subagentSandbox: "fresh" });
   }
 
   private syncDenPack(): void {
@@ -4605,6 +4875,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.lastReclaimSweepAt = Date.now();
     await this.drainEffectOutbox();
     await this.reclaimSweep();
+    await this.flushSlackTurnBuffer();
   }
 
   /**
@@ -5706,6 +5977,25 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // else on a deleted session is gone, whatever the Worker checked first.
     if (this.sessionDeleted) {
       return Response.json({ error: "Session deleted." }, { status: 410 });
+    }
+    if (url.pathname === "/api/slack/buffer") {
+      if (agentPrincipal !== null || !parseSlackThreadName(this.name) ||
+          !await verifySlackBufferRequest(request, this.env.INTERNAL_SIGNING_KEY)) {
+        return Response.json({ error: "Forbidden." }, { status: 403 });
+      }
+      const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+      if (!body || body.threadKey !== this.name) return Response.json({ error: "Invalid thread." }, { status: 400 });
+      if (!this.store.list().some((run) => isActiveStatus(run.status))) return Response.json({ buffered: false });
+      if (typeof body.eventId !== "string" || typeof body.userId !== "string" || typeof body.text !== "string" || typeof body.createdAt !== "number") {
+        return Response.json({ error: "Invalid follow-up message." }, { status: 400 });
+      }
+      const status = await new SlackTurnBuffer(this.ctx.storage).enqueue({ eventId: body.eventId, userId: body.userId, text: body.text, createdAt: body.createdAt });
+      if (status === "buffered" || status === "duplicate") {
+        this.setState({ ...this.state, slackBufferPending: true, slackBufferRevision: (this.state.slackBufferRevision ?? 0) + 1 });
+        this.holdOpen(this.flushSlackTurnBuffer().catch((error) => console.error("Slack follow-up queue failed", redactSecrets(String(error)))));
+      }
+      return Response.json({ buffered: status === "buffered" || status === "duplicate", status },
+        status === "full" ? { status: 429 } : status === "invalid" ? { status: 400 } : undefined);
     }
     if (url.pathname.startsWith("/api/employee-drafts")) {
       const actorId = initiatorUserIdFromOrchestratorName(this.name);

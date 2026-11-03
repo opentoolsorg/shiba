@@ -10,6 +10,7 @@ import { resolveHarness } from "./harness/index.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { redactSecrets } from "./security.js";
+import { runRoomName } from "./run-room-events.js";
 import {
   buildSessionAgentName,
   createWebSession,
@@ -60,7 +61,8 @@ async function validateThreadAgent(
  */
 export async function handleWebSessions(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!/^\/api\/sessions(?:\/[^/]+(?:\/resume|\/realtime)?)?$/.test(url.pathname)) {
+  const roomAlias = url.pathname.match(/^\/api\/rooms\/([^/]+)\/websocket$/);
+  if (!roomAlias && !/^\/api\/sessions(?:\/[^/]+(?:\/resume|\/realtime)?)?$/.test(url.pathname)) {
     return null;
   }
   if (!(await isAuthorizedRequest(request, env))) {
@@ -70,7 +72,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
   const userId = (await resolveUserId(request, env)) ?? "default";
   const stub = await getAgentByName(env.CodingOrchestrator, userId);
 
-  const realtimeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/realtime$/);
+  const realtimeMatch = roomAlias ?? url.pathname.match(/^\/api\/sessions\/([^/]+)\/realtime$/);
   if (realtimeMatch) {
     if (request.method !== "GET") {
       return Response.json({ error: "Method not allowed." }, { status: 405 });
@@ -112,8 +114,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
     headers.set("x-shiba-room-owner", userId.trim().toLowerCase());
     headers.set("x-shiba-room-session", sessionId);
     headers.set("x-shiba-room-viewer", viewerId);
-    const roomName = JSON.stringify([userId.trim().toLowerCase(), sessionId]);
-    return env.ConversationRoom.getByName(roomName).fetch(new Request(request, { headers }));
+    return env.ConversationRoom.getByName(runRoomName(userId, sessionId)).fetch(new Request(request, { headers }));
   }
 
   // GET /api/sessions — list user's sessions (always includes base session)

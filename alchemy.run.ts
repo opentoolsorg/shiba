@@ -244,6 +244,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     ATTACHMENTS: Cloudflare.R2.Bucket("ATTACHMENTS", {
       name: `shiba-attachments${resSuffix}`,
     }),
+    ARTIFACTS: Cloudflare.R2.Bucket("ARTIFACTS", {
+      name: `shiba-artifacts${resSuffix}`,
+    }),
     AGENT_AUDIT: Cloudflare.D1.Database("AGENT_AUDIT", {
       name: `shiba-audit${resSuffix}`,
     }),
@@ -327,6 +330,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "PAIRING_SECRET",
       // Edge vouched-header signing (optional; unset = header-trust fallback).
       "INTERNAL_SIGNING_KEY",
+      "ARTIFACT_SIGNING_KEY",
       // Automation trigger lane (`/api/trigger`).
       "TRIGGER_TOKEN",
     ]),

@@ -48,6 +48,7 @@ function env(extra: Record<string, unknown> = {}, kv: FakeKV = new FakeKV()): En
 
 function request(path: string, init?: RequestInit, email?: string): Request {
   const headers = new Headers(init?.headers);
+  if (init?.method === "POST" && !headers.has("Origin")) headers.set("Origin", "http://localhost");
   if (init?.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }

@@ -9,8 +9,8 @@ const description = 'AI employees for the work behind your company: code, design
 const faqItems = [
   {"q": "What is Shiba?", "a": "Shiba is an open-source workspace for AI employees. Give an employee a task and the context it needs, review the proposed work, and inspect the files or changes it returns."},
   {"q": "What kind of work can I give it?", "a": "Draft campaign copy, research an account using supplied context, outline a design, fix a bug, prepare an operating checklist, or organize supplied figures into a draft budget or pipeline summary. Set clear instructions and review the result before using it."},
-  {"q": "Do I need a repository for non-coding tasks?", "a": "Yes. Every task currently needs a GitHub repository, including non-code work. It gives Shiba context and a place to return draft files. The task does not have to change code."},
-  {"q": "What happens before I approve?", "a": "Shiba can plan and call a model before approval. Normal task execution waits for your decision on the exact request. Scoped unattended automations require explicit permission in advance."},
+  {"q": "Do I need a repository for non-coding tasks?", "a": "No. Repository tasks use GitHub. Other tasks can use an ephemeral workspace when artifact storage and signed downloads are configured."},
+  {"q": "What happens before I approve?", "a": "Shiba can plan and call a model before approval. Every execution waits for explicit human approval of the exact request."},
   {"q": "Where does my information go?", "a": "You host the app in your own account. The model provider you choose receives the context needed for its requests. Review the security and connection settings before using confidential information."},
   {"q": "Which agents and connections can I use?", "a": "The provider catalog includes agent adapters such as OpenCode, Claude Code, and Codex. Availability depends on your configured connection. Chat channels and other integrations also need setup; a listed adapter is not evidence of a successful live run."},
   {"q": "What does it cost?", "a": "The software is free to self-host under AGPL-3.0-only. You pay for hosting and model usage through your chosen providers."},
@@ -119,7 +119,7 @@ const steps = [
         </div>
         <div class="hero-disclosures">
           <p class="hero-note">Free software to self-host. Hosting and model usage cost extra.</p>
-          <p class="hero-note">Normal tasks need a GitHub repository and your approval. Scoped automations require permission in advance. The demo is a simulation.</p>
+          <p class="hero-note">Repository tasks need a GitHub repository. Every execution waits for explicit human approval. The demo is a simulation.</p>
         </div>
 
         <!-- Static "Works with" chip row -->
@@ -155,7 +155,7 @@ const steps = [
       <div class="manifesto-inner">
         <p class="manifesto-eyebrow">The Shiba principle</p>
         <h2 class="manifesto-quote">
-          AI employees that work in your repos with your approval or scoped permission granted in advance.
+          AI employees that work in your repos after your explicit approval.
         </h2>
         <div class="manifesto-actions">
           <a class="cta cta-primary" href="/docs/self-hosting/">Self host Shiba</a>
@@ -203,7 +203,7 @@ const steps = [
         <article class="hire-card">
           <div class="card-num">03</div>
           <h3>Waits for your approval</h3>
-          <p>Normal tasks wait for you to inspect and approve the proposal. Scoped unattended automations may act under permission granted in advance.</p>
+          <p>Inspect and approve the exact proposal before work begins. Every execution waits for explicit human approval.</p>
           <div class="vignette-box approval-vignette">
             <div class="vignette-bar"><span>Gate: Human Review</span><span class="vignette-alert">Pending</span></div>
             <div class="vignette-approval-row">

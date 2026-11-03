@@ -35,6 +35,10 @@ export interface PublishResult {
 export interface GitHubDeps {
   fetchImpl?: typeof fetch;
   apiBase?: string;
+  /** Approval-gated publication uses one attempt when a write outcome may be uncertain. */
+  mutationAttempts?: 1 | 3;
+  /** Disable compensating writes after an uncertain pull request creation outcome. */
+  cleanupOnPullFailure?: boolean;
 }
 
 const API_BASE = "https://api.github.com";
@@ -72,7 +76,7 @@ async function api<T>(
     response = await fetchWithBackoff(`${deps.apiBase}${path}`, { ...init, signal: combined }, {
       fetchImpl: deps.fetchImpl,
       signal: combined,
-      attempts: 3,
+      attempts: (init?.method ?? "GET").toUpperCase() === "GET" ? 3 : deps.mutationAttempts,
       baseDelayMs: 200,
     });
   } catch (error) {
@@ -117,6 +121,8 @@ export async function publishFilesAsPullRequest(
     // so the default must keep a bound call rather than the bare reference.
     fetchImpl: deps.fetchImpl ?? ((input, init) => fetch(input, init)),
     apiBase: deps.apiBase ?? API_BASE,
+    mutationAttempts: deps.mutationAttempts ?? 3,
+    cleanupOnPullFailure: deps.cleanupOnPullFailure ?? true,
   };
   const headers = authHeaders(request.token);
   const json = (body: unknown): RequestInit => ({
@@ -196,6 +202,7 @@ export async function publishFilesAsPullRequest(
       }),
     );
   } catch (error) {
+    if (!resolved.cleanupOnPullFailure) throw error;
     // Leave no orphaned branch behind when the PR cannot be opened.
     await api<unknown>(resolved, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(request.newBranch)}`, {
       method: "DELETE",

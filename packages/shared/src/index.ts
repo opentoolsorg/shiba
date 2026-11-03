@@ -20,6 +20,7 @@ export * from "./roles.js";
 export * from "./run-errors.js";
 export * from "./runs.js";
 export * from "./execution-target.js";
+export * from "./types.js";
 export * from "./run-env.js";
 export * from "./review.js";
 export * from "./pr-owner.js";

@@ -209,7 +209,7 @@ export class Sandbox extends DurableObject<Env> {
       let stderr = "";
       const readStream = async (
         stream: ReadableStream<Uint8Array> | undefined,
-        onChunk: (t: string) => void,
+        onChunk: (t: string) => void | Promise<void>,
       ) => {
         const decoder = new TextDecoder();
         const reader = (stream ?? new ReadableStream({ start(controller) { controller.close(); } })).getReader();
@@ -217,22 +217,22 @@ export class Sandbox extends DurableObject<Env> {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            onChunk(decoder.decode(value, { stream: true }));
+            await onChunk(decoder.decode(value, { stream: true }));
           }
           const tail = decoder.decode();
-          if (tail) onChunk(tail);
+          if (tail) await onChunk(tail);
         } finally {
           reader.releaseLock();
         }
       };
       await Promise.all([
-        readStream(proc.stdout ?? undefined, (chunk) => {
+        readStream(proc.stdout ?? undefined, async (chunk) => {
           stdout = appendExecOutput(stdout, chunk);
-          options?.onOutput?.("stdout", chunk);
+          await options?.onOutput?.("stdout", chunk);
         }),
-        readStream(proc.stderr ?? undefined, (chunk) => {
+        readStream(proc.stderr ?? undefined, async (chunk) => {
           stderr = appendExecOutput(stderr, chunk);
-          options?.onOutput?.("stderr", chunk);
+          await options?.onOutput?.("stderr", chunk);
         }),
       ]);
       const out = await proc.output();

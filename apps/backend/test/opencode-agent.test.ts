@@ -34,7 +34,7 @@ async function sealed(overrides: Partial<CodingTaskInput> = {}): Promise<CodingT
       approvalId: "agent-tool:test",
       sandboxId: base.sandboxId,
       inputHash: "a".repeat(64),
-    })),
+    }, base)),
   };
 }
 
@@ -71,6 +71,18 @@ beforeEach(async () => {
 });
 
 describe("requested deliverable private persistence", () => {
+  it("refuses an unconfigured ephemeral export before acquiring a sandbox", async () => {
+    const input = await sealed({
+      repoUrl: "", expectedDeliverables: [],
+      executionTarget: { kind: "artifact-workspace", workspaceId: "empty", expectedDeliverables: [] },
+    });
+    const { result } = await responseFor(agent(input));
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("artifact");
+    expect(mocks.sandbox).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
+
   it("runs an artifact-workspace target without a repository and retains its requested output", async () => {
     const executionTarget = {
       kind: "artifact-workspace" as const,
@@ -149,6 +161,28 @@ describe("requested deliverable private persistence", () => {
 });
 
 describe("OpenCodeAgent response boundary", () => {
+  it("stages an action-bound PR proposal with private file bodies and waits for separate human approval", async () => {
+    const instance = agent(await sealed({
+      publishPullRequest: true,
+      deferPullRequestPublish: true,
+      accessAgent: "run-owner",
+    }));
+    const put = vi.fn(async () => ({ key: "stored" }));
+    Object.assign(instance.env, { ATTACHMENTS: { put } });
+    const { result, text } = await responseFor(instance);
+    expect(result.status).toBe("completed");
+    expect(result.publicationProposal).toMatchObject({
+      kind: "pr_publish",
+      approvalId: "pr-publish:agent-tool:agent-tool:test",
+      repoUrl: INPUT.repoUrl,
+      payload: { ownerId: "run-owner", sandboxId: INPUT.sandboxId, runId: "agent-tool:agent-tool:test" },
+    });
+    expect(result.files).toEqual([]);
+    expect(text).not.toContain("complete file");
+    expect(put).toHaveBeenCalledOnce();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
   it("returns a complete assistant stream the SDK can reconstruct without manual persistence", async () => {
     const { chunks, result } = await responseFor(agent());
     const messages = [];
@@ -251,13 +285,38 @@ describe("OpenCodeAgent response boundary", () => {
   it("propagates cancellation and prevents publishing after cancellation during coding", async () => {
     const controller = new AbortController();
     mocks.run.mockImplementation(async (_ops, _input, _emit, options) => {
-      expect(options.signal).toBe(controller.signal);
+      expect(options.signal.aborted).toBe(false);
       controller.abort();
+      expect(options.signal.aborted).toBe(true);
       return RESULT;
     });
     const { result } = await responseFor(agent(await sealed({ publishPullRequest: true }), "token"), controller.signal);
     expect(result.summary).toBe("Run cancelled.");
     expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it("refuses nested child delegation", async () => {
+    const response = await agent().onBeforeSubAgent();
+    expect(response.status).toBe(403);
+    expect(mocks.sandbox).not.toHaveBeenCalled();
+  });
+
+  it("bounds a hung runtime by the signed dispatch execution deadline", async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    mocks.run.mockImplementation(async (_ops, _input, _emit, options) => {
+      queueMicrotask(() => controller.abort(new Error("Dispatch deadline reached.")));
+      expect(options.signal).toBe(controller.signal);
+      return new Promise<never>(() => {});
+    });
+    try {
+      const { result } = await responseFor(agent(await sealed({ publishPullRequest: true }), "token"));
+      expect(result.status).toBe("error");
+      expect(result.summary).toBe("Run execution deadline expired.");
+      expect(mocks.publish).not.toHaveBeenCalled();
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it("keeps the tokenized preview URL out of the public PR body (T33 hardening)", async () => {

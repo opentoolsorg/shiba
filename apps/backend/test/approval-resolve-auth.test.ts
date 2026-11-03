@@ -18,14 +18,33 @@ describe("approvalResolveForbidden", () => {
     ).toMatch(/Not authorized/);
   });
 
-  it("allows automation unattended approve", () => {
+  it("refuses automation approval even when a legacy unattended setting requested it", () => {
     expect(
       approvalResolveForbidden(env, {
         threadKey: "default",
         approved: true,
         decidedBy: "automation:sched-1",
       }),
-    ).toBeNull();
+    ).toMatch(/Automations cannot decide approvals/);
+  });
+
+  it.each([true, false])("refuses automation decisions approved=%s through every human source", (approved) => {
+    const decidedBy = "automation:sched-1";
+    const allowlistedEnv = {
+      ...env,
+      DASHBOARD_APPROVERS: decidedBy,
+      SLACK_APPROVERS: decidedBy,
+    };
+    for (const source of [undefined, "slack", "telegram", "discord"]) {
+      for (const threadKey of ["default", decidedBy]) {
+        expect(approvalResolveForbidden(allowlistedEnv, {
+          threadKey,
+          approved,
+          decidedBy,
+          source,
+        })).toMatch(/Automations cannot decide approvals/);
+      }
+    }
   });
 
   it("allows dashboard approver on shared queue", () => {

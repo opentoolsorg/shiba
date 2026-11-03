@@ -107,7 +107,7 @@ describe("agent conversation", () => {
     expect(screen.getByText("Personal")).toBeTruthy();
     expect(screen.getByText("Agents")).toBeTruthy();
     expect(screen.getByText(/This is the beginning of your conversation/)).toBeTruthy();
-    expect(screen.getByText(/Planning can start now. Standard sandbox execution requires approval/)).toBeTruthy();
+    expect(screen.getByText(/Planning can start now. Every sandbox execution requires human approval/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Participants" }));
     expect(screen.getByText("You")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Toggle agent details" }));

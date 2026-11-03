@@ -52,6 +52,31 @@ async function freePort() {
   return port;
 }
 
+it("refuses incomplete persistence inspection and active writers even when lsof exits one", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "shiba-local-offline-check-"));
+  const state = path.join(root, "state");
+  await fs.mkdir(state);
+  try {
+    const cases = [
+      { stdout: "", stderr: "lsof: WARNING: can't stat() tmpfs file system /private/persistence\n      Output information may be incomplete.\n", message: /Cannot establish offline state/ },
+      { stdout: "", stderr: "Output information may be incomplete.\n", message: /Cannot establish offline state/ },
+      { stdout: "p123\n", stderr: "lsof: WARNING: can't stat() mqueue file system /dev/mqueue\n      Output information may be incomplete.\n", message: /files are open/ },
+    ];
+    for (const [index, diagnostic] of cases.entries()) {
+      const preload = path.join(root, `lsof-${index}.mjs`);
+      await fs.writeFile(preload, `import childProcess from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module';
+const original=childProcess.execFile;childProcess.execFile=(command,args,options,callback)=>{
+if(command.endsWith('lsof')){const error=Object.assign(new Error('fixture inspection failure'),{code:1,stdout:${JSON.stringify(diagnostic.stdout)},stderr:${JSON.stringify(diagnostic.stderr)}});queueMicrotask(()=>callback(error));return {};}
+return original(command,args,options,callback);};syncBuiltinESMExports();`);
+      const destination = path.join(root, `bundle-${index}`);
+      await expect(exec(process.execPath, ["--import", preload, SCRIPT, "backup", "--offline", state, destination], { timeout: 10_000 })).rejects.toThrow(diagnostic.message);
+      expect(existsSync(destination)).toBe(false);
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 it("backs up, verifies, restores and rolls back actual stopped Wrangler DO/D1/R2 persistence", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "shiba-local-recovery-"));
   const state = path.join(root, "source-state");

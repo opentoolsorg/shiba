@@ -34,7 +34,7 @@ function ensureLandingBuild(): void {
   if (landingBuildIsCurrent()) return;
   const astroBin = join(webRoot, "node_modules", ".bin", process.platform === "win32" ? "astro.cmd" : "astro");
   const astroConfigHome = mkdtempSync(join(tmpdir(), "shiba-marketing-astro-"));
-  let result;
+  let result: ReturnType<typeof spawnSync>;
   try {
     result = spawnSync(astroBin, ["build"], {
       cwd: webRoot,
@@ -65,7 +65,9 @@ describe("marketing landing page", () => {
     expect(markup).toContain('href="/docs/self-hosting/"');
     expect(markup).toContain('id="home-title"');
     expect(markup).toContain("AI employees for");
-    expect(markup).toContain("the work behind your company.");
+    const heading = markup.match(/<h1\b[^>]*id="home-title"[^>]*>([\s\S]*?)<\/h1>/)?.[1]
+      ?.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    expect(heading).toBe("AI employees for the work behind your company.");
     expect(markup).toContain('id="dashboard"');
     expect(markup).toContain('id="employees"');
     expect(markup).not.toContain("manga-panel");

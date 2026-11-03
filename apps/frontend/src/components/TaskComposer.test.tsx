@@ -248,12 +248,12 @@ describe("TaskComposer", () => {
     expect((screen.getByRole("button", { name: "Send task" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it.each(["", " \n\t"])("blocks sending an artifact task with an empty output list (%j)", (artifactDeliverables) => {
+  it.each(["", " \n\t"])("submits an ephemeral artifact task with an automatic output bundle (%j)", (artifactDeliverables) => {
     const onSubmit = vi.fn();
     renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables, task: "Draft a brief", repoUrl: "", onSubmit });
-    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Send task" }).hasAttribute("disabled")).toBe(false);
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Task description" }), { key: "Enter", ctrlKey: true });
-    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledOnce();
   });
 
   it("submits valid artifact input with Ctrl+Enter without requiring a repository", () => {

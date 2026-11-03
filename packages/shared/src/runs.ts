@@ -7,7 +7,7 @@ import type { OnboardingRunFields } from "./onboarding.js";
  * `queued` or `dispatching` (no sandbox side effects yet). Once the
  * checkpoint is `executing` or `settling`, the outcome is unknown.
  */
-import type { RunDeliverable } from "./deliverables.js";
+import type { RunArtifactBundle, RunDeliverable } from "./deliverables.js";
 import type { ApprovalEvidence, SkillExecutionPin } from "./approvals.js";
 import type { RuntimeSelection } from "./local-runtime.js";
 import type { ApprovedRoute } from "./model.js";
@@ -64,6 +64,7 @@ export interface DelegatedRun extends OnboardingRunFields {
   summary?: string;
   /** Public metadata for captured requested outputs. */
   deliverables?: RunDeliverable[];
+  artifactBundle?: RunArtifactBundle;
   error?: string;
   /** Classified error code; set on every error/unknown transition. */
   errorCode?: RunErrorCode;
@@ -243,6 +244,7 @@ export type RunPatch = {
   summary?: string;
   /** Public metadata for captured requested outputs. */
   deliverables?: RunDeliverable[];
+  artifactBundle?: RunArtifactBundle;
   error?: string;
   errorCode?: RunErrorCode;
   diff?: string;
