@@ -11,10 +11,9 @@ import Header from "@/components/Header.astro";
 import Logo from "@/components/Logo.astro";
 import { config } from "virtual:nimbus/config";
 import { Banner } from "@/components/ui/banner";
-import { Sidebar, SidebarFilter } from "@/components/ui/sidebar";
+import { Sidebar } from "@/components/ui/sidebar";
 import { TOC, MobileTOC } from "@/components/ui/toc";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
-import { Pagination } from "@/components/ui/pagination";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import { PageActions } from "@/components/ui/page-actions";
 import ConnectMcp from "@/components/ConnectMcp.astro";
@@ -73,13 +72,6 @@ if (!effectiveSearchable || versionStatus?.isHidden) {
   }
 }
 
-// The filter earns its place only once the sidebar is long enough to search.
-const countLinks = (items: typeof sidebar): number =>
-  Array.isArray(items)
-    ? items.reduce((n, item) => n + (item.type === "group" ? countLinks(item.children) + (item.indexHref ? 1 : 0) : 1), 0)
-    : 0;
-const showFilter = countLinks(sidebar) >= 12;
-
 // Below xl the On this page bar's own borders separate the header from the
 // content, so the header rule only draws where that bar is hidden.
 const hasMobileToc = headings !== false && headings.length > 0;
@@ -88,7 +80,6 @@ const hasSidebar = Astro.slots.has("sidebar");
 const hasToc = Astro.slots.has("toc");
 const hasPageTitle = Astro.slots.has("page-title");
 const hasContentFooter = Astro.slots.has("content-footer");
-const hasPagination = Astro.slots.has("pagination");
 const showToc = headings !== false && (hasToc || headings.length > 0);
 ---
 
@@ -113,7 +104,6 @@ const showToc = headings !== false && (hasToc || headings.length > 0);
                   <slot name="sidebar" />
                 ) : (
                   <nav class="px-4 pb-12 pt-5">
-                    {showFilter && <SidebarFilter />}
                     <Sidebar items={sidebar} persist />
                   </nav>
                 )}
@@ -264,7 +254,6 @@ const showToc = headings !== false && (hasToc || headings.length > 0);
                   </div>
                 )}
               </div>
-              {hasPagination ? <slot name="pagination" /> : <Pagination prevNext={prevNext} />}
             </div>
           </main>
 

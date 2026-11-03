@@ -61,7 +61,7 @@ const resolveSectionHref = (href: string): string =>
 ---
 
 <header class="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur-lg">
-  <div class="mx-auto flex items-center justify-between gap-3 h-14 px-4 lg:px-6">
+  <div class="mx-auto grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 h-14 px-4 lg:px-6">
     <div class="flex items-center gap-3 min-w-0">
       <slot name="brand">
         {/* The mark alone; the site title stays as the link's accessible name. */}
@@ -91,9 +91,9 @@ const resolveSectionHref = (href: string): string =>
       )}
     </div>
 
-    <div class="flex items-center gap-2 shrink-0">
+    <div class="justify-self-center">{config.search !== false && <SearchTrigger />}</div>
+    <div class="flex items-center justify-self-end gap-2 shrink-0">
       <slot name="actions" />
-      {config.search !== false && <SearchTrigger />}
       {config.github && (
         <LinkButton
           href={config.github}

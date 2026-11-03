@@ -15,6 +15,12 @@ Start with an editable role or browse the [template catalog](/docs/templates/) f
 | Marketing | Draft a launch brief and announcement copy. |
 | Research | Answer a question using evidence you provide. |
 | Operations | Write a release or recovery checklist. |
+| Product spec writer | Turn a request into a draft specification with acceptance criteria. |
+| Prototype builder | Prepare a focused prototype using the existing design system. |
+| Competitor watch | Summarize supplied public sources and cite the evidence. |
+| Support triage | Organize reports into reproducible issues and escalation drafts. |
+| Standup summarizer | Turn supplied work notes into a team update. |
+| PR reviewer | Review a proposed change and report findings with evidence. |
 
 Choosing a template fills in a draft. You can change its instructions before saving.
 
