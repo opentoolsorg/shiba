@@ -70,6 +70,7 @@ try {
   await skip.or(work).first().waitFor({ timeout: 30000 });
   if (await skip.isVisible()) await skip.click();
   await work.click();
+  await page.getByRole("tab", { name: "Work", exact: true }).click();
   await page.getByLabel("Task composer").waitFor({ timeout: 30000 });
   await shot("01-app");
   await page.getByLabel("Task description").fill("verify-shiba: describe the README in one sentence");
