@@ -108,7 +108,7 @@ const finalSchemas = schema
     <!-- Preconnect Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
 
     <!-- Structured Data (JSON-LD) -->
     {finalSchemas.map((s) => (
@@ -309,7 +309,7 @@ const finalSchemas = schema
             if (!siteNav.contains(document.activeElement) && document.activeElement !== menuBtn) setMenu(false);
           });
         });
-        matchMedia('(max-width: 800px)').addEventListener('change', () => setMenu(false));
+        matchMedia('(max-width: 1000px)').addEventListener('change', () => setMenu(false));
       }
 
     </script>
@@ -585,7 +585,7 @@ const finalSchemas = schema
     .button-outline:not(:disabled):hover { background: var(--panel-2); color: var(--navy); border-color: var(--navy-2); }
   }
   @media (max-width: 1000px) { .header-inner { gap: 16px; } .nav-links { gap: 2px; } .nav-link { font-size: 11px; padding-inline: 6px; } }
-  @media (max-width: 800px) {
+  @media (max-width: 1000px) {
     .site-header {
       top: 8px;
       width: calc(100% - 16px);
