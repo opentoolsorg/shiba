@@ -33,6 +33,7 @@ import { handlePulls } from "./v1/pulls.js";
 import { handleRuns, runDeliverableFields } from "./v1/runs.js";
 import { handleSystem } from "./v1/system.js";
 import { handleOrgAgents } from "./v1/org-agents.js";
+import { handleExtensionSkills } from "./v1/extension-skills.js";
 import { handleThreads } from "./v1/threads.js";
 import { publicRunMessage, runTimedOut } from "./public-error.js";
 import { reviewerTask } from "./review/prompt.js";
@@ -96,7 +97,8 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
   // and session resolution are consistently scoped to this principal.
   const bearerSafePath = url.pathname === "/api/v1/capabilities"
     || url.pathname === "/api/v1/model-providers"
-    || url.pathname === "/api/v1/org-agents" || url.pathname.startsWith("/api/v1/org-agents/");
+    || url.pathname === "/api/v1/org-agents" || url.pathname.startsWith("/api/v1/org-agents/")
+    || url.pathname === "/api/v1/extensions/skills" || url.pathname.startsWith("/api/v1/extensions/skills/");
   if (principal.apiKey && !bearerSafePath) {
     return Response.json({
       ok: false,
@@ -141,6 +143,7 @@ export async function handleV1(request: Request, env: Env, deps: V1RouteDeps = {
     handleMcp,
     handleAutomations,
     handleOrgAgents,
+    handleExtensionSkills,
   ]) {
     // Handlers read the body; give each its own copy so the legacy path below still can.
     const handled = await group({ ...ctx, request: request.clone() as typeof request });

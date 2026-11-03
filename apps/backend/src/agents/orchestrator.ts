@@ -139,6 +139,7 @@ import { registerPrOwner } from "../pr-owner-index.js";
 import { decidePrWake, pullNumberFromCheckPayload, wakeFollowUpTask } from "../review/wake.js";
 import { ORCHESTRATOR_NAME } from "../slack-routes.js";
 import { areSkillPinsActive, resolveSkillPins } from "../skills-store.js";
+import { createExtensionSkillAgentTools, extensionSkillDirectoryContext } from "../extension-skills-tools.js";
 import { allocateArtifactVersions, artifactIdentity, artifactReviewRevision, authoritativeArtifactReview, parseArtifactReview, prepareRunArtifacts, updateArtifactReview } from "../artifact-metadata.js";
 import { evaluateResultQuality } from "../result-quality.js";
 import {
@@ -990,9 +991,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         (employeeId) => this.employeeOnboardingBinding(employeeId));
     }
     const delegate = this.approvedRunDelegate();
+    const codeOwner = initiatorUserIdFromOrchestratorName(this.name);
     const tools: ToolSet = {
       ...super.getTools(),
       delegate_coding_task: delegate,
+      ...(codeOwner ? createExtensionSkillAgentTools(this.env, this.employeeToolOrgId(), codeOwner) : {}),
       ...createEmployeeRunTools(
         this.env,
         () => this.employeeToolProfileId(),
@@ -1007,7 +1010,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const ownerMemoryId = isDashboardAgentName(this.name)
       ? initiatorUserIdFromOrchestratorName(this.name)
       : undefined;
-    const codeOwner = initiatorUserIdFromOrchestratorName(this.name);
     const codePrincipal: TokenRecord = codeOwner
       ? { principal: codeOwner, scopes: ORCHESTRATOR_SCOPES, created: 0, revoked: false }
       : ORCHESTRATOR_PRINCIPAL;
@@ -1077,12 +1079,19 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     const employeeId = this.employeeToolProfileId();
     if (!employeeId) {
-      return { activeTools: Object.keys(ctx.tools).filter((name) => name !== "employee_tool_catalog" && name !== "employee_tool_call" && name !== "employee_retain_draft" && name !== "employee_context_read") };
+      const skillOwner = initiatorUserIdFromOrchestratorName(this.name);
+      const skillContext = skillOwner
+        ? await extensionSkillDirectoryContext(this.env, this.employeeToolOrgId(), skillOwner)
+        : "";
+      return {
+        activeTools: Object.keys(ctx.tools).filter((name) => name !== "employee_tool_catalog" && name !== "employee_tool_call" && name !== "employee_retain_draft" && name !== "employee_context_read"),
+        instructions: `${ctx.system}${skillContext}`,
+      };
     }
     const orgId = this.employeeToolOrgId();
     const mode = await employeeRunToolPolicyMode(this.env, employeeId, orgId);
     if (mode === "legacy") {
-      return { activeTools: Object.keys(ctx.tools).filter((name) => name !== "employee_tool_catalog" && name !== "employee_tool_call" && name !== "employee_retain_draft" && name !== "employee_context_read") };
+      return { activeTools: Object.keys(ctx.tools).filter((name) => name !== "employee_tool_catalog" && name !== "employee_tool_call" && name !== "employee_retain_draft" && name !== "employee_context_read" && name !== "list_skills" && name !== "get_skill_instructions") };
     }
     const actorId = chatLaneActorId(this.env, this.name) ?? initiatorUserIdFromOrchestratorName(this.name);
     const context = actorId ? await resolveEmployeeRunToolContext(this.env, employeeId, orgId, actorId) : null;
@@ -1091,6 +1100,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     return {
       activeTools: Object.keys(ctx.tools).filter((name) => {
         if (name === "run_code") return false;
+        if (name === "list_skills" || name === "get_skill_instructions") return false;
         if (name === "employee_context_read" && !(context && goal)) return false;
         if (name === "employee_retain_draft" && !(context && (goal || employeeCanRetainDraft(context)))) return false;
         if (!allowed && (name === "employee_tool_catalog" || name === "employee_tool_call")) return false;

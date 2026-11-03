@@ -108,7 +108,7 @@ export function PullRequestCard({
   };
 
   const panelClass =
-    "border border-[var(--border-1)] rounded-[var(--radius-button)] bg-[var(--card)] p-3 flex flex-col gap-2";
+    "border border-[var(--border-1)] rounded-[10px] bg-[var(--bg)] p-4 flex flex-col gap-3";
 
   if (fetchState.kind === "loading") {
     return (
@@ -123,7 +123,7 @@ export function PullRequestCard({
       <section data-testid="pr-card" data-state="error" className={panelClass}>
         <LoadErrorState message={`Pull request status: ${fetchState.message}`} onRetry={load} />
         {fallbackPullUrl ? (
-          <a className="text-xs font-medium text-[var(--primary)] underline break-all" href={fallbackPullUrl}>
+          <a className="min-h-11 inline-flex items-center text-xs font-medium text-[var(--text-link)] underline break-all rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]" href={fallbackPullUrl}>
             Open pull request (from run record)
           </a>
         ) : null}
@@ -154,8 +154,8 @@ export function PullRequestCard({
   return (
     <section data-testid="pr-card" data-state="ready" className={panelClass}>
       <div className="flex items-center justify-between gap-2">
-        <a className="text-sm font-medium text-[var(--fg)] underline break-words min-w-0" href={url}>{title}</a>
-        <span className="text-[10px] uppercase tracking-wider font-bold border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] shrink-0">
+        <a className="min-h-11 inline-flex items-center text-sm font-medium text-[var(--fg)] underline underline-offset-4 break-words min-w-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]" href={url}>{title}</a>
+        <span className="text-xs font-medium border border-[var(--border-1)] px-2 py-0.5 rounded-[var(--radius-button)] shrink-0">
           {status?.state ?? "linked"}
         </span>
       </div>
@@ -163,7 +163,7 @@ export function PullRequestCard({
         <button
           type="button"
           data-testid="pr-merge-request"
-          className="text-xs border border-[var(--border-1)] rounded-[var(--radius-button)] px-2 py-1 self-start"
+          className="min-h-11 min-w-11 text-xs font-medium bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] text-[var(--fg)] rounded-lg px-3 self-start disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           disabled={mergePending}
           onClick={requestMerge}
         >

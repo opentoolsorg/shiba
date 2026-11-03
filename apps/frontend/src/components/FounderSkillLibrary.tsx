@@ -7,7 +7,7 @@ interface LibrarySkill {
   description: string;
   author: string;
   schedule: { label: string; cron: string; timezone: string };
-  bridgeCatalogIds: string[];
+  integrationCatalogIds: string[];
   requiresSensitiveApproval: boolean;
 }
 
@@ -54,27 +54,12 @@ export function FounderSkillLibrary(): JSX.Element {
     }
   };
 
-  const deploy = async (id: string) => {
-    setBusyId(`deploy-${id}`);
-    setNotice(null);
-    try {
-      const response = await fetch(`/api/founder-skills/${encodeURIComponent(id)}/deploy`, { method: "POST" });
-      const body = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) setNotice(body.error ?? `Deploy failed (${response.status}).`);
-      else setNotice(`Scheduled automation deployed for "${id}". Open Automations to pause or review pins.`);
-    } catch {
-      setNotice("Deploy failed: the backend could not be reached.");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   return (
     <section aria-labelledby="founder-skill-library-heading" className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--section)] p-4 flex flex-col gap-3">
       <div>
         <h3 id="founder-skill-library-heading" className="text-sm font-semibold text-[var(--fg)]">Founder skill library</h3>
         <p className="text-xs text-[var(--muted-foreground-2)] mt-1">
-          Viktor-style coworker skills: schedule, Slack digest, and Grok Bot bridge for SaaS connectors. Install creates a reviewed draft; deploy registers the cron automation.
+          Coworker skills with schedules, Slack digests, and open-connector actions. Install creates a draft for review. Configure integration grants and actions before scheduling.
         </p>
       </div>
       {error ? <p role="alert" className="text-xs text-[var(--destructive)]">{error}</p> : null}
@@ -90,8 +75,8 @@ export function FounderSkillLibrary(): JSX.Element {
                 <span className="text-[10px] font-mono text-[var(--muted-foreground-2)] whitespace-nowrap">{skill.schedule.label}</span>
               </div>
               <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed flex-1">{skill.description}</p>
-              {skill.bridgeCatalogIds.length ? (
-                <p className="text-[10px] text-[var(--muted-foreground-3)]">Via Grok Bot: {skill.bridgeCatalogIds.join(", ")}</p>
+              {skill.integrationCatalogIds.length ? (
+                <p className="text-[10px] text-[var(--muted-foreground-3)]">Integrations: {skill.integrationCatalogIds.join(", ")}</p>
               ) : null}
               {skill.requiresSensitiveApproval ? (
                 <p className="text-[10px] text-[var(--warning-fg)]">Sensitive — Slack post waits for approval.</p>
@@ -105,14 +90,7 @@ export function FounderSkillLibrary(): JSX.Element {
                 >
                   Install draft
                 </button>
-                <button
-                  type="button"
-                  disabled={busyId === `deploy-${skill.id}`}
-                  onClick={() => void deploy(skill.id)}
-                  className="text-[10px] border border-[var(--primary)]/30 text-[var(--primary)] rounded px-2 py-1 disabled:opacity-50"
-                >
-                  Deploy schedule
-                </button>
+
               </div>
             </li>
           ))}

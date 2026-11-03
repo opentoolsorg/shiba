@@ -9,7 +9,6 @@ import {
   type IntegrationDomain,
   type IntegrationProviderCatalogItem,
   type IntegrationProviderHealth,
-  type IntegrationsProviderId,
 } from "@shiba/shared";
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import {
@@ -37,8 +36,8 @@ function kindLabel(kind: IntegrationCatalogEntry["kind"]): string {
       return "Native";
     case "mcp":
       return "Custom MCP";
-    case "grokbot-bridge":
-      return "Grok Bot bridge";
+    case "openconnector":
+      return "open-connector";
     case "webhook":
       return "Webhook";
     default:
@@ -98,7 +97,10 @@ function mergeProviderRows(
   for (const row of native) byKey.set(row.entry?.id ?? row.key, row);
 
   for (const item of providerItems) {
-    const catalogEntry = INTEGRATION_CATALOG.find((e) => e.id === item.providerKey || e.id === item.id);
+    const catalogEntry = INTEGRATION_CATALOG.find((e) =>
+      e.id === item.providerKey || e.id === item.id ||
+      (item.source === "openconnector" && e.openConnectorServiceIds?.length === 1 && e.openConnectorServiceIds[0] === item.providerKey),
+    );
     const connected = item.isConnected || connectedKeys.has(item.providerKey);
     const existing = catalogEntry ? byKey.get(catalogEntry.id) : undefined;
     if (existing) {
@@ -231,9 +233,21 @@ function IntegrationSection({
 export function IntegrationCatalogDirectory({
   bindingInputs,
   onOpenDocs,
+  linkedConnectorKeys,
+  onLinkExisting,
+  linkActionLabel,
+  linkingKey,
+  onConnectStarted,
+  onOAuthComplete,
 }: {
   bindingInputs: IntegrationBindingInputs;
   onOpenDocs?: (entry: IntegrationCatalogEntry) => void;
+  linkedConnectorKeys?: ReadonlySet<string>;
+  onLinkExisting?: (item: IntegrationProviderCatalogItem) => void;
+  linkActionLabel?: string;
+  linkingKey?: string | null;
+  onConnectStarted?: (providerKey: string) => void;
+  onOAuthComplete?: () => void;
 }): JSX.Element {
   const [search, setSearch] = useState("");
   const [domain, setDomain] = useState<IntegrationDomain | "all">("all");
@@ -243,7 +257,6 @@ export function IntegrationCatalogDirectory({
   const [browseOpen, setBrowseOpen] = useState(false);
   const [connectingKey, setConnectingKey] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
-  const [providerId, setProviderId] = useState<IntegrationsProviderId>("composio");
   const [providerHealth, setProviderHealth] = useState<IntegrationProviderHealth | null>(null);
   const [providerItems, setProviderItems] = useState<IntegrationProviderCatalogItem[]>([]);
   const [connectedKeys, setConnectedKeys] = useState<Set<string>>(() => new Set());
@@ -284,8 +297,7 @@ export function IntegrationCatalogDirectory({
         fetch("/api/integrations/provider/connections", { credentials: "same-origin", cache: "no-store" }),
       ]);
       if (metaRes.ok) {
-        const meta = (await metaRes.json()) as { provider?: IntegrationsProviderId; health?: IntegrationProviderHealth };
-        if (meta.provider) setProviderId(meta.provider);
+        const meta = (await metaRes.json()) as { health?: IntegrationProviderHealth };
         if (meta.health) setProviderHealth(meta.health);
       }
       if (connectionsRes.ok) {
@@ -303,27 +315,28 @@ export function IntegrationCatalogDirectory({
   }, [refreshProvider]);
 
   useEffect(() => {
-    const onOAuthComplete = () => {
+    const handleOAuthComplete = () => {
       void refreshProvider();
+      onOAuthComplete?.();
     };
     let channel: BroadcastChannel | null = null;
     try {
       channel = new BroadcastChannel(SHIBA_INTEGRATIONS_OAUTH_CHANNEL);
-      channel.onmessage = onOAuthComplete;
+      channel.onmessage = handleOAuthComplete;
     } catch {
       channel = null;
     }
     const onWindowMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       const data = event.data as { type?: string } | null;
-      if (data?.type === SHIBA_INTEGRATIONS_OAUTH_CHANNEL) onOAuthComplete();
+      if (data?.type === SHIBA_INTEGRATIONS_OAUTH_CHANNEL) handleOAuthComplete();
     };
     window.addEventListener("message", onWindowMessage);
     return () => {
       channel?.close();
       window.removeEventListener("message", onWindowMessage);
     };
-  }, [refreshProvider]);
+  }, [refreshProvider, onOAuthComplete]);
 
   const filteredCatalog = useMemo(() => {
     let entries = searchIntegrationCatalog(INTEGRATION_CATALOG, search);
@@ -360,14 +373,15 @@ export function IntegrationCatalogDirectory({
       }
       const target = new URL(body.redirectUrl);
       if (target.protocol !== "https:") throw new Error("Connect returned an unsafe redirect URL.");
-      window.open(target.href, "shiba-composio-oauth", "width=520,height=720,noopener,noreferrer");
+      onConnectStarted?.(item.providerKey);
+      window.open(target.href, "shiba-integrations-oauth", "width=520,height=720,noopener,noreferrer");
       await refreshProvider();
     } catch (error) {
       setConnectError(error instanceof Error ? error.message : String(error));
     } finally {
       setConnectingKey(null);
     }
-  }, [refreshProvider]);
+  }, [onConnectStarted, refreshProvider]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -375,7 +389,7 @@ export function IntegrationCatalogDirectory({
         {providerHealth?.status === "unconfigured" ? (
           <p className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--muted-foreground-2)]">
             {providerHealth.message ??
-              `Configure Composio (${providerId}) to enable in-app SaaS OAuth. Showing static catalog stubs until COMPOSIO_API_KEY is set.`}
+              "Connect the open-connector service to enable SaaS sign-in. Showing the available catalog until setup is complete."}
           </p>
         ) : null}
         {connectError ? (
@@ -446,13 +460,13 @@ export function IntegrationCatalogDirectory({
               onClick={() => void loadProviderCatalogPage({ reset: false, cursor: catalogCursor })}
               className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--card-hover)] disabled:opacity-50"
             >
-              {catalogLoading ? "Loading…" : "Load more Composio apps"}
+              {catalogLoading ? "Loading…" : "Load more integrations"}
             </button>
           ) : null}
         </div>
         <p className="text-[11px] text-[var(--muted-foreground-2)]">
           {connectedRows.length} connected · {availableRows.length} available · {filteredCatalog.length} of{" "}
-          {INTEGRATION_CATALOG.length} Viktor catalog rows (provider: {providerId}).
+          {INTEGRATION_CATALOG.length} catalog rows.
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
@@ -468,7 +482,7 @@ export function IntegrationCatalogDirectory({
           />
           <IntegrationSection
             title="Available"
-            hint="Catalog entries you can wire next — native setup, MCP OAuth, Grok Bot bridge, or Composio OAuth."
+            hint="Catalog entries you can wire next — native setup or open-connector sign-in."
             rows={availableRows}
             visibleCount={availableVisible}
             onShowMore={() => setAvailableVisible((value) => value + LIST_PAGE_SIZE)}
@@ -482,6 +496,10 @@ export function IntegrationCatalogDirectory({
         onClose={() => setBrowseOpen(false)}
         onConnect={(item) => void beginConnect(item)}
         connectingKey={connectingKey}
+        linkedConnectorKeys={linkedConnectorKeys}
+        onLinkExisting={onLinkExisting}
+        linkActionLabel={linkActionLabel}
+        linkingKey={linkingKey}
       />
     </div>
   );

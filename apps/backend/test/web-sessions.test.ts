@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { SignJWT, exportJWK, generateKeyPair } from "jose";
 
 vi.mock("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
@@ -646,6 +647,33 @@ describe("CodingOrchestrator internal web-sessions handler and teardown", () => 
   });
 });
 
+const ACCESS_AUD = "web-sessions-test-audience";
+const ACCESS_ISSUER = "https://web-sessions-test.cloudflareaccess.com";
+let signAccessIdentity: (email: string) => Promise<string>;
+
+beforeAll(async () => {
+  const { publicKey, privateKey } = await generateKeyPair("RS256");
+  const jwk = { ...(await exportJWK(publicKey)), kid: "web-sessions", alg: "RS256", use: "sig" };
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url === `${ACCESS_ISSUER}/cdn-cgi/access/certs`) return Response.json({ keys: [jwk] });
+    throw new Error(`Unexpected test fetch: ${url}`);
+  });
+  signAccessIdentity = (email) => new SignJWT({ email })
+    .setProtectedHeader({ alg: "RS256", kid: "web-sessions" })
+    .setIssuer(ACCESS_ISSUER)
+    .setAudience(ACCESS_AUD)
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(privateKey);
+});
+
+afterAll(() => vi.unstubAllGlobals());
+
+async function accessHeaders(email: string): Promise<Record<string, string>> {
+  return { "Cf-Access-Jwt-Assertion": await signAccessIdentity(email) };
+}
+
 function makeMockEnv() {
     const sessionMap = new Map<string, WebSessionRecord[]>();
     const runsMap = new Map<string, any[]>();
@@ -653,6 +681,7 @@ function makeMockEnv() {
     const activeRunsMap = new Map<string, number>();
     const orchestratorStubs = new Map<string, any>();
     const teardownCalls: string[] = [];
+    const roomRequests: Array<{ name: string; request: Request }> = [];
 
     const getStub = (name: string) => {
       if (!orchestratorStubs.has(name)) {
@@ -664,6 +693,10 @@ function makeMockEnv() {
                 ? new Request(input, init)
                 : input;
             const url = new URL(req.url);
+
+            if (url.pathname.startsWith("/agents/coding-orchestrator/")) {
+              return Response.json({ target: name });
+            }
 
             if (url.pathname === "/internal/web-sessions") {
               if (req.method === "GET") {
@@ -779,26 +812,92 @@ function makeMockEnv() {
         get: vi.fn((id: unknown) => getStub(String(id))),
         idFromName: vi.fn((name: string) => name),
       },
+      ConversationRoom: {
+        getByName: vi.fn((name: string) => ({
+          fetch: async (request: Request) => {
+            roomRequests.push({ name, request });
+            return Response.json({ routed: true });
+          },
+        })),
+      },
       REQUIRE_ACCESS: "1",
+      ACCESS_AUD,
       ASSETS: { fetch: vi.fn() },
     } as unknown as Env;
 
-    return { env, sessionMap, runsMap, approvalsMap, activeRunsMap, teardownCalls };
+    return { env, sessionMap, runsMap, approvalsMap, activeRunsMap, teardownCalls, roomRequests };
   }
 
 describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agents/", () => {
+
+  it("routes authenticated session room sockets only after the owner and session are verified", async () => {
+    const { env, sessionMap, roomRequests } = makeMockEnv();
+    const owner = "alice@example.com";
+    const session = createWebSession(owner, { name: "Realtime session" });
+    sessionMap.set(owner, [session]);
+    const viewerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const headers = {
+      ...(await accessHeaders(owner)),
+      Upgrade: "websocket",
+      Origin: "https://example.com",
+    };
+
+    const disconnected = await worker.fetch(
+      new Request(`https://example.com/api/sessions/${session.id}/realtime?viewer=${viewerId}`, {
+        headers: { ...headers, Origin: "https://example.com" },
+      }),
+      env,
+    );
+    expect(disconnected?.status).toBe(200);
+    expect(roomRequests).toHaveLength(1);
+    expect(roomRequests[0]?.name).toBe(JSON.stringify([owner, session.id]));
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-owner")).toBe(owner);
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-session")).toBe(session.id);
+    expect(roomRequests[0]?.request.headers.get("x-shiba-room-viewer")).toBe(viewerId);
+
+    const crossOrigin = await worker.fetch(
+      new Request(`https://example.com/api/sessions/${session.id}/realtime?viewer=${viewerId}`, {
+        headers: { ...headers, Origin: "https://attacker.example" },
+      }),
+      env,
+    );
+    expect(crossOrigin?.status).toBe(403);
+    expect(roomRequests).toHaveLength(1);
+
+    const missing = await worker.fetch(
+      new Request(`https://example.com/api/sessions/${mintSessionId()}/realtime?viewer=${viewerId}`, {
+        headers: { ...headers, Origin: "https://example.com" },
+      }),
+      env,
+    );
+    expect(missing?.status).toBe(404);
+    expect(roomRequests).toHaveLength(1);
+
+    const unauthenticated = await worker.fetch(
+      new Request(`https://example.com/api/sessions/${session.id}/realtime?viewer=${viewerId}`, {
+        headers: { Upgrade: "websocket", Origin: "https://example.com" },
+      }),
+      env,
+    );
+    expect(unauthenticated?.status).toBe(401);
+    expect(roomRequests).toHaveLength(1);
+  });
 
   it("enforces Access authentication on /api/sessions", async () => {
     const { env } = makeMockEnv();
     const unauthedReq = new Request("https://example.com/api/sessions");
     const res = await worker.fetch(unauthedReq, env);
     expect(res.status).toBe(401);
+    const forged = await worker.fetch(new Request("https://example.com/api/sessions", {
+      headers: { "CF-Access-Authenticated-User-Email": "attacker@example.com" },
+    }), env);
+    expect(forged.status).toBe(401);
   });
 
   it("returns JSON 404 for unmatched /api/* instead of falling through to assets", async () => {
     const { env } = makeMockEnv();
     const req = new Request("https://example.com/api/no-such-route", {
-      headers: { "CF-Access-Authenticated-User-Email": "tester@example.com" },
+      headers: { ...(await accessHeaders("tester@example.com")) },
     });
     const res = await worker.fetch(req, env);
     expect(res.status).toBe(404);
@@ -814,7 +913,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
     const badReq = new Request("https://example.com/api/sessions", {
       method: "POST",
       headers: {
-        "CF-Access-Authenticated-User-Email": "alice@example.com",
+        ...(await accessHeaders("alice@example.com")),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -829,7 +928,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
     const goodReq = new Request("https://example.com/api/sessions", {
       method: "POST",
       headers: {
-        "CF-Access-Authenticated-User-Email": "alice@example.com",
+        ...(await accessHeaders("alice@example.com")),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -846,7 +945,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
   it("returns 400 for malformed non-empty POST JSON; empty body still creates", async () => {
     const { env } = makeMockEnv();
     const headers = {
-      "CF-Access-Authenticated-User-Email": "alice@example.com",
+      ...(await accessHeaders("alice@example.com")),
       "Content-Type": "application/json",
     };
 
@@ -885,7 +984,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
 
     // GET /api/approvals aggregates both!
     const listReq = new Request("https://example.com/api/approvals", {
-      headers: { "CF-Access-Authenticated-User-Email": alice },
+      headers: { ...(await accessHeaders(alice)) },
     });
     const listRes = await worker.fetch(listReq, env);
     expect(listRes.status).toBe(200);
@@ -896,7 +995,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
     const resolveReq = new Request("https://example.com/api/approvals", {
       method: "POST",
       headers: {
-        "CF-Access-Authenticated-User-Email": alice,
+        ...(await accessHeaders(alice)),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -914,7 +1013,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
     const crossReq = new Request("https://example.com/api/approvals", {
       method: "POST",
       headers: {
-        "CF-Access-Authenticated-User-Email": alice,
+        ...(await accessHeaders(alice)),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -937,14 +1036,14 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
 
     // 1. /api/runs with registered session -> 200
     const reqRunsReal = new Request(`https://example.com/api/runs?session=${registered.id}`, {
-      headers: { "CF-Access-Authenticated-User-Email": alice },
+      headers: { ...(await accessHeaders(alice)) },
     });
     const resRunsReal = await worker.fetch(reqRunsReal, env);
     expect(resRunsReal.status).toBe(200);
 
     // 2. /api/runs with arbitrary unregistered session -> 404
     const reqRunsFake = new Request(`https://example.com/api/runs?session=${arbitraryUuid}`, {
-      headers: { "CF-Access-Authenticated-User-Email": alice },
+      headers: { ...(await accessHeaders(alice)) },
     });
     const resRunsFake = await worker.fetch(reqRunsFake, env);
     expect(resRunsFake.status).toBe(404);
@@ -952,16 +1051,16 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
     // 3. /agents/ route with registered session -> allowed
     const reqAgentReal = new Request(
       `https://example.com/agents/coding-orchestrator/${registered.agentName}`,
-      { headers: { "CF-Access-Authenticated-User-Email": alice } },
+      { headers: { ...(await accessHeaders(alice)) } },
     );
     const resAgentReal = await worker.fetch(reqAgentReal, env);
-    expect(resAgentReal.status).not.toBe(404);
-    expect(resAgentReal.status).not.toBe(403);
+    expect(resAgentReal.status).toBe(200);
+    expect(await resAgentReal.json()).toEqual({ target: registered.agentName });
 
     // 4. /agents/ route with arbitrary unregistered session -> 404
     const reqAgentFake = new Request(
       `https://example.com/agents/coding-orchestrator/web:${alice}:${arbitraryUuid}`,
-      { headers: { "CF-Access-Authenticated-User-Email": alice } },
+      { headers: { ...(await accessHeaders(alice)) } },
     );
     const resAgentFake = await worker.fetch(reqAgentFake, env);
     expect(resAgentFake.status).toBe(404);
@@ -970,7 +1069,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
   it("404 contract: real session-not-found answers JSON {error:'Session not found.'} so clients can tell it apart from a missing-route 404", async () => {
     const { env } = makeMockEnv();
     const alice = "alice@example.com";
-    const headers = { "CF-Access-Authenticated-User-Email": alice };
+    const headers = { ...(await accessHeaders(alice)) };
     const missingId = mintSessionId();
 
     // POST /api/sessions/:id/resume for a deleted/never-created session
@@ -1017,7 +1116,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
     // DELETE without force -> 409 Conflict
     const delNoForce = new Request(`https://example.com/api/sessions/${session.id}`, {
       method: "DELETE",
-      headers: { "CF-Access-Authenticated-User-Email": alice },
+      headers: { ...(await accessHeaders(alice)) },
     });
     const resNoForce = await worker.fetch(delNoForce, env);
     expect(resNoForce.status).toBe(409);
@@ -1026,7 +1125,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
     expect(sessionMap.get(alice)?.length).toBe(1);
     const getAfterConflict = await worker.fetch(
       new Request(`https://example.com/api/sessions/${session.id}`, {
-        headers: { "CF-Access-Authenticated-User-Email": alice },
+        headers: { ...(await accessHeaders(alice)) },
       }),
       env,
     );
@@ -1035,7 +1134,7 @@ describe("Worker End-to-End: /api/sessions, /api/runs, /api/approvals, and /agen
     // DELETE with force=true -> cleans up and succeeds with 200
     const delForce = new Request(`https://example.com/api/sessions/${session.id}?force=true`, {
       method: "DELETE",
-      headers: { "CF-Access-Authenticated-User-Email": alice },
+      headers: { ...(await accessHeaders(alice)) },
     });
     const resForce = await worker.fetch(delForce, env);
     expect(resForce.status).toBe(200);
@@ -1074,7 +1173,7 @@ describe("Forged session records cannot steer Worker trust points", () => {
     const res = await worker.fetch(
       new Request(`https://example.com/api/sessions/${forged.id}?force=true`, {
         method: "DELETE",
-        headers: { "CF-Access-Authenticated-User-Email": alice },
+        headers: { ...(await accessHeaders(alice)) },
       }),
       env,
     );
@@ -1095,7 +1194,7 @@ describe("Forged session records cannot steer Worker trust points", () => {
 
     const res = await worker.fetch(
       new Request("https://example.com/api/approvals", {
-        headers: { "CF-Access-Authenticated-User-Email": alice },
+        headers: { ...(await accessHeaders(alice)) },
       }),
       env,
     );
@@ -1119,7 +1218,7 @@ describe("Forged session records cannot steer Worker trust points", () => {
       new Request("https://example.com/api/approvals", {
         method: "POST",
         headers: {
-          "CF-Access-Authenticated-User-Email": alice,
+          ...(await accessHeaders(alice)),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ threadKey: victim, approvalId: "app-victim", approved: true }),

@@ -44,12 +44,12 @@ function reasonNetworkJson() {
 function providerMetaUnconfigured() {
   return {
     ok: true,
-    provider: "composio",
+    provider: "openconnector",
     health: {
-      provider: "composio",
+      provider: "openconnector",
       status: "unconfigured",
       checkedAt: Date.now(),
-      message: "Set COMPOSIO_API_KEY",
+      message: "Set OPEN_CONNECTOR_ADMIN_TOKEN",
     },
   };
 }
@@ -58,6 +58,7 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
   const reason = reasonNetworkJson();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.startsWith("/api/v1/extensions/skills")) return Response.json([]);
     if (url === "/api/setup/status") return Response.json(setup);
     if (url === "/api/mailboxes") return Response.json({ mailboxes: [{ address: "ops@example.test" }] });
     if (url === "/api/connections/gmail") return Response.json({ configured: false, connection: null, grants: [] });
@@ -65,10 +66,10 @@ function stubIntegrationsFetch(setup = defaultSetup()) {
     if (url === "/api/v1/mcp/catalog-connections") return Response.json({ ok: true, connections: [] });
     if (url === "/api/integrations/provider/meta") return Response.json(providerMetaUnconfigured());
     if (url.startsWith("/api/integrations/provider/catalog")) {
-      return Response.json({ ok: true, provider: "composio", items: [], nextCursor: null, hasMore: false, fallbackCatalog: true });
+      return Response.json({ ok: true, provider: "openconnector", items: [], nextCursor: null, hasMore: false, fallbackCatalog: true });
     }
     if (url === "/api/integrations/provider/connections") {
-      return Response.json({ ok: true, provider: "composio", connections: [] });
+      return Response.json({ ok: true, provider: "openconnector", connections: [] });
     }
     if (url.endsWith("/api/reason-network/status")) return Response.json(reason.status);
     if (url.endsWith("/api/reason-network/grants") && (init?.method ?? "GET") === "GET") {
@@ -95,7 +96,7 @@ describe("IntegrationsView Viktor catalog", () => {
     render(<IntegrationsView />);
     expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Available" })).toBeTruthy();
-    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} Viktor catalog rows`))).toBeTruthy();
+    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} catalog rows`))).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     expect(await screen.findByTestId("integration-catalog-row-hubspot")).toBeTruthy();
@@ -118,8 +119,8 @@ describe("IntegrationsView Viktor catalog", () => {
     expect(githubRow.textContent).toMatch(/Connected/);
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     const hubspotRow = await screen.findByTestId("integration-catalog-row-hubspot");
-    expect(hubspotRow.textContent).toMatch(/Available|Catalog|Grok/i);
-    expect(screen.getByText(/COMPOSIO_API_KEY/i)).toBeTruthy();
+    expect(hubspotRow.textContent).toMatch(/Available|Catalog/i);
+    expect(screen.getByText(/OPEN_CONNECTOR_ADMIN_TOKEN/i)).toBeTruthy();
   });
 
   it("preserves setup detail panels behind Show setup details", async () => {
@@ -261,5 +262,29 @@ describe("IntegrationsView capability catalog", () => {
     expect(await screen.findByText(/Provider state may be stale/)).toBeTruthy();
     expect(screen.getAllByText("Test stale").length).toBeGreaterThan(0);
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith("/api/providers")).every(([, init]) => init?.cache === "no-store")).toBe(true);
+  });
+
+  it("switches between Skills, MCP servers, and Connectors tabs", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    expect(await screen.findByRole("tab", { name: "Connectors" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Skills" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "MCP servers" })).toBeTruthy();
+
+    // Switch to Skills tab
+    fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
+    expect(await screen.findByRole("tablist", { name: "Skill scope" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Run-attached skills" }));
+    expect(await screen.findByRole("heading", { name: "Skill library" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workspace skills" }));
+    expect(await screen.findByRole("tablist", { name: "Skill scope" })).toBeTruthy();
+
+    // Switch to MCP servers tab
+    fireEvent.click(screen.getByRole("tab", { name: "MCP servers" }));
+    expect(await screen.findByLabelText("Search servers")).toBeTruthy();
+
+    // Switch back to Connectors tab
+    fireEvent.click(screen.getByRole("tab", { name: "Connectors" }));
+    expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
   });
 });

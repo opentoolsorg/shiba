@@ -1,3 +1,4 @@
+import { CheckCheck, Search } from "lucide-react";
 import { type JSX, useMemo, useState } from "react";
 import type { StoredApproval } from "../types";
 import type { PendingApproval } from "../ui-helpers";
@@ -5,7 +6,6 @@ import { ApprovalCard } from "./ApprovalCard";
 import { AuditPanel } from "./AuditPanel";
 import { HarnessSessionPanel } from "./HarnessSessionPanel";
 import { LoadErrorState } from "./LoadErrorState";
-import { EmptyState, PageHeader } from "./surface";
 import { DecidedApprovalRow, StoredApprovalCard } from "./WorkspacePanel";
 
 export interface ApprovalsViewProps {
@@ -20,174 +20,77 @@ export interface ApprovalsViewProps {
   orchestratorName?: string | null;
   onRefresh?: () => void;
   reviewAfterPublishById?: Record<string, boolean>;
-  /** Poll the live Codex/Claude session. Off unless the shell is showing this page for real. */
+  /** Poll the live session only when this page is active. */
   liveHarness?: boolean;
 }
 
 type OutcomeFilter = "all" | "approved" | "rejected" | "executed";
 
 export function ApprovalsView({
-  pendingApprovals,
-  decisions,
-  onDecideApproval,
-  storedApprovals,
-  storedDecisions,
-  decidedStoredApprovals,
-  storedApprovalsError,
-  onDecideStoredApproval,
-  orchestratorName,
-  onRefresh,
-  reviewAfterPublishById,
-  liveHarness = false,
+  pendingApprovals, decisions, onDecideApproval, storedApprovals, storedDecisions,
+  decidedStoredApprovals, storedApprovalsError, onDecideStoredApproval,
+  orchestratorName, onRefresh, reviewAfterPublishById, liveHarness = false,
 }: ApprovalsViewProps): JSX.Element {
   const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("all");
-  const totalPending = pendingApprovals.length + storedApprovals.length;
-
-  const filteredDecided = useMemo(() => {
-    if (outcomeFilter === "all") return decidedStoredApprovals;
-    return decidedStoredApprovals.filter((a) => {
-      if (outcomeFilter === "rejected") return a.status === "rejected";
-      if (outcomeFilter === "executed") return a.execution?.status === "executed";
-      if (outcomeFilter === "approved") {
-        return a.status === "approved" && a.execution?.status !== "failed";
-      }
-      return true;
-    });
-  }, [decidedStoredApprovals, outcomeFilter]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const totalPending = pendingApprovals.filter((a) => decisions[a.approvalId] === undefined).length
+    + storedApprovals.filter((a) => storedDecisions[a.approvalId] === undefined).length;
+  const matches = (value: unknown) => JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
+  const filteredDecided = useMemo(() => decidedStoredApprovals.filter((a) => {
+    if (outcomeFilter === "rejected") return a.status === "rejected";
+    if (outcomeFilter === "executed") return a.execution?.status === "executed";
+    if (outcomeFilter === "approved") return a.status === "approved" && a.execution?.status !== "failed";
+    return true;
+  }), [decidedStoredApprovals, outcomeFilter]);
+  const visiblePending = pendingApprovals.filter(matches);
+  const visibleStored = storedApprovals.filter(matches);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <PageHeader
-        title="Approvals"
-        detail="Sandbox runs and outbound messages wait here until you approve them."
-      >
-        <span
-          className={
-            totalPending > 0
-              ? "text-xs font-mono font-bold px-2 py-0.5 border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)] text-[var(--warning-fg)]"
-              : "text-xs font-mono px-2 py-0.5 bg-[color-mix(in_oklch,var(--success)_12%,transparent)] text-[var(--success)] border border-[color-mix(in_oklch,var(--success)_30%,transparent)]"
-          }
-        >
-          {totalPending > 0 ? `${totalPending} waiting` : "0 waiting"}
-        </span>
-        {onRefresh ? (
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="text-xs font-medium text-[var(--fg)] bg-[var(--card)] hover:bg-[var(--secondary)] border border-[var(--border-1)] px-3 py-1.5 transition-colors"
-          >
-            Refresh
-          </button>
-        ) : null}
-      </PageHeader>
-
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-4 lg:p-8">
-        <div className="max-w-6xl mx-auto flex flex-col gap-6">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-2 border-b border-[var(--border-1)] bg-[var(--chrome)] min-h-14 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--muted-foreground-2)]">
+          <span>Personal</span><span aria-hidden="true">&gt;</span>
+          <h1 className="font-sans font-medium text-[var(--fg)]">Approvals</h1><span aria-hidden="true">&gt;</span>
+          <span>Inbox</span><span className="rounded-full bg-[var(--section)] px-2 py-1 text-xs">{totalPending} open</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {searchOpen ? <input type="search" aria-label="Search approvals" placeholder="Search approvals…" value={query} onChange={(e) => setQuery(e.target.value)} className="min-h-11 w-40 sm:w-56 rounded-lg border border-[var(--border-1)] bg-[var(--input)] px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]" /> : null}
+          <button type="button" aria-label={searchOpen ? "Close approval search" : "Search approvals"} aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); setQuery(""); }} className="size-11 rounded-lg flex items-center justify-center text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"><Search className="size-4" aria-hidden="true" /></button>
+          {onRefresh ? <button type="button" onClick={onRefresh} className="min-h-11 rounded-lg bg-[var(--secondary)] px-3 text-sm font-medium hover:bg-[var(--secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Refresh</button> : null}
+        </div>
+      </header>
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+        <div className="flex flex-col gap-5">
           <HarnessSessionPanel enabled={liveHarness} />
-          {storedApprovalsError !== null ? (
-            <LoadErrorState
-              message={`Approval queue: ${storedApprovalsError}`}
-              onRetry={onRefresh ?? (() => {})}
-            />
-          ) : null}
-
-          {/* Section 1: Pending Approvals */}
-          <section aria-labelledby="pending-approvals-heading" className="flex flex-col gap-3">
-            <div className="flex items-center justify-between pb-1 border-b border-[var(--border-1)]">
-              <h3
-                id="pending-approvals-heading"
-                className="text-sm font-semibold text-[var(--fg)] flex items-center gap-2"
-              >
-                <span>Waiting</span>
-                {totalPending > 0 ? (
-                  <span className="size-2 rounded-full bg-[var(--warning-fg)]" aria-hidden="true" />
-                ) : null}
-              </h3>
-              <span className="text-xs font-mono text-[var(--muted-foreground-2)]">
-                {totalPending} item{totalPending === 1 ? "" : "s"}
-              </span>
-            </div>
-
-            {totalPending === 0 ? (
-              <EmptyState
-                title="Nothing waiting"
-                detail="New runs and outbound messages pause here until you approve them."
-              />
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Chat Tool Approvals */}
-                {pendingApprovals.map((approval) => (
-                  <ApprovalCard
-                    key={approval.approvalId}
-                    approval={approval}
-                    decided={decisions[approval.approvalId] !== undefined}
-                    decision={decisions[approval.approvalId]}
-                    onDecideApproval={onDecideApproval}
-                    agentName={orchestratorName ?? undefined}
-                    reviewAfterPublish={reviewAfterPublishById?.[approval.approvalId]}
-                  />
-                ))}
-
-                {/* Stored DO Approvals */}
-                {storedApprovals.map((approval) => (
-                  <StoredApprovalCard
-                    key={approval.approvalId}
-                    approval={approval}
-                    decided={storedDecisions[approval.approvalId] !== undefined}
-                    decision={storedDecisions[approval.approvalId]}
-                    onDecide={onDecideStoredApproval}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Section 2: Recent Decided Outcomes */}
-          {decidedStoredApprovals.length > 0 ? (
-            <section aria-labelledby="recent-outcomes-heading" className="flex flex-col gap-3">
-              <div className="flex items-center justify-between pb-1 border-b border-[var(--border-1)] flex-wrap gap-2">
-                <h3 id="recent-outcomes-heading" className="text-sm font-semibold text-[var(--fg)]">
-                  Decided
-                </h3>
-                <div className="flex items-center gap-1 font-mono text-[11px]">
-                  {(["all", "approved", "rejected", "executed"] as OutcomeFilter[]).map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => setOutcomeFilter(f)}
-                      aria-pressed={outcomeFilter === f}
-                      className={`px-2.5 py-1 border transition-colors capitalize ${
-                        outcomeFilter === f
-                          ? "border-[var(--primary)] bg-[var(--primary)] text-white font-bold"
-                          : "border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
-                      }`}
-                    >
-                      {f}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {filteredDecided.length === 0 ? (
-                <p className="border border-dashed border-[var(--border-1)] bg-[var(--card)] px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
-                  No decided actions match the “{outcomeFilter}” filter.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {filteredDecided.map((approval) => (
-                    <DecidedApprovalRow key={approval.approvalId} approval={approval} />
-                  ))}
+          {storedApprovalsError !== null ? <LoadErrorState message={`Approval queue: ${storedApprovalsError}`} onRetry={onRefresh ?? (() => {})} /> : null}
+          <section aria-labelledby="pending-approvals-heading">
+            <details open className="group">
+              <summary className="min-h-11 cursor-pointer rounded-lg px-2 text-sm text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
+                <h2 id="pending-approvals-heading" className="inline-flex items-center gap-2 py-3 font-sans font-medium"><span aria-hidden="true" className="size-2 rounded-full border-2 border-[var(--warning-fg)]" />Needs approval<span className="text-xs text-[var(--muted-foreground-2)]">{totalPending}</span></h2>
+              </summary>
+              {pendingApprovals.length + storedApprovals.length === 0 && storedApprovalsError !== null ? null : pendingApprovals.length + storedApprovals.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-20 text-[var(--muted-foreground-2)]"><CheckCheck aria-hidden="true" className="size-6" /><p className="text-sm">Nothing needs you</p></div>
+              ) : visiblePending.length + visibleStored.length === 0 ? <p className="py-12 text-center text-sm text-[var(--muted-foreground-2)]">No matching approvals</p> : (
+                <div className="flex flex-col divide-y divide-[var(--border-1)] border-y border-[var(--border-1)]">
+                  {visiblePending.map((approval) => <ApprovalCard key={approval.approvalId} approval={approval} decided={decisions[approval.approvalId] !== undefined} decision={decisions[approval.approvalId]} onDecideApproval={onDecideApproval} agentName={orchestratorName ?? undefined} reviewAfterPublish={reviewAfterPublishById?.[approval.approvalId]} />)}
+                  {visibleStored.map((approval) => <StoredApprovalCard key={approval.approvalId} approval={approval} decided={storedDecisions[approval.approvalId] !== undefined} decision={storedDecisions[approval.approvalId]} onDecide={onDecideStoredApproval} />)}
                 </div>
               )}
+            </details>
+          </section>
+          {decidedStoredApprovals.length > 0 ? (
+            <section aria-labelledby="recent-outcomes-heading">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] pb-2">
+                <h2 id="recent-outcomes-heading" className="text-sm font-medium">Decided <span className="ml-2 text-xs text-[var(--muted-foreground-2)]">{decidedStoredApprovals.length}</span></h2>
+                <div className="flex flex-wrap items-center gap-1 rounded-[10px] bg-[var(--section)] p-1">
+                  {(["all", "approved", "rejected", "executed"] as OutcomeFilter[]).map((f) => <button key={f} type="button" onClick={() => setOutcomeFilter(f)} aria-pressed={outcomeFilter === f} className={`min-h-11 rounded-lg px-3 text-xs capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${outcomeFilter === f ? "bg-[var(--card)] text-[var(--fg)] shadow-sm" : "text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}>{f}</button>)}
+                </div>
+              </div>
+              {filteredDecided.filter(matches).length === 0 ? <p className="px-4 py-12 text-center text-sm text-[var(--muted-foreground-2)]">No decided actions match the “{outcomeFilter}” filter.</p> : <div className="divide-y divide-[var(--border-1)]">{filteredDecided.filter(matches).map((approval) => <DecidedApprovalRow key={approval.approvalId} approval={approval} />)}</div>}
             </section>
           ) : null}
-
-          <section aria-label="Audit log" className="flex flex-col gap-3">
-            <div className="bg-[var(--card)] border border-[var(--border-1)] p-4 shadow-[var(--sh-card)]">
-              <AuditPanel />
-            </div>
-          </section>
+          <section aria-label="Audit log" className="border-t border-[var(--border-1)] pt-4"><AuditPanel /></section>
         </div>
       </div>
     </div>

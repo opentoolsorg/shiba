@@ -5,6 +5,8 @@
  * track (token counts, USD cost) is an honest empty state, never fabricated.
  */
 import { useMemo, type JSX } from "react";
+import { Plus } from "lucide-react";
+import { ViewEmpty, ViewGroup, ViewHeader, viewButtonClass } from "./ui/ViewChrome";
 import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
 import { ToneChip } from "./ToneChip";
@@ -45,8 +47,8 @@ function formatDuration(ms: number): string {
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub: string }): JSX.Element {
   return (
-    <div className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)]">
-      <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">{label}</p>
+    <div className="border-b border-[var(--border-1)] bg-[var(--bg)] px-4 py-4">
+      <p className="text-xs font-medium text-[var(--muted-foreground-2)]">{label}</p>
       <p className="mt-1.5 font-sans text-xl text-[var(--fg)]">{value}</p>
       <p className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">{sub}</p>
     </div>
@@ -67,17 +69,15 @@ function BreakdownCard({
 }): JSX.Element {
   const max = Math.max(1, ...rows.map((row) => row.count));
   return (
-    <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
-      <header className="border-b border-[var(--border-1)] px-4 py-2.5">
-        <h3 className="text-xs font-semibold text-[var(--fg)]">{title}</h3>
-        <p className="text-[11px] text-[var(--muted-foreground-2)]">{hint}</p>
-      </header>
+    <section className="border-b border-[var(--border-1)] bg-[var(--bg)]">
+      <ViewGroup title={title} count={rows.reduce((sum, row) => sum + row.count, 0)}>
+      <p className="px-3 pb-3 text-xs text-[var(--muted-foreground-2)]">{hint}</p>
       {rows.length === 0 ? (
-        <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">{empty}</div>
+        <ViewEmpty>{empty}</ViewEmpty>
       ) : (
         <div className="flex flex-col gap-2 px-4 py-3">
           {rows.map((row) => (
-            <div key={row.label} className="flex items-center gap-3">
+            <div key={row.label} className="flex min-h-11 items-center gap-3 border-b border-[var(--border-1)]">
               <span className="w-36 shrink-0 truncate font-mono text-[11px] text-[var(--fg)]" title={row.label}>
                 {row.label}
               </span>
@@ -92,6 +92,7 @@ function BreakdownCard({
           ))}
         </div>
       )}
+      </ViewGroup>
     </section>
   );
 }
@@ -161,22 +162,15 @@ export function AnalyticsView({
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
-            <span>Analytics</span>
-          </h2>
-          <p className="text-xs text-[var(--muted-foreground-2)]">
-            Usage and outcomes across the retained run registry — computed from what runs actually record.
-          </p>
-        </div>
-      </div>
+      <ViewHeader section="Analytics" view="Overview" count={`${runs.length} runs`}>
+        {onNavigate ? <button type="button" onClick={() => onNavigate("tasks")} className={viewButtonClass}><Plus aria-hidden="true" className="size-4" />New task</button> : null}
+      </ViewHeader>
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {error ? <LoadErrorState message={error} onRetry={() => window.location.reload()} /> : null}
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-            <MetricCard label="Total runs" value={String(stats.total)} sub="Retained registry records" />
+            <MetricCard label="Total runs" value={String(stats.total)} sub="Retained runs" />
             <MetricCard
               label="Completed"
               value={String(stats.completed)}
@@ -191,41 +185,41 @@ export function AnalyticsView({
             <MetricCard
               label="Avg duration"
               value={stats.avgDurationMs !== null ? formatDuration(stats.avgDurationMs) : "—"}
-              sub="Terminal runs, updatedAt − createdAt"
+              sub="Finished runs only"
             />
-            <MetricCard label="PRs opened" value={String(stats.prs)} sub="Runs carrying a pullUrl" />
+            <MetricCard label="PRs opened" value={String(stats.prs)} sub="Runs with a PR link" />
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <BreakdownCard
               title="Runs by harness"
-              hint="run.route.harness — absent on records predating route freezing"
+              hint="Recorded harness; older runs may not include one"
               rows={byHarness}
-              empty="No runs recorded."
+              empty="No runs yet"
             />
             <BreakdownCard
               title="Runs by model"
-              hint="run.route.modelId — the frozen, approval-gated route"
+              hint="Model selected at approval"
               rows={byModel}
-              empty="No runs recorded."
+              empty="No runs yet"
             />
             <BreakdownCard
               title="Runtime"
-              hint="sandbox vs local (T51) dispatch"
+              hint="Sandbox and local runs"
               rows={byRuntime}
-              empty="No runs recorded."
+              empty="No runs yet"
             />
             <BreakdownCard
               title="Top repositories"
               hint="By run count across the registry"
               rows={byRepo}
-              empty="No runs recorded."
+              empty="No runs yet"
             />
           </div>
 
           <UsageSection sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
 
-          <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
+          <section className="border-b border-[var(--border-1)] bg-[var(--bg)]">
             <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5">
               <div>
                 <h3 className="text-xs font-semibold text-[var(--fg)]">Runs</h3>
@@ -239,14 +233,14 @@ export function AnalyticsView({
             </header>
             {tableRuns.length === 0 ? (
               <div className="px-4 py-10 text-center">
-                <p className="text-sm text-[var(--muted-foreground-2)]">No runs yet — nothing to measure.</p>
+                <ViewEmpty>No runs yet</ViewEmpty>
                 {onNavigate ? (
                   <button
                     type="button"
                     onClick={() => onNavigate("tasks")}
-                    className="mt-3 text-[13px] font-semibold text-[var(--primary)] transition-colors hover:text-[var(--primary)]"
+                    className={viewButtonClass}
                   >
-                    Delegate your first task →
+                    New task
                   </button>
                 ) : null}
               </div>
@@ -254,7 +248,7 @@ export function AnalyticsView({
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-[var(--border-1)] text-[10px] font-mono uppercase tracking-[0.1em] text-[var(--muted-foreground-2)]">
+                    <tr className="border-b border-[var(--border-1)] text-xs font-medium text-[var(--muted-foreground-2)]">
                       <th className="px-4 py-2 font-semibold">Run</th>
                       <th className="px-4 py-2 font-semibold">Repository</th>
                       <th className="px-4 py-2 font-semibold">Status</th>
@@ -270,7 +264,7 @@ export function AnalyticsView({
                     {tableRuns.map((run) => {
                       const duration = runDurationMs(run);
                       return (
-                        <tr key={run.runId} className="border-b border-[var(--border-1)] last:border-b-0">
+                        <tr key={run.runId} className="h-11 border-b border-[var(--border-1)] last:border-b-0 hover:bg-[var(--card-hover)]">
                           <td className="px-4 py-2">
                             <div className="font-mono text-[11px] text-[var(--fg)]">{run.runId.slice(0, 8)}</div>
                             <div className="max-w-56 truncate text-[11px] text-[var(--muted-foreground-2)]" title={run.task}>
@@ -298,9 +292,9 @@ export function AnalyticsView({
                                 href={run.pullUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="font-mono text-[11px] font-medium text-[var(--primary)] hover:text-[var(--primary)]"
+                                className="inline-flex min-h-11 items-center rounded px-2 text-xs font-medium text-[var(--fg)] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
                               >
-                                open →
+                                Open PR
                               </a>
                             ) : (
                               <span className="font-mono text-[11px] text-[var(--muted-foreground-2)]">—</span>
@@ -392,21 +386,21 @@ function UsageSection({
 }): JSX.Element {
   const usage = useUsageReport(sessionId, sessionApiAvailable);
   return (
-    <section className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]">
+    <section className="border-b border-[var(--border-1)] bg-[var(--bg)]">
       <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2.5">
         <div>
           <h3 className="text-xs font-semibold text-[var(--fg)]">Token usage &amp; budget</h3>
           <p className="text-[11px] text-[var(--muted-foreground-2)]">
-            Daily harness-reported usage — UTC buckets over the retained run store.
+            Harness-reported usage by day, in UTC.
           </p>
         </div>
         {usage.state.kind === "data" || usage.state.kind === "error" ? (
           <button
             type="button"
             onClick={usage.reload}
-            className="text-[11px] font-mono font-medium text-[var(--primary)] transition-colors hover:text-[var(--primary)]"
+            className={viewButtonClass}
           >
-            Refresh →
+            Refresh
           </button>
         ) : null}
       </header>
@@ -440,12 +434,7 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
 
   if (report.days.length === 0) {
     return (
-      <div className="px-4 py-6 text-center">
-        <p className="text-xs text-[var(--muted-foreground-2)]">
-          No retained run has reported token usage yet. opencode, claude-code, and codex streams carry it;
-          devin, grok, cursor, and antigravity runs don&apos;t — their runs keep contributing only run counts.
-        </p>
-      </div>
+      <ViewEmpty>No token usage reported yet</ViewEmpty>
     );
   }
 
@@ -495,7 +484,7 @@ function UsageReportBody({ report }: { report: UsageReportWire }): JSX.Element {
       ) : null}
 
       <div>
-        <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+        <p className="text-xs font-medium text-[var(--muted-foreground-2)]">
           Per harness · last 7 days
         </p>
         <div className="mt-2 flex flex-col gap-2">

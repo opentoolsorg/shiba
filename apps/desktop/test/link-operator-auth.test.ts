@@ -26,7 +26,7 @@ describe("copyOperatorAuth", () => {
     expect(copied).toEqual([".codex/auth.json"]);
     const copy = join(runHome, ".codex", "auth.json");
     expect(lstatSync(copy).isSymbolicLink()).toBe(false);
-    expect(lstatSync(copy).mode & 0o777).toBe(0o444);
+    expect(lstatSync(copy).mode & 0o777).toBe(0o400);
     expect(readFileSync(copy, "utf8")).toBe('{"token":"original"}\n');
     expect(readFileSync(join(runHome, ".claude", ".credentials.json"), "utf8")).toBe("envelope\n");
   });

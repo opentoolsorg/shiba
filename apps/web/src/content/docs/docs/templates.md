@@ -16,7 +16,3 @@ The TypeScript registry and validator live in `packages/shared/src/agent-templat
 ## Use, copy, and import
 
 Open **Bots → Template catalog**. Browse official packs by category or choose **My** to see saved workspace bots as reusable packs. **Use** creates the bot through Shiba's existing custom-agent API. **Copy pack** copies JSON metadata plus an `INSTRUCTIONS.md` Markdown section. To import one, expand **Paste import**, paste the combined pack, and create the bot. Review its instructions before starting a task.
-
-## Grok Bot Marketplace export
-
-The pack format keeps instructions and skills portable for a future Grok Bot export. For a later listing, prepare a scrubbed bot share payload with xAI's `CreateBotShareJson` / export-bot-template flow, review included instructions, skills, routines, and plugins, then submit it as a Public template at <https://x.ai/bot/marketplace>. Publishing is a separate action and is not performed by Shiba in this release. Bot templates are distinct from xAI's plugin submission flow.

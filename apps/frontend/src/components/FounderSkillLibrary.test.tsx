@@ -23,7 +23,7 @@ describe("FounderSkillLibrary", () => {
             description: "Daily MRR",
             author: "Shiba",
             schedule: { label: "Daily", cron: "0 8 * * *", timezone: "UTC" },
-            bridgeCatalogIds: ["stripe"],
+            integrationCatalogIds: ["stripe"],
             requiresSensitiveApproval: false,
           }],
         });

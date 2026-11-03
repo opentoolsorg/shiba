@@ -1,6 +1,6 @@
 /* Shiba paper-OS theme — tryshiba.dev design tokens on the shell IA.
-   Dark charcoal paper (#191a18), periwinkle accent (#9cbce2), system UI
-   typography, square corners, hard offset shadows. */
+   Dark charcoal paper (#191a18), periwinkle accent (#9cbce2), Geist +
+   Instrument Serif + Geist Mono, soft radii, soft shadows (Overlay-style shell). */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,23 +8,23 @@
 :root {
   color-scheme: light;
   /* Canonical names from design.md. The aliases below reference these. */
-  --paper: #f6f4ed;
+  --paper: #fafaf9;
   --ink: #222320;
   --ink-2: #6a6f63;
-  --line: #e0ded5;
+  --line: #e8e8e5;
   --navy: #0000a8;
   --paper-dot: #24272919;
-  --paper-shadow: #2527261c;
+  --paper-shadow: #0000000f;
   --bg: var(--paper);
   --chrome: var(--bg);
-  --panel: #f1efe6;
-  --card: #fffef8;
-  --card-hover: #f1efe6;
-  --popover: #fffef8;
+  --panel: #f4f4f2;
+  --card: #ffffff;
+  --card-hover: #f4f4f2;
+  --popover: #ffffff;
   --popover-hover: oklch(0% 0 0/.04);
-  --input: #fffef8;
-  --button: #fffef8;
-  --button-hover: #f1efe6;
+  --input: #ffffff;
+  --button: #ffffff;
+  --button-hover: #f4f4f2;
   --inverse: var(--fg);
   --inverse-hover: color-mix(in oklch, var(--fg) 88%, var(--bg));
   --inverse-text: var(--bg);
@@ -82,32 +82,32 @@
   --chart-7: oklch(56% .17 330);
   --chart-8: oklch(67% .12 220);
   --chart-other: var(--muted-foreground-3);
-  --sh-plate: 1px 1px 0 var(--paper-shadow);
+  --sh-plate: 0 1px 1px var(--paper-shadow);
   --highlight-top: transparent;
   --card-hairline: transparent;
-  --sh-card: 2px 2px 0 var(--paper-shadow);
-  --sh-overlay: 3px 3px 0 var(--paper-shadow);
-  --sh-composer: 3px 3px 0 var(--paper-shadow);
-  --sh-sheet: 4px 4px 0 var(--paper-shadow);
+  --sh-card: 0 1px 2px var(--paper-shadow);
+  --sh-overlay: 0 4px 16px var(--paper-shadow);
+  --sh-composer: 0 2px 8px var(--paper-shadow);
+  --sh-sheet: 0 8px 24px var(--paper-shadow);
   --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
 
   /* Radii — paper-OS: square corners everywhere */
-  --radius-xs: 0;
-  --radius-sm: 0;
-  --radius-md: 0;
-  --radius-lg: 0;
-  --radius: 0;
-  --radius-inner: 0;
-  --radius-button: 0;
-  --radius-kbd: 0;
-  --radius-card: 0;
-  --radius-overlay: 0;
-  --radius-panel: 0;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius: 8px;
+  --radius-inner: 6px;
+  --radius-button: 8px;
+  --radius-kbd: 4px;
+  --radius-card: 10px;
+  --radius-overlay: 12px;
+  --radius-panel: 10px;
 
   /* Typography & fonts */
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  --font-display: Georgia, "Times New Roman", serif;
+  --font-sans: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  --font-display: 'Instrument Serif', Georgia, serif;
   --font-body: var(--font-sans);
 
   /* Focus & motion */
@@ -189,11 +189,11 @@
   --chart-7: oklch(57.5% .16 330);
   --chart-8: oklch(66.5% .12 220);
   --chart-other: var(--muted-foreground-3);
-  --sh-plate: 1px 1px 0 var(--paper-shadow);
-  --sh-card: 2px 2px 0 var(--paper-shadow);
-  --sh-overlay: 3px 3px 0 var(--paper-shadow);
-  --sh-composer: 3px 3px 0 var(--paper-shadow);
-  --sh-sheet: 4px 4px 0 var(--paper-shadow);
+  --sh-plate: 0 1px 1px var(--paper-shadow);
+  --sh-card: 0 1px 2px var(--paper-shadow);
+  --sh-overlay: 0 4px 16px var(--paper-shadow);
+  --sh-composer: 0 2px 8px var(--paper-shadow);
+  --sh-sheet: 0 8px 24px var(--paper-shadow);
   --highlight-top: transparent;
   --card-hairline: transparent;
   --gradient-panel-air: linear-gradient(180deg in oklab, var(--panel) 0%, var(--bg) 100%);
@@ -359,4 +359,34 @@ select:focus-visible,
 
 .animate-enter-x {
   animation: enter-slide-x var(--dur-fast) var(--ease-out) both;
+}
+
+.employee-directory :is(button, input, select) {
+  min-height: 44px;
+}
+
+.employee-directory button {
+  border-radius: var(--radius-button);
+}
+
+.employee-directory button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.employee-directory label {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.employee-directory form {
+  border-radius: var(--radius-card);
+  gap: 16px;
+}
+
+.employee-directory :is(input, select, textarea) {
+  font-size: 14px;
 }

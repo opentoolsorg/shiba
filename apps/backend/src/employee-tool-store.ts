@@ -1,3 +1,4 @@
+import { isEmployeeToolName } from "./employee-tool-policy.js";
 import { randomHex } from "./mailbox-store.js";
 import type { AuditEnv } from "./audit.js";
 import { initAudit } from "./audit.js";
@@ -226,7 +227,7 @@ export async function replaceEmployeeToolGrants(
       .bind(input.orgId, input.employeeId, input.orgId, input.actorId, input.role),
   ];
   for (const capabilityId of capabilityIds) {
-    if (!/^mcp:shiba:[a-z][a-z0-9_]{0,63}$/.test(capabilityId)) throw new Error("Unsupported employee capability id.");
+    if ((!capabilityId.startsWith("mcp:shiba:") || !isEmployeeToolName(capabilityId.slice("mcp:shiba:".length)))) throw new Error("Unsupported employee capability id.");
     const resources = input.resourcesByCapability[capabilityId];
     if (!Array.isArray(resources) || resources.length < 1 || resources.length > 100) throw new Error("At least one bounded resource grant is required for every capability.");
     for (const resourceId of [...new Set(resources)]) {

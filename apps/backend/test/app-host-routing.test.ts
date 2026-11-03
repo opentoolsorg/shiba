@@ -26,7 +26,7 @@ const get = (path: string) => worker.fetch(new Request(`https://app.tryshiba.dev
 
 describe("app host routing", () => {
   it("serves the dashboard shell for root view paths, signed out", async () => {
-    for (const path of ["/", "/dashboard/", "/skills", "/settings/"]) {
+    for (const path of ["/", "/work", "/work/", "/dashboard/", "/skills", "/settings/"]) {
       const res = await get(path);
       expect(res.status, path).toBe(200);
       expect(await res.text(), path).toBe("/app/");

@@ -8,7 +8,6 @@
  */
 import { z } from "zod";
 import { expectedDeliverablesSchema } from "./deliverables.js";
-import { grokbotBridgeExecutionTargetSchema } from "./grokbot-bridge.js";
 
 const boundedId = z.string().min(1).max(128);
 
@@ -39,7 +38,6 @@ export const executionTargetSchema = z.discriminatedUnion("kind", [
   repositoryExecutionTargetSchema,
   artifactWorkspaceExecutionTargetSchema,
   connectedAppExecutionTargetSchema,
-  grokbotBridgeExecutionTargetSchema,
 ]);
 
 export type RepositoryExecutionTarget = z.infer<typeof repositoryExecutionTargetSchema>;

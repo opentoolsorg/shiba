@@ -37,4 +37,21 @@ describe("AgentTemplatesCatalog", () => {
     fireEvent.click(useButton);
     await waitFor(() => expect(onUse).toHaveBeenCalledWith(AGENT_TEMPLATES[0]));
   });
+
+  it.each(["denied", "unavailable"])("reports a copy error when clipboard access is %s", async (access) => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: access === "denied"
+        ? { writeText: vi.fn().mockRejectedValue(new DOMException("Permission denied", "NotAllowedError")) }
+        : undefined,
+    });
+    render(<AgentTemplatesCatalog onUse={async () => undefined} />);
+    const copyButton = screen.getAllByRole("button", { name: "Copy pack" })[0];
+    if (!copyButton) throw new Error("Expected a copy action.");
+
+    fireEvent.click(copyButton);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Could not copy this pack. Check clipboard access and try again.");
+    expect(screen.queryByText(/pack copied\./)).not.toBeInTheDocument();
+  });
 });

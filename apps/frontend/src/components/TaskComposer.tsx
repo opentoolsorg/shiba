@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
+import { AgentConversationEmpty } from "./AgentExperience";
 import type { SavedSkill } from "../saved";
 import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
 import { hasComposerInput, parseArtifactDeliverables } from "../execution-target-input";
@@ -154,6 +155,8 @@ export interface TaskComposerProps {
   onCustomAgentChange?: (id: string) => void;
   /** "docked" = compact bar under the timeline; "hero" = centered empty-state card. */
   variant?: "docked" | "hero";
+  agentName?: string;
+  examplePrompts?: readonly string[];
   /** Optional per-run environment variables */
   envVars?: { name: string; value: string }[];
   onEnvVarsChange?: (vars: { name: string; value: string }[]) => void;
@@ -228,6 +231,7 @@ function Popover({
   open,
   onClose,
   labelledBy,
+  returnFocusId = labelledBy,
   className = "",
   children,
 }: {
@@ -235,19 +239,29 @@ function Popover({
   open: boolean;
   onClose: () => void;
   labelledBy: string;
+  returnFocusId?: string;
   className?: string;
   children: ReactNode;
 }): JSX.Element | null {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return undefined;
+    const panel = ref.current;
+    if (panel) {
+      const rect = panel.getBoundingClientRect();
+      const shift = Math.max(16 - rect.left, Math.min(0, window.innerWidth - 16 - rect.right));
+      panel.style.transform = `translateX(${shift}px)`;
+      panel.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), select:not(:disabled)")?.focus();
+    }
     const onPointerDown = (event: PointerEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose();
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         event.stopPropagation();
         onClose();
+        document.getElementById(returnFocusId)?.focus();
       }
     };
     document.addEventListener("pointerdown", onPointerDown, true);
@@ -256,7 +270,7 @@ function Popover({
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [open, onClose]);
+  }, [open, onClose, returnFocusId]);
   if (!open) return null;
   return (
     <div
@@ -264,24 +278,32 @@ function Popover({
       role="menu"
       aria-labelledby={labelledBy}
       data-popover={kind}
-      className={`absolute bottom-full mb-1.5 z-40 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] overflow-hidden ${className}`}
+      className={`absolute bottom-full mb-1.5 z-40 bg-[var(--popover)] border border-[var(--border-1)] rounded-[var(--radius-overlay)] shadow-[var(--sh-overlay)] max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto ${className}`}
     >
       {children}
     </div>
   );
 }
 
+const GENERAL_EXAMPLES = [
+  "Draft a marketing campaign brief from the product notes",
+  "Prepare a sales account brief from my supplied notes",
+  "Research a market question and write a report with sources",
+  "Turn customer feedback into a product and design brief",
+  "Fix a small bug and add a regression test",
+];
+
 const pillClass =
-  "inline-flex items-center gap-1.5 text-xs text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-transparent hover:border-[var(--border-1)] px-2 py-1.5 h-[var(--h-control-sm,28px)] rounded-[var(--radius-button)] transition-colors cursor-pointer select-none max-w-[220px]";
+  "inline-flex items-center gap-1.5 text-xs text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-[var(--border-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] px-2 py-1.5 min-h-11 rounded-[var(--radius-button)] transition-colors cursor-pointer select-none max-w-[220px]";
 const pillLabelClass = "truncate font-medium";
 const menuRowClass =
-  "w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-xs text-[var(--fg)] hover:bg-[var(--secondary-hover)] transition-colors cursor-pointer";
+  "w-full min-h-11 flex items-center gap-2.5 px-3 py-1.5 text-left text-xs text-[var(--fg)] hover:bg-[var(--secondary-hover)] transition-colors cursor-pointer";
 const menuIconClass = "size-3.5 text-[var(--icon-muted)] shrink-0";
 const menuCheckClass = "size-3.5 text-[var(--primary)] shrink-0";
 const sectionLabelClass =
-  "text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]";
+  "text-xs font-medium text-[var(--muted-foreground-1)]";
 const inputClass =
-  "bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-sm)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] placeholder-[var(--muted-foreground-3)] transition-colors";
+  "min-w-0 min-h-11 bg-[var(--input)] border border-[var(--border-1)] rounded-[var(--radius-sm)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] placeholder-[var(--muted-foreground-1)] transition-colors";
 
 export function TaskComposer({
   blockedReason = null,
@@ -337,6 +359,8 @@ export function TaskComposer({
   onApplyProjectDefaults,
   onCustomAgentChange,
   variant = "docked",
+  agentName,
+  examplePrompts = [],
   envVars = [],
   onEnvVarsChange,
 }: TaskComposerProps): JSX.Element {
@@ -362,6 +386,7 @@ export function TaskComposer({
   const [branchDraft, setBranchDraft] = useState("");
   const [draftName, setDraftName] = useState("");
   const [draftValue, setDraftValue] = useState("");
+  const envReturnFocus = useRef("menu-button");
   const baseId = useId();
   const idFor = (name: string) => `${baseId}-${name}`;
 
@@ -567,6 +592,7 @@ export function TaskComposer({
     <ChevronDown aria-hidden="true" className="size-3 text-[var(--icon-muted)] shrink-0" />
   );
 
+
   const workTargetPicker = onAppToolsWorkChange ? (
     <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground-2)]">
       Work target
@@ -606,18 +632,9 @@ export function TaskComposer({
     </div>
   );
 
-  const form = (
-    <form
-      data-testid="task-composer"
-      aria-label="Task composer"
-      onSubmit={handleSubmit}
-      className={`w-full rounded-[var(--radius-panel)] border border-[var(--border-1)] bg-[var(--card)] flex flex-col shadow-[var(--sh-composer)] relative group focus-within:border-[var(--ring)] transition-colors ${
-        hero ? "p-4 sm:p-5 gap-3" : "p-3 gap-2.5"
-      }`}
-    >
-      {/* Top Chips Row: Project (Repo) + Run Target */}
-      {blockedReason ? <p role="status" className="text-xs text-[var(--warning-fg)]">{blockedReason}</p> : null}
-      <div className="flex items-center gap-1.5 flex-wrap">
+  const connectionControls = (
+    <fieldset aria-label="Execution workspace" className="flex min-w-0 flex-col gap-2 border-t border-[var(--border-1)] pt-3">
+      <div className="flex flex-wrap items-center gap-1.5">
         {workTargetPicker}
         {!onAppToolsWorkChange && onExecutionTargetKindChange ? (
           <div className="relative">
@@ -656,6 +673,14 @@ export function TaskComposer({
             </Popover>
           </div>
         ) : null}
+      </div>
+      <p className="text-xs text-[var(--muted-foreground-2)]">
+        {executionTargetKind === "artifact-workspace"
+          ? "Outputs are saved in an artifact workspace. No repository required."
+          : repoUrl.trim() ? "Repository selected for execution." : "Connect a repository — required for execution, including reports and research."}
+      </p>
+      <div className="flex min-w-0 items-center gap-1.5 flex-wrap">
+
         {/* Project Selector (Home / Repo Picker) */}
         {executionTargetKind === "repository" ? <div className="relative">
           <Tooltip content="Target GitHub repository (Project)" side="top">
@@ -669,7 +694,7 @@ export function TaskComposer({
               className={`${pillClass} bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] font-sans text-[var(--fg)]`}
             >
               <Home aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
-              <span className={pillLabelClass}>{repoSlug || "Repository"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
+              <span className={pillLabelClass}>{repoSlug || "Connect repository"}{repoUrl ? <span className="sr-only"> ({repoUrl})</span> : null}</span>
               {chevron}
             </button>
           </Tooltip>
@@ -688,14 +713,14 @@ export function TaskComposer({
                 onChange={(event) => setRepoFilter(event.target.value)}
                 placeholder="Search repositories…"
                 aria-label="Search repositories"
-                className="flex-1 bg-transparent text-xs text-[var(--fg)] placeholder-[var(--muted-foreground-3)] focus:outline-none"
+                className="flex-1 bg-transparent text-xs text-[var(--fg)] placeholder-[var(--muted-foreground-1)] focus:outline-none"
               />
             </div>
             <div className="max-h-56 overflow-y-auto py-1">
               {filteredRepos.length === 0 ? (
                 <p className="px-3 py-2.5 text-[11px] text-[var(--muted-foreground-2)]">
                   {repoSuggestions.length === 0
-                    ? "No repositories yet — run one or paste a URL below."
+                    ? "Select a repository or paste its GitHub URL below."
                     : "No matches."}
                 </p>
               ) : (
@@ -742,7 +767,7 @@ export function TaskComposer({
                   type="button"
                   disabled={!repoUrlDraft.trim()}
                   onClick={() => pickRepo(repoUrlDraft.trim())}
-                  className="text-xs font-medium px-2 py-1.5 border border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="min-h-11 min-w-11 text-xs font-medium px-2 py-1.5 border border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Use
                 </button>
@@ -886,6 +911,22 @@ export function TaskComposer({
             : localRunAvailable ? "Choose a paired computer before sending." : "No compatible paired computer is online. Refresh or choose Cloud explicitly.")}
       </p> : null}
 
+
+    </fieldset>
+  );
+
+  const form = (
+    <form
+      data-testid="task-composer"
+      aria-label="Task composer"
+      onSubmit={handleSubmit}
+      className={`w-full min-w-0 rounded-xl border border-[var(--border-1)] bg-[var(--card)] flex flex-col relative group focus-within:border-[var(--ring)] transition-colors ${
+        hero ? "p-4 sm:p-5 gap-3" : "p-3 gap-2.5"
+      }`}
+    >
+
+
+      {blockedReason ? <p role="status" className="text-xs text-[var(--warning-fg)]">{blockedReason}</p> : null}
       {/* Main Textarea */}
       {onProjectContextChange ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -898,13 +939,14 @@ export function TaskComposer({
           {projectContextId ? <span className="text-[var(--muted-foreground-2)]">Snapshot freezes for approval; source text is untrusted.</span> : null}
         </div>
       ) : null}
+
       <input type="checkbox" checked={publishPullRequest} onChange={(e) => onPublishPullRequestChange(e.target.checked)} className="sr-only" aria-label="Create pull request" tabIndex={-1} /><span className="sr-only">Create PR OpenCode {harness}</span>
       <textarea
         ref={textareaRef}
         value={task}
         onChange={(event) => onTaskChange(event.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={executionTargetKind === "artifact-workspace" ? "Describe the document or files to draft" : selectedCustomAgent?.expectedDeliverables?.length ? "Describe the outcome and facts this bot should use" : "Describe the change in this repository"}
+placeholder={executionTargetKind === "artifact-workspace" ? "Describe the document or files to draft" : selectedCustomAgent?.expectedDeliverables?.length ? "Describe the outcome and facts this bot should use" : "What do you want to get done? Share the goal, context, and output you need."}
         rows={1}
         className={`w-full resize-none bg-transparent text-base lg:text-sm text-[var(--fg)] placeholder-[var(--muted-foreground-2)] focus:outline-none overflow-y-auto leading-relaxed ${
           hero ? "min-h-[96px] max-h-64" : "min-h-[72px] max-h-48"
@@ -913,12 +955,7 @@ export function TaskComposer({
       />
 
       {/* Selected skills removable chips */}
-      {selectedCustomAgent ? (
-        <div className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
-          Bot: {selectedCustomAgent.emoji ? `${selectedCustomAgent.emoji} ` : ""}
-          {selectedCustomAgent.name}
-        </div>
-      ) : customAgentId ? (
+      {customAgentId && !selectedCustomAgent ? (
         <p role="status" className="text-[10px] text-[var(--warning-fg)] font-mono">
           {customAgentsLoading ? "Loading bot…" : "Bot unavailable. Choose an available bot before sending."}
         </p>
@@ -962,7 +999,8 @@ export function TaskComposer({
               aria-label={`${namedEnvCount} ${
                 namedEnvCount === 1 ? "environment variable" : "environment variables"
               } attached`}
-              onClick={() => setOpen("env")}
+              id={idFor("env-button")}
+              onClick={() => { envReturnFocus.current = "env-button"; setOpen("env"); }}
               className="inline-flex items-center gap-1 text-[10px] font-mono font-medium px-2 py-0.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] hover:bg-[var(--secondary)] text-[var(--fg)] cursor-pointer transition-colors"
             >
               <Lock aria-hidden="true" className="size-2.5 text-[var(--icon-muted)]" />
@@ -984,7 +1022,7 @@ export function TaskComposer({
               aria-expanded={open === "menu"}
               aria-label="Add to message"
               onClick={() => toggle("menu")}
-              className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-[var(--border-1)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
+              className="inline-flex items-center justify-center size-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-[var(--border-1)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
             >
               <Plus aria-hidden="true" className="size-4" />
             </button>
@@ -1028,7 +1066,7 @@ export function TaskComposer({
                   type="button"
                   role="menuitem"
                   className={menuRowClass}
-                  onClick={() => setOpen("env")}
+                  onClick={() => { envReturnFocus.current = "menu-button"; setOpen("env"); }}
                 >
                   <Lock aria-hidden="true" className={menuIconClass} />
                   <span className="flex-1">Environment variables</span>
@@ -1102,12 +1140,13 @@ export function TaskComposer({
             open={open === "env"}
             onClose={close}
             labelledBy={idFor("env-popover-title")}
+            returnFocusId={idFor(envReturnFocus.current)}
             className="left-0 w-80 sm:w-96"
           >
             <div className="p-3 flex flex-col gap-2.5 max-h-80 overflow-y-auto">
               <div className="flex items-center justify-between">
                 <span id={idFor("env-popover-title")} className={sectionLabelClass}>
-                  Environment Variables
+                  Environment variables
                 </span>
                 <span className="text-[10px] text-[var(--muted-foreground-2)] font-mono">
                   Cloud only
@@ -1138,7 +1177,7 @@ export function TaskComposer({
                         type="button"
                         aria-label={`Remove ${row.name || "variable"}`}
                         onClick={() => handleRemoveEnvVar(idx)}
-                        className="p-1.5 text-[var(--muted-foreground-2)] hover:text-[var(--danger,red)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors cursor-pointer shrink-0"
+                        className="p-1.5 text-[var(--muted-foreground-2)] hover:text-[var(--destructive)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors cursor-pointer shrink-0"
                       >
                         <Trash2 aria-hidden="true" className="size-3.5" />
                       </button>
@@ -1200,7 +1239,7 @@ export function TaskComposer({
               aria-expanded={open === "config"}
               aria-label="Thread configuration"
               onClick={() => toggle("config")}
-              className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-[var(--border-1)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
+              className="inline-flex items-center justify-center size-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border border-[var(--border-1)] rounded-[var(--radius-button)] transition-colors cursor-pointer"
             >
               <SlidersHorizontal aria-hidden="true" className="size-4" />
             </button>
@@ -1296,7 +1335,7 @@ export function TaskComposer({
                     type="button"
                     role="menuitemradio"
                     aria-checked={customAgentId === ""}
-                    className={`flex items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
+                    className={`flex min-h-11 items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
                       customAgentId === ""
                         ? "bg-[var(--secondary-hover)] font-medium text-[var(--fg)]"
                         : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"
@@ -1312,7 +1351,7 @@ export function TaskComposer({
                       type="button"
                       role="menuitemradio"
                       aria-checked={agent.id === customAgentId}
-                      className={`flex items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
+                      className={`flex min-h-11 items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
                         agent.id === customAgentId
                           ? "bg-[var(--secondary-hover)] font-medium text-[var(--fg)]"
                           : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"
@@ -1339,7 +1378,7 @@ export function TaskComposer({
                       type="button"
                       role="menuitemradio"
                       aria-checked={opt.value === harness}
-                      className={`flex items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
+                      className={`flex min-h-11 items-center gap-2 text-xs p-1.5 rounded-[var(--radius-button)] ${
                         opt.value === harness ? "bg-[var(--secondary-hover)] font-medium text-[var(--fg)]" : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"
                       }`}
                       onClick={() => {
@@ -1372,19 +1411,18 @@ export function TaskComposer({
               id={idFor("model-button")}
               aria-haspopup="menu"
               aria-expanded={open === "model"}
-              aria-label={`Model: ${routing.codingModel || "Claude Opus 5.5"}`}
+              aria-label={`Model: ${routing.codingModel || "Auto"}`}
               onClick={() => toggle("model")}
               className={`${pillClass} border border-[var(--border-1)] bg-[var(--card)] hover:bg-[var(--secondary)] text-[var(--fg)]`}
             >
               {routing.codingModel.toLowerCase().includes("claude") ||
-              routing.codingModel.toLowerCase().includes("anthropic") ||
-              routing.codingModel === "" ? (
-                <AnthropicIcon className="size-3.5 text-[#cc785c] shrink-0" />
+              routing.codingModel.toLowerCase().includes("anthropic") ? (
+                <AnthropicIcon className="size-3.5 text-[var(--icon-muted)] shrink-0" />
               ) : (
                 <Cpu aria-hidden="true" className="size-3.5 text-[var(--icon-muted)] shrink-0" />
               )}
               <span className={`${pillLabelClass} font-mono`}>
-                {routing.codingModel ? modelTail(routing.codingModel) : "Claude Opus 5.5"}
+                {routing.codingModel ? modelTail(routing.codingModel) : "Auto"}
               </span>
               {chevron}
             </button>
@@ -1404,7 +1442,7 @@ export function TaskComposer({
                 onChange={(event) => setModelFilter(event.target.value)}
                 placeholder="Search models…"
                 aria-label="Search models"
-                className="flex-1 bg-transparent text-xs text-[var(--fg)] placeholder-[var(--muted-foreground-3)] focus:outline-none"
+                className="flex-1 bg-transparent text-xs text-[var(--fg)] placeholder-[var(--muted-foreground-1)] focus:outline-none"
               />
             </div>
             <div className="max-h-64 overflow-y-auto py-1">
@@ -1504,7 +1542,7 @@ export function TaskComposer({
                   type="button"
                   disabled={!modelDraft.trim()}
                   onClick={applyCustomModel}
-                  className="text-xs font-medium px-2 py-1.5 border border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="min-h-11 min-w-11 text-xs font-medium px-2 py-1.5 border border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] rounded-[var(--radius-button)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Use
                 </button>
@@ -1603,6 +1641,7 @@ export function TaskComposer({
           ) : null}
         </div>
 
+        <div className="ml-auto flex items-center gap-1.5">
         {/* Voice dictation */}
         {getSpeechRecognitionClass() ? (
           <Tooltip content="Dictate — uses your browser's speech recognition" side="top">
@@ -1611,7 +1650,7 @@ export function TaskComposer({
               onClick={toggleListening}
               aria-label={listening ? "Stop voice input" : "Voice input"}
               aria-pressed={listening}
-              className={`inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 rounded-[var(--radius-button)] border transition-colors cursor-pointer ${
+              className={`inline-flex items-center justify-center size-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] rounded-[var(--radius-button)] border transition-colors cursor-pointer ${
                 listening
                   ? "bg-[var(--primary)] text-[var(--primary-text)] border-[var(--primary)]"
                   : "text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] border-[var(--border-1)]"
@@ -1623,32 +1662,52 @@ export function TaskComposer({
         ) : null}
 
         {/* Send */}
-        <Tooltip content="Submit task to coding agent" shortcut="⌘↵" side="top">
+        <Tooltip content="Send task" shortcut="⌘↵" side="top">
           <button
             type="submit"
             disabled={sendDisabled || isSubmitting}
             aria-label={isSubmitting ? "Sending…" : "Send task"}
-            className="inline-flex items-center justify-center size-8 touch:min-h-11 touch:w-11 bg-[var(--primary)] hover:opacity-90 text-[var(--primary-text)] rounded-[var(--radius-button)] transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[var(--sh-plate)] active:scale-95"
+            className="inline-flex items-center justify-center size-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] bg-[var(--primary)] hover:opacity-90 text-[var(--primary-text)] rounded-[var(--radius-button)] transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[var(--sh-plate)] active:scale-95"
           >
             <ArrowUp aria-hidden="true" className="size-4" strokeWidth={2.5} />
           </button>
         </Tooltip>
+        </div>
       </div>
+      {connectionControls}
     </form>
   );
+
+  const examples = examplePrompts.length ? examplePrompts : GENERAL_EXAMPLES;
+  const prefill = (prompt: string) => {
+    if (task.trim()) return;
+    onTaskChange(prompt);
+    textareaRef.current?.focus();
+  };
+
+  if (agentName) return <div className="flex min-h-0 flex-1 flex-col">
+    {hero ? <div className="flex min-h-0 flex-1 flex-col overflow-y-auto"><AgentConversationEmpty name={agentName} slug={selectedCustomAgent?.slug} examples={examples} prefillDisabled={task.trim() !== ""} onPrefill={prefill} /></div> : null}
+    <div className="mx-auto mt-auto w-full max-w-[820px] shrink-0 px-4 pb-3 pt-3">{form}<p className="mt-3 text-center text-xs text-[var(--muted-foreground-2)]">Shiba can make mistakes. Check important info.</p></div>
+  </div>;
 
   if (!hero) return form;
 
   return (
     <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center justify-center px-4 py-8 relative">
-      <div className="absolute inset-0 dot-grid pointer-events-none" aria-hidden="true" />
       <div className="w-full max-w-[640px] flex flex-col items-center gap-5 z-10">
         <div className="text-center px-2">
-          <h2 className="text-[24px] leading-[1.05] text-[var(--fg)]">What should Shiba change?</h2>
-          <p className="mt-2 text-[11px] font-mono uppercase tracking-[0.14em] text-[var(--muted-foreground-2)]">
-            Pick a repo, describe the task, then send. The sandbox starts only after you approve.
+          <h2 className="text-2xl font-medium tracking-tight leading-tight text-[var(--fg)]">What would you like to get done?</h2>
+          <p className="mt-3 max-w-md mx-auto text-sm leading-relaxed text-[var(--muted-foreground-1)]">
+            Plan a campaign, prepare sales materials, research a question, or build something. Connect a repository for execution. Planning can start before approval; standard sandbox execution requires approval.
           </p>
         </div>
+        <fieldset aria-label="Example tasks" className="flex w-full min-w-0 flex-wrap justify-center gap-2">
+          {examples.map((prompt) => <button key={prompt} type="button" disabled={task.trim() !== ""}
+            onClick={() => prefill(prompt)}
+            className="min-h-11 max-w-full whitespace-normal break-words rounded-lg border border-[var(--border-1)] px-3 py-2 text-left text-xs text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50 disabled:cursor-not-allowed">
+            {prompt}
+          </button>)}
+        </fieldset>
         {form}
       </div>
     </div>

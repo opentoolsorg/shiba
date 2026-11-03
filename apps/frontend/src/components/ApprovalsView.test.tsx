@@ -46,11 +46,16 @@ function renderApprovals(extra?: Partial<Parameters<typeof ApprovalsView>[0]>) {
 }
 
 describe("ApprovalsView", () => {
+  it("does not claim the queue is empty when loading failed", () => {
+    renderApprovals({ storedApprovalsError: "backend down" });
+    expect(screen.getByRole("alert").textContent).toContain("backend down");
+    expect(screen.queryByText("Nothing needs you")).toBeNull();
+  });
   it("shows an empty waiting state without marketing copy", () => {
     renderApprovals();
     expect(screen.getByRole("heading", { name: "Approvals" })).toBeTruthy();
-    expect(screen.getByText("Nothing waiting")).toBeTruthy();
-    expect(screen.getByText("0 waiting")).toBeTruthy();
+    expect(screen.getByText("Nothing needs you")).toBeTruthy();
+    expect(screen.getByText("0 open")).toBeTruthy();
     expect(screen.queryByText(/Zero-Trust/)).toBeNull();
     expect(screen.queryByText(/Decision Center/)).toBeNull();
   });
@@ -60,10 +65,26 @@ describe("ApprovalsView", () => {
       storedApprovals: [pending],
       storedApprovalsError: "backend down",
     });
-    expect(screen.getByText("1 waiting")).toBeTruthy();
+    expect(screen.getByText("1 open")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("backend down");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it("searches pending approvals without changing the open count", () => {
+    renderApprovals({ storedApprovals: [pending] });
+    fireEvent.click(screen.getByRole("button", { name: "Search approvals" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search approvals" }), { target: { value: "missing repository" } });
+    expect(screen.getByText("No matching approvals")).toBeTruthy();
+    expect(screen.getByText("1 open")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close approval search" }));
+    expect(screen.getByText("Ship the receipt fix")).toBeTruthy();
+  });
+
+  it("does not count locally resolved approvals as open", () => {
+    renderApprovals({ storedApprovals: [pending], storedDecisions: { "ap-1": false } });
+    expect(screen.getByText("0 open")).toBeTruthy();
+    expect(screen.getByText("Rejected — nothing ran").getAttribute("role")).toBe("status");
   });
 
   it("filters decided rows", () => {

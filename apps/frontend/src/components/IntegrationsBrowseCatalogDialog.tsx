@@ -18,11 +18,19 @@ export function IntegrationsBrowseCatalogDialog({
   onClose,
   onConnect,
   connectingKey,
+  linkedConnectorKeys,
+  onLinkExisting,
+  linkingKey,
+  linkActionLabel = "Add to view",
 }: {
   open: boolean;
   onClose: () => void;
   onConnect?: (item: IntegrationProviderCatalogItem) => void;
   connectingKey?: string | null;
+  linkedConnectorKeys?: ReadonlySet<string>;
+  onLinkExisting?: (item: IntegrationProviderCatalogItem) => void;
+  linkingKey?: string | null;
+  linkActionLabel?: string;
 }): JSX.Element | null {
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<IntegrationProviderCatalogItem[]>([]);
@@ -148,6 +156,16 @@ export function IntegrationsBrowseCatalogDialog({
                       className="self-start rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1 text-[11px] font-mono font-medium text-[var(--primary)] hover:bg-[var(--primary)]/5 disabled:opacity-50"
                     >
                       {connectingKey === item.providerKey ? "Connecting…" : "Connect"}
+                    </button>
+                  ) : null}
+                  {item.isConnected && item.connectionId && onLinkExisting && !linkedConnectorKeys?.has(item.providerKey) ? (
+                    <button
+                      type="button"
+                      disabled={linkingKey === item.providerKey}
+                      onClick={() => onLinkExisting(item)}
+                      className="self-start rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1 text-[11px] font-mono font-medium text-[var(--primary)] hover:bg-[var(--primary)]/5 disabled:opacity-50"
+                    >
+                      {linkingKey === item.providerKey ? "Adding…" : linkActionLabel}
                     </button>
                   ) : null}
                 </div>

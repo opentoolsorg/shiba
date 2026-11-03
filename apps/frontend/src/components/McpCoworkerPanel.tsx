@@ -16,9 +16,9 @@ export function McpCoworkerPanel({
 }): JSX.Element {
   const host = workerHostFromWindow();
   const origin = typeof window !== "undefined" ? window.location.origin : "https://app.tryshiba.dev";
-  const mintGrok = useMemo(
+  const mintCommand = useMemo(
     () =>
-      `node scripts/mint-token.mjs --agent grok-bot --scopes sandbox:exec,runs:read --ttl-days 30 --host ${host} --namespace-id <agentTokensNamespace> --write`,
+      `node scripts/mint-token.mjs --agent coworker --scopes sandbox:exec,runs:read --ttl-days 30 --host ${host} --namespace-id <agentTokensNamespace> --write`,
     [host],
   );
   const mcpUrl = `${origin}/mcp`;
@@ -31,7 +31,7 @@ export function McpCoworkerPanel({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-            MCP coworker (Grok Bot / Viktor)
+            MCP coworker
           </p>
           <h3 className="text-sm font-semibold text-[var(--fg)]">Queue runs from an external MCP client</h3>
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[var(--muted-foreground-2)]">
@@ -59,13 +59,13 @@ export function McpCoworkerPanel({
       <div className="mt-3 space-y-2">
         <p className="text-[11px] font-mono text-[var(--muted-foreground-2)]">Mint token (repo root, correct CF account / KV namespace):</p>
         <pre className="overflow-x-auto rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--bg)] p-3 text-[11px] font-mono leading-relaxed text-[var(--fg)]">
-          {mintGrok}
+          {mintCommand}
         </pre>
         <p className="text-[11px] text-[var(--muted-foreground-2)]">
           Connector URL: <code className="font-mono">{mcpUrl}</code> with header{" "}
           <code className="font-mono">Authorization: Bearer shb_…</code>. Wrong or expired tokens return plain{" "}
           <code className="font-mono">401</code> before any MCP traffic.{" "}
-          <a href="/docs/mcp/#grok-bot-viktor-coworker" className="text-[var(--primary)] hover:underline">
+          <a href="/docs/mcp/" className="text-[var(--primary)] hover:underline">
             Pairing guide
           </a>
         </p>

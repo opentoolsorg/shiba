@@ -22,6 +22,12 @@ function run(partial: Partial<VMRun> & Pick<VMRun, "runId" | "status">): VMRun {
 const patch = "diff --git a/src/cart.ts b/src/cart.ts\n--- a/src/cart.ts\n+++ b/src/cart.ts\n@@ -1 +1 @@\n-old\n+new\n";
 
 describe("DiffView", () => {
+  it("scopes the empty state to recorded runs", () => {
+    render(<DiffView runs={[]} />);
+    expect(screen.getByRole("heading", { name: "No runs yet" })).toBeTruthy();
+    expect(screen.queryByText("No changes to review")).toBeNull();
+  });
+
   it("opens the newest run that has a patch when nothing is selected", () => {
     render(
       <DiffView

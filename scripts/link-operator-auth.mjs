@@ -12,7 +12,7 @@ const AUTH_FILES = [
 
 /**
  * Copy subscription auth into a disposable run HOME. The copy is a regular
- * file mode 0444, never a symlink, so a task cannot write the operator's
+ * file mode 0400, never a symlink, so a task cannot write the operator's
  * real credentials. A name the run already has is left alone. Missing
  * logins are ignored. Nothing is copied when the run HOME is the operator HOME.
  * @param {string} homeDir

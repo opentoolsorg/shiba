@@ -9,11 +9,12 @@ import {
 } from "@shiba/shared";
 
 describe("parseIntegrationsProviderId", () => {
-  it("defaults to composio and accepts explicit ids", async () => {
-    const { parseIntegrationsProviderId } = await import("@shiba/shared");
-    expect(parseIntegrationsProviderId(undefined)).toBe("composio");
-    expect(parseIntegrationsProviderId("none")).toBe("none");
-    expect(parseIntegrationsProviderId(" GROKBOT ")).toBe("grokbot");
+  it("uses openconnector as the sole provider", async () => {
+    const { parseIntegrationsProviderId, integrationsProviderIdSchema } = await import("@shiba/shared");
+    expect(integrationsProviderIdSchema.options).toEqual(["openconnector"]);
+    expect(parseIntegrationsProviderId(undefined)).toBe("openconnector");
+    expect(parseIntegrationsProviderId(" OPENCONNECTOR ")).toBe("openconnector");
+    expect(parseIntegrationsProviderId("unknown")).toBe("openconnector");
   });
 });
 
