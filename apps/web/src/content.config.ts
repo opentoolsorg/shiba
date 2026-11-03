@@ -1,6 +1,5 @@
 import { defineCollection } from 'astro:content';
-import { docsLoader } from '@astrojs/starlight/loaders';
-import { docsSchema } from '@astrojs/starlight/schema';
+import { apiCollection, docsCollection, partialsCollection } from '@cloudflare/nimbus-docs/content';
 import { glob } from 'astro/loaders';
 // `z` re-exported from `astro:content` is deprecated in Astro 7; the supported
 // import is the versioned zod entrypoint.
@@ -44,6 +43,8 @@ const journal = defineCollection({
 });
 
 export const collections = {
-	docs: defineCollection({ loader: docsLoader(), schema: docsSchema() }),
+	docs: defineCollection(docsCollection()),
+	partials: defineCollection(partialsCollection()),
+	api: defineCollection(apiCollection()),
 	journal,
 };

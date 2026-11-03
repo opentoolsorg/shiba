@@ -3,7 +3,7 @@ title: HTTP Triggers (iPhone Shortcuts)
 description: Queue approval-gated coding tasks from an iPhone Apple Shortcut or any HTTP client via POST /api/trigger.
 ---
 
-import { Steps } from '@astrojs/starlight/components';
+import { Steps } from "../../../components/ui/steps";
 
 AI Coworker exposes `POST /api/trigger`, a bearer-authenticated endpoint that queues a coding task as a **pending approval**. Nothing executes when you call it — the run lands on the shared orchestrator and waits for a human to approve it on the dashboard, exactly like a Slack-queued task.
 
