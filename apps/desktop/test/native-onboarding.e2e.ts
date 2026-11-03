@@ -128,7 +128,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.getByRole("button", { name: "Use first task draft in Work", exact: true }).click();
     await page.getByRole("group", { name: "Selected first-task goal", exact: true }).waitFor();
     await expect.poll(() => page.getByLabel("Task description").inputValue()).toContain(goal);
-    await page.getByRole("complementary", { name: "Primary Left Rail" }).getByRole("button", { name: "New thread", exact: true }).click();
+    await page.getByRole("complementary", { name: "Primary Left Rail" }).getByRole("button", { name: "New thread", exact: true }).first().click();
     await page.getByRole("button", { name: "Rename thread", exact: true }).click();
     await page.getByLabel("Thread name", { exact: true }).fill(threadName);
     await page.getByRole("button", { name: "Save name", exact: true }).click();
