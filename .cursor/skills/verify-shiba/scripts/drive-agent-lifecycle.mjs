@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { chromium } from "playwright";
 import { containersMode, githubMode, readPort, standinMode, waitFor } from "./journey-lib.mjs";
 import { launchLifecycleTarget } from "./lifecycle-target.mjs";
+import { selectRepositoryTask } from "./composer-target.mjs";
 
 assert.equal(process.env.VERIFY_AGENT_LIFECYCLE_MOCK, "1", "Set VERIFY_AGENT_LIFECYCLE_MOCK=1 for the explicitly synthetic execution journey.");
 assert.equal(githubMode(), "mock");
@@ -62,8 +63,7 @@ async function json(path) {
 const card = () => page.locator("li").filter({ hasText: slug }).first();
 async function directory(archived = false) {
   await page.goto(new URL("/app/", base).href);
-  await page.getByRole("navigation", { name: "Main", exact: true }).locator('button[aria-haspopup="true"]').click();
-  await page.getByRole("menuitem", { name: "Bots", exact: true }).click();
+  await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
   await page.getByRole("button", { name: archived ? "Archived bots" : "Active bots", exact: true }).click();
 }
 async function editProfile(version) {
@@ -83,6 +83,16 @@ async function editProfile(version) {
 async function pending() {
   const body = await json("/api/approvals");
   return body.approvals.find((item) => item.approvalId === approvalId);
+}
+
+async function assertThreadProfile() {
+  const composer = await selectRepositoryTask(page);
+  await composer.getByRole("button", { name: "Thread configuration", exact: true }).click();
+  const configuration = composer.getByRole("menu", { name: "Thread configuration", exact: true });
+  const selected = configuration.getByRole("menuitemradio").filter({ hasText: name });
+  assert.equal(await selected.getAttribute("aria-checked"), "true", "The named thread must retain its selected bot.");
+  await selected.press("Escape");
+  await configuration.waitFor({ state: "hidden" });
 }
 
 try {
@@ -127,7 +137,7 @@ try {
   sessionId = session.id;
   assert.equal(session.metadata.customAgentId, agentId);
   await page.getByRole("button", { name: "Chat & Threads", exact: true }).click();
-  await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
+  await assertThreadProfile();
   await page.getByLabel("Task description", { exact: true }).fill(task);
   await directory();
   const resumeResponse = page.waitForResponse((response) =>
@@ -136,7 +146,7 @@ try {
   );
   await card().getByRole("list", { name: `${name} threads`, exact: true }).getByRole("button").filter({ hasText: name }).first().click();
   assert.equal((await resumeResponse).status(), 200, "Reopening a bot conversation must resume its named session");
-  await page.getByText(`Bot: ${name}`, { exact: true }).waitFor();
+  await assertThreadProfile();
   passed("Launch a bot conversation and reopen it from the bot's own thread history");
 
   stage = "queue";
@@ -271,14 +281,14 @@ try {
   await page.getByRole("button", { name: "Archived bots", exact: true }).click();
   await page.getByRole("button", { name: `Restore bot ${name}`, exact: true }).waitFor();
   assert.equal(await card().getByRole("button", { name: `Launch bot ${name}`, exact: true }).count(), 0);
-  const forbiddenSession = await page.request.post(new URL("/api/sessions", base).href, { data: { name: "must not exist", metadata: { customAgentId: agentId } } });
+  const forbiddenSession = await page.request.post(new URL("/api/sessions", base).href, { headers: { origin: base.origin }, data: { name: "must not exist", metadata: { customAgentId: agentId } } });
   assert([404, 409].includes(forbiddenSession.status()), `Archived profile admitted a new thread: ${forbiddenSession.status()}`);
-  const forbiddenRun = await page.request.post(new URL(`/api/runs?session=${sessionId}`, base).href, { data: { task: "must not execute", customAgentId: agentId } });
+  const forbiddenRun = await page.request.post(new URL(`/api/runs?session=${sessionId}`, base).href, { headers: { origin: base.origin }, data: { task: "must not execute", customAgentId: agentId } });
   assert([404, 409].includes(forbiddenRun.status()), `Archived profile admitted a new run: ${forbiddenRun.status()}`);
   const oldThread = await json(`/api/sessions/${sessionId}`);
   assert.equal(oldThread.session.metadata.customAgentId, agentId);
   await card().getByRole("list", { name: `${name} threads`, exact: true }).getByRole("button").filter({ hasText: name }).first().click();
-  await page.getByLabel("Task composer").waitFor();
+  await selectRepositoryTask(page);
   passed("Archive blocks new threads and runs while preserving access to the existing conversation");
 
   stage = "restore";
@@ -308,14 +318,14 @@ try {
   if (approvalId) {
     const record = await pending().catch(() => null);
     if (record) {
-      const rejected = await page.request.post(new URL("/api/approvals", base).href, { data: { approvalId, threadKey: record.threadKey, approved: false } });
+      const rejected = await page.request.post(new URL("/api/approvals", base).href, { headers: { origin: base.origin }, data: { approvalId, threadKey: record.threadKey, approved: false } });
       report.cleanup.push({ kind: "pending-approval", status: rejected.status() });
     }
   }
   for (const [kind, id] of [["sessions", sessionId], ["custom-agents", agentId]]) {
     if (!id) continue;
     try {
-      const response = await page.request.delete(new URL(`/api/${kind}/${encodeURIComponent(id)}`, base).href);
+      const response = await page.request.delete(new URL(`/api/${kind}/${encodeURIComponent(id)}`, base).href, { headers: { origin: base.origin } });
       report.cleanup.push({ kind, status: response.status() });
       assert(response.ok(), `Own fixture cleanup failed: ${kind} ${response.status()}`);
     } catch (error) {

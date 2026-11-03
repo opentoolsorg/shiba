@@ -3132,7 +3132,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   {conversationMode === "chat" ? (
                     <div className={
                       chat.messages.length === 0 && !reviewThreadId
-                        ? "flex-1 min-h-0 flex flex-col items-center justify-center gap-5 px-3 sm:px-5 xl:px-8 py-5"
+                        ? "flex-1 min-h-0 flex flex-col items-center [justify-content:safe_center] overflow-y-auto gap-5 px-3 sm:px-5 xl:px-8 py-5"
                         : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                     }>
                       {chat.messages.length === 0 ? (

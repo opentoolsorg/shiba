@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
+import { selectRepositoryTask } from "./composer-target.mjs";
 
 const base = new URL(process.env.VERIFY_APP_URL ?? "http://localhost:5173");
 assert(["localhost", "127.0.0.1", "[::1]"].includes(base.hostname), "This smoke test writes local fixture records only.");
@@ -29,8 +30,7 @@ async function openAgentsDirectory() {
   await page.getByRole("navigation", { name: "Main", exact: true }).getByRole("button", { name: "Agents", exact: true }).click();
 }
 async function assertThreadProfile(profileName, choiceText = profileName) {
-  await page.getByRole("main").locator("header").getByRole("heading", { name: profileName, exact: true }).waitFor();
-  const composer = page.getByRole("form", { name: "Task composer", exact: true });
+  const composer = await selectRepositoryTask(page);
   await composer.getByRole("button", { name: "Thread configuration", exact: true }).click();
   const config = composer.getByRole("menu", { name: "Thread configuration", exact: true });
   const choice = config.getByRole("menuitemradio").filter({ hasText: choiceText });
@@ -41,6 +41,7 @@ async function assertThreadProfile(profileName, choiceText = profileName) {
 try {
   await openAgentsDirectory();
   await page.getByRole("button", { name: "Create bot", exact: true }).waitFor();
+  await page.getByText("Advanced settings", { exact: true }).click();
   await page.getByLabel("Slug", { exact: true }).fill(`browser-auditor-${stamp}`);
   await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel("Instructions", { exact: true }).fill("Review locally and require approval before any execution.");
@@ -62,7 +63,7 @@ try {
   fixtureSessionId = session.id;
   assert.equal(session.metadata.customAgentId, agent.id);
   await assertThreadProfile(name);
-  await page.getByLabel("Task composer").waitFor();
+  await selectRepositoryTask(page);
   passed("Start a fresh bot-associated thread and select its profile in the composer");
 
   // A failed rename must remain retryable and must not silently change persisted state.
@@ -122,7 +123,7 @@ try {
   passed("The rename form focuses its field and closes with Escape");
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByLabel("Task composer").waitFor();
+  await selectRepositoryTask(page);
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "Mobile layout overflows horizontally");
   await page.screenshot({ path: resolve(output, "mobile-thread.png"), fullPage: true });
   passed("Thread composer renders at 390px without horizontal page overflow");
@@ -139,7 +140,7 @@ try {
   for (const [kind, id] of [["sessions", fixtureSessionId], ["custom-agents", fixtureAgentId]]) {
     if (!id) continue;
     try {
-      const response = await page.request.delete(new URL(`/api/${kind}/${encodeURIComponent(id)}`, base).href);
+      const response = await page.request.delete(new URL(`/api/${kind}/${encodeURIComponent(id)}`, base).href, { headers: { origin: base.origin } });
       report.cleanup.push({ kind, status: response.status() });
       assert(response.ok(), `Could not remove own ${kind} fixture (${response.status()})`);
     } catch (error) {

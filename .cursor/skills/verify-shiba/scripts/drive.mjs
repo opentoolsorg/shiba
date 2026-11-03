@@ -4,7 +4,8 @@ import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SUPPORTED_FEATURES, runIdForApproval, pickVerifyApproval, pollCodingRunComplete, pollReviewRoundTerminal } from "./journey-lib.mjs";
+import { SUPPORTED_FEATURES, runIdForApproval, pickVerifyApproval, pollCodingRunComplete, pollReviewRoundTerminal, approveMockPublication } from "./journey-lib.mjs";
+import { selectRepositoryTask } from "./composer-target.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const verifyDir = process.env.VERIFY_DIR || join(root, ".verify");
@@ -70,7 +71,7 @@ try {
   await skip.or(work).first().waitFor({ timeout: 30000 });
   if (await skip.isVisible()) await skip.click();
   await work.click();
-  await page.getByLabel("Task composer").waitFor({ timeout: 30000 });
+  await selectRepositoryTask(page);
   await shot("01-app");
   await page.getByLabel("Task description").fill("verify-shiba: describe the README in one sentence");
   await page.getByLabel(/^Project:/).click();
@@ -78,7 +79,7 @@ try {
   if (await search.count()) await search.fill("cloudflare/ai-chat");
   const urlBox = page.locator("input[type=url]");
   await urlBox.first().fill("https://github.com/cloudflare/ai-chat");
-  await page.getByRole("button", { name: "Use" }).click();
+  await page.getByTestId("task-composer").getByRole("button", { name: "Use", exact: true }).click();
   const wantsPublishReview =
     feature === "pr-publish" || feature === "review-findings" || feature === "review-lifecycle";
   if (wantsPublishReview) {
@@ -184,12 +185,18 @@ try {
       }
       result.approved = true;
       await shot("05-approved");
+      if (wantsPublishReview && result.githubMode === "mock") {
+        await pollCodingRunComplete(port, result.codingRunId, { requirePull: false });
+        result.publicationApproval = await approveMockPublication(port, result.codingRunId);
+        result.publicationApproveViaApi = true;
+      }
       if (feature === "review-findings" || feature === "review-lifecycle") {
         try {
           // Wait before mounting the read-once findings panel; no synthetic chat messages.
           await pollCodingRunComplete(port, result.codingRunId);
           const round = await pollReviewRoundTerminal(port, result.codingRunId);
-          if (round.status !== "posted") throw new Error(`review round ${round.status}`);
+          result.reviewRound = { roundId: round.roundId, status: round.status, error: round.error ?? null };
+          if (round.status !== "posted") throw new Error(`review round ${round.status}: ${round.error ?? "no detail"}`);
           // A legacy ?run= deep link forces Dashboard even with ?tab=diff.
           await page.goto(new URL("/diff/", url).href, { waitUntil: "domcontentloaded" });
           await page.getByLabel("Select run for diff inspection").selectOption(result.codingRunId);
@@ -197,8 +204,9 @@ try {
           await findings.waitFor({ timeout: 120_000 });
           result.reviewFindingsVisible = true;
           await shot("06-review-findings");
-        } catch {
+        } catch (error) {
           result.reviewFindingsVisible = false;
+          result.reviewError = error.message;
         }
       } else {
         await page.waitForTimeout(4000);

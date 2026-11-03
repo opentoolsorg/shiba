@@ -293,7 +293,9 @@ export function CustomAgentsView({
     setBusy(true);
     setNotice(null);
     try {
-      const response = await fetch(`/api/custom-agents/${encodeURIComponent(agent.id)}/${action}`, { method: "POST" });
+      const response = await fetch(`/api/custom-agents/${encodeURIComponent(agent.id)}/${action}`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+      });
       const body = await response.json().catch(() => ({})) as { error?: string; agent?: CustomAgentWire };
       if (!response.ok || !body.agent) throw new Error(body.error ?? `Could not ${action} bot (${response.status}).`);
       setAgents((current) => (current ?? []).filter((item) => item.id !== agent.id));
