@@ -66,7 +66,7 @@ try {
   page.setDefaultNavigationTimeout(navigationTimeout);
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: navigationTimeout });
   const skip = page.getByRole("button", { name: "Skip setup" });
-  const work = page.getByRole("button", { name: "Work", exact: true });
+  const work = page.getByRole("button", { name: "Chat & Threads", exact: true });
   await skip.or(work).first().waitFor({ timeout: 30000 });
   if (await skip.isVisible()) await skip.click();
   await work.click();
