@@ -17,6 +17,8 @@ export interface SandboxCapabilities {
   rawProviderHandle: boolean;
   /** Durable attachable storage beyond the container filesystem (optional). */
   persistentVolumes?: boolean;
+  /** A surviving container can retain and reread one supervised execution. */
+  journaledExec?: boolean;
 }
 
 export type BuiltinSandboxProviderId = "cloudflare" | "docker-local" | "e2b" | "computesdk";
@@ -44,6 +46,37 @@ export interface ExecResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+export type JournalState = "starting" | "running" | "exited" | "cancelled" | "timed_out" | "limited" | "lost";
+
+export interface JournalExecutionInput {
+  jobId: string;
+  command: string;
+  cwd: string;
+  env?: Record<string, string>;
+  deadline: number;
+}
+
+export interface JournalFrame {
+  sequence: number;
+  stream: "stdout" | "stderr";
+  dataBase64: string;
+}
+
+export interface JournalPage {
+  jobId: string;
+  state: JournalState;
+  frames: JournalFrame[];
+  cursor: number;
+  done: boolean;
+  exitCode?: number;
+  error?: string;
+}
+
+export interface JournalExecutionOptions {
+  jobId: string;
+  deadline: number;
 }
 
 export type ReadFileResult =
@@ -83,6 +116,8 @@ export interface SandboxInstance {
       env?: Record<string, string>;
       signal?: AbortSignal;
       onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
+      /** Other providers retain their ordinary single-attempt execution behavior. */
+      journal?: JournalExecutionOptions;
     },
   ): Promise<ExecResult>;
 

@@ -455,6 +455,29 @@ describe("OpenCodeAgent response boundary", () => {
 });
 
 describe("createSandboxOps", () => {
+  it("forwards the frozen journal identity through the provider without callback RPC or another command launch", async () => {
+    const jobId = "a".repeat(64);
+    const deadline = Date.now() + 60_000;
+    const startExecution = vi.fn(async () => ({ jobId, state: "running" as const }));
+    const readExecution = vi.fn(async () => ({ jobId, state: "exited" as const, frames: [
+      { sequence: 1, stream: "stdout" as const, dataBase64: btoa("journal output\n") },
+    ], cursor: 1, done: true, exitCode: 0 }));
+    const exec = vi.fn();
+    const cancelExecution = vi.fn();
+    mocks.sandbox.mockReturnValue({ startExecution, readExecution, cancelExecution, exec });
+    const onOutput = vi.fn();
+    const signal = new AbortController().signal;
+    const env = { OPENCODE_API_KEY: "shiba-egress-placeholder" };
+    expect(await createSandboxOps({} as never, INPUT.sandboxId).exec("approved command", {
+      cwd: "/workspace", signal, env, journal: { jobId, deadline }, onOutput,
+    })).toEqual({ stdout: "journal output\n", stderr: "", exitCode: 0 });
+    expect(startExecution).toHaveBeenCalledExactlyOnceWith({ jobId, deadline, command: "approved command", cwd: "/workspace", env });
+    expect(readExecution).toHaveBeenCalledExactlyOnceWith(jobId, 0);
+    expect(onOutput).toHaveBeenCalledExactlyOnceWith("stdout", "journal output\n");
+    expect(exec).not.toHaveBeenCalled();
+    expect(cancelExecution).not.toHaveBeenCalled();
+  });
+
   it.each([
     { chunks: ["hello ", "world"], expected: { kind: "utf8", content: "hello world" } },
     { chunks: [new Uint8Array([0, 255, 1])], expected: { kind: "base64", content: "AP8B" } },

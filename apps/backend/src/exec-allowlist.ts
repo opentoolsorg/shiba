@@ -12,6 +12,7 @@
  * typed error + receipt, never a silent exec.
  */
 import type { RunSignal } from "@shiba/shared";
+import type { JournalExecutionOptions } from "@shiba/sandbox";
 import { boundTail } from "./security.js";
 import type { ExecResult, SandboxOps } from "./runtime.js";
 
@@ -40,6 +41,8 @@ export interface ScopedExecOptions {
   signals?: RunSignal[];
   /** Shown in receipts instead of the command, when the command carries repo-authored text. */
   receiptLabel?: string;
+  /** The caller freezes this identity before the one permitted CLI launch. */
+  journal?: JournalExecutionOptions;
 }
 
 /** Default output cap for scoped (non-harness) commands. */
@@ -121,6 +124,7 @@ export async function scopedExec(ops: SandboxOps, command: string, opts: ScopedE
       timeoutMs: opts.timeoutMs,
       signal: opts.signal,
       onOutput: opts.onOutput,
+      journal: opts.journal,
     });
     const truncated =
       result.stdout.length > cap || result.stderr.length > cap;

@@ -149,6 +149,8 @@ export function createSandboxOps(
         timeoutMs: opts?.timeoutMs,
         env: opts?.env,
         onOutput: opts?.onOutput,
+        signal: opts?.signal,
+        journal: opts?.journal,
       });
       if (!opts?.signal) return execPromise;
       if (opts.signal.aborted) {
