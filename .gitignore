@@ -53,3 +53,6 @@ graphify-out/
 
 # Unmodified external open-connector checkout, dependencies and local config.
 .openconnector/
+
+# Nimbus generated indexes
+apps/web/.nimbus/

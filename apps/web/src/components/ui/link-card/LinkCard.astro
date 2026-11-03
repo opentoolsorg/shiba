@@ -1,0 +1,5 @@
+---
+import { Card } from '../card';
+const { title, description, href } = Astro.props;
+---
+<Card title={title} href={href}>{description}</Card>
