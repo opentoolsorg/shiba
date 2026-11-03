@@ -51,7 +51,7 @@ describe("AgentTemplatesCatalog", () => {
 
     fireEvent.click(copyButton);
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Could not copy this pack. Check clipboard access and try again.");
-    expect(screen.queryByText(/pack copied\./)).not.toBeInTheDocument();
+    expect((await screen.findByRole("status")).textContent).toContain("Could not copy this pack. Check clipboard access and try again.");
+    expect(screen.queryByText(/pack copied\./)).toBeNull();
   });
 });
