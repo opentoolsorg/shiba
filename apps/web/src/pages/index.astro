@@ -243,7 +243,7 @@ const steps = [
 
         <div class="delivers-panels">
           {chatbotComparisons.map((c, i) => (
-            <div class:list={['delivers-panel', { 'is-active': i === 0 }]} data-delivers-panel={c.id} id={`compare-${c.id}`} hidden={i !== 0}>
+            <div class:list={['delivers-panel', { 'is-active': i === 0 }]} data-delivers-panel={c.id} id={`compare-${c.id}`}>
               <div class="compare-col chatbot-col">
                 <div class="compare-badge">Standard chatbot</div>
                 <h4>Suggests theory</h4>
@@ -493,6 +493,7 @@ const steps = [
           tabBtns[next].click();
         });
       });
+      tabBtns[0].click();
     }
 
     // Mascot corner peek observer
@@ -856,8 +857,8 @@ const steps = [
     background: var(--accent);
     color: var(--on-accent);
   }
-  .delivers-panel { display: none; padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
-  .delivers-panel.is-active { display: grid; }
+  .delivers-panel { display: grid; padding: 24px; gap: 24px; grid-template-columns: 1fr 1fr; }
+  .delivers-panel[hidden] { display: none; }
   .compare-col {
     padding: 20px;
     border: 1.5px solid var(--hairline);
