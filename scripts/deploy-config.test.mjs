@@ -66,3 +66,14 @@ test("Alchemy protects validated stage origins from override spreads", () => {
   assert.match(stack, /enabled: true, previewsEnabled: false/);
   assert.ok(stack.indexOf("= deploymentConfig(") < stack.indexOf('Cloudflare.Access.Application("'));
 });
+
+test("signed archive downloads reach Worker authentication without bypassing artifact or canvas APIs", () => {
+  const stack = readFileSync(new URL("../alchemy.run.ts", import.meta.url), "utf8");
+  const source = stack.match(/export const ACCESS_BYPASS_PATHS = \[([\s\S]*?)\];/)?.[1];
+  assert.ok(source);
+  const paths = [...source.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  assert.ok(paths.includes("/api/artifacts/download"));
+  assert.ok(!paths.some((path) => path !== "/api/artifacts/download" && path.startsWith("/api/artifacts")));
+  assert.ok(!paths.some((path) => path.startsWith("/api/slack-canvas") || path.startsWith("/slack-canvas")));
+  assert.ok(!paths.includes("/api/*"));
+});

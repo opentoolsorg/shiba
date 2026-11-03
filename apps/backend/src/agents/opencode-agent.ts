@@ -4,7 +4,7 @@
  * flow, streams progress, and returns a structured result envelope.
  * It makes no model calls of its own.
  */
-import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
+import { AIChatAgent, type ChatRecoveryContext, type ChatRecoveryOptions, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import { getSandboxInstance } from "../sandbox/provider.js";
 import type { SandboxSelectionContext } from "../sandbox/selection.js";
 import type { SandboxInstance } from "@shiba/sandbox";
@@ -219,6 +219,12 @@ async function awaitRunWithSignal<T>(pending: Promise<T>, signal?: AbortSignal):
 }
 
 export class OpenCodeAgent extends AIChatAgent<Env> {
+  protected override async onChatRecovery(_ctx: ChatRecoveryContext): Promise<ChatRecoveryOptions> {
+    // Replaying a chat turn would launch another CLI. Preserve retained
+    // output and let the coordinator reconcile uncertain execution.
+    return { continue: false };
+  }
+
   override async onBeforeSubAgent(): Promise<Response> {
     return Response.json({ error: "Child agents cannot delegate tasks." }, { status: 403 });
   }
@@ -369,7 +375,11 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
               ...(roomPublisher ? {
                 onTerminal: (stream: "stdout" | "stderr", data: string) => roomPublisher?.terminal(stream, data),
                 onDiff: (diff: string) => { void roomPublisher?.diff(diff); },
-                onStreamGap: () => { void roomPublisher?.publish({ kind: "status", status: "stream_gap", message: "Harness transport ended after output. Execution outcome is uncertain." }); },
+                onDiffPreviewStatus: (status: "limited" | "unavailable", reason?: string) => {
+                  void roomPublisher?.publish({ kind: "status", status: `diff_${status}`,
+                    message: this.safeText(reason || "The current diff preview is unavailable. Showing the last complete snapshot.", 1_000) });
+                },
+                onStreamGap: () => { void roomPublisher?.publish({ kind: "status", status: "stream_gap", message: "Harness transport ended before its outcome was confirmed. Execution outcome is uncertain." }); },
               } : {}),
               ...(runEnv !== undefined && this.envScrub !== null ? { env: runEnv, scrub: this.envScrub } : {}),
               // T44: an oversize diff lands in R2 instead of being truncated

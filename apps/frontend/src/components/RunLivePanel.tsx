@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { type ConversationRunFrame, useConversationRoomRealtime } from "../conversation-room-realtime";
 import { ConversationRoomPresence } from "./ConversationRoomPresence";
 import { DiffViewer } from "./DiffViewer";
@@ -17,6 +17,8 @@ export function RunLivePanel({ runId, sessionId = "default", showDiff = true, ro
 }) {
   const [terminal, setTerminal] = useState("");
   const [diff, setDiff] = useState("");
+  const pendingDiff = useRef<string | null>(null);
+  const [diffNotice, setDiffNotice] = useState("");
   const [runStatus, setRunStatus] = useState("");
   const [streamGap, setStreamGap] = useState(false);
   const [children, setChildren] = useState<Record<string, string>>({});
@@ -34,8 +36,25 @@ export function RunLivePanel({ runId, sessionId = "default", showDiff = true, ro
     if (event.kind === "terminal" && typeof event.data === "string") {
       setTerminal((current) => `${current}${event.data}`.slice(-MAX_TERMINAL_CHARS));
     } else if (event.kind === "diff" && typeof event.data === "string") {
-      setDiff((current) => `${event.reset ? "" : current}${event.data}`.slice(0, MAX_DIFF_CHARS));
+      if (event.reset === true) pendingDiff.current = "";
+      if (pendingDiff.current === null) return;
+      if (pendingDiff.current.length + event.data.length > MAX_DIFF_CHARS) {
+        pendingDiff.current = null;
+        setDiffNotice("The diff preview reached its display limit. Showing the last complete snapshot.");
+        return;
+      }
+      pendingDiff.current += event.data;
+      if (event.complete === true) {
+        setDiff(pendingDiff.current);
+        pendingDiff.current = null;
+        setDiffNotice("");
+      }
     } else if (event.kind === "status" && typeof event.status === "string") {
+      if (event.status === "diff_limited" || event.status === "diff_unavailable") {
+        pendingDiff.current = null;
+        setDiffNotice(event.message || "The current diff preview is unavailable. Showing the last complete snapshot.");
+        return;
+      }
       if (event.status === "stream_gap" || event.status === "stream_limited") setStreamGap(true);
       setRunStatus(event.message || event.status.replaceAll("_", " "));
     } else if (event.kind === "child" && typeof event.childId === "string" && typeof event.status === "string") {
@@ -90,6 +109,7 @@ export function RunLivePanel({ runId, sessionId = "default", showDiff = true, ro
           </ul>
         </div> : null}
         <TerminalView text={terminal} />
+        {showDiff && diffNotice ? <p role="status" className="text-xs text-[var(--ink-2)]">{diffNotice}</p> : null}
         {showDiff && diff ? <DiffViewer diff={diff} runId={runId} /> : null}
       </div>
     </section>

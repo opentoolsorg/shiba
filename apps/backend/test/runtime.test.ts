@@ -765,6 +765,31 @@ describe("worker authentication gate (T7)", () => {
     expect(getAgentByName).not.toHaveBeenCalled();
   });
 
+  it("authenticates exact artifact downloads by capability while sibling routes still require identity", async () => {
+    const { createArtifactDownloadUrl } = await import("../src/artifact-download.js");
+    const { workspaceArtifactArchive } = await import("../src/run-deliverables.js");
+    const worker = (await import("../src/index.js")).default;
+    const archive = workspaceArtifactArchive([]);
+    const digest = await crypto.subtle.digest("SHA-256", archive.bytes);
+    const sha256 = Buffer.from(digest).toString("hex");
+    const scope = "a".repeat(64);
+    const get = vi.fn(async () => ({ size: archive.bytes.byteLength, body: new Response(archive.bytes).body,
+      checksums: { sha256: digest }, customMetadata: { scope, sha256, bytes: String(archive.bytes.byteLength), fileCount: "0" } }));
+    const env = makeAccessEnv({ ACCESS_AUD: "test-audience", WORKER_HOSTNAME: "example.com",
+      ARTIFACT_SIGNING_KEY: "test-only-artifact-signing-key-at-least-32-bytes", ARTIFACTS: { get } });
+    const now = Date.now();
+    const url = await createArtifactDownloadUrl(env, { version: 1, scope, sha256, bytes: archive.bytes.byteLength,
+      fileCount: 0, issuedAt: now, expiresAt: now + 60_000 });
+    const response = await worker.fetch(new Request(url), env);
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(archive.bytes);
+    expect(get).toHaveBeenCalledExactlyOnceWith(`run-archives/${scope}/${sha256}.zip`);
+    expect((await worker.fetch(new Request("https://example.com/api/artifacts/download"), env)).status).toBe(403);
+    expect((await worker.fetch(new Request("https://example.com/api/artifacts/download/other"), env)).status).toBe(401);
+    expect((await worker.fetch(new Request("https://example.com/api/slack-canvas?origin=x&approval=y"), env)).status).toBe(401);
+    expect(get).toHaveBeenCalledOnce();
+  });
+
   it("with REQUIRE_ACCESS and no ACCESS_AUD, a forged identity header → 401", async () => {
     vi.mocked(proxyToSandbox).mockResolvedValue(null);
     vi.mocked(getAgentByName).mockClear();
