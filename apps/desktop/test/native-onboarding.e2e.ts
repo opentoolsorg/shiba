@@ -327,6 +327,11 @@ test("actual native shared UI retains goal, thread, approved output and review a
         claim = await adapterPost<Claim>("/api/local/claim", {
           operator: "native-fixture-adapter",
         });
+        if (!claim.envelope) {
+          const { runs } = await api<{ runs: Array<{ status: string; error?: string }> }>(page, `/api/runs${sessionQuery}`);
+          const failed = runs.find((run) => ["error", "unknown", "aborted"].includes(run.status));
+          if (failed) throw new Error(`Native fixture dispatch failed: ${failed.error ?? failed.status}`);
+        }
         return claim.envelope?.sandboxId;
       })
       .toBeTruthy();
@@ -424,6 +429,7 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.screenshot({ path: path.join(evidence, "restarted-retained-output.png") });
   } catch (error) {
     console.error(nativeLogs.join("\n"));
+    console.error(fixture.logs.slice(-20).join("\n"));
     throw error;
   } finally {
     try {

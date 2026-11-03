@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { cp, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
@@ -25,6 +26,7 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
   const origin = `http://127.0.0.1:${port}`;
   const authSecret = `fixture-only-auth-${"a".repeat(48)}`;
   const adapterToken = `fixture-only-adapter-${"b".repeat(48)}`;
+  const signingKey = randomBytes(32).toString("hex");
   const env = {
     PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: path.join(tempRoot, "home"), TMPDIR: tmpdir(), CI: "1",
     XDG_CONFIG_HOME: path.join(tempRoot, "config"), XDG_CACHE_HOME: path.join(tempRoot, "cache"),
@@ -34,7 +36,8 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
   const logs = [];
   const children = new Set();
   const collect = (chunk) => {
-    logs.push(String(chunk).replaceAll(authSecret, "[fixture-auth]").replaceAll(adapterToken, "[fixture-adapter]").slice(-4096));
+    logs.push(String(chunk).replaceAll(authSecret, "[fixture-auth]").replaceAll(adapterToken, "[fixture-adapter]")
+      .replaceAll(signingKey, "[fixture-signing]").slice(-4096));
     if (logs.length > 100) logs.splice(0, logs.length - 100);
   };
   function launch(command, args, cwd = repoRoot) {
@@ -103,6 +106,7 @@ export async function startWorkerFixture({ repoRoot = defaultRoot, buildAssets =
       kv_namespaces: base.kv_namespaces.map((namespace, index) => ({ binding: namespace.binding, id: (index + 1).toString(16).padStart(32, "0") })),
       vars: {
         BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: origin, BETTER_AUTH_OWNER_EMAIL: "native-owner@example.test",
+        INTERNAL_SIGNING_KEY: signingKey,
         SHIBA_LOCAL_RUNTIME: localRuntime ? "1" : "0", LOCAL_ADAPTER_TOKEN: localRuntime ? adapterToken : "",
         RUNTIME: localRuntime ? "local" : "sandbox", WORKER_HOSTNAME: "", MCP_TRUSTED_HOSTS: "",
       },
