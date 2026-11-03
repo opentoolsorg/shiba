@@ -66,6 +66,7 @@ import { handleScreenshot } from "./screenshots-routes.js";
 import { handleE2eEvidence } from "./e2e-evidence-routes.js";
 import { handleDevOAuthLoopback } from "./dev-oauth-loopback-routes.js";
 import { handleWebSessions } from "./sessions-routes.js";
+import { handleSlackCanvas } from "./slack-canvas-routes.js";
 import { redactSecrets } from "./security.js";
 import { handleBetterAuth, isBetterAuthConfigured } from "./better-auth.js";
 import { getUserId, isAccessConfigured, isAuthenticated, isAuthorizedRequest, resolveUserId, SIGNATURE_AUTHENTICATED } from "./request-auth.js";
@@ -132,6 +133,7 @@ const MARKETING_SECTIONS = new Set([
 ]);
 // Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the Work home.
 export const DASHBOARD_VIEWS = new Set([
+  "slack-canvas",
   // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
   "",
   "work",
@@ -361,6 +363,8 @@ export default {
       if (denResponse) {
         return denResponse;
       }
+      const slackCanvasResponse = await handleSlackCanvas(request, env);
+      if (slackCanvasResponse) return slackCanvasResponse;
       const runsResponse = await handleRuns(request, env);
       if (runsResponse) {
         return runsResponse;

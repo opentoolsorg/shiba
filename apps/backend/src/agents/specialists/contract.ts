@@ -34,7 +34,7 @@ export const specialistObservationSchema = z.strictObject({
   agent: z.enum(["explorer", "reviewer"]),
   status: z.enum(["completed", "failed"]),
   summary: z.string().min(1).max(4_000),
-  report: z.string().max(16_000),
+  report: z.string().trim().min(1).max(16_000),
   findings: z.array(z.strictObject({
     severity: z.enum(["info", "warning", "error"]),
     path: z.string().max(512).optional(),

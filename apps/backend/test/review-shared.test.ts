@@ -58,6 +58,10 @@ describe("blockingRoundForHead", () => {
     expect(blockingRoundForHead([{ ...round, status: "failed" }], "r1", "abc")).toBeUndefined();
     expect(blockingRoundForHead([{ ...round, status: "skipped" }], "r1", "abc")).toBeUndefined();
   });
+
+  it.each(["posting", "unknown"] as const)("blocks a failed round with a %s publication outcome", (publicationOutcome) => {
+    expect(blockingRoundForHead([{ ...round, status: "failed", publicationOutcome }], "r1", "abc")?.publicationOutcome).toBe(publicationOutcome);
+  });
 });
 
 describe("reviewRoundWriteRejected", () => {

@@ -39,6 +39,7 @@ async function sealed(overrides: Partial<CodingTaskInput> = {}): Promise<CodingT
 }
 
 const RESULT: CodingTaskResult = {
+  baseRevision: "a".repeat(40),
   status: "completed", exitCode: 0, stderrTail: "", changedFiles: ["a.ts"],
   diff: "+fixed", files: [{ path: "a.ts", content: "complete file", encoding: "utf8" }], summary: "Done.",
 };
@@ -400,6 +401,20 @@ describe("OpenCodeAgent response boundary", () => {
     expect(result.status).toBe("error");
     expect(result.summary).toBe("GitHub unavailable");
     expect(text).not.toContain("Pull request:");
+  });
+
+  it("refuses legacy publication without the captured repository base revision", async () => {
+    mocks.run.mockResolvedValue({ ...RESULT, baseRevision: undefined });
+    const { result } = await responseFor(agent(await sealed({ publishPullRequest: true }), "token"));
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("exact captured base revision");
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it("preserves the captured base revision in the parent result and the publication request", async () => {
+    const { result } = await responseFor(agent(await sealed({ publishPullRequest: true }), "token"));
+    expect(result.baseRevision).toBe(RESULT.baseRevision);
+    expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({ baseRevision: RESULT.baseRevision }), expect.anything());
   });
 });
 

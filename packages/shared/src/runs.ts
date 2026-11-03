@@ -100,6 +100,8 @@ export interface DelegatedRun extends OnboardingRunFields {
    * without it; absent on records predating the decider.
    */
   approval?: ApprovalEvidence;
+  /** Routing hint only. Private delivery receipts independently authorize any post. */
+  slackCommandOrigin?: string;
   /**
    * T42: typed pipeline milestones the child emitted in order
    * (sandbox.ready → … → pr.opened/screenshot.captured), persisted on the

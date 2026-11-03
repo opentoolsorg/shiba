@@ -4,13 +4,14 @@
  */
 import type { ReviewLoopSettings, ReviewRound } from "@shiba/shared";
 
-export type ReviewRetryPlan = "rerun" | "repost" | "noop";
+export type ReviewRetryPlan = "rerun" | "repost" | "noop" | "unknown";
 
 export function reviewRetryPlan(
   round: ReviewRound,
   reviewRun: { status: string } | null,
 ): ReviewRetryPlan {
   if (round.status === "posted") return "noop";
+  if (round.publicationOutcome === "posting" || round.publicationOutcome === "unknown") return "unknown";
   const produced = round.findings.length > 0 || round.summary.trim() !== "";
   if (round.status === "failed" && produced && reviewRun?.status === "completed") return "repost";
   return "rerun";

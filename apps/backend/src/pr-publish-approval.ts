@@ -7,10 +7,12 @@ import { resolveGitHubCredential } from "./github-auth.js";
 import { parseGitHubRepoUrl, redactSecrets } from "./security.js";
 import { isAuthorizedSessionAgent } from "./web-sessions.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
+import { reviewInputSchema, specialistObservationSchema } from "./agents/specialists/contract.js";
 
 export const MAX_PR_PUBLISH_STAGE_BYTES = 2_097_152;
 const identity = z.string().min(1).max(512);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const revision = z.string().regex(/^[a-f0-9]{40}$/);
 function hasControlCharacters(value: string, includeSpace = false): boolean {
   return Array.from(value).some((character) => character.charCodeAt(0) <= (includeSpace ? 32 : 31) || character.charCodeAt(0) === 127);
 }
@@ -23,6 +25,7 @@ const publicationPayloadSchema = z.object({
   sandboxId: identity,
   repoUrl: z.string().url().max(2048),
   baseBranch: branch,
+  baseRevision: revision,
   artifactKey: z.string().regex(/^pr-publish-staging\/[a-f0-9]{64}\/[a-f0-9]{64}\.json$/),
   sha256: digest,
   bytes: z.number().int().positive().max(MAX_PR_PUBLISH_STAGE_BYTES),
@@ -43,12 +46,31 @@ export const prPublicationProposalSchema = z.object({
 }).strict();
 
 export type PrPublicationProposal = z.infer<typeof prPublicationProposalSchema>;
+export interface PublicationReviewRecord {
+  ownerId: string;
+  runId: string;
+  publicationSha256: string;
+  childTaskId: string;
+  proposal: PrPublicationProposal;
+  status: "pending" | "running" | "completed" | "failed";
+  expiresAt: number;
+  observation?: z.infer<typeof specialistObservationSchema>;
+  error?: string;
+}
+
+export function publicationReviewMatches(record: PublicationReviewRecord | undefined, proposal: PrPublicationProposal, ownerId: string): boolean {
+  const observation = specialistObservationSchema.safeParse(record?.observation);
+  return record?.status === "completed" && record.ownerId === ownerId && record.runId === proposal.payload.runId &&
+    record.childTaskId === `agent-tool:publication-review:${record.runId}` && record.publicationSha256 === proposal.payload.sha256 &&
+    record.proposal.payload.sha256 === proposal.payload.sha256 && observation.success && observation.data.agent === "reviewer" && observation.data.status === "completed";
+}
 export interface PrPublishScope {
   ownerId: string;
   runId: string;
   repoUrl: string;
   sandboxId?: string;
   baseBranch?: string;
+  baseRevision?: string;
 }
 
 const fileSchema = z.object({
@@ -67,6 +89,8 @@ const stagedPublicationSchema = z.object({
   sandboxId: identity,
   repoUrl: z.string().url().max(2048),
   baseBranch: branch,
+  baseRevision: revision,
+  diff: z.string().max(120_040),
   task: z.string().min(1).max(16_000),
   newBranch: branch,
   title: z.string().min(1).max(200),
@@ -96,7 +120,8 @@ async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 function sameScope(actual: PrPublishScope, expected: PrPublishScope): boolean {
   return actual.ownerId === expected.ownerId && actual.runId === expected.runId && actual.repoUrl === expected.repoUrl &&
     (expected.sandboxId === undefined || actual.sandboxId === expected.sandboxId) &&
-    (expected.baseBranch === undefined || actual.baseBranch === expected.baseBranch);
+    (expected.baseBranch === undefined || actual.baseBranch === expected.baseBranch) &&
+    (expected.baseRevision === undefined || actual.baseRevision === expected.baseRevision);
 }
 
 function authorizedHuman(env: Env, ownerId: string, decidedBy: string): boolean {
@@ -134,6 +159,8 @@ export async function stagePrPublishApproval(
     sandboxId: input.sandboxId,
     repoUrl: input.repoUrl,
     baseBranch: input.baseBranch,
+    baseRevision: input.result.baseRevision,
+    diff: input.result.diff,
     task: input.task,
     newBranch: `shiba/publish-${scope.slice(0, 32)}`,
     title: `AI Coworker: ${taskSummary.slice(0, 80)}`,
@@ -166,29 +193,16 @@ export async function stagePrPublishApproval(
     repoUrl: input.repoUrl, baseBranch: input.baseBranch, task: `Publish pull request: ${taskSummary.slice(0, 2000)}`,
     publishPullRequest: false, createdAt: input.now ?? Date.now(),
     payload: { version: 1, ownerId: input.ownerId, runId: input.runId, sandboxId: input.sandboxId, repoUrl: input.repoUrl,
-      baseBranch: input.baseBranch, artifactKey: key, sha256: hash, bytes: bytes.byteLength, fileCount: staged.files.length },
+      baseBranch: input.baseBranch, baseRevision: staged.baseRevision, artifactKey: key, sha256: hash, bytes: bytes.byteLength, fileCount: staged.files.length },
   };
   return validatePrPublicationProposal(proposal, input);
 }
 
-/** The caller must persist an execution claim first and never retry an uncertain outcome. */
-export async function executePrPublishApproval(
+async function readStagedPublication(
   env: Env,
-  approval: PendingApproval,
+  proposal: PrPublicationProposal,
   expected: PrPublishScope,
-  deps: GitHubDeps = {},
-): Promise<PublishResult> {
-  const now = Date.now();
-  if (approval.kind !== "pr_publish" || approval.status !== "approved" || !approval.decidedBy?.trim() ||
-      /^(?:system|automation|agent|mcp|child|subagent):/i.test(approval.decidedBy) || approval.execution !== undefined ||
-      !Number.isSafeInteger(approval.decidedAt) || (approval.decidedAt ?? 0) < approval.createdAt ||
-      (approval.decidedAt ?? 0) > now || now - approval.createdAt > APPROVAL_TTL_MS) {
-    throw new Error("Publication requires a current, unexecuted human approval.");
-  }
-  const proposal = validatePrPublicationProposal({ kind: approval.kind, threadKey: approval.threadKey, approvalId: approval.approvalId,
-    repoUrl: approval.repoUrl, task: approval.task, baseBranch: approval.baseBranch, publishPullRequest: approval.publishPullRequest,
-    payload: approval.payload, createdAt: approval.createdAt }, expected);
-  if (!authorizedHuman(env, expected.ownerId, approval.decidedBy)) throw new Error("Publication requires an authorized human approval.");
+): Promise<z.infer<typeof stagedPublicationSchema>> {
   const payload = proposal.payload;
   if (!env.ATTACHMENTS) throw new Error("Publication staging storage is not configured.");
   const object = await env.ATTACHMENTS.get(payload.artifactKey);
@@ -201,9 +215,46 @@ export async function executePrPublishApproval(
       staged.files.length !== payload.fileCount || payload.artifactKey !== `pr-publish-staging/${scope}/${payload.sha256}.json`) {
     throw new Error("Publication stage identity does not match the approved action.");
   }
+  return staged;
+}
+
+/** Read only the immutable captured diff. The frozen run task supplies the specification. */
+export async function readPrPublicationReviewInput(env: Env, value: unknown, expected: PrPublishScope, specification: string) {
+  const proposal = validatePrPublicationProposal(value, expected);
+  const staged = await readStagedPublication(env, proposal, expected);
+  if (/^…\[truncated \d+ chars\]/.test(staged.diff)) throw new Error("The complete captured diff exceeds the read-only review limit. Narrow the task before publication.");
+  return reviewInputSchema.parse({
+    goal: "Audit the completed repository changes before a human publication decision.",
+    context: `Source run: ${expected.runId}. Publication SHA-256: ${proposal.payload.sha256}.`,
+    specification,
+    diff: staged.diff,
+  });
+}
+
+/** The caller must persist an execution claim first and never retry an uncertain outcome. */
+export async function executePrPublishApproval(
+  env: Env,
+  approval: PendingApproval,
+  expected: PrPublishScope,
+  deps: GitHubDeps = {},
+): Promise<PublishResult> {
+  const now = Date.now();
+  if (approval.kind !== "pr_publish" || approval.status !== "approved" || !approval.decidedBy?.trim() ||
+      hasControlCharacters(approval.decidedBy) || approval.decidedBy.length > 512 ||
+      /^(?:system|automation|agent|mcp|child|subagent):/i.test(approval.decidedBy) || approval.execution !== undefined ||
+      !Number.isSafeInteger(approval.decidedAt) || (approval.decidedAt ?? 0) < approval.createdAt ||
+      (approval.decidedAt ?? 0) > now || now - approval.createdAt > APPROVAL_TTL_MS) {
+    throw new Error("Publication requires a current, unexecuted human approval.");
+  }
+  const proposal = validatePrPublicationProposal({ kind: approval.kind, threadKey: approval.threadKey, approvalId: approval.approvalId,
+    repoUrl: approval.repoUrl, task: approval.task, baseBranch: approval.baseBranch, publishPullRequest: approval.publishPullRequest,
+    payload: approval.payload, createdAt: approval.createdAt }, expected);
+  if (!authorizedHuman(env, expected.ownerId, approval.decidedBy)) throw new Error("Publication requires an authorized human approval.");
+  const staged = await readStagedPublication(env, proposal, expected);
   const credential = await resolveGitHubCredential(env, staged.repoUrl, deps.fetchImpl ?? ((resource, init) => fetch(resource, init)));
   if (!credential) throw new Error("Publishing a pull request requires GitHub credentials.");
-  return publishFilesAsPullRequest({ ...staged, token: credential.token }, {
+  const message = `${staged.message}\n\nApproved-by: ${approval.decidedBy.trim()}`;
+  return publishFilesAsPullRequest({ ...staged, message, token: credential.token }, {
     ...deps, apiBase: credential.apiBase, mutationAttempts: 1, cleanupOnPullFailure: false,
   });
 }

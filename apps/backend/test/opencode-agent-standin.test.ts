@@ -53,7 +53,7 @@ describe("verify stand-in agent safety", () => {
     expect(mocks.sandbox).not.toHaveBeenCalled();
     expect(mocks.publish).toHaveBeenCalledTimes(1);
     expect(mocks.publish).toHaveBeenCalledWith(
-      expect.objectContaining({ files: [expect.objectContaining({ path: "README.md" })] }),
+      expect.objectContaining({ baseRevision: "a".repeat(40), files: [expect.objectContaining({ path: "README.md" })] }),
       { apiBase: MOCK_BASE },
     );
   });

@@ -5,6 +5,7 @@
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
 import { postSlackMessage, SLACK_POST_TIMEOUT_MS } from "./slack.js";
+import { buildSlackCanvasUrl, signSlackCanvasIntake, slackCanvasOwner } from "./slack-canvas.js";
 import { postSystemOne, readChoiceAnswer, type TypeSafeFetch } from "./typesafe.js";
 import { buildApprovalBlocks, slackCanvasUrl } from "./slack-approval.js";
 import {
@@ -416,13 +417,15 @@ ${taskForRun}` : taskForRun;
         channelId,
         threadTs,
       });
-      const queued = await stub.fetch(
-        new Request("https://internal/api/runs", {
+      let request = new Request("https://internal/api/runs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...payload, threadKey: input.threadKey }),
-        }),
-      );
+        });
+      if ((env.INTERNAL_SIGNING_KEY?.length ?? 0) >= 32 && slackCanvasOwner(env, input.threadKey)) {
+        request = await signSlackCanvasIntake(request, env.INTERNAL_SIGNING_KEY ?? "", input.threadKey);
+      }
+      const queued = await stub.fetch(request);
       if (!queued.ok) throw new Error(`Queue failed (${queued.status}).`);
       const queuedBody = (await queued.json().catch(() => ({}))) as { approvalId?: string };
       if (!queuedBody.approvalId) throw new Error("Orchestrator did not return an approval id.");
@@ -440,6 +443,8 @@ ${taskForRun}` : taskForRun;
       userId,
       harness,
     });
+    const liveCanvasUrl = buildSlackCanvasUrl(env, { threadKey, approvalId });
+    const canvasUrl = liveCanvasUrl ?? slackCanvasUrl(env.WORKER_HOSTNAME);
     await postMessage({
       channel: channelId,
       threadTs,
@@ -454,7 +459,8 @@ ${taskForRun}` : taskForRun;
         repoUrl: repoUrl || "(artifact workspace)",
         task: payload.task,
         harness,
-        canvasUrl: slackCanvasUrl(env.WORKER_HOSTNAME),
+        canvasUrl,
+        liveCanvas: !!liveCanvasUrl,
         workspaceLabel: workspaceTarget ? `Workspace ${workspaceTarget.workspaceId}` : repoUrl || "Ephemeral workspace",
         publishPullRequest: payload.publishPullRequest,
         ...(employeeExtras?.ok ? { employeeLabel: employeeExtras.extras.employeeLabel } : {}),

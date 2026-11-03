@@ -172,6 +172,12 @@ export function slackProgressText(event: SlackProgressEventLike): string {
       return "setting up the workspace";
     case "collect":
       return detail ? `wrapping up. ${detail}` : "wrapping up. collecting the diff";
+    case "completed":
+      return "Task completed. Deliverables collected.";
+    case "error":
+      return detail ? `Task failed. ${detail}` : "Task failed.";
+    case "cancelled":
+      return "Task cancelled.";
     default:
       return detail ? `still on it. ${detail}` : "still on it";
   }
@@ -191,6 +197,7 @@ export class SlackProgressReporter {
   private posts = 0;
   private lastPhase: string | null = null;
   private codeBeats = 0;
+  private finished = false;
 
   constructor(
     private readonly post: (text: string, event: SlackProgressEventLike) => Promise<void>,
@@ -198,7 +205,7 @@ export class SlackProgressReporter {
   ) {}
 
   async onEvent(event: SlackProgressEventLike): Promise<void> {
-    if (this.posts >= this.maxPosts) {
+    if (this.finished || this.posts >= this.maxPosts) {
       return;
     }
     const first = this.lastPhase === null;
@@ -215,16 +222,28 @@ export class SlackProgressReporter {
       // Best-effort. the child transcript already carries the same lines.
     }
   }
+
+  async finish(status: "completed" | "error" | "cancelled", message = ""): Promise<void> {
+    if (this.finished) return;
+    this.finished = true;
+    const event = { phase: status, message };
+    try {
+      await this.post(slackProgressText(event), event);
+    } catch {
+      // The run outcome is already retained independently of Slack delivery.
+    }
+  }
 }
 
 
 export function slackProgressBlocks(event: SlackProgressEventLike): unknown[] {
   const current = ["clone", "configure", "code", "collect"].indexOf(event.phase);
+  const terminal = ["completed", "error", "cancelled"].includes(event.phase);
   const steps = ["Prepare workspace", "Configure agent", "Execute task", "Collect deliverables"];
-  const checklist = steps.map((step, index) => `${current > index ? "☑" : "☐"} ${step}${current === index ? " (running)" : ""}`).join("\n");
+  const checklist = steps.map((step, index) => `${event.phase === "completed" || current > index ? "☑" : "☐"} ${step}${!terminal && current === index ? " (running)" : ""}`).join("\n");
   const detail = slackProgressText(event).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return [
-    { type: "section", text: { type: "mrkdwn", text: `*Run progress*\n${checklist}` } },
+    { type: "section", text: { type: "mrkdwn", text: `*${terminal ? `Run ${event.phase}` : "Run progress"}*\n${checklist}` } },
     { type: "context", elements: [{ type: "mrkdwn", text: detail }] },
   ];
 }

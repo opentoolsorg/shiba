@@ -109,6 +109,8 @@ export const spineEventPayloadSchema = z.union([
     target: z.string(),
     summary: z.string().optional(),
     error: z.string().optional(),
+    persona: z.enum(["lead", "explorer", "fixer", "reviewer"]).optional(),
+    blocks: z.array(z.unknown()).max(50).optional(),
   }),
 ]);
 export type SpinePayload = z.infer<typeof spineEventPayloadSchema>;
@@ -190,19 +192,21 @@ export function sideEffectRequestInput(args: {
   effectKind: SideEffectKind;
   target: string;
   summary?: string;
+  persona?: "lead" | "explorer" | "fixer" | "reviewer";
+  blocks?: unknown[];
   commandId: string;
   causationId?: string;
   runId?: string;
   at: number;
 }): SpineEventInput {
-  const { commandId, causationId, runId, at, effectId, effectKind, target, summary } = args;
+  const { commandId, causationId, runId, at, effectId, effectKind, target, summary, persona, blocks } = args;
   return {
     kind: "side_effect.requested",
     commandId,
     causationId,
     runId,
     at,
-    payload: { effectId, effectKind, target, summary },
+    payload: { effectId, effectKind, target, summary, ...(persona ? { persona } : {}), ...(blocks ? { blocks } : {}) },
   };
 }
 

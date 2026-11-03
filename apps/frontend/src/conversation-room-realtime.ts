@@ -4,6 +4,8 @@ export interface ConversationRoomViewer {
   viewerId: string;
   joinedAt: number;
   typing: boolean;
+  label?: string;
+  cursor?: { x: number; y: number } | null;
 }
 
 export interface ConversationRoomMessage {
@@ -51,6 +53,7 @@ interface UseConversationRoomRealtimeOptions {
   messages: readonly ChatMessageLike[];
   onMessage: (message: ConversationRoomMessage) => void;
   onRunEvent?: (event: ConversationRunFrame) => void;
+  realtimePath?: string;
 }
 
 interface LocalPublisher {
@@ -149,8 +152,10 @@ export function useConversationRoomRealtime({
   messages,
   onMessage,
   onRunEvent,
+  realtimePath,
 }: UseConversationRoomRealtimeOptions) {
   const [viewerId] = useState(tabViewerId);
+  const [assignedViewerId, setAssignedViewerId] = useState<string | null>(null);
   const [status, setStatus] = useState<ConversationRoomStatus>(enabled ? "connecting" : "offline");
   const [viewers, setViewers] = useState<ConversationRoomViewer[]>([]);
   const [remoteStream, setRemoteStream] = useState<ConversationRoomStream | null>(null);
@@ -158,7 +163,8 @@ export function useConversationRoomRealtime({
   const runSequenceRef = useRef(0);
   const replayPendingRef = useRef(false);
   const pendingRunFramesRef = useRef<ConversationRunFrame[]>([]);
-  const replaySessionRef = useRef(sessionId);
+  const roomIdentity = JSON.stringify([sessionId, realtimePath ?? ""]);
+  const replaySessionRef = useRef(roomIdentity);
   const socketRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
   const onRunEventRef = useRef(onRunEvent);
@@ -166,6 +172,7 @@ export function useConversationRoomRealtime({
   const publisherRef = useRef<LocalPublisher | null>(null);
   const typingSentRef = useRef(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cursorSentAtRef = useRef(0);
   onMessageRef.current = onMessage;
   onRunEventRef.current = onRunEvent;
   messagesRef.current = messages;
@@ -182,12 +189,14 @@ export function useConversationRoomRealtime({
   }, []);
 
   useEffect(() => {
-    if (replaySessionRef.current !== sessionId) {
-      replaySessionRef.current = sessionId;
+    if (replaySessionRef.current !== roomIdentity) {
+      replaySessionRef.current = roomIdentity;
       runSequenceRef.current = 0;
       pendingRunFramesRef.current = [];
       publisherRef.current = null;
       typingSentRef.current = false;
+      cursorSentAtRef.current = 0;
+      setAssignedViewerId(null);
       setReplayGap(false);
     }
     if (!enabled) {
@@ -211,10 +220,18 @@ export function useConversationRoomRealtime({
     const connect = () => {
       if (stopped) return;
       setStatus(attempt === 0 ? "connecting" : "reconnecting");
-      const url = new URL(
-        `/api/sessions/${encodeURIComponent(sessionId)}/realtime`,
-        window.location.href,
-      );
+      let url: URL;
+      try {
+        url = new URL(realtimePath ?? `/api/sessions/${encodeURIComponent(sessionId)}/realtime`, window.location.href);
+      } catch {
+        setStatus("offline");
+        return;
+      }
+      if (url.origin !== window.location.origin ||
+        (url.pathname !== "/api/slack-canvas/websocket" && !/^\/api\/sessions\/[^/]+\/realtime$/.test(url.pathname))) {
+        setStatus("offline");
+        return;
+      }
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       url.searchParams.set("viewer", viewerId);
       let socket: WebSocket;
@@ -297,6 +314,7 @@ export function useConversationRoomRealtime({
           replayPendingRef.current = false;
           for (const runFrame of pending.sort((a, b) => a.sequence - b.sequence)) acceptRunFrame(runFrame);
         } else if (frame.type === "snapshot") {
+          if (typeof frame.viewerId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(frame.viewerId)) setAssignedViewerId(frame.viewerId);
           setViewers(Array.isArray(frame.viewers) ? frame.viewers as ConversationRoomViewer[] : []);
           if (Array.isArray(frame.messages)) {
             for (const message of frame.messages) {
@@ -366,19 +384,19 @@ export function useConversationRoomRealtime({
       setViewers([]);
       setRemoteStream(null);
     };
-  }, [enabled, send, sessionId, viewerId]);
+  }, [enabled, send, sessionId, viewerId, realtimePath, roomIdentity]);
 
   useEffect(() => {
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     if (status !== "connected" || !typingText.trim()) {
-      if (typingSentRef.current) send({ type: "typing", typing: false });
+      if (typingSentRef.current) send({ type: "client_presence", typing: false });
       typingSentRef.current = false;
       return;
     }
-    if (!typingSentRef.current) send({ type: "typing", typing: true });
+    if (!typingSentRef.current) send({ type: "client_presence", typing: true });
     typingSentRef.current = true;
     typingTimerRef.current = setTimeout(() => {
-      send({ type: "typing", typing: false });
+      send({ type: "client_presence", typing: false });
       typingSentRef.current = false;
       typingTimerRef.current = null;
     }, 2_000);
@@ -435,13 +453,21 @@ export function useConversationRoomRealtime({
     if (contentSynced && send({ type: "stream:end", streamId: publisher.streamId, status })) publisherRef.current = null;
   }, [send]);
 
+  const setCursor = useCallback((cursor: { x: number; y: number } | null) => {
+    if (cursor && (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y) || cursor.x < 0 || cursor.x > 1 || cursor.y < 0 || cursor.y > 1)) return;
+    const now = Date.now();
+    if (cursor && now - cursorSentAtRef.current < 100) return;
+    if (send({ type: "client_presence", cursor })) cursorSentAtRef.current = now;
+  }, [send]);
+
   return {
-    viewerId,
+    viewerId: assignedViewerId ?? viewerId,
     status,
     viewers,
     remoteStream,
     replayGap,
     startStream,
     finishStream,
+    setCursor,
   };
 }

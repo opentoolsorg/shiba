@@ -1,9 +1,10 @@
 /**
  * Repository execution and separate publication approval integration coverage.
  * The harness and GitHub API use deterministic fixtures.
- * Review checks restore retained publications with their original human review
- * authorization, then exercise real lifecycle wakes, findings, and retries.
+ * Review checks cover deferred publication and retained publications with their
+ * original human review authorization, lifecycle wakes, findings, and retries.
  */
+import type { UIMessage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
@@ -23,12 +24,14 @@ import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 const REPO = "https://github.com/o/r";
 const TOKEN = "ghp_testtoken12345678";
 const API_BASE = "http://127.0.0.1:8799";
+const BASE_SHA = "a".repeat(40);
 const HEAD_SHA = "new-commit";
 const PULL_URL = "https://github.com/o/r/pull/7";
 
 const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
   execute: vi.fn(),
+  specialist: vi.fn(),
   keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
   schedule: vi.fn(async (..._args: unknown[]) => ({})),
   harnessMode: "happy" as "happy" | "coding-error" | "review-error" | "review-invalid",
@@ -36,6 +39,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@cloudflare/think", () => ({
   Think: class {
+    messages?: UIMessage[];
+    async addMessages(messages: UIMessage[]) {
+      const ids = new Set(messages.map((message) => message.id));
+      this.messages = [...(this.messages ?? []).filter((message) => !ids.has(message.id)), ...messages];
+    }
     onStart() {}
     getTools() {
       return {};
@@ -51,7 +59,7 @@ vi.mock("@cloudflare/think", () => ({
     }
   },
 }));
-vi.mock("agents/agent-tools", () => ({ agentTool: () => ({ execute: mocks.execute }) }));
+vi.mock("agents/agent-tools", () => ({ agentTool: (cls: { name: string }) => ({ execute: cls.name === "ReviewerAgent" ? mocks.specialist : mocks.execute }) }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
@@ -64,6 +72,7 @@ function createMockGitHubFetch() {
   const calls: RecordedCall[] = [];
   const postedReviews: Array<{ id: number; html_url: string; body: string }> = [];
   let postReviewFails = false;
+  let postReviewResponseLost = false;
 
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -75,9 +84,9 @@ function createMockGitHubFetch() {
       return json({ login: "shiba-bot" });
     }
     if (url.endsWith("/git/ref/heads/main")) {
-      return json({ object: { sha: "base-sha" } });
+      return json({ object: { sha: BASE_SHA } });
     }
-    if (url.endsWith("/git/commits/base-sha")) {
+    if (url.endsWith(`/git/commits/${BASE_SHA}`)) {
       return json({ tree: { sha: "base-tree" } });
     }
     if (url.endsWith("/git/blobs")) {
@@ -100,7 +109,7 @@ function createMockGitHubFetch() {
     }
     if (url.endsWith("/pulls/7/reviews") && init?.method === "POST") {
       if (postReviewFails) {
-        return new Response("upstream down", { status: 502 });
+        return new Response("review validation rejected", { status: 422 });
       }
       const body = JSON.parse(String(init.body)) as { body: string };
       const review = {
@@ -110,6 +119,7 @@ function createMockGitHubFetch() {
         user: { login: "shiba-bot" },
       };
       postedReviews.push(review);
+      if (postReviewResponseLost) throw new Error("Connection lost after GitHub accepted the review.");
       return json(review);
     }
     if (url.endsWith("/pulls/7/reviews")) {
@@ -132,6 +142,7 @@ function createMockGitHubFetch() {
     setPostReviewFails: (value: boolean) => {
       postReviewFails = value;
     },
+    setPostReviewResponseLost: (value: boolean) => { postReviewResponseLost = value; },
   };
 }
 
@@ -244,6 +255,7 @@ function wireFakeHarness() {
       }
       const files = [{ path: "README.md", content: "# edited\n", encoding: "utf8" as const }];
       const result: CodingTaskResult = {
+        baseRevision: BASE_SHA,
         status: "completed", exitCode: 0, stderrTail: "", changedFiles: ["README.md"],
         diff: "+# edited", files, summary: "Edited README.",
       };
@@ -280,6 +292,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.destroy.mockResolvedValue(undefined);
   mocks.harnessMode = "happy";
+  mocks.specialist.mockResolvedValue({ agent: "reviewer", status: "completed", summary: "Captured diff reviewed.", report: "The frozen task and captured diff were inspected.", findings: [] });
   publicationBucket = memoryPublicationBucket();
 });
 
@@ -369,6 +382,61 @@ describe("Phase 1 core loop (integration)", () => {
     expect(github.calls.some((call) => /api\.openai\.com|generativelanguage|api\.anthropic\.com/.test(call.url))).toBe(
       false,
     );
+    vi.unstubAllGlobals();
+  });
+
+  it("waits for publication approval before dispatching the approved reviewer and registering the PR", async () => {
+    const github = createMockGitHubFetch();
+    vi.stubGlobal("fetch", github.fetchImpl);
+    wireFakeHarness();
+    const instance = agent();
+    const { codingRunId } = await queueAndApprove(instance);
+    await vi.waitFor(() => expect(instance.state.runs.find((run) => run.runId === codingRunId)?.status).toBe("completed"));
+    expect(instance.state.runs).toHaveLength(1);
+    expect(instance.state.reviewRounds ?? []).toHaveLength(0);
+    expect(instance.state.prBindings ?? {}).toEqual({});
+    expect(github.postedReviews).toHaveLength(0);
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+    await approvePublication(instance, codingRunId);
+    await vi.waitFor(() => expect(instance.state.reviewRounds?.[0]?.status).toBe("posted"));
+    expect(instance.state.prBindings?.["o/r#7"]).toBe(codingRunId);
+    expect(instance.state.runs.find((run) => run.reviewOf === codingRunId)?.status).toBe("completed");
+    expect(instance.state.reviewRounds).toHaveLength(1);
+    expect(github.postedReviews).toHaveLength(1);
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+    const restarted = agent();
+    restarted.setState(JSON.parse(JSON.stringify(instance.state)) as OrchestratorState);
+    await restarted.onStart();
+    await vi.waitFor(() => expect(github.calls.filter((call) => /\/pulls\/7$/.test(call.url)).length).toBeGreaterThan(1));
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+    expect(github.postedReviews).toHaveLength(1);
+    expect(github.calls.filter((call) => call.url.endsWith("/pulls") && call.init?.method === "POST")).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("retains an unknown review outcome after lost delivery and refuses restart, wake and explicit retries", async () => {
+    const github = createMockGitHubFetch();
+    github.setPostReviewResponseLost(true);
+    vi.stubGlobal("fetch", github.fetchImpl);
+    wireFakeHarness();
+    const instance = agent();
+    const { codingRunId } = await queueAndApprove(instance);
+    await approvePublication(instance, codingRunId);
+    await vi.waitFor(() => expect(instance.state.reviewRounds?.[0]?.publicationOutcome).toBe("unknown"));
+    expect(github.postedReviews).toHaveLength(1);
+    const restarted = agent();
+    restarted.setState(JSON.parse(JSON.stringify(instance.state)) as OrchestratorState);
+    await restarted.onStart();
+    const retry = await restarted.onRequest(new Request(`https://internal/api/runs/${encodeURIComponent(codingRunId)}/review/retry`, { method: "POST" }));
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ error: "review_publication_unknown" });
+    await restarted.onRequest(new Request("https://internal/internal/pr-lifecycle", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ githubEvent: "pull_request", mapped: { event: "pull_request", action: "synchronize", repo: "o/r", pullNumber: 7, headSha: HEAD_SHA } }),
+    }));
+    expect(restarted.state.reviewRounds?.[0]?.publicationOutcome).toBe("unknown");
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+    expect(github.postedReviews).toHaveLength(1);
     vi.unstubAllGlobals();
   });
 
@@ -548,7 +616,7 @@ describe("Phase 1 core loop (integration)", () => {
     const payload = { executionTarget: target, commandId: "artifact-command-1" };
     const first = await postRun(payload);
     expect(first.status).toBe(200);
-    const firstBody = await first.json() as { approvalId: string };
+    const firstBody = await first.json() as { approvalId: string; approvalInputHash: string };
     const approval = instance.state.pendingApprovals?.find((item) => item.approvalId === firstBody.approvalId);
     expect(approval?.executionTarget).toEqual(target);
     expect(approval?.expectedDeliverables).toEqual(target.expectedDeliverables);
@@ -556,7 +624,8 @@ describe("Phase 1 core loop (integration)", () => {
 
     const replay = await postRun(payload);
     expect(replay.status).toBe(200);
-    expect(await replay.json()).toEqual({ ok: true, approvalId: firstBody.approvalId, deduped: true });
+    expect(firstBody.approvalInputHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(await replay.json()).toEqual({ ok: true, approvalId: firstBody.approvalId, approvalInputHash: firstBody.approvalInputHash, deduped: true });
     expect(instance.state.pendingApprovals).toHaveLength(1);
   });
 
@@ -663,6 +732,7 @@ describe("Phase 1 core loop (integration)", () => {
     expect((instance.state.reviewRounds ?? [])[0]?.status).toBe("failed");
 
     mocks.harnessMode = "happy";
+  mocks.specialist.mockResolvedValue({ agent: "reviewer", status: "completed", summary: "Captured diff reviewed.", report: "The frozen task and captured diff were inspected.", findings: [] });
     const retry = await instance.onRequest(
       new Request(`https://internal/api/runs/${encodeURIComponent(codingRunId)}/review/retry`, { method: "POST" }),
     );

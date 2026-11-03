@@ -32,6 +32,8 @@ extraResources:
     to: daemon/agent-harness.mjs
   - from: ../../scripts/local-deliverables.mjs
     to: daemon/local-deliverables.mjs
+  - from: ../../scripts/local-repository-snapshot.mjs
+    to: daemon/local-repository-snapshot.mjs
 electronFuses:
   runAsNode: false
   enableNodeOptionsEnvironmentVariable: false

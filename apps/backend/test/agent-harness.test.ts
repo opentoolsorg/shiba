@@ -2,6 +2,7 @@
  * Session layer against fake CLIs that speak the Codex app-server and
  * Claude stream-json protocols, plus the sandbox/local wiring around it.
  */
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -435,6 +436,7 @@ describe("sandbox and local wiring", () => {
     const files = new Map<string, string>();
     const commands: string[] = [];
     const adapter = new SandboxRuntimeAdapter(claudeCodeHarness);
+    const snapshot = repositorySnapshotFixture({ status: " M src/a.ts\n", files: { "src/a.ts": "file" } });
     const result = await adapter.runCodingTask(
       {
         async gitCheckout() {},
@@ -443,6 +445,8 @@ describe("sandbox and local wiring", () => {
         },
         async exec(command) {
           commands.push(command);
+          const captured = await snapshot(command);
+          if (captured) return captured;
           if (command.includes("status"))
             return { stdout: " M src/a.ts\n", stderr: "", exitCode: 0 };
           if (command.includes("diff"))

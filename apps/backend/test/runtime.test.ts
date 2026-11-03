@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { onboardingRunFields } from "@shiba/shared";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -73,12 +74,15 @@ interface RecordedExec {
 
 function makeFakeOps(overrides: Partial<SandboxOps> = {}): SandboxOps & { execs: RecordedExec[] } {
   const execs: RecordedExec[] = [];
+  const snapshot = repositorySnapshotFixture({ status: " M src/a.ts\n?? new.txt\n", files: { "src/a.ts": "file content", "new.txt": "file content" } });
   return {
     execs,
     async gitCheckout() {},
     async writeFile() {},
     async exec(command, opts) {
       execs.push({ command, cwd: opts?.cwd, env: opts?.env });
+      const gitResult = await snapshot(command);
+      if (gitResult) return gitResult;
       if (command.includes("opencode")) {
         return { stdout: "run output", stderr: "", exitCode: 0 };
       }
@@ -228,12 +232,7 @@ describe("SandboxRuntimeAdapter", () => {
       async exec(command, opts) {
         // T44: checkpoint git commands still need real-ish answers — only
         // the harness exec itself is the nonzero exit under test.
-        if (!command.includes("opencode")) {
-          if (command.includes("rev-parse")) return { stdout: ".git\n", stderr: "", exitCode: 0 };
-          if (command.includes("write-tree")) return { stdout: "tree\n", stderr: "", exitCode: 0 };
-          if (command.includes("commit-tree")) return { stdout: "commit\n", stderr: "", exitCode: 0 };
-          return baseExec(command, opts);
-        }
+        if (!command.includes("opencode")) return baseExec(command, opts);
         return { stdout: "", stderr: `x\n${"e".repeat(50_000)}`, exitCode: 3 };
       },
     });
@@ -553,7 +552,9 @@ describe("streamed opencode progress", () => {
 
   it("surfaces an opencode error event instead of pretending success", async () => {
     const ops = makeFakeOps();
-    ops.exec = async (_command, opts) => {
+    const baseExec = ops.exec;
+    ops.exec = async (command, opts) => {
+      if (!command.includes("opencode")) return baseExec(command, opts);
       opts?.onOutput?.("stdout", `${JSON.stringify({ type: "error", message: "quota exhausted" })}\n`);
       return { stdout: "", stderr: "", exitCode: 0 };
     };
@@ -597,61 +598,48 @@ describe("streamed opencode progress", () => {
 });
 
 describe("complete file collection bounds", () => {
-  it("passes per-file maxBytes and cancellation signal to readFile", async () => {
+  it("passes fixed-blob timeouts and cancellation signal without reading mutable files", async () => {
     const ops = makeFakeOps();
-    const calls: Array<{ path: string; opts?: { maxBytes?: number; signal?: AbortSignal } }> = [];
-    ops.readFile = async (path, opts) => {
-      calls.push({ path, opts });
-      return { kind: "utf8", content: "file content" };
+    const reads = vi.fn(async () => ({ kind: "utf8" as const, content: "late mutable content" }));
+    ops.readFile = reads;
+    const calls: Array<Parameters<SandboxOps["exec"]>[1]> = [];
+    const execute = ops.exec;
+    ops.exec = async (command, options) => {
+      if (command.includes("maxBuffer:100001")) calls.push(options);
+      return execute(command, options);
     };
     const controller = new AbortController();
-    const adapter = new SandboxRuntimeAdapter();
-    const result = await adapter.runCodingTask(ops, INPUT, () => {}, { signal: controller.signal });
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {}, { signal: controller.signal });
     expect(result.status).toBe("completed");
+    expect(reads).not.toHaveBeenCalled();
     expect(calls).toHaveLength(2);
-    for (const call of calls) {
-      expect(call.opts?.maxBytes).toBe(MAX_FILE_CHARS);
-      expect(call.opts?.signal).toBe(controller.signal);
+    for (const options of calls) {
+      expect(options?.timeoutMs).toBe(5 * 60 * 1000);
+      expect(options?.signal).toBe(controller.signal);
     }
   });
 
-  it("fails the whole run when a file exceeds its bound instead of truncating", async () => {
-    const ops = makeFakeOps({
-      async readFile(_path, opts) {
-        if ((opts?.maxBytes ?? 0) < 1_000_000) {
-          throw new Error("readFile exceeded maxBytes: never truncating captured file content.");
-        }
-        return { kind: "utf8", content: "file content" };
-      },
-    });
-    const adapter = new SandboxRuntimeAdapter();
-    const result = await adapter.runCodingTask(ops, INPUT, () => {});
+  it("fails the whole run when an immutable file exceeds its bound instead of truncating", async () => {
+    const ops = makeFakeOps();
+    const execute = ops.exec;
+    const snapshot = repositorySnapshotFixture({ status: " M src/a.ts\n", files: { "src/a.ts": "x".repeat(MAX_FILE_CHARS + 1) } });
+    ops.exec = async (command, options) => await snapshot(command) ?? execute(command, options);
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {});
     expect(result.status).toBe("error");
-    expect(result.summary).toContain("maxBytes");
+    expect(result.summary).toContain("MAX_FILE_CHARS");
     expect(result.files).toHaveLength(0);
   });
 
-  it("records deleted files as null content without reading them", async () => {
+  it("records checkpoint deletions as null content without reading mutable files", async () => {
     const ops = makeFakeOps();
-    const reads: string[] = [];
-    ops.exec = async (command, opts) => {
-      if (command.includes("opencode")) {
-        opts?.onOutput?.("stdout", "");
-        return { stdout: "", stderr: "", exitCode: 0 };
-      }
-      if (command.includes("status")) {
-        return { stdout: " D src/deleted.ts\n M src/a.ts\n", stderr: "", exitCode: 0 };
-      }
-      return { stdout: "", stderr: "", exitCode: 0 };
-    };
-    ops.readFile = async (path) => {
-      reads.push(path);
-      return { kind: "utf8", content: "content" };
-    };
-    const adapter = new SandboxRuntimeAdapter();
-    const result = await adapter.runCodingTask(ops, INPUT, () => {});
+    const execute = ops.exec;
+    const reads = vi.fn(async () => ({ kind: "utf8" as const, content: "late recreated deleted file" }));
+    ops.readFile = reads;
+    const snapshot = repositorySnapshotFixture({ status: " D src/deleted.ts\n M src/a.ts\n", files: { "src/a.ts": "content" } });
+    ops.exec = async (command, options) => await snapshot(command) ?? execute(command, options);
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {});
     expect(result.changedFiles).toEqual(["src/deleted.ts", "src/a.ts"]);
-    expect(reads).toEqual(["/workspace/run-abcdef12345678/src/a.ts"]);
+    expect(reads).not.toHaveBeenCalled();
     expect(result.files).toEqual([
       { path: "src/a.ts", content: "content", encoding: "utf8" },
       { path: "src/deleted.ts", content: null, encoding: "utf8" },

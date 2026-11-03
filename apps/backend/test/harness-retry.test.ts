@@ -1,3 +1,4 @@
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const sandboxMock = vi.hoisted(() => ({ getSandbox: vi.fn() }));
@@ -292,7 +293,8 @@ const INPUT: CodingTaskInput = {
 };
 
 function makeFakeOps(overrides: Partial<SandboxOps> = {}): SandboxOps {
-  return {
+  const snapshot = repositorySnapshotFixture({ status: " M src/a.ts\n", files: { "src/a.ts": "file content" } });
+  const ops: SandboxOps = {
     async gitCheckout() {},
     async writeFile() {},
     async exec(command) {
@@ -309,6 +311,9 @@ function makeFakeOps(overrides: Partial<SandboxOps> = {}): SandboxOps {
     },
     ...overrides,
   };
+  const original = ops.exec;
+  ops.exec = async (command, options) => (await snapshot(command)) ?? original(command, options);
+  return ops;
 }
 
 describe("withRetry wired into the runtime adapter", () => {
@@ -365,13 +370,13 @@ describe("withRetry wired into the runtime adapter", () => {
   });
 
   it("retries diff collection on a thrown transient failure", async () => {
-    let statusCalls = 0;
+    let diffCalls = 0;
     const ops = makeFakeOps({
       async exec(command) {
-        if (command.includes("status")) {
-          statusCalls += 1;
-          if (statusCalls === 1) throw new Error("provider returned status 503: overloaded");
-          return { stdout: " M src/a.ts\n", stderr: "", exitCode: 0 };
+        if (command.startsWith("'git' '--no-replace-objects' 'diff'")) {
+          diffCalls += 1;
+          if (diffCalls === 1) throw new Error("provider returned status 503: overloaded");
+          return { stdout: "diff --git a/src/a.ts", stderr: "", exitCode: 0 };
         }
         if (command.includes("diff")) return { stdout: "diff --git a/x", stderr: "", exitCode: 0 };
         return { stdout: "", stderr: "", exitCode: 0 };
@@ -379,7 +384,7 @@ describe("withRetry wired into the runtime adapter", () => {
     });
     const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {});
     expect(result.status).toBe("completed");
-    expect(statusCalls).toBe(2);
+    expect(diffCalls).toBe(2);
   });
 });
 

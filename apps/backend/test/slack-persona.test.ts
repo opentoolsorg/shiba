@@ -170,6 +170,18 @@ describe("SlackProgressReporter", () => {
     const reporter = new SlackProgressReporter(post);
     await expect(reporter.onEvent({ phase: "clone", message: "a" })).resolves.toBeUndefined();
   });
+
+  it("delivers one terminal status after the progress cap and ignores late progress", async () => {
+    const post = vi.fn(async () => {});
+    const reporter = new SlackProgressReporter(post, 1);
+    await reporter.onEvent({ phase: "clone", message: "Start" });
+    await reporter.onEvent({ phase: "code", message: "Working" });
+    await reporter.finish("error", "The test command failed.");
+    await reporter.finish("completed");
+    await reporter.onEvent({ phase: "collect", message: "Late" });
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[1]).toEqual(["Task failed. The test command failed.", { phase: "error", message: "The test command failed." }]);
+  });
 });
 
 describe("extractPullRequestUrl", () => {

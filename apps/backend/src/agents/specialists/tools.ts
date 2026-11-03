@@ -13,12 +13,14 @@ import {
   withinSpecialistDeadline,
   type ChildTaskEvent,
   type SpecialistRole,
+  SPECIALIST_TIMEOUT_MS,
 } from "./contract.js";
 
 export interface SpecialistTurnBudget { remaining: number; active: number }
 export interface SpecialistToolHooks {
   onEvent: (event: ChildTaskEvent) => void | Promise<void>;
   cancel: (role: SpecialistRole, childTaskId: string) => void | Promise<void>;
+  expiresAt?: number;
 }
 
 /** Only these explicit snapshots cross the child boundary. No transcript is copied. */
@@ -42,7 +44,7 @@ export function createSpecialistTools(env: Env, parentName: string, budget: Spec
       budget.active += 1;
       const emit = (kind: ChildTaskEvent["kind"], summary?: string) => hooks.onEvent({ kind, childTaskId, agent: role, parentName, ...(summary ? { summary } : {}) });
       try {
-        const dispatch = await sealSpecialistDispatch(env, role, parentName, childTaskId, input);
+        const dispatch = await sealSpecialistDispatch(env, role, parentName, childTaskId, input, hooks.expiresAt === undefined ? undefined : hooks.expiresAt - SPECIALIST_TIMEOUT_MS);
         await emit("ChildTaskSpawned");
         await emit("ChildTaskProgress", "Inspecting explicit context with read-only tools.");
         const result = await withinSpecialistDeadline((signal) => Promise.resolve(execute(dispatch, { ...options, abortSignal: signal })), dispatch.expiresAt, options.abortSignal);
@@ -51,6 +53,7 @@ export function createSpecialistTools(env: Env, parentName: string, budget: Spec
           return result;
         }
         const observation = specialistObservationSchema.parse(result);
+        if (observation.agent !== role) throw new Error("Specialist observation role mismatch.");
         await emit(observation.status === "completed" ? "ChildTaskCompleted" : "ChildTaskFailed", observation.summary);
         return observation;
       } catch (error) {

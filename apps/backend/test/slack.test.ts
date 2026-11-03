@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { verifySlackCanvasIntake } from "../src/slack-canvas.js";
 import { handleSlackCommand, parseSlackCommand } from "../src/slack-routes.js";
 import { postSlackMessageWithReceipt, createSlackRunProgress, SlackPostRejectedError, verifySlackBotInstallation, verifySlackRequest } from "../src/slack.js";
 
@@ -164,8 +165,8 @@ describe("slack slash command", () => {
     });
   }
 
-  function routeEnv() {
-    return { SLACK_SIGNING_SECRET: ROUTE_SECRET, CodingOrchestrator: {} } as never;
+  function routeEnv(overrides: Record<string, unknown> = {}) {
+    return { SLACK_SIGNING_SECRET: ROUTE_SECRET, CodingOrchestrator: {}, ...overrides } as never;
   }
 
   it("routes slash command to orchestrator and returns Task queued", async () => {
@@ -195,6 +196,50 @@ describe("slack slash command", () => {
     const actions = body.blocks?.find((b) => b.type === "actions");
     expect(JSON.stringify(actions)).toContain("a-77");
     expect(JSON.stringify(actions)).toContain("slack-command:T123:C456");
+  });
+
+  it("seals configured canvas origin only after verifying the Slack command", async () => {
+    const key = "canvas-intake-signing-key-at-least-32-chars";
+    const configured = routeEnv({ INTERNAL_SIGNING_KEY: key, WORKER_HOSTNAME: "shiba.test", SLACK_CANVAS_OWNERS: JSON.stringify([
+      { teamId: "T123", channelId: "C456", ownerId: "owner@example.test" },
+    ]) });
+    const fetchMock = vi.fn(async (request: Request) => {
+      expect(await verifySlackCanvasIntake(request, key, "default")).toBe("slack-command:T123:C456");
+      expect(await request.json()).toMatchObject({ threadKey: "slack-command:T123:C456", task: "Fix it" });
+      return Response.json({ approvalId: "canvas-approval" });
+    });
+    const request = await signedCommandRequest({ command: "/shiba", text: "https://github.com/o/r Fix it" });
+    const response = await handleSlackCommand(request, configured, { orchestratorStub: { fetch: fetchMock } });
+    expect(response?.status).toBe(200);
+    expect(JSON.stringify(await response?.json())).toContain("Live Web Canvas");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const forged = await signedCommandRequest({ command: "/shiba", text: "https://github.com/o/r Fix it" }, "wrong-secret");
+    expect((await handleSlackCommand(forged, configured, { orchestratorStub: { fetch: fetchMock } }))?.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps canvas disabled for an unconfigured origin while preserving Slack intake", async () => {
+    const fetchMock = vi.fn(async (request: Request) => {
+      expect(request.headers.get("X-Shiba-Slack-Canvas-Origin")).toBeNull();
+      return Response.json({ approvalId: "normal-approval" });
+    });
+    const response = await handleSlackCommand(await signedCommandRequest({ command: "/shiba", text: "https://github.com/o/r Fix it" }), routeEnv({ WORKER_HOSTNAME: "shiba.test" }), { orchestratorStub: { fetch: fetchMock } });
+    expect(response?.status).toBe(200);
+    const rendered = JSON.stringify(await response?.json());
+    expect(rendered).not.toContain("Live Web Canvas");
+    expect(rendered).toContain("Open Shiba");
+  });
+
+  it("preserves the queued approval and reports when private completion storage fails", async () => {
+    const storage = { get: vi.fn(async () => null), put: vi.fn(async () => { throw new Error("Storage unavailable."); }) };
+    const fetchMock = vi.fn(async () => Response.json({ approvalId: "saved-approval", approvalInputHash: "a".repeat(64) }));
+    const response = await handleSlackCommand(await signedCommandRequest({ command: "/shiba", user_id: "U123", text: "https://github.com/o/r Fix it" }), routeEnv({ ATTACHMENTS: storage, SLACK_BOT_TOKEN: "xoxb-test" }), { orchestratorStub: { fetch: fetchMock } });
+    const body = await response?.json() as { text?: string; blocks?: unknown[] };
+    expect(body.text).toContain("safely queued for approval (saved-approval)");
+    expect(body.text).toContain("completion delivery could not be prepared");
+    expect(body.text).toContain("Storage unavailable");
+    expect(body.blocks).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -367,10 +412,16 @@ describe("Slack in-thread progress cards", () => {
       await reporter.onEvent({ phase: "clone", message: "cloning" });
       await reporter.onEvent({ phase: "code", message: "working" });
       await reporter.onEvent({ phase: "collect", message: "complete" });
-      expect(calls.map((call) => call.url)).toEqual(["https://slack.com/api/chat.postMessage", "https://slack.com/api/chat.update", "https://slack.com/api/chat.update"]);
+      await reporter.finish("completed");
+      await reporter.finish("completed");
+      await reporter.onEvent({ phase: "code", message: "late update" });
+      expect(calls.map((call) => call.url)).toEqual(["https://slack.com/api/chat.postMessage", "https://slack.com/api/chat.update", "https://slack.com/api/chat.update", "https://slack.com/api/chat.update"]);
       expect(calls[0]?.body).toMatchObject({ username: "Shiba Fixer", icon_emoji: ":hammer_and_wrench:", thread_ts: "100.200" });
       expect(calls[1]?.body).toMatchObject({ channel: "C1", ts: "123.456" });
       expect(JSON.stringify(calls[2]?.body.blocks)).toContain("☑ Prepare workspace");
+      expect(JSON.stringify(calls[3]?.body.blocks)).toContain("Run completed");
+      expect(JSON.stringify(calls[3]?.body.blocks)).toContain("☑ Collect deliverables");
+      expect(JSON.stringify(calls[3]?.body.blocks)).not.toContain("(running)");
     } finally {
       vi.unstubAllGlobals();
     }

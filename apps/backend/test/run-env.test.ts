@@ -2,6 +2,7 @@
  * T68: per-run env values never appear in a record, response or envelope in
  * the clear — only names, a digest, and a blob sealed to one orchestrator.
  */
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   applyRunEvents,
@@ -251,11 +252,14 @@ describe("runtime", () => {
 
   it("passes approved env to the harness process, harness keys winning", async () => {
     const calls: { command: string; env?: Record<string, string> }[] = [];
+    const snapshot = repositorySnapshotFixture();
     const ops = {
       async gitCheckout() {},
       async writeFile() {},
       async exec(command: string, opts?: { env?: Record<string, string> }) {
         calls.push({ command, env: opts?.env });
+        const captured = await snapshot(command);
+        if (captured) return captured;
         return { stdout: "", stderr: "", exitCode: 0 };
       },
       async readFile() {
@@ -272,10 +276,13 @@ describe("runtime", () => {
   });
 
   it("scrubs sandbox output before truncating it, so a cut can't leave part of a value", async () => {
+    const snapshot = repositorySnapshotFixture();
     const ops = {
       async gitCheckout() {},
       async writeFile() {},
       async exec(command: string) {
+        const captured = await snapshot(command);
+        if (captured) return captured;
         // The tail window starts 9 chars into the secret — truncating first would leave "lue-7f2a".
         if (command.includes("opencode")) return { stdout: "", stderr: SECRET + "y".repeat(7992), exitCode: 1 };
         return { stdout: "", stderr: "", exitCode: 0 };
@@ -294,10 +301,13 @@ describe("runtime", () => {
 
   it("scrubs complete output lines before a harness parser truncates them", async () => {
     const messages: string[] = [];
+    const snapshot = repositorySnapshotFixture();
     const ops = {
       async gitCheckout() {},
       async writeFile() {},
       async exec(command: string, opts?: Parameters<SandboxOps["exec"]>[1]) {
+        const captured = await snapshot(command);
+        if (captured) return captured;
         if (command.includes("opencode")) {
           opts?.onOutput?.("stdout", `${SECRET}${"y".repeat(490)}\n`);
         }

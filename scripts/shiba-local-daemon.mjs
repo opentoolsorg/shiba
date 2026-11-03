@@ -42,15 +42,12 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { copyOperatorAuth } from "./link-operator-auth.mjs";
-import { captureExpectedDeliverables, readContainedChangedFile } from "./local-deliverables.mjs";
+import { collectLocalRepositorySnapshot } from "./local-repository-snapshot.mjs";
 import { connectReasonNetworkStdio, createReasonNetworkCompanion } from "./reason-network-companion.mjs";
 
 const LOCAL_RUN_ROOT_TOKEN = "${SHIBA_LOCAL_RUN_ROOT}";
 const MAX_STDERR_TAIL_CHARS = 8_000;
 const MAX_STDOUT_TAIL_CHARS = 30_000;
-const MAX_CAPTURED_FILES = 50;
-const MAX_FILE_CHARS = 100_000;
-const MAX_TOTAL_FILE_CHARS = 500_000;
 const RECEIPT_COMMAND_CAP = 256;
 const DEFAULT_POLL_MS = 3_000;
 const DAEMON_VERSION = "0.1.0";
@@ -548,6 +545,7 @@ function runProcess(argv, opts = {}) {
       : null;
     child.stdout.on("data", (d) => {
       stdout = boundTail(stdout + d.toString(), MAX_STDOUT_TAIL_CHARS);
+      opts.onStdoutBytes?.(d);
       opts.onStdout?.(d.toString());
     });
     child.stderr.on("data", (d) => {
@@ -609,55 +607,26 @@ function errorResult(summary, exitCode = -1) {
   };
 }
 
-async function collectResult(envelope, root, execution) {
+async function collectResult(envelope, root, execution, baseRevision) {
   const cloneDir = substitute(envelope.cloneDir, root);
-  let requestedFiles;
   try {
-    requestedFiles = await captureExpectedDeliverables(cloneDir, envelope.expectedDeliverables);
+    return await collectLocalRepositorySnapshot({ cloneDir, baseRevision, expectedDeliverables: envelope.expectedDeliverables,
+      git: async (args, maxBytes) => {
+        const chunks = [];
+        let byteLength = 0;
+        const result = await runProcess(["git", "-C", cloneDir, ...args], { execution, timeoutMs: 60_000,
+          onStdoutBytes: (chunk) => {
+            byteLength += chunk.length;
+            if (byteLength <= maxBytes) chunks.push(chunk);
+          },
+        });
+        if (result.exitCode !== 0 || byteLength > maxBytes) throw new Error(`git ${args[0]} failed or exceeded its complete output limit: ${result.stderr.slice(0, 500)}`);
+        return Buffer.concat(chunks);
+      },
+    });
   } catch (error) {
     return { error: error.message };
   }
-  const status = await runProcess(["git", "-C", cloneDir, "status", "--porcelain", "-uall"], { execution });
-  if (status.exitCode !== 0) {
-    return { error: `git status failed: ${status.stderr.slice(0, 500)}` };
-  }
-  const changedFiles = [];
-  const deletedFiles = new Set();
-  for (const line of status.stdout.split("\n")) {
-    if (line.trim() === "") continue;
-    const spec = line.slice(3).trim();
-    // rename lines read "old -> new"; the new path is what the PR writes.
-    const filePath = spec.includes(" -> ") ? spec.split(" -> ").pop().trim() : spec;
-    changedFiles.push(filePath);
-    if (line.slice(0, 2).includes("D")) deletedFiles.add(filePath);
-    if (changedFiles.length >= 500) break;
-  }
-  // Stage everything (this workspace is disposable) so the diff covers
-  // untracked files exactly like the checkpoint diff does in-sandbox.
-  await runProcess(["git", "-C", cloneDir, "add", "-A"], { execution });
-  const diff = await runProcess(["git", "-C", cloneDir, "diff", "--cached", "--no-color"], { execution });
-  const files = [...requestedFiles];
-  const requestedPaths = new Set(requestedFiles.map((file) => file.path));
-  let totalChars = requestedFiles.reduce((sum, file) => sum + file.content.length, 0);
-  const remainingFiles = changedFiles.filter((filePath) => !requestedPaths.has(filePath))
-    .slice(0, Math.max(0, MAX_CAPTURED_FILES - files.length));
-  for (const filePath of remainingFiles) {
-    if (deletedFiles.has(filePath)) {
-      files.push({ path: filePath, content: null, encoding: "utf8" });
-      continue;
-    }
-    try {
-      const content = await readContainedChangedFile(cloneDir, filePath, {
-        maxBytes: MAX_FILE_CHARS * 2,
-      });
-      if (totalChars + content.length > MAX_TOTAL_FILE_CHARS) break;
-      totalChars += content.length;
-      files.push({ path: filePath, content, encoding: "utf8" });
-    } catch (error) {
-      return { error: `Changed file ${filePath} could not be captured: ${error.message}` };
-    }
-  }
-  return { changedFiles, diff: boundTail(diff.stdout, 2_000_000), files };
 }
 
 async function execute(envelope, claimToken) {
@@ -755,6 +724,12 @@ async function execute(envelope, claimToken) {
         );
       }
     }
+
+    // Freeze the actual cloned base before setup or repository-controlled code
+    // can move HEAD or its branch. Publication must use this exact revision.
+    const base = await runProcess(["git", "--no-replace-objects", "-C", cloneDir, "rev-parse", "--verify", "HEAD^{commit}"], { execution, timeoutMs: 60_000 });
+    const baseRevision = base.stdout.trim();
+    if (base.exitCode !== 0 || !/^[a-f0-9]{40}$/.test(baseRevision)) return errorResult("Could not freeze the repository base revision.");
 
     // 2. setup ops — the same prefix allowlist the sandbox adapter applies.
     await fs.mkdir(homeDir, { recursive: true });
@@ -904,7 +879,7 @@ async function execute(envelope, claimToken) {
     }
 
     // 5. collect — status + staged diff + file contents.
-    const collection = await collectResult(envelope, root, execution);
+    const collection = await collectResult(envelope, root, execution, baseRevision);
     if (stopped()) return errorResult(stopReason);
     if (collection.error) return errorResult(collection.error);
     milestone("collect.complete", `${collection.changedFiles.length} files`);
@@ -925,6 +900,7 @@ async function execute(envelope, claimToken) {
       changedFiles: collection.changedFiles,
       diff: collection.diff,
       files: collection.files,
+      baseRevision,
       signals: [...signals],
     };
 

@@ -96,7 +96,7 @@ const server = createServer((req, res) => {
     if (url.includes("/check-runs")) { res.end(JSON.stringify({ check_runs: [] })); return; }
     if (url.includes("/comments")) { res.end(JSON.stringify([])); return; }
     if (url.includes("/git/ref/")) {
-      res.end(JSON.stringify({ object: { sha: "basebase" } }));
+      res.end(JSON.stringify({ object: { sha: "a".repeat(40) } }));
       return;
     }
     if (url.includes("/git/commits/")) {

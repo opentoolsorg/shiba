@@ -24,6 +24,7 @@ export function buildStandInCodingResult(): CodingTaskResult {
   const line = "verify-shiba stand-in change\n";
   return {
     status: "completed",
+    baseRevision: "a".repeat(40),
     exitCode: 0,
     stderrTail: "",
     changedFiles: ["README.md"],

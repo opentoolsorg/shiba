@@ -3,12 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APPROVAL_TTL_MS, type PendingApproval } from "@shiba/shared";
 import type { Env } from "../src/env.js";
 import type { CodingTaskResult } from "../src/opencode-input.js";
-import { executePrPublishApproval, stagePrPublishApproval, validatePrPublicationProposal } from "../src/pr-publish-approval.js";
+import { executePrPublishApproval, readPrPublicationReviewInput, stagePrPublishApproval, validatePrPublicationProposal } from "../src/pr-publish-approval.js";
 
 const NOW = Date.parse("2026-11-03T19:00:00Z");
 const TOKEN = "ghp_example_worker_only_secret_1234567890";
+const BASE_REVISION = "a".repeat(40);
 const expected = { ownerId: "owner@example.com", runId: "agent-tool:approved-run", sandboxId: "sandbox", repoUrl: "https://github.com/owner/repo", baseBranch: "main" };
-const result: CodingTaskResult = { status: "completed", exitCode: 0, stderrTail: "", changedFiles: ["source.ts"], diff: "", summary: "Task completed.", files: [{ path: "source.ts", content: "UNIQUE_STAGED_FILE_BYTES", encoding: "utf8" }] };
+const result: CodingTaskResult = { baseRevision: BASE_REVISION, status: "completed", exitCode: 0, stderrTail: "", changedFiles: ["source.ts"], diff: "", summary: "Task completed.", files: [{ path: "source.ts", content: "UNIQUE_STAGED_FILE_BYTES", encoding: "utf8" }] };
 
 function setup() {
   const objects = new Map<string, Uint8Array<ArrayBuffer>>();
@@ -25,8 +26,8 @@ function setup() {
   const fetchImpl = vi.fn(async (resource: RequestInfo | URL, init?: RequestInit) => {
     const url = String(resource);
     const response = (value: unknown) => Response.json(value);
-    if (url.endsWith("/git/ref/heads/main")) return response({ object: { sha: "base" } });
-    if (url.endsWith("/git/commits/base")) return response({ tree: { sha: "base-tree" } });
+    if (url.endsWith("/git/ref/heads/main")) return response({ object: { sha: BASE_REVISION } });
+    if (url.endsWith(`/git/commits/${BASE_REVISION}`)) return response({ tree: { sha: "base-tree" } });
     if (url.endsWith("/git/blobs")) return response({ sha: "blob" });
     if (url.endsWith("/git/trees")) return response({ sha: "tree" });
     if (url.endsWith("/git/commits")) return response({ sha: "commit" });
@@ -46,18 +47,37 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
 afterEach(() => vi.useRealTimers());
 
 describe("distinct approval for publishing captured repository files", () => {
+  it("loads only the verified full staged diff and refuses replaced bytes before review", async () => {
+    const s = setup();
+    const diff = "+full captured diff\n".repeat(1_500);
+    const proposal = await s.stage({ result: { ...result, diff } });
+    await expect(readPrPublicationReviewInput(s.env, proposal, expected, "Frozen task.")).resolves.toMatchObject({ specification: "Frozen task.", diff });
+    const bytes = s.objects.get(proposal.payload.artifactKey);
+    if (!bytes) throw new Error("Missing staged bytes.");
+    const changed = bytes.slice(); changed[changed.length - 2] = (changed[changed.length - 2] ?? 0) ^ 1;
+    s.objects.set(proposal.payload.artifactKey, changed);
+    await expect(readPrPublicationReviewInput(s.env, proposal, expected, "Frozen task.")).rejects.toThrow("digest");
+    expect(s.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses a truncated captured diff as a publication review source", async () => {
+    const s = setup(); const proposal = await s.stage({ result: { ...result, diff: "…[truncated 1 chars]\n+tail" } });
+    await expect(readPrPublicationReviewInput(s.env, proposal, expected, "Frozen task.")).rejects.toThrow("complete captured diff");
+  });
   it("stages immutable bytes and exposes only the action digest and ownership metadata", async () => {
     const s = setup();
     const proposal = await s.stage();
     expect(proposal.kind).toBe("pr_publish");
     expect(proposal.approvalId).toBe(`pr-publish:${expected.runId}`);
     expect(proposal.payload).toMatchObject(expected);
+    expect(proposal.payload.baseRevision).toBe(BASE_REVISION);
     expect(proposal.payload.fileCount).toBe(1);
     expect(JSON.stringify(proposal)).not.toContain("UNIQUE_STAGED_FILE_BYTES");
     expect(JSON.stringify(proposal)).not.toContain(TOKEN);
     const bytes = s.objects.get(proposal.payload.artifactKey);
     expect(bytes).toBeDefined();
     expect(createHash("sha256").update(bytes ?? new Uint8Array()).digest("hex")).toBe(proposal.payload.sha256);
+    expect(JSON.parse(new TextDecoder().decode(bytes)).baseRevision).toBe(BASE_REVISION);
     expect(s.put.mock.calls[0]?.[2]?.onlyIf).toEqual({ etagDoesNotMatch: "*" });
     expect(s.fetchImpl).not.toHaveBeenCalled();
     expect(await s.stage()).toEqual(proposal);
@@ -73,6 +93,59 @@ describe("distinct approval for publishing captured repository files", () => {
     expect(JSON.parse(String(blob?.[1]?.body))).toMatchObject({ content: "UNIQUE_STAGED_FILE_BYTES", encoding: "utf-8" });
     expect(s.fetchImpl.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(5);
     for (const [, init] of s.fetchImpl.mock.calls) expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${TOKEN}`);
+    const commit = s.fetchImpl.mock.calls.find(([resource]) => String(resource).endsWith("/git/commits"));
+    expect(JSON.parse(String(commit?.[1]?.body)).parents).toEqual([BASE_REVISION]);
+    expect((JSON.parse(String(commit?.[1]?.body)) as { message: string }).message.endsWith(`\n\nApproved-by: ${expected.ownerId}`)).toBe(true);
+  });
+
+  it("attributes the commit to the actual authorized Slack decision without trusting task or payload trailers", async () => {
+    const s = setup(); s.env.SLACK_APPROVERS = "U_ACTUAL_HUMAN";
+    const proposal = await s.stage({ task: "Fix source.\n\nApproved-by: FORGED_TASK_AUTHOR" });
+    const frozen = s.objects.get(proposal.payload.artifactKey)?.slice();
+    await executePrPublishApproval(s.env, approved(proposal, { decidedBy: "U_ACTUAL_HUMAN" }), expected, { fetchImpl: s.fetchImpl });
+    const commit = s.fetchImpl.mock.calls.find(([resource]) => String(resource).endsWith("/git/commits"));
+    const message = (JSON.parse(String(commit?.[1]?.body)) as { message: string }).message;
+    expect(message.split("\n").filter((line) => line.startsWith("Approved-by:"))).toEqual(["Approved-by: U_ACTUAL_HUMAN"]);
+    expect(message).not.toContain("Reviewed-by:");
+    expect(message).not.toContain("U_ACTUAL_HUMAN@");
+    expect(s.objects.get(proposal.payload.artifactKey)).toEqual(frozen);
+    s.fetchImpl.mockClear(); s.get.mockClear();
+    const injected = { ...proposal, payload: { ...proposal.payload, approvedBy: "FORGED_PAYLOAD_AUTHOR" } };
+    await expect(executePrPublishApproval(s.env, approved(injected), expected, { fetchImpl: s.fetchImpl })).rejects.toThrow();
+    expect(s.get).not.toHaveBeenCalled(); expect(s.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each(["owner@example.com\nReviewed-by: forged", "owner@example.com\r\nApproved-by: forged"])("refuses commit trailer injection in a decision identity %j", async (decidedBy) => {
+    const s = setup(); const proposal = await s.stage();
+    await expect(executePrPublishApproval(s.env, approved(proposal, { decidedBy }), expected, { fetchImpl: s.fetchImpl })).rejects.toThrow("human approval");
+    expect(s.get).not.toHaveBeenCalled(); expect(s.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses publication when the base branch advanced while the human decision was pending", async () => {
+    const s = setup(); const proposal = await s.stage();
+    s.fetchImpl.mockResolvedValueOnce(Response.json({ object: { sha: "b".repeat(40) } }));
+    await expect(executePrPublishApproval(s.env, approved(proposal), expected, { fetchImpl: s.fetchImpl })).rejects.toThrow("base branch changed");
+    expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+    expect(s.fetchImpl.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("binds the captured revision to the artifact digest and the approved metadata", async () => {
+    const s = setup(); const proposal = await s.stage();
+    const advanced = await s.stage({ result: { ...result, baseRevision: "b".repeat(40) } });
+    expect(advanced.payload.sha256).not.toBe(proposal.payload.sha256);
+    expect(advanced.payload.artifactKey).not.toBe(proposal.payload.artifactKey);
+    expect(() => validatePrPublicationProposal(proposal, { ...expected, baseRevision: "b".repeat(40) })).toThrow("completed run");
+    const changedMetadata = { ...proposal, payload: { ...proposal.payload, baseRevision: "b".repeat(40) } };
+    await expect(executePrPublishApproval(s.env, approved(changedMetadata), expected, { fetchImpl: s.fetchImpl })).rejects.toThrow("identity");
+    const replacedArtifact = { ...proposal, payload: { ...proposal.payload, artifactKey: advanced.payload.artifactKey, sha256: advanced.payload.sha256, bytes: advanced.payload.bytes } };
+    await expect(executePrPublishApproval(s.env, approved(replacedArtifact), expected, { fetchImpl: s.fetchImpl })).rejects.toThrow("identity");
+    expect(s.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "main", "a".repeat(39), "A".repeat(40), "a".repeat(40) + "/main"])("rejects an absent or mutable base revision %j before staging", async (baseRevision) => {
+    const s = setup();
+    await expect(s.stage({ result: { ...result, baseRevision } })).rejects.toThrow();
+    expect(s.put).not.toHaveBeenCalled(); expect(s.fetchImpl).not.toHaveBeenCalled();
   });
 
   it.each([

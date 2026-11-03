@@ -114,6 +114,9 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
     headers.set("x-shiba-room-owner", userId.trim().toLowerCase());
     headers.set("x-shiba-room-session", sessionId);
     headers.set("x-shiba-room-viewer", viewerId);
+    headers.set("x-shiba-room-actor", userId.trim().toLowerCase());
+    headers.delete("x-shiba-room-readonly");
+    headers.delete("x-shiba-room-run");
     return env.ConversationRoom.getByName(runRoomName(userId, sessionId)).fetch(new Request(request, { headers }));
   }
 

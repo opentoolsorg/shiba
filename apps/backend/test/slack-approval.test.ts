@@ -471,7 +471,7 @@ describe("handleSlackInteract", () => {
     expect(body.replace_original).toBe(true);
     expect(body.blocks.some((b) => b.type === "actions")).toBe(false);
     expect(JSON.stringify(body.blocks)).toContain("fix it");
-    expect(JSON.stringify(body.blocks)).toContain("*Approved* by <@U1> — run starting");
+    expect(JSON.stringify(body.blocks)).toContain("*Approved* by <@U1>. run starting");
   });
 
   it("a failed dispatch leaves the card clickable and reports the error", async () => {
@@ -557,11 +557,14 @@ describe("Slack approval workspace binding", () => {
     expect(deps.replaceCard).not.toHaveBeenCalled();
   });
 
-  it("includes the target workspace and a safe web canvas link", () => {
-    const blocks = JSON.stringify(buildApprovalBlocks({ threadKey: "default", approvalId: "appr_1", repoUrl: "", workspaceLabel: "Workspace report-1", task: "Generate report", canvasUrl: "https://shiba.example/app/" }));
+  it("includes the target workspace and labels the safe dashboard home link accurately", () => {
+    const input = { threadKey: "default", approvalId: "appr_1", repoUrl: "", workspaceLabel: "Workspace report-1", task: "Generate report", canvasUrl: "https://shiba.example/app/" };
+    const blocks = JSON.stringify(buildApprovalBlocks(input));
     expect(blocks).toContain("Target Workspace");
     expect(blocks).toContain("Workspace report-1");
-    expect(blocks).toContain("Live Web Canvas");
+    expect(blocks).toContain("https://shiba.example/app/|Open Shiba");
+    expect(approvalCardText(input)).toContain("Open Shiba: https://shiba.example/app/");
+    expect(blocks).not.toContain("Live Web Canvas");
     expect(blocks).toContain("Approve Action");
     expect(JSON.stringify(buildApprovalBlocks({ threadKey: "default", approvalId: "appr_1", repoUrl: "", task: "Generate report", canvasUrl: "javascript:alert(1)" }))).not.toContain("javascript:");
   });

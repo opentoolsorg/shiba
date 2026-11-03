@@ -17,6 +17,8 @@ export interface CapturedFile {
 export interface PublishRequest {
   repoUrl: string;
   baseBranch: string;
+  /** Exact repository commit used to produce the captured changes. */
+  baseRevision: string;
   newBranch: string;
   title: string;
   body: string;
@@ -109,6 +111,9 @@ export async function publishFilesAsPullRequest(
   if (request.files.length === 0) {
     throw new Error("Nothing to publish: the coding run produced no changed files.");
   }
+  if (!/^[a-f0-9]{40}$/.test(request.baseRevision)) {
+    throw new Error("Publishing requires the exact captured base revision.");
+  }
   // Validate every path before any request so an unsafe entry fails the
   // publish before a single byte is uploaded.
   for (const file of request.files) {
@@ -136,7 +141,12 @@ export async function publishFilesAsPullRequest(
     `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(request.baseBranch)}`,
     { headers },
   );
-  const baseSha = ref.object.sha;
+  if (ref.object.sha !== request.baseRevision) {
+    throw new Error("The base branch changed after the captured revision. Run the task again and approve the new publication.");
+  }
+  // Keep the immutable parent even if the branch advances after this read.
+  // Applying old file bodies to a newer tree could silently replace its edits.
+  const baseSha = request.baseRevision;
 
   const baseCommit = await api<{ tree: { sha: string } }>(resolved, `/repos/${owner}/${repo}/git/commits/${baseSha}`, {
     headers,

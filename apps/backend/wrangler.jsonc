@@ -33,6 +33,8 @@
     // hostnames here and pre-provision referenced MCP_CREDENTIAL_* secrets.
     "MCP_TRUSTED_HOSTS": "",
     "INTEGRATIONS_PROVIDER": "openconnector",
+    // Slack canvas access requires an explicit team/channel owner policy.
+    "SLACK_CANVAS_OWNERS": "[]",
     // Separate open-connector sibling Worker (OPEN_CONNECTOR binding or OPEN_CONNECTOR_URL).
     "GATEWAY_ID": "default",
     "ORCHESTRATOR_MODEL": "@cf/zai-org/glm-4.7-flash",

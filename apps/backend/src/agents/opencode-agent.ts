@@ -456,6 +456,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             noteSignal("pr.opened", pullUrl);
           }
           const safeResult = this.uiResult(result);
+          await slackProgress?.finish(safeResult.status === "completed" ? "completed" : "error", safeResult.summary);
           if (roomPublisher) {
             await roomPublisher.publish({ kind: "status", status: result.status, message: safeResult.summary });
             await roomPublisher.flush().catch(() => write("Live stream delivery is unavailable."));
@@ -508,6 +509,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             await roomPublisher.flush().catch(() => undefined);
           }
           write(`Failed: ${summary}`);
+          await slackProgress?.finish(signal?.aborted ? "cancelled" : "error", summary);
           write(formatAgentResult(result));
           writer.write({ type: "text-end", id });
           writer.write({ type: "error", errorText: summary });
@@ -537,6 +539,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       changedFiles: result.changedFiles.slice(0, 50).map((path) => this.safeText(path, 1024)),
       diff: this.safeText(result.diff, 20_000),
       files: [],
+      ...(result.baseRevision ? { baseRevision: result.baseRevision } : {}),
       ...(result.deliverables ? { deliverables: result.deliverables } : {}),
       ...(result.artifactBundle ? { artifactBundle: result.artifactBundle } : {}),
       ...(result.publicationProposal ? { publicationProposal: result.publicationProposal } : {}),
@@ -566,6 +569,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
   ): Promise<{ pullUrl: string; screenshotUrl?: string; browserE2eManifestUrl?: string }> {
     const token = this.env.GITHUB_TOKEN;
     if (!token) throw new Error("publishPullRequest was requested but GITHUB_TOKEN is not configured.");
+    if (!result.baseRevision || !/^[a-f0-9]{40}$/.test(result.baseRevision)) {
+      throw new Error("Publishing requires the exact captured base revision.");
+    }
     signal?.throwIfAborted();
     // T33: render the finished workdir through the preview port and screenshot
     // it BEFORE the PR is written so the links land in the body. captureRunPreview
@@ -607,6 +613,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       {
         repoUrl: input.repoUrl,
         baseBranch: input.baseBranch,
+        baseRevision: result.baseRevision,
         newBranch: `shiba/${input.sandboxId}`,
         title: `AI Coworker: ${this.safeText(input.task, 80)}`,
         body: bodyLines.join("\n"),

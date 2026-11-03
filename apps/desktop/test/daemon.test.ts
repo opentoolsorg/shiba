@@ -4,15 +4,31 @@
  * claim forever and stays alive for the lock assertions.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir, uptime } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const DAEMON = fileURLToPath(new URL("../../../scripts/shiba-local-daemon.mjs", import.meta.url));
+
+it("starts the packaged daemon using only its declared desktop resources", () => {
+  const root = mkdtempSync(join(tmpdir(), "shiba-packaged-daemon-"));
+  const desktop = fileURLToPath(new URL("..", import.meta.url));
+  try {
+    const config = readFileSync(join(desktop, "electron-builder.yml"), "utf8");
+    for (const match of config.matchAll(/^ {2}- from: (.+)\n {4}to: (.+)$/gm)) {
+      const target = join(root, match[2] ?? "");
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(resolve(desktop, match[1] ?? ""), target);
+    }
+    const result = spawnSync(process.execPath, [join(root, "daemon/shiba-local-daemon.mjs"), "--help"], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("shiba-local-daemon");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 function startDaemon(root: string, args: string[] = [], workerUrl = "http://127.0.0.1:9") {
   const child = spawn(process.execPath, [DAEMON, "--poll", "500", ...args], {

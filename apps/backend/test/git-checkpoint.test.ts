@@ -7,6 +7,7 @@
  * restore refuses on a no-rollback harness before touching the filesystem;
  * crafted ref names are rejected; prune drops stale refs oldest-first.
  */
+import { FIXTURE_BASELINE_COMMIT, repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { describe, expect, it } from "vitest";
 import type { RunSignal } from "@shiba/shared";
 import {
@@ -26,18 +27,19 @@ import { SandboxRuntimeAdapter, type SandboxOps } from "../src/runtime.js";
 function gitOps(overrides: {
   diffOut?: string;
   refs?: string[];
+  status?: string;
 } = {}): SandboxOps & { commands: string[] } {
   const commands: string[] = [];
+  const snapshot = repositorySnapshotFixture({ status: overrides.status ?? " M src/a.ts\n" });
   return {
     commands,
     async gitCheckout() {},
     async writeFile() {},
     async exec(command, opts) {
       commands.push(command);
+      const captured = await snapshot(command);
+      if (captured) return captured;
       const has = (s: string) => command.includes(s);
-      if (has("rev-parse")) return { stdout: ".git\n", stderr: "", exitCode: 0 };
-      if (has("write-tree")) return { stdout: "tree0id\n", stderr: "", exitCode: 0 };
-      if (has("commit-tree")) return { stdout: "commit0id\n", stderr: "", exitCode: 0 };
       if (has("for-each-ref")) {
         return { stdout: (overrides.refs ?? []).join("\n") + "\n", stderr: "", exitCode: 0 };
       }
@@ -72,13 +74,14 @@ describe("captureCheckpoint", () => {
   it("commits the worktree via a temp index and points the hidden ref at it", async () => {
     const ops = gitOps();
     const commit = await captureCheckpoint(ops, "/repo", "run-abc123", 0);
-    expect(commit).toBe("commit0id");
+    expect(commit).toBe(FIXTURE_BASELINE_COMMIT);
     const flat = ops.commands.join("\n");
     // Temp index stays inside .git, never in the worktree.
     expect(flat).toContain("read-tree");
     expect(flat).toContain("'add' '-A'");
     expect(flat).toContain("update-ref");
-    expect(ops.commands.at(-1)).toBe("'git' 'update-ref' 'refs/shiba/checkpoints/run-abc123/0' 'commit0id'");
+    expect(ops.commands.every((command) => command.startsWith("'git' '--no-replace-objects' "))).toBe(true);
+    expect(ops.commands.at(-1)).toBe(`'git' '--no-replace-objects' 'update-ref' 'refs/shiba/checkpoints/run-abc123/0' '${FIXTURE_BASELINE_COMMIT}'`);
   });
 });
 
@@ -123,8 +126,8 @@ describe("pruneCheckpoints", () => {
     await pruneCheckpoints(ops, "/repo", "run-a", 2);
     const deleted = ops.commands.filter((c) => c.includes("'-d'"));
     expect(deleted).toEqual([
-      "'git' 'update-ref' '-d' 'refs/shiba/checkpoints/run-a/0'",
-      "'git' 'update-ref' '-d' 'refs/shiba/checkpoints/run-a/1'",
+      "'git' '--no-replace-objects' 'update-ref' '-d' 'refs/shiba/checkpoints/run-a/0'",
+      "'git' '--no-replace-objects' 'update-ref' '-d' 'refs/shiba/checkpoints/run-a/1'",
     ]);
   });
 
@@ -132,7 +135,7 @@ describe("pruneCheckpoints", () => {
     const ops = gitOps({ refs: ["refs/shiba/checkpoints/run-a/0", "refs/shiba/checkpoints/evil/../x"] });
     await pruneCheckpoints(ops, "/repo", "run-a", 0);
     const deleted = ops.commands.filter((c) => c.includes("'-d'"));
-    expect(deleted).toEqual(["'git' 'update-ref' '-d' 'refs/shiba/checkpoints/run-a/0'"]);
+    expect(deleted).toEqual(["'git' '--no-replace-objects' 'update-ref' '-d' 'refs/shiba/checkpoints/run-a/0'"]);
   });
 });
 
@@ -186,14 +189,8 @@ describe("adapter integration", () => {
   });
 
   it("T46 gate: a run with no diff and no proof settles error, not completed", async () => {
-    const ops = gitOps({ diffOut: "" });
-    // Overwrite the status answer too: no diff AND no changed files AND no
-    // test evidence is a fake success, not a completed run.
-    const base = ops.exec.bind(ops);
-    ops.exec = async (command, opts) =>
-      command.includes("status")
-        ? { stdout: "", stderr: "", exitCode: 0 }
-        : base(command, opts);
+    const ops = gitOps({ diffOut: "", status: "" });
+    // No immutable changes and no test evidence must fail verification.
     const result = await new SandboxRuntimeAdapter().runCodingTask(ops, INPUT, () => {}, {});
     expect(result.status).toBe("error");
     expect(result.summary).toContain("Verification failed");
