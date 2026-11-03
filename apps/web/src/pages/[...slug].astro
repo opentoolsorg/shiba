@@ -5,7 +5,6 @@ import {
   getDocsPage,
   getRouteFlags,
   getSidebar,
-  getPrevNext,
   getBreadcrumbs,
   getEditUrl,
   getLastUpdated,
@@ -27,10 +26,6 @@ const { sidebar: sidebarOn, tableOfContents: tocOn } = await getRouteFlags(entry
 const sidebar = sidebarOn
   ? await getSidebar(currentSlug, { collection: entry.collection })
   : false;
-const prevNext = await getPrevNext(currentSlug, {
-  sidebarTree: sidebar === false ? [] : sidebar,
-  overrides: { prev: entry.data.prev, next: entry.data.next },
-});
 // Pass `collection` so versioned pages (docs-<v>) get version-prefixed
 // breadcrumb hrefs — parity with the getSidebar call above.
 const breadcrumbs = await getBreadcrumbs(currentSlug, { collection: entry.collection });
@@ -52,7 +47,6 @@ const socialImage = entry.data.socialImage ?? ogImageUrl;
   sidebar={sidebar}
   headings={toc}
   breadcrumbs={breadcrumbs}
-  prevNext={prevNext}
   mode={entry.data.mode}
   banner={entry.data.banner}
   head={entry.data.head}
