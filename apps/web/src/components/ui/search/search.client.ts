@@ -170,12 +170,6 @@ export function initSearch(config: SearchConfig): SearchInstance {
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       updateActive(activeIndex - 1);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      updateActive(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      updateActive(options.length - 1);
     } else if (event.key === "Enter" && activeIndex >= 0) {
       event.preventDefault();
       options[activeIndex]?.querySelector<HTMLAnchorElement>("a")?.click();

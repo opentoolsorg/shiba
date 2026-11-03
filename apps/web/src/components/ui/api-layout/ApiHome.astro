@@ -178,8 +178,12 @@ if (rows.length > 0 && !home) {
     };
     const pendingId = (href: string | null) => {
       if (!href?.startsWith("#") || loaded >= later.length) return null;
-      const id = decodeURIComponent(href.slice(1));
-      return id && !document.getElementById(id) ? id : null;
+      try {
+        const id = decodeURIComponent(href.slice(1));
+        return id && !document.getElementById(id) ? id : null;
+      } catch {
+        return null;
+      }
     };
     document.addEventListener(
       "click",
