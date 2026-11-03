@@ -53,6 +53,8 @@ jobs:
           CLAUDE_SUBSCRIPTION_TOKEN: ${{ secrets.CLAUDE_SUBSCRIPTION_TOKEN }}
           CODEX_SUBSCRIPTION_AUTH_JSON: ${{ secrets.CODEX_SUBSCRIPTION_AUTH_JSON }}
           LOCAL_ADAPTER_TOKEN: ${{ secrets.LOCAL_ADAPTER_TOKEN }}
+          WORKER_HOSTNAME: app.tryshiba.dev
+          BETTER_AUTH_URL: https://app.tryshiba.dev
         # alchemy deploy reads .env via process.loadEnvFile — no file needed;
         # env vars above win. `pnpm run deploy:alchemy` = build + alchemy deploy.
         run: pnpm run deploy:alchemy
