@@ -98,7 +98,7 @@ The expanded plan explicitly permits automatic bounded read-only inspections. A 
 
 ## Aggregate and failure-mode acceptance
 
-The final source passed `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm test`, `pnpm build`, `pnpm check:deploy` and `pnpm check:ci`. The serialized full test run passed 5,059 tests with three opt-in live tests skipped. The requested ephemeral and child-dispatch files passed all 19 tests through the backend package's existing Vitest configuration. The root-level example command in the plans does not replace that configuration.
+The final source passed `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm test`, `pnpm build`, `pnpm check:deploy` and `pnpm check:ci`. The serialized full test run passed 5,059 tests with three opt-in live tests skipped. The requested ephemeral and child-dispatch files passed all 19 tests through the backend package's existing Vitest configuration. The root-level example command in the plans does not replace that configuration. One additional actual local Worker fixture regression verifies authenticated approval, one dispatch claim and deterministic completion; it is separate from the 5,059 workspace tests. The diagnosed Desktop CI fixture failure and its test-only fix are recorded in [live acceptance prerequisites](control-plane-live-acceptance.md#desktop-partial-ci-finding).
 
 | Criterion | Status | Required evidence |
 | --- | --- | --- |
