@@ -25,6 +25,20 @@ export interface RunRoomFrame {
 export const RUN_ROOM_CHUNK_CHARS = 4_000;
 export const MAX_RUN_ROOM_EVENTS = 2_048;
 export const RUN_ROOM_RPC_TIMEOUT_MS = 2_000;
+export const MAX_RUN_JOURNAL_FRAMES = 4_096;
+export const MAX_RUN_JOURNAL_EVENTS = 8_192;
+export const MAX_RUN_JOURNAL_CHARS = 4_000_000;
+export const MAX_RUN_JOURNAL_BATCH_EVENTS = 36;
+export const MAX_RUN_JOURNAL_BATCH_CHARS = 140_000;
+export interface RunJournalIdentity {
+  jobId: string;
+  generation: string;
+}
+export interface RunJournalBatch extends RunJournalIdentity {
+  sourceSequence: number;
+  acknowledgedThrough: number;
+  events: Array<{ eventId: string; event: Extract<RunRoomEvent, { kind: "terminal" }> }>;
+}
 const MAX_TERMINAL_LINE_CHARS = 65_536;
 const MAX_PUBLISHED_CHARS = 4_000_000;
 

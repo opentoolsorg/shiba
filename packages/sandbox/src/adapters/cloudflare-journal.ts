@@ -63,8 +63,13 @@ export async function executeJournaled(rpc: JournalRpc, command: string, opts: E
   const journal = opts.journal;
   const now = Date.now();
   const cwd = opts.cwd ?? "/workspace";
-  if (!journal || !/^[a-f0-9]{64}$/.test(journal.jobId) || !Number.isSafeInteger(journal.deadline) ||
-    journal.deadline <= now || journal.deadline > now + MAX_DEADLINE_MS) {
+  const attaching = journal?.mode === "attach";
+  const observationDeadline = attaching ? journal?.observationDeadline : journal?.deadline;
+  if (!journal || !/^[a-f0-9]{64}$/.test(journal.jobId) || !Number.isSafeInteger(journal.deadline) || journal.deadline <= 0 ||
+    (journal.mode !== undefined && journal.mode !== "start" && journal.mode !== "attach") ||
+    !Number.isSafeInteger(observationDeadline) || observationDeadline! <= now ||
+    (attaching ? observationDeadline! < journal.deadline || observationDeadline! > now + 45 * 60_000
+      : journal.deadline <= now || journal.deadline > now + MAX_DEADLINE_MS)) {
     throw failure("Invalid execution journal identity or deadline.");
   }
   if (!command || command.includes("\0") || new TextEncoder().encode(command).byteLength > 65_536 || !cwd.startsWith("/") ||
@@ -83,7 +88,7 @@ export async function executeJournaled(rpc: JournalRpc, command: string, opts: E
   const decoders = { stdout: new TextDecoder(), stderr: new TextDecoder() };
   const output = async (stream: "stdout" | "stderr", text: string) => {
     if (!text) return;
-    const remaining = deadline - Date.now();
+    const remaining = observationDeadline! - Date.now();
     if (remaining <= 0) throw failure("The original execution deadline expired.", "timeout");
     await bounded(async () => { await opts.onOutput?.(stream, text); }, remaining, opts.signal);
     if (stream === "stdout") stdout = `${stdout}${text}`.slice(-OUTPUT_TAIL_CHARS);
@@ -92,16 +97,18 @@ export async function executeJournaled(rpc: JournalRpc, command: string, opts: E
   try {
     opts.signal?.throwIfAborted();
     launched = true;
-    try {
-      await bounded(() => rpc.startExecution({ jobId, command, cwd, deadline, ...(opts.env ? { env: opts.env } : {}) }),
-        Math.min(RPC_TIMEOUT_MS, deadline - Date.now()), opts.signal);
-    } catch {
-      opts.signal?.throwIfAborted();
-      // Only the retained claim can establish whether the first launch was accepted.
+    if (!attaching) {
+      try {
+        await bounded(() => rpc.startExecution({ jobId, command, cwd, deadline, ...(opts.env ? { env: opts.env } : {}) }),
+          Math.min(RPC_TIMEOUT_MS, deadline - Date.now()), opts.signal);
+      } catch {
+        opts.signal?.throwIfAborted();
+        // Only the retained claim can establish whether the first launch was accepted.
+      }
     }
     for (;;) {
       opts.signal?.throwIfAborted();
-      const remaining = deadline - Date.now();
+      const remaining = observationDeadline! - Date.now();
       if (remaining <= 0) throw failure("The original execution deadline expired.", "timeout");
       let page: JournalPage;
       try {
@@ -113,7 +120,7 @@ export async function executeJournaled(rpc: JournalRpc, command: string, opts: E
         if (Date.now() - failureSince >= RECOVERY_TIMEOUT_MS) {
           throw failure("Execution journal recovery stopped. The command was not relaunched.");
         }
-        await pause(Math.min(250, Math.max(1, deadline - Date.now())), opts.signal);
+        await pause(Math.min(250, Math.max(1, observationDeadline! - Date.now())), opts.signal);
         continue;
       }
       if (!page || page.jobId !== jobId || !STATES.includes(page.state) || !Array.isArray(page.frames) ||
@@ -128,9 +135,12 @@ export async function executeJournaled(rpc: JournalRpc, command: string, opts: E
         const bytes = decodeFrame(frame.dataBase64);
         sourceBytes += bytes.byteLength;
         if (sourceBytes > MAX_SOURCE_BYTES) throw failure("Execution journal exceeded its output bound.");
-        return { stream: frame.stream, bytes };
+        return { source: frame, stream: frame.stream, bytes };
       });
-      for (const frame of decoded) await output(frame.stream, decoders[frame.stream].decode(frame.bytes, { stream: true }));
+      for (const frame of decoded) {
+        if (opts.onJournalFrame) await bounded(() => opts.onJournalFrame!(frame.source), observationDeadline! - Date.now(), opts.signal);
+        await output(frame.stream, decoders[frame.stream].decode(frame.bytes, { stream: true }));
+      }
       cursor = page.cursor;
       if (page.done) {
         const exitCode = page.exitCode;
@@ -145,7 +155,7 @@ export async function executeJournaled(rpc: JournalRpc, command: string, opts: E
       if (page.state !== "starting" && page.state !== "running" && !page.frames.length) {
         throw failure("Execution journal has an incomplete terminal receipt.");
       }
-      if (!page.frames.length) await pause(Math.min(250, Math.max(1, deadline - Date.now())), opts.signal);
+      if (!page.frames.length) await pause(Math.min(250, Math.max(1, observationDeadline! - Date.now())), opts.signal);
     }
   } finally {
     if (launched && !settled) {

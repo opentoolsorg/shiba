@@ -49,23 +49,33 @@ vi.mock("agents/agent-tools", () => ({ agentTool: () => ({ execute: mocks.execut
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
-function durableMemoryStorage(faults: { failNextAcknowledge?: boolean } = {}): SlackBufferStorage {
+function durableMemoryStorage(faults: { failNextAcknowledge?: boolean } = {}) {
   const entries = new Map<string, unknown>();
   let pending: Promise<unknown> = Promise.resolve();
+  const serial = <T>(operation: () => Promise<T>): Promise<T> => {
+    const next = pending.then(operation);
+    pending = next.catch(() => undefined);
+    return next;
+  };
+  const read = async <T>(key: string) => structuredClone(entries.get(key)) as T | undefined;
+  const write = async <T>(key: string, value: T) => {
+    if (faults.failNextAcknowledge && key === "slack:turn-buffer:v1" && value && typeof value === "object" && !("claim" in value)) {
+      faults.failNextAcknowledge = false;
+      throw new Error("Injected acknowledgement storage failure");
+    }
+    entries.set(key, structuredClone(value));
+  };
   return {
+    get<T>(key: string): Promise<T | undefined> { return serial(() => read<T>(key)); },
+    put<T>(key: string, value: T): Promise<void> { return serial(() => write(key, value)); },
+    delete(key: string): Promise<boolean> { return serial(async () => entries.delete(key)); },
+    list<T>({ prefix = "", limit }: { prefix?: string; limit?: number } = {}): Promise<Map<string, T>> {
+      return serial(async () => new Map([...entries].filter(([key]) => key.startsWith(prefix))
+        .sort(([left], [right]) => left.localeCompare(right)).slice(0, limit)
+        .map(([key, value]) => [key, structuredClone(value) as T])));
+    },
     transaction<T>(callback: Parameters<SlackBufferStorage["transaction"]>[0]): Promise<T> {
-      const next = pending.then(() => callback({
-        get: async <U>(key: string) => structuredClone(entries.get(key)) as U | undefined,
-        put: async <U>(key: string, value: U) => {
-          if (faults.failNextAcknowledge && key === "slack:turn-buffer:v1" && value && typeof value === "object" && !("claim" in value)) {
-            faults.failNextAcknowledge = false;
-            throw new Error("Injected acknowledgement storage failure");
-          }
-          entries.set(key, structuredClone(value));
-        },
-      }));
-      pending = next.catch(() => undefined);
-      return next as Promise<T>;
+      return serial(() => callback({ get: read, put: write })) as Promise<T>;
     },
   };
 }

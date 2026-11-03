@@ -170,6 +170,8 @@ const changedFileSchema = z.object({
 
 const codingTaskResultSchema = z.object({
   status: z.enum(["completed", "error"]),
+  /** Runtime uncertainty survives the structured child boundary without parsing prose. */
+  errorCode: z.enum(["outcome_unknown", "container_lost"]).optional(),
   /** Worker-captured repository commit before setup or harness mutations. */
   baseRevision: z.string().regex(/^[a-f0-9]{40}$/).optional(),
   exitCode: z.number(),

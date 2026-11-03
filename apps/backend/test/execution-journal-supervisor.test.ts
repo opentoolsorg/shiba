@@ -320,7 +320,7 @@ describe("execution journal local supervisor", () => {
     expect(cli.pid).not.toBe(metadata.supervisorPid);
   });
 
-  it.each(["bootId", "supervisorStart"] as const)("reports lost when %s no longer identifies this execution", async (field) => {
+  it.each(["bootId", "pidNamespace", "initStart", "supervisorStart"] as const)("reports lost when %s no longer identifies this execution", async (field) => {
     const item = await fixture();
     item.start("process.stdout.write('started');setInterval(()=>{},100)");
     await eventually(() => item.read(), (page) => page.frames.length > 0);

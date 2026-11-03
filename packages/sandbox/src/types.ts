@@ -77,6 +77,10 @@ export interface JournalPage {
 export interface JournalExecutionOptions {
   jobId: string;
   deadline: number;
+  /** Attach only reads an existing claim and never launches, even if the claim is absent. */
+  mode?: "start" | "attach";
+  /** Original approved run expiry. Attach may observe an already completed CLI after its deadline. */
+  observationDeadline?: number;
 }
 
 export type ReadFileResult =
@@ -116,6 +120,9 @@ export interface SandboxInstance {
       env?: Record<string, string>;
       signal?: AbortSignal;
       onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
+      onJournalFrame?: (frame: JournalFrame) => Promise<void>;
+      /** Refuse generic execution unless this completed journal still owns the same native container. */
+      requiredJournalJobId?: string;
       /** Other providers retain their ordinary single-attempt execution behavior. */
       journal?: JournalExecutionOptions;
     },

@@ -1,5 +1,6 @@
 import { onboardingSourceInstructions } from "@shiba/shared";
-import type { JournalExecutionOptions } from "@shiba/sandbox";
+import type { JournalExecutionOptions, JournalFrame } from "@shiba/sandbox";
+import { approvedRuntimeIdentity, assertPreparedRuntimeExecution, runtimeIdentity, type PreparedRuntimeExecution } from "./runtime-recovery.js";
 /**
  * Runtime adapter seam. The default adapter wraps the Sandbox SDK.
  * An experimental adapter for @cloudflare/computer exists only as a
@@ -97,6 +98,9 @@ export interface ExecResult {
 }
 
 export interface SandboxOps {
+  /** True only for a provider with native attach-only execution journals. */
+  journaledExec?: boolean;
+  supportsJournal?: () => Promise<boolean>;
   /** Pin only the selected model/provider hosts, with no GitHub repository scope. */
   pinEgress?(): Promise<void>;
   gitCheckout(repoUrl: string, opts: { branch: string; targetDir: string }): Promise<void>;
@@ -115,6 +119,8 @@ export interface SandboxOps {
        */
       maxOutputChars?: number;
       journal?: JournalExecutionOptions;
+      onJournalFrame?: (frame: JournalFrame) => Promise<void>;
+      requiredJournalJobId?: string;
     },
   ): Promise<ExecResult>;
   readFile(
@@ -160,6 +166,12 @@ export interface RuntimeAdapter {
       onDiff?: (diff: string) => void;
       onDiffPreviewStatus?: (status: "limited" | "unavailable", reason?: string) => void;
       onStreamGap?: () => void;
+      approvedInput?: CodingTaskInput;
+      recovery?: PreparedRuntimeExecution;
+      onPrepared?: (record: PreparedRuntimeExecution) => Promise<void>;
+      onSettlementStarted?: () => Promise<void>;
+      onJournalFrame?: (frame: JournalFrame) => Promise<void>;
+      onJournalEnd?: () => Promise<void>;
     },
   ): Promise<CodingTaskResult>;
 }
@@ -231,8 +243,16 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       onDiff?: (diff: string) => void;
       onDiffPreviewStatus?: (status: "limited" | "unavailable", reason?: string) => void;
       onStreamGap?: () => void;
+      approvedInput?: CodingTaskInput;
+      recovery?: PreparedRuntimeExecution;
+      onPrepared?: (record: PreparedRuntimeExecution) => Promise<void>;
+      onSettlementStarted?: () => Promise<void>;
+      onJournalFrame?: (frame: JournalFrame) => Promise<void>;
+      onJournalEnd?: () => Promise<void>;
     },
   ): Promise<CodingTaskResult> {
+    throwIfAborted(opts?.signal);
+    const approvedInput = opts?.approvedInput ?? input;
     input = withDeliverableInstructions(input);
     const ephemeral = isEphemeralWorkspace(input.executionTarget);
     const workdir = ephemeral ? "/workspace" : `/workspace/${input.sandboxId}`;
@@ -277,6 +297,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       ...(sessionScript !== null ? [["node", sessionScript] as const] : []),
       ...capabilities.execAllowlist,
     ];
+    let settlementJournalJobId = opts?.recovery?.jobId;
     const scoped: SandboxOps = {
       ...ops,
       exec: (command, execOpts) =>
@@ -288,139 +309,14 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           timeoutMs: execOpts?.timeoutMs,
           maxOutputChars: execOpts?.maxOutputChars,
           journal: execOpts?.journal,
+          onJournalFrame: execOpts?.onJournalFrame,
+          requiredJournalJobId: settlementJournalJobId ?? execOpts?.requiredJournalJobId,
           allowlist,
           signals,
         }),
     };
 
-    throwIfAborted(opts?.signal);
-    if (input.executionTarget?.kind === "artifact-workspace") {
-      await emit({ phase: "clone", message: "Preparing an isolated artifact workspace.", fraction: 0.05 });
-      milestone("sandbox.ready", input.sandboxId);
-      try {
-        if (!ops.pinEgress) throw new Error("Sandbox provider cannot pin artifact-workspace egress.");
-        await ops.pinEgress();
-        const init = await scoped.exec(shellJoin(["git", "init", "--initial-branch=main", workdir]), { cwd: "/workspace", signal: opts?.signal });
-        if (init.exitCode !== 0) throw new Error(boundTail(init.stderr, 1000) || "git init failed.");
-        if (ephemeral) {
-          const directories = await scopedExec(ops, shellJoin(["mkdir", "-p", `${workdir}/.shiba`, `${workdir}/out`]), {
-            cwd: workdir, signal: opts?.signal, allowlist: [["mkdir", "-p"]], signals,
-          });
-          if (directories.exitCode !== 0) throw new Error("Could not initialize workspace directories.");
-          await ops.writeFile(`${workdir}/.shiba/context.json`, `${JSON.stringify({
-            workspaceId: input.executionTarget.kind === "artifact-workspace" ? input.executionTarget.workspaceId : undefined,
-            template: input.executionTarget.kind === "artifact-workspace" ? input.executionTarget.template : undefined,
-            outputDirectory: "/workspace/out",
-          })}\n`);
-        }
-        const baseline = await scoped.exec(shellJoin(["git", "-C", workdir, "-c", "user.name=shiba", "-c", "user.email=shiba@shiba.local", "commit", "--allow-empty", "-m", "shiba artifact workspace baseline"]), { cwd: "/workspace", signal: opts?.signal });
-        if (baseline.exitCode !== 0) throw new Error(boundTail(baseline.stderr, 1000) || "Could not initialize artifact workspace baseline.");
-        milestone("clone.complete", "artifact-workspace");
-      } catch (error) {
-        return failureResult(`Artifact workspace initialization failed: ${shortError(error)}`, 0, "", signals);
-      }
-    } else {
-      await emit({
-        phase: "clone",
-        message: `Cloning ${input.repoUrl} (branch ${input.baseBranch}).`,
-        fraction: 0.05,
-      });
-      // The ops handle being bound is the readiness claim; egress pinning
-      // runs inside this first call as one retried unit with the clone.
-      milestone("sandbox.ready", input.sandboxId);
-      try {
-        await ops.gitCheckout(input.repoUrl, { branch: input.baseBranch, targetDir: workdir });
-        milestone("clone.complete", input.baseBranch);
-      } catch (error) {
-        return failureResult(`Clone failed: ${shortError(error)}`, 0, "", signals);
-      }
-    }
-
-    // Freeze the cloned GitHub parent before setup or the harness can move HEAD.
-    // Publication must never re-resolve a mutable branch after execution.
-    let baseRevision: string | undefined;
-    if (input.executionTarget?.kind !== "artifact-workspace") {
-      try {
-        const head = await scoped.exec(shellJoin(["git", "--no-replace-objects", "rev-parse", "--verify", "HEAD^{commit}"]), {
-          cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal: opts?.signal,
-        });
-        if (head.exitCode !== 0 || !/^[a-f0-9]{40}$/.test(head.stdout.trim())) {
-          throw new Error("Cloned repository has no immutable GitHub base revision.");
-        }
-        baseRevision = head.stdout.trim();
-      } catch (error) {
-        return failureResult(`Repository base revision capture failed: ${shortError(error)}`, 0, "", signals);
-      }
-    }
-
-    // T72: only when the human opted in; before the baseline so installs and generated files aren't part of the change.
-    let setupCommit: string | null = null;
-    if (input.runSetup === true) {
-      const setup = await runRepoSetup(ops, workdir, {
-        ...(opts?.env !== undefined ? { env: opts.env } : {}),
-        scrub,
-        signals,
-        signal: opts?.signal,
-        emit,
-      });
-      if (setup.failure !== null) return failureResult(setup.failure, 0, "", signals);
-      setupCommit = setup.commit;
-    }
-
-    // T44: baseline checkpoint — the whole worktree at post-clone, before
-    // any harness mutation, under a hidden ref that dies with the sandbox.
-    const baselineRef = checkpointRef(input.sandboxId, 0);
-    const settleRef = checkpointRef(input.sandboxId, 1);
-    let baselineCommit: string;
-    try {
-      baselineCommit = await captureCheckpoint(scoped, workdir, input.sandboxId, 0, opts?.signal);
-      if (!isGitObjectId(baselineCommit)) throw new Error("Baseline checkpoint has no immutable commit identity.");
-      milestone("checkpoint.captured", baselineRef);
-    } catch (error) {
-      return failureResult(`Baseline checkpoint failed: ${shortError(error)}`, 0, "", signals);
-    }
-
-    await emit({
-      phase: "configure",
-      message: `Writing isolated ${this.harness.name} config.`,
-      fraction: 0.15,
-    });
-    throwIfAborted(opts?.signal);
-    try {
-      // T49: directory-shaped harnesses materialize their home layout first
-      // (mkdir/symlink ops only — a dedicated allowlist disjoint from the
-      // harness's test-command one; these commands are harness-declared,
-      // never model-controlled).
-      const setupCommands = this.harness.setupCommands?.(input, workdir) ?? [];
-      for (const argv of setupCommands) {
-        const result = await scopedExec(ops, shellJoin(argv), {
-          allowlist: SETUP_COMMAND_ALLOWLIST,
-          signals,
-          signal: opts?.signal,
-        });
-        if (result.exitCode !== 0) {
-          return failureResult(
-            `Home layout setup failed (${argv.join(" ")}): ${boundTail(scrub(result.stderr), 500)}`,
-            0,
-            "",
-            signals,
-          );
-        }
-      }
-      for (const file of configFiles) {
-        await ops.writeFile(file.path, file.contents);
-      }
-      milestone("config.written", config?.path ?? "none");
-    } catch (error) {
-      return failureResult(`Config write failed: ${shortError(error)}`, 0, "", signals);
-    }
-
-    await emit({
-      phase: "code",
-      message: `Running ${this.harness.name} headlessly.`,
-      fraction: 0.25,
-    });
-    throwIfAborted(opts?.signal);
+    const sessionFiles: Array<{ path: string; contents: string }> = [];
     let argv = harnessArgv;
     if (sessionScript !== null && sessionKind !== null) {
       const jobPath = `/workspace/${input.sandboxId}.job.json`;
@@ -436,9 +332,176 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         checkpoints: true,
         logDir: "/tmp/shiba-sessions",
       };
-      await ops.writeFile(sessionScript, AGENT_HARNESS_SOURCE);
-      await ops.writeFile(jobPath, `${JSON.stringify(job)}\n`);
+      sessionFiles.push({ path: sessionScript, contents: AGENT_HARNESS_SOURCE }, { path: jobPath, contents: `${JSON.stringify(job)}\n` });
       argv = ["node", sessionScript, jobPath];
+    }
+    let executionEnv: Record<string, string>;
+    let setupCommands: readonly (readonly string[])[];
+    let commandIdentity: string;
+    let jobId: string;
+    try {
+      executionEnv = { ...opts?.env, ...this.harness.env(input, config?.path ?? null) };
+      setupCommands = this.harness.setupCommands?.(input, workdir) ?? [];
+      commandIdentity = await runtimeIdentity({ command: shellJoin(argv), workdir, configFiles, sessionFiles,
+        setupCommands, env: executionEnv });
+      jobId = await runtimeIdentity([
+        "shiba:execution-journal:v1", input.sandboxId, input.dispatchApprovalId ?? "", input.dispatchInputHash ?? "", this.harness.name,
+      ]);
+    } catch (error) {
+      throwIfAborted(opts?.signal);
+      if (opts?.recovery) throw error;
+      return failureResult(`${this.harness.name} configuration failed: ${scrub(shortError(error))}`, 0, "", signals);
+    }
+    let baseRevision: string | undefined;
+    let setupCommit: string | null = null;
+    let baselineCommit: string;
+    let deadline: number;
+    const baselineRef = checkpointRef(input.sandboxId, 0);
+    const settleRef = checkpointRef(input.sandboxId, 1);
+    const journalSupported = ops.supportsJournal ? await ops.supportsJournal() : ops.journaledExec === true;
+    if (opts?.recovery) {
+      if (!journalSupported || (input.sandboxProvider !== undefined && input.sandboxProvider !== "cloudflare")) {
+        throw new Error("Prepared execution recovery requires a Cloudflare native journal. No command was launched.");
+      }
+      const record = await assertPreparedRuntimeExecution(opts.recovery, approvedInput,
+        { harness: this.harness.name, workdir, commandIdentity, jobId });
+      baseRevision = record.baseRevision ?? undefined;
+      baselineCommit = record.baselineCommit;
+      setupCommit = record.setupCommit;
+      deadline = record.deadline;
+      await emit({ phase: "code", message: `Reattaching to the existing ${this.harness.name} execution.`, fraction: 0.25 });
+    } else {
+      throwIfAborted(opts?.signal);
+      if (input.executionTarget?.kind === "artifact-workspace") {
+        await emit({ phase: "clone", message: "Preparing an isolated artifact workspace.", fraction: 0.05 });
+        milestone("sandbox.ready", input.sandboxId);
+        try {
+          if (!ops.pinEgress) throw new Error("Sandbox provider cannot pin artifact-workspace egress.");
+          await ops.pinEgress();
+          const init = await scoped.exec(shellJoin(["git", "init", "--initial-branch=main", workdir]), { cwd: "/workspace", signal: opts?.signal });
+          if (init.exitCode !== 0) throw new Error(boundTail(init.stderr, 1000) || "git init failed.");
+          if (ephemeral) {
+            const directories = await scopedExec(ops, shellJoin(["mkdir", "-p", `${workdir}/.shiba`, `${workdir}/out`]), {
+              cwd: workdir, signal: opts?.signal, allowlist: [["mkdir", "-p"]], signals,
+            });
+            if (directories.exitCode !== 0) throw new Error("Could not initialize workspace directories.");
+            await ops.writeFile(`${workdir}/.shiba/context.json`, `${JSON.stringify({
+              workspaceId: input.executionTarget.kind === "artifact-workspace" ? input.executionTarget.workspaceId : undefined,
+              template: input.executionTarget.kind === "artifact-workspace" ? input.executionTarget.template : undefined,
+              outputDirectory: "/workspace/out",
+            })}\n`);
+          }
+          const baseline = await scoped.exec(shellJoin(["git", "-C", workdir, "-c", "user.name=shiba", "-c", "user.email=shiba@shiba.local", "commit", "--allow-empty", "-m", "shiba artifact workspace baseline"]), { cwd: "/workspace", signal: opts?.signal });
+          if (baseline.exitCode !== 0) throw new Error(boundTail(baseline.stderr, 1000) || "Could not initialize artifact workspace baseline.");
+          milestone("clone.complete", "artifact-workspace");
+        } catch (error) {
+          return failureResult(`Artifact workspace initialization failed: ${shortError(error)}`, 0, "", signals);
+        }
+      } else {
+        await emit({
+          phase: "clone",
+          message: `Cloning ${input.repoUrl} (branch ${input.baseBranch}).`,
+          fraction: 0.05,
+        });
+        // The ops handle being bound is the readiness claim; egress pinning
+        // runs inside this first call as one retried unit with the clone.
+        milestone("sandbox.ready", input.sandboxId);
+        try {
+          await ops.gitCheckout(input.repoUrl, { branch: input.baseBranch, targetDir: workdir });
+          milestone("clone.complete", input.baseBranch);
+        } catch (error) {
+          return failureResult(`Clone failed: ${shortError(error)}`, 0, "", signals);
+        }
+      }
+
+      // Freeze the cloned GitHub parent before setup or the harness can move HEAD.
+      // Publication must never re-resolve a mutable branch after execution.
+      if (input.executionTarget?.kind !== "artifact-workspace") {
+        try {
+          const head = await scoped.exec(shellJoin(["git", "--no-replace-objects", "rev-parse", "--verify", "HEAD^{commit}"]), {
+            cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal: opts?.signal,
+          });
+          if (head.exitCode !== 0 || !/^[a-f0-9]{40}$/.test(head.stdout.trim())) {
+            throw new Error("Cloned repository has no immutable GitHub base revision.");
+          }
+          baseRevision = head.stdout.trim();
+        } catch (error) {
+          return failureResult(`Repository base revision capture failed: ${shortError(error)}`, 0, "", signals);
+        }
+      }
+
+      // T72: only when the human opted in; before the baseline so installs and generated files aren't part of the change.
+      if (input.runSetup === true) {
+        const setup = await runRepoSetup(ops, workdir, {
+          ...(opts?.env !== undefined ? { env: opts.env } : {}),
+          scrub,
+          signals,
+          signal: opts?.signal,
+          emit,
+        });
+        if (setup.failure !== null) return failureResult(setup.failure, 0, "", signals);
+        setupCommit = setup.commit;
+      }
+
+      // T44: baseline checkpoint — the whole worktree at post-clone, before
+      // any harness mutation, under a hidden ref that dies with the sandbox.
+      try {
+        baselineCommit = await captureCheckpoint(scoped, workdir, input.sandboxId, 0, opts?.signal);
+        if (!isGitObjectId(baselineCommit)) throw new Error("Baseline checkpoint has no immutable commit identity.");
+        milestone("checkpoint.captured", baselineRef);
+      } catch (error) {
+        return failureResult(`Baseline checkpoint failed: ${shortError(error)}`, 0, "", signals);
+      }
+
+      await emit({
+        phase: "configure",
+        message: `Writing isolated ${this.harness.name} config.`,
+        fraction: 0.15,
+      });
+      throwIfAborted(opts?.signal);
+      try {
+        // T49: directory-shaped harnesses materialize their home layout first
+        // (mkdir/symlink ops only — a dedicated allowlist disjoint from the
+        // harness's test-command one; these commands are harness-declared,
+        // never model-controlled).
+        for (const argv of setupCommands) {
+          const result = await scopedExec(ops, shellJoin(argv), {
+            allowlist: SETUP_COMMAND_ALLOWLIST,
+            signals,
+            signal: opts?.signal,
+          });
+          if (result.exitCode !== 0) {
+            return failureResult(
+              `Home layout setup failed (${argv.join(" ")}): ${boundTail(scrub(result.stderr), 500)}`,
+              0,
+              "",
+              signals,
+            );
+          }
+        }
+        for (const file of configFiles) {
+          await ops.writeFile(file.path, file.contents);
+        }
+        milestone("config.written", config?.path ?? "none");
+      } catch (error) {
+        return failureResult(`Config write failed: ${shortError(error)}`, 0, "", signals);
+      }
+
+      await emit({
+        phase: "code",
+        message: `Running ${this.harness.name} headlessly.`,
+        fraction: 0.25,
+      });
+      throwIfAborted(opts?.signal);
+      for (const file of sessionFiles) await ops.writeFile(file.path, file.contents);
+      const preparedAt = Date.now();
+      deadline = Math.min(preparedAt + OPENCODE_TIMEOUT_MS, input.dispatchExpiresAt ?? Number.POSITIVE_INFINITY);
+      if (opts?.onPrepared && journalSupported && (input.sandboxProvider === undefined || input.sandboxProvider === "cloudflare")) {
+        const approved = await approvedRuntimeIdentity(approvedInput);
+        await opts.onPrepared({ version: 1, phase: "harness", provider: "cloudflare", sandboxId: input.sandboxId,
+          harness: this.harness.name, workdir, ...approved, commandIdentity, jobId, preparedAt, deadline,
+          baseRevision: baseRevision ?? null, baselineCommit, setupCommit });
+      }
     }
     let run: ExecResult;
     let harnessDispatched = false;
@@ -446,17 +509,10 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     let uncertainTransport = false;
     let settledCommit: string;
     const output = streamProgress(this.harness, emit, opts?.signal, scrub);
-    const stopLiveDiff = opts?.onDiff && !ephemeral
+    const stopLiveDiff = opts?.onDiff && !ephemeral && !opts.recovery
       ? startLiveDiff(ops, workdir, baselineCommit, opts.onDiff, scrub, signals, opts.signal, opts.onDiffPreviewStatus)
       : async () => {};
     try {
-      const executionEnv = { ...opts?.env, ...this.harness.env(input, config?.path ?? null) };
-      throwIfAborted(opts?.signal);
-      const identity = new TextEncoder().encode(JSON.stringify([
-        "shiba:execution-journal:v1", input.sandboxId, input.dispatchApprovalId ?? "", input.dispatchInputHash ?? "", this.harness.name,
-      ]));
-      const jobId = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", identity)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-      const deadline = Math.min(Date.now() + OPENCODE_TIMEOUT_MS, input.dispatchExpiresAt ?? Number.POSITIVE_INFINITY);
       throwIfAborted(opts?.signal);
       milestone("harness.started", this.harness.name);
       // A silent CLI may already have performed work. A lost execution
@@ -465,7 +521,8 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       run = await scoped.exec(shellJoin(argv), {
         cwd: workdir,
         timeoutMs: OPENCODE_TIMEOUT_MS,
-        journal: { jobId, deadline },
+        journal: { jobId, deadline, ...(opts?.recovery ? { mode: "attach" as const, observationDeadline: opts.recovery.recoveryDeadline } : {}) },
+        onJournalFrame: opts?.onJournalFrame,
         signal: opts?.signal,
         onOutput: (stream, data) => {
           output.onData(stream, data);
@@ -474,10 +531,15 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         env: executionEnv,
       });
       harnessSettled = true;
+      if (journalSupported) settlementJournalJobId = jobId;
       // The harness process resolved — idle covers clean exits and
       // nonzero verdicts alike; a thrown error means it never went idle.
       milestone("harness.idle", `exitCode:${run.exitCode}`);
       await output.finish();
+      await opts?.onJournalEnd?.();
+      throwIfAborted(opts?.signal);
+      // Persist this fence before any checkpoint, collection or test mutation.
+      await opts?.onSettlementStarted?.();
       throwIfAborted(opts?.signal);
       // T44: settle checkpoint — captures the harness's mutations (incl.
       // untracked files) so the turn diff is baseline→settle commit-diff.
@@ -514,6 +576,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         "",
         signals,
         output.usage,
+        uncertainTransport || (journalSupported && harnessSettled) ? "outcome_unknown" : undefined,
       );
     } finally {
       if (uncertainTransport) opts?.onStreamGap?.();
@@ -562,12 +625,12 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
               ...(input.expectedDeliverables ?? []),
             ]),
           ];
-          overlap = await setupOverlap(ops, workdir, setupCommit, overlapPaths, {
+          overlap = await setupOverlap(scoped, workdir, setupCommit, overlapPaths, {
             signals,
             signal: opts?.signal,
           });
         } catch (error) {
-          return failureResult(`Repo setup check failed: ${shortError(error)}`, 0, stderrTail, signals, output.usage);
+          return failureResult(`Repo setup check failed: ${shortError(error)}`, 0, stderrTail, signals, output.usage, journalSupported ? "outcome_unknown" : undefined);
         }
       }
       if (overlap.length > 0) {
@@ -644,6 +707,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
               stderrTail,
               signals,
               output.usage,
+              journalSupported ? "outcome_unknown" : undefined,
             );
           }
           // Refused: receipt recorded; verify below reports the real reason.
@@ -676,6 +740,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         stderrTail,
         signals,
         output.usage,
+        journalSupported ? "outcome_unknown" : undefined,
       );
     }
   }
@@ -1018,9 +1083,11 @@ function failureResult(
   stderrTail: string,
   signals?: RunSignal[],
   usage?: RunUsage,
+  errorCode?: CodingTaskResult["errorCode"],
 ): CodingTaskResult {
   return {
     status: "error",
+    ...(errorCode ? { errorCode } : {}),
     exitCode,
     stderrTail,
     changedFiles: [],

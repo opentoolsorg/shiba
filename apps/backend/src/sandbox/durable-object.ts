@@ -196,9 +196,21 @@ export class Sandbox extends DurableObject<Env> {
       env?: Record<string, string>;
       stream?: boolean;
       onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
+      requiredJournalJobId?: string;
     },
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    await this.#ensureRunning();
+    let settlementClaim: JournalClaim | undefined;
+    if (options?.requiredJournalJobId !== undefined) {
+      const jobId = options.requiredJournalJobId;
+      assertJournalJobId(jobId);
+      const claim = this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`);
+      if (!claim?.epoch || claim.state !== "exited" || await this.#journalEpoch() !== claim.epoch || !this.#container.running) {
+        throw new Error("The completed execution container is unavailable. Settlement was not restarted.");
+      }
+      settlementClaim = claim;
+    } else {
+      await this.#ensureRunning();
+    }
     const cwd = options?.cwd ?? "/workspace";
     const env = { ...TRUST_ENV, ...options?.env };
     const abort = new AbortController();
@@ -207,9 +219,12 @@ export class Sandbox extends DurableObject<Env> {
         ? setTimeout(() => abort.abort(), options.timeout)
         : undefined;
     try {
-      const proc = await this.#container.exec(["sh", "-c", command], {
-        cwd,
-        env,
+      const proc = await this.#container.exec(settlementClaim
+        ? ["node", "-e", EXECUTION_JOURNAL_SOURCE, "--", "settle", options!.requiredJournalJobId!, "0", settlementClaim.digest!, String(settlementClaim.deadline)]
+        : ["sh", "-c", command], {
+        cwd: settlementClaim ? "/workspace" : cwd,
+        env: settlementClaim ? TRUST_ENV : env,
+        ...(settlementClaim ? { stdin: new Blob([JSON.stringify({ command, cwd, env })]).stream() } : {}),
         signal: abort.signal,
       });
       let stdout = "";
@@ -492,10 +507,32 @@ export class Sandbox extends DurableObject<Env> {
       if (overdue.length > 0) {
         const epoch = await this.#journalEpoch();
         if (overdue.some(([, job]) => job.epoch === epoch)) {
+          // A vanished reader may never have copied the final receipt into KV.
+          // Reconcile the surviving instance before treating its deadline as unfinished.
+          for (const [jobId, job] of overdue) {
+            if (job.epoch === epoch && this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`)?.state !== "exited") {
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              try {
+                await Promise.race([this.readExecution(jobId, 0), new Promise<never>((_, reject) => {
+                  timer = setTimeout(() => reject(new Error("Execution receipt reconciliation timed out.")), 2_000);
+                })]);
+              } finally {
+                if (timer) clearTimeout(timer);
+              }
+            }
+          }
+          if (await this.#journalEpoch() !== epoch) {
+            const retained = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+            for (const [jobId, job] of overdue) if (job.epoch === epoch) delete retained[jobId];
+            this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, retained);
+            await this.#armKeepalive();
+            return;
+          }
           const stillActive = overdue.some(([jobId, job]) => job.epoch === epoch && this.ctx.storage.kv.get<JournalClaim>(`execution-journal:${jobId}`)?.state !== "exited");
           if (!stillActive) {
-            for (const [jobId] of overdue) delete deadlines[jobId];
-            this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, deadlines);
+            const retained = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+            for (const [jobId] of overdue) delete retained[jobId];
+            this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, retained);
             await this.#armKeepalive();
             return;
           }
@@ -508,8 +545,9 @@ export class Sandbox extends DurableObject<Env> {
           }
           return;
         }
-        for (const [jobId] of overdue) delete deadlines[jobId];
-        this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, deadlines);
+        const retained = this.ctx.storage.kv.get<Record<string, { deadline: number; epoch: string }>>(JOURNAL_DEADLINES_KEY) ?? {};
+        for (const [jobId] of overdue) delete retained[jobId];
+        this.ctx.storage.kv.put(JOURNAL_DEADLINES_KEY, retained);
       }
       await this.#container.setInactivityTimeout(INACTIVITY_TIMEOUT_MS);
       await this.#container.getTcpPort(8080).fetch("http://127.0.0.1/", { method: "HEAD" }).catch(() => undefined);

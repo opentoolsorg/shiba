@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env.js";
-import { isRunRoomEvent, MAX_RUN_ROOM_EVENTS, type RunRoomEvent, type RunRoomFrame, type RunRoomIdentity } from "./run-room-events.js";
+import { isRunRoomEvent, MAX_RUN_ROOM_EVENTS, MAX_RUN_JOURNAL_FRAMES, MAX_RUN_JOURNAL_EVENTS, MAX_RUN_JOURNAL_CHARS, MAX_RUN_JOURNAL_BATCH_EVENTS, MAX_RUN_JOURNAL_BATCH_CHARS, type RunJournalIdentity, type RunJournalBatch, type RunRoomEvent, type RunRoomFrame, type RunRoomIdentity } from "./run-room-events.js";
 import { isValidSessionId } from "./web-sessions.js";
 import { timingSafeEqualString } from "./security.js";
 
@@ -17,6 +17,17 @@ const TYPING_TTL_MS = 5_000;
 const CURSOR_TTL_MS = 15_000;
 const CURSOR_INTERVAL_MS = 100;
 const STREAM_TTL_MS = 2 * 60_000;
+const JOURNAL_ID = /^[a-f0-9]{64}$/;
+
+interface RunJournalRow {
+  [key: string]: string | number;
+  run_id: string;
+  generation: string;
+  acknowledged_through: number;
+  source_sequence: number;
+  event_count: number;
+  character_count: number;
+}
 
 interface RoomCursor { x: number; y: number }
 
@@ -149,6 +160,27 @@ export class ConversationRoom extends DurableObject<Env> {
         created_at INTEGER NOT NULL
       )
     `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS room_run_journals (
+        job_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        generation TEXT NOT NULL,
+        acknowledged_through INTEGER NOT NULL,
+        source_sequence INTEGER NOT NULL,
+        event_count INTEGER NOT NULL,
+        character_count INTEGER NOT NULL
+      )
+    `);
+    // Receipts survive display-history pruning. They contain hashes, never raw CLI bytes.
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS room_run_journal_receipts (
+        job_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        digest TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        PRIMARY KEY (job_id, event_id)
+      )
+    `);
     // Exact ping frames can be answered while the object is hibernating.
     ctx.setWebSocketAutoResponse?.(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -225,6 +257,87 @@ export class ConversationRoom extends DurableObject<Env> {
     );
     this.broadcast({ type: "run:event", sequence: row.sequence, eventId, runId: identity.runId, createdAt, event } satisfies RunRoomFrame);
     return row.sequence;
+  }
+
+  /** Binding-only source checkpoint. A different approved envelope cannot adopt this job. */
+  async openRunJournal(identity: RunRoomIdentity, journal: RunJournalIdentity): Promise<number> {
+    this.validateRunJournal(identity, journal);
+    this.ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO room_run_journals (job_id, run_id, generation, acknowledged_through, source_sequence, event_count, character_count) VALUES (?, ?, ?, 0, 0, 0, 0)",
+      journal.jobId, identity.runId, journal.generation,
+    );
+    return this.runJournal(identity, journal).acknowledged_through;
+  }
+
+  /** Redacted events and the source acknowledgment commit together before fanout. */
+  async appendRunJournalBatch(identity: RunRoomIdentity, batch: RunJournalBatch): Promise<number> {
+    this.validateRunJournal(identity, batch);
+    if (!Number.isSafeInteger(batch.sourceSequence) || batch.sourceSequence < 0 || batch.sourceSequence > MAX_RUN_JOURNAL_FRAMES ||
+      !Number.isSafeInteger(batch.acknowledgedThrough) || batch.acknowledgedThrough < 0 || batch.acknowledgedThrough > batch.sourceSequence ||
+      !Array.isArray(batch.events) || batch.events.length > MAX_RUN_JOURNAL_BATCH_EVENTS ||
+      JSON.stringify(batch.events).length > MAX_RUN_JOURNAL_BATCH_CHARS) throw new Error("Invalid journal batch.");
+    const ids = new Set<string>();
+    const prepared = await Promise.all(batch.events.map(async ({ eventId, event }) => {
+      if (!VIEWER_ID.test(eventId) || ids.has(eventId) || !isRunRoomEvent(event) || event.kind !== "terminal") throw new Error("Invalid journal event.");
+      ids.add(eventId);
+      const body = JSON.stringify(event);
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body))), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      return { eventId, event, body, digest };
+    }));
+    const frames: RunRoomFrame[] = [];
+    const ack = this.ctx.storage.transactionSync(() => {
+      const journal = this.runJournal(identity, batch);
+      let characters = journal.character_count;
+      for (const item of prepared) {
+        const receipt = this.ctx.storage.sql.exec<{ digest: string; sequence: number }>(
+          "SELECT digest, sequence FROM room_run_journal_receipts WHERE job_id = ? AND event_id = ?", batch.jobId, item.eventId,
+        ).toArray()[0];
+        if (receipt) {
+          if (receipt.digest !== item.digest) throw new Error("Journal event does not match its durable receipt.");
+          continue;
+        }
+        characters += item.event.data.length;
+        if (batch.sourceSequence <= journal.acknowledged_through || journal.event_count + frames.length >= MAX_RUN_JOURNAL_EVENTS || characters > MAX_RUN_JOURNAL_CHARS) {
+          throw new Error("Journal source is stale or exceeds its event bound.");
+        }
+        const createdAt = Date.now();
+        const row = this.ctx.storage.sql.exec<{ sequence: number }>(
+          "INSERT INTO room_run_events (event_id, run_id, body, created_at) VALUES (?, ?, ?, ?) RETURNING sequence",
+          item.eventId, identity.runId, item.body, createdAt,
+        ).toArray()[0];
+        if (!row) throw new Error("Journal event was not persisted.");
+        this.ctx.storage.sql.exec(
+          "INSERT INTO room_run_journal_receipts (job_id, event_id, digest, sequence) VALUES (?, ?, ?, ?)",
+          batch.jobId, item.eventId, item.digest, row.sequence,
+        );
+        frames.push({ type: "run:event", sequence: row.sequence, eventId: item.eventId, runId: identity.runId, createdAt, event: item.event });
+      }
+      const acknowledgedThrough = Math.max(journal.acknowledged_through, batch.acknowledgedThrough);
+      this.ctx.storage.sql.exec(
+        "UPDATE room_run_journals SET acknowledged_through = ?, source_sequence = ?, event_count = ?, character_count = ? WHERE job_id = ?",
+        acknowledgedThrough, Math.max(journal.source_sequence, batch.sourceSequence), journal.event_count + frames.length, characters, batch.jobId,
+      );
+      this.ctx.storage.sql.exec(
+        "DELETE FROM room_run_events WHERE sequence IN (SELECT sequence FROM room_run_events ORDER BY sequence DESC LIMIT -1 OFFSET ?)", MAX_RUN_ROOM_EVENTS,
+      );
+      return acknowledgedThrough;
+    });
+    for (const frame of frames) this.broadcast(frame);
+    return ack;
+  }
+
+  private validateRunJournal(identity: RunRoomIdentity, journal: RunJournalIdentity): void {
+    const ownerId = typeof identity.ownerId === "string" ? identity.ownerId.trim().toLowerCase() : "";
+    if (!ownerId || ownerId.length > 320 || !isValidSessionId(identity.sessionId) ||
+      typeof identity.runId !== "string" || !identity.runId || identity.runId.length > 200 ||
+      !JOURNAL_ID.test(journal.jobId) || !JOURNAL_ID.test(journal.generation)) throw new Error("Invalid journal identity.");
+    if (!this.bindIdentity(ownerId, identity.sessionId)) throw new Error("Room identity does not match.");
+  }
+
+  private runJournal(identity: RunRoomIdentity, journal: RunJournalIdentity): RunJournalRow {
+    const row = this.ctx.storage.sql.exec<RunJournalRow>("SELECT run_id, generation, acknowledged_through, source_sequence, event_count, character_count FROM room_run_journals WHERE job_id = ?", journal.jobId).toArray()[0];
+    if (!row || row.run_id !== identity.runId || row.generation !== journal.generation) throw new Error("Journal identity does not match the approved run generation.");
+    return row;
   }
 
   async webSocketMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {

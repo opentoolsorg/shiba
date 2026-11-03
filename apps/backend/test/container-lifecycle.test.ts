@@ -72,6 +72,13 @@ afterEach(() => {
 });
 
 describe("runWithContainer", () => {
+  it("preserves the native journal capability probe through the managed lifecycle", async () => {
+    const supportsJournal = vi.fn(async () => true);
+    await runWithContainer({ acquire: async () => ({ ...fakeOps(), supportsJournal }), release: async () => {}, sandboxId: "native-capability" },
+      async ({ ops }) => { expect(await ops.supportsJournal?.()).toBe(true); });
+    expect(supportsJournal).toHaveBeenCalledOnce();
+  });
+
   it("preserves a typed task failure when the scope release also fails", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const program = Effect.scoped(Effect.gen(function* () {

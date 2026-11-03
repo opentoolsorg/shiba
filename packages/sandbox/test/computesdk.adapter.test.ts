@@ -70,6 +70,14 @@ describeSandboxProviderContract("computesdk (fake client)", () =>
 );
 
 describe("computesdk raw()", () => {
+  it("refuses native journal recovery before executing on the hosted instance", async () => {
+    const instance = await createComputesdkSandboxProvider({ client: makeFakeClient() }).get("refuse-resume");
+    const native = instance.raw!<ComputesdkInstance>(); const run = vi.spyOn(native, "runCommand");
+    await expect(instance.exec("do-not-run", { journal: { jobId: "a".repeat(64), deadline: Date.now() + 60_000,
+      mode: "attach", observationDeadline: Date.now() + 60_000 } })).rejects.toMatchObject({ code: "capability_unsupported" });
+    await expect(instance.exec("do-not-run", { requiredJournalJobId: "a".repeat(64) })).rejects.toMatchObject({ code: "capability_unsupported" });
+    expect(run).not.toHaveBeenCalled();
+  });
   it("returns native instance when capability is set", async () => {
     const client = makeFakeClient();
     const provider = createComputesdkSandboxProvider({ client });

@@ -130,7 +130,9 @@ it.each(["collect-cancel", "collect-deadline", "test-cancel", "test-deadline", "
     try {
       const exit = await new Promise<number | null>((resolve, reject) => { daemon.once("error", reject); daemon.once("close", resolve); });
       if (exit === 70) {
-        expect(result, output).toMatchObject({ status: "error", summary: expect.stringContaining("termination unconfirmed (SIGKILL: EPERM)") });
+        // Reaping can remain unconfirmed under load even when SIGKILL is accepted.
+        // Both paths must stop polling; denied cases still assert EPERM below.
+        expect(result, output).toMatchObject({ status: "error", summary: expect.stringContaining("termination unconfirmed (SIGKILL:") });
       } else {
         expect(exit, output).toBe(denied ? 70 : 1);
         expect(result, output).toMatchObject({ status: "error", summary: expect.stringContaining(deadline ? "deadline" : "revoked or cancelled") });
