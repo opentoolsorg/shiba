@@ -1,6 +1,7 @@
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { createWorkersAI } from "workers-ai-provider";
+import { verifyStandinEnabled } from "@shiba/shared";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -61,18 +62,28 @@ export abstract class ReadonlySpecialistAgent extends AIChatAgent<Env> {
         const text = user?.parts.filter((part) => part.type === "text").map((part) => part.text).join("") ?? "";
         const dispatch = await verifySpecialistDispatch(this.env, JSON.parse(text), role, this.parentPath);
         const input = role === "explorer" ? exploreInputSchema.parse(dispatch.input) : reviewInputSchema.parse(dispatch.input);
+        const standin = verifyStandinEnabled(this.env);
         const id = crypto.randomUUID();
         writer.write({ type: "start" });
-        writer.write({ type: "data-agent-progress", data: { phase: "inspecting", message: `Shiba ${role} is inspecting the explicit context.` } });
-        const ai = createWorkersAI({ binding: this.env.AI });
-        const model: LanguageModelV4 = ai(this.env.REVIEW_MODEL || this.env.ORCHESTRATOR_MODEL || DEFAULT_ORCHESTRATOR_MODEL);
+        writer.write({ type: "data-agent-progress", data: { phase: "inspecting", message: standin
+          ? `verify-shiba synthetic ${role} fixture. No model inspection.`
+          : `Shiba ${role} is inspecting the explicit context.` } });
         const result = await withinSpecialistDeadline(async (signal) => {
+          if (standin) {
+            return specialistObservationSchema.parse({
+              agent: role, status: "completed", summary: `verify-shiba synthetic ${role} completed. No model inspection was performed.`,
+              report: "Synthetic observation for the loopback mock verification fixture. No supplied code was audited, no model inference or tools were used, and no tests were run. This result does not establish correctness or security.",
+              findings: [],
+            });
+          }
           if (role === "reviewer" && reviewInputSchema.parse(input).diff.trim() === "") {
             return specialistObservationSchema.parse({
               agent: role, status: "completed", summary: "Empty diff. No changes to review.",
               report: "The supplied unified diff is empty. No code changes were audited.", findings: [],
             });
           }
+          const ai = createWorkersAI({ binding: this.env.AI });
+          const model: LanguageModelV4 = ai(this.env.REVIEW_MODEL || this.env.ORCHESTRATOR_MODEL || DEFAULT_ORCHESTRATOR_MODEL);
           const response = await generateText({
             model,
             system: [

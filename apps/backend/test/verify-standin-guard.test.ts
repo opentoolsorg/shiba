@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { isLoopbackMockGithub, verifyStandinEnabled } from "../../../packages/shared/src/verify-standin.js";
@@ -44,15 +44,23 @@ describe("verifyStandinEnabled guard", () => {
 });
 
 const LAUNCH = resolve(__dirname, "../../../.cursor/skills/verify-shiba/scripts/launch.sh");
+const OPERATOR_SIGNING_KEY = "operator-fixture-signing-key";
+const OPERATOR_TYPESAFE_KEY = "operator-fixture-typesafe-key";
 
 type Plan = {
   status: number | null;
+  stdout: string;
   stderr: string;
   file: (name: string) => string;
   env: Map<string, string>;
+  envMode: number | undefined;
 };
 
-function plan(opts: { docker: "ok" | "fail"; vars: Record<string, string | undefined> }): Plan {
+function plan(opts: {
+  docker: "ok" | "fail";
+  vars: Record<string, string | undefined>;
+  existingPublicEnv?: boolean;
+}): Plan {
   const dir = mkdtempSync(join(tmpdir(), "verify-launch-"));
   const verifyDir = join(dir, "verify");
   const devVars = join(dir, "dev.vars");
@@ -61,8 +69,13 @@ function plan(opts: { docker: "ok" | "fail"; vars: Record<string, string | undef
   chmodSync(join(dir, "docker"), 0o755);
   writeFileSync(
     devVars,
-    "GITHUB_TOKEN=real-live-token\nGITHUB_API_BASE=http://127.0.0.1:1\nSHIBA_VERIFY_STANDIN=1\nOTHER=keep\n",
+    "GITHUB_TOKEN=real-live-token\nGITHUB_API_BASE=http://127.0.0.1:1\nSHIBA_VERIFY_STANDIN=1\nOTHER=keep\n" +
+      `INTERNAL_SIGNING_KEY=${OPERATOR_SIGNING_KEY}\nMEMORY_ENABLED=true\nTYPESAFE_API_KEY=${OPERATOR_TYPESAFE_KEY}\n`,
   );
+  if (opts.existingPublicEnv) {
+    mkdirSync(verifyDir);
+    writeFileSync(join(verifyDir, "run.env"), "stale public file\n", { mode: 0o644 });
+  }
   const env: NodeJS.ProcessEnv = {
     PATH: `${dir}:${process.env.PATH ?? ""}`,
     HOME: process.env.HOME,
@@ -86,7 +99,14 @@ function plan(opts: { docker: "ok" | "fail"; vars: Record<string, string | undef
   }
   // .dev.vars must never be rewritten by the launcher.
   expect(readFileSync(devVars, "utf8")).toContain("real-live-token");
-  return { status: res.status, stderr: res.stderr, file, env: parsed };
+  expect(readFileSync(devVars, "utf8")).toContain(OPERATOR_SIGNING_KEY);
+  let envMode: number | undefined;
+  try {
+    envMode = statSync(join(verifyDir, "run.env")).mode & 0o777;
+  } catch {
+    // Refused modes exit before generating an environment file.
+  }
+  return { status: res.status, stdout: res.stdout, stderr: res.stderr, file, env: parsed, envMode };
 }
 
 describe("launch.sh effective mode", () => {
@@ -99,6 +119,32 @@ describe("launch.sh effective mode", () => {
     expect(p.env.get("GITHUB_API_BASE")).toBe("http://127.0.0.1:8799");
     expect(p.env.get("GITHUB_TOKEN")).toBe("mock-github-token");
     expect(p.env.get("OTHER")).toBe("keep");
+    expect(p.env.get("INTERNAL_SIGNING_KEY")).toMatch(/^[a-f0-9]{64}$/);
+    expect(p.env.get("MEMORY_ENABLED")).toBe("0");
+    expect(p.env.get("TYPESAFE_API_KEY")).toBe("");
+    expect(p.file("run.env")).not.toContain(OPERATOR_SIGNING_KEY);
+    expect(p.file("run.env")).not.toContain(OPERATOR_TYPESAFE_KEY);
+    expect(p.envMode).toBe(0o600);
+  });
+
+  it("mints a new private Worker signing key on every stand-in launch without logging it", () => {
+    const first = plan({ docker: "fail", vars: { VERIFY_GITHUB: "mock" }, existingPublicEnv: true });
+    const second = plan({ docker: "fail", vars: { VERIFY_GITHUB: "mock" } });
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+    const firstKey = first.env.get("INTERNAL_SIGNING_KEY");
+    const secondKey = second.env.get("INTERNAL_SIGNING_KEY");
+    expect(firstKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(secondKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(firstKey).not.toBe(secondKey);
+    expect(firstKey).not.toBe(OPERATOR_SIGNING_KEY);
+    expect(secondKey).not.toBe(OPERATOR_SIGNING_KEY);
+    for (const p of [first, second]) {
+      expect(p.envMode).toBe(0o600);
+      expect(p.stdout + p.stderr).not.toContain(p.env.get("INTERNAL_SIGNING_KEY"));
+      expect(p.stdout + p.stderr).not.toContain(OPERATOR_SIGNING_KEY);
+      expect(p.stdout + p.stderr).not.toContain(OPERATOR_TYPESAFE_KEY);
+    }
   });
 
   it("real containers + mock GitHub: stand-in forced off despite a stale persistent flag", () => {
@@ -110,6 +156,9 @@ describe("launch.sh effective mode", () => {
     expect(p.file("containers-mode")).toBe("containers=enabled");
     expect(p.file("standin-mode")).toBe("disabled");
     expect(p.env.get("SHIBA_VERIFY_STANDIN")).toBe("0");
+    expect(p.env.get("INTERNAL_SIGNING_KEY")).toBe(OPERATOR_SIGNING_KEY);
+    expect(p.env.get("MEMORY_ENABLED")).toBe("true");
+    expect(p.env.get("TYPESAFE_API_KEY")).toBe(OPERATOR_TYPESAFE_KEY);
   });
 
   it("live GitHub: stale stand-in flag and mock base are dropped, real token kept", () => {
@@ -120,6 +169,9 @@ describe("launch.sh effective mode", () => {
     expect(p.env.get("SHIBA_VERIFY_STANDIN")).toBe("0");
     expect(p.env.has("GITHUB_API_BASE")).toBe(false);
     expect(p.env.get("GITHUB_TOKEN")).toBe("real-live-token");
+    expect(p.env.get("INTERNAL_SIGNING_KEY")).toBe(OPERATOR_SIGNING_KEY);
+    expect(p.env.get("MEMORY_ENABLED")).toBe("true");
+    expect(p.env.get("TYPESAFE_API_KEY")).toBe(OPERATOR_TYPESAFE_KEY);
   });
 
   it("explicit containers requested but Docker unavailable: fails, no stand-in", () => {
@@ -135,5 +187,8 @@ describe("launch.sh effective mode", () => {
     expect(p.status).toBe(0);
     expect(p.file("containers-mode")).toBe("disabled");
     expect(p.file("standin-mode")).toBe("enabled");
+    expect(p.env.get("INTERNAL_SIGNING_KEY")).toMatch(/^[a-f0-9]{64}$/);
+    expect(p.env.get("MEMORY_ENABLED")).toBe("0");
+    expect(p.env.get("TYPESAFE_API_KEY")).toBe("");
   });
 });
