@@ -318,6 +318,31 @@ function makeFakeOps(overrides: Partial<SandboxOps> = {}): SandboxOps {
 }
 
 describe("withRetry wired into the runtime adapter", () => {
+  it("pins journal identity to the approved run and applies it only to the CLI under the original deadline", async () => {
+    const captures: Array<{ jobId: string; deadline: number }> = [];
+    const expiresAt = Date.now() + 60_000;
+    const run = async (dispatchApprovalId: string) => {
+      const ops = makeFakeOps({ async exec(command, options) {
+        if (command.includes("opencode")) {
+          const journal = options?.journal;
+          if (!journal) throw new Error("The approved CLI needs a frozen execution identity.");
+          captures.push(journal);
+        } else expect(options?.journal).toBeUndefined();
+        return { stdout: "", stderr: "", exitCode: 0 };
+      } });
+      await new SandboxRuntimeAdapter().runCodingTask(ops, { ...INPUT, dispatchApprovalId,
+        dispatchInputHash: "a".repeat(64), dispatchExpiresAt: expiresAt }, () => {});
+    };
+    await run("approval-a");
+    await run("approval-a");
+    await run("approval-b");
+    expect(captures).toHaveLength(3);
+    expect(captures[0]?.jobId).toMatch(/^[a-f0-9]{64}$/);
+    expect(captures[1]?.jobId).toBe(captures[0]?.jobId);
+    expect(captures[2]?.jobId).not.toBe(captures[0]?.jobId);
+    expect(captures.every((capture) => capture.deadline === expiresAt)).toBe(true);
+  });
+
   it("does not retry a nonzero harness exitCode — the verdict is data, not an error", async () => {
     let opencodeCalls = 0;
     const ops = makeFakeOps({

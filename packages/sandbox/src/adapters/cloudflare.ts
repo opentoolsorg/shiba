@@ -1,10 +1,14 @@
 import { SandboxError } from "../errors.js";
+import { executeJournaled } from "./cloudflare-journal.js";
 import type {
   ExecResult,
   SandboxCapabilities,
   SandboxEgressPin,
   SandboxInstance,
   SandboxProvider,
+  JournalExecutionInput,
+  JournalPage,
+  JournalState,
 } from "../types.js";
 
 /** RPC surface of shiba's Sandbox Durable Object (SDK 1.0). Injected by the Worker. */
@@ -41,6 +45,9 @@ export interface CloudflareSandboxRpc {
     kill(): Promise<void>;
   }>;
   snapshotContainer?(name?: string): Promise<{ id: string; size: number } | null>;
+  startExecution?(input: JournalExecutionInput): Promise<{ jobId: string; state: JournalState }>;
+  readExecution?(jobId: string, after: number): Promise<JournalPage>;
+  cancelExecution?(jobId: string): Promise<{ jobId: string; state: JournalState }>;
 }
 
 export interface CloudflareSandboxProviderDeps {
@@ -58,6 +65,7 @@ const CAPABILITIES: SandboxCapabilities = {
   backgroundProcesses: true,
   rawProviderHandle: false,
   persistentVolumes: true,
+  journaledExec: true,
 };
 
 function wrapRpc(
@@ -111,6 +119,16 @@ function wrapRpc(
 
     async exec(command, opts) {
       opts?.signal?.throwIfAborted();
+      if (opts?.journal) {
+        const startExecution = rpc.startExecution?.bind(rpc);
+        const readExecution = rpc.readExecution?.bind(rpc);
+        const cancelExecution = rpc.cancelExecution?.bind(rpc);
+        if (!startExecution || !readExecution || !cancelExecution) {
+          throw new SandboxError("capability_unsupported", "Cloudflare execution journals are unavailable. No command was launched.", { provider: "cloudflare" });
+        }
+        return executeJournaled({ startExecution, readExecution, cancelExecution }, command,
+          { ...opts, env: { ...settings.execEnvPassthrough, ...opts.env } });
+      }
       const execPromise = rpc.exec(command, {
         cwd: opts?.cwd,
         timeout: opts?.timeoutMs ?? settings.defaultTimeoutMs,

@@ -27,11 +27,11 @@ it.each(["claim-revoked", "deadline", "receipts-reset"])("enforces the real daem
     "if(process.argv.includes('--version'))process.exit(0);",
     "if(process.env.LOCAL_ADAPTER_TOKEN||process.env.ANTHROPIC_API_KEY!=='fixture-provider-key')process.exit(42);",
     "if(process.argv.includes('--finish'))setTimeout(()=>{console.log('fixture completed');process.exit(0)},700);",
-    "fs.writeFileSync('.git/cli-started','yes');",
     "const sentinel=require('node:path').resolve('.git/grandchild-sentinel');",
     "const grandchild=require('node:child_process').spawn(process.execPath,['-e',`setInterval(()=>require('node:fs').appendFileSync(${JSON.stringify(sentinel)},'x'),30)`],{stdio:'ignore'});",
     "fs.writeFileSync('.git/grandchild-pid',String(grandchild.pid));",
     "process.on('SIGTERM',()=>{fs.writeFileSync('.git/cli-stopped','yes');process.exit(0)});",
+    "fs.writeFileSync('.git/cli-started','yes');",
     "setInterval(()=>{},100);",
   ].join("\n"), { mode: 0o755 });
   type Result = { status: string; summary: string; signals?: { kind: string }[] };
@@ -63,7 +63,8 @@ it.each(["claim-revoked", "deadline", "receipts-reset"])("enforces the real daem
     } else if (request.url === "/api/local/control" && mode === "receipts-reset" && staleControl) {
       staleControl.statusCode = 409; staleControl.end('{"error":"old claim expired"}'); staleControl = undefined;
       response.end("{}");
-    } else if (request.url === "/api/local/control" && mode === "claim-revoked" && existsSync(path.join(work, ".git/cli-started"))) {
+    } else if (request.url === "/api/local/control" && mode === "claim-revoked" &&
+      existsSync(path.join(work, ".git/cli-started")) && existsSync(path.join(work, ".git/grandchild-sentinel"))) {
       response.statusCode = 409; response.end(JSON.stringify({ error: "claim revoked" }));
     } else {
       if (request.url === "/api/local/result") { result = body.result; results.push(body.result); }

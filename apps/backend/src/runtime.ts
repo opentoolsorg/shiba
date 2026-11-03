@@ -1,4 +1,5 @@
 import { onboardingSourceInstructions } from "@shiba/shared";
+import type { JournalExecutionOptions } from "@shiba/sandbox";
 /**
  * Runtime adapter seam. The default adapter wraps the Sandbox SDK.
  * An experimental adapter for @cloudflare/computer exists only as a
@@ -113,6 +114,7 @@ export interface SandboxOps {
        * for commands whose full output is the payload (e.g. diff export).
        */
       maxOutputChars?: number;
+      journal?: JournalExecutionOptions;
     },
   ): Promise<ExecResult>;
   readFile(
@@ -285,6 +287,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
           onOutput: execOpts?.onOutput,
           timeoutMs: execOpts?.timeoutMs,
           maxOutputChars: execOpts?.maxOutputChars,
+          journal: execOpts?.journal,
           allowlist,
           signals,
         }),
@@ -449,6 +452,12 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     try {
       const executionEnv = { ...opts?.env, ...this.harness.env(input, config?.path ?? null) };
       throwIfAborted(opts?.signal);
+      const identity = new TextEncoder().encode(JSON.stringify([
+        "shiba:execution-journal:v1", input.sandboxId, input.dispatchApprovalId ?? "", input.dispatchInputHash ?? "", this.harness.name,
+      ]));
+      const jobId = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", identity)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      const deadline = Math.min(Date.now() + OPENCODE_TIMEOUT_MS, input.dispatchExpiresAt ?? Number.POSITIVE_INFINITY);
+      throwIfAborted(opts?.signal);
       milestone("harness.started", this.harness.name);
       // A silent CLI may already have performed work. A lost execution
       // response never authorizes another launch of the approved task.
@@ -456,6 +465,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       run = await scoped.exec(shellJoin(argv), {
         cwd: workdir,
         timeoutMs: OPENCODE_TIMEOUT_MS,
+        journal: { jobId, deadline },
         signal: opts?.signal,
         onOutput: (stream, data) => {
           output.onData(stream, data);
