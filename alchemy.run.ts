@@ -172,6 +172,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   env: {
     GATEWAY_ID: "default",
     INTEGRATIONS_PROVIDER: "openconnector",
+    SLACK_CANVAS_OWNERS: "[]",
     ORCHESTRATOR_MODEL: "@cf/zai-org/glm-4.7-flash",
     CODING_MODEL: "google/gemini-3.5-flash-lite",
     RUNTIME: "sandbox",
@@ -388,6 +389,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "ROLE_MODEL__DESIGNER",
       "SLACK_APPROVALS_CHANNEL",
       "SLACK_ROOM_OUTBOX_ENABLED",
+      "SLACK_CANVAS_OWNERS",
       // Agent mailbox identity (default dev@tryshiba.dev).
       "AGENT_MAILBOX",
       "MEMORY_ENABLED",

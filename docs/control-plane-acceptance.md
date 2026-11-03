@@ -1,0 +1,113 @@
+# Control plane specification and acceptance matrix
+
+This matrix compares the integrated branch with all three supplied plans. The expanded November 3 plan has 159 lines. The later 135-line attachment repeats the original four-phase plan. Compatible original requirements, including `delegate_task`, remain in scope. The expanded specialist roles and additional safety requirements remain in force.
+
+Completed means source behavior and the stated local verification exist. It does not mean a deployed Cloudflare or Slack acceptance run passed. Partial identifies a bounded implementation or evidence limit. Blocked identifies a requirement that cannot currently be claimed. Final aggregate results are recorded in [the implementation report](control-plane-upgrade.md).
+
+## References and reconciled requirements
+
+| ID | Requirement | Status | Evidence and interpretation |
+| --- | --- | --- | --- |
+| R1 | Verify reference implementations and licenses. | Completed | [Reference audit](control-plane-reference-audit.md) records pinned revisions, licenses, inspected patterns and unavailable references. No third party implementation was copied. |
+| R2 | Use Cloudflare dynamic child agents and SDK tools. | Completed locally | Installed `agents` version is 0.23.0. Explorer and Reviewer extend `AIChatAgent`, are exported from the Worker and use validated `agentTool` output. Facets have separate isolates and storage. The supplied shared-address-space claim is inaccurate. |
+| R3 | Extend the event-sourced command, decision, event, projection and outbox spine. | Completed locally | Existing run decider and event log are retained. Child lifecycle events extend shared events. Approval and result transitions commit their projections and events together. Outbound notification intent is stored before sending. |
+| R4 | Apply Overlay, Junior, Baudbot and Open-Inspect patterns safely. | Completed reference audit; bounded implementation | Personas, stable status edits, a persistent coordinator, isolated workers, durable intake and a separate room hub are implemented. Junior returned 404. Open-Inspect secret injection was not copied. One configured Slack installation is supported. Multi-installation OAuth is not implemented. |
+| R5 | Treat `agent_view` as a status API. | Blocked as stated | Current Slack documentation defines a manifest feature and separate agent APIs. The implementation uses editable thread status messages. It does not claim an unavailable method or native agent-session status integration. |
+| R6 | Use Nehemiah as Cloudflare lifecycle evidence. | Corrected reference | The inspected implementation uses Firecracker. Existing Shiba sandbox lifecycle and provider boundaries are preserved. Its timing or isolation claims are not attributed to Cloudflare. |
+| R7 | Keep original delegation and expanded facets compatible. | Completed locally | `delegate_task` maps researcher and analyst to bounded read-only specialists. Coder proposes a new explicit-target human approval. The named `explore_codebase`, `delegate_coding_task` and `review_diff` tools remain available. |
+| R8 | Reconcile persona naming and stale file paths. | Completed | Expanded Lead, Explorer, Fixer and Reviewer names with emoji control the older example names and avatar fields. Current runtime and existing dashboard components implement the requested behavior where the supplied paths were stale. The HMAC dispatch module remains a security module. |
+| R9 | Use an applicable installed REA skill. | Checked; unavailable by that name | `.agents/skills` contains monorepo, UI polish and two dashboard testing skills. No REA skill is installed. Repository monorepo and dashboard testing guidance were used. No unrecognized software or skill was installed. |
+
+The expanded plan explicitly permits automatic bounded read-only inspections. A universal human approval before every paid model inference would conflict with that rule. Existing reported-usage budget guardrails remain; they are not a guaranteed upper bound on a cloud invoice. The unspecified spend action is kept separate from routine bounded inspection and from an actual payment capability.
+
+## Hard invariants
+
+| ID | Requirement | Status | Evidence and boundary |
+| --- | --- | --- | --- |
+| H1 | Keep model and subscription credentials outside containers. | Completed locally | Worker egress attaches managed credentials. Containers receive provider placeholders. Tradeoff, subscription, egress and setup tests protect this boundary. GitHub container traffic is repo scoped and read only. |
+| H2 | Claim that no arbitrary plaintext secret can ever appear in a container. | Partial scope | Existing explicit, approval-hashed user application environment values are preserved. Human task text can also contain user data. This is not a universal secret-free-data guarantee. No managed provider or subscription credential is supplied through those paths. |
+| H3 | Require a human before sandbox execution and external mutation. | Completed for supported actions | Run approval freezes target, route, environment digest and task. Read-only inspections need no human decision. Publication requires a successful bound review and a distinct authorized human action. Automated identities cannot approve. Existing email and merge gates remain. |
+| H4 | Bound child depth, workspaces, concurrency and lifetime. | Completed locally | Depth one, fresh isolated coding workspaces, three direct coding children, finite specialist turn budgets, SDK concurrency one, active cancellation and absolute deadlines. Legacy Den and Captain paths enforce the same restrictions. |
+| H5 | Children cannot self-approve, delegate recursively or mutate external services. | Completed in active control-plane paths | Read-only tool allowlists, signed scoped envelopes, retained-run facet routing, denied nested routes and principal authorization tests. Container GitHub push traffic is refused. |
+| H6 | Use clean authored product copy and comments. | Completed authored changes; generated-content limit | Added authored prose and comments are checked for forbidden dash punctuation. Specialist instructions include the style rule. Arbitrary user text, terminal output, Git diff syntax and model-generated source are not represented as universally style validated. |
+| H7 | Pass typing, lint, unit and integration tests, and builds. | Completed locally | The final aggregate passed typing, both lint commands, builds, all 4,823 workspace tests, focused acceptance and deployment configuration checks. Three opt-in live tests remain skipped. |
+
+## Phase 1. Ephemeral workspaces and artifacts
+
+| ID | Requirement | Status | Source and local evidence |
+| --- | --- | --- | --- |
+| P1.1 | Strict GitHub or ephemeral `WorkspaceTarget`. | Completed | Shared `types.ts`, execution-target normalization and intake tests. Human target pins override model and profile defaults. Invalid or conflicting targets fail before approval. |
+| P1.2 | Repo-free runs skip clone and start an empty isolated workspace. | Completed locally | Runtime initializes the new ephemeral workspace and context/output directories without checkout. Legacy artifact workspace paths remain compatible. Ephemeral profile tests prevent local runtime substitution. |
+| P1.3 | Provide curl, Python, Node, DuckDB and Agent Reach. | Completed image definition; full image unverified | Dockerfile pins the additional tools and verifies the Agent Reach archive. Tool smoke checks and Dockerfile validation passed. No full cloud image acceptance is claimed. Egress remains narrowly scoped. |
+| P1.4 | Collect only the approved output scope. | Completed locally | Regular files under `out/` are captured from immutable Git objects. Traversal, symlinks, unsafe modes, corrupted bytes, changing refs, replacement objects, size and count overflow fail closed. |
+| P1.5 | Handle empty files and empty output cleanly. | Completed locally | New ephemeral exports support zero-byte and binary ZIP entries and an empty archive. Legacy required text artifacts still reject empty or non-text content. Real Git and executor integration tests cover both contracts. |
+| P1.6 | ZIP and private R2 persistence in `shiba-artifacts`. | Completed locally | Worker compression is bounded to 64 files, 1 MiB each and 8 MiB input, then uploaded through the private binding. It is not an unbounded streaming compressor. Missing configuration and null or failed uploads do not emit a successful bundle. |
+| P1.7 | Seven-day signed download and completion attachment. | Completed locally | Worker HMAC capability binds owner, run, sandbox, digest, size and expiry. The private R2 binding itself does not create S3 presigned URLs. Dashboard and Slack completion metadata expose only the scoped download capability. |
+| P1.8 | Verify the integrated new ephemeral path. | Completed locally | `ephemeral-completion.integration.test.ts` exercises real orchestrator approval, signed child dispatch, executor SSE, runtime, local Git, ZIP, private storage fixture, download validation and completion event delivery. Six cases include upload failure and cancellation. |
+| P1.9 | Prove deployed container, provider and R2 behavior. | Blocked acceptance | Requires configured cloud resources and authorized deployment or a suitable existing test environment. Local bindings and real Git are not live Cloudflare evidence. |
+
+## Phase 2. Bounded specialists and publication
+
+| ID | Requirement | Status | Source and local evidence |
+| --- | --- | --- | --- |
+| P2.1 | Read-only Explorer file, symbol and repository inspection. | Completed locally | Explorer snapshot tools inspect only explicitly supplied files. No shell, arbitrary network fetch or parent transcript is supplied. |
+| P2.2 | Read-only Reviewer audits actual Fixer diff against the frozen task. | Completed locally | Mandatory publication review reads the digest-verified immutable staging object, rather than the shortened UI envelope. Invalid, truncated or oversized input and failed or timed-out observations create no publication approval. |
+| P2.3 | Validated structured observations and markdown report. | Completed locally | Specialist output schema validates role, status, summary and nonempty report. Report quality remains model dependent. Inspection does not claim repository tests ran. |
+| P2.4 | Preserve human-gated Fixer execution. | Completed locally | Existing persistent approval records remain the execution gate. Exact task, target, route and permission fields are sealed and revalidated. Mutation and expiry tests reject reused or altered envelopes. |
+| P2.5 | Isolated context and own child session. | Completed locally | Exact exported facets, explicit signed input and stable tool run IDs. Prior parent history is not passed to the child model. Guessed facet URLs and nested child routes fail. |
+| P2.6 | Record four child lifecycle events. | Completed locally | Spawned, progress, completed and failed events extend the shared spine and are relayed into the authorized run room. |
+| P2.7 | Bound mandatory review to owner, run and staged bytes. | Completed locally | Durable review record binds the staged SHA-256, original deadline and stable child ID. Completion stores a recoverable review handoff. A successful validated report and pending human approval share one write. Dispatch rejects missing or mismatched reports. |
+| P2.8 | Prevent base drift and mutable publication content. | Completed locally | Captured base revision is frozen in the stage and proposal. Advanced branches are rejected before GitHub mutation. Tree and commit parent stay pinned if the branch later advances. Sandbox and local capture use verified immutable blobs, including binary files and deletions. |
+| P2.9 | Recover publication and subsequent review safely. | Completed locally | Action claim precedes writes. PR receipt, executed action and binding commit together. Ambiguous PR or review delivery becomes unknown and cannot be automatically repeated. Known validation rejection remains retryable. |
+| P2.10 | Attribute the approving human without inventing identity. | Completed locally | Worker adds a sanitized `Approved-by` trailer from the verified approval identity. No guessed GitHub email or false human review attribution is used. |
+| P2.11 | Force Explorer before every task. | Not required by the compatible plans | Explicit inspection is available and bounded. An absent repository snapshot is not invented. Actual publication always requires the bound Reviewer handoff. |
+| P2.12 | Verify real facet eviction and provider inference. | Blocked acceptance | Local tests and pinned SDK inspection cover stable IDs, cancellation and restart state. Deployed inference and eviction acceptance have not run. |
+| P2.13 | Return actual child observations to the next coordinator decision. | Completed locally | Stable inert `addMessages` observations contain bounded structured settlement facts and no file bodies or parent transcript. Missed history writes are recoverable without repeating execution or changing an SDK approval part. |
+
+## Phase 3. Live rooms and canvas
+
+| ID | Requirement | Status | Source and local evidence |
+| --- | --- | --- | --- |
+| P3.1 | Authenticated WebSocket endpoint and heartbeat. | Completed locally | Room alias and existing session route verify identity and scope. Attachments retain server owner, session, connection, join time and bounded presence. Ping handling supports hibernation. |
+| P3.2 | Handle subscribe, presence and prompt input. | Completed locally | Explicit alias tests cover cursors, bounded normalized pointer positions, throttling, expiry, duplicate input and ignored author overrides. Prompt input is labelled peer chat. It cannot approve or start execution. |
+| P3.3 | Broadcast trusted stdout, stderr, status, diff and child events. | Completed locally | Worker-only append RPC, redaction before persistence, durable sequence and event identity. Browser sockets cannot forge server execution frames. Read-only run sockets reject chat and relay writes. |
+| P3.4 | Mount the live terminal and diff on the existing dashboard. | Completed locally | Actual `RunLivePanel`, xterm and existing run/diff surfaces are exercised in component tests and Chromium. The installed xterm renderer is DOM based. No literal canvas-renderer addon is claimed. |
+| P3.5 | Display authenticated viewer labels and cursors. | Completed locally with explicit read-only grants | Labels derive from server identity. Cursor values are bounded and expire. Per-channel policy can name up to 16 independent Access viewers. Their tab markers are scoped to authenticated identity, so a reused nonce cannot impersonate another person. Real JWT tests cover Alice and Bob, revocation and spoofing. Generic dashboard sessions remain owner scoped. |
+| P3.6 | Render changing file diffs. | Partial | Periodic tracked-file previews are bounded to 20,000 characters and relative to current `HEAD`. Untracked new files and all captured changes appear in final immutable collection. Complete interim diff coverage is not claimed. |
+| P3.7 | Browser reconnect without duplicate retained frames. | Completed locally | Durable replay, cursors, deduplication, ordering and stale-socket/session-navigation tests. Real Chromium uses synthetic WebSocket frames. History retention is bounded to 2,048 events and gaps are explicit. |
+| P3.8 | Container disconnect reconnects with no dropped terminal frames. | Partial implementation; strict acceptance blocked | Lost execution transport produces uncertainty and a gap rather than rerunning a possibly active CLI. Durable source spooling and process reattachment are not implemented. Browser replay does not prove this acceptance criterion. |
+| P3.9 | Exact authorized Slack run canvas link. | Completed locally; operator configuration required | Strict team/channel owner policy, body-bound signed intake provenance, atomically retained approval and room binding, protected read-only API and socket, dedicated view and pending state. Owner or policy mismatch, forged JWT, unsigned provenance and cross-workspace attempts fail closed. |
+| P3.10 | Verify the exact canvas in a browser. | Completed rendering with synthetic transport | `slack-canvas-browser.json` records pending and run views, no execution controls, xterm, diff, presence, stale-navigation cleanup and a 375px viewport. Live Access, container and Slack acceptance are not claimed. |
+
+## Phase 4. Slack coordination and approvals
+
+| ID | Requirement | Status | Source and local evidence |
+| --- | --- | --- | --- |
+| P4.1 | Lead, Explorer, Fixer and Reviewer personas. | Completed locally | Exact names and emoji map to transport fields. Customization scope is in the manifest. Existing installations must grant the scope. Persona presentation conveys no authority. |
+| P4.2 | Stable status messages and terminal progress. | Completed locally | Initial status uses one post receipt, later progress edits that message and terminal state completes it. Uncertain first delivery is not blindly reposted. |
+| P4.3 | Sensitive action cards with task and workspace. | Completed for supported actions | Initial run and distinct staged publication cards disclose the frozen action. Push and PR creation form one explicitly described publication action. Approve Action is primary and Reject is danger. |
+| P4.4 | Live canvas link on Slack cards. | Completed conditionally | Exact protected locator is used only with configured owner policy and signing key. Pending view has no approval or execution controls. Unconfigured installations retain a truthful Open Shiba link. |
+| P4.5 | Amount-aware third party spend approval and execution. | Blocked unsupported capability | No spend provider, operation, amount/currency contract or executor is defined in the supplied plans or implemented product. A generic run approval is not represented as an amount-aware payment approval. No autonomous spend tool was added. |
+| P4.6 | Verify callback signature, timestamp, user and origin. | Completed locally | Raw Slack signature, known action, allowlist, exact team/channel/thread, frozen pointer, expiry and single-use transition checks remain. Unauthorized valid clicks receive the exact ephemeral denial with no run or approval mutation. |
+| P4.7 | Buffer attributed messages without interrupting CLI turns. | Completed locally | Verified incoming events are ingested directly, deduplicated and stored durably. The active frozen task is unchanged. Author IDs, message timestamps and complete bounded text are retained. |
+| P4.8 | Flush comments into the next coordinator decision. | Completed locally | Stable message, submission and idempotency IDs use the pinned Think durable submit queue. Acknowledgment follows durable acceptance. Lead can ask a question, inspect explicit context or propose a new human approval. Prior workspace is not forced onto the new decision. |
+| P4.9 | Preserve notification intent and persona across restart. | Completed locally | Outbox stores intent before network effects, with persona, blocks and stable causation metadata. Delivery is bounded and does not claim exactly-once behavior after an ambiguous external response. |
+| P4.10 | Deliver summary, approved PR or signed artifact link in the source thread. | Completed locally for thread intake | Completion formatting and the integrated ephemeral path are tested with a Slack HTTP fixture. Actual installed Slack delivery requires live acceptance. |
+| P4.11 | Preserve slash-command completion privacy. | Completed locally | Private immutable destination and per-effect receipts bind the actual frozen run hash, approval, workspace, channel, requester and bot workspace. Ephemeral completion survives approval-history pruning. Forged routing hints or changed run hashes deny delivery. Uncertain sends are not blindly retried. This is private completion, not a public thread broadcast. |
+| P4.12 | Live installed Slack approval and delivery. | Blocked acceptance | Requires configured credentials, scopes, membership and a real permitted test conversation. No live Slack message was sent during this work. |
+
+## Aggregate and failure-mode acceptance
+
+The final source passed `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm test`, `pnpm build`, `pnpm check:deploy` and `pnpm check:ci`. The serialized full test run passed 4,823 tests with three opt-in live tests skipped. The requested ephemeral and child-dispatch files passed all 17 tests through the backend package's existing Vitest configuration. The root-level example command in the plans does not replace that configuration.
+
+| Criterion | Status | Required evidence |
+| --- | --- | --- |
+| Empty ephemeral files and zero output | Completed locally | Real Git capture, ZIP integrity and positive executor/orchestrator integration, plus failed upload and cancellation. |
+| Child timeout and no self-approval | Completed locally | Active abort, absolute deadline, nested-route denial, dispatch tampering and unauthorized approval tests. |
+| Unauthorized Slack click has zero decision effects | Completed locally | Signed callback fixtures assert exact ephemeral denial and no mutation, lookup or sandbox execution. |
+| Container network loss has zero dropped source frames | Blocked strict acceptance | Source reattachment and durable terminal spooling remain absent. Explicit uncertainty is tested. No live cloud proof exists. |
+| Browser disconnect, replay and navigation | Completed locally | Durable room and actual Chromium component tests use synthetic server traffic and disclose it. |
+| New Slack canvas tenant and identity isolation | Completed locally | Actual orchestrator HMAC tests, raw-header and invalid-JWT Worker tests, pending/run policy revocation and read-only cross-run socket tests. |
+| Complete final aggregate gate | Completed locally | All eight workspace test tasks passed. Typecheck, lint, import lint, build, deploy checks and CI checks passed. The unused-code warning inventory matches unchanged main. Full results and live limits are recorded in the implementation report. |
+
+No merge or deployment is included. A draft PR is authorized. Live cloud and Slack acceptance, the strict container recovery guarantee and unsupported spend execution remain explicit limits rather than claimed completed features.

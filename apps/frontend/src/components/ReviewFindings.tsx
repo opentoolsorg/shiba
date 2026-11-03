@@ -149,7 +149,8 @@ export function ReviewFindings({
   };
 
   const retryReview = () => {
-    if (activeScope.current !== scope) return;
+    const current = fetchStateRef.current;
+    if (activeScope.current !== scope || current.kind !== "ready" || current.round?.publicationOutcome) return;
     const request = ++retrySequence.current;
     setRetryPending(true);
     void fetch(threadApiPath(threadId, "/pr/review/retry", sessionId), {
@@ -234,7 +235,7 @@ export function ReviewFindings({
           <button
             type="button"
             data-testid="review-retry"
-            disabled={retryPending}
+            disabled={retryPending || Boolean(round.publicationOutcome)}
             onClick={retryReview}
             className="text-xs font-semibold text-[var(--primary)] border border-[var(--primary)]/40 bg-[var(--primary-soft)] rounded-[var(--radius-button)] px-3 py-1.5 self-start disabled:opacity-50"
           >

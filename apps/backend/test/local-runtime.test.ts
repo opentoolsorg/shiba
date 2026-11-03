@@ -16,6 +16,7 @@ import {
   leaseIsReclaimable,
   localReleaseDir,
   localizeContainerPath,
+  localRunResultSchema,
   resolveLocalRelease,
   type LocalRunEnvelope,
   type LocalRunResult,
@@ -196,6 +197,17 @@ const RESULT: LocalRunResult = {
   files: [{ path: "a.ts", content: "x", encoding: "utf8" }],
   signals: [{ kind: "exec.settled", at: 1, detail: '{"command":"npm test","exit":0}' }],
 };
+
+describe("local immutable publication identity", () => {
+  it("preserves a frozen 40-hex base revision while accepting older daemon results", () => {
+    const baseRevision = "a".repeat(40);
+    expect(localRunResultSchema.parse({ ...RESULT, baseRevision }).baseRevision).toBe(baseRevision);
+    expect(localRunResultSchema.parse(RESULT).baseRevision).toBeUndefined();
+    for (const invalid of ["main", "a".repeat(39), "A".repeat(40), "a".repeat(64), "../../HEAD"]) {
+      expect(localRunResultSchema.safeParse({ ...RESULT, baseRevision: invalid }).success).toBe(false);
+    }
+  });
+});
 
 const post = (path: string, body: unknown) =>
   new Request(`https://local-dispatch${path}`, {
@@ -726,6 +738,15 @@ const NOOP_OPS = {} as never;
 const NOOP_EMIT = async () => {};
 
 describe("LocalRuntimeAdapter", () => {
+  it("passes the daemon's frozen base revision through to the publication result", async () => {
+    const baseRevision = "b".repeat(40);
+    const { client } = makeClient({ status: async () => ({ status: "settled", claimedAt: Date.now() - 10,
+      claimedBy: "fixture-laptop", result: { ...RESULT, baseRevision } }) });
+    const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });
+    const result = await adapter.runCodingTask(NOOP_OPS, TASK_INPUT as never, NOOP_EMIT);
+    expect(result).toMatchObject({ status: "completed", baseRevision });
+  });
+
   it("sends the approved source snapshot to the daemon as framed reference data exactly once", async () => {
     const { client, state } = makeClient();
     const adapter = new LocalRuntimeAdapter(resolveHarness("opencode"), { client, pollIntervalMs: 0 });

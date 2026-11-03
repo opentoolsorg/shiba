@@ -107,6 +107,7 @@ export interface ApprovalCardInput extends ApprovalPointer {
   task: string;
   workspaceLabel?: string;
   canvasUrl?: string;
+  liveCanvas?: boolean;
   publishPullRequest?: boolean;
   /** PendingApproval kind — "email_send" / "email_delete" get email copy. */
   kind?: ApprovalKind;
@@ -192,7 +193,7 @@ export function approvalCardText(input: ApprovalCardInput): string {
         (input.harness ? `\nAgent: ${escapeMrkdwn(input.harness)}` : "") +
         testCommand +
         (input.kind === "pr_publish" ? "\nExternal Action: Push this frozen snapshot and publish its pull request." : input.publishPullRequest ? "\nPublication requested. A separate approval is required after the changes are ready." : "") +
-        (safeCanvasUrl(input.canvasUrl) ? `\nLive Web Canvas: ${escapeMrkdwn(input.canvasUrl)}` : "");
+        (safeCanvasUrl(input.canvasUrl) ? `\n${input.liveCanvas ? "Live Web Canvas" : "Open Shiba"}: ${escapeMrkdwn(input.canvasUrl)}` : "");
 }
 
 /**
@@ -220,7 +221,7 @@ export function buildApprovalBlocks(input: ApprovalCardInput): unknown[] {
         (input.harness ? `\n*Agent:* ${escapeMrkdwn(input.harness)}` : "") +
         testCommand +
         (input.kind === "pr_publish" ? "\n*External Action:* Push this frozen snapshot and publish its pull request." : input.publishPullRequest ? "\nPublication requested. A separate approval is required after the changes are ready." : "") +
-        (safeCanvasUrl(input.canvasUrl) ? `\n<${escapeMrkdwn(input.canvasUrl)}|Live Web Canvas>` : "");
+        (safeCanvasUrl(input.canvasUrl) ? `\n<${escapeMrkdwn(input.canvasUrl)}|${input.liveCanvas ? "Live Web Canvas" : "Open Shiba"}>` : "");
   return [
     {
       type: "section",
@@ -476,13 +477,13 @@ async function replaceCardWithDecision(
         : "approval expired";
   const body: Record<string, unknown> = {
     replace_original: true,
-    text: `${decision} by <@${interaction.userId}> — ${status}.`,
+    text: `${decision} by <@${interaction.userId}>. ${status}.`,
     blocks: [
       ...kept,
       {
         type: "context",
         elements: [
-          { type: "mrkdwn", text: `*${decision}* by <@${interaction.userId}> — ${status}` },
+          { type: "mrkdwn", text: `*${decision}* by <@${interaction.userId}>. ${status}` },
         ],
       },
     ],
@@ -642,7 +643,7 @@ export async function handleSlackInteract(
   if (!(await isUnresolved(interaction.pointer))) {
     const stale = respondEphemeral(
       interaction.responseUrl,
-      "This approval is already resolved — nothing to do.",
+      "This approval is already resolved. Nothing to do.",
       deps.respond,
     );
     if (ctx) {

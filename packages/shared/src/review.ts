@@ -43,6 +43,8 @@ export interface ReviewRound {
   findings: ReviewFinding[];
   summary: string;
   githubReviewId?: number;
+  /** A claimed review POST cannot be repeated until its outcome is known. */
+  publicationOutcome?: "posting" | "unknown";
   postedAt?: number;
   error?: string;
   /** Reviewer-run generation that wrote this round. A lower generation cannot replace a terminal round. */
@@ -184,8 +186,9 @@ export function roundForHead(rounds: ReviewRound[], codingRunId: string, headSha
   return rounds.find((round) => round.codingRunId === codingRunId && round.pull.headSha === headSha);
 }
 
-/** Failed/skipped rounds do not block a new chained review for the same head. */
+/** A possibly transmitted review blocks a new review even if its run failed. */
 export function roundBlocksReviewChain(round: ReviewRound): boolean {
+  if (round.publicationOutcome === "posting" || round.publicationOutcome === "unknown") return true;
   return round.status !== "failed" && round.status !== "skipped";
 }
 

@@ -32,6 +32,17 @@ export function runRoomName(ownerId: string, sessionId: string): string {
   return JSON.stringify([ownerId.trim().toLowerCase(), sessionId]);
 }
 
+/** Keep a tab marker distinct for independently authenticated viewers. */
+export async function authenticatedRoomViewerId(actorId: string, tabId: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(
+    JSON.stringify(["shiba:room-viewer:v1", actorId.trim().toLowerCase(), tabId]),
+  ))).slice(0, 16);
+  digest[6] = ((digest[6] ?? 0) & 15) | 80;
+  digest[8] = ((digest[8] ?? 0) & 63) | 128;
+  const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function isRunRoomEvent(value: unknown): value is RunRoomEvent {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const event = value as Record<string, unknown>;

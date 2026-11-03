@@ -18,7 +18,7 @@ export function ConversationRoomPresence({
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-8 items-center gap-2 border-b border-[var(--border-1)] px-3 py-1.5 text-[11px] text-[var(--muted-foreground-1)]"
+      className="flex min-h-8 flex-wrap items-center gap-2 border-b border-[var(--border-1)] px-3 py-1.5 text-[11px] text-[var(--muted-foreground-1)]"
     >
       <span
         aria-hidden="true"
@@ -29,6 +29,11 @@ export function ConversationRoomPresence({
           ? `${count} viewer${count === 1 ? "" : "s"} here`
           : status === "connecting" ? "Connecting live room…" : "Reconnecting live room…"}
       </span>
+      {status === "connected" && viewers.some((viewer) => viewer.label) ? <ul aria-label="Room viewers" className="flex min-w-0 flex-wrap gap-x-2">
+        {viewers.map((viewer) => <li key={viewer.viewerId} className="max-w-48 truncate">
+          {viewer.label || "Viewer"}{viewer.viewerId === viewerId ? " (this tab)" : " (another tab)"}
+        </li>)}
+      </ul> : null}
       {otherTyping > 0 ? (
         <span className="text-[var(--primary)]">
           {otherTyping === 1 ? "Another viewer is typing" : `${otherTyping} viewers are typing`}

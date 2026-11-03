@@ -122,6 +122,8 @@ export const localRunResultSchema = z.object({
   summary: z.string().max(16_384),
   stderrTail: z.string().max(16_384),
   stdoutTail: z.string().max(64_000).optional(),
+  /** Original cloned commit, frozen before the harness; absent on older daemons. */
+  baseRevision: z.string().regex(/^[a-f0-9]{40}$/).optional(),
   changedFiles: z.array(z.string().max(1024)).max(512),
   diff: z.string().max(2_000_000),
   files: z.array(

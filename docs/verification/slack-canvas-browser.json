@@ -1,0 +1,42 @@
+{
+  "verificationDate": "2026-11-03",
+  "surface": "Actual SlackRunCanvas, RunLivePanel, room hook and xterm in Chromium with synthetic protected HTTP responses and WebSocket frames.",
+  "liveAccessAuthenticationVerified": false,
+  "liveSlackOriginAuthorizationVerified": false,
+  "liveContainerTransportVerified": false,
+  "pending": {
+    "taskVisible": true,
+    "actionControls": 0,
+    "sockets": 0
+  },
+  "run": {
+    "exactProtectedSocket": true,
+    "sameLocatorAfterPending": true,
+    "terminalStdoutStderr": true,
+    "xterm": true,
+    "serverLabelVisible": true,
+    "cursorVisible": true,
+    "cursorStyle": "left: 60%; top: 25%; transform: translate(-50%, -50%);",
+    "diffVisible": true,
+    "mainCoordinatorRequests": 0
+  },
+  "mobile": {
+    "width": 375,
+    "scrollWidth": 375
+  },
+  "accessDenied": {
+    "streamCleared": true,
+    "taskCleared": true,
+    "socketClosed": true,
+    "lateFramesIgnored": true
+  },
+  "navigation": {
+    "oldStreamCleared": true,
+    "oldTaskCleared": true,
+    "oldSocketClosed": true
+  },
+  "consoleErrors": [],
+  "syntheticProtectedHttpResponses": true,
+  "syntheticWebSocketFrames": true,
+  "liveAccessVerified": false
+}

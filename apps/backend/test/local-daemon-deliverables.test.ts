@@ -187,7 +187,7 @@ describe("strict requested deliverable capture", () => {
   });
 });
 
-interface DaemonResult { status: string; exitCode: number; summary: string; changedFiles: string[]; diff: string; files: CapturedFile[] }
+interface DaemonResult { status: string; exitCode: number; summary: string; changedFiles: string[]; diff: string; files: CapturedFile[]; baseRevision?: string }
 async function daemonRun(program: string, expectedDeliverables?: string[], expectedExit = 0): Promise<DaemonResult | undefined> {
   const bin = path.join(root, "bin");
   const operatorHome = path.join(root, "operator-home");
@@ -235,16 +235,36 @@ async function daemonRun(program: string, expectedDeliverables?: string[], expec
 }
 
 describe("daemon requested deliverable collection", () => {
-  it("prioritizes requested outputs ahead of more than 50 changed files while retaining the Git diff", async () => {
+  it("returns the original base revision and includes changes committed by the harness", async () => {
+    const baseRevision = (await exec("git", ["-C", repo, "rev-parse", "HEAD"])).stdout.trim();
+    const result = await daemonRun(`const fs = require('node:fs'), cp = require('node:child_process');
+fs.writeFileSync('README.md', 'Committed harness change\\n');
+cp.execFileSync('git', ['add', 'README.md']);
+cp.execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'harness commit']);
+console.log('committed successfully');`);
+    expect(result).toMatchObject({ status: "completed", baseRevision, changedFiles: ["README.md"],
+      files: [{ path: "README.md", content: "Committed harness change\n", encoding: "utf8" }] });
+    expect(result?.diff).toContain("+Committed harness change");
+  }, 40_000);
+
+  it("prioritizes requested outputs within the complete 50-file capture limit while retaining the Git diff", async () => {
     const result = await daemonRun(`const fs = require('node:fs');
-for (let i=0;i<60;i++) fs.writeFileSync('a'+String(i).padStart(2,'0')+'.txt','other change\\n');
+for (let i=0;i<49;i++) fs.writeFileSync('a'+String(i).padStart(2,'0')+'.txt','other change\\n');
 fs.writeFileSync('zz-brief.md','# Complete requested brief\\n');
 console.log('agent claims success');`, ["zz-brief.md"]);
     expect(result?.status).toBe("completed");
     expect(result?.files[0]).toEqual({ path: "zz-brief.md", content: "# Complete requested brief\n", encoding: "utf8" });
     expect(result?.files).toHaveLength(50);
-    expect(result?.changedFiles).toHaveLength(61);
+    expect(result?.changedFiles).toHaveLength(50);
     expect(result?.diff).toContain("diff --git a/zz-brief.md b/zz-brief.md");
+  }, 40_000);
+
+  it("rejects 51 changed files instead of returning a partial publication tree", async () => {
+    const result = await daemonRun(`const fs = require('node:fs');
+for (let i=0;i<51;i++) fs.writeFileSync('file-'+i+'.txt','complete output\\n');
+console.log('agent claims success');`, undefined, 1);
+    expect(result).toMatchObject({ status: "error", files: [], changedFiles: [] });
+    expect(result?.summary).toContain("50-file limit");
   }, 40_000);
 
   it("returns an error rather than falling back to harness success when a requested file is absent", async () => {

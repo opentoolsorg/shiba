@@ -956,7 +956,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       : [...current, {
           id: message.messageId,
           role: "user",
-          metadata: { shibaRoomViewerId: message.viewerId },
+          metadata: { shibaRoomViewerId: message.viewerId, shibaPeerChat: true },
           parts: [{ type: "text", text: message.text }],
         }]);
   }, [chat.setMessages]);

@@ -9,10 +9,11 @@ const ignoreMessage = () => {};
 const MAX_TERMINAL_CHARS = 250_000;
 const MAX_DIFF_CHARS = 500_000;
 
-export function RunLivePanel({ runId, sessionId = "default", showDiff = true }: {
+export function RunLivePanel({ runId, sessionId = "default", showDiff = true, roomUrl }: {
   runId: string;
   sessionId?: string;
   showDiff?: boolean;
+  roomUrl?: string;
 }) {
   const [terminal, setTerminal] = useState("");
   const [diff, setDiff] = useState("");
@@ -50,12 +51,32 @@ export function RunLivePanel({ runId, sessionId = "default", showDiff = true }: 
     messages: NO_MESSAGES,
     onMessage: ignoreMessage,
     onRunEvent,
+    realtimePath: roomUrl,
   });
 
   return (
-    <section aria-label="Live run workspace" className="min-w-0 border border-[var(--line)] bg-[var(--card)]">
+    <section
+      aria-label="Live run workspace"
+      className="relative min-w-0 border border-[var(--line)] bg-[var(--card)]"
+      onPointerMove={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (bounds.width > 0 && bounds.height > 0) room.setCursor({
+          x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
+          y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
+        });
+      }}
+      onPointerLeave={() => room.setCursor(null)}
+    >
       <div className="px-3 py-2 font-mono text-xs text-[var(--ink)]">Live workspace</div>
       <ConversationRoomPresence status={room.status} viewers={room.viewers} viewerId={room.viewerId} />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+        {room.viewers.filter((viewer) => viewer.viewerId !== room.viewerId && viewer.cursor).map((viewer) => <span
+          key={viewer.viewerId}
+          data-room-cursor={viewer.viewerId}
+          className="absolute max-w-48 truncate border border-[var(--line)] bg-[var(--paper)] px-1 font-mono text-[10px] text-[var(--ink)]"
+          style={{ left: `${(viewer.cursor?.x ?? 0) * 100}%`, top: `${(viewer.cursor?.y ?? 0) * 100}%`, transform: "translate(-50%, -50%)" }}
+        >{viewer.label || "Viewer"}</span>)}
+      </div>
       <div className="min-w-0 space-y-3 p-3">
         {room.replayGap || streamGap ? <p role="status" className="text-xs text-[var(--ink-2)]">Some live output is unavailable. Showing the retained stream.</p> : null}
         {runStatus ? <p role="status" className="text-xs text-[var(--ink-2)]">{runStatus}</p> : null}

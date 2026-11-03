@@ -1,3 +1,4 @@
+import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -133,17 +134,20 @@ describe("ephemeral sandbox workspace", () => {
     let signalStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => { signalStarted = resolve; });
     let liveReads = 0;
+    const snapshot = repositorySnapshotFixture({ status: " M result.txt\n", files: { "result.txt": "updated" } });
     const ops: SandboxOps = {
       async gitCheckout() {}, async writeFile() {},
       async readFile() { return { kind: "utf8", content: "updated" }; },
       async exec(command, options) {
+        const captured = await snapshot(command);
+        if (captured) return captured;
         if (command === "'test-harness'") {
           signalStarted?.();
           await new Promise<void>((resolve) => { release = resolve; });
           options?.onOutput?.("stdout", "done\n");
           return { stdout: "done\n", stderr: "", exitCode: 0 };
         }
-        if (command.includes("--no-ext-diff")) {
+        if (command.includes("--no-ext-diff") && command.includes("'HEAD'")) {
           liveReads++;
           return { stdout: "+secret-value", stderr: "", exitCode: 0 };
         }
@@ -207,12 +211,15 @@ describe("ephemeral sandbox workspace", () => {
   });
 
   it("marks a transport failure after output as uncertain and never reruns the harness", async () => {
+    const snapshot = repositorySnapshotFixture();
     const executeHarness = vi.fn();
     const gap = vi.fn();
     const ops: SandboxOps = {
       async gitCheckout() {}, async writeFile() {},
       async readFile() { return { kind: "utf8", content: "" }; },
       async exec(command, options) {
+        const captured = await snapshot(command);
+        if (captured) return captured;
         if (command === "'test-harness'") {
           executeHarness();
           options?.onOutput?.("stdout", "accepted operation\n");

@@ -64,7 +64,7 @@ export interface RepoSetupOutcome {
 }
 
 // Hooks and fsmonitor off on every set-aside call: this is bookkeeping, never the repo's own logic.
-const QUIET_GIT = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"];
+const QUIET_GIT = ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"];
 const SET_ASIDE_TIMEOUT_MS = 120_000;
 
 /** Paths among `paths` that the setup commit changed. Throws if git can't answer — never assume none. */

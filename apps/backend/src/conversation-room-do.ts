@@ -14,22 +14,34 @@ const MAX_STREAM_CHARS = 50_000;
 const MAX_ROOM_MESSAGES = 200;
 const MAX_ROOM_STREAMS = 200;
 const TYPING_TTL_MS = 5_000;
+const CURSOR_TTL_MS = 15_000;
+const CURSOR_INTERVAL_MS = 100;
 const STREAM_TTL_MS = 2 * 60_000;
+
+interface RoomCursor { x: number; y: number }
 
 interface RoomSocketAttachment {
   ownerId: string;
+  actorId: string;
   sessionId: string;
   viewerId: string;
   joinedAt: number;
   typing: boolean;
   typingAt: number;
   connectionId: string;
+  viewerLabel: string;
+  cursor: RoomCursor | null;
+  cursorAt: number;
+  readOnly?: boolean;
+  runId?: string;
 }
 
 interface RoomViewer {
   viewerId: string;
   joinedAt: number;
   typing: boolean;
+  label: string;
+  cursor: RoomCursor | null;
 }
 
 interface LiveStreamRow {
@@ -62,6 +74,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isCursor(value: unknown): value is RoomCursor {
+  return isRecord(value) && typeof value.x === "number" && Number.isFinite(value.x) && value.x >= 0 && value.x <= 1 &&
+    typeof value.y === "number" && Number.isFinite(value.y) && value.y >= 0 && value.y <= 1;
+}
+
 function attachmentFor(socket: WebSocket): RoomSocketAttachment | null {
   try {
     const value: unknown = socket.deserializeAttachment();
@@ -71,8 +88,15 @@ function attachmentFor(socket: WebSocket): RoomSocketAttachment | null {
       typeof value.joinedAt === "number" && typeof value.typing === "boolean" &&
       typeof value.typingAt === "number"
     ) {
-      const attachment = { ...value, connectionId: typeof value.connectionId === "string" && VIEWER_ID.test(value.connectionId) ? value.connectionId : crypto.randomUUID() } as unknown as RoomSocketAttachment;
-      if (attachment.connectionId !== value.connectionId) socket.serializeAttachment(attachment);
+      const attachment = {
+        ...value,
+        connectionId: typeof value.connectionId === "string" && VIEWER_ID.test(value.connectionId) ? value.connectionId : crypto.randomUUID(),
+        actorId: typeof value.actorId === "string" && value.actorId ? value.actorId : value.ownerId,
+        viewerLabel: typeof value.actorId === "string" && value.actorId ? value.actorId : value.ownerId,
+        cursor: isCursor(value.cursor) ? { x: value.cursor.x, y: value.cursor.y } : null,
+        cursorAt: typeof value.cursorAt === "number" ? value.cursorAt : 0,
+      } as unknown as RoomSocketAttachment;
+      if (attachment.connectionId !== value.connectionId || attachment.viewerLabel !== value.viewerLabel) socket.serializeAttachment(attachment);
       return attachment;
     }
   } catch {
@@ -134,9 +158,13 @@ export class ConversationRoom extends DurableObject<Env> {
       return new Response("WebSocket upgrade required.", { status: 426 });
     }
     const ownerId = request.headers.get("x-shiba-room-owner")?.trim().toLowerCase() ?? "";
+    const actorId = request.headers.get("x-shiba-room-actor")?.trim().toLowerCase() ?? "";
     const sessionId = request.headers.get("x-shiba-room-session")?.trim() ?? "";
     const viewerId = request.headers.get("x-shiba-room-viewer")?.trim() ?? "";
-    if (!ownerId || !isValidSessionId(sessionId) || !VIEWER_ID.test(viewerId)) {
+    const readOnly = request.headers.get("x-shiba-room-readonly") === "true";
+    const runId = request.headers.get("x-shiba-room-run") ?? "";
+    if (!ownerId || ownerId.length > 320 || !actorId || actorId.length > 320 || (!readOnly && actorId !== ownerId) || !isValidSessionId(sessionId) || !VIEWER_ID.test(viewerId) ||
+      (readOnly && (!runId || runId.length > 200))) {
       return Response.json({ error: "Invalid room identity." }, { status: 400 });
     }
     if (!this.bindIdentity(ownerId, sessionId)) {
@@ -147,12 +175,17 @@ export class ConversationRoom extends DurableObject<Env> {
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     const attachment: RoomSocketAttachment = {
       ownerId,
+      actorId,
       sessionId,
       viewerId,
       joinedAt: Date.now(),
       typing: false,
       typingAt: 0,
       connectionId: crypto.randomUUID(),
+      viewerLabel: actorId,
+      cursor: null,
+      cursorAt: 0,
+      ...(readOnly ? { readOnly: true, runId } : {}),
     };
     server.serializeAttachment(attachment);
     this.ctx.acceptWebSocket(server);
@@ -160,8 +193,8 @@ export class ConversationRoom extends DurableObject<Env> {
       type: "snapshot",
       viewerId,
       viewers: this.viewers(),
-      messages: this.recentMessages(),
-      streams: this.activeStreams(),
+      messages: readOnly ? [] : this.recentMessages(),
+      streams: readOnly ? [] : this.activeStreams(),
     });
     this.broadcastPresence();
     return new Response(null, { status: 101, webSocket: client });
@@ -236,14 +269,27 @@ export class ConversationRoom extends DurableObject<Env> {
     }
 
     if (event.type === "typing" || event.type === "client_presence") {
-      if (typeof event.typing !== "boolean") return;
+      const hasTyping = typeof event.typing === "boolean";
+      const hasCursor = event.type === "client_presence" && Object.hasOwn(event, "cursor");
+      if ((!hasTyping && !hasCursor) || (hasCursor && event.cursor !== null && !isCursor(event.cursor))) {
+        this.send(socket, { type: "error", error: "Invalid room presence." });
+        return;
+      }
+      const now = Date.now();
+      const updateCursor = hasCursor && (event.cursor === null || now - attachment.cursorAt >= CURSOR_INTERVAL_MS);
+      if (!hasTyping && !updateCursor) return;
       socket.serializeAttachment({
         ...attachment,
-        typing: event.typing,
-        typingAt: event.typing ? Date.now() : 0,
+        ...(hasTyping ? { typing: Boolean(event.typing), typingAt: event.typing ? now : 0 } : {}),
+        ...(updateCursor ? { cursor: event.cursor === null ? null : { x: (event.cursor as RoomCursor).x, y: (event.cursor as RoomCursor).y }, cursorAt: now } : {}),
       } satisfies RoomSocketAttachment);
       this.broadcastPresence();
       await this.scheduleMaintenanceAlarm();
+      return;
+    }
+
+    if (attachment.readOnly) {
+      this.send(socket, { type: "error", error: "This run view is read only." });
       return;
     }
 
@@ -399,6 +445,10 @@ export class ConversationRoom extends DurableObject<Env> {
       if (attachment?.typing && attachment.typingAt + TYPING_TTL_MS <= now) {
         socket.serializeAttachment({ ...attachment, typing: false, typingAt: 0 } satisfies RoomSocketAttachment);
       }
+      const current = attachmentFor(socket);
+      if (current?.cursor && current.cursorAt + CURSOR_TTL_MS <= now) {
+        socket.serializeAttachment({ ...current, cursor: null, cursorAt: 0 } satisfies RoomSocketAttachment);
+      }
     }
     const expiredStreams = this.ctx.storage.sql.exec<{ [key: string]: string; stream_id: string; viewer_id: string }>(
       "UPDATE room_streams SET status = 'failed', updated_at = ? WHERE status = 'streaming' AND updated_at <= ? RETURNING stream_id, viewer_id",
@@ -420,18 +470,23 @@ export class ConversationRoom extends DurableObject<Env> {
 
   private viewers(): RoomViewer[] {
     const now = Date.now();
-    const unique = new Map<string, RoomViewer>();
+    const unique = new Map<string, RoomViewer & { cursorAt: number }>();
     for (const socket of this.ctx.getWebSockets()) {
       if (socket.readyState !== 1) continue;
       const attachment = attachmentFor(socket);
       if (!attachment) continue;
+      const current = unique.get(attachment.viewerId);
+      const cursor = attachment.cursor && attachment.cursorAt + CURSOR_TTL_MS > now ? attachment.cursor : null;
       unique.set(attachment.viewerId, {
         viewerId: attachment.viewerId,
-        joinedAt: attachment.joinedAt,
-        typing: attachment.typing && attachment.typingAt + TYPING_TTL_MS > now,
+        joinedAt: Math.min(current?.joinedAt ?? attachment.joinedAt, attachment.joinedAt),
+        typing: Boolean(current?.typing || (attachment.typing && attachment.typingAt + TYPING_TTL_MS > now)),
+        label: attachment.viewerLabel,
+        cursor: current && current.cursorAt > attachment.cursorAt ? current.cursor : cursor,
+        cursorAt: Math.max(current?.cursorAt ?? 0, attachment.cursorAt),
       });
     }
-    return [...unique.values()].sort((a, b) => a.joinedAt - b.joinedAt);
+    return [...unique.values()].sort((a, b) => a.joinedAt - b.joinedAt).map(({ cursorAt: _cursorAt, ...viewer }) => viewer);
   }
 
   private bindIdentity(ownerId: string, sessionId: string): boolean {
@@ -455,10 +510,16 @@ export class ConversationRoom extends DurableObject<Env> {
       this.send(socket, { type: "run:replay_gap", after, oldest, latest });
     }
     const cursor = after > latest ? 0 : after;
-    const rows = this.ctx.storage.sql.exec<RunEventRow>(
-      "SELECT sequence, event_id, run_id, body, created_at FROM room_run_events WHERE sequence > ? ORDER BY sequence ASC LIMIT ?",
-      cursor, MAX_RUN_ROOM_EVENTS,
-    ).toArray();
+    const runId = attachmentFor(socket)?.runId;
+    const rows = (runId
+      ? this.ctx.storage.sql.exec<RunEventRow>(
+          "SELECT sequence, event_id, run_id, body, created_at FROM room_run_events WHERE sequence > ? AND run_id = ? ORDER BY sequence ASC LIMIT ?",
+          cursor, runId, MAX_RUN_ROOM_EVENTS,
+        )
+      : this.ctx.storage.sql.exec<RunEventRow>(
+          "SELECT sequence, event_id, run_id, body, created_at FROM room_run_events WHERE sequence > ? ORDER BY sequence ASC LIMIT ?",
+          cursor, MAX_RUN_ROOM_EVENTS,
+        )).toArray();
     for (const row of rows) {
       this.send(socket, {
         type: "run:event", sequence: row.sequence, eventId: row.event_id,
@@ -526,7 +587,12 @@ export class ConversationRoom extends DurableObject<Env> {
   }
 
   private broadcast(event: unknown): void {
-    for (const socket of this.ctx.getWebSockets()) this.send(socket, event);
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = attachmentFor(socket);
+      if (attachment?.readOnly && isRecord(event) && event.type !== "presence" &&
+        (event.type !== "run:event" || event.runId !== attachment.runId)) continue;
+      this.send(socket, event);
+    }
   }
 
   private broadcastPresence(): void {
@@ -534,11 +600,14 @@ export class ConversationRoom extends DurableObject<Env> {
   }
 
   private async scheduleMaintenanceAlarm(): Promise<void> {
-    const expiries = this.ctx.getWebSockets()
+    const attachments = this.ctx.getWebSockets()
       .filter((socket) => socket.readyState === 1)
       .map(attachmentFor)
-      .filter((attachment): attachment is RoomSocketAttachment => Boolean(attachment?.typing))
-      .map((attachment) => attachment.typingAt + TYPING_TTL_MS);
+      .filter((attachment): attachment is RoomSocketAttachment => attachment !== null);
+    const expiries = attachments.flatMap((attachment) => [
+      ...(attachment.typing ? [attachment.typingAt + TYPING_TTL_MS] : []),
+      ...(attachment.cursor ? [attachment.cursorAt + CURSOR_TTL_MS] : []),
+    ]);
     const streams = this.ctx.storage.sql.exec<{ [key: string]: string | number; updated_at: number }>(
       "SELECT updated_at FROM room_streams WHERE status = 'streaming'",
     ).toArray();

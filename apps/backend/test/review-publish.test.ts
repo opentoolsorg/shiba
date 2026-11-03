@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ReviewRound } from "@shiba/shared";
-import { postReview } from "../src/review/publish.js";
+import { postReview, ReviewPublicationUnknownError } from "../src/review/publish.js";
 
 const round: ReviewRound = {
   roundId: "run-1:abc",
@@ -75,4 +75,69 @@ describe("postReview", () => {
     expect(fetchImpl.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
   });
 
+  it.each(["Connection lost.", "request timed out ghp_1234567890abcdefghijklmnop"])("marks a lost mutation response unknown without repeating it: %s", async (message) => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") throw new Error(message);
+      return Response.json([]);
+    });
+    const error = await postReview(round, "installation-token", { fetchImpl, credentialMode: "app" }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ReviewPublicationUnknownError);
+    expect((error as Error).message).not.toContain("ghp_1234567890abcdefghijklmnop");
+    expect(fetchImpl.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
+  });
+
+  it.each([200, 201, 204])("marks a successful mutation with an invalid receipt unknown (%s)", async (status) => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return new Response(status === 204 ? null : "{}", { status });
+      return Response.json([]);
+    });
+    await expect(postReview(round, "installation-token", { fetchImpl, credentialMode: "app" })).rejects.toBeInstanceOf(ReviewPublicationUnknownError);
+    expect(fetchImpl.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
+  });
+
+  it("marks a response body failure after an accepted mutation unknown", async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return new Response(new ReadableStream({
+        start(controller) { controller.error(new Error("Response stream lost.")); },
+      }), { status: 201 });
+      return Response.json([]);
+    });
+    await expect(postReview(round, "installation-token", { fetchImpl, credentialMode: "app" })).rejects.toBeInstanceOf(ReviewPublicationUnknownError);
+  });
+
+  it.each([400, 403, 422, 429])("retains retry semantics for a proven HTTP rejection (%s)", async (status) => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return new Response("Rejected.", { status });
+      return Response.json([]);
+    });
+    const error = await postReview(round, "installation-token", { fetchImpl, credentialMode: "app" }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ReviewPublicationUnknownError);
+    expect((error as Error).message).toContain(`GitHub create review failed ${status}`);
+  });
+
+  it.each([408, 500, 502, 503, 504])("marks an ambiguous HTTP mutation response unknown (%s)", async (status) => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return new Response("Outcome unavailable.", { status });
+      return Response.json([]);
+    });
+    const error = await postReview(round, "installation-token", { fetchImpl, credentialMode: "app" }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ReviewPublicationUnknownError);
+    expect((error as Error).message).toContain(`uncertain HTTP ${status}`);
+    expect(fetchImpl.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
+  });
+
+  it("does not classify failed preflight reads as a possibly transmitted review", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ error: "Forbidden." }, { status: 403 }));
+    const error = await postReview(round, "installation-token", { fetchImpl, credentialMode: "app" }).catch((caught: unknown) => caught);
+    expect(error).not.toBeInstanceOf(ReviewPublicationUnknownError);
+    expect((error as Error).message).toContain("GitHub list reviews failed 403");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a retained unknown outcome before making any request", async () => {
+    const fetchImpl = vi.fn();
+    await expect(postReview({ ...round, publicationOutcome: "unknown" }, "installation-token", { fetchImpl, credentialMode: "app" })).rejects.toBeInstanceOf(ReviewPublicationUnknownError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

@@ -2,7 +2,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversationRoom } from "../src/conversation-room-do.js";
 import type { Env } from "../src/env.js";
-import { createRunRoomPublisher, MAX_RUN_ROOM_EVENTS, RUN_ROOM_RPC_TIMEOUT_MS, type RunRoomEvent, type RunRoomFrame } from "../src/run-room-events.js";
+import { authenticatedRoomViewerId, createRunRoomPublisher, MAX_RUN_ROOM_EVENTS, RUN_ROOM_RPC_TIMEOUT_MS, type RunRoomEvent, type RunRoomFrame } from "../src/run-room-events.js";
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
@@ -76,6 +76,94 @@ describe("server run room streams", () => {
     })).rejects.toThrow("Room identity");
     expect(db.prepare("SELECT COUNT(*) AS count FROM room_run_events").get()).toMatchObject({ count: 1 });
     expect(socket.events).toEqual([{ type: "error", error: "Unsupported room event." }]);
+  });
+
+  it("handles client_presence with server labels, bounded cursors, throttling and expiry", async () => {
+    vi.useFakeTimers();
+    try {
+      const { room, socket, identity } = fixture();
+      await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify({
+        type: "client_presence", typing: true, cursor: { x: 0.25, y: 0.75 },
+        viewerId: "forged", label: "Administrator", ownerId: "other@example.test",
+      }));
+      expect(socket.events.at(-1)).toMatchObject({ type: "presence", viewers: [{
+        viewerId: socket.attachment.viewerId, label: identity.ownerId, typing: true, cursor: { x: 0.25, y: 0.75 },
+      }] });
+      await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: 0.9, y: 0.9 } }));
+      expect(socket.events.at(-1)).toMatchObject({ viewers: [{ cursor: { x: 0.25, y: 0.75 } }] });
+      for (const cursor of [{ x: -1, y: 0 }, { x: 0, y: 1.1 }, { x: "0", y: 0 }]) {
+        await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor }));
+        expect(socket.events.at(-1)).toMatchObject({ type: "error", error: "Invalid room presence." });
+      }
+      vi.advanceTimersByTime(100);
+      await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: 1, y: 0 } }));
+      expect(socket.events.at(-1)).toMatchObject({ viewers: [{ cursor: { x: 1, y: 0 } }] });
+      vi.advanceTimersByTime(15_001);
+      await room.alarm();
+      expect(socket.events.at(-1)).toMatchObject({ viewers: [{ label: identity.ownerId, cursor: null, typing: false }] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("persists prompt_input as peer chat with server attribution and no command dispatch", async () => {
+    const { room, socket, db } = fixture();
+    const prompt = { type: "prompt_input", messageId: "peer-chat-1", text: " Peer note only ", viewerId: "forged" };
+    await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify(prompt));
+    await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify(prompt));
+    expect(db.prepare("SELECT viewer_id,body FROM room_messages").all()).toEqual([
+      expect.objectContaining({ viewer_id: socket.attachment.viewerId, body: "Peer note only" }),
+    ]);
+    expect(socket.events).toEqual([{ type: "message", messageId: "peer-chat-1", viewerId: socket.attachment.viewerId, role: "user", text: "Peer note only", createdAt: expect.any(Number) }]);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM room_run_events").get()).toMatchObject({ count: 0 });
+    await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify({ ...prompt, messageId: "bad", text: " " }));
+    expect(socket.events.at(-1)).toMatchObject({ type: "error", error: "Invalid room message." });
+  });
+
+  it("limits a read-only run socket to its exact run and rejects peer chat and relay writes", async () => {
+    const { room, socket, identity, db } = fixture();
+    Object.assign(socket.attachment, { readOnly: true, runId: identity.runId });
+    await room.appendRunEvent(identity, crypto.randomUUID(), { kind: "terminal", stream: "stdout", data: "visible" });
+    await room.appendRunEvent({ ...identity, runId: "another-run" }, crypto.randomUUID(), { kind: "terminal", stream: "stdout", data: "private-other-run" });
+    expect(socket.events.filter((event) => event.type === "run:event")).toHaveLength(1);
+    socket.events = [];
+    await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify({ type: "subscribe", after: 0 }));
+    expect(socket.events.filter((event) => event.type === "run:event").map((event) => event.runId)).toEqual([identity.runId]);
+    for (const event of [
+      { type: "prompt_input", messageId: "write", text: "execute" },
+      { type: "message", messageId: "write", text: "execute" },
+      { type: "stream:start", streamId: crypto.randomUUID() },
+    ]) {
+      await room.webSocketMessage(socket as unknown as WebSocket, JSON.stringify(event));
+      expect(socket.events.at(-1)).toMatchObject({ type: "error", error: "This run view is read only." });
+    }
+    expect(db.prepare("SELECT COUNT(*) AS count FROM room_messages").get()).toMatchObject({ count: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM room_streams").get()).toMatchObject({ count: 0 });
+  });
+
+  it("shows Alice and Bob with verified labels despite a reused client tab marker and spoofed presence", async () => {
+    const { room, ctx, socket, identity, db } = fixture();
+    identity.ownerId = "alice@example.test";
+    const tab = crypto.randomUUID();
+    const aliceId = await authenticatedRoomViewerId(identity.ownerId, tab);
+    const bobId = await authenticatedRoomViewerId("bob@example.test", tab);
+    expect(aliceId).not.toBe(bobId);
+    expect(await authenticatedRoomViewerId("BOB@example.test", tab)).toBe(bobId);
+    Object.assign(socket.attachment, { ownerId: identity.ownerId, actorId: identity.ownerId, viewerId: aliceId, readOnly: true, runId: identity.runId });
+    const bob = { ...socket, events: [] as Array<Record<string, unknown>>, attachment: { ...socket.attachment, actorId: "bob@example.test", viewerId: bobId } };
+    ctx.getWebSockets = () => [socket, bob] as unknown as WebSocket[];
+    await room.webSocketMessage(bob as unknown as WebSocket, JSON.stringify({ type: "client_presence", typing: true, label: identity.ownerId, actorId: identity.ownerId, viewerId: aliceId, cursor: { x: 0.5, y: 0.25 } }));
+    expect(socket.events.at(-1)).toMatchObject({ type: "presence", viewers: expect.arrayContaining([
+      expect.objectContaining({ viewerId: aliceId, label: identity.ownerId }),
+      expect.objectContaining({ viewerId: bobId, label: "bob@example.test", cursor: { x: 0.5, y: 0.25 } }),
+    ]) });
+    await room.appendRunEvent(identity, crypto.randomUUID(), { kind: "terminal", stream: "stdout", data: "shared read-only output" });
+    for (const viewer of [socket, bob]) {
+      expect(viewer.events.some((event) => event.type === "run:event")).toBe(true);
+      await room.webSocketMessage(viewer as unknown as WebSocket, JSON.stringify({ type: "prompt_input", messageId: "no-write", text: "start a task" }));
+      expect(viewer.events.at(-1)).toMatchObject({ type: "error", error: "This run view is read only." });
+    }
+    expect(db.prepare("SELECT COUNT(*) AS count FROM room_messages").get()).toMatchObject({ count: 0 });
   });
 
   it("binds browser relay streams to server connection ids even when a viewer id is spoofed", async () => {

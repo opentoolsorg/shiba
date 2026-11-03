@@ -32,7 +32,6 @@ import { ScopedExecRefusal, scopedExec } from "./exec-allowlist.js";
 import {
   captureCheckpoint,
   checkpointRef,
-  diffCheckpoints,
   pruneCheckpoints,
 } from "./git-checkpoint.js";
 import { AcpErrorEvent, AcpEventError } from "./harness/acp.js";
@@ -55,7 +54,7 @@ import type { AgentHarness } from "./harness/types.js";
 import type { CodingTaskInput, CodingTaskResult } from "./opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "./provider-gateway.js";
 import { runRepoSetup, setupOverlap } from "./repo-setup.js";
-import { boundTail, redactSecrets, shellJoin, shellQuote } from "./security.js";
+import { boundTail, redactSecrets, shellJoin } from "./security.js";
 
 function sessionProvider(name: string): "codex" | "claude" | null {
   if (name === "codex") return "codex";
@@ -194,11 +193,17 @@ export const COMPUTER_PREVIEW_MESSAGE =
 
 // A fixed adapter-owned reader transports Git object bytes as ASCII. The
 // scoped allowlist permits only this exact script, never arbitrary node -e.
-export const DELIVERABLE_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1];if(!/^[a-f0-9]{40,64}$/.test(id||""))process.exit(2);const out=spawnSync("git",["cat-file","blob",id],{maxBuffer:16385,timeout:60000});if(out.error||out.status!==0||out.stdout.length>16384)process.exit(1);process.stdout.write(out.stdout.toString("base64"));`;
+export const DELIVERABLE_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1];if(!/^[a-f0-9]{40,64}$/.test(id||""))process.exit(2);const out=spawnSync("git",["--no-replace-objects","cat-file","blob",id],{maxBuffer:16385,timeout:60000});if(out.error||out.status!==0||out.stdout.length>16384)process.exit(1);process.stdout.write(out.stdout.toString("base64"));`;
 
-export const WORKSPACE_MANIFEST_READER = `const {spawnSync}=require("node:child_process");const ref=process.argv[1];if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64}|refs\\/shiba\\/checkpoints\\/[A-Za-z0-9_-]+\\/[0-9]+)$/.test(ref||""))process.exit(2);const out=spawnSync("git",["ls-tree","-r","-z",ref,"--","out"],{maxBuffer:65537,timeout:60000});if(out.error||out.status!==0||out.stdout.length>65536)process.exit(1);process.stdout.write(JSON.stringify({tree:out.stdout.toString("base64")}));`;
+export const WORKSPACE_MANIFEST_READER = `const {spawnSync}=require("node:child_process");const ref=process.argv[1];if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64}|refs\\/shiba\\/checkpoints\\/[A-Za-z0-9_-]+\\/[0-9]+)$/.test(ref||""))process.exit(2);const out=spawnSync("git",["--no-replace-objects","ls-tree","-r","-z",ref,"--","out"],{maxBuffer:65537,timeout:60000});if(out.error||out.status!==0||out.stdout.length>65536)process.exit(1);process.stdout.write(JSON.stringify({tree:out.stdout.toString("base64")}));`;
 const WORKSPACE_BLOB_CHUNK_BYTES = 196_608;
-export const WORKSPACE_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1],offset=Number(process.argv[2]);if(!/^[a-f0-9]{40,64}$/.test(id||"")||!Number.isSafeInteger(offset)||offset<0||offset>1048576)process.exit(2);const out=spawnSync("git",["cat-file","blob",id],{maxBuffer:1048577,timeout:60000});if(out.error||out.status!==0||out.stdout.length>1048576)process.exit(1);process.stdout.write(out.stdout.subarray(offset,offset+196608).toString("base64"));`;
+export const WORKSPACE_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1],offset=Number(process.argv[2]);if(!/^[a-f0-9]{40,64}$/.test(id||"")||!Number.isSafeInteger(offset)||offset<0||offset>1048576)process.exit(2);const out=spawnSync("git",["--no-replace-objects","cat-file","blob",id],{maxBuffer:1048577,timeout:60000});if(out.error||out.status!==0||out.stdout.length>1048576)process.exit(1);process.stdout.write(out.stdout.subarray(offset,offset+196608).toString("base64"));`;
+
+// Raw, NUL-delimited records preserve spaces, Unicode, and rename/delete paths.
+// Both endpoints are immutable OIDs returned before/after the harness turn;
+// neither the working tree, HEAD, nor mutable checkpoint refs are consulted.
+export const REPOSITORY_MANIFEST_READER = `const {spawnSync}=require("node:child_process");const refs=process.argv.slice(1);if(refs.length!==2||refs.some(ref=>!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(ref)))process.exit(2);const out=spawnSync("git",["--no-replace-objects","-c","core.fsmonitor=false","diff-tree","--raw","--no-commit-id","--no-renames","-r","-z",...refs,"--"],{maxBuffer:65537,timeout:60000});if(out.error||out.status!==0||out.stdout.length>65536)process.exit(1);process.stdout.write(JSON.stringify({changes:out.stdout.toString("base64")}));`;
+export const REPOSITORY_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1];if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(id||""))process.exit(2);const out=spawnSync("git",["--no-replace-objects","cat-file","blob",id],{maxBuffer:100001,timeout:60000});if(out.error||out.status!==0||out.stdout.length>100000)process.exit(1);process.stdout.write(out.stdout.toString("base64"));`;
 
 export class SandboxRuntimeAdapter implements RuntimeAdapter {
   readonly name = "sandbox" as const;
@@ -256,6 +261,8 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
         : [argv0];
     const allowlist: readonly (readonly string[])[] = [
       ["git"],
+      ["node", "-e", REPOSITORY_MANIFEST_READER],
+      ["node", "-e", REPOSITORY_BLOB_READER],
       ...(input.expectedDeliverables?.length ? [["node", "-e", DELIVERABLE_BLOB_READER] as const] : []),
       ...(ephemeral ? [
         ["node", "-e", WORKSPACE_MANIFEST_READER] as const,
@@ -323,6 +330,23 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       }
     }
 
+    // Freeze the cloned GitHub parent before setup or the harness can move HEAD.
+    // Publication must never re-resolve a mutable branch after execution.
+    let baseRevision: string | undefined;
+    if (input.executionTarget?.kind !== "artifact-workspace") {
+      try {
+        const head = await scoped.exec(shellJoin(["git", "--no-replace-objects", "rev-parse", "--verify", "HEAD^{commit}"]), {
+          cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal: opts?.signal,
+        });
+        if (head.exitCode !== 0 || !/^[a-f0-9]{40}$/.test(head.stdout.trim())) {
+          throw new Error("Cloned repository has no immutable GitHub base revision.");
+        }
+        baseRevision = head.stdout.trim();
+      } catch (error) {
+        return failureResult(`Repository base revision capture failed: ${shortError(error)}`, 0, "", signals);
+      }
+    }
+
     // T72: only when the human opted in; before the baseline so installs and generated files aren't part of the change.
     let setupCommit: string | null = null;
     if (input.runSetup === true) {
@@ -341,8 +365,10 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     // any harness mutation, under a hidden ref that dies with the sandbox.
     const baselineRef = checkpointRef(input.sandboxId, 0);
     const settleRef = checkpointRef(input.sandboxId, 1);
+    let baselineCommit: string;
     try {
-      await captureCheckpoint(scoped, workdir, input.sandboxId, 0, opts?.signal);
+      baselineCommit = await captureCheckpoint(scoped, workdir, input.sandboxId, 0, opts?.signal);
+      if (!isGitObjectId(baselineCommit)) throw new Error("Baseline checkpoint has no immutable commit identity.");
       milestone("checkpoint.captured", baselineRef);
     } catch (error) {
       return failureResult(`Baseline checkpoint failed: ${shortError(error)}`, 0, "", signals);
@@ -412,7 +438,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     let emittedOutput = false;
     let harnessSettled = false;
     let uncertainTransport = false;
-    let settledCommit: string | undefined;
+    let settledCommit: string;
     const output = streamProgress(this.harness, emit, opts?.signal, scrub);
     const stopLiveDiff = opts?.onDiff && !ephemeral
       ? startLiveDiff(ops, workdir, opts.onDiff, scrub, signals, opts.signal)
@@ -446,8 +472,8 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       // T44: settle checkpoint — captures the harness's mutations (incl.
       // untracked files) so the turn diff is baseline→settle commit-diff.
       settledCommit = await captureCheckpoint(scoped, workdir, input.sandboxId, 1, opts?.signal);
-      if (ephemeral && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(settledCommit)) {
-        throw new Error("The ephemeral workspace checkpoint has no immutable commit identity.");
+      if (!isGitObjectId(settledCommit)) {
+        throw new Error("Settled workspace checkpoint has no immutable commit identity.");
       }
       milestone("checkpoint.captured", settleRef);
       await pruneCheckpoints(scoped, workdir, input.sandboxId, 4, opts?.signal);
@@ -505,13 +531,10 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       const collection = await withRetry(
         HARNESS_RETRY,
         () => ephemeral
-          ? collectWorkspaceChanges(scoped, workdir, settledCommit ?? settleRef, opts?.signal)
-          : collectChanges(scoped, workdir, {
+          ? collectWorkspaceChanges(scoped, workdir, settledCommit, opts?.signal)
+          : collectRepositoryChanges(scoped, workdir, baselineCommit, settledCommit, {
             signal: opts?.signal,
             expectedDeliverables: input.expectedDeliverables,
-            deliverableCheckpoint: settleRef,
-            diffSource: () =>
-              diffCheckpoints(scoped, workdir, baselineRef, settleRef, opts?.signal),
             exportDiff: opts?.exportDiff,
             onDiffExported: (key) => milestone("diff.exported", key),
           }),
@@ -553,6 +576,7 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
       });
       const completed: CodingTaskResult = {
         status: "completed",
+        ...(baseRevision !== undefined ? { baseRevision } : {}),
         exitCode: 0,
         stderrTail,
         changedFiles: collection.changedFiles,
@@ -907,6 +931,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         }
         const completed: CodingTaskResult = {
           status: "completed",
+          ...(result.baseRevision !== undefined ? { baseRevision: result.baseRevision } : {}),
           exitCode: 0,
           stderrTail,
           changedFiles: result.changedFiles,
@@ -1151,11 +1176,11 @@ export async function collectExpectedSandboxDeliverables(
   const paths = expectedDeliverablesSchema.parse(expected ?? []);
   const files: CollectedChanges["files"] = [];
   for (const path of paths) {
-    const tree = await ops.exec(shellJoin(["git", "ls-tree", "-z", checkpoint, "--", path]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
+    const tree = await ops.exec(shellJoin(["git", "--no-replace-objects", "ls-tree", "-z", checkpoint, "--", path]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
     const match = /^(100644|100755) blob ([a-f0-9]{40,64})\t([^\0]+)\0$/.exec(tree.stdout);
     if (tree.exitCode !== 0 || !match || match[3] !== path) throw new Error(`Deliverable ${path} must be a regular file in the settled workspace.`);
     const objectId = match[2]!;
-    const size = await ops.exec(shellJoin(["git", "cat-file", "-s", objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
+    const size = await ops.exec(shellJoin(["git", "--no-replace-objects", "cat-file", "-s", objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
     const bytes = Number(size.stdout.trim());
     if (size.exitCode !== 0 || !/^\d+\s*$/.test(size.stdout) || !Number.isSafeInteger(bytes) || bytes > MAX_DELIVERABLE_BYTES) throw new Error(`Deliverable ${path} exceeds its byte limit or could not be read completely.`);
     const encodedLength = Math.ceil(bytes / 3) * 4;
@@ -1218,7 +1243,7 @@ export async function collectWorkspaceChanges(
       throw new Error("Workspace output contains a symlink, unsupported path, or duplicate filename.");
     }
     seen.add(path.toLowerCase());
-    const size = await ops.exec(shellJoin(["git", "cat-file", "-s", objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
+    const size = await ops.exec(shellJoin(["git", "--no-replace-objects", "cat-file", "-s", objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
     const bytes = Number(size.stdout.trim());
     if (size.exitCode !== 0 || !/^\d+\s*$/.test(size.stdout) || !Number.isSafeInteger(bytes) || bytes > MAX_WORKSPACE_ARTIFACT_BYTES) {
       throw new Error(`Workspace output ${path} exceeds its file size limit or could not be read.`);
@@ -1344,12 +1369,6 @@ function porcelainPath(rest: string): string {
   return unescapePorcelainPath(path);
 }
 
-function porcelainRenameOld(rest: string): string | null {
-  const arrow = rest.indexOf(" -> ");
-  if (arrow < 0) return null;
-  return unescapePorcelainPath(rest.slice(0, arrow));
-}
-
 function isSafeRepoPath(path: string): boolean {
   // Only ".." as a whole segment escapes the workdir; "notes..txt" is a legal name.
   return Boolean(path) && !path.split("/").includes("..") && !path.startsWith("/");
@@ -1368,124 +1387,113 @@ export function parsePorcelainStatus(output: string): string[] {
   return [...new Set(paths)];
 }
 
-/** Parse `git status --porcelain` and return deleted (or rename-source) paths. */
-function parsePorcelainDeleted(output: string): Set<string> {
-  const deleted = new Set<string>();
-  for (const line of output.split("\n")) {
-    if (line.length < 4) continue;
-    const statusCode = line.slice(0, 2);
-    const rest = line.slice(3).trim();
-    if (!rest) continue;
-    const xy = statusCode.replace(" ", "");
-    if (xy.includes("D")) {
-      const path = porcelainPath(rest);
-      if (isSafeRepoPath(path)) deleted.add(path);
-    }
-    if (xy.includes("R")) {
-      const oldPath = porcelainRenameOld(rest);
-      if (oldPath && isSafeRepoPath(oldPath)) deleted.add(oldPath);
-    }
-  }
-  return deleted;
+function isGitObjectId(value: string): boolean {
+  return /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value);
 }
 
-async function collectChanges(
+/** Export the exact settled turn, including newly created binary files and
+ * deletions. The manifest, diff, and blob bytes share immutable endpoints;
+ * mutations of HEAD, checkpoint refs, the index, or the worktree after the
+ * checkpoint cannot change the proposed publication. */
+export async function collectRepositoryChanges(
   ops: SandboxOps,
   workdir: string,
+  baseline: string,
+  settled: string,
   opts: {
     signal?: AbortSignal;
     expectedDeliverables?: string[];
-    deliverableCheckpoint?: string;
-    /** T44: commit-to-commit diff producer; falls back to the worktree diff. */
-    diffSource?: () => Promise<string>;
-    /** Durable export for an oversize diff — returns the storage key. */
     exportDiff?: (diff: string) => Promise<string>;
     onDiffExported?: (key: string) => void;
   } = {},
 ): Promise<CollectedChanges> {
+  if (!isGitObjectId(baseline) || !isGitObjectId(settled)) {
+    throw new Error("Repository capture requires immutable checkpoint identities.");
+  }
   const signal = opts.signal;
-  const status = await ops.exec(shellJoin(["git", "status", "--porcelain", "-uall"]), {
-    cwd: workdir,
-    timeoutMs: GIT_TIMEOUT_MS,
-    signal,
+  const manifest = await ops.exec(shellJoin(["node", "-e", REPOSITORY_MANIFEST_READER, baseline, settled]), {
+    cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: 90_000,
   });
-  if (status.exitCode !== 0) {
-    throw new Error(`git status failed: ${boundTail(status.stderr, 1000)}`);
+  let records: string[];
+  try {
+    const payload: unknown = JSON.parse(manifest.stdout);
+    if (manifest.exitCode !== 0 || payload === null || typeof payload !== "object" || !("changes" in payload) || typeof payload.changes !== "string") throw new Error("Invalid manifest");
+    const raw = atob(payload.changes);
+    if (btoa(raw) !== payload.changes) throw new Error("Noncanonical manifest");
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(raw, (character) => character.charCodeAt(0)));
+    if (text !== "" && !text.endsWith("\0")) throw new Error("Truncated manifest");
+    records = text === "" ? [] : text.slice(0, -1).split("\0");
+    if (records.length % 2 !== 0) throw new Error("Partial manifest record");
+  } catch {
+    throw new Error("Repository change manifest is malformed, truncated, or exceeds its limit.");
   }
-  const allChanged = parsePorcelainStatus(status.stdout);
-  // A tree past the caps must fail the run, not publish a silent partial PR.
-  if (allChanged.length > MAX_CAPTURED_FILES) {
-    throw new Error(
-      `Run changed ${allChanged.length} files; capture limit is ${MAX_CAPTURED_FILES}. ` +
-        "Narrow the task or raise MAX_CAPTURED_FILES.",
-    );
+  if (records.length / 2 > MAX_CAPTURED_FILES) {
+    throw new Error(`Run changed ${records.length / 2} files; capture limit is ${MAX_CAPTURED_FILES}. Narrow the task or raise MAX_CAPTURED_FILES.`);
   }
-  const changedFiles = allChanged;
-  const deletedFiles = parsePorcelainDeleted(status.stdout);
-  // T44: the turn diff is baseline→settle commits — untracked files are
-  // already in the settle commit, so no intent-to-add step is needed. The
-  // fallback worktree path (no checkpoints captured) keeps the intent-to-add
-  // dance so new files appear in `git diff`.
-  let rawDiff: string;
-  if (opts.diffSource) {
-    rawDiff = await opts.diffSource();
-  } else {
-    const filesToAdd = changedFiles.filter((path) => !deletedFiles.has(path));
-    if (filesToAdd.length > 0) {
-      const add = await ops.exec(
-        ["git", "add", "-N", "--", ...filesToAdd].map(shellQuote).join(" "),
-        { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal },
-      );
-      if (add.exitCode !== 0) {
-        throw new Error(`git add failed: ${boundTail(add.stderr, 1000)}`);
-      }
+  const changes: Array<{ path: string; objectId: string | null }> = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < records.length; index += 2) {
+    const match = /^:(\d{6}) (\d{6}) ([a-f0-9]{40}|[a-f0-9]{64}) ([a-f0-9]{40}|[a-f0-9]{64}) ([AMD])$/.exec(records[index]!);
+    const path = records[index + 1]!;
+    if (!match || !isSafeRepoPath(path) || path.split("/").some((part) => !part || part === "." || part.toLowerCase() === ".git") || path.includes("\\") || seen.has(path)) {
+      throw new Error("Repository snapshot contains an unsupported path, type, or duplicate file.");
     }
-    const diffResult = await ops.exec(shellJoin(["git", "diff", "--", "."]), {
-      cwd: workdir,
-      timeoutMs: GIT_TIMEOUT_MS,
-      signal,
-    });
-    if (diffResult.exitCode !== 0) {
-      throw new Error(`git diff failed: ${boundTail(diffResult.stderr, 1000)}`);
+    const deleted = match[5] === "D";
+    if (deleted ? match[2] !== "000000" || !/^0+$/.test(match[4]!) : !["100644", "100755"].includes(match[2]!) || /^0+$/.test(match[4]!)) {
+      throw new Error("Repository snapshot contains a symlink or unsupported file type.");
     }
-    rawDiff = diffResult.stdout;
+    seen.add(path);
+    changes.push({ path, objectId: deleted ? null : match[4]! });
   }
-  // An oversize diff exports durably before the tail cap — the receipt
-  // carries the storage key so post-mortem inspection survives the sandbox.
+  const diffResult = await ops.exec(shellJoin(["git", "--no-replace-objects", "diff", "--no-ext-diff", "--no-textconv", "--no-color", baseline, settled, "--"]), {
+    cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: 20_000_000,
+  });
+  if (diffResult.exitCode !== 0) throw new Error(`git diff failed: ${boundTail(diffResult.stderr, 1000)}`);
+  const rawDiff = diffResult.stdout;
   if (rawDiff.length > MAX_DIFF_CHARS && opts.exportDiff) {
     const key = await opts.exportDiff(rawDiff);
     opts.onDiffExported?.(key);
   }
-  const diff = boundTail(rawDiff, MAX_DIFF_CHARS);
-
-  const files: CollectedChanges["files"] = await collectExpectedSandboxDeliverables(ops, workdir, opts.deliverableCheckpoint ?? "HEAD", opts.expectedDeliverables, signal);
-  let totalChars = files.reduce((sum, file) => sum + (file.content?.length ?? 0), 0);
-  for (const path of changedFiles) {
-    if (deletedFiles.has(path) || opts.expectedDeliverables?.includes(path)) continue;
-    const fullPath = `${workdir}/${path}`;
-    // The ops layer enforces maxBytes and throws instead of truncating, so a
-    // captured file is always complete or the whole run reports the error.
-    const read = await ops.readFile(fullPath, {
-      maxBytes: MAX_FILE_CHARS,
-      signal,
+  const files = await collectExpectedSandboxDeliverables(ops, workdir, settled, opts.expectedDeliverables, signal);
+  let totalBytes = files.reduce((sum, file) => sum + new TextEncoder().encode(file.content ?? "").byteLength, 0);
+  for (const { path, objectId } of changes) {
+    signal?.throwIfAborted();
+    if (objectId === null || opts.expectedDeliverables?.includes(path)) continue;
+    const size = await ops.exec(shellJoin(["git", "--no-replace-objects", "cat-file", "-s", objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
+    const bytes = Number(size.stdout.trim());
+    if (size.exitCode !== 0 || !/^\d+\s*$/.test(size.stdout) || !Number.isSafeInteger(bytes) || bytes > MAX_FILE_CHARS) {
+      throw new Error(`Repository file ${path} exceeds MAX_FILE_CHARS or could not be read completely.`);
+    }
+    totalBytes += bytes;
+    if (totalBytes > MAX_TOTAL_FILE_CHARS) throw new Error("Captured file content exceeds MAX_TOTAL_FILE_CHARS; refusing to publish a partial tree.");
+    const blob = await ops.exec(shellJoin(["node", "-e", REPOSITORY_BLOB_READER, objectId]), {
+      cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: Math.ceil(MAX_FILE_CHARS / 3) * 4 + 1,
     });
-    const content = read.content;
-    if (read.kind === "utf8") {
-      totalChars += content.length;
-    } else {
-      totalChars += Math.ceil((content.length * 3) / 4);
+    let data: Uint8Array;
+    try {
+      const encoded = blob.stdout;
+      if (blob.exitCode !== 0 || encoded.length !== Math.ceil(bytes / 3) * 4) throw new Error("Truncated blob");
+      const raw = atob(encoded);
+      if (btoa(raw) !== encoded || raw.length !== bytes) throw new Error("Noncanonical blob");
+      data = Uint8Array.from(raw, (character) => character.charCodeAt(0));
+      const header = new TextEncoder().encode(`blob ${bytes}\0`);
+      const objectBytes = new Uint8Array(header.byteLength + bytes);
+      objectBytes.set(header); objectBytes.set(data, header.byteLength);
+      const digest = new Uint8Array(await crypto.subtle.digest(objectId.length === 40 ? "SHA-1" : "SHA-256", objectBytes));
+      if (Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("") !== objectId) throw new Error("Git object integrity mismatch");
+    } catch {
+      throw new Error(`Repository file ${path} has invalid, truncated, or corrupt byte transport.`);
     }
-    if (totalChars > MAX_TOTAL_FILE_CHARS) {
-      throw new Error(
-        "Captured file content exceeds MAX_TOTAL_FILE_CHARS; refusing to publish a partial tree.",
-      );
+    try {
+      const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
+      if (data.some((byte) => (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) || byte === 127)) throw new Error("Binary data");
+      files.push({ path, content, encoding: "utf8" });
+    } catch {
+      files.push({ path, content: blob.stdout, encoding: "base64" });
     }
-    files.push({ path, content, encoding: read.kind });
   }
-  // Deletions and rename sources are not on disk; a null-content entry is what
-  // removes them from the published tree (src/github.ts).
-  for (const path of deletedFiles) {
-    files.push({ path, content: null, encoding: "utf8" });
+  for (const { path, objectId } of changes) {
+    if (objectId === null) files.push({ path, content: null, encoding: "utf8" });
   }
-  return { changedFiles, diff, files };
+  return { changedFiles: changes.map(({ path }) => path), diff: boundTail(rawDiff, MAX_DIFF_CHARS), files };
 }

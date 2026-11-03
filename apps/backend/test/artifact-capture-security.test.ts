@@ -26,6 +26,7 @@ function objectId(data: Buffer): string {
 function manifestOps(entries: string[], bodies: Map<string, Buffer> = new Map(), declaredSize?: string) {
   const exec = vi.fn<SandboxOps["exec"]>(async (command) => {
     const argv = tokenizeCommand(command);
+    if (argv?.[0] === "git" && argv[1] === "--no-replace-objects") argv.splice(1, 1);
     if (argv?.[0] === "node" && argv[2] === WORKSPACE_MANIFEST_READER) {
       return { stdout: JSON.stringify({ tree: Buffer.from(entries.length ? `${entries.join("\0")}\0` : "").toString("base64") }), stderr: "", exitCode: 0 };
     }
@@ -77,7 +78,7 @@ describe("artifact snapshot export security", () => {
       `100644 blob ${oid}\tout/report.txt`, `100644 blob ${oid}\tout/REPORT.txt`,
     ], new Map([[oid, body]]));
     await expect(collectWorkspaceChanges(ops, "/workspace", CHECKPOINT)).rejects.toThrow("duplicate filename");
-    const sizeReads = exec.mock.calls.filter(([command]) => tokenizeCommand(command)?.[2] === "-s");
+    const sizeReads = exec.mock.calls.filter(([command]) => tokenizeCommand(command)?.includes("-s"));
     expect(sizeReads).toHaveLength(1);
   });
 
@@ -118,7 +119,7 @@ describe("artifact snapshot export security", () => {
     const accepted = MAX_WORKSPACE_ARTIFACT_TOTAL_BYTES / MAX_WORKSPACE_ARTIFACT_BYTES;
     const { ops, exec } = manifestOps(Array.from({ length: accepted + 1 }, (_, index) => `100644 blob ${oid}\tout/${index}.bin`), new Map([[oid, body]]));
     await expect(collectWorkspaceChanges(ops, "/workspace", CHECKPOINT)).rejects.toThrow("total byte limit");
-    const sizeReads = exec.mock.calls.filter(([command]) => tokenizeCommand(command)?.[2] === "-s");
+    const sizeReads = exec.mock.calls.filter(([command]) => tokenizeCommand(command)?.includes("-s"));
     const bodyReads = exec.mock.calls.filter(([command]) => tokenizeCommand(command)?.[2] === WORKSPACE_BLOB_READER);
     expect(sizeReads).toHaveLength(accepted + 1);
     expect(bodyReads).toHaveLength(accepted * Math.ceil(MAX_WORKSPACE_ARTIFACT_BYTES / 196_608));
