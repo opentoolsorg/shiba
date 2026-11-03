@@ -7,7 +7,7 @@ Give an employee a job once, then reuse its instructions for the next task. Open
 
 ## Choose a role
 
-Start with one of four editable templates:
+Start with an editable role or browse the [template catalog](/docs/templates/) for more focused employee packs:
 
 | Role | Try this first |
 | --- | --- |
@@ -44,7 +44,7 @@ Open the employee's card and choose a conversation under **Threads started with 
 
 ## Add another role
 
-Create custom instructions for Design, QA, Sales, Finance, or other work your company needs. These are custom roles, rather than built-in templates in this version.
+Create custom instructions for Design, QA, Sales, Finance, or other work your company needs. Availability varies by template and configuration; you can also write your own instructions.
 
 For **Design**, ask for a document covering user flows, interface copy, accessibility, and the states people may encounter.
 
