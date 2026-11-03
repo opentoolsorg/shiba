@@ -16,6 +16,7 @@ interface CanvasRun {
   summary?: string;
   error?: string;
   pullUrl?: string;
+  publishPullRequest?: boolean;
 }
 
 type CanvasData =
@@ -56,6 +57,7 @@ function readCanvasData(value: unknown, approvalId: string): CanvasData {
     run.runId === `agent-tool:${approvalId}` && room.runId === run.runId &&
     typeof run.status === "string" && typeof run.task === "string" &&
     typeof run.workspaceLabel === "string" && typeof room.sessionId === "string" &&
+    (run.publishPullRequest === undefined || typeof run.publishPullRequest === "boolean") &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(room.sessionId) &&
     ["summary", "error", "pullUrl"].every((key) => run[key] === undefined || typeof run[key] === "string")) {
     return value as unknown as CanvasData;
@@ -107,7 +109,11 @@ export function SlackRunCanvas({ search }: { search: string }) {
         const data = readCanvasData(body, locator.get("approval") ?? "");
         if (stopped || activeRequest.current !== requestIdentity) return;
         setState({ scope, kind: "ready", data });
-        if (data.state === "pending" || !TERMINAL_STATUSES.has(data.run.status)) timer = setTimeout(() => { void load(); }, POLL_MS);
+        const awaitingPublication = data.state === "run" && data.run.status === "completed" &&
+          data.run.publishPullRequest !== false && !safePullUrl(data.run.pullUrl);
+        if (data.state === "pending" || !TERMINAL_STATUSES.has(data.run.status) || awaitingPublication) {
+          timer = setTimeout(() => { void load(); }, POLL_MS);
+        }
       } catch (error: unknown) {
         if (stopped || activeRequest.current !== requestIdentity) return;
         setState({ scope, kind: "error", message: error instanceof Error ? error.message : "The run view is unavailable." });

@@ -169,6 +169,18 @@ describe("Slack canvas dedicated read routes", () => {
     });
   });
 
+  it.each([true, false])("exposes the frozen publication request for completed runs: %s", async (publishPullRequest) => {
+    const snapshot = await running();
+    const response = await handleSlackCanvas(request(), env(), { orchestrator: async () => ({
+      fetch: async () => Response.json({ ...snapshot, run: { ...snapshot.run, status: "completed", publishPullRequest } }),
+    }) });
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({
+      state: "run", run: { runId: `agent-tool:${APPROVAL}`, status: "completed", task: "Prepare a report", workspaceLabel: "Workspace report", summary: "Working", publishPullRequest },
+      room: { sessionId: snapshot.runRoom?.sessionId, runId: `agent-tool:${APPROVAL}` },
+    });
+  });
+
   it.each(["owner", "session", "run", "approval", "unapproved"])("refuses a run with mismatched frozen %s", async (kind) => {
     const snapshot = await running();
     if (kind === "owner") Object.assign(snapshot.runRoom ?? {}, { ownerId: "other@example.test" });

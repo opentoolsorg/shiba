@@ -120,6 +120,7 @@ export async function handleSlackCanvas(request: Request, env: Env, deps: SlackC
     state: "run",
     run: {
       runId: binding.runId, status: run.status, task: redactSecrets(approval.task).slice(0, 20_000), workspaceLabel: workspaceLabel(approval),
+      ...(typeof run.publishPullRequest === "boolean" ? { publishPullRequest: run.publishPullRequest } : {}),
       ...(typeof run.summary === "string" ? { summary: redactSecrets(run.summary).slice(0, 8_000) } : {}),
       ...(typeof run.error === "string" ? { error: redactSecrets(run.error).slice(0, 2_000) } : {}),
       ...(pullUrl ? { pullUrl } : {}),
