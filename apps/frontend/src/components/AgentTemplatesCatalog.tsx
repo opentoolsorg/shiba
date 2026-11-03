@@ -29,8 +29,12 @@ export function AgentTemplatesCatalog({ onUse }: { onUse: (template: (typeof AGE
   const visible = useMemo(() => category === "my" ? myTemplates : AGENT_TEMPLATES.filter((item) => category === "all" || item.categories.includes(category)), [category, myTemplates]);
 
   const copy = async (template: (typeof AGENT_TEMPLATES)[number]) => {
-    await navigator.clipboard.writeText(pack(template));
-    setMessage(`${template.name} pack copied.`);
+    try {
+      await navigator.clipboard.writeText(pack(template));
+      setMessage(`${template.name} pack copied.`);
+    } catch {
+      setMessage("Could not copy this pack. Check clipboard access and try again.");
+    }
   };
   const clone = async (template: (typeof AGENT_TEMPLATES)[number]) => {
     setBusy(true);

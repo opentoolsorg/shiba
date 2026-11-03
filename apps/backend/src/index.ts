@@ -81,6 +81,7 @@ import { Waitlist } from "./waitlist-do.js";
 import { ModelConfig } from "./model-config-do.js";
 import { ChatGptAuth } from "./chatgpt-auth-do.js";
 import { UserProviderOAuth } from "./user-provider-oauth-do.js";
+import { ConversationRoom } from "./conversation-room-do.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -91,6 +92,7 @@ import {
 export {
   Automations,
   ChatGptAuth,
+  ConversationRoom,
   UserProviderOAuth,
   CodingOrchestrator,
   LocalDispatch,
@@ -123,12 +125,14 @@ const MARKETING_SECTIONS = new Set([
   "waitlist",
   "welcome",
 ]);
-// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the tasks home.
+// Root paths of the dashboard's sidebar views (AppNavRail ids); "" is the Work home.
 export const DASHBOARD_VIEWS = new Set([
   // Keep in sync with AppNavRail APP_NAV_ITEMS ids.
   "",
+  "work",
   "dashboard",
   "tasks",
+  "threads",
   "activity",
   "analytics",
   "diff",

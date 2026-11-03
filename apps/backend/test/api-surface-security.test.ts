@@ -96,7 +96,7 @@ describe("Worker API credential boundaries", () => {
     expect(f.bindings).toEqual([]);
   });
 
-  it.each(["/api/skills/library", "/api/skills/library/write-tests-first/install", "/api/spaces", "/api/spaces/templates", "/api/spaces/space-aaaaaaaaaaaaaaaaaaaaaaaa/items"])(
+  it.each(["/api/skills/library", "/api/skills/library/write-tests-first/install", "/api/spaces", "/api/spaces/templates", "/api/spaces/space-aaaaaaaaaaaaaaaaaaaaaaaa/items", "/api/v1/extensions/skills", "/api/v1/extensions/skills/skill-123/instructions"])(
     "authenticates and scope-checks new org API path %s through Worker ingress",
     async (path) => {
       const f = fixture();

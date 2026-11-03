@@ -74,12 +74,6 @@ export const runStatusInputSchema = z.object({
   runId: z.string().min(1).describe("Run id, e.g. agent-tool:<approvalId>."),
 });
 
-export {
-  queueGrokbotBridgeTaskInputSchema,
-  grokbotBridgeStatusInputSchema,
-  completeGrokbotBridgeTaskInputSchema,
-} from "./grokbot-bridge.js";
-
 const screenRunId = z.string().min(1).describe("Run id whose sandbox screen to drive — the run must be running.");
 
 /** PLAN-V2-NEXT computer-use tools: one screen action per call, on a live run's sandbox. */

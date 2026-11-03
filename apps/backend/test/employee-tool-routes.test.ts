@@ -2,12 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({ dashboard: false }));
 const tokenState = vi.hoisted(() => ({ principal: "agent-a", orgId: "self-hosted", scopes: ["runs:read", "sandbox:exec"] as string[] }));
+const integrations = vi.hoisted(() => ({
+  listConnections: vi.fn(async ({ userId }: { userId: string }) => [{ id: `connection:${userId}`, provider: "openconnector", providerKey: "github" }]),
+  searchActions: vi.fn(async () => [{ id: "github.create_issue", service: "github", name: "Create issue" }]),
+  executeTool: vi.fn(async () => ({ ok: true, status: "completed", output: { id: 1 } })),
+}));
+vi.mock("../src/integrations/runtime.js", () => ({ getIntegrationProvider: () => ({ id: "openconnector", ...integrations }) }));
 const orchestrator = vi.hoisted(() => ({ requests: [] as Request[] }));
 
 vi.mock("../src/request-auth.js", () => ({
   isAuthorizedRequest: vi.fn(async () => authState.dashboard),
   resolveUserId: vi.fn(async () => "owner@example.test"),
 }));
+vi.mock("../src/gmail-routes.js", () => ({ gmailOwner: vi.fn(async () => authState.dashboard ? '["better-auth","owner-a"]' : null) }));
 vi.mock("../src/v1-auth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/v1-auth.js")>();
   return { ...actual, authorizeV1Request: vi.fn(async () => null) };
@@ -49,7 +56,8 @@ import {
   getCapabilityInvocationByIdempotencyKey,
   pruneCapabilityInvocations,
 } from "../src/capability-invocations.js";
-import { hashToolArgs } from "../src/mcp-gateway.js";
+import { hashToolArgs, createToolRegistry } from "../src/mcp-gateway.js";
+import { registerAllMcpTools } from "../src/mcp-tool-registration.js";
 import { isOrgApiPath } from "../src/public-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
@@ -78,6 +86,162 @@ describe("employee tool local workflow", () => {
     tokenState.orgId = "self-hosted";
     tokenState.scopes = ["runs:read", "sandbox:exec"];
     orchestrator.requests.length = 0;
+  });
+
+  it("gates integration actions on current owner grants and exact approval, and suppresses replay", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "connector", { name: "Connector", instructions: "Use GitHub", harness: "opencode" });
+    tokenState.scopes = ["integrations:read", "integrations:execute"];
+    expect((await handleEmployeeTools(policyRequest(employee.id, {
+      "mcp:shiba:integrations.search_actions": ["github"], "mcp:shiba:integrations.execute": ["github"],
+    }), bindings))?.status).toBe(200);
+    integrations.executeTool.mockClear();
+    integrations.searchActions.mockClear();
+    authState.dashboard = false;
+    const args = { toolkitSlug: "github", toolSlug: "github.create_issue", arguments: { title: "Approved issue" } };
+    const forged = await handleEmployeeTools(callRequest(employee.id, "integrations.execute", { ...args, userId: "another-owner" }), bindings);
+    expect(forged?.status).toBe(400);
+    expect((await handleEmployeeTools(callRequest(employee.id, "integrations.search_actions", { toolkitSlug: "slack" }), bindings))?.status).toBe(403);
+    expect((await handleEmployeeTools(callRequest(employee.id, "integrations.search_actions", { toolkitSlug: "github" }), bindings))?.status).toBe(200);
+    expect(integrations.searchActions).toHaveBeenCalledWith(expect.objectContaining({ userId: '["better-auth","owner-a"]', toolkitSlug: "github" }));
+    const registry = createToolRegistry(bindings);
+    registerAllMcpTools(registry, bindings);
+    expect(registry.tools().find((tool) => tool.name === "integrations.execute")?.scope).toBe("integrations:execute");
+    const principal = { kind: "agent" as const, principal: "agent-a", orgId: "self-hosted", scopes: ["integrations:execute" as const], created: 1, revoked: false };
+    expect((await registry.invoke("integrations.execute", args, principal)).isError).toBe(true);
+    const registryPending = await registry.invoke("integrations.execute", { ...args, employeeId: employee.id }, principal);
+    expect(registryPending.structuredContent).toMatchObject({ status: "pending_approval" });
+    expect(integrations.executeTool).not.toHaveBeenCalled();
+    const pending = await handleEmployeeTools(callRequest(employee.id, "integrations.execute", args), bindings);
+    expect(pending?.status).toBe(202);
+    const { approvalId } = await pending!.json() as { approvalId: string };
+    expect(integrations.executeTool).not.toHaveBeenCalled();
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${approvalId}`, {
+      method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ employeeId: employee.id, approved: true }),
+    }), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+    expect((await handleEmployeeTools(callRequest(employee.id, "integrations.execute", { ...args, arguments: { title: "Changed" } }), bindings))?.status).toBe(202);
+    expect(integrations.executeTool).not.toHaveBeenCalled();
+    expect((await handleEmployeeTools(callRequest(employee.id, "integrations.execute", args), bindings))?.status).toBe(200);
+    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...args, userId: '["better-auth","owner-a"]' });
+    await handleEmployeeTools(callRequest(employee.id, "integrations.execute", args), bindings);
+    expect(integrations.executeTool).toHaveBeenCalledTimes(1);
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(policyRequest(employee.id, {}, 2), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+    expect((await handleEmployeeTools(callRequest(employee.id, "integrations.execute", args), bindings))?.status).toBe(403);
+    expect(integrations.executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["provider_failure", "revoked_during_lookup", "wrong_service"])("reports %s through the public MCP tool without an unauthorized write", async (scenario) => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "connector-failure", {
+      name: "Connector", instructions: "Use GitHub", harness: "opencode",
+    });
+    tokenState.scopes = ["integrations:read", "integrations:execute"];
+    expect((await handleEmployeeTools(policyRequest(employee.id, {
+      "mcp:shiba:integrations.execute": ["github"],
+    }), bindings))?.status).toBe(200);
+    integrations.executeTool.mockClear();
+    const registry = createToolRegistry(bindings);
+    registerAllMcpTools(registry, bindings);
+    const principal = { kind: "agent" as const, principal: "agent-a", orgId: "self-hosted",
+      scopes: ["integrations:execute" as const], created: 1, revoked: false };
+    const args = { employeeId: employee.id, toolkitSlug: "github", toolSlug: "github.create_issue", arguments: { title: "Review this draft" } };
+    authState.dashboard = false;
+    const pending = await registry.invoke("integrations.execute", args, principal);
+    const approvalId = String(pending.structuredContent?.approvalId);
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${approvalId}`, {
+      method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ employeeId: employee.id, approved: true }),
+    }), bindings))?.status).toBe(200);
+    if (scenario === "provider_failure") {
+      integrations.executeTool.mockResolvedValueOnce({ ok: false, status: "failed", output: { id: 0 } });
+    } else if (scenario === "wrong_service") {
+      integrations.searchActions.mockResolvedValueOnce([{ id: "github.create_issue", service: "slack", name: "Wrong service" }]);
+    } else {
+      integrations.searchActions.mockImplementationOnce(async () => {
+        authState.dashboard = true;
+        expect((await handleEmployeeTools(policyRequest(employee.id, {}, 2), bindings))?.status).toBe(200);
+        authState.dashboard = false;
+        return [{ id: "github.create_issue", service: "github", name: "Create issue" }];
+      });
+    }
+    authState.dashboard = false;
+    const failed = await registry.invoke("integrations.execute", args, principal);
+    expect(failed.isError).toBe(true);
+    expect(integrations.executeTool).toHaveBeenCalledTimes(scenario === "provider_failure" ? 1 : 0);
+    await registry.invoke("integrations.execute", args, principal);
+    expect(integrations.executeTool).toHaveBeenCalledTimes(scenario === "provider_failure" ? 1 : 0);
+  });
+
+  it("does not request integration approval when the caller lacks its execute scope", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "connector-scope", {
+      name: "Connector", instructions: "Use GitHub", harness: "opencode",
+    });
+    expect((await handleEmployeeTools(policyRequest(employee.id, {
+      "mcp:shiba:integrations.execute": ["github"],
+    }), bindings))?.status).toBe(200);
+    integrations.executeTool.mockClear();
+    authState.dashboard = false;
+    const denied = await handleEmployeeTools(callRequest(employee.id, "integrations.execute", {
+      toolkitSlug: "github", toolSlug: "github.create_issue", arguments: { title: "Unauthorized draft" },
+    }), bindings);
+    expect(denied?.status).toBe(403);
+    expect(await denied?.json()).toMatchObject({ error: "capability_not_allowed" });
+    expect(integrations.executeTool).not.toHaveBeenCalled();
+    authState.dashboard = true;
+    const approvals = await handleEmployeeTools(new Request("https://x/api/employee-tools/approvals", {
+      headers: { "CF-Access-Authenticated-User-Email": "owner@example.test" },
+    }), bindings);
+    expect(await approvals?.json()).toMatchObject({ approvals: [] });
+  });
+
+  it("discovers integrations in normal employee runs and binds write approval to the session", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "run-connector", {
+      name: "Connector", instructions: "Use GitHub", harness: "opencode",
+    });
+    expect((await handleEmployeeTools(policyRequest(employee.id, {
+      "mcp:shiba:integrations.search_actions": ["github"], "mcp:shiba:integrations.execute": ["github"],
+    }), bindings))?.status).toBe(200);
+    integrations.executeTool.mockClear();
+    const sessionTools = (session: string) => createEmployeeRunTools(bindings, () => employee.id,
+      () => session, () => "self-hosted", () => "agent-a");
+    const tools = sessionTools("web:owner:integration-a");
+    const catalog = tools.employee_tool_catalog as unknown as { execute: (args: object) => Promise<unknown> };
+    type RunCall = { execute: (input: { tool: string; args: Record<string, unknown> }) => Promise<Record<string, unknown>> };
+    const call = tools.employee_tool_call as unknown as RunCall;
+    authState.dashboard = false;
+    expect(await catalog.execute({})).toMatchObject({ actions: [
+      { tool: "integrations.execute", resources: ["github"] },
+      { tool: "integrations.search_actions", resources: ["github"] },
+    ] });
+    expect(await call.execute({ tool: "integrations.search_actions", args: { toolkitSlug: "github" } }))
+      .toMatchObject({ ok: true, result: { structuredContent: { actions: [{ id: "github.create_issue" }] } } });
+    const input = { tool: "integrations.execute", args: { toolkitSlug: "github", toolSlug: "github.create_issue", arguments: { title: "Review me" } } };
+    const pending = await call.execute(input);
+    expect(pending).toMatchObject({ status: "pending_approval" });
+    expect(integrations.executeTool).not.toHaveBeenCalled();
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${pending.approvalId}`, {
+      method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ employeeId: employee.id, approved: true }),
+    }), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+    const otherCall = sessionTools("web:owner:integration-b").employee_tool_call as unknown as RunCall;
+    expect(await otherCall.execute(input)).toMatchObject({ status: "pending_approval" });
+    expect(integrations.executeTool).not.toHaveBeenCalled();
+    expect(await call.execute(input)).toMatchObject({ ok: true, result: { structuredContent: { ok: true } } });
+    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...input.args, userId: '["better-auth","owner-a"]' });
   });
 
   it("routes employee endpoints through the org-authenticated API lane", () => {
