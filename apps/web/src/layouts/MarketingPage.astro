@@ -30,7 +30,6 @@ const {
   ogImage = '/assets/og/shiba-og.png',
   noindex = false,
 } = Astro.props;
-const morePage = [{ path: '/network/', label: 'Network' }, { path: '/docs/costs/', label: 'Cost' }, { path: '/blog/', label: 'Journal' }, { path: '/docs/architecture/', label: 'Architecture' }, { path: '/docs/security/', label: 'Security' }].find(item => path === item.path || (item.path === '/blog/' && path.startsWith('/blog/')));
 const canonical = new URL(path, 'https://tryshiba.dev').href;
 const ogImageUrl = new URL(ogImage, 'https://tryshiba.dev').href;
 // Organization logo must be square; the 1200x630 OG banner is rejected by Google.
@@ -94,13 +93,13 @@ const finalSchemas = schema
     <meta property="og:image:width" content="2400" />
     <meta property="og:image:height" content="1260" />
     <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:alt" content="Shiba: AI employees that ship while you sleep. Coding, testing, ops, marketing & sales." />
+    <meta property="og:image:alt" content="Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance." />
     {publishedTime && <meta property="article:published_time" content={publishedTime} />}
     {modifiedTime && <meta property="article:modified_time" content={modifiedTime} />}
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image:alt" content="Shiba: open-source AI employees for the work behind your company, with every run approved by you." />
+    <meta name="twitter:image:alt" content="Shiba: AI employees for the work behind your company—from code and design to marketing, sales, operations and finance." />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
@@ -172,21 +171,10 @@ const finalSchemas = schema
         </a>
         <button type="button" id="nav-menu-btn" class="nav-menu-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="Open navigation menu"><span class="nav-ico menu-ico" aria-hidden="true">≡</span><span class="nav-ico close-ico" aria-hidden="true">×</span></button>
         <nav aria-label="Main navigation" class="nav-links" id="site-nav">
-          <a href="/why-shiba/" class="nav-link" aria-current={path === '/why-shiba/' ? 'page' : undefined}>Why Shiba</a>
           <a href="/#employees" class="nav-link">Employees</a>
+          <a href="/#how-it-works" class="nav-link">How it works</a>
           <a href="/integrations/" class="nav-link" aria-current={path === '/integrations/' ? 'page' : undefined}>Integrations</a>
-          <a href="/docs/costs/" class="nav-link" aria-current={path === '/docs/costs/' ? 'page' : undefined}>Costs</a>
           <a href="/docs/overview/" class="nav-link" aria-current={path === '/docs/overview/' ? 'page' : undefined}>Docs</a>
-          <a href="https://github.com/princepal9120/shiba" class="nav-link" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
-          <div class="nav-more">
-            <button type="button" id="nav-more-btn" class="nav-link nav-more-btn" aria-expanded="false" aria-controls="nav-more-panel" class:list={{ 'has-current': !!morePage }} hidden>{morePage ? `More · ${morePage.label}` : 'More'} <span aria-hidden="true">⌄</span></button>
-            <div id="nav-more-panel" class="nav-more-panel" hidden>
-              <a href="/network/" aria-current={path === '/network/' ? 'page' : undefined}>Network</a>
-              <a href="/blog/" aria-current={path.startsWith('/blog') ? 'page' : undefined}>Journal</a>
-              <a href="/docs/architecture/" aria-current={path === '/docs/architecture/' ? 'page' : undefined}>Architecture</a>
-              <a href="/docs/security/" aria-current={path === '/docs/security/' ? 'page' : undefined}>Security</a>
-            </div>
-          </div>
         </nav>
         <div class="nav-actions">
           <button
@@ -268,45 +256,29 @@ const finalSchemas = schema
     <script>
       const menuBtn = document.getElementById('nav-menu-btn');
       const siteNav = document.getElementById('site-nav');
-      const moreBtn = document.getElementById('nav-more-btn');
-      const morePanel = document.getElementById('nav-more-panel');
-      if (menuBtn && siteNav && moreBtn && morePanel) {
-        moreBtn.hidden = false;
-        const setMore = (open: boolean) => {
-          moreBtn.setAttribute('aria-expanded', String(open));
-          morePanel.hidden = !open;
-        };
+      if (menuBtn && siteNav) {
         const setMenu = (open: boolean) => {
           menuBtn.setAttribute('aria-expanded', String(open));
           menuBtn.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
           siteNav.classList.toggle('nav-open', open);
-          if (!open) setMore(false);
         };
         menuBtn.addEventListener('click', () => setMenu(menuBtn.getAttribute('aria-expanded') !== 'true'));
-        moreBtn.addEventListener('click', () => setMore(morePanel.hidden));
-        moreBtn.addEventListener('keydown', event => {
-          if (event.key === 'ArrowDown') { event.preventDefault(); setMore(true); morePanel.querySelector('a')?.focus(); }
-        });
         document.addEventListener('keydown', event => {
-          if (event.key !== 'Escape') return;
-          if (!morePanel.hidden) { setMore(false); moreBtn.focus(); }
-          else if (menuBtn.getAttribute('aria-expanded') === 'true') { setMenu(false); menuBtn.focus(); }
+          if (event.key === 'Escape' && menuBtn.getAttribute('aria-expanded') === 'true') { setMenu(false); menuBtn.focus(); }
         });
         siteNav.addEventListener('click', event => {
-          if ((event.target as HTMLElement).closest('a')) { setMore(false); setMenu(false); }
+          if ((event.target as HTMLElement).closest('a')) setMenu(false);
         });
         document.addEventListener('pointerdown', event => {
           const target = event.target as Node;
-          if (!moreBtn.parentElement?.contains(target)) setMore(false);
           if (!siteNav.contains(target) && !menuBtn.contains(target)) setMenu(false);
         });
         siteNav.addEventListener('focusout', () => {
           requestAnimationFrame(() => {
-            if (!moreBtn.parentElement?.contains(document.activeElement)) setMore(false);
             if (!siteNav.contains(document.activeElement) && document.activeElement !== menuBtn) setMenu(false);
           });
         });
-        matchMedia('(max-width: 800px)').addEventListener('change', () => setMenu(false));
+        matchMedia('(max-width: 1000px)').addEventListener('change', () => setMenu(false));
       }
 
     </script>
@@ -509,17 +481,14 @@ const finalSchemas = schema
   .wordmark-name { font-family: 'Bebas Neue', 'Geist', sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.04em; color: var(--ink); text-transform: uppercase; }
   .nav-links { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; white-space: nowrap; }
   .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px 10px; font: 500 12px/1.5 'Geist Mono', monospace; text-decoration: none; color: var(--ink-2); border: 0; background: transparent; cursor: pointer; border-radius: 6px; transition: color 150ms var(--ease-out), background 150ms var(--ease-out); }
-  .nav-link[aria-current='page'], .nav-more-panel a[aria-current='page'] { color: var(--accent); font-weight: 600; }
+  .nav-link[aria-current='page'] { color: var(--accent); font-weight: 600; }
   .nav-actions { display: flex; align-items: center; gap: 10px; }
   .nav-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid var(--hairline); border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out); }
   .nav-theme-toggle:hover { color: var(--ink); border-color: var(--border); }
   .nav-cta { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 40px; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: var(--on-accent); text-decoration: none; font: 600 12px/1.5 'Geist Mono', monospace; white-space: nowrap; border: 1.5px solid var(--accent-border); box-shadow: -2px 2px 0 var(--accent-border); transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out); }
   .nav-cta:hover { transform: translateY(-1px); box-shadow: -3px 3px 0 var(--accent-border); }
   .nav-cta:active { transform: translateY(1px); box-shadow: -1px 1px 0 var(--accent-border); }
-  .nav-more { position: relative; min-width: 58px; }
-  .nav-more-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 190px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); box-shadow: -3px 3px 0 var(--border); }
-  .nav-more-panel a { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; font: 500 12px/1.5 'Geist Mono', monospace; color: var(--ink-2); text-decoration: none; border-radius: 6px; }
-  .nav-more-panel a:hover, .nav-link:hover { background: var(--panel-2); color: var(--ink); }
+  .nav-link:hover { background: var(--panel-2); color: var(--ink); }
   footer a { text-decoration: none; }
   .footer-h { font: 500 13px/1.6 'Geist', sans-serif; }
   .statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 18px; background: var(--card); box-shadow: var(--shadow-soft); }
@@ -570,7 +539,6 @@ const finalSchemas = schema
   #main [class*='shadow-[2px_2px_0_'], #main :is(.truth-box, .form-card, .feature-card, .contrib-card, .pull-quote, .friction-row, .pillar-row, .route-table, .compare-matrix, .watch-link) { border-radius: var(--r-md); box-shadow: var(--shadow-soft); }
   #main :is(.route-table, .compare-table, .compare-matrix, .data-list) { border-radius: var(--r-md); overflow: hidden; }
   #main :is(.watch-link, .friction-num, .pillar-icon, .check-list li) { border-radius: var(--r-sm); }
-  .nav-more-btn.has-current { color: var(--navy); font-weight: 600; }
   .button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 0 18px; height: 36px; border: 1px solid var(--navy); background: var(--navy); color: var(--on-accent); text-decoration: none; font-weight: 600; font-family: 'Geist Mono', monospace; font-size: 13px; cursor: pointer; box-shadow: var(--shadow-soft); transition: background 120ms ease, border-color 120ms ease, transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
   .button:active { transform: translate(1px, 1px); box-shadow: none; transition-duration: 60ms; }
   .button:disabled { background: var(--panel-2); color: var(--ink-2); border-color: var(--input-line); cursor: progress; transform: none; }
@@ -582,7 +550,7 @@ const finalSchemas = schema
     .button-outline:not(:disabled):hover { background: var(--panel-2); color: var(--navy); border-color: var(--navy-2); }
   }
   @media (max-width: 1000px) { .header-inner { gap: 16px; } .nav-links { gap: 2px; } .nav-link { font-size: 11px; padding-inline: 6px; } }
-  @media (max-width: 800px) {
+  @media (max-width: 1000px) {
     .site-header {
       top: 8px;
       width: calc(100% - 16px);
@@ -618,16 +586,13 @@ const finalSchemas = schema
       z-index: 49;
     }
     .nav-js .nav-links.nav-open { display: flex; }
-    .nav-js .nav-links.nav-open .nav-link,
-    .nav-js .nav-links.nav-open .nav-more {
+    .nav-js .nav-links.nav-open .nav-link {
       animation: nav-link-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
     }
     .nav-js .nav-links.nav-open .nav-link:nth-child(1) { animation-delay: 40ms; }
     .nav-js .nav-links.nav-open .nav-link:nth-child(2) { animation-delay: 90ms; }
     .nav-js .nav-links.nav-open .nav-link:nth-child(3) { animation-delay: 140ms; }
     .nav-js .nav-links.nav-open .nav-link:nth-child(4) { animation-delay: 190ms; }
-    .nav-js .nav-links.nav-open .nav-link:nth-child(5) { animation-delay: 240ms; }
-    .nav-js .nav-links.nav-open .nav-more { animation-delay: 290ms; }
 
     @keyframes nav-link-enter {
       from {
@@ -640,10 +605,6 @@ const finalSchemas = schema
       }
     }
     .nav-link { font-size: 15px; justify-content: flex-start; padding: 10px 14px; border-radius: 8px; }
-    .nav-more { min-width: 0; }
-    .nav-more-btn { width: 100%; }
-    .nav-more-panel { position: static; margin: 4px 0 6px 14px; border: 0; border-left: 2px solid var(--line); border-radius: 0; box-shadow: none; background: transparent; padding: 0 0 0 12px; }
-    .nav-more-panel a { font-size: 14px; padding: 8px 12px; }
   }
   @media (max-width: 400px) { .wordmark-name { font-size: 24px; } .nav-cta { padding-inline: 12px; font-size: 10px; } }
   .button, footer li a, .status-links a, .watch-link { min-height: 44px; }
