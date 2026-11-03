@@ -31,13 +31,16 @@ interface AuthAgg {
   required: boolean;
 }
 
+const escapeHtml = (value: string): string => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+const code = (value: string): string => `<code>${escapeHtml(value)}</code>`;
+
 function toField(agg: AuthAgg): ApiFieldView {
   const a = agg.view;
   const scopes = [...agg.scopes];
   const example = authExample(a);
   const parts = [
-    example ? `\`${example}\`` : "",
-    scopes.length > 0 ? `Scopes: ${scopes.map((s) => `\`${s}\``).join(", ")}` : "",
+    example ? code(example) : "",
+    scopes.length > 0 ? `Scopes: ${scopes.map(code).join(", ")}` : "",
   ].filter(Boolean);
   return {
     coordinate: `auth:${a.scheme}`,
@@ -48,7 +51,7 @@ function toField(agg: AuthAgg): ApiFieldView {
     children: [],
     childCount: 0,
     truncated: false,
-    description: parts.length > 0 ? parts.join(" · ") : undefined,
+    descriptionHtml: parts.length > 0 ? parts.join(" · ") : undefined,
   };
 }
 

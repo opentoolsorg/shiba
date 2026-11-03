@@ -30,6 +30,7 @@ interface PagefindApi {
 }
 
 let pagefind: PagefindApi | undefined;
+let initialization: Promise<void> | undefined;
 
 /**
  * Default Pagefind filters applied to every search.
@@ -54,6 +55,8 @@ const defaultFilters: PagefindFilters | undefined =
 export const provider: SearchProvider = {
   async init() {
     if (pagefind) return;
+    if (initialization) return initialization;
+    initialization = (async () => {
     // `searchIndex.bundle` is the site's bundle (`/pagefind/`, under the
     // base when there is one); a site built in slices (`NIMBUS_BUILD_ONLY`)
     // keeps each slice's bundle under its prefix, and `merge` names the other
@@ -70,6 +73,8 @@ export const provider: SearchProvider = {
     // collections' URLs answer 404 and are skipped.
     await mergeSearchIndexes(loaded, searchIndex.merge, { baseUrl });
     pagefind = loaded;
+    })();
+    try { await initialization; } finally { initialization = undefined; }
   },
 
   async search(query) {
