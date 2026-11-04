@@ -177,5 +177,8 @@ export async function resolveUserId(
   if (isBetterAuthConfigured(env)) {
     return resolveBetterAuthUserId(request, env);
   }
+  // Open preview dashboards share one synthetic owner across every route.
+  // Keep configured Access and Better Auth identities authoritative above.
+  if (env.OPEN_DASHBOARD === "1") return "default";
   return getUserId(request);
 }
