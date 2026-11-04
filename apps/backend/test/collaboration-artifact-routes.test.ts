@@ -33,6 +33,8 @@ vi.mock("agents/routing", () => ({
 
 const OWNER = "owner@example.test";
 const EXECUTOR = "Owner@Example.Test";
+const TEAM_SESSION = "11111111-1111-4111-8111-111111111111";
+const TEAM_EXECUTOR = `web:${EXECUTOR}:${TEAM_SESSION}`;
 const MEMBER = "member@example.test";
 const ROOM = `room_${"a".repeat(24)}`;
 const HANDOFF = "handoff-report";
@@ -91,7 +93,8 @@ async function fixture(withSelectedSource = false, teamWorkspace = false) {
     task = (await freezeCollaborationContext(env, roomScope, ROOM, HANDOFF, task, [], [{ id: note.id, version: note.version, sha256: note.sha256 }])).task;
     await bindCollaborationContextApproval(env, HANDOFF, APPROVAL, task);
   }
-  expect(await pinCollaborationHandoffExecutor(env, roomScope, HANDOFF, EXECUTOR)).toBe(true);
+  const executorName = teamWorkspace ? TEAM_EXECUTOR : EXECUTOR;
+  expect(await pinCollaborationHandoffExecutor(env, roomScope, HANDOFF, executorName)).toBe(true);
   expect(await linkCollaborationHandoffRun(env, roomScope, HANDOFF, APPROVAL, RUN)).toBe(true);
   const artifacts = await verifyExpectedDeliverables(["reports/report.md"], [{ path: "reports/report.md", content: TEXT, encoding: "utf8" }]);
   const deliverables = (await persistRunDeliverables(env, "sandbox-report", artifacts)).map((item) => ({
@@ -99,11 +102,12 @@ async function fixture(withSelectedSource = false, teamWorkspace = false) {
   }));
   const run: DelegatedRun = {
     runId: RUN, sandboxId: "sandbox-report", repoUrl: "https://github.com/example/repo", task, baseBranch: "main", publishPullRequest: false,
+    ...(teamWorkspace ? { orgId: `team:${roomScope.workspaceId}` } : {}),
     status: "completed", generation: 2, createdAt: 4, updatedAt: 6, customAgentId: "writer", customAgentVersion: 1,
     collaborationHandoffId: HANDOFF, expectedDeliverables: ["reports/report.md"], deliverables,
   };
   run.approval = { approvalId: APPROVAL, decidedBy: OWNER, decidedAt: 5, inputHash: runInputHash(run) };
-  state.runs.set(`${EXECUTOR}|${RUN}`, run);
+  state.runs.set(`${executorName}|${RUN}`, run);
   const refs = deliverables.map(({ path, artifactId, version, sha256 }, index) => ({ index, path, artifactId, version, sha256 }));
   expect(await createCollaborationAgentReply(env, roomScope, {
     messageId: `agent_reply_${HANDOFF}`, roomId: ROOM, handoffId: HANDOFF, runId: RUN, agentUserId: OWNER,
@@ -114,13 +118,57 @@ async function fixture(withSelectedSource = false, teamWorkspace = false) {
       Authorization: "Bearer fixture", "X-Fixture-User": user,
       "X-Agent-Principal": "agent:spoof", "X-Shiba-Intake": "forged", Cookie: "private-cookie", ...headers,
     } }), env);
-  return { env, sqlite, run, refs, note, get, objects, send, roomScope,
+  return { env, sqlite, run, refs, note, get, objects, send, roomScope, executorName,
     duringRead: (action: () => Promise<void> | void) => { duringRead = action; },
     storedBody: (value: Uint8Array, size = artifacts[0]!.bytes) => { storedBody = value; reportedSize = size; },
   };
 }
 
 describe("membership-bound collaboration artifact downloads", () => {
+  it("downloads from only the saved isolated team executor without forwarding browser routing claims", async () => {
+    const f = await fixture(true, true);
+    const response = await f.send(MEMBER, undefined, { "X-Shiba-Workspace": f.roomScope.workspaceId,
+      "x-shiba-executor": OWNER, "x-shiba-room-session": "default" });
+    expect(response?.status).toBe(200);
+    expect(await response!.text()).toBe(TEXT);
+    expect(state.names).toEqual([TEAM_EXECUTOR]);
+    expect(response!.headers.has("location")).toBe(false);
+    for (const request of state.requests) {
+      expect(request.headers.has("x-shiba-executor")).toBe(false);
+      expect(request.headers.has("x-shiba-room-session")).toBe(false);
+      expect((await verifyInternalRequest(request, f.env)).ok).toBe(true);
+    }
+  });
+
+  it.each([OWNER, EXECUTOR, null, `web:attacker@example.test:${TEAM_SESSION}`, `web:${OWNER}:default`, `web:${OWNER}:not-a-session`])(
+    "rejects a base, missing or forged team artifact executor pin %s", async (pin) => {
+      const f = await fixture(false, true);
+      f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=?").run(pin);
+      expect((await f.send(MEMBER, undefined, { "X-Shiba-Workspace": f.roomScope.workspaceId }))?.status).toBe(404);
+      expect(state.names).toHaveLength(0);
+      expect(f.get).not.toHaveBeenCalled();
+    });
+
+  it("does not fall back to a base-owner run when the isolated artifact run is missing", async () => {
+    const f = await fixture(false, true);
+    state.runs.delete(`${TEAM_EXECUTOR}|${RUN}`); state.runs.set(`${EXECUTOR}|${RUN}`, f.run);
+    expect((await f.send(MEMBER, undefined, { "X-Shiba-Workspace": f.roomScope.workspaceId }))?.status).toBe(404);
+    expect(state.names).toEqual([TEAM_EXECUTOR]);
+    expect(f.get).not.toHaveBeenCalled();
+  });
+
+  it.each(["room-grant", "executor-pin"])("rechecks a changed team %s after the artifact body await", async (change) => {
+    const f = await fixture(true, true);
+    f.duringRead(() => {
+      if (change === "room-grant") f.sqlite.prepare("UPDATE collaboration_memberships SET status='removed' WHERE workspace_id=? AND actor_id=?").run(f.roomScope.workspaceId, humanActorId(MEMBER));
+      else f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=?").run(`web:${EXECUTOR}:22222222-2222-4222-8222-222222222222`);
+    });
+    const response = await f.send(MEMBER, undefined, { "X-Shiba-Workspace": f.roomScope.workspaceId });
+    expect(response?.status).toBe(404);
+    expect(await response!.text()).not.toContain(TEXT);
+    expect(f.get).toHaveBeenCalledOnce();
+  });
+
   it("binds team downloads to the selected workspace and rechecks membership after the body read", async () => {
     const f = await fixture(true, true);
     const ws = f.roomScope.workspaceId;

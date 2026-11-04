@@ -1,5 +1,6 @@
 import {
   authorizeCollaborationAction,
+  isTeamWorkspaceId,
   type CollaborationActor,
   type CollaborationHandoffEnvelope,
   type CollaborationMembership,
@@ -13,6 +14,7 @@ import {
 } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import { randomHex } from "./mailbox-store.js";
+import { collaborationExecutorIdentity, mintCollaborationExecutor } from "./collaboration-executor.js";
 import {
   addCollaborationMember,
   collaborationEmployeeOrgId,
@@ -128,7 +130,8 @@ async function handoffExecutor(
   handoff: CollaborationHandoffRow,
   authenticatedUserId: string,
 ): Promise<string | null> {
-  if (handoff.executorAgentName) return handoff.executorAgentName;
+  // Explicit team runs never probe an owner/base DO, including unpinned historical rows.
+  if (isTeamWorkspaceId(handoff.workspaceId) || handoff.executorAgentName) return collaborationExecutorIdentity(handoff)?.agentName ?? null;
   if (!handoff.approvalId || !handoff.runId) return null;
   const candidates = new Set([handoff.senderUserId]);
   if (authenticatedUserId.trim().toLowerCase() === handoff.senderUserId) candidates.add(authenticatedUserId);
@@ -1233,9 +1236,23 @@ export async function handleCollaboration(
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose a paired computer for local employee work.");
         }
-        const executorAgentName = saved.executorAgentName ?? resolvedUserId;
+        let executorAgentName = saved.executorAgentName ?? mintCollaborationExecutor(scope, resolvedUserId);
+        if (!collaborationExecutorIdentity({ ...saved, executorAgentName })) {
+          return json({ error: "This handoff has no safe executor. Create a new room request." }, 409);
+        }
+        // Pin before any DO lookup. Concurrent retries must adopt the winning immutable pin.
         if (!(await pinCollaborationHandoffExecutor(env, scope, saved.handoffId, executorAgentName))) {
-          return json({ error: "Handoff executor changed. Reload the room before retrying." }, 409);
+          const winner = await getCollaborationHandoff(env, scope, saved.handoffId);
+          const identity = winner && collaborationExecutorIdentity(winner);
+          if (!winner || !identity || winner.status !== "active" || winner.roomId !== saved.roomId ||
+              winner.senderUserId !== scope.userId || winner.senderActorId !== saved.senderActorId ||
+              winner.recipientActorId !== saved.recipientActorId || winner.recipientUserId !== saved.recipientUserId ||
+              winner.profileVersion !== saved.profileVersion || winner.taskId !== saved.taskId ||
+              !await pinCollaborationHandoffExecutor(env, scope, winner.handoffId, identity.agentName)) {
+            return json({ error: "Handoff executor changed. Reload the room before retrying." }, 409);
+          }
+          saved = winner;
+          executorAgentName = identity.agentName;
         }
         saved.executorAgentName = executorAgentName;
         const frozenContext = await freezeCollaborationContext(env, scope, roomId, saved.handoffId, task, body.contextMessageIds, body.memoryRefs);

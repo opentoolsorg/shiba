@@ -1,6 +1,7 @@
 import { isApprovalExpired, isTeamWorkspaceId, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, runInputHash, type PendingApproval } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
+import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 import { canReadCollaborationRoom } from "./collaboration-room-access.js";
 import { collaborationEmployeeOrgId, getCollaborationHandoff, getCollaborationMembership, humanActorId, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
 import { getCustomAgentById, getCustomAgentVersion } from "./custom-agents-store.js";
@@ -35,15 +36,16 @@ async function decisionBody(request: Request): Promise<{ expectedInputHash: stri
 }
 
 function ownsHandoff(handoff: CollaborationHandoffRow | null, scope: CollaborationScope, owner: string, roomId: string): handoff is CollaborationHandoffRow {
+  const executor = handoff && collaborationExecutorIdentity(handoff);
   return Boolean(handoff && handoff.status === "active" && handoff.tenantId === scope.tenantId && handoff.workspaceId === scope.workspaceId &&
     handoff.roomId === roomId && handoff.senderUserId === scope.userId && handoff.senderActorId === humanActorId(scope.userId) &&
-    handoff.executorAgentName === owner && !owner.includes(":") && handoff.approvalId && handoff.runId === `agent-tool:${handoff.approvalId}` &&
+    executor && executor.ownerId.toLowerCase() === owner.trim().toLowerCase() && handoff.approvalId && handoff.runId === `agent-tool:${handoff.approvalId}` &&
     handoff.recipientActorId.startsWith("agent:") && handoff.recipientActorId.length > 6 &&
     Number.isSafeInteger(handoff.profileVersion) && Number(handoff.profileVersion) > 0);
 }
 
-function boundApproval(approval: PendingApproval | undefined, scope: CollaborationScope, owner: string, handoff: CollaborationHandoffRow): approval is PendingApproval {
-  return Boolean(approval && approval.approvalId === handoff.approvalId && approval.threadKey === owner &&
+function boundApproval(approval: PendingApproval | undefined, scope: CollaborationScope, executorName: string, handoff: CollaborationHandoffRow): approval is PendingApproval {
+  return Boolean(approval && approval.approvalId === handoff.approvalId && approval.threadKey === executorName &&
     (approval.kind === undefined || approval.kind === "run") && approval.status === "pending" && !isApprovalExpired(approval, Date.now()) &&
     approval.orgId === collaborationEmployeeOrgId(scope) && approval.collaborationHandoffId === handoff.handoffId &&
     approval.customAgentId === handoff.recipientActorId.slice(6) && approval.customAgentVersion === handoff.profileVersion &&
@@ -59,6 +61,7 @@ async function current(request: Request, env: Env, scope: CollaborationScope, ow
   const member = await getCollaborationMembership(env, scope, original.roomId, humanActorId(scope.userId));
   if (!member || member.actorKind !== "human" || !member.capabilities.includes("approval.decide")) return false;
   if (!ownsHandoff(handoff, scope, owner, original.roomId) || handoff.approvalId !== original.approvalId ||
+    handoff.executorAgentName !== original.executorAgentName || handoff.runId !== original.runId ||
     handoff.profileVersion !== original.profileVersion || handoff.recipientActorId !== original.recipientActorId ||
     handoff.recipientUserId !== original.recipientUserId || handoff.rootHandoffId !== original.rootHandoffId) return false;
   const profile = await getCustomAgentById(env, collaborationEmployeeOrgId(scope), approval.customAgentId!);
@@ -91,16 +94,18 @@ export async function handleCollaborationApproval(request: Request, env: Env): P
       !await canReadCollaborationRoom(env, { ...scope, roomId: match[1]! }, scope.userId)) return unavailable(404);
     const handoff = await getCollaborationHandoff(env, scope, match[2]!);
     if (!ownsHandoff(handoff, scope, owner, match[1]!)) return unavailable(404);
+    const executor = collaborationExecutorIdentity(handoff);
+    if (!executor) return unavailable(404);
     const member = await getCollaborationMembership(env, scope, handoff.roomId, humanActorId(scope.userId));
     if (!member || member.actorKind !== "human" || !member.capabilities.includes("approval.decide")) return unavailable(404);
-    const stub = await getAgentByName(env.CodingOrchestrator, owner);
+    const stub = await getAgentByName(env.CodingOrchestrator, executor.agentName);
     const lookup = new Request("https://internal/api/approvals", { headers: { [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD } });
     await signInternalRequest(lookup, env);
     const found = await stub.fetch(lookup); if (!found.ok) return unavailable(503);
     const body = await found.json() as { approvals?: PendingApproval[] };
     const candidates = body.approvals?.filter((item) => item.approvalId === handoff.approvalId) ?? [];
     const approval = candidates.length === 1 ? candidates[0] : undefined;
-    if (!boundApproval(approval, scope, owner, handoff) || !await current(request, env, scope, owner, handoff, approval)) return unavailable();
+    if (!boundApproval(approval, scope, executor.agentName, handoff) || !await current(request, env, scope, owner, handoff, approval)) return unavailable();
     const inputHash = runInputHash({ ...approval, baseBranch: approval.baseBranch ?? "main", publishPullRequest: approval.publishPullRequest ?? false });
     if (!decision) {
       const { envSealed: _sealed, ...publicApproval } = approval;
@@ -109,7 +114,7 @@ export async function handleCollaborationApproval(request: Request, env: Env): P
     if (decision.expectedInputHash !== inputHash) return unavailable();
     const resolve = new Request("https://internal/api/approvals", { method: "POST", headers: {
       "Content-Type": "application/json", [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }, body: JSON.stringify({
-      threadKey: owner, approvalId: approval.approvalId, approved: decision.approved, decidedBy: owner,
+      threadKey: executor.agentName, approvalId: approval.approvalId, approved: decision.approved, decidedBy: owner,
       source: "dashboard", expectedInputHash: inputHash,
     }) });
     await signInternalRequest(resolve, env);

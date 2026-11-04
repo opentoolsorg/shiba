@@ -38,6 +38,28 @@ afterEach(() => {
 });
 
 describe("shared collaboration room realtime", () => {
+  it("publishes only normalized cursor presence at 10Hz, clears on leave and strips claimed identity", () => {
+    vi.useFakeTimers();
+    const { sockets, hook } = fixture(); act(() => sockets[0]!.open()); const socket = sockets[0]!; socket.sent = [];
+    act(() => { for (let index = 0; index < 100; index++) hook.result.current.publishCursor({ x: .2, y: .7 }); });
+    expect(socket.sent.map((raw) => JSON.parse(raw))).toEqual([{ type: "client_presence", cursor: { x: .2, y: .7 } }]);
+    act(() => { vi.advanceTimersByTime(100); hook.result.current.publishCursor({ x: .5, y: .5, actorId: "forged" } as { x: number; y: number }); hook.result.current.publishCursor(null); hook.result.current.publishCursor(null); });
+    expect(socket.sent.map((raw) => JSON.parse(raw))).toEqual([{ type: "client_presence", cursor: { x: .2, y: .7 } }, { type: "client_presence", cursor: { x: .5, y: .5 } }, { type: "client_presence", cursor: null }]);
+    act(() => hook.result.current.publishCursor({ x: -1, y: .5 })); expect(socket.sent).toHaveLength(3);
+  });
+  it("receives bounded authenticated cursors, rejects malformed positions and clears on membership loss", () => {
+    const { sockets, hook } = fixture(); act(() => sockets[0]!.open());
+    const viewer = { viewerId: "11111111-1111-4111-8111-111111111111", label: "member@example.test", typing: false, cursor: { x: .25, y: .75 } };
+    act(() => sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-a", viewers: [viewer] })); expect(hook.result.current.viewers[0]?.cursor).toEqual({ x: .25, y: .75 });
+    act(() => sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-a", viewers: [{ ...viewer, cursor: { x: 100, y: .5 } }] })); expect(hook.result.current.viewers[0]?.cursor).toEqual({ x: .25, y: .75 });
+    act(() => sockets[0]!.close(1008)); expect(hook.result.current.viewers).toEqual([]);
+  });
+  it("never sends an old workspace cursor or renders its late frame after switching", () => {
+    const { sockets, hook, initial } = fixture(); act(() => sockets[0]!.open()); const oldPublish = hook.result.current.publishCursor;
+    hook.rerender({ ...initial, workspaceId: `ws_${"a".repeat(24)}` }); act(() => sockets[1]!.open()); sockets[1]!.sent = [];
+    act(() => { oldPublish({ x: .5, y: .5 }); sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-a", viewers: [{ viewerId: "11111111-1111-4111-8111-111111111111", label: "old-workspace@example.test", typing: false, cursor: { x: .5, y: .5 } }] }); });
+    expect(sockets[1]!.sent).toEqual([]); expect(hook.result.current.viewers).toEqual([]);
+  });
   it("reloads durable content on connection and invalidation, while publishing only presence", () => {
     const { sockets, hook, onRefresh, initial } = fixture();
     const socket = sockets[0]!;

@@ -644,10 +644,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const verifiedAccount = useRef<string | null>(null);
   const retryIdentity = useCallback(() => setIdentityAttempt((n) => n + 1), []);
   const signedIn = orchestratorName !== null && identityIssue === null;
-  const teamDirectory = useTeamWorkspaceDirectory({ actorId: signedIn ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: signedIn });
+  const teamIdentityAvailable = signedIn && /^[^\s@:]+@[^\s@:]+\.[^\s@:]+$/.test(orchestratorName ?? "");
+  const teamDirectory = useTeamWorkspaceDirectory({ actorId: teamIdentityAvailable ? orchestratorName?.trim().toLowerCase() ?? null : null, enabled: teamIdentityAvailable });
+  const workspaceAuthorityReady = !teamIdentityAvailable || teamDirectory.verified;
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
-  const privateDataEnabled = signedIn && teamDirectory.verified && !teamDirectory.error && !teamWorkspaceId && !restrictedTeamMember;
+  const privateDataEnabled = signedIn && workspaceAuthorityReady && !teamDirectory.error && !teamWorkspaceId && !restrictedTeamMember;
   setSavedLibraryActor(privateDataEnabled ? orchestratorName : null);
   const savedRepos = useSavedRepos(privateDataEnabled ? orchestratorName : null);
   const savedSkills = useSavedSkills(privateDataEnabled ? orchestratorName : null);
@@ -717,7 +719,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     refresh: refreshCustomAgents,
     loading: customAgentsLoading,
     error: customAgentsError,
-  } = useCustomAgentOptions(signedIn && teamDirectory.verified && !teamDirectory.error, teamWorkspaceId || undefined, orchestratorName ?? undefined);
+  } = useCustomAgentOptions(signedIn && workspaceAuthorityReady && !teamDirectory.error, teamWorkspaceId || undefined, orchestratorName ?? undefined);
   const customAgentPickerOptions = useMemo(
     () =>
       customAgentRecords.map((agent) => ({
@@ -2069,8 +2071,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
   // Model-by-purpose config: connections + the coding-purpose suggestion list.
-  const modelConfig = useModelConfig(signedIn && teamDirectory.verified && !restrictedTeamMember);
-  const agentsDirectory = useAgentsDirectory(signedIn && teamDirectory.verified && !restrictedTeamMember);
+  const modelConfig = useModelConfig(signedIn && workspaceAuthorityReady && !restrictedTeamMember);
+  const agentsDirectory = useAgentsDirectory(signedIn && workspaceAuthorityReady && !restrictedTeamMember);
   const modelConnections = useMemo(
     () =>
       modelConfig.state.kind === "data"
@@ -2727,7 +2729,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onLegacyGuide={() => { setShowFirstRun(false); setShowLegacyFirstRun(true); }}
               onConfigureEmployee={(templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); }}
               onUseDraft={applyOnboardingDraft} employees={customAgentRecords} draftScope={orchestratorName ?? undefined} />
-          ) : signedIn && (!teamDirectory.verified || teamDirectory.error) && mainView !== "team" ? (
+          ) : teamIdentityAvailable && (!teamDirectory.verified || teamDirectory.error) && mainView !== "team" ? (
             <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Workspace verification"><h1 className="text-xl font-medium">{teamDirectory.loading ? "Checking workspace access…" : "Workspace access could not be verified"}</h1>{teamDirectory.error ? <><p className="mt-3 text-[var(--muted-foreground-2)]">{teamDirectory.error}</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => { void teamDirectory.refresh(); }}>Retry workspace access</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => teamDirectory.selectWorkspace("")}>Open personal workspace</button></> : <p role="status" className="mt-3">Your selected workspace is being checked before conversations load.</p>}</section>
           ) : restrictedTeamMember && !teamWorkspaceId && !["team", "providers", "memory"].includes(mainView) ? (
             <TeamWorkspaceView actorId={orchestratorName?.trim().toLowerCase() ?? null} invitationToken={invitationToken}

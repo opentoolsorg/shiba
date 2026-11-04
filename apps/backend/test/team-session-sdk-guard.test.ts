@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { Env } from "../src/env.js";
+import { mintCollaborationExecutor } from "../src/collaboration-executor.js";
 
 const state = vi.hoisted(() => ({ session: null as { id: string; userId: string; metadata?: Record<string, unknown> } | null,
   names: [] as string[], forwarded: [] as Request[] }));
@@ -42,6 +43,18 @@ async function send(owner = OWNER, selected = "") {
 }
 
 describe("private team sessions cannot use legacy SDK routing", () => {
+  it("denies a known server-only executor address and child route because no private session registry entry exists", async () => {
+    const serverExecutor = mintCollaborationExecutor({ tenantId: "self-hosted", workspaceId: `ws_${"a".repeat(24)}`, userId: OWNER }, OWNER);
+    state.session = null; // The server-only address is deliberately never registered.
+    for (const suffix of ["", "/sub/OpenCodeAgent/guessed-child"]) {
+      const response = await worker.fetch(new Request(`https://dashboard.test/agents/coding-orchestrator/${encodeURIComponent(serverExecutor)}${suffix}`, {
+        headers: { ...await cookieHeaders(OWNER), Upgrade: "websocket", Origin: "https://dashboard.test" },
+      }), env);
+      expect(response.status).toBe(404);
+    }
+    expect(state.names).toEqual([OWNER, OWNER]);
+    expect(state.forwarded).toHaveLength(0);
+  });
   it.each([
     { orgId: `team:ws_${"a".repeat(24)}` },
     { teamWorkspaceId: `ws_${"a".repeat(24)}` },

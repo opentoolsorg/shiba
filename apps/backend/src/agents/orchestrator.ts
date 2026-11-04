@@ -2558,6 +2558,9 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     projectContextId?: unknown;
     collaborationHandoffId?: unknown;
   }, taskLimit = MAX_APPROVED_TASK_CHARS, childFields?: { parentRunId: string; subagentPath: string; subagentSandbox: "fresh" }, trustedSlackOrigin?: string): Promise<Response> {
+    if (input.collaborationHandoffId !== undefined && [input.draftTaskId, input.draftTaskVersion,
+      input.onboardingSourceSnapshot, input.projectContextId].some((value) => value !== undefined))
+      return Response.json({ error: "Room execution accepts only its explicitly selected shared context, never private onboarding or project context." }, { status: 403 });
     if (trustedSlackOrigin && (input.threadKey !== trustedSlackOrigin || parseSlackCanvasOrigin(trustedSlackOrigin)?.orchestratorName !== this.name)) {
       return Response.json({ error: "Slack origin does not match this conversation." }, { status: 403 });
     }
@@ -2594,6 +2597,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(requestedTeamOrg ? { expectedWorkspaceId: String(input.orgId).slice("team:".length) } : {}),
       });
       if (!scope) return Response.json({ error: "Team handoff authority changed. Create a new room request." }, { status: 403 });
+      if (input.threadKey !== this.name)
+        return Response.json({ error: "Team approval ownership must match its isolated execution conversation." }, { status: 403 });
       intakeOrgId = scope.orgId;
     }
     const kind = typeof input.kind === "string" && input.kind.trim() ? input.kind.trim() : "run";
@@ -3562,15 +3567,34 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const expectedInputHash = body.expectedInputHash;
     if (expectedInputHash !== undefined && this.frozenRunApprovalHash(approvalId) !== expectedInputHash)
       return Response.json({ error: "Approval input changed. Reload the exact pending action." }, { status: 409 });
+    const storedApproval = this.approvals.find((record) => record.approvalId === approvalId && record.threadKey === threadKey);
+    const isTeamApproval = Boolean(storedApproval?.orgId?.startsWith("team:") && storedApproval.collaborationHandoffId);
+    if (isTeamApproval && typeof rawDecidedBy === "string" &&
+        (rawDecidedBy !== rawDecidedBy.trim() || rawDecidedBy.length > 254))
+      return Response.json({ error: "Invalid team decision identity." }, { status: 403 });
     const decidedBy =
       typeof rawDecidedBy === "string" && rawDecidedBy.trim()
-        ? rawDecidedBy.slice(0, 200)
+        ? rawDecidedBy.slice(0, isTeamApproval ? 254 : 200)
         : "unknown";
-    const storedApproval = this.approvals.find((record) => record.approvalId === approvalId && record.threadKey === threadKey);
+    const teamHumanDecision = Boolean(isTeamApproval &&
+      !(approved === false && (decidedBy === "task-cancel" || decidedBy === "collaboration-cancellation" || decidedBy.startsWith("system:"))));
+    const teamDecisionCurrent = async (): Promise<boolean> => {
+      if (!storedApproval?.collaborationHandoffId || !storedApproval.customAgentId || !storedApproval.customAgentVersion ||
+          source !== "dashboard" || expectedInputHash === undefined || threadKey !== this.name) return false;
+      return Boolean(await resolveTeamHandoffRunScope(this.env, {
+        handoffId: storedApproval.collaborationHandoffId, actorId: decidedBy, executorAgentName: this.name!,
+        employeeId: storedApproval.customAgentId, employeeVersion: storedApproval.customAgentVersion,
+        approvalId, task: storedApproval.task, expectedWorkspaceId: storedApproval.orgId!.slice("team:".length),
+      }));
+    };
+    if (teamHumanDecision && !await teamDecisionCurrent())
+      return Response.json({ error: "Team approval ownership or room access changed." }, { status: 403 });
     const forbidden = approvalResolveForbidden(this.env, {
       threadKey,
       approved,
-      decidedBy,
+      // Only a current, hash-bound room decision can compare canonical human
+      // identity across Access email casing. Persist the actual decider below.
+      decidedBy: teamHumanDecision ? initiatorUserIdFromOrchestratorName(this.name)! : decidedBy,
       source,
       ...(storedApproval && threadKey.startsWith("acp:")
         ? { ownedAcpApproval: { orchestratorName: this.name, threadKey: storedApproval.threadKey } }
@@ -3639,6 +3663,11 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     // Availability and reclaim checks yielded; another resolve may have won.
     const committed = this.commandReceipt(commandId);
     if (committed?.threadKey === threadKey) return Response.json({ result: committed.outcome });
+    if (teamHumanDecision && !await teamDecisionCurrent())
+      return Response.json({ error: "Team approval ownership or room access changed." }, { status: 403 });
+    // The final authority lookup also yielded; preserve a decision committed while it ran.
+    const committedAfterAuthority = this.commandReceipt(commandId);
+    if (committedAfterAuthority?.threadKey === threadKey) return Response.json({ result: committedAfterAuthority.outcome });
     const now = Date.now();
     if (expectedInputHash !== undefined && this.frozenRunApprovalHash(approvalId) !== expectedInputHash)
       return Response.json({ error: "Approval input changed. Reload the exact pending action." }, { status: 409 });

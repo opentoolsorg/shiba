@@ -276,7 +276,7 @@ export class ConversationRoom extends DurableObject<Env> {
     } satisfies RoomSocketAttachment);
     this.ctx.acceptWebSocket(server);
     const sockets = [...authorized, server];
-    this.send(server, { type: "collaboration:snapshot", roomId: identity.roomId, viewers: this.collaborationViewers(sockets) });
+    this.send(server, { type: "collaboration:snapshot", roomId: identity.roomId, selfViewerId: viewerId, viewers: this.collaborationViewers(sockets) });
     this.broadcastCollaborationPresence(sockets, identity.roomId);
     await this.scheduleMaintenanceAlarm();
     return new Response(null, { status: 101, webSocket: client });
@@ -310,12 +310,12 @@ export class ConversationRoom extends DurableObject<Env> {
     return authorized;
   }
 
-  private collaborationViewers(sockets: WebSocket[]): Array<{ viewerId: string; label: string; typing: boolean }> {
-    const viewers = new Map<string, { viewerId: string; label: string; typing: boolean }>();
+  private collaborationViewers(sockets: WebSocket[]): Array<{ viewerId: string; label: string; typing: boolean; cursor: RoomCursor | null }> {
+    const viewers = new Map<string, { viewerId: string; label: string; typing: boolean; cursor: RoomCursor | null }>();
     for (const socket of sockets) {
       const attachment = attachmentFor(socket);
       if (!attachment?.collaboration) continue;
-      viewers.set(attachment.viewerId, { viewerId: attachment.viewerId, label: attachment.actorId, typing: attachment.typing && attachment.typingAt + TYPING_TTL_MS > Date.now() });
+      viewers.set(attachment.viewerId, { viewerId: attachment.viewerId, label: attachment.actorId, typing: attachment.typing && attachment.typingAt + TYPING_TTL_MS > Date.now(), cursor: attachment.cursor && attachment.cursorAt + CURSOR_TTL_MS > Date.now() ? attachment.cursor : null });
     }
     return [...viewers.values()];
   }
@@ -333,12 +333,27 @@ export class ConversationRoom extends DurableObject<Env> {
     let event: unknown;
     try { event = JSON.parse(raw); } catch { this.send(socket, { type: "error", error: "Invalid room event." }); return; }
     if (isRecord(event) && event.type === "ping") { this.send(socket, { type: "pong" }); return; }
-    if (!isRecord(event) || event.type !== "client_presence" || typeof event.typing !== "boolean") {
+    if (!isRecord(event) || event.type !== "client_presence") {
       this.send(socket, { type: "error", error: "Shared room sockets only accept presence. Use the authenticated room actions." });
       return;
     }
-    socket.serializeAttachment({ ...attachment, typing: event.typing, typingAt: event.typing ? Date.now() : 0 } satisfies RoomSocketAttachment);
-    this.broadcastCollaborationPresence(authorized, attachment.collaboration!.roomId);
+    const hasTyping = typeof event.typing === "boolean", hasCursor = Object.hasOwn(event, "cursor");
+    if ((!hasTyping && !hasCursor) || hasCursor && event.cursor !== null && (!isCursor(event.cursor) || Object.keys(event.cursor).some((key) => key !== "x" && key !== "y"))) {
+      this.send(socket, { type: "error", error: "Invalid room presence." }); return;
+    }
+    // Authorization yielded. Read the current attachment before throttling so
+    // concurrent frames cannot reuse an older cursor timestamp.
+    const latest = attachmentFor(socket);
+    if (!latest?.collaboration || socket.readyState !== 1) return;
+    const now = Date.now();
+    const updateCursor = hasCursor && (event.cursor === null ? latest.cursor !== null : now - latest.cursorAt >= CURSOR_INTERVAL_MS);
+    if (hasCursor && event.cursor !== null && !updateCursor) return;
+    if (!hasTyping && !updateCursor) return;
+    socket.serializeAttachment({ ...latest,
+      ...(hasTyping ? { typing: Boolean(event.typing), typingAt: event.typing ? now : 0 } : {}),
+      ...(updateCursor ? { cursor: event.cursor === null ? null : { x: (event.cursor as RoomCursor).x, y: (event.cursor as RoomCursor).y }, cursorAt: now } : {}),
+    } satisfies RoomSocketAttachment);
+    this.broadcastCollaborationPresence(authorized, latest.collaboration.roomId);
     await this.scheduleMaintenanceAlarm();
   }
 

@@ -7,7 +7,8 @@ import {
 import { canReadCollaborationRoom } from "./collaboration-room-access.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { getCustomAgentVersion } from "./custom-agents-store.js";
-import { isCollaborationContextQueueable } from "./collaboration-context.js";
+import { isCollaborationApprovalDispatchable, isCollaborationContextQueueable } from "./collaboration-context.js";
+import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 
 export async function teamHandoffWorkspaceId(env: Env, handoffId: string): Promise<string | null> {
   if (!env.AGENT_AUDIT) return null;
@@ -24,7 +25,7 @@ export async function teamHandoffWorkspaceId(env: Env, handoffId: string): Promi
 /** Derive team authority from the saved handoff, independently of client headers/body org labels. */
 export async function resolveTeamHandoffRunScope(env: Env, input: {
   handoffId: string; actorId: string; executorAgentName: string; employeeId: string; employeeVersion: number;
-  task: string; expectedWorkspaceId?: string;
+  task: string; expectedWorkspaceId?: string; approvalId?: string;
 }): Promise<{ orgId: string; workspaceId: string } | null> {
   if (!env.AGENT_AUDIT || !input.actorId || !input.employeeId || !Number.isSafeInteger(input.employeeVersion)) return null;
   try {
@@ -34,7 +35,9 @@ export async function resolveTeamHandoffRunScope(env: Env, input: {
     if (!await getTeamWorkspaceMembership(env, workspaceId, userId)) return null;
     const scope = { tenantId: COLLAB_TENANT_ID, workspaceId, userId };
     const handoff = await getCollaborationHandoff(env, scope, input.handoffId);
+    const executor = handoff ? collaborationExecutorIdentity(handoff) : null;
     if (!handoff || handoff.status !== "active" || handoff.senderUserId !== userId ||
+        !executor || executor.ownerId.trim().toLowerCase() !== userId || executor.agentName !== input.executorAgentName ||
         handoff.senderActorId !== humanActorId(userId) || handoff.executorAgentName !== input.executorAgentName ||
         handoff.recipientActorId !== `agent:${input.employeeId}` || handoff.profileVersion !== input.employeeVersion) return null;
     const [sender, recipient, profile] = await Promise.all([
@@ -47,8 +50,12 @@ export async function resolveTeamHandoffRunScope(env: Env, input: {
         recipient.userId !== handoff.recipientUserId || recipient.profileVersion !== input.employeeVersion ||
         !profile || profile.version !== input.employeeVersion ||
         !await getTeamWorkspaceMembership(env, workspaceId, recipient.userId) ||
-        !await canReadCollaborationRoom(env, { ...scope, roomId: handoff.roomId }, userId) ||
-        !await isCollaborationContextQueueable(env, scope, handoff.roomId, handoff.handoffId, input.task)) return null;
+        !await canReadCollaborationRoom(env, { ...scope, roomId: handoff.roomId }, userId)) return null;
+    const contextCurrent = input.approvalId
+      ? await isCollaborationApprovalDispatchable(env, { handoffId: input.handoffId, approvalId: input.approvalId,
+        employeeId: input.employeeId, employeeVersion: input.employeeVersion, task: input.task })
+      : await isCollaborationContextQueueable(env, scope, handoff.roomId, handoff.handoffId, input.task);
+    if (!contextCurrent) return null;
     return { orgId: collaborationEmployeeOrgId(scope), workspaceId };
   } catch { return null; }
 }

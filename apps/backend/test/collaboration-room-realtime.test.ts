@@ -17,7 +17,7 @@ vi.mock("../src/request-auth.js", () => ({
 
 const databases: DatabaseSync[] = [];
 beforeEach(() => { auth.userId = "owner@example.test"; auth.authorized = true; });
-afterEach(() => { for (const database of databases.splice(0)) database.close(); vi.unstubAllGlobals(); });
+afterEach(() => { for (const database of databases.splice(0)) database.close(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const identity = { tenantId: "self-hosted", workspaceId: "default", roomId: "room_111111111111111111111111" };
 const scope = { tenantId: identity.tenantId, workspaceId: identity.workspaceId, userId: "owner@example.test" };
 
@@ -46,9 +46,9 @@ async function fixture() {
     acceptWebSocket: (socket: Socket) => { sockets.push(socket); },
   } as unknown as DurableObjectState;
   const room = new ConversationRoom(ctx, env);
-  const addSocket = async (userId: string, nonce = "22222222-2222-4222-8222-222222222222") => {
+  const addSocket = async (userId: string, nonce = "22222222-2222-4222-8222-222222222222", roomIdentity = identity) => {
     const socket = new Socket();
-    socket.serializeAttachment({ ownerId: "collaboration:self-hosted:default", actorId: userId, sessionId: identity.roomId, viewerId: await authenticatedRoomViewerId(userId, nonce), joinedAt: 1, typing: false, typingAt: 0, connectionId: crypto.randomUUID(), cursor: null, cursorAt: 0, collaboration: identity });
+    socket.serializeAttachment({ ownerId: `collaboration:${roomIdentity.tenantId}:${roomIdentity.workspaceId}`, actorId: userId, sessionId: roomIdentity.roomId, viewerId: await authenticatedRoomViewerId(userId, nonce), joinedAt: 1, typing: false, typingAt: 0, connectionId: crypto.randomUUID(), cursor: null, cursorAt: 0, collaboration: roomIdentity });
     sockets.push(socket);
     return socket;
   };
@@ -60,6 +60,63 @@ function upgrade(extra: Record<string, string> = {}, origin = "https://worker.te
 }
 
 describe("authenticated shared-room realtime", () => {
+  it("shares normalized cursors across authenticated members using only server-owned identity", async () => {
+    const { room, addSocket, db } = await fixture();
+    const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .25, y: .75 }, actorId: scope.userId, viewerId: "forged-owner" }));
+    const viewers = owner.events.at(-1)?.viewers as Array<{ viewerId: string; label: string; cursor: unknown }>;
+    expect(viewers).toContainEqual(expect.objectContaining({ viewerId: (teammate.deserializeAttachment() as { viewerId: string }).viewerId, label: "teammate@example.test", cursor: { x: .25, y: .75 } }));
+    expect(viewers.find((viewer) => viewer.label === scope.userId)?.cursor).toBeNull();
+    expect(db.prepare("SELECT COUNT(*) AS count FROM room_messages").get()?.count).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM room_run_events").get()?.count).toBe(0);
+  });
+  it("rejects malformed/out-of-bounds cursor frames and an unattached sender", async () => {
+    const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    for (const cursor of [{ x: -1, y: .5 }, { x: .5, y: 2 }, { x: null, y: .5 }, { x: .5 }, { x: .5, y: .5, command: "execute" }, "position"]) {
+      await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor }));
+    }
+    expect(teammate.events.every((event) => event.type === "error")).toBe(true); expect(owner.events).toEqual([]);
+    const anonymous = new Socket(); await room.webSocketMessage(anonymous as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .5, y: .5 } }));
+    expect(anonymous.close).toHaveBeenCalledWith(1008, "Room identity is unavailable.");
+  });
+  it("bounds movement publication and clears cursors on leave, expiry and offline", async () => {
+    const { room, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now);
+    for (let index = 0; index < 30; index++) await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .25, y: .75 } }));
+    for (let index = 0; index < 30; index++) await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", typing: index % 2 === 0, cursor: { x: .5, y: .5 } }));
+    expect(owner.events).toHaveLength(1);
+    now += 100; await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .5, y: .5 } })); expect(owner.events).toHaveLength(2);
+    await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: null }));
+    expect((owner.events.at(-1)?.viewers as Array<{ cursor: unknown }>).every((viewer) => viewer.cursor === null)).toBe(true);
+    now += 100; await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .4, y: .6 } }));
+    now += 15_001; await room.alarm(); expect((owner.events.at(-1)?.viewers as Array<{ cursor: unknown }>).every((viewer) => viewer.cursor === null)).toBe(true);
+    teammate.readyState = 3; await room.webSocketClose(); expect(JSON.stringify(owner.events.at(-1))).not.toContain("teammate@example.test");
+  });
+  it("rechecks room membership on cursor send and delivery after revocation", async () => {
+    const { room, env, addSocket } = await fixture(); const owner = await addSocket(scope.userId), teammate = await addSocket("teammate@example.test");
+    await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .1, y: .2 } }));
+    owner.events = []; teammate.events = [];
+    await removeCollaborationMember(env, scope, identity.roomId, "human:teammate@example.test", Date.now());
+    await room.webSocketMessage(owner as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .3, y: .4 } }));
+    expect(teammate.close).toHaveBeenCalledWith(1008, "Room access ended."); expect(teammate.events).toEqual([]);
+    expect(JSON.stringify(owner.events)).not.toContain("teammate@example.test"); owner.events = [];
+    await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .6, y: .7 } })); expect(owner.events).toEqual([]);
+  });
+  it("removes cursor delivery when workspace membership ends even if the room grant remains", async () => {
+    const { room, env, addSocket, sqlite } = await fixture();
+    const workspace = await createTeamWorkspace(env, scope.userId, { name: "Cursor team" });
+    const invite = await createTeamWorkspaceInvitation(env, workspace.workspaceId, scope.userId, { email: "teammate@example.test", role: "member" });
+    await acceptTeamWorkspaceInvitation(env, "teammate@example.test", invite.token);
+    const teamScope = { ...scope, workspaceId: workspace.workspaceId }, teamIdentity = { ...identity, workspaceId: workspace.workspaceId, roomId: `room_${"b".repeat(24)}` };
+    await createCollaborationRoom(env, teamScope, { roomId: teamIdentity.roomId, title: "Cursor team", visibility: "shared", createdAt: 1 });
+    await addCollaborationMember(env, teamScope, teamIdentity.roomId, { userId: "teammate@example.test", actorId: "human:teammate@example.test", displayName: "Teammate", kind: "human", createdAt: 2 });
+    const owner = await addSocket(scope.userId, crypto.randomUUID(), teamIdentity), teammate = await addSocket("teammate@example.test", crypto.randomUUID(), teamIdentity);
+    await room.webSocketMessage(teammate as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .2, y: .3 } }));
+    owner.events = []; teammate.events = [];
+    sqlite.prepare("UPDATE team_workspace_memberships SET status='removed' WHERE workspace_id=? AND user_id=?").run(workspace.workspaceId, "teammate@example.test");
+    await room.webSocketMessage(owner as unknown as WebSocket, JSON.stringify({ type: "client_presence", cursor: { x: .7, y: .8 } }));
+    expect(teammate.close).toHaveBeenCalledWith(1008, "Room access ended."); expect(teammate.events).toEqual([]); expect(JSON.stringify(owner.events)).not.toContain("teammate@example.test");
+  });
   it("routes a team room using only the verified workspace selector and current member grant", async () => {
     const { env, sqlite } = await fixture();
     const workspace = await createTeamWorkspace(env, scope.userId, { name: "Product" });

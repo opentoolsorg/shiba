@@ -2,6 +2,7 @@ import { authorizeCollaborationAction, isTeamWorkspaceId, runInputHash, type Del
 import { getAgentByName } from "agents/routing";
 import { isCollaborationContextCurrent } from "./collaboration-context.js";
 import { handleCollaborationApproval } from "./collaboration-approval-routes.js";
+import { collaborationExecutorIdentity, type CollaborationExecutorIdentity } from "./collaboration-executor.js";
 import { isCollaborationRunBound, isSameCollaborationHandoff } from "./collaboration-live-routes.js";
 import {
   COLLAB_TENANT_ID, getCollaborationHandoff, getCollaborationMembership, getCollaborationRoom,
@@ -38,9 +39,9 @@ async function roomAccess(env: Env, scope: CollaborationScope, roomId: string): 
     await isCollaborationSlackRoomAudienceAuthorized(env, scope, roomId);
 }
 
-function pinnedExecutor(handoff: CollaborationHandoffRow): string | null {
-  const executor = handoff.executorAgentName;
-  return executor && executor.length <= 200 && !executor.includes(":") && executor.trim().toLowerCase() === handoff.senderUserId &&
+function pinnedExecutor(handoff: CollaborationHandoffRow): CollaborationExecutorIdentity | null {
+  const executor = collaborationExecutorIdentity(handoff);
+  return executor &&
     handoff.recipientActorId.startsWith("agent:") && Number.isSafeInteger(handoff.profileVersion) && Number(handoff.profileVersion) > 0 &&
     handoff.runId && handoff.approvalId ? executor : null;
 }
@@ -86,7 +87,7 @@ async function project(request: Request, env: Env, scope: CollaborationScope, ca
   const executor = pinnedExecutor(handoff);
   if (!executor || !env.CodingOrchestrator) return item;
   try {
-    const owner = await getAgentByName(env.CodingOrchestrator, executor);
+    const owner = await getAgentByName(env.CodingOrchestrator, executor.agentName);
     const request = new Request(`https://internal/api/runs/${encodeURIComponent(handoff.runId!)}`, { signal: AbortSignal.timeout(5_000) });
     await signInternalRequest(request, env);
     const response = await owner.fetch(request);

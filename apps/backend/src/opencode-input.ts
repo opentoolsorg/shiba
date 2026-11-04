@@ -104,14 +104,14 @@ const codingTaskInputSchema = z.object({
   envSealed: z.string().min(1).optional(),
   envDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   /** Orchestrator that owns every artifact, including runs without sealed env. */
-  accessAgent: z.string().min(1).max(200).optional(),
+  accessAgent: z.string().min(1).max(320).optional(),
   approvalThreadKey: z.string().min(1).max(512).optional(),
   runRoom: z.object({
-    ownerId: z.string().min(1).max(200),
+    ownerId: z.string().min(1).max(320),
     sessionId: z.string().min(1).max(128),
     runId: z.string().min(1).max(512),
   }).strict().optional(),
-  envOwner: z.string().min(1).max(200).optional(),
+  envOwner: z.string().min(1).max(320).optional(),
   /**
    * T51: the approved runtime. `"local"` runs on the operator's machine
    * via the dispatch mailbox — admissible only from a dashboard intake

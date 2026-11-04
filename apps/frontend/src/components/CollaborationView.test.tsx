@@ -50,16 +50,34 @@ class RoomSocket {
   static OPEN = 1;
   readyState = 0;
   listeners = new Map<string, Array<(event: any) => void>>();
+  sent: string[] = [];
   addEventListener(type: string, listener: (event: any) => void) {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
-  send() {}
+  send(raw: string) { this.sent.push(raw); }
   open() { this.readyState = 1; this.listeners.get("open")?.forEach((listener) => listener({})); }
   receive(frame: unknown) { this.listeners.get("message")?.forEach((listener) => listener({ data: JSON.stringify(frame) })); }
   close(code = 1000) { this.readyState = 3; this.listeners.get("close")?.forEach((listener) => listener({ code })); }
 }
 
 describe("CollaborationView room access polling", () => {
+  it("limits cursor sharing to the conversation pane, renders attributed remote pointers and clears on leave/revocation", async () => {
+    const sockets: RoomSocket[] = [];
+    vi.stubGlobal("WebSocket", class extends RoomSocket { constructor() { super(); sockets.push(this); } });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/collaboration/rooms" ? jsonResponse({ rooms: [roomDetail.room] }) : String(input) === "/api/collaboration/rooms/room-1" ? jsonResponse(roomDetail) : jsonResponse({ agents: [], computers: [] })));
+    render(<CollaborationView />); await screen.findByText("Confidential room note"); await waitFor(() => expect(sockets).toHaveLength(1));
+    act(() => sockets[0]!.open());
+    const pane = screen.getByTestId("collaboration-chat-pane");
+    vi.spyOn(pane, "getBoundingClientRect").mockReturnValue({ left: 100, top: 50, width: 400, height: 200, right: 500, bottom: 250, x: 100, y: 50, toJSON() {} });
+    fireEvent.pointerMove(pane, { clientX: 200, clientY: 200 });
+    expect(sockets[0]!.sent.map((raw) => JSON.parse(raw))).toContainEqual({ type: "client_presence", cursor: { x: .25, y: .75 } });
+    const viewer = { viewerId: "11111111-1111-4111-8111-111111111111", label: "teammate@example.test", typing: false, cursor: { x: .5, y: .25 } };
+    act(() => sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-1", viewers: [viewer] }));
+    const overlay = screen.getByTestId("collaboration-cursors"); const marker = overlay.querySelector<HTMLElement>("[data-room-cursor-viewer]");
+    expect(marker?.style.left).toBe("50%"); expect(marker?.style.top).toBe("25%"); expect(marker?.textContent).toContain("teammate@example.test"); expect(overlay.className).toContain("pointer-events-none"); expect(overlay.getAttribute("aria-hidden")).toBe("true");
+    fireEvent.pointerLeave(pane); expect(JSON.parse(sockets[0]!.sent.at(-1)!)).toEqual({ type: "client_presence", cursor: null });
+    act(() => sockets[0]!.close(1008)); expect(screen.queryByTestId("collaboration-cursors")).toBeNull();
+  });
   it("opens and focuses the exact Work handoff once after authorized detail arrives, without guessing approval authority", async () => {
     const sockets: RoomSocket[] = [];
     const renderApproval = vi.fn(() => <button type="button">Unexpected approval</button>);

@@ -1,6 +1,7 @@
 import { isSafeDeliverablePath, MAX_DELIVERABLE_BYTES, runInputHash, type DelegatedRun, type RunDeliverable } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
+import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 import { canReadCollaborationRoom } from "./collaboration-room-access.js";
 import { getCollaborationHandoff, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
 import { signInternalRequest } from "./edge-identity.js";
@@ -21,6 +22,7 @@ function failure(status = 404): Response {
 
 function sameHandoff(a: CollaborationHandoffRow, b: CollaborationHandoffRow | null): b is CollaborationHandoffRow {
   return b !== null && b.status === "active" && a.handoffId === b.handoffId && a.roomId === b.roomId &&
+    a.tenantId === b.tenantId && a.workspaceId === b.workspaceId &&
     a.runId === b.runId && a.approvalId === b.approvalId && a.executorAgentName === b.executorAgentName &&
     a.senderUserId === b.senderUserId && a.senderActorId === b.senderActorId &&
     a.recipientUserId === b.recipientUserId && a.recipientActorId === b.recipientActorId &&
@@ -134,12 +136,12 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
     if (!scope || scope.userId !== userId) return failure();
     if (!await canReadCollaborationRoom(env, { ...scope, roomId }, userId)) return failure();
     const handoff = await getCollaborationHandoff(env, scope, handoffId);
+    const executor = handoff && collaborationExecutorIdentity(handoff);
     if (!handoff || handoff.roomId !== roomId || handoff.status !== "active" || !handoff.approvalId ||
-        !handoff.runId || !handoff.executorAgentName || handoff.executorAgentName.length > 200 ||
-        handoff.executorAgentName.trim().toLowerCase() !== handoff.senderUserId ||
+        !handoff.runId || !executor ||
         !handoff.recipientActorId.startsWith("agent:") || !Number.isSafeInteger(handoff.profileVersion) ||
         Number(handoff.profileVersion) < 1) return failure();
-    const owner = await getAgentByName(env.CodingOrchestrator, handoff.executorAgentName);
+    const owner = await getAgentByName(env.CodingOrchestrator, executor.agentName);
     // A fresh request prevents forged client principal/intake/token headers from reaching the DO.
     const lookup = new Request(`https://internal/api/runs/${encodeURIComponent(handoff.runId)}`);
     await signInternalRequest(lookup, env);
