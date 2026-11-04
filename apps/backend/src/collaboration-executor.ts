@@ -8,7 +8,7 @@ export interface CollaborationExecutorIdentity { agentName: string; ownerId: str
 
 function owner(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 320 && value === value.trim() &&
-    !/[\x00-\x20\x7f:/\\]/.test(value) && !/^(?:default|system|automation|agent|mcp|child|subagent)$/i.test(value);
+    !Array.from(value).some((character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127) && !/[:/\\]/.test(value) && !/^(?:default|system|automation|agent|mcp|child|subagent)$/i.test(value);
 }
 function canonical(value: string): string { return value.toLowerCase(); }
 function validScope(tenantId: string, workspaceId: string): boolean {
