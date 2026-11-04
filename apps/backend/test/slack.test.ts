@@ -230,6 +230,41 @@ describe("slack slash command", () => {
     expect(rendered).toContain("Open Shiba");
   });
 
+  it.each([
+    { label: "missing", token: undefined },
+    { label: "blank", token: "  \t" },
+  ])("keeps the approval card when the Slack bot token is $label despite configured storage", async ({ token }) => {
+    const storage = { get: vi.fn(async () => null), put: vi.fn(async () => ({ etag: "saved" })) };
+    const fetchMock = vi.fn(async () => Response.json({ approvalId: "tokenless-approval", approvalInputHash: "a".repeat(64) }));
+    const response = await handleSlackCommand(
+      await signedCommandRequest({ command: "/shiba", user_id: "U123", text: "https://github.com/o/r Fix it" }),
+      routeEnv({ ATTACHMENTS: storage, ...(token === undefined ? {} : { SLACK_BOT_TOKEN: token }) }),
+      { orchestratorStub: { fetch: fetchMock } },
+    );
+    const body = await response?.json() as { text?: string; blocks?: { type: string }[] };
+    expect(body.text).toContain("Private completion delivery is unavailable");
+    expect(body.text).not.toContain("could not be prepared");
+    expect(body.blocks?.some((block) => block.type === "actions")).toBe(true);
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when private delivery is configured but the approval digest is missing", async () => {
+    const storage = { get: vi.fn(async () => null), put: vi.fn(async () => ({ etag: "saved" })) };
+    const fetchMock = vi.fn(async () => Response.json({ approvalId: "digestless-approval" }));
+    const response = await handleSlackCommand(
+      await signedCommandRequest({ command: "/shiba", user_id: "U123", text: "https://github.com/o/r Fix it" }),
+      routeEnv({ ATTACHMENTS: storage, SLACK_BOT_TOKEN: "xoxb-test" }),
+      { orchestratorStub: { fetch: fetchMock } },
+    );
+    const body = await response?.json() as { text?: string; blocks?: unknown[] };
+    expect(body.text).toContain("safely queued for approval (digestless-approval)");
+    expect(body.text).toContain("frozen approval digest is unavailable");
+    expect(body.blocks).toBeUndefined();
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("preserves the queued approval and reports when private completion storage fails", async () => {
     const storage = { get: vi.fn(async () => null), put: vi.fn(async () => { throw new Error("Storage unavailable."); }) };
     const fetchMock = vi.fn(async () => Response.json({ approvalId: "saved-approval", approvalInputHash: "a".repeat(64) }));

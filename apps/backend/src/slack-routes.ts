@@ -157,10 +157,9 @@ async function queueSlackRun(
     return { response_type: "ephemeral", text: `Failed to queue the task. ${reason}` };
   }
   let completionNote = "Private completion delivery is unavailable. Track this task in Shiba.";
-  if (env.ATTACHMENTS) {
+  if (env.ATTACHMENTS && env.SLACK_BOT_TOKEN?.trim()) {
     try {
       if (!queuedBody.approvalInputHash) throw new Error("The frozen approval digest is unavailable.");
-      if (!env.SLACK_BOT_TOKEN?.trim()) throw new Error("SLACK_BOT_TOKEN is not configured for private completion delivery.");
       await saveSlackCommandReplyDestination(env, {
         approvalId: queuedBody.approvalId, approvalInputHash: queuedBody.approvalInputHash,
         origin: approvalThreadKey, userId: params.get("user_id") ?? "",
