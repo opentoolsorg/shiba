@@ -577,7 +577,8 @@ async function openCodex(spec, emit) {
     },
     close() {
       finish("failed", "session closed");
-      child.kill("SIGTERM");
+      if (typeof spec.terminateChild === "function") return spec.terminateChild(child);
+      return child.kill("SIGTERM");
     },
   };
 }
@@ -812,7 +813,8 @@ async function openClaude(spec, emit) {
     },
     close() {
       finish("failed", "session closed");
-      child.kill("SIGTERM");
+      if (typeof spec.terminateChild === "function") return spec.terminateChild(child);
+      return child.kill("SIGTERM");
     },
   };
 }
@@ -903,7 +905,7 @@ async function openLoggedSession(spec) {
       return patch;
     },
     async close() {
-      provider.close();
+      await provider.close();
       await writeChain;
       emit({ type: "session.updated", sessionId: id, status: "stopped" });
       await writeChain;
