@@ -98,7 +98,7 @@ if (!/^[a-z][a-z0-9-]{0,62}$/.test(workerName) || !/^[a-z][a-z0-9-]{0,62}$/.test
 
 // Cloudflare Access: hostname apps, not the Worker `access` prop — Worker-level
 // Access 403s WebSocket upgrades, and the dashboard runs on one.
-const { workerHost, accessEnabled, accessEmails } = deploymentConfig(process.env, {
+const { workerHost, accessEnabled, accessEmails, openDashboard } = deploymentConfig(process.env, {
   isLiveStage, workerName, liveHost: "app.tryshiba.dev",
 });
 const workerOrigin = `https://${workerHost}`;
@@ -191,6 +191,7 @@ export const Worker = Cloudflare.Worker("Worker", {
     // Preview stages use their validated workers.dev host, never the live origin.
     WORKER_HOSTNAME: isLiveStage ? "app.tryshiba.dev" : workerHost,
     BETTER_AUTH_URL: isLiveStage ? "https://app.tryshiba.dev" : workerOrigin,
+    ...(openDashboard ? { OPEN_DASHBOARD: "1" } : {}),
 
     AI: Cloudflare.Workers.AI(),
 

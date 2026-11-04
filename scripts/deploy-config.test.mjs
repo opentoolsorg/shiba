@@ -10,13 +10,22 @@ const host = "shiba-ai-coworker-pr-162.example.workers.dev";
 
 test("preview uses its own hostname and managed Access", () => {
   assert.deepEqual(deploymentConfig(env, preview), {
-    workerHost: host, accessEnabled: true, accessEmails: ["owner@example.com"],
+    workerHost: host, accessEnabled: true, accessEmails: ["owner@example.com"], openDashboard: false,
   });
+});
+
+test("preview without an identity lane is open, while live still requires one", () => {
+  const open = deploymentConfig({ ...env, ACCESS_EMAILS: "" }, preview);
+  assert.equal(open.openDashboard, true);
+  assert.equal(open.accessEnabled, false);
+  assert.throws(() => deploymentConfig({ ...env, ALCHEMY_STAGE: "live", WORKER_HOSTNAME: "app.example.com", ACCESS_EMAILS: "" }, { ...preview, isLiveStage: true }), /Public stages require/);
 });
 
 test("public previews support the existing built-in auth lane with either bootstrap gate", () => {
   for (const bootstrap of [{ BETTER_AUTH_OWNER_EMAIL: "owner@example.com" }, { BETTER_AUTH_BOOTSTRAP_TOKEN: "setup-token" }]) {
-    assert.equal(deploymentConfig({ ...env, ACCESS_EMAILS: "", BETTER_AUTH_SECRET: "s".repeat(32), ...bootstrap }, preview).accessEnabled, false);
+    const config = deploymentConfig({ ...env, ACCESS_EMAILS: "", BETTER_AUTH_SECRET: "s".repeat(32), ...bootstrap }, preview);
+    assert.equal(config.accessEnabled, false);
+    assert.equal(config.openDashboard, false);
   }
 });
 
@@ -34,9 +43,7 @@ test("reject unsafe account, host, auth and inherited production overrides", () 
     { BETTER_AUTH_URL: `https://${host}/` },
     { ACCESS_AUD: "inherited-audience" },
     { REQUIRE_ACCESS: "0" },
-    { ACCESS_EMAILS: "" },
     { ACCESS_EMAILS: "", REQUIRE_ACCESS: "1" },
-    { ACCESS_EMAILS: "", BETTER_AUTH_SECRET: "s".repeat(32) },
     { BETTER_AUTH_SECRET: "short" },
     { ACCESS_EMAILS: "not-an-email" },
     { BETTER_AUTH_OWNER_EMAIL: "not-an-email" },

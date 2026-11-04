@@ -443,6 +443,8 @@ export interface Env {
    * only loopback requests bypass identity checks.
    */
   REQUIRE_ACCESS?: string;
+  /** Preview-only dashboard bypass, set by Alchemy when no identity lane is configured. */
+  OPEN_DASHBOARD?: string;
   /**
    * Optional. Access application AUD tag. When set, identity comes only from a
    * verified `Cf-Access-Jwt-Assertion`, and Access is required as with REQUIRE_ACCESS.
