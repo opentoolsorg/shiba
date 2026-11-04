@@ -9,7 +9,9 @@ import { buildSlackCanvasUrl, signSlackCanvasIntake, slackCanvasOwner } from "./
 import { postSystemOne, readChoiceAnswer, type TypeSafeFetch } from "./typesafe.js";
 import { buildApprovalBlocks, slackCanvasUrl } from "./slack-approval.js";
 import {
+  applyThreadControls,
   gatherSlackContext,
+  MAX_CONTEXT_MESSAGES,
   parseChannelRepoMap,
   resolveSlackRepo,
   type SlackThreadMessage,
@@ -34,7 +36,7 @@ import {
   resolveChatEmployeeFromText,
 } from "./chat-employee.js";
 
-import { signSlackBufferRequest } from "./slack-turn-buffer.js";
+import { isSlackMessageTimestamp, signSlackBufferRequest, type BufferedSlackMessage } from "./slack-turn-buffer.js";
 
 const SLACK_REPLIES = "https://slack.com/api/conversations.replies";
 
@@ -43,13 +45,7 @@ export interface SlackMentionQueueResult {
 }
 
 export interface SlackMentionDeps {
-  bufferMessage?: (input: {
-    threadKey: string;
-    eventId: string;
-    userId: string;
-    text: string;
-    createdAt: number;
-  }) => Promise<{ buffered: boolean; status?: string }>;
+  bufferMessage?: (input: BufferedSlackMessage & { threadKey: string }) => Promise<{ buffered: boolean; status?: string }>;
   queueRun?: (input: {
     threadKey: string;
     repoUrl: string;
@@ -78,6 +74,36 @@ interface AppMentionEvent {
   ts?: string;
   thread_ts?: string;
   channel?: string;
+}
+
+function sameThreadMessage(left: SlackThreadMessage, right: SlackThreadMessage): boolean {
+  if (left.eventId && left.eventId === right.eventId) return true;
+  // The native history reader retains exact timestamps. Numeric-only records
+  // remain compatible with existing context providers and tests.
+  return left.messageTs && right.messageTs ? left.messageTs === right.messageTs : left.ts === right.ts;
+}
+
+function compareThreadMessages(left: SlackThreadMessage, right: SlackThreadMessage): number {
+  if (isSlackMessageTimestamp(left.messageTs) && isSlackMessageTimestamp(right.messageTs)) {
+    const [leftSeconds = "0", leftFraction = ""] = left.messageTs.split(".");
+    const [rightSeconds = "0", rightFraction = ""] = right.messageTs.split(".");
+    const first = BigInt(leftSeconds), second = BigInt(rightSeconds);
+    if (first !== second) return first < second ? -1 : 1;
+    const firstFraction = leftFraction.padEnd(20, "0"), secondFraction = rightFraction.padEnd(20, "0");
+    return firstFraction === secondFraction ? 0 : firstFraction < secondFraction ? -1 : 1;
+  }
+  return left.ts - right.ts;
+}
+
+/** The verified trigger wins over fetched copies and always fits in context. */
+function mergeIncomingMessage(history: SlackThreadMessage[], incoming: SlackThreadMessage): SlackThreadMessage[] {
+  const messages: SlackThreadMessage[] = [];
+  for (const message of history) {
+    if (sameThreadMessage(message, incoming) || messages.some((saved) => sameThreadMessage(saved, message))) continue;
+    messages.push(message);
+  }
+  messages.sort(compareThreadMessages);
+  return [...messages.slice(-(MAX_CONTEXT_MESSAGES - 1)), incoming].sort(compareThreadMessages);
 }
 
 function asAppMention(event: unknown): AppMentionEvent | null {
@@ -153,13 +179,14 @@ async function defaultFetchThread(token: string, channel: string, threadTs: stri
   for (const raw of messages) {
     if (typeof raw !== "object" || raw === null) continue;
     const msg = raw as { user?: unknown; text?: unknown; ts?: unknown };
-    if (typeof msg.text !== "string" || typeof msg.ts !== "string") continue;
+    if (typeof msg.text !== "string" || !isSlackMessageTimestamp(msg.ts)) continue;
     const ts = Number(msg.ts);
     if (!Number.isFinite(ts)) continue;
     out.push({
       user: typeof msg.user === "string" ? msg.user : "unknown",
       text: msg.text,
       ts,
+      messageTs: msg.ts,
     });
   }
   return out;
@@ -254,7 +281,16 @@ export async function handleSlackEvent(
   const mentionText = event.text ?? "";
   const workspaceTarget = slackWorkspaceTarget(stripMentionMarkers(mentionText));
   const threadTs = resolveThreadTs({ thread_ts: event.thread_ts, ts: event.ts });
-  if (!channelId || !threadTs) return;
+  if (!channelId || !threadTs || !isSlackMessageTimestamp(event.ts)) return;
+  const incoming: SlackThreadMessage = {
+    user: userId || "unknown",
+    text: mentionText,
+    ts: Number(event.ts),
+    messageTs: event.ts,
+    eventId: body.event_id,
+  };
+  // An aside stays outside both the active-turn queue and task fallback.
+  if (applyThreadControls([incoming]).length === 0) return;
 
   const postMessage =
     deps.postMessage ??
@@ -264,9 +300,7 @@ export async function handleSlackEvent(
 
   if (event.thread_ts) {
     const threadKey = buildSlackThreadName(teamId, channelId, threadTs);
-    const buffer = deps.bufferMessage ?? (env.CodingOrchestrator ? async (input: {
-      threadKey: string; eventId: string; userId: string; text: string; createdAt: number;
-    }) => {
+    const buffer = deps.bufferMessage ?? (env.CodingOrchestrator ? async (input: BufferedSlackMessage & { threadKey: string }) => {
       const stub = await getSlackThreadStub<{ fetch(request: Request): Promise<Response> }>(env, { teamId, channelId, threadTs });
       const response = await stub.fetch(await signSlackBufferRequest(new Request("https://internal/api/slack/buffer", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
@@ -276,7 +310,7 @@ export async function handleSlackEvent(
     } : undefined);
     if (buffer) {
       try {
-        const result = await buffer({ threadKey, eventId: body.event_id, userId, text: mentionText, createdAt: Date.now() });
+        const result = await buffer({ threadKey, eventId: body.event_id, userId, text: mentionText, createdAt: Date.now(), messageTs: event.ts });
         if (result.buffered || result.status === "duplicate") return;
         if (result.status === "full" || result.status === "invalid") {
           await postMessage({ channel: channelId, threadTs, text: "That follow-up could not fit in the queue. Please send a shorter message after this turn completes." });
@@ -291,16 +325,12 @@ export async function handleSlackEvent(
     if (reply) return;
   }
 
-  let threadMessages: SlackThreadMessage[] = [{
-    user: userId || "unknown",
-    text: mentionText,
-    ts: Number(threadTs),
-  }];
+  let threadMessages = [incoming];
   const fetchThread = deps.fetchThread ?? (token ? (ch: string, ts: string) => defaultFetchThread(token, ch, ts) : undefined);
   if (fetchThread) {
     try {
       const fetched = await fetchThread(channelId, threadTs);
-      if (fetched.length > 0) threadMessages = fetched;
+      threadMessages = mergeIncomingMessage(fetched, incoming);
     } catch (error) {
       console.error("Slack thread fetch failed", redactSecrets(String(error)));
     }
@@ -313,7 +343,9 @@ export async function handleSlackEvent(
     channelRepos: parseChannelRepoMap(env.SLACK_CHANNEL_REPOS),
   });
 
-  const task = gatherSlackContext({ threadMessages }) || stripMentionMarkers(mentionText);
+  const task = gatherSlackContext({ threadMessages,
+    ...(event.type === "app_mention" ? { verifiedMentionEventId: body.event_id } : {}),
+  }) || stripMentionMarkers(mentionText);
   if (!task) {
     await postMessage({
       channel: channelId,
