@@ -23,6 +23,7 @@ import {
   isAuthorizedRequest,
   resolveUserId,
 } from "../src/request-auth.js";
+import { resolveRunStoreTarget } from "../src/runs-routes.js";
 
 vi.mock("@cloudflare/sandbox", () => ({
   Sandbox: class {},
@@ -163,7 +164,11 @@ describe("gate composition", () => {
     const request = new Request("https://example.com/api/runs");
     expect(isAuthenticated(request, env)).toBe(true);
     expect(await isAuthorizedRequest(request, env)).toBe(true);
-    expect(await resolveUserId(request, env)).toBeNull();
+    expect(await resolveUserId(request, env)).toBe("default");
+    await expect(resolveRunStoreTarget(request, env, new URL(request.url))).resolves.toEqual({
+      agentName: "default",
+      userId: "default",
+    });
   });
 
   it("better-auth mode rejects non-loopback without a session", async () => {
