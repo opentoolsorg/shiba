@@ -443,7 +443,7 @@ export interface Env {
    * only loopback requests bypass identity checks.
    */
   REQUIRE_ACCESS?: string;
-  /** Preview-only public static shell; never grants API identity or execution. */
+  /** Preview-only open dashboard (UI + API as "default"), set by Alchemy when no identity lane is configured. */
   OPEN_DASHBOARD?: string;
   /**
    * Optional. Access application AUD tag. When set, identity comes only from a
