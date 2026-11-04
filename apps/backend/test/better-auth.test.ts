@@ -180,6 +180,14 @@ describe("gate composition", () => {
     }
   });
 
+  it("does not let a stale preview flag bypass a configured identity lane", async () => {
+    const env = makeEnv({ OPEN_DASHBOARD: "1" });
+    const request = new Request("https://example.com/api/runs");
+    expect(isAuthenticated(request, env)).toBe(false);
+    expect(await isAuthorizedRequest(request, env)).toBe(false);
+    expect(await resolveUserId(request, env)).toBeNull();
+  });
+
   it("better-auth mode rejects non-loopback without a session", async () => {
     const env = makeEnv();
     const request = new Request("https://example.com/api/runs");
@@ -213,6 +221,24 @@ describe("worker-level 401 codes", () => {
   it("access_not_configured when no identity lane exists", async () => {
     const env = makeEnv({ AGENT_AUDIT: undefined, BETTER_AUTH_SECRET: undefined });
     expect(await statusFor("/api/runs", env)).toEqual({ status: 401, code: "access_not_configured" });
+  });
+
+  it.each(["/api/whoami", "/api/tasks", "/api/runs", "/api/approvals", "/api/api-keys", "/agents/coding-orchestrator/default"])("keeps anonymous preview %s behind the Worker identity gate", async (path) => {
+    const worker = (await import("../src/index.js")).default;
+    const env = makeEnv({ AGENT_AUDIT: undefined, BETTER_AUTH_SECRET: undefined, OPEN_DASHBOARD: "1" });
+    for (const method of ["GET", "POST"]) {
+      const response = await worker.fetch(new Request(`https://example.com${path}`, { method }), env);
+      expect(response.status).toBe(401);
+    }
+  });
+
+  it("does not grant anonymous preview access through the org API's separate gate", async () => {
+    const worker = (await import("../src/index.js")).default;
+    const env = makeEnv({ BETTER_AUTH_SECRET: undefined, OPEN_DASHBOARD: "1" });
+    for (const method of ["GET", "POST"]) {
+      const response = await worker.fetch(new Request("https://example.com/api/org/model-keys", { method }), env);
+      expect(response.status).toBe(401);
+    }
   });
 
   it("better_auth when only the built-in lane is configured", async () => {
