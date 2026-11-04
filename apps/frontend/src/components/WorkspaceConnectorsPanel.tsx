@@ -41,6 +41,7 @@ function OwnedAppAccounts({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [connectionRevision, setConnectionRevision] = useState(0);
   const epoch = useRef(0),
     alive = useRef(true),
     operation = useRef(false);
@@ -72,6 +73,7 @@ function OwnedAppAccounts({
     onVerified: () => {
       if (active()) {
         void refresh();
+        setConnectionRevision((revision) => revision + 1);
         onChanged?.();
       }
     },
@@ -115,6 +117,7 @@ function OwnedAppAccounts({
         throw new Error(body.error ?? "Disconnect could not be confirmed.");
       await refresh();
       if (active()) {
+        setConnectionRevision((revision) => revision + 1);
         setNotice(
           `${connection.providerKey} disconnected. Existing employee grants cannot use a disconnected account.`,
         );
@@ -249,6 +252,7 @@ function OwnedAppAccounts({
           <IntegrationCatalogDirectory
             bindingInputs={bindingInputs}
             actorId={actorId}
+            connectionRevision={connectionRevision}
             onRequestConnect={(item) => {
               setNotice(null);
               setError(null);

@@ -208,6 +208,10 @@ describe("owned OpenConnector accounts through normal HTTP paths", () => {
     const { connected } = fixture(); connected();
     const tab = popup(); vi.spyOn(window, "open").mockReturnValue(tab);
     render(<WorkspaceConnectorsPanel actorId="alice" bindingInputs={bindingInputs} />);
+    if (entrypoint === "inline") {
+      fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "HubSpot" } });
+      await screen.findByText("Account configured");
+    }
     fireEvent.click(await screen.findByRole("button", { name: "Disconnect hubspot" }));
     await screen.findByText(/hubspot disconnected/);
     if (entrypoint === "browse") {
@@ -215,7 +219,6 @@ describe("owned OpenConnector accounts through normal HTTP paths", () => {
       const dialog = await screen.findByRole("dialog", { name: "Browse integration catalog" });
       fireEvent.click(await within(dialog).findByRole("button", { name: "Connect" }));
     } else {
-      fireEvent(window, new Event("focus"));
       fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "HubSpot" } });
       fireEvent.click(await screen.findByRole("button", { name: "Connect app" }));
     }

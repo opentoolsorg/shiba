@@ -243,6 +243,8 @@ type DirectoryProps = {
   linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void;
   linkActionLabel?: string; linkingKey?: string | null; onConnectStarted?: (providerKey: string) => void; onOAuthComplete?: () => void;
   onRequestConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null;
+  /** Invalidate owned-account reads after a verified parent connect/disconnect. Never grants access. */
+  connectionRevision?: number;
 };
 export function IntegrationCatalogDirectory(props: DirectoryProps): JSX.Element {
   const actor = useRef(props.actorId); actor.current = props.actorId;
@@ -257,7 +259,7 @@ function ScopedIntegrationCatalogDirectory({
   linkingKey,
   onConnectStarted,
   onOAuthComplete,
-  actorId, onRequestConnect, connectingKey: externalConnectingKey, isCurrent,
+  actorId, onRequestConnect, connectingKey: externalConnectingKey, connectionRevision = 0, isCurrent,
 }: DirectoryProps & { isCurrent: () => boolean }): JSX.Element {
   const [search, setSearch] = useState("");
   const [domain, setDomain] = useState<IntegrationDomain | "all">("all");
@@ -327,12 +329,13 @@ function ScopedIntegrationCatalogDirectory({
     if (meta?.status === "rejected") setProviderError("Provider readiness is unavailable. Refresh to verify current service authentication.");
   }, [actorId, active, loadProviderCatalogPage]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A verified parent account revision invalidates this scoped cache while retaining filters.
   useEffect(() => {
     alive.current = true; controller.current = new AbortController();
     void refreshProvider();
     const focus = () => { void refreshProvider(); }; window.addEventListener("focus", focus);
     return () => { alive.current = false; refreshEpoch.current++; catalogEpoch.current++; controller.current.abort(); window.removeEventListener("focus", focus); };
-  }, [refreshProvider]);
+  }, [refreshProvider, connectionRevision]);
   const oauth = useIntegrationOAuth({ actorId, onVerified: () => { if (active()) { void refreshProvider(); onOAuthComplete?.(); } } });
   const connectingKey = externalConnectingKey ?? oauth.connectingKey;
 
