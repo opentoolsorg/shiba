@@ -21,7 +21,7 @@ const appSource = readFileSync(
 describe("app chat initial-message prefetch", () => {
   it("disables private sockets until both identity and workspace authority resolve", () => {
     expect(appSource).toContain("enabled: privateDataEnabled");
-    expect(appSource).toContain("signedIn && teamDirectory.verified && !teamDirectory.error && !teamWorkspaceId && !restrictedTeamMember");
+    expect(appSource).toContain("signedIn && workspaceAuthorityReady && !teamDirectory.error && !teamWorkspaceId && !restrictedTeamMember");
   });
 
   it("never lets the default prefetch fire while the placeholder name is in use", () => {

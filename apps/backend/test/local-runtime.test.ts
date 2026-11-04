@@ -29,6 +29,7 @@ import { LocalRuntimeAdapter, type LocalDispatchClient } from "../src/runtime.js
 import { resolveHarness } from "../src/harness/index.js";
 import { DUMMY_PROVIDER_KEY } from "../src/provider-gateway.js";
 import { approveDirect } from "./seeding.js";
+import { buildSessionAgentName } from "../src/web-sessions.js";
 
 const mocks = vi.hoisted(() => ({ getAgentByName: vi.fn() }));
 vi.mock("@cloudflare/sandbox", () => ({
@@ -619,7 +620,10 @@ function workerEnv(orchestrator: { onRequest: (r: Request) => Promise<Response> 
       const req = typeof request === "string" ? new Request(request) : request;
       const url = new URL(req.url);
       if (url.pathname.startsWith("/internal/web-sessions/")) {
-        return Promise.resolve(new Response("{}", { status: 200 }));
+        const id = decodeURIComponent(url.pathname.split("/").pop()!);
+        return Promise.resolve(Response.json({ session: { id, userId: name,
+          agentName: buildSessionAgentName(name, id), name: "Local runtime fixture session",
+          createdAt: 1, updatedAt: 1, metadata: {} } }));
       }
       return orchestrator.onRequest(req);
     },
@@ -653,7 +657,7 @@ describe("Worker /api/runs intake stamping", () => {
       }),
       env as never,
     );
-    expect(res.status).toBe(200);
+    expect(res.status, await res.clone().text()).toBe(200);
     const approval = orchestrator.state.pendingApprovals?.[0];
     expect(approval?.runtime).toBe("local");
     // It routed to the dashboard session DO.

@@ -1,6 +1,7 @@
 import { runInputHash, type DelegatedRun } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
+import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 import { canReadCollaborationRoom } from "./collaboration-room-access.js";
 import { getCollaborationHandoff, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
 import type { RunRoomReplay } from "./conversation-room-do.js";
@@ -115,13 +116,13 @@ export async function handleCollaborationLive(
     if (!scope || scope.userId !== userId) return failure();
     if (!await canReadCollaborationRoom(env, { ...scope, roomId }, userId)) return failure();
     const handoff = await getCollaborationHandoff(env, scope, handoffId);
-    // Current collaboration intake pins the sender's base orchestrator. Never
-    // search other sessions or adopt a client-supplied executor/room identity.
+    // Team runs use their exact saved isolated executor. Never search private
+    // sessions or adopt a client-supplied executor/room identity.
+    const executor = handoff && collaborationExecutorIdentity(handoff);
     if (!handoff || handoff.roomId !== roomId || handoff.status !== "active" || !handoff.approvalId || !handoff.runId ||
-      !handoff.executorAgentName || handoff.executorAgentName.length > 200 || handoff.executorAgentName.includes(":") ||
-      handoff.executorAgentName.trim().toLowerCase() !== handoff.senderUserId || !handoff.recipientActorId.startsWith("agent:") ||
+      !executor || !handoff.recipientActorId.startsWith("agent:") ||
       !Number.isSafeInteger(handoff.profileVersion) || Number(handoff.profileVersion) < 1) return failure();
-    const owner = await getAgentByName(env.CodingOrchestrator, handoff.executorAgentName);
+    const owner = await getAgentByName(env.CodingOrchestrator, executor.agentName);
     const readRun = async (): Promise<DelegatedRun | undefined> => {
       // Fresh requests discard client identity, intake and authorization headers.
       const lookup = new Request(`https://internal/api/runs/${encodeURIComponent(handoff.runId!)}`);
@@ -132,7 +133,7 @@ export async function handleCollaborationLive(
     };
     const run = await readRun();
     if (!isCollaborationRunBound(run, handoff) || !await currentAccess(request, env, scope, handoff, run, resolveScope)) return failure();
-    const identity = { ownerId: handoff.senderUserId, sessionId: "default", runId: handoff.runId };
+    const identity = { ownerId: executor.ownerId, sessionId: executor.sessionId, runId: handoff.runId };
     const replay = await env.ConversationRoom.getByName(runRoomName(identity.ownerId, identity.sessionId)).readRunEvents(identity, after, 256);
     if (!validReplay(replay, run.runId, after)) return failure(503);
     const freshRun = await readRun();

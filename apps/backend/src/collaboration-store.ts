@@ -8,6 +8,7 @@ import {
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { parseSlackCanvasOwners } from "./slack-canvas.js";
+import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 
 type SlackCollaborationEnv = Pick<Env, "AGENT_AUDIT" | "SLACK_CANVAS_OWNERS">;
 
@@ -898,7 +899,7 @@ export async function addCollaborationMember(
   return Number(result.meta?.changes ?? 0) === 1;
 }
 
-/** Pin the exact authenticated owner without renaming historical owner/session DOs. */
+/** CAS-pin an owner-bound executor; team addresses are isolated and never private-session registrations. */
 export async function pinCollaborationHandoffExecutor(
   env: Pick<Env, "AGENT_AUDIT">,
   scope: Pick<CollaborationScope, "tenantId" | "workspaceId">,
@@ -907,13 +908,20 @@ export async function pinCollaborationHandoffExecutor(
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
   await ensureCollaborationScopeSchema(env, scope);
+  const handoff = await env.AGENT_AUDIT.prepare(`SELECT sender_user_id FROM collaboration_handoffs
+    WHERE tenant_id=? AND workspace_id=? AND handoff_id=?
+      AND (SELECT COUNT(*) FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=collaboration_handoffs.handoff_id)=1`)
+    .bind(scope.tenantId, scope.workspaceId, handoffId).first<{ sender_user_id: string }>();
+  if (!handoff) return false;
+  const identity = collaborationExecutorIdentity({ ...scope, senderUserId: handoff.sender_user_id, executorAgentName });
+  if (!identity) return false;
   const result = await env.AGENT_AUDIT.prepare(
     `UPDATE collaboration_handoffs SET executor_agent_name=?
      WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND sender_user_id=?
        AND EXISTS (SELECT 1 FROM collaboration_memberships current_sender WHERE current_sender.tenant_id=collaboration_handoffs.tenant_id AND current_sender.workspace_id=collaboration_handoffs.workspace_id AND current_sender.room_id=collaboration_handoffs.room_id AND current_sender.user_id=collaboration_handoffs.sender_user_id AND current_sender.actor_id=collaboration_handoffs.sender_actor_id AND current_sender.status='active' AND ${teamMemberSql(scope, 'current_sender')})
        AND EXISTS (SELECT 1 FROM collaboration_memberships current_recipient WHERE current_recipient.tenant_id=collaboration_handoffs.tenant_id AND current_recipient.workspace_id=collaboration_handoffs.workspace_id AND current_recipient.room_id=collaboration_handoffs.room_id AND current_recipient.user_id=collaboration_handoffs.recipient_user_id AND current_recipient.actor_id=collaboration_handoffs.recipient_actor_id AND current_recipient.status='active' AND ${teamMemberSql(scope, 'current_recipient')})
        AND (executor_agent_name IS NULL OR executor_agent_name=?)`,
-  ).bind(executorAgentName, scope.tenantId, scope.workspaceId, handoffId, executorAgentName.trim().toLowerCase(), executorAgentName).run();
+  ).bind(executorAgentName, scope.tenantId, scope.workspaceId, handoffId, identity.ownerId.trim().toLowerCase(), executorAgentName).run();
   return Number(result.meta?.changes ?? 0) === 1;
 }
 

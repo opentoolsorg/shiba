@@ -13,6 +13,7 @@ import type { Env } from "../src/env.js";
 import { handleTeamWork, TEAM_WORK_LIMITS, type TeamWorkItemDto } from "../src/team-work-routes.js";
 import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { buildSessionAgentName } from "../src/web-sessions.js";
 
 const state = vi.hoisted(() => ({
   authorized: true, userId: "member@example.test", names: [] as string[], requests: [] as Request[],
@@ -34,7 +35,7 @@ vi.mock("agents/routing", () => ({ getAgentByName: async (_binding: unknown, nam
       await state.duringRead?.();
       if (new URL(request.url).pathname === "/api/approvals") return Response.json({ approvals: state.approvals });
       const runId = decodeURIComponent(new URL(request.url).pathname.split("/").pop() ?? "");
-      const run = state.runs.get(runId);
+      const run = state.runs.get(`${name}|${runId}`);
       return run ? Response.json({ run }) : Response.json({}, { status: 404 });
     } finally { state.activeReads--; }
   } };
@@ -69,6 +70,7 @@ async function fixture() {
   await acceptTeamWorkspaceInvitation(env, MEMBER, invite.token, 3);
   const scope = { tenantId: "self-hosted", workspaceId: workspace.workspaceId, userId: OWNER };
   const profile = await createCustomAgent(env, `team:${workspace.workspaceId}`, "writer", { name: "Writer", instructions: "Prepare reviewed work.", harness: "opencode" });
+  const executors = new Map<string, string>();
   await createCollaborationRoom(env, scope, { roomId: ROOM, title: "Release room", visibility: "shared", createdAt: 4 });
   await addCollaborationMember(env, scope, ROOM, { userId: MEMBER, actorId: humanActorId(MEMBER), kind: "human", displayName: "Morgan", createdAt: 5 });
   await addCollaborationMember(env, scope, ROOM, { userId: OWNER, actorId: `agent:${profile.id}`, kind: "agent", displayName: "Writer", profileVersion: 1, createdAt: 5 });
@@ -87,30 +89,32 @@ async function fixture() {
       task = (await freezeCollaborationContext(env, scope, ROOM, id, task, [], [{ id: note.id, version: 1, sha256: note.sha256 }])).task;
       await bindCollaborationContextApproval(env, id, approvalId, task);
     }
-    const run: DelegatedRun = { runId, sandboxId: "PRIVATE-SANDBOX", repoUrl: "https://github.com/example/private", task,
+    const executorName = buildSessionAgentName(OWNER, crypto.randomUUID());
+    const run: DelegatedRun = { runId, sandboxId: "PRIVATE-SANDBOX", repoUrl: "https://github.com/example/private", task, orgId: `team:${workspace.workspaceId}`,
       baseBranch: "main", publishPullRequest: false, status: "running", generation: 1, createdAt: 7, updatedAt: 8,
       customAgentId: profile.id, customAgentVersion: 1, collaborationHandoffId: id };
     run.approval = { approvalId, decidedBy: OWNER, decidedAt: 8, inputHash: runInputHash(run) };
     if (kind === "agent") {
-      expect(await pinCollaborationHandoffExecutor(env, scope, id, OWNER)).toBe(true);
+      expect(await pinCollaborationHandoffExecutor(env, scope, id, executorName)).toBe(true);
       expect(await linkCollaborationHandoffRun(env, scope, id, approvalId, runId)).toBe(true);
-      state.runs.set(runId, run);
+      state.runs.set(`${executorName}|${runId}`, run);
+      executors.set(runId, executorName);
     }
-    return { value, run, note };
+    return { value, run, note, executorName };
   }
   const send = (headers: Record<string, string> = {}, method = "GET", suffix = "") => handleTeamWork(new Request(
     `https://dashboard.test/api/workspaces/${workspace.workspaceId}/work${suffix}`, {
       method, headers: { Origin: "https://dashboard.test", Cookie: "PRIVATE-COOKIE", "X-Agent-Principal": "spoof", ...headers },
     }), env);
   const pending = (run: DelegatedRun): PendingApproval => ({ ...run, approvalId: run.approval!.approvalId,
-    threadKey: OWNER, kind: "run", status: "pending", createdAt: Date.now(), orgId: `team:${workspace.workspaceId}` });
+    threadKey: executors.get(run.runId)!, kind: "run", status: "pending", createdAt: Date.now(), orgId: `team:${workspace.workspaceId}` });
   return { env, sqlite, scope, workspace, profile, handoff, send, pending };
 }
 
 describe("authorized shared Work projection", () => {
   it("projects only explicit room handoffs, correct human/employee identities and bound run status", async () => {
     const f = await fixture();
-    await f.handoff(); await f.handoff("human-assignment", "human");
+    const h = await f.handoff(); await f.handoff("human-assignment", "human");
     const response = await f.send();
     expect(response?.status).toBe(200);
     expect(response?.headers.get("Cache-Control")).toBe("private, no-store");
@@ -122,7 +126,7 @@ describe("authorized shared Work projection", () => {
       expect.objectContaining({ id: "human-assignment", status: "queued", assigneeKind: "human", assigneeActorId: humanActorId(MEMBER), viewerCanApprove: false }),
     ]));
     expect(JSON.stringify(body)).not.toMatch(/PRIVATE|repoUrl|inputHash|summary|approved shared task/i);
-    expect(state.names).toEqual([OWNER]);
+    expect(state.names).toEqual([h.executorName]);
     expect(state.requests).toHaveLength(1);
     for (const request of state.requests) {
       expect(request.headers.has(INTERNAL_SIGNATURE_HEADER)).toBe(true);
@@ -141,7 +145,7 @@ describe("authorized shared Work projection", () => {
     expect(state.names).toEqual([]);
   });
 
-  it.each(["workspace", "room", "source", "handoff"])("fails closed when %s authority changes during an executor read", async (kind) => {
+  it.each(["workspace", "room", "source", "handoff", "executor"])("fails closed when %s authority changes during an executor read", async (kind) => {
     const f = await fixture(); const h = await f.handoff("selected", "agent", true);
     state.duringRead = async () => {
       state.duringRead = undefined;
@@ -149,6 +153,7 @@ describe("authorized shared Work projection", () => {
       if (kind === "room") f.sqlite.prepare("UPDATE collaboration_memberships SET status='removed' WHERE user_id=?").run(MEMBER);
       if (kind === "source") await revokeCollaborationMemory(f.env, f.scope, ROOM, { id: h.note!.id, version: 1 }, 10);
       if (kind === "handoff") f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=?").run(OTHER);
+      if (kind === "executor") f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=?").run(buildSessionAgentName(OWNER, crypto.randomUUID()));
     };
     const response = await f.send();
     if (kind === "workspace") expect(response?.status).toBe(404);
@@ -175,7 +180,7 @@ describe("authorized shared Work projection", () => {
     const f = await fixture(); const h = await f.handoff();
     state.runs.clear();
     expect((await workBody(await f.send())).tasks[0]).toMatchObject({ status: "unknown", resultAvailable: false });
-    h.run.status = "completed"; h.run.summary = "PRIVATE-RESULT"; state.runs.set(h.run.runId, h.run);
+    h.run.status = "completed"; h.run.summary = "PRIVATE-RESULT"; state.runs.set(`${h.executorName}|${h.run.runId}`, h.run);
     expect((await workBody(await f.send())).tasks[0]).toMatchObject({ status: "completed", resultAvailable: true, runId: h.run.runId });
     f.sqlite.prepare("UPDATE collaboration_handoffs SET status='cancelled',cancelled_at=20").run();
     state.requests.length = 0;
@@ -218,7 +223,7 @@ describe("authorized shared Work projection", () => {
     expect(body.tasks[0]?.runId).toBeUndefined();
     expect(state.requests).toHaveLength(2);
     expect(state.requests.every((request) => request.method === "GET" && new URL(request.url).pathname === "/api/approvals")).toBe(true);
-    expect(state.names.every((name) => name === OWNER)).toBe(true);
+    expect(state.names.every((name) => name === h.executorName)).toBe(true);
     expect(state.approvals[0]?.status).toBe("pending");
     expect(JSON.stringify(body)).not.toContain("Selected room note");
   });
@@ -258,6 +263,29 @@ describe("authorized shared Work projection", () => {
     expect(approvalReads).toBe(2);
     expect(body.tasks[0]).toMatchObject({ status: "unknown", approvalRequired: false, viewerCanApprove: false });
     expect(state.approvals[0]?.status).toBe("pending");
+    expect(state.requests.every((request) => request.method === "GET")).toBe(true);
+  });
+
+  it.each([OWNER, buildSessionAgentName(OTHER, "11111111-1111-4111-8111-111111111111")])("never reads a base or other-owner pin %s for team Work", async (executor) => {
+    const f = await fixture(); await f.handoff();
+    f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=?").run(executor);
+    const body = await workBody(await f.send());
+    expect(body.tasks[0]).toMatchObject({ status: "unknown", viewerCanApprove: false });
+    expect(body.tasks[0]?.runId).toBeUndefined();
+    expect(state.names).toEqual([]);
+    expect(state.requests).toEqual([]);
+  });
+
+  it("keeps the mixed-case human requester distinct from the exact isolated executor name", async () => {
+    const f = await fixture(), h = await f.handoff("pending", "agent", true);
+    const rawOwner = "Owner@Example.Test", executor = buildSessionAgentName(rawOwner, "11111111-1111-4111-8111-111111111111");
+    f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=?").run(executor);
+    state.userId = rawOwner;
+    state.approvals = [{ ...f.pending(h.run), threadKey: executor }]; state.runs.clear();
+    const body = await workBody(await f.send());
+    expect(body.currentActorId).toBe(humanActorId(OWNER));
+    expect(body.tasks[0]).toMatchObject({ status: "needs-approval", approvalRequired: true, viewerCanApprove: true });
+    expect(state.names).toEqual([executor, executor]);
     expect(state.requests.every((request) => request.method === "GET")).toBe(true);
   });
 });

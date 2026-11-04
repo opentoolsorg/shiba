@@ -10,6 +10,7 @@ import { INTERNAL_SIGNATURE_HEADER, verifyInternalRequest } from "../src/edge-id
 import type { Env } from "../src/env.js";
 import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { buildSessionAgentName } from "../src/web-sessions.js";
 
 const state = vi.hoisted(() => ({ approval: null as PendingApproval | null, names: [] as string[], calls: [] as Request[],
   decisions: 0, duringRead: undefined as (() => void | Promise<void>) | undefined, duringWrite: undefined as (() => void | Promise<void>) | undefined }));
@@ -36,6 +37,7 @@ vi.mock("agents/routing", () => ({ getAgentByName: async (_namespace: unknown, n
   } };
 } }));
 const OWNER = "owner@example.test", MEMBER = "member@example.test", ROOM = `room_${"a".repeat(24)}`, HANDOFF = "handoff-approved", APPROVAL = "approval-exact";
+const SESSION = "11111111-1111-4111-8111-111111111111", EXECUTOR = buildSessionAgentName(OWNER, SESSION);
 beforeEach(() => { state.approval = null; state.names.length = 0; state.calls.length = 0; state.decisions = 0; state.duringRead = undefined; state.duringWrite = undefined; });
 async function fixture() {
   const { database, sqlite } = customAgentD1();
@@ -57,9 +59,9 @@ async function fixture() {
   const note = await createCollaborationMemory(env, scope, ROOM, { id: "ctx_report", title: "Deadline", content: "The report is due Tuesday." });
   const frozen = await freezeCollaborationContext(env, scope, ROOM, HANDOFF, "Prepare the report.", [], [{ id: note.id, version: 1, sha256: note.sha256 }]);
   await bindCollaborationContextApproval(env, HANDOFF, APPROVAL, frozen.task);
-  await pinCollaborationHandoffExecutor(env, scope, HANDOFF, OWNER);
+  await pinCollaborationHandoffExecutor(env, scope, HANDOFF, EXECUTOR);
   await linkCollaborationHandoffRun(env, scope, HANDOFF, APPROVAL, `agent-tool:${APPROVAL}`);
-  state.approval = { approvalId: APPROVAL, threadKey: OWNER, kind: "run", task: frozen.task, repoUrl: "https://github.com/example/repo",
+  state.approval = { approvalId: APPROVAL, threadKey: EXECUTOR, kind: "run", task: frozen.task, repoUrl: "https://github.com/example/repo",
     baseBranch: "main", publishPullRequest: false, runtime: "sandbox", status: "pending", createdAt: Date.now(),
     customAgentId: profile.id, customAgentVersion: 1, collaborationHandoffId: HANDOFF, orgId,
     expectedDeliverables: ["report.md"], envNames: ["REPORT_MODE"], envDigest: "d".repeat(64), envSealed: "fixture-encrypted-never-public" };
@@ -80,7 +82,7 @@ describe("requester-only collaboration run approval", () => {
     expect(body.inputHash).toBe(f.hash()); expect(body.approval.task).toContain("The report is due Tuesday.");
     expect(body.approval.expectedDeliverables).toEqual(["report.md"]);
     expect(JSON.stringify(body)).not.toMatch(/fixture-encrypted|Private unrelated/);
-    expect(state.names).toEqual([OWNER]);
+    expect(state.names).toEqual([EXECUTOR]);
     expect(state.calls[0]!.headers.has(INTERNAL_SIGNATURE_HEADER)).toBe(true);
     expect((await verifyInternalRequest(state.calls[0]!, f.env)).ok).toBe(true);
     expect(state.calls[0]!.headers.has("Cookie")).toBe(false);
@@ -89,21 +91,30 @@ describe("requester-only collaboration run approval", () => {
   it("preserves the pinned executor while presenting the canonical human identity", async () => {
     const f = await fixture();
     const rawOwner = "Owner@Example.test";
-    f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=? WHERE handoff_id=?").run(rawOwner, HANDOFF);
-    state.approval!.threadKey = rawOwner;
+    const rawExecutor = buildSessionAgentName(rawOwner, SESSION);
+    f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=? WHERE handoff_id=?").run(rawExecutor, HANDOFF);
+    state.approval!.threadKey = rawExecutor;
     const response = (await f.send("GET", undefined, rawOwner))!;
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ requesterUserId: OWNER, approval: { threadKey: rawOwner } });
-    expect(state.names).toEqual([rawOwner]);
+    expect(await response.json()).toMatchObject({ requesterUserId: OWNER, approval: { threadKey: rawExecutor } });
+    expect(state.names).toEqual([rawExecutor]);
     expect(state.decisions).toBe(0);
+  });
+  it("keeps the raw authenticated decider separate from the pinned executor spelling", async () => {
+    const f = await fixture(), rawOwner = "Owner@Example.Test";
+    const response = await f.send("POST", { expectedInputHash: f.hash(), reviewed: true, approved: true }, rawOwner);
+    expect(response?.status).toBe(200);
+    const decision = state.calls.find((request) => request.method === "POST");
+    expect(await decision!.clone().json()).toMatchObject({ threadKey: EXECUTOR, decidedBy: rawOwner });
+    expect(state.names).toEqual([EXECUTOR]);
   });
   it.each([true, false])("records the reviewed human decision %s once without global fanout", async (approved) => {
     const f = await fixture(); const expectedInputHash = f.hash();
     expect((await f.send("POST", { expectedInputHash, reviewed: true, approved }))?.status).toBe(200);
     expect(state.decisions).toBe(1);
     const forwarded = await state.calls.find((r) => r.method === "POST")!.clone().json();
-    expect(forwarded).toMatchObject({ threadKey: OWNER, approvalId: APPROVAL, expectedInputHash, decidedBy: OWNER, source: "dashboard", approved });
-    expect(state.names.every((name) => name === OWNER)).toBe(true);
+    expect(forwarded).toMatchObject({ threadKey: EXECUTOR, approvalId: APPROVAL, expectedInputHash, decidedBy: OWNER, source: "dashboard", approved });
+    expect(state.names.every((name) => name === EXECUTOR)).toBe(true);
     expect((await f.send("POST", { expectedInputHash, reviewed: true, approved }))?.status).toBe(409);
     expect(state.decisions).toBe(1);
   });
@@ -140,6 +151,25 @@ describe("requester-only collaboration run approval", () => {
       expect((await f.send("POST", body))?.status).toBe(400);
     }
     expect((await f.send("POST", { expectedInputHash: "f".repeat(64), reviewed: true, approved: true }))?.status).toBe(409);
+    expect(state.decisions).toBe(0);
+  });
+
+  it.each([OWNER, buildSessionAgentName("other@example.test", SESSION)])("rejects a team base or other-owner executor pin %s before RPC", async (executor) => {
+    const f = await fixture();
+    f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=? WHERE handoff_id=?").run(executor, HANDOFF);
+    state.approval!.threadKey = executor;
+    expect((await f.send())?.status).toBe(404);
+    expect(state.names).toEqual([]);
+    expect(state.decisions).toBe(0);
+  });
+
+  it("rejects a same-owner isolated executor swap while the approval read yields", async () => {
+    const f = await fixture();
+    const replacement = buildSessionAgentName(OWNER, "22222222-2222-4222-8222-222222222222");
+    state.duringRead = () => { f.sqlite.prepare("UPDATE collaboration_handoffs SET executor_agent_name=? WHERE handoff_id=?").run(replacement, HANDOFF); };
+    expect((await f.send("POST", { expectedInputHash: f.hash(), reviewed: true, approved: true }))?.status).toBe(409);
+    expect(state.names).toEqual([EXECUTOR]);
+    expect(state.calls.every((request) => request.method === "GET")).toBe(true);
     expect(state.decisions).toBe(0);
   });
 });

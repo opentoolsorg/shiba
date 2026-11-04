@@ -902,7 +902,24 @@ function ScopedCollaborationView({
                 </div>
 
                 <div className="grid min-w-0 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] flex-1 min-h-0">
-                  <div className="flex min-h-[400px] min-w-0 flex-col border-b border-[var(--line)] xl:border-b-0 xl:border-r">
+                  <div
+                    data-testid="collaboration-chat-pane"
+                    className="relative flex min-h-[400px] min-w-0 flex-col overflow-hidden border-b border-[var(--line)] xl:border-b-0 xl:border-r"
+                    onPointerMove={(event) => {
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      if (bounds.width <= 0 || bounds.height <= 0) return;
+                      realtime.publishCursor({ x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)), y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)) });
+                    }}
+                    onPointerLeave={() => realtime.publishCursor(null)}
+                    onPointerCancel={() => realtime.publishCursor(null)}
+                  >
+                    <div aria-hidden="true" data-testid="collaboration-cursors" className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+                      {realtime.viewers.map((viewer) => {
+                        const cursor = viewer.cursor;
+                        if (!cursor || viewer.viewerId === realtime.viewerId || viewer.label === detail.currentUserId) return null;
+                        return <div key={viewer.viewerId} data-room-cursor-viewer={viewer.viewerId} className="absolute text-[var(--navy)]" style={{ left: `${cursor.x * 100}%`, top: `${cursor.y * 100}%` }}><svg aria-hidden="true" width="16" height="19" viewBox="0 0 16 19" className="block"><path d="M1 1V14L5 10L8 17L11 15L7 9H14Z" fill="currentColor" stroke="var(--paper)" strokeWidth="1" /></svg><span className="ml-3 block max-w-40 truncate border border-[var(--line)] bg-[var(--card)] px-1 py-0.5 font-mono text-[9px]">{viewer.label}</span></div>;
+                      })}
+                    </div>
                     <div
                       role="log"
                       aria-label="Conversation messages"

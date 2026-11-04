@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator, delegateInputSchema } from "../src/agents/orchestrator.js";
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
-import { HARNESS_IDS, runInputHash } from "@shiba/shared";
+import { HARNESS_IDS, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, runInputHash } from "@shiba/shared";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store.js";
 import { replaceEmployeeToolGrants } from "../src/employee-tool-store.js";
@@ -23,7 +23,12 @@ import {
   createRootCollaborationHandoff,
   humanActorId,
   linkCollaborationHandoffRun,
+  pinCollaborationHandoffExecutor,
 } from "../src/collaboration-store.js";
+import { mintCollaborationExecutor } from "../src/collaboration-executor.js";
+import * as collaborationRunScope from "../src/collaboration-run-scope.js";
+import { createTeamWorkspace } from "../src/team-workspaces-store.js";
+import { initiatorUserIdFromOrchestratorName } from "../src/subscription-routing.js";
 import {
   destroyManagedContainer,
   forgetLeaked,
@@ -1545,6 +1550,165 @@ describe("approval handoff recovery", () => {
     expect(instance.state.runs[0]?.status).toBe("unknown");
     expect(instance.state.runs[0]?.error).toContain("orchestrator restart");
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+});
+
+describe("isolated team execution ownership", () => {
+  async function isolated(rawOwner = "Owner@Example.Test") {
+    const instance = agent();
+    const db = customAgentD1();
+    Object.assign(instance.env, { AGENT_AUDIT: db.database });
+    const owner = rawOwner.toLowerCase();
+    const workspace = await createTeamWorkspace(instance.env, owner, { name: "Isolated team" });
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: workspace.workspaceId, userId: owner };
+    const roomId = "room_eeeeeeeeeeeeeeeeeeeeeeee", handoffId = "isolated-team-handoff";
+    await createCollaborationRoom(instance.env, scope, { roomId, title: "Team work", visibility: "shared", createdAt: Date.now() });
+    const profile = await createCustomAgent(instance.env, `team:${workspace.workspaceId}`, "engineer", { name: "Engineer", harness: "opencode", instructions: "Use the approved room facts." });
+    await addCollaborationMember(instance.env, scope, roomId, { userId: owner, displayName: "Engineer", actorId: `agent:${profile.id}`, kind: "agent", profileVersion: 1, createdAt: Date.now() });
+    await createRootCollaborationHandoff(instance.env, scope, { ...scope, roomId, handoffId, taskId: "team-task",
+      senderUserId: owner, senderActorId: humanActorId(owner), recipientUserId: owner, recipientActorId: `agent:${profile.id}`,
+      parentHandoffId: null, rootHandoffId: handoffId, depth: 0, ancestorHandoffIds: [], remainingBudget: 0,
+      grantedCapabilities: ["room.read", "message.send"], profileVersion: 1, status: "active", createdAt: Date.now(), cancelledAt: null });
+    const executor = mintCollaborationExecutor(scope, rawOwner);
+    expect(await pinCollaborationHandoffExecutor(instance.env, scope, handoffId, executor)).toBe(true);
+    Object.assign(instance, { name: executor, messages: [] });
+    const dispatch = vi.fn();
+    Object.assign(instance, { dispatchApprovedRun: dispatch });
+    const input = { task: "Draft a report from the selected room facts.", repoUrl: "https://github.com/o/r", publishPullRequest: false,
+      orgId: `team:${workspace.workspaceId}`, customAgentId: profile.id, customAgentVersion: 1,
+      collaborationHandoffId: handoffId, threadKey: executor, commandId: handoffId };
+    const queue = (change: Record<string, unknown> = {}) => instance.onRequest(new Request("https://internal/api/runs", {
+      method: "POST", headers: { "Content-Type": "application/json", [LOCAL_INTAKE_HEADER]: LOCAL_INTAKE_DASHBOARD }, body: JSON.stringify({ ...input, ...change }),
+    }));
+    const link = (approvalId: string) => linkCollaborationHandoffRun(instance.env, scope, handoffId, approvalId, `agent-tool:${approvalId}`);
+    const decide = (approvalId: string, expectedInputHash: string, change: Record<string, unknown> = {}) => instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threadKey: executor, approvalId, expectedInputHash, approved: true, decidedBy: owner, source: "dashboard", ...change }),
+    }));
+    return { instance, ...db, rawOwner, owner, scope, executor, dispatch, input, queue, link, decide };
+  }
+
+  it("freezes the isolated owner and team org, retries once, and keeps the actual human decider across email casing", async () => {
+    const f = await isolated();
+    const queued = await f.queue();
+    expect(queued.status).toBe(200);
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    const retried = await f.queue();
+    expect(await retried.json()).toMatchObject({ approvalId: first.approvalId, approvalInputHash: first.approvalInputHash, deduped: true });
+    expect(f.instance.state.pendingApprovals).toHaveLength(1);
+    expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ threadKey: f.executor, orgId: `team:${f.scope.workspaceId}` });
+    expect(initiatorUserIdFromOrchestratorName(f.executor)).toBe(f.rawOwner);
+    expect(f.instance.messages).toEqual([]);
+    expect(f.instance.state.webSessions ?? []).toEqual([]);
+    expect(f.dispatch).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(await f.link(first.approvalId)).toBe(true);
+    const response = await f.decide(first.approvalId, first.approvalInputHash);
+    expect(response.status).toBe(200);
+    expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ status: "approved", decidedBy: f.owner, threadKey: f.executor });
+    expect(f.instance.state.runs[0]).toMatchObject({ orgId: `team:${f.scope.workspaceId}`,
+      approval: { decidedBy: f.owner, inputHash: first.approvalInputHash } });
+  });
+
+  it.each(["source", "actor", "revocation"])("refuses a team decision after changed %s without minting a run", async (kind) => {
+    const f = await isolated();
+    const queued = await f.queue();
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    expect(await f.link(first.approvalId)).toBe(true);
+    if (kind === "revocation") f.sqlite.prepare("UPDATE team_workspace_memberships SET status='removed' WHERE workspace_id=? AND user_id=?").run(f.scope.workspaceId, f.owner);
+    const response = await f.decide(first.approvalId, first.approvalInputHash,
+      kind === "source" ? { source: "slack" } : kind === "actor" ? { decidedBy: "outsider@example.test" } : {});
+    expect(response.status).toBe(403);
+    expect(f.instance.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(f.instance.state.runs).toEqual([]);
+    expect(f.dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("preserves the committed team decision when a concurrent %s decision resumes its final authority check", async (secondApproved) => {
+    const f = await isolated();
+    const queued = await f.queue();
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    expect(await f.link(first.approvalId)).toBe(true);
+    let releaseFirst = () => {};
+    let releaseSecond = () => {};
+    let firstReady = () => {};
+    let secondReady = () => {};
+    const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const secondHeld = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    const firstAtFinalCheck = new Promise<void>((resolve) => { firstReady = resolve; });
+    const secondAtFinalCheck = new Promise<void>((resolve) => { secondReady = resolve; });
+    const resolveScope = collaborationRunScope.resolveTeamHandoffRunScope;
+    let checks = 0;
+    const authority = vi.spyOn(collaborationRunScope, "resolveTeamHandoffRunScope").mockImplementation(async (...args) => {
+      const check = ++checks;
+      const current = await resolveScope(...args);
+      if (check === 2) {
+        firstReady();
+        await firstHeld;
+      } else if (check === 4) {
+        secondReady();
+        await secondHeld;
+      }
+      return current;
+    });
+    try {
+      const firstDecision = f.decide(first.approvalId, first.approvalInputHash);
+      await firstAtFinalCheck;
+      const secondDecision = f.decide(first.approvalId, first.approvalInputHash, { approved: secondApproved });
+      await secondAtFinalCheck;
+      releaseFirst();
+      const committed = await firstDecision;
+      expect(committed.status).toBe(200);
+      expect(await committed.json()).toEqual({ result: "approved" });
+      releaseSecond();
+      const resumed = await secondDecision;
+      expect(resumed.status).toBe(200);
+      expect(await resumed.json()).toEqual({ result: "approved" });
+      expect(f.instance.state.commandReceipts?.[`approval:${first.approvalId}`])
+        .toMatchObject({ outcome: "approved", runId: `agent-tool:${first.approvalId}`, dispatched: true });
+      expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ status: "approved", decidedBy: f.owner });
+      expect(f.instance.state.runs).toHaveLength(1);
+      expect(f.dispatch).toHaveBeenCalledOnce();
+      expect(mocks.execute).not.toHaveBeenCalled();
+    } finally {
+      releaseFirst();
+      releaseSecond();
+      authority.mockRestore();
+    }
+  });
+
+  it("preserves a 254-character human identity and 295-character executor through frozen approval", async () => {
+    const human = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(61)}`;
+    const f = await isolated(human);
+    expect(f.executor.length).toBe(295);
+    const queued = await f.queue();
+    expect(queued.status).toBe(200);
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    expect(await f.link(first.approvalId)).toBe(true);
+    expect((await f.decide(first.approvalId, first.approvalInputHash)).status).toBe(200);
+    expect(f.instance.state.pendingApprovals?.[0]?.decidedBy).toBe(human);
+    expect(f.instance.state.runs[0]?.approval?.decidedBy).toBe(human);
+  });
+
+  it("refuses parent approval pointers and private onboarding/project context before minting", async () => {
+    const f = await isolated();
+    for (const change of [{ threadKey: f.rawOwner }, { projectContextId: "memproj_aaaaaaaaaaaaaaaaaaaaaaaa" },
+      { draftTaskId: "draft_11111111-1111-4111-8111-111111111111", draftTaskVersion: 1 }]) {
+      expect((await f.queue(change)).status).toBe(403);
+    }
+    expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
+    expect(f.instance.state.runs).toEqual([]);
+  });
+
+  it("keeps the exact-case rule for ordinary private sessions", async () => {
+    const instance = agent();
+    Object.assign(instance, { name: "web:Owner@Example.Test:11111111-1111-4111-8111-111111111111" });
+    const queued = await instance.onRequest(new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Private work", threadKey: instance.name }) }));
+    const first = await queued.json() as { approvalId: string; approvalInputHash: string };
+    const response = await instance.onRequest(new Request("https://internal/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: instance.name, approvalId: first.approvalId, expectedInputHash: first.approvalInputHash, approved: true, decidedBy: "owner@example.test", source: "dashboard" }) }));
+    expect(response.status).toBe(403);
+    expect(instance.state.runs).toEqual([]);
   });
 });
 

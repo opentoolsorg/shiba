@@ -9,6 +9,8 @@ import type { Env } from "./env.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
 import { DASHBOARD_ORG_ID, resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
 import { resolveTeamHandoffRunScope } from "./collaboration-run-scope.js";
+import { collaborationExecutorIdentity } from "./collaboration-executor.js";
+import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID } from "./collaboration-store.js";
 import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
 import { signInternalRequest } from "./edge-identity.js";
@@ -54,10 +56,13 @@ export async function resolveRunStoreTarget(
   const effectiveUserId = userId ?? "default";
   const executorPin = collaborationExecutorPins.get(request);
   if (executorPin) {
-    if (executorPin.trim().toLowerCase() !== effectiveUserId.trim().toLowerCase()) {
+    const identity = collaborationExecutorIdentity({ tenantId: COLLAB_TENANT_ID,
+      workspaceId: request.headers.get("X-Shiba-Workspace") ?? COLLAB_WORKSPACE_ID,
+      senderUserId: effectiveUserId, executorAgentName: executorPin });
+    if (!identity || identity.ownerId.trim().toLowerCase() !== effectiveUserId.trim().toLowerCase()) {
       return { error: Response.json({ error: "Handoff owner changed." }, { status: 403 }) };
     }
-    return { agentName: executorPin, userId: effectiveUserId };
+    return { agentName: identity.agentName, userId: effectiveUserId };
   }
   const sessionParam = url.searchParams.get("session") || url.searchParams.get("sessionId");
   if (sessionParam && sessionParam !== DEFAULT_SESSION_ID) {
@@ -286,7 +291,6 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       targetAgentName = ORCHESTRATOR_NAME;
     }
   }
-  const stub = await getAgentByName(env.CodingOrchestrator, targetAgentName);
   let rewritten = new Request(new URL(url.pathname + url.search, request.url), request);
   if (request.method === "POST" && url.pathname === "/api/runs" && intakeBody) {
     if (orgAuth.workspace) {
@@ -398,6 +402,9 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   // Edge identity: sign the stamped intake voucher so the DO can verify the
   // Worker minted it (no-op until INTERNAL_SIGNING_KEY is configured).
   await signInternalRequest(rewritten, env);
+  // A new isolated team DO is not touched until all current handoff/source
+  // checks pass. The address is intentionally absent from the private registry.
+  const stub = await getAgentByName(env.CodingOrchestrator, targetAgentName);
   // Internal drafts belong only to this authenticated owner/session. Never
   // search the shared registry or another session for missing artifacts.
   if (employeeDraftPath) return stub.fetch(rewritten);

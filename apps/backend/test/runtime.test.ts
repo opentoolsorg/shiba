@@ -926,7 +926,13 @@ describe("worker authentication gate (T7)", () => {
         .setProtectedHeader({ alg: "RS256", kid: "routing-key" })
         .setIssuer(`https://routing-test-${name.startsWith("web") ? "session" : "base"}.cloudflareaccess.com`)
         .setAudience("routing-aud").setIssuedAt().setExpirationTime("5m").sign(privateKey);
-      const stubFetch = vi.fn(async (_request: Request) => new Response("agent"));
+      const stubFetch = vi.fn(async (request: Request | string) => {
+        const path = new URL(typeof request === "string" ? request : request.url).pathname;
+        if (path.startsWith("/internal/web-sessions/")) return Response.json({ session: {
+          id: decodeURIComponent(path.split("/").at(-1)!), userId: "alice@example.com", metadata: {},
+        } });
+        return new Response("agent");
+      });
       vi.mocked(getAgentByName).mockClear();
       vi.mocked(getAgentByName).mockResolvedValue({ fetch: stubFetch } as never);
       const worker = (await import("../src/index.js")).default;
@@ -939,7 +945,8 @@ describe("worker authentication gate (T7)", () => {
       expect(await res.text()).toBe("agent");
       expect(getAgentByName).toHaveBeenCalledWith(env.CodingOrchestrator, name);
       expect(stubFetch).toHaveBeenCalledTimes(name.startsWith("web:") ? 2 : 1);
-      expect(new URL(stubFetch.mock.calls.at(-1)![0]!.url).pathname).toBe(
+      const forwarded = stubFetch.mock.calls.at(-1)![0]!;
+      expect(new URL(typeof forwarded === "string" ? forwarded : forwarded.url).pathname).toBe(
         `/agents/coding-orchestrator/${encodeURIComponent(name)}/ws`,
       );
     },

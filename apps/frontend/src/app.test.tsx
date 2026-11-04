@@ -389,4 +389,16 @@ describe("app Work and Threads routing", () => {
       expect(screen.queryByText("PRIVATE-MAILBOX-CONTENT")).toBeNull();
     } finally { reload.mockRestore(); }
   });
+
+  it("preserves the legacy local personal surface without requesting email-only team APIs", async () => {
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: "default", auth: "none" });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByRole("group", { name: "Work views" });
+    expect(screen.queryByRole("region", { name: "Workspace verification" })).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === "/api/workspaces")).toBe(false);
+  });
 });

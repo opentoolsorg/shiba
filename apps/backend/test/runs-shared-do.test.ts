@@ -1,15 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildSessionAgentName, type WebSessionRecord } from "../src/web-sessions.js";
 
 // Per-DO run stores: the caller's own DO, another user's DO, and the shared
 // "default" DO that automations / review / Sentry runs queue on (P7 #4).
 const stores = vi.hoisted(() => ({
   runs: {} as Record<string, Array<{ runId: string; createdAt: number }>>,
+  sessions: {} as Record<string, WebSessionRecord[]>,
   user: "op@example.com",
 }));
 vi.mock("agents/routing", () => ({
   getAgentByName: async (_ns: unknown, name: string) => ({
     fetch: async (input: Request | string) => {
       const url = new URL(typeof input === "string" ? input : input.url);
+      const sessionId = url.pathname.match(/^\/internal\/web-sessions\/([^/]+)$/)?.[1];
+      if (sessionId) {
+        const session = stores.sessions[name]?.find((row) => row.id === decodeURIComponent(sessionId));
+        return session ? Response.json({ session }) : Response.json({ error: "Session not found." }, { status: 404 });
+      }
       const runs = stores.runs[name] ?? [];
       const id = url.pathname.match(/^\/api\/runs\/([^/]+)$/)?.[1];
       if (id) {
@@ -45,6 +52,7 @@ stores.runs = {
 
 async function list(path: string, e: Env): Promise<string[]> {
   const res = await handleRuns(new Request(`https://shiba.test${path}`), e);
+  expect(res?.status, await res?.clone().text()).toBe(200);
   const body = (await res!.json()) as { runs: Array<{ runId: string }> };
   return body.runs.map((r) => r.runId);
 }
@@ -77,6 +85,8 @@ describe("GET /api/runs reads the shared default DO", () => {
   it("does not merge into a session-scoped listing", async () => {
     stores.user = "op@example.com";
     const session = crypto.randomUUID();
+    stores.sessions[stores.user] = [{ id: session, userId: stores.user, agentName: buildSessionAgentName(stores.user, session),
+      name: "Separate private session", createdAt: 1, updatedAt: 1, metadata: {} }];
     expect(await list(`/api/runs?session=${session}`, env("op@example.com"))).toEqual([]);
   });
 });

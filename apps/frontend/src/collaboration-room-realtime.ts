@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+export interface CollaborationRoomCursor { x: number; y: number }
 
 export interface CollaborationRoomViewer {
   viewerId: string;
   label: string;
   typing: boolean;
+  cursor: CollaborationRoomCursor | null;
 }
 
 type ConnectionStatus = "offline" | "connecting" | "connected" | "reconnecting";
@@ -18,6 +21,11 @@ interface Options {
 }
 
 const VIEWER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isCursor(value: unknown): value is CollaborationRoomCursor {
+  if (!value || typeof value !== "object") return false;
+  const cursor = value as Partial<CollaborationRoomCursor>;
+  return typeof cursor.x === "number" && Number.isFinite(cursor.x) && cursor.x >= 0 && cursor.x <= 1 && typeof cursor.y === "number" && Number.isFinite(cursor.y) && cursor.y >= 0 && cursor.y <= 1;
+}
 
 function viewersFrom(value: unknown): CollaborationRoomViewer[] | null {
   if (!Array.isArray(value) || value.length > 100) return null;
@@ -25,8 +33,8 @@ function viewersFrom(value: unknown): CollaborationRoomViewer[] | null {
   for (const viewer of value) {
     if (!viewer || typeof viewer !== "object" || typeof viewer.viewerId !== "string" || !VIEWER_ID.test(viewer.viewerId) ||
       typeof viewer.label !== "string" || !viewer.label || viewer.label.length > 320 ||
-      typeof viewer.typing !== "boolean") return null;
-    viewers.push({ viewerId: viewer.viewerId, label: viewer.label, typing: viewer.typing });
+      typeof viewer.typing !== "boolean" || viewer.cursor !== undefined && viewer.cursor !== null && !isCursor(viewer.cursor)) return null;
+    viewers.push({ viewerId: viewer.viewerId, label: viewer.label, typing: viewer.typing, cursor: isCursor(viewer.cursor) ? { x: viewer.cursor.x, y: viewer.cursor.y } : null });
   }
   return viewers;
 }
@@ -38,6 +46,8 @@ export function useCollaborationRoomRealtime(options: Options) {
   const callbacks = useRef(options);
   callbacks.current = options;
   const socketRef = useRef<WebSocket | null>(null);
+  const selfViewerRef = useRef<string | null>(null);
+  const cursorRef = useRef({ scopeKey, at: -Infinity, visible: false });
   const viewerRef = useRef<string | null>(null);
   const typingRef = useRef(Boolean(typingText.trim()));
   typingRef.current = Boolean(typingText.trim());
@@ -48,7 +58,22 @@ export function useCollaborationRoomRealtime(options: Options) {
     viewers: CollaborationRoomViewer[];
   }>({ scopeKey: "", roomId: "", status: "offline", viewers: [] });
 
+  const publishCursor = useCallback((cursor: CollaborationRoomCursor | null) => {
+    if (!enabled || callbacks.current.roomId !== roomId || (callbacks.current.workspaceId ?? "default") !== (workspaceId ?? "default") || !callbacks.current.enabled || cursor !== null && !isCursor(cursor)) return;
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (cursorRef.current.scopeKey !== scopeKey) cursorRef.current = { scopeKey, at: -Infinity, visible: false };
+    const previous = cursorRef.current;
+    if (cursor === null ? !previous.visible : Date.now() - previous.at < 100) return;
+    try {
+      socket.send(JSON.stringify({ type: "client_presence", cursor: cursor === null ? null : { x: cursor.x, y: cursor.y } }));
+      cursorRef.current = { scopeKey, at: cursor === null ? previous.at : Date.now(), visible: cursor !== null };
+    } catch { /* A fresh connection starts with no cursor. */ }
+  }, [enabled, roomId, workspaceId, scopeKey]);
+
   useEffect(() => {
+    selfViewerRef.current = null;
+    cursorRef.current = { scopeKey, at: -Infinity, visible: false };
     setState({ scopeKey, roomId, status: "offline", viewers: [] });
     if (!enabled || !roomId || typeof WebSocket === "undefined") return;
     viewerRef.current ??= crypto.randomUUID();
@@ -102,6 +127,7 @@ export function useCollaborationRoomRealtime(options: Options) {
         if (frame.type === "collaboration:snapshot" || frame.type === "collaboration:presence") {
           const viewers = viewersFrom(frame.viewers);
           if (!viewers) return;
+          if (frame.type === "collaboration:snapshot" && typeof frame.selfViewerId === "string" && VIEWER_ID.test(frame.selfViewerId)) selfViewerRef.current = frame.selfViewerId;
           setState({ scopeKey, roomId, status: "connected", viewers });
           if (frame.type === "collaboration:snapshot") callbacks.current.onRefresh(roomId);
         } else if (frame.type === "collaboration:refresh") {
@@ -111,6 +137,8 @@ export function useCollaborationRoomRealtime(options: Options) {
       socket.addEventListener("close", (event: CloseEvent) => {
         if (!current()) return;
         socketRef.current = null;
+        selfViewerRef.current = null;
+        cursorRef.current = { scopeKey, at: -Infinity, visible: false };
         if (heartbeat) clearInterval(heartbeat);
         setState({ scopeKey, roomId, status: "offline", viewers: [] });
         if (event.code === 1008) {
@@ -139,7 +167,14 @@ export function useCollaborationRoomRealtime(options: Options) {
     try { socket.send(JSON.stringify({ type: "client_presence", typing: Boolean(typingText.trim()) })); } catch { /* Reconnect restores presence. */ }
   }, [typingText]);
 
+  useEffect(() => {
+    const clear = () => publishCursor(null);
+    const hidden = () => { if (document.visibilityState === "hidden") clear(); };
+    window.addEventListener("blur", clear); document.addEventListener("visibilitychange", hidden);
+    return () => { window.removeEventListener("blur", clear); document.removeEventListener("visibilitychange", hidden); };
+  }, [publishCursor]);
+
   return state.scopeKey === scopeKey && enabled
-    ? { roomId, status: state.status, viewers: state.viewers }
-    : { roomId, status: "offline" as const, viewers: [] };
+    ? { roomId, status: state.status, viewers: state.viewers, viewerId: selfViewerRef.current, publishCursor }
+    : { roomId, status: "offline" as const, viewers: [], viewerId: null, publishCursor };
 }
