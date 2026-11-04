@@ -143,6 +143,7 @@ let stopActiveExecution;
 let terminationFailure;
 let onTerminationFailure;
 const groupedChildren = new WeakSet();
+const closedChildren = new WeakSet();
 const ownedChildren = new Set();
 const childTerminations = new WeakMap();
 
@@ -171,6 +172,9 @@ function signalOwnedChild(child, signal) {
 function terminateOwnedChild(child) {
   // One termination owns escalation when deadline and command timeout coincide.
   if (childTerminations.has(child)) return childTerminations.get(child);
+  // Native providers may close during the final checkpoint. Do not wait for
+  // another close event after actual closure and successful group cleanup.
+  if (closedChildren.has(child) && !groupedChildren.has(child)) return Promise.resolve(true);
   const termination = new Promise((resolve) => {
     const escalation = setTimeout(() => signalOwnedChild(child, "SIGKILL"), 1500);
     const confirmation = setTimeout(() => {
@@ -190,8 +194,8 @@ function terminateOwnedChild(child) {
 
 function ownChild(child, detached, execution) {
   ownedChildren.add(child);
-  child.once("close", () => ownedChildren.delete(child));
-  if (detached) {
+  child.once("close", () => { closedChildren.add(child); ownedChildren.delete(child); });
+  if (detached && Number.isInteger(child.pid) && child.pid > 1 && child.pid !== process.pid) {
     groupedChildren.add(child);
     // A CLI must not leave its tools running after its own process exits.
     child.once("exit", () => {
@@ -785,6 +789,9 @@ async function execute(envelope, claimToken) {
         checkpoints: true,
         emitStdout: false,
         detached: process.platform !== "win32",
+        // Session close, abort and deadlines share one bounded group cleanup.
+        // Await the owned child before collection or another run can start.
+        terminateChild: terminateOwnedChild,
         ...(session.bin ? { bin: substitute(session.bin, root) } : {}),
         ...(session.binArgs
           ? { binArgs: session.binArgs.map((part) => substitute(part, root)) }
