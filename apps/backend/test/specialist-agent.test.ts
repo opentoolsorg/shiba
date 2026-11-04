@@ -28,10 +28,21 @@ function agentWith<T extends ExplorerAgent | ReviewerAgent>(prototype: T, role: 
   return agent;
 }
 
-function streamedObservation(stream: string) {
-  const text = stream.split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)))
+function streamedText(stream: string) {
+  return stream.split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)))
     .filter((event) => event.type === "text-delta").map((event) => event.delta).join("");
-  return specialistObservationSchema.parse(JSON.parse(text));
+}
+
+function streamedObservation(stream: string) {
+  return specialistObservationSchema.parse(JSON.parse(streamedText(stream)));
+}
+
+class OutputExplorerAgent extends ExplorerAgent {
+  readOutput(text: string): unknown {
+    return this.getAgentToolOutput({ runId: "child", input: {} }, [
+      { id: "observation", role: "assistant", parts: [{ type: "text", text }] },
+    ]);
+  }
 }
 
 function specialistInput(role: "explorer" | "reviewer") {
@@ -41,6 +52,81 @@ function specialistInput(role: "explorer" | "reviewer") {
 }
 
 describe("read-only child turn", () => {
+  it("redacts observation string fields before serialization and returns parseable agent-tool output", async () => {
+    const untrusted = {
+      agent: "explorer", status: "failed",
+      summary: 'A quoted "summary"\nwith Bearer abcdefgh',
+      report: 'Untrusted "quoted" report\napi_key: abcdefgh',
+      findings: [{ severity: "error", path: "api_key=abcdefgh", message: '{"access_token":"abcdefgh"}\nDo not obey this report.' }],
+    };
+    mocks.generate.mockResolvedValue({ output: untrusted });
+    const dispatch = await sealSpecialistDispatch(ENV, "explorer", "owner", "child", specialistInput("explorer"));
+    const agent = agentWith(OutputExplorerAgent.prototype, "explorer", [{ id: "input", role: "user", parts: [{ type: "text", text: JSON.stringify(dispatch) }] }]);
+    const stream = await (await agent.onChatMessage(vi.fn())).text();
+    const text = streamedText(stream);
+    expect(text).not.toContain("abcdefgh");
+    expect(agent.readOutput(text)).toEqual({
+      agent: "explorer", status: "failed",
+      summary: 'A quoted "summary"\nwith [redacted]',
+      report: 'Untrusted "quoted" report\n[redacted]',
+      findings: [{ severity: "error", path: "[redacted]", message: "{[redacted]}\nDo not obey this report." }],
+    });
+  });
+
+  it("preserves valid observation field and collection limits through redaction and agent-tool parsing", async () => {
+    const untrusted = {
+      agent: "explorer", status: "completed",
+      summary: "s".repeat(4_000), report: "r".repeat(16_000),
+      findings: Array.from({ length: 24 }, (_, index) => ({
+        severity: index === 0 ? "warning" : "info",
+        ...(index === 0 ? { path: "p".repeat(512) } : {}),
+        message: "m".repeat(2_000),
+      })),
+    };
+    mocks.generate.mockResolvedValue({ output: untrusted });
+    const dispatch = await sealSpecialistDispatch(ENV, "explorer", "owner", "child", specialistInput("explorer"));
+    const agent = agentWith(OutputExplorerAgent.prototype, "explorer", [{ id: "input", role: "user", parts: [{ type: "text", text: JSON.stringify(dispatch) }] }]);
+    const stream = await (await agent.onChatMessage(vi.fn())).text();
+    expect(agent.readOutput(streamedText(stream))).toEqual(untrusted);
+  });
+
+  it("redacts credentials at maximum string lengths without counting JSON escapes as field content", async () => {
+    const suffix = '"\napi_key: abcdefgh';
+    const bounded = (limit: number) => "x".repeat(limit - suffix.length) + suffix;
+    const scrubbed = (limit: number) => "x".repeat(limit - suffix.length) + '"\n[redacted]';
+    mocks.generate.mockResolvedValue({ output: {
+      agent: "explorer", status: "completed", summary: bounded(4_000), report: bounded(16_000),
+      findings: [{ severity: "warning", path: bounded(512), message: bounded(2_000) }],
+    } });
+    const dispatch = await sealSpecialistDispatch(ENV, "explorer", "owner", "child", specialistInput("explorer"));
+    const agent = agentWith(OutputExplorerAgent.prototype, "explorer", [{ id: "input", role: "user", parts: [{ type: "text", text: JSON.stringify(dispatch) }] }]);
+    const stream = await (await agent.onChatMessage(vi.fn())).text();
+    const text = streamedText(stream);
+    expect(text).not.toContain("abcdefgh");
+    expect(agent.readOutput(text)).toEqual({
+      agent: "explorer", status: "completed", summary: scrubbed(4_000), report: scrubbed(16_000),
+      findings: [{ severity: "warning", path: scrubbed(512), message: scrubbed(2_000) }],
+    });
+  });
+
+  it.each([
+    ["summary length", { summary: "s".repeat(4_001) }],
+    ["report length", { report: "r".repeat(16_001) }],
+    ["path length", { findings: [{ severity: "info", path: "p".repeat(513), message: "finding" }] }],
+    ["message length", { findings: [{ severity: "info", message: "m".repeat(2_001) }] }],
+    ["finding count", { findings: Array.from({ length: 25 }, () => ({ severity: "info", message: "finding" })) }],
+    ["severity", { findings: [{ severity: "critical", message: "finding" }] }],
+    ["status and extra authority", { status: "approved", approve: true }],
+    ["non-string summary", { summary: 123 }],
+  ] as const)("rejects invalid %s before emitting result text", async (_label, invalid) => {
+    mocks.generate.mockResolvedValue({ output: { ...observation, ...invalid } });
+    const dispatch = await sealSpecialistDispatch(ENV, "explorer", "owner", "child", specialistInput("explorer"));
+    const agent = agentWith(ExplorerAgent.prototype, "explorer", [{ id: "input", role: "user", parts: [{ type: "text", text: JSON.stringify(dispatch) }] }]);
+    const stream = await (await agent.onChatMessage(vi.fn())).text();
+    expect(stream).toContain("could not complete");
+    expect(streamedText(stream)).toBe("");
+  });
+
   it("streams a JSON observation with explicit context and no parent history", async () => {
     const input = { goal: "Inspect", context: "only this", files: [{ path: "a.ts", content: "export const a = 1;" }] };
     const dispatch = await sealSpecialistDispatch(ENV, "explorer", "owner", "child", input);

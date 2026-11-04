@@ -107,8 +107,20 @@ export abstract class ReadonlySpecialistAgent extends AIChatAgent<Env> {
           if (observation.agent !== role) throw new Error("Specialist observation role mismatch.");
           return observation;
         }, dispatch.expiresAt, options?.abortSignal);
+        // Scrub untrusted values, never encoded JSON: secret patterns may consume
+        // JSON delimiters or miss quoted credentials after serialization escapes.
+        const redacted = specialistObservationSchema.parse({
+          ...result,
+          summary: redactSecrets(result.summary),
+          report: redactSecrets(result.report),
+          findings: result.findings.map((finding) => ({
+            ...finding,
+            ...(finding.path === undefined ? {} : { path: redactSecrets(finding.path) }),
+            message: redactSecrets(finding.message),
+          })),
+        });
         writer.write({ type: "text-start", id });
-        writer.write({ type: "text-delta", id, delta: redactSecrets(JSON.stringify(result)) });
+        writer.write({ type: "text-delta", id, delta: JSON.stringify(redacted) });
         writer.write({ type: "text-end", id });
         writer.write({ type: "finish", finishReason: "stop" });
       },
