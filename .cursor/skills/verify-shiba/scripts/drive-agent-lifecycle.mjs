@@ -136,7 +136,7 @@ try {
   const { session } = await sessionCreated.json();
   sessionId = session.id;
   assert.equal(session.metadata.customAgentId, agentId);
-  await page.getByRole("button", { name: "Chat & Threads", exact: true }).click();
+  await page.getByRole("button", { name: /^(?:Chat & )?Threads$/, exact: true }).click();
   await assertThreadProfile();
   await page.getByLabel("Task description", { exact: true }).fill(task);
   await directory();
