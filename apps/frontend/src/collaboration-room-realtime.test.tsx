@@ -26,7 +26,7 @@ function fixture() {
   });
   const onRefresh = vi.fn();
   const onAccessLost = vi.fn();
-  const initial = { roomId: "room-a", enabled: true, typingText: "", onRefresh, onAccessLost };
+  const initial = { roomId: "room-a", workspaceId: undefined as string | undefined, enabled: true, typingText: "", onRefresh, onAccessLost };
   const hook = renderHook((props) => useCollaborationRoomRealtime(props), { initialProps: initial });
   return { sockets, onRefresh, onAccessLost, initial, hook };
 }
@@ -102,6 +102,32 @@ describe("shared collaboration room realtime", () => {
     expect(hook.result.current.status).toBe("offline");
     act(() => vi.advanceTimersByTime(60_000));
     expect(sockets).toHaveLength(1);
+  });
+
+  it("separates the same room identifier in two workspace scopes and ignores late previous-scope frames", () => {
+    const { sockets, hook, onRefresh, onAccessLost, initial } = fixture();
+    act(() => sockets[0]!.open());
+    act(() => sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-a", viewers: [
+      { viewerId: "11111111-1111-4111-8111-111111111111", label: "old-workspace@example.test", typing: true },
+    ] }));
+    expect(hook.result.current.viewers).toHaveLength(1);
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    hook.rerender({ ...initial, workspaceId });
+    expect(hook.result.current.viewers).toEqual([]);
+    expect(new URL(sockets[1]!.url).searchParams.get("workspaceId")).toBe(workspaceId);
+    onRefresh.mockClear();
+    act(() => {
+      sockets[0]!.receive({ type: "collaboration:refresh", roomId: "room-a" });
+      sockets[0]!.receive({ type: "collaboration:presence", roomId: "room-a", viewers: [
+        { viewerId: "11111111-1111-4111-8111-111111111111", label: "old-workspace@example.test", typing: true },
+      ] });
+      sockets[0]!.close(1008);
+    });
+    expect(hook.result.current.viewers).toEqual([]);
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(onAccessLost).not.toHaveBeenCalled();
+    act(() => sockets[1]!.open());
+    expect(onRefresh).toHaveBeenCalledWith("room-a");
   });
 
   it("rejects malformed presence and never treats a forged run frame as shared content", () => {

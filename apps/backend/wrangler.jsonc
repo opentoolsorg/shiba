@@ -107,6 +107,8 @@
     //   unset = each request's own origin.
     //   BETTER_AUTH_BOOTSTRAP_TOKEN  setup token the first sign-up must send.
     //   BETTER_AUTH_OWNER_EMAIL      allowlisted email for that first account.
+    //   BETTER_AUTH_VERIFICATION_FROM verified sender for native team enrollment.
+    //   Enrollment also requires SEND_EMAIL and HTTPS BETTER_AUTH_URL; absent stays closed.
     //   A public host refuses the first account until one of those is set.
     // T52 per-role routing pins (agents/roles.ts) — plain vars, never
     // secrets; absent = every role resolves through the deployment default.

@@ -1,5 +1,6 @@
 import {
   COLLABORATION_CAPABILITIES,
+  isTeamWorkspaceId,
   type CollaborationActorKind,
   type CollaborationCapability,
   type CollaborationRole,
@@ -11,7 +12,7 @@ import { parseSlackCanvasOwners } from "./slack-canvas.js";
 type SlackCollaborationEnv = Pick<Env, "AGENT_AUDIT" | "SLACK_CANVAS_OWNERS">;
 
 /** A signed observation proves origin, never permission to disclose its content. */
-function slackSourceAuthoritySql(source: string, room: string, linkOwner = false): string {
+function slackSourceAuthoritySql(source: string, room: string, linkOwner = false, checkWorkspace = false): string {
   return `EXISTS (
     SELECT 1 FROM json_each(?) policy
     WHERE json_extract(policy.value,'$.teamId')=${source}.team_id
@@ -21,7 +22,8 @@ function slackSourceAuthoritySql(source: string, room: string, linkOwner = false
         WHERE origin_owner.tenant_id=${room}.tenant_id AND origin_owner.workspace_id=${room}.workspace_id
           AND origin_owner.room_id=${room}.room_id AND origin_owner.actor_kind='human'
           AND origin_owner.role='owner' AND origin_owner.status='active'
-          AND origin_owner.user_id=json_extract(policy.value,'$.ownerId'))
+          AND origin_owner.user_id=json_extract(policy.value,'$.ownerId')
+          ${checkWorkspace ? `AND (origin_owner.workspace_id='default' OR EXISTS (SELECT 1 FROM team_workspace_memberships source_owner WHERE source_owner.tenant_id=origin_owner.tenant_id AND source_owner.workspace_id=origin_owner.workspace_id AND source_owner.user_id=origin_owner.user_id AND source_owner.status='active'))` : ''})
       AND NOT EXISTS (SELECT 1 FROM collaboration_memberships audience
         WHERE audience.tenant_id=${room}.tenant_id AND audience.workspace_id=${room}.workspace_id
           AND audience.room_id=${room}.room_id AND audience.status='active'
@@ -43,10 +45,12 @@ export async function isCollaborationSlackRoomAudienceAuthorized(
   proposedUserId?: string,
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
+  if (!await isCollaborationWorkspaceMember(env, scope)) return false;
   const invalid = await env.AGENT_AUDIT.prepare(
     `SELECT 1 FROM collaboration_slack_room_links l
      WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=?
-       AND (NOT ${slackSourceAuthoritySql("l", "l", true)}
+       AND (NOT ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))}
          OR (? IS NOT NULL AND NOT EXISTS (SELECT 1 FROM json_each(?) policy
            WHERE json_extract(policy.value,'$.teamId')=l.team_id AND json_extract(policy.value,'$.channelId')=l.channel_id
              AND (json_extract(policy.value,'$.ownerId')=? OR EXISTS (SELECT 1 FROM json_each(json_extract(policy.value,'$.viewerIds')) viewer WHERE viewer.value=?)))))
@@ -75,6 +79,35 @@ export interface CollaborationScope {
   tenantId: string;
   workspaceId: string;
   userId: string;
+}
+
+/** Explicit workspace selection never grants room access or employee capabilities. */
+export function collaborationEmployeeOrgId(scope: Pick<CollaborationScope, "workspaceId">): string {
+  return isTeamWorkspaceId(scope.workspaceId) ? `team:${scope.workspaceId}` : "self-hosted";
+}
+
+async function ensureCollaborationScopeSchema(env: Pick<Env, "AGENT_AUDIT">, scope: Pick<CollaborationScope, "workspaceId">): Promise<void> {
+  if (scope.workspaceId === COLLAB_WORKSPACE_ID) return;
+  if (!isTeamWorkspaceId(scope.workspaceId)) throw new CollaborationStoreError("Workspace not found.", 404);
+  // Imported lazily: the workspace store uses the collaboration schema during atomic revocation.
+  const { ensureTeamWorkspacesSchema } = await import("./team-workspaces-store.js");
+  await ensureTeamWorkspacesSchema(env);
+}
+
+/** These predicates are inside the same statement as the existing room/source authorization. */
+function teamMemberSql(scope: Pick<CollaborationScope, "workspaceId">, alias: string): string {
+  if (!isTeamWorkspaceId(scope.workspaceId)) return scope.workspaceId === COLLAB_WORKSPACE_ID ? "1=1" : "0=1";
+  return `EXISTS (SELECT 1 FROM team_workspace_memberships team_member
+    WHERE team_member.tenant_id=${alias}.tenant_id AND team_member.workspace_id=${alias}.workspace_id
+      AND team_member.user_id=${alias}.user_id AND team_member.status='active')`;
+}
+
+export async function isCollaborationWorkspaceMember(env: Pick<Env, "AGENT_AUDIT">, scope: CollaborationScope, userId = scope.userId): Promise<boolean> {
+  if (scope.workspaceId === COLLAB_WORKSPACE_ID) return true;
+  if (!isTeamWorkspaceId(scope.workspaceId)) return false;
+  await ensureCollaborationScopeSchema(env, scope);
+  return Boolean(await env.AGENT_AUDIT.prepare(`SELECT 1 FROM team_workspace_memberships WHERE tenant_id=? AND workspace_id=? AND user_id=? AND status='active'`)
+    .bind(scope.tenantId, scope.workspaceId, userId.trim().toLowerCase()).first());
 }
 
 export interface CollaborationRoomRow {
@@ -603,11 +636,12 @@ export async function createCollaborationRoom(
   input: { roomId: string; title: string; visibility: CollaborationVisibility; createdAt: number },
 ): Promise<CollaborationRoomRow> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const db = env.AGENT_AUDIT;
-  await db.batch([
+  const results = await db.batch([
     db
       .prepare(
-        `INSERT INTO collaboration_rooms (room_id,tenant_id,workspace_id,title,visibility,created_by_user_id,created_at) VALUES (?,?,?,?,?,?,?)`,
+        `INSERT INTO collaboration_rooms (room_id,tenant_id,workspace_id,title,visibility,created_by_user_id,created_at) SELECT ?,?,?,?,?,?,? ${isTeamWorkspaceId(scope.workspaceId) ? "WHERE EXISTS (SELECT 1 FROM team_workspace_memberships creator WHERE creator.tenant_id=? AND creator.workspace_id=? AND creator.user_id=? AND creator.status='active')" : ""}`,
       )
       .bind(
         input.roomId,
@@ -617,10 +651,11 @@ export async function createCollaborationRoom(
         input.visibility,
         scope.userId,
         input.createdAt,
+        ...(isTeamWorkspaceId(scope.workspaceId) ? [scope.tenantId, scope.workspaceId, scope.userId] : []),
       ),
     db
       .prepare(
-        `INSERT INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at) VALUES (?,?,?,?,?,?,'human','owner','active',?,NULL,?)`,
+        `INSERT INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at) SELECT ?,?,?,?,?,?,'human','owner','active',?,NULL,? WHERE changes()=1`,
       )
       .bind(
         scope.tenantId,
@@ -633,6 +668,7 @@ export async function createCollaborationRoom(
         input.createdAt,
       ),
   ]);
+  if (Number(results[1]?.meta?.changes ?? 0) !== 1) throw new CollaborationStoreError("Workspace not found.", 404);
   return {
     roomId: input.roomId,
     tenantId: scope.tenantId,
@@ -654,8 +690,9 @@ export async function listCollaborationRooms(
   scope: CollaborationScope,
 ): Promise<CollaborationRoomRow[]> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT DISTINCT r.*, (SELECT COUNT(*) FROM collaboration_memberships m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id AND m.status='active') AS member_count FROM collaboration_rooms r JOIN collaboration_memberships mine ON mine.tenant_id=r.tenant_id AND mine.workspace_id=r.workspace_id AND mine.room_id=r.room_id WHERE r.tenant_id=? AND r.workspace_id=? AND mine.user_id=? AND mine.status='active' ORDER BY r.created_at DESC LIMIT 100`,
+    `SELECT DISTINCT r.*, (SELECT COUNT(*) FROM collaboration_memberships m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id AND m.status='active' AND ${teamMemberSql(scope, 'm')}) AS member_count FROM collaboration_rooms r JOIN collaboration_memberships mine ON mine.tenant_id=r.tenant_id AND mine.workspace_id=r.workspace_id AND mine.room_id=r.room_id WHERE r.tenant_id=? AND r.workspace_id=? AND mine.user_id=? AND mine.status='active' AND ${teamMemberSql(scope, 'mine')} ORDER BY r.created_at DESC LIMIT 100`,
   )
     .bind(scope.tenantId, scope.workspaceId, scope.userId)
     .all<Record<string, unknown>>();
@@ -668,8 +705,9 @@ export async function getCollaborationRoom(
   roomId: string,
 ): Promise<CollaborationRoomRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT r.* FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id AND m.user_id=? AND m.status='active')`,
+    `SELECT r.* FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships m WHERE m.tenant_id=r.tenant_id AND m.workspace_id=r.workspace_id AND m.room_id=r.room_id AND m.user_id=? AND m.status='active' AND ${teamMemberSql(scope, 'm')})`,
   )
     .bind(scope.tenantId, scope.workspaceId, roomId, scope.userId)
     .first<Record<string, unknown>>();
@@ -683,8 +721,9 @@ export async function getCollaborationMembership(
   actorId: string,
 ): Promise<CollaborationMembershipRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM collaboration_memberships WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND user_id=? AND status='active'`,
+    `SELECT * FROM collaboration_memberships WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND user_id=? AND status='active' AND ${teamMemberSql(scope, 'collaboration_memberships')}`,
   )
     .bind(scope.tenantId, scope.workspaceId, roomId, actorId, scope.userId)
     .first<Record<string, unknown>>();
@@ -698,8 +737,9 @@ export async function getActiveCollaborationMembership(
   actorId: string,
 ): Promise<CollaborationMembershipRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM collaboration_memberships WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND status='active'`,
+    `SELECT * FROM collaboration_memberships WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND status='active' AND ${teamMemberSql(scope, 'collaboration_memberships')}`,
   )
     .bind(scope.tenantId, scope.workspaceId, roomId, actorId)
     .first<Record<string, unknown>>();
@@ -712,8 +752,9 @@ export async function listCollaborationMemberships(
   roomId: string,
 ): Promise<CollaborationMembershipRow[]> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM collaboration_memberships WHERE tenant_id=? AND workspace_id=? AND room_id=? AND status='active' AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active') ORDER BY role,created_at`,
+    `SELECT * FROM collaboration_memberships WHERE tenant_id=? AND workspace_id=? AND room_id=? AND status='active' AND ${teamMemberSql(scope, 'collaboration_memberships')} AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')}) ORDER BY role,created_at`,
   )
     .bind(
       scope.tenantId,
@@ -734,8 +775,9 @@ export async function listCollaborationMessages(
   roomId: string,
 ): Promise<CollaborationMessageRow[]> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM collaboration_messages WHERE tenant_id=? AND workspace_id=? AND room_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active') ORDER BY created_at DESC,message_id DESC LIMIT ?`,
+    `SELECT * FROM collaboration_messages WHERE tenant_id=? AND workspace_id=? AND room_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')}) ORDER BY created_at DESC,message_id DESC LIMIT ?`,
   )
     .bind(
       scope.tenantId,
@@ -757,8 +799,9 @@ export async function listCollaborationHandoffs(
   roomId: string,
 ): Promise<CollaborationHandoffRow[]> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM collaboration_handoffs WHERE tenant_id=? AND workspace_id=? AND room_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active') ORDER BY created_at DESC LIMIT 100`,
+    `SELECT * FROM collaboration_handoffs WHERE tenant_id=? AND workspace_id=? AND room_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')}) ORDER BY created_at DESC LIMIT 100`,
   )
     .bind(
       scope.tenantId,
@@ -781,12 +824,13 @@ export async function listCollaborationHandoffsForRoot(
   rootHandoffId: string,
 ): Promise<CollaborationHandoffRow[]> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT * FROM collaboration_handoffs h
      WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND h.root_handoff_id=?
        AND EXISTS (SELECT 1 FROM collaboration_memberships reader
          WHERE reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id
-           AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active')
+           AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')})
      ORDER BY h.depth ASC,h.created_at ASC,h.handoff_id ASC`,
   ).bind(scope.tenantId, scope.workspaceId, roomId, rootHandoffId, scope.userId)
     .all<Record<string, unknown>>();
@@ -807,13 +851,16 @@ export async function addCollaborationMember(
   },
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
+  if (!await isCollaborationWorkspaceMember(env, scope) || !await isCollaborationWorkspaceMember(env, scope, input.userId)) return false;
   const caps = input.kind === "human" ? ALL_HUMAN_CAPABILITIES : AGENT_CAPABILITIES;
   const role = input.kind === "human" ? "member" : "agent";
   const result = await env.AGENT_AUDIT.prepare(
-    `INSERT INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at) SELECT ?,?,?,?,?,?,?,?,'active',?,?,? WHERE EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active') AND EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=?)
+    `INSERT INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at) SELECT ?,?,?,?,?,?,?,?,'active',?,?,? WHERE EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')}) AND EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=? AND r.workspace_id=? AND r.room_id=?)
+      ${isTeamWorkspaceId(scope.workspaceId) ? "AND EXISTS (SELECT 1 FROM team_workspace_memberships target WHERE target.tenant_id=? AND target.workspace_id=? AND target.user_id=? AND target.status='active')" : ""}
       AND NOT EXISTS (SELECT 1 FROM collaboration_slack_room_links l
         WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=?
-          AND (NOT ${slackSourceAuthoritySql("l", "l", true)}
+          AND (NOT ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))}
             OR NOT EXISTS (SELECT 1 FROM json_each(?) policy
               WHERE json_extract(policy.value,'$.teamId')=l.team_id AND json_extract(policy.value,'$.channelId')=l.channel_id
                 AND (json_extract(policy.value,'$.ownerId')=? OR EXISTS (SELECT 1 FROM json_each(json_extract(policy.value,'$.viewerIds')) viewer WHERE viewer.value=?)))))
@@ -838,6 +885,7 @@ export async function addCollaborationMember(
       scope.tenantId,
       scope.workspaceId,
       roomId,
+      ...(isTeamWorkspaceId(scope.workspaceId) ? [scope.tenantId, scope.workspaceId, input.userId] : []),
       scope.tenantId,
       scope.workspaceId,
       roomId,
@@ -858,9 +906,12 @@ export async function pinCollaborationHandoffExecutor(
   executorAgentName: string,
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const result = await env.AGENT_AUDIT.prepare(
     `UPDATE collaboration_handoffs SET executor_agent_name=?
      WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND sender_user_id=?
+       AND EXISTS (SELECT 1 FROM collaboration_memberships current_sender WHERE current_sender.tenant_id=collaboration_handoffs.tenant_id AND current_sender.workspace_id=collaboration_handoffs.workspace_id AND current_sender.room_id=collaboration_handoffs.room_id AND current_sender.user_id=collaboration_handoffs.sender_user_id AND current_sender.actor_id=collaboration_handoffs.sender_actor_id AND current_sender.status='active' AND ${teamMemberSql(scope, 'current_sender')})
+       AND EXISTS (SELECT 1 FROM collaboration_memberships current_recipient WHERE current_recipient.tenant_id=collaboration_handoffs.tenant_id AND current_recipient.workspace_id=collaboration_handoffs.workspace_id AND current_recipient.room_id=collaboration_handoffs.room_id AND current_recipient.user_id=collaboration_handoffs.recipient_user_id AND current_recipient.actor_id=collaboration_handoffs.recipient_actor_id AND current_recipient.status='active' AND ${teamMemberSql(scope, 'current_recipient')})
        AND (executor_agent_name IS NULL OR executor_agent_name=?)`,
   ).bind(executorAgentName, scope.tenantId, scope.workspaceId, handoffId, executorAgentName.trim().toLowerCase(), executorAgentName).run();
   return Number(result.meta?.changes ?? 0) === 1;
@@ -875,9 +926,12 @@ export async function linkCollaborationHandoffRun(
   runId: string,
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const result = await env.AGENT_AUDIT.prepare(
     `UPDATE collaboration_handoffs SET approval_id=?,run_id=?
      WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND sender_user_id=?
+       AND EXISTS (SELECT 1 FROM collaboration_memberships current_sender WHERE current_sender.tenant_id=collaboration_handoffs.tenant_id AND current_sender.workspace_id=collaboration_handoffs.workspace_id AND current_sender.room_id=collaboration_handoffs.room_id AND current_sender.user_id=collaboration_handoffs.sender_user_id AND current_sender.actor_id=collaboration_handoffs.sender_actor_id AND current_sender.status='active' AND ${teamMemberSql(scope, 'current_sender')})
+       AND EXISTS (SELECT 1 FROM collaboration_memberships current_recipient WHERE current_recipient.tenant_id=collaboration_handoffs.tenant_id AND current_recipient.workspace_id=collaboration_handoffs.workspace_id AND current_recipient.room_id=collaboration_handoffs.room_id AND current_recipient.user_id=collaboration_handoffs.recipient_user_id AND current_recipient.actor_id=collaboration_handoffs.recipient_actor_id AND current_recipient.status='active' AND ${teamMemberSql(scope, 'current_recipient')})
        AND status='active' AND (approval_id IS NULL OR approval_id=?) AND (run_id IS NULL OR run_id=?)`,
   )
     .bind(
@@ -902,9 +956,10 @@ export async function removeCollaborationMember(
   removedAt: number,
 ): Promise<{ changed: boolean; affectedRootIds: string[] }> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const results = await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare(
-      `UPDATE collaboration_memberships SET status='removed',removed_at=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND role<>'owner' AND status='active' AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active')`,
+      `UPDATE collaboration_memberships SET status='removed',removed_at=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND actor_id=? AND role<>'owner' AND status='active' AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')})`,
     ).bind(
       removedAt,
       scope.tenantId,
@@ -955,8 +1010,9 @@ export async function createCollaborationMessage(
   input: CollaborationMessageRow,
 ): Promise<CollaborationMessageRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
-    `INSERT INTO collaboration_messages (message_id,tenant_id,workspace_id,room_id,sender_user_id,sender_actor_id,sender_kind,body,profile_version,created_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM collaboration_memberships m WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.user_id=? AND m.actor_id=? AND m.actor_kind=? AND m.status='active' AND EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=m.tenant_id AND r.workspace_id=m.workspace_id AND r.room_id=m.room_id)) RETURNING *`,
+    `INSERT INTO collaboration_messages (message_id,tenant_id,workspace_id,room_id,sender_user_id,sender_actor_id,sender_kind,body,profile_version,created_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM collaboration_memberships m WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.user_id=? AND m.actor_id=? AND m.actor_kind=? AND m.status='active' AND ${teamMemberSql(scope, 'm')} AND EXISTS (SELECT 1 FROM collaboration_rooms r WHERE r.tenant_id=m.tenant_id AND r.workspace_id=m.workspace_id AND r.room_id=m.room_id)) RETURNING *`,
   )
     .bind(
       input.messageId,
@@ -998,14 +1054,16 @@ export async function createCollaborationAgentReply(
   },
 ): Promise<CollaborationMessageRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
     `INSERT INTO collaboration_messages (message_id,tenant_id,workspace_id,room_id,sender_user_id,sender_actor_id,sender_kind,body,profile_version,source_run_id,source_handoff_id,source_artifact_refs_json,created_at)
      SELECT ?,?,?,?,?,?,'agent',?,?,?,?,?,?
      WHERE EXISTS (
        SELECT 1 FROM collaboration_handoffs h
        JOIN collaboration_handoffs root ON root.tenant_id=h.tenant_id AND root.workspace_id=h.workspace_id AND root.handoff_id=h.root_handoff_id
-       JOIN collaboration_memberships agent ON agent.tenant_id=h.tenant_id AND agent.workspace_id=h.workspace_id AND agent.room_id=h.room_id AND agent.user_id=h.recipient_user_id AND agent.actor_id=h.recipient_actor_id AND agent.actor_kind='agent' AND agent.profile_version=h.profile_version AND agent.status='active'
-       JOIN collaboration_memberships reader ON reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active'
+       JOIN collaboration_memberships current_sender ON current_sender.tenant_id=h.tenant_id AND current_sender.workspace_id=h.workspace_id AND current_sender.room_id=h.room_id AND current_sender.user_id=h.sender_user_id AND current_sender.actor_id=h.sender_actor_id AND current_sender.status='active' AND ${teamMemberSql(scope, 'current_sender')}
+       JOIN collaboration_memberships agent ON agent.tenant_id=h.tenant_id AND agent.workspace_id=h.workspace_id AND agent.room_id=h.room_id AND agent.user_id=h.recipient_user_id AND agent.actor_id=h.recipient_actor_id AND agent.actor_kind='agent' AND agent.profile_version=h.profile_version AND agent.status='active' AND ${teamMemberSql(scope, 'agent')}
+       JOIN collaboration_memberships reader ON reader.tenant_id=h.tenant_id AND reader.workspace_id=h.workspace_id AND reader.room_id=h.room_id AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')}
        WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND h.handoff_id=? AND h.run_id=? AND h.recipient_actor_id=? AND h.profile_version=? AND h.status='active' AND root.status='active'
      ) ON CONFLICT DO NOTHING RETURNING *`,
   )
@@ -1034,7 +1092,7 @@ export async function createCollaborationAgentReply(
     .first<Record<string, unknown>>();
   if (row) return rowMessage(row);
   const existing = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM collaboration_messages WHERE tenant_id=? AND workspace_id=? AND room_id=? AND source_run_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active')`,
+    `SELECT * FROM collaboration_messages WHERE tenant_id=? AND workspace_id=? AND room_id=? AND source_run_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')})`,
   )
     .bind(
       scope.tenantId,
@@ -1083,11 +1141,11 @@ export async function observeCollaborationSlackThread(
   await env.AGENT_AUDIT.prepare(
     `DELETE FROM collaboration_slack_observations AS o
      WHERE o.tenant_id=? AND o.workspace_id=?
-       AND NOT EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=o.tenant_id AND l.workspace_id=o.workspace_id AND l.team_id=o.team_id AND l.channel_id=o.channel_id AND l.thread_ts=o.thread_ts AND l.status='active')
+       AND NOT EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=o.tenant_id AND l.team_id=o.team_id AND l.channel_id=o.channel_id AND l.thread_ts=o.thread_ts AND l.status='active')
        AND (o.last_seen_at<? OR (o.team_id,o.channel_id,o.thread_ts) NOT IN (
          SELECT recent.team_id,recent.channel_id,recent.thread_ts FROM collaboration_slack_observations recent
          WHERE recent.tenant_id=o.tenant_id AND recent.workspace_id=o.workspace_id
-           AND NOT EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=recent.tenant_id AND l.workspace_id=recent.workspace_id AND l.team_id=recent.team_id AND l.channel_id=recent.channel_id AND l.thread_ts=recent.thread_ts AND l.status='active')
+           AND NOT EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=recent.tenant_id AND l.team_id=recent.team_id AND l.channel_id=recent.channel_id AND l.thread_ts=recent.thread_ts AND l.status='active')
          ORDER BY recent.last_seen_at DESC LIMIT ?
        ))`,
   )
@@ -1102,21 +1160,23 @@ export async function listCollaborationSlackSources(
   roomId: string,
 ): Promise<CollaborationSlackSourceRow[]> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT o.*,l.room_id AS mapped_room_id
      FROM collaboration_slack_observations o
-     JOIN collaboration_rooms r ON r.tenant_id=o.tenant_id AND r.workspace_id=o.workspace_id AND r.room_id=?
-     LEFT JOIN collaboration_slack_room_links l ON l.tenant_id=o.tenant_id AND l.workspace_id=o.workspace_id AND l.team_id=o.team_id AND l.channel_id=o.channel_id AND l.thread_ts=o.thread_ts AND l.status='active'
+     JOIN collaboration_rooms r ON r.tenant_id=o.tenant_id AND r.workspace_id=? AND r.room_id=?
+     LEFT JOIN collaboration_slack_room_links l ON l.tenant_id=o.tenant_id AND l.workspace_id=r.workspace_id AND l.team_id=o.team_id AND l.channel_id=o.channel_id AND l.thread_ts=o.thread_ts AND l.status='active'
      WHERE o.tenant_id=? AND o.workspace_id=?
        AND (l.room_id=? OR l.room_id IS NULL)
-       AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active')
-     AND ${slackSourceAuthoritySql("o", "r")}
+       AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')})
+     AND ${slackSourceAuthoritySql("o", "r", false, isTeamWorkspaceId(scope.workspaceId))}
      ORDER BY o.last_seen_at DESC LIMIT 100`,
   )
     .bind(
+      scope.workspaceId,
       roomId,
       scope.tenantId,
-      scope.workspaceId,
+      COLLAB_WORKSPACE_ID,
       roomId,
       scope.tenantId,
       scope.workspaceId,
@@ -1134,10 +1194,11 @@ export async function listCollaborationSlackLinks(
   roomId: string,
 ): Promise<CollaborationSlackLinkRow[]> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT * FROM collaboration_slack_room_links l WHERE tenant_id=? AND workspace_id=? AND room_id=?
-       AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=l.tenant_id AND reader.workspace_id=l.workspace_id AND reader.room_id=l.room_id AND reader.user_id=? AND reader.status='active')
-     AND ${slackSourceAuthoritySql("l", "l", true)}
+       AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=l.tenant_id AND reader.workspace_id=l.workspace_id AND reader.room_id=l.room_id AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')})
+     AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))}
      ORDER BY created_at DESC LIMIT 50`,
   )
     .bind(scope.tenantId, scope.workspaceId, roomId, scope.userId, slackPolicies(env))
@@ -1158,11 +1219,12 @@ export async function createCollaborationSlackLink(
   },
 ): Promise<CollaborationSlackLinkRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
     `INSERT INTO collaboration_slack_room_links (link_id,tenant_id,workspace_id,room_id,owner_user_id,team_id,channel_id,thread_ts,status,created_at,revoked_at)
      SELECT ?,?,?,?,?,?,?,?,'active',?,NULL
-     WHERE EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active')
-       AND EXISTS (SELECT 1 FROM collaboration_slack_observations o JOIN collaboration_rooms r ON r.tenant_id=o.tenant_id AND r.workspace_id=o.workspace_id AND r.room_id=? WHERE o.tenant_id=? AND o.workspace_id=? AND o.team_id=? AND o.channel_id=? AND o.thread_ts=? AND ${slackSourceAuthoritySql("o", "r")})
+     WHERE EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')})
+       AND EXISTS (SELECT 1 FROM collaboration_slack_observations o JOIN collaboration_rooms r ON r.tenant_id=o.tenant_id AND r.workspace_id=? AND r.room_id=? WHERE o.tenant_id=? AND o.workspace_id=? AND o.team_id=? AND o.channel_id=? AND o.thread_ts=? AND ${slackSourceAuthoritySql("o", "r", false, isTeamWorkspaceId(scope.workspaceId))})
        AND (SELECT COUNT(*) FROM collaboration_slack_room_links active WHERE active.tenant_id=? AND active.workspace_id=? AND active.room_id=? AND active.status='active')<?
      ON CONFLICT DO NOTHING RETURNING *`,
   )
@@ -1180,9 +1242,10 @@ export async function createCollaborationSlackLink(
       scope.workspaceId,
       input.roomId,
       scope.userId,
+      scope.workspaceId,
       input.roomId,
       scope.tenantId,
-      scope.workspaceId,
+      COLLAB_WORKSPACE_ID,
       input.teamId,
       input.channelId,
       input.threadTs,
@@ -1195,7 +1258,7 @@ export async function createCollaborationSlackLink(
     .first<Record<string, unknown>>();
   if (row) return rowSlackLink(row);
   const existing = await env.AGENT_AUDIT.prepare(
-    `SELECT l.* FROM collaboration_slack_room_links l WHERE tenant_id=? AND workspace_id=? AND room_id=? AND team_id=? AND channel_id=? AND thread_ts=? AND status='active' AND owner_user_id=? AND ${slackSourceAuthoritySql("l", "l", true)}`,
+    `SELECT l.* FROM collaboration_slack_room_links l WHERE tenant_id=? AND workspace_id=? AND room_id=? AND team_id=? AND channel_id=? AND thread_ts=? AND status='active' AND owner_user_id=? AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))}`,
   )
     .bind(
       scope.tenantId,
@@ -1219,11 +1282,12 @@ export async function revokeCollaborationSlackLink(
   revokedAt: number,
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const results = await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare(
       `UPDATE collaboration_slack_room_links SET status='revoked',revoked_at=?
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND link_id=? AND status='active'
-         AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active')`,
+         AND EXISTS (SELECT 1 FROM collaboration_memberships owner WHERE owner.tenant_id=? AND owner.workspace_id=? AND owner.room_id=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')})`,
     ).bind(
       revokedAt,
       scope.tenantId,
@@ -1238,7 +1302,7 @@ export async function revokeCollaborationSlackLink(
     env.AGENT_AUDIT.prepare(
       `UPDATE collaboration_memberships SET status='removed',removed_at=?
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND substr(actor_id,1,?)=? AND actor_id LIKE 'slack:%' AND status='active'
-         AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l JOIN collaboration_memberships owner ON owner.tenant_id=l.tenant_id AND owner.workspace_id=l.workspace_id AND owner.room_id=l.room_id WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=? AND l.status='revoked' AND l.revoked_at=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active')`,
+         AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l JOIN collaboration_memberships owner ON owner.tenant_id=l.tenant_id AND owner.workspace_id=l.workspace_id AND owner.room_id=l.room_id WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=? AND l.status='revoked' AND l.revoked_at=? AND owner.user_id=? AND owner.role='owner' AND owner.status='active' AND ${teamMemberSql(scope, 'owner')})`,
     ).bind(
       revokedAt,
       scope.tenantId,
@@ -1274,12 +1338,17 @@ export async function ingestCollaborationSlackMessage(
   },
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
-  const link = await env.AGENT_AUDIT.prepare(
-    `SELECT link_id,room_id FROM collaboration_slack_room_links l WHERE tenant_id=? AND workspace_id=? AND team_id=? AND channel_id=? AND thread_ts=? AND status='active' AND ${slackSourceAuthoritySql("l", "l", true)} LIMIT 1`,
+  const { ensureTeamWorkspacesSchema } = await import("./team-workspaces-store.js");
+  await ensureTeamWorkspacesSchema(env);
+  const links = await env.AGENT_AUDIT.prepare(
+    `SELECT link_id,room_id,workspace_id FROM collaboration_slack_room_links l WHERE tenant_id=? AND team_id=? AND channel_id=? AND thread_ts=? AND status='active' AND ${slackSourceAuthoritySql("l", "l", true, true)} LIMIT 101`,
   )
-    .bind(COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, input.teamId, input.channelId, input.threadTs, slackPolicies(env))
-    .first<{ link_id: string; room_id: string }>();
-  if (!link) return false;
+    .bind(COLLAB_TENANT_ID, input.teamId, input.channelId, input.threadTs, slackPolicies(env))
+    .all<{ link_id: string; room_id: string; workspace_id: string }>();
+  if (links.results.length > 100) return false;
+  let delivered = false;
+  for (const link of links.results) {
+  if (link.workspace_id !== COLLAB_WORKSPACE_ID && !isTeamWorkspaceId(link.workspace_id)) continue;
   const actorId = `slack:${link.link_id}:${input.userId}`;
   const userId = `slack:${input.teamId}:${input.userId}`;
   const safeBody = input.text.slice(0, 5_000);
@@ -1288,17 +1357,17 @@ export async function ingestCollaborationSlackMessage(
     env.AGENT_AUDIT.prepare(
       `INSERT OR IGNORE INTO collaboration_memberships (tenant_id,workspace_id,room_id,user_id,display_name,actor_id,actor_kind,role,status,capabilities_json,profile_version,created_at,removed_at)
        SELECT ?,?,?,?,?,?,'human','member','active','["message.send"]',NULL,?,NULL
-       WHERE EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=? AND l.team_id=? AND l.channel_id=? AND l.thread_ts=? AND l.status='active' AND ${slackSourceAuthoritySql("l", "l", true)})`,
+       WHERE EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=? AND l.team_id=? AND l.channel_id=? AND l.thread_ts=? AND l.status='active' AND ${slackSourceAuthoritySql("l", "l", true, true)})`,
     ).bind(
       COLLAB_TENANT_ID,
-      COLLAB_WORKSPACE_ID,
+      link.workspace_id,
       link.room_id,
       userId,
       `Slack user ${input.userId}`,
       actorId,
       input.createdAt,
       COLLAB_TENANT_ID,
-      COLLAB_WORKSPACE_ID,
+      link.workspace_id,
       link.room_id,
       link.link_id,
       input.teamId,
@@ -1309,13 +1378,13 @@ export async function ingestCollaborationSlackMessage(
     env.AGENT_AUDIT.prepare(
       `INSERT OR IGNORE INTO collaboration_messages (message_id,tenant_id,workspace_id,room_id,sender_user_id,sender_actor_id,sender_kind,body,profile_version,source_slack_event_id,source_slack_team_id,source_slack_channel_id,source_slack_thread_ts,source_slack_user_id,created_at)
        SELECT ?,?,?,?,?,?,'human',?,NULL,?,?,?,?,?,?
-       WHERE EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=? AND l.team_id=? AND l.channel_id=? AND l.thread_ts=? AND l.status='active' AND ${slackSourceAuthoritySql("l", "l", true)})
+       WHERE EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=? AND l.team_id=? AND l.channel_id=? AND l.thread_ts=? AND l.status='active' AND ${slackSourceAuthoritySql("l", "l", true, true)})
          AND EXISTS (SELECT 1 FROM collaboration_memberships m WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.actor_id=? AND m.status='active')
          AND (SELECT COUNT(*) FROM collaboration_messages existing WHERE existing.tenant_id=? AND existing.workspace_id=? AND existing.room_id=? AND existing.source_slack_channel_id=? AND existing.source_slack_thread_ts=?)<?`,
     ).bind(
       `slack_evt_${input.teamId}_${input.eventId}`,
       COLLAB_TENANT_ID,
-      COLLAB_WORKSPACE_ID,
+      link.workspace_id,
       link.room_id,
       userId,
       actorId,
@@ -1327,7 +1396,7 @@ export async function ingestCollaborationSlackMessage(
       input.userId,
       input.createdAt,
       COLLAB_TENANT_ID,
-      COLLAB_WORKSPACE_ID,
+      link.workspace_id,
       link.room_id,
       link.link_id,
       input.teamId,
@@ -1335,18 +1404,20 @@ export async function ingestCollaborationSlackMessage(
       input.threadTs,
       slackPolicies(env),
       COLLAB_TENANT_ID,
-      COLLAB_WORKSPACE_ID,
+      link.workspace_id,
       link.room_id,
       actorId,
       COLLAB_TENANT_ID,
-      COLLAB_WORKSPACE_ID,
+      link.workspace_id,
       link.room_id,
       input.channelId,
       input.threadTs,
       COLLAB_SLACK_MESSAGES_PER_THREAD,
     ),
   ]);
-  return Number(results[1]?.meta?.changes ?? 0) === 1;
+  delivered = Number(results[1]?.meta?.changes ?? 0) === 1 || delivered;
+  }
+  return delivered;
 }
 
 export async function listCollaborationSlackDeliveryIntents(
@@ -1355,10 +1426,11 @@ export async function listCollaborationSlackDeliveryIntents(
   roomId: string,
 ): Promise<CollaborationSlackDeliveryIntentRow[]> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
     `SELECT * FROM collaboration_slack_delivery_intents i WHERE tenant_id=? AND workspace_id=? AND room_id=?
-       AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=i.tenant_id AND reader.workspace_id=i.workspace_id AND reader.room_id=i.room_id AND reader.user_id=? AND reader.status='active')
-     AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=i.tenant_id AND l.workspace_id=i.workspace_id AND l.room_id=i.room_id AND l.link_id=i.link_id AND ${slackSourceAuthoritySql("l", "l", true)})
+       AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=i.tenant_id AND reader.workspace_id=i.workspace_id AND reader.room_id=i.room_id AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')})
+     AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=i.tenant_id AND l.workspace_id=i.workspace_id AND l.room_id=i.room_id AND l.link_id=i.link_id AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))})
      ORDER BY created_at DESC LIMIT 100`,
   )
     .bind(scope.tenantId, scope.workspaceId, roomId, scope.userId, slackPolicies(env))
@@ -1381,6 +1453,7 @@ export async function createCollaborationSlackDeliveryIntent(
   },
 ): Promise<CollaborationSlackDeliveryIntentRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
     `INSERT INTO collaboration_slack_delivery_intents (intent_id,tenant_id,workspace_id,room_id,link_id,message_id,created_by_user_id,channel_id,thread_ts,team_id,content,content_hash,status,created_at)
      SELECT ?,?,?,?,?,?,?,?, ?,l.team_id,m.body,?,'pending',?
@@ -1389,8 +1462,8 @@ export async function createCollaborationSlackDeliveryIntent(
        JOIN collaboration_memberships reader ON reader.tenant_id=l.tenant_id AND reader.workspace_id=l.workspace_id AND reader.room_id=l.room_id
        WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.message_id=?
          AND l.channel_id=? AND l.thread_ts=? AND l.status='active'
-         AND ${slackSourceAuthoritySql("l", "l", true)}
-         AND reader.user_id=? AND reader.status='active' AND m.sender_user_id=? AND m.sender_kind='human' AND m.source_slack_event_id IS NULL AND m.source_run_id IS NULL
+         AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))}
+         AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')} AND m.sender_user_id=? AND m.sender_kind='human' AND m.source_slack_event_id IS NULL AND m.source_run_id IS NULL
      ON CONFLICT DO NOTHING RETURNING *`,
   )
     .bind(
@@ -1419,7 +1492,7 @@ export async function createCollaborationSlackDeliveryIntent(
     .first<Record<string, unknown>>();
   if (row) return rowSlackIntent(row);
   const existing = await env.AGENT_AUDIT.prepare(
-    `SELECT i.* FROM collaboration_slack_delivery_intents i WHERE tenant_id=? AND workspace_id=? AND room_id=? AND link_id=? AND message_id=? AND created_by_user_id=? AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=i.tenant_id AND l.workspace_id=i.workspace_id AND l.room_id=i.room_id AND l.link_id=i.link_id AND ${slackSourceAuthoritySql("l", "l", true)})`,
+    `SELECT i.* FROM collaboration_slack_delivery_intents i WHERE tenant_id=? AND workspace_id=? AND room_id=? AND link_id=? AND message_id=? AND created_by_user_id=? AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=i.tenant_id AND l.workspace_id=i.workspace_id AND l.room_id=i.room_id AND l.link_id=i.link_id AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))})`,
   )
     .bind(scope.tenantId, scope.workspaceId, input.roomId, input.linkId, input.messageId, scope.userId, slackPolicies(env))
     .first<Record<string, unknown>>();
@@ -1434,12 +1507,13 @@ export async function approveCollaborationSlackDeliveryIntent(
   approvedAt: number,
 ): Promise<CollaborationSlackDeliveryIntentRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
     `UPDATE collaboration_slack_delivery_intents SET delivery_status='approved',approved_by_user_id=?,approved_at=?
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND intent_id=? AND status='pending' AND delivery_status='awaiting_approval'
-         AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=collaboration_slack_delivery_intents.link_id AND l.status='active' AND l.team_id=collaboration_slack_delivery_intents.team_id AND l.channel_id=collaboration_slack_delivery_intents.channel_id AND l.thread_ts=collaboration_slack_delivery_intents.thread_ts AND ${slackSourceAuthoritySql("l", "l", true)})
-         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=collaboration_slack_delivery_intents.tenant_id AND author.workspace_id=collaboration_slack_delivery_intents.workspace_id AND author.room_id=collaboration_slack_delivery_intents.room_id AND author.user_id=collaboration_slack_delivery_intents.created_by_user_id AND author.actor_kind='human' AND author.status='active')
-         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=collaboration_slack_delivery_intents.tenant_id AND approver.workspace_id=collaboration_slack_delivery_intents.workspace_id AND approver.room_id=collaboration_slack_delivery_intents.room_id AND approver.user_id=? AND approver.actor_kind='human' AND approver.status='active')
+         AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=collaboration_slack_delivery_intents.link_id AND l.status='active' AND l.team_id=collaboration_slack_delivery_intents.team_id AND l.channel_id=collaboration_slack_delivery_intents.channel_id AND l.thread_ts=collaboration_slack_delivery_intents.thread_ts AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))})
+         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=collaboration_slack_delivery_intents.tenant_id AND author.workspace_id=collaboration_slack_delivery_intents.workspace_id AND author.room_id=collaboration_slack_delivery_intents.room_id AND author.user_id=collaboration_slack_delivery_intents.created_by_user_id AND author.actor_kind='human' AND author.status='active' AND ${teamMemberSql(scope, 'author')})
+         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=collaboration_slack_delivery_intents.tenant_id AND approver.workspace_id=collaboration_slack_delivery_intents.workspace_id AND approver.room_id=collaboration_slack_delivery_intents.room_id AND approver.user_id=? AND approver.actor_kind='human' AND approver.status='active' AND ${teamMemberSql(scope, 'approver')})
        RETURNING *`,
   )
     .bind(scope.userId, approvedAt, scope.tenantId, scope.workspaceId, roomId, intentId,
@@ -1447,7 +1521,7 @@ export async function approveCollaborationSlackDeliveryIntent(
     .first<Record<string, unknown>>();
   if (row) return rowSlackIntent(row);
   const existing = await env.AGENT_AUDIT.prepare(
-    `SELECT i.* FROM collaboration_slack_delivery_intents i WHERE tenant_id=? AND workspace_id=? AND room_id=? AND intent_id=? AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=i.tenant_id AND l.workspace_id=i.workspace_id AND l.room_id=i.room_id AND l.link_id=i.link_id AND ${slackSourceAuthoritySql("l", "l", true)})`,
+    `SELECT i.* FROM collaboration_slack_delivery_intents i WHERE tenant_id=? AND workspace_id=? AND room_id=? AND intent_id=? AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=i.tenant_id AND l.workspace_id=i.workspace_id AND l.room_id=i.room_id AND l.link_id=i.link_id AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))})`,
   ).bind(scope.tenantId, scope.workspaceId, roomId, intentId, slackPolicies(env)).first<Record<string, unknown>>();
   return existing ? rowSlackIntent(existing) : null;
 }
@@ -1460,13 +1534,14 @@ export async function claimCollaborationSlackDeliveryIntent(
   intentId: string,
 ): Promise<CollaborationSlackDeliveryIntentRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
     `UPDATE collaboration_slack_delivery_intents SET delivery_status='sending'
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND intent_id=? AND status='pending' AND delivery_status='approved'
-         AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=collaboration_slack_delivery_intents.link_id AND l.team_id=collaboration_slack_delivery_intents.team_id AND l.channel_id=collaboration_slack_delivery_intents.channel_id AND l.thread_ts=collaboration_slack_delivery_intents.thread_ts AND l.status='active' AND ${slackSourceAuthoritySql("l", "l", true)})
+         AND EXISTS (SELECT 1 FROM collaboration_slack_room_links l WHERE l.tenant_id=? AND l.workspace_id=? AND l.room_id=? AND l.link_id=collaboration_slack_delivery_intents.link_id AND l.team_id=collaboration_slack_delivery_intents.team_id AND l.channel_id=collaboration_slack_delivery_intents.channel_id AND l.thread_ts=collaboration_slack_delivery_intents.thread_ts AND l.status='active' AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))})
          AND EXISTS (SELECT 1 FROM collaboration_messages m WHERE m.tenant_id=? AND m.workspace_id=? AND m.room_id=? AND m.message_id=collaboration_slack_delivery_intents.message_id AND m.sender_user_id=collaboration_slack_delivery_intents.created_by_user_id AND m.sender_kind='human' AND m.source_slack_event_id IS NULL AND m.source_run_id IS NULL AND m.body=collaboration_slack_delivery_intents.content)
-         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=collaboration_slack_delivery_intents.tenant_id AND author.workspace_id=collaboration_slack_delivery_intents.workspace_id AND author.room_id=collaboration_slack_delivery_intents.room_id AND author.user_id=collaboration_slack_delivery_intents.created_by_user_id AND author.actor_kind='human' AND author.status='active')
-         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=collaboration_slack_delivery_intents.tenant_id AND approver.workspace_id=collaboration_slack_delivery_intents.workspace_id AND approver.room_id=collaboration_slack_delivery_intents.room_id AND approver.user_id=collaboration_slack_delivery_intents.approved_by_user_id AND approver.actor_kind='human' AND approver.status='active')
+         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=collaboration_slack_delivery_intents.tenant_id AND author.workspace_id=collaboration_slack_delivery_intents.workspace_id AND author.room_id=collaboration_slack_delivery_intents.room_id AND author.user_id=collaboration_slack_delivery_intents.created_by_user_id AND author.actor_kind='human' AND author.status='active' AND ${teamMemberSql(scope, 'author')})
+         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=collaboration_slack_delivery_intents.tenant_id AND approver.workspace_id=collaboration_slack_delivery_intents.workspace_id AND approver.room_id=collaboration_slack_delivery_intents.room_id AND approver.user_id=collaboration_slack_delivery_intents.approved_by_user_id AND approver.actor_kind='human' AND approver.status='active' AND ${teamMemberSql(scope, 'approver')})
        RETURNING *`,
   )
     .bind(scope.tenantId, scope.workspaceId, roomId, intentId,
@@ -1484,16 +1559,17 @@ export async function isCollaborationSlackDeliverySendable(
   intentId: string,
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT 1 FROM collaboration_slack_delivery_intents i
        JOIN collaboration_slack_room_links l ON l.tenant_id=i.tenant_id AND l.workspace_id=i.workspace_id AND l.room_id=i.room_id AND l.link_id=i.link_id
        JOIN collaboration_messages m ON m.tenant_id=i.tenant_id AND m.workspace_id=i.workspace_id AND m.room_id=i.room_id AND m.message_id=i.message_id
        WHERE i.tenant_id=? AND i.workspace_id=? AND i.room_id=? AND i.intent_id=? AND i.delivery_status='sending' AND i.status='pending'
          AND l.status='active' AND l.team_id=i.team_id AND l.channel_id=i.channel_id AND l.thread_ts=i.thread_ts
-         AND ${slackSourceAuthoritySql("l", "l", true)}
+         AND ${slackSourceAuthoritySql("l", "l", true, isTeamWorkspaceId(scope.workspaceId))}
          AND m.sender_user_id=i.created_by_user_id AND m.sender_kind='human' AND m.source_slack_event_id IS NULL AND m.source_run_id IS NULL AND m.body=i.content
-         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=i.tenant_id AND author.workspace_id=i.workspace_id AND author.room_id=i.room_id AND author.user_id=i.created_by_user_id AND author.actor_kind='human' AND author.status='active')
-         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=i.tenant_id AND approver.workspace_id=i.workspace_id AND approver.room_id=i.room_id AND approver.user_id=i.approved_by_user_id AND approver.actor_kind='human' AND approver.status='active')`,
+         AND EXISTS (SELECT 1 FROM collaboration_memberships author WHERE author.tenant_id=i.tenant_id AND author.workspace_id=i.workspace_id AND author.room_id=i.room_id AND author.user_id=i.created_by_user_id AND author.actor_kind='human' AND author.status='active' AND ${teamMemberSql(scope, 'author')})
+         AND EXISTS (SELECT 1 FROM collaboration_memberships approver WHERE approver.tenant_id=i.tenant_id AND approver.workspace_id=i.workspace_id AND approver.room_id=i.room_id AND approver.user_id=i.approved_by_user_id AND approver.actor_kind='human' AND approver.status='active' AND ${teamMemberSql(scope, 'approver')})`,
   ).bind(scope.tenantId, scope.workspaceId, roomId, intentId, slackPolicies(env)).first();
   return Boolean(row);
 }
@@ -1504,6 +1580,7 @@ export async function finishCollaborationSlackDeliveryIntent(
   input: { intentId: string; roomId: string; status: "sent" | "failed" | "unknown" | "blocked"; receiptTs?: string; detail?: string },
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const result = await env.AGENT_AUDIT.prepare(
     `UPDATE collaboration_slack_delivery_intents SET status=CASE WHEN ?='blocked' THEN 'blocked' ELSE status END,delivery_status=?,receipt_ts=?,outcome_detail=?
        WHERE tenant_id=? AND workspace_id=? AND room_id=? AND intent_id=? AND delivery_status='sending'`,
@@ -1518,10 +1595,11 @@ export async function getCollaborationHandoff(
   handoffId: string,
 ): Promise<CollaborationHandoffRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM collaboration_handoffs WHERE tenant_id=? AND workspace_id=? AND handoff_id=?`,
+    `SELECT * FROM collaboration_handoffs WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND (SELECT COUNT(*) FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=collaboration_handoffs.handoff_id)=1 ${isTeamWorkspaceId(scope.workspaceId) ? "AND EXISTS (SELECT 1 FROM team_workspace_memberships reader WHERE reader.tenant_id=collaboration_handoffs.tenant_id AND reader.workspace_id=collaboration_handoffs.workspace_id AND reader.user_id=? AND reader.status='active')" : ""}`,
   )
-    .bind(scope.tenantId, scope.workspaceId, handoffId)
+    .bind(scope.tenantId, scope.workspaceId, handoffId, ...(isTeamWorkspaceId(scope.workspaceId) ? [scope.userId] : []))
     .first<Record<string, unknown>>();
   return row ? rowHandoff(row) : null;
 }
@@ -1532,16 +1610,21 @@ export async function isCollaborationHandoffDispatchable(
   input: { handoffId: string; approvalId: string; employeeId: string; employeeVersion: number },
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  const { ensureTeamWorkspacesSchema } = await import("./team-workspaces-store.js");
+  await ensureTeamWorkspacesSchema(env);
   const row = await env.AGENT_AUDIT.prepare(
     `SELECT 1 AS active FROM collaboration_handoffs h
      JOIN collaboration_memberships sender ON sender.tenant_id=h.tenant_id AND sender.workspace_id=h.workspace_id
        AND sender.room_id=h.room_id AND sender.actor_id=h.sender_actor_id AND sender.user_id=h.sender_user_id
      JOIN collaboration_memberships recipient ON recipient.tenant_id=h.tenant_id AND recipient.workspace_id=h.workspace_id
        AND recipient.room_id=h.room_id AND recipient.actor_id=h.recipient_actor_id AND recipient.user_id=h.recipient_user_id
-     WHERE h.handoff_id=? AND h.status='active' AND h.approval_id=?
+     WHERE h.handoff_id=? AND (SELECT COUNT(*) FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=h.handoff_id)=1 AND h.status='active' AND h.approval_id=?
        AND h.profile_version=? AND h.recipient_actor_id=? AND sender.status='active'
        AND recipient.status='active' AND recipient.actor_kind='agent'
-       AND recipient.profile_version=h.profile_version LIMIT 1`,
+       AND recipient.profile_version=h.profile_version
+       AND (h.workspace_id='default' OR (h.tenant_id='self-hosted'
+         AND EXISTS (SELECT 1 FROM team_workspace_memberships team_sender WHERE team_sender.tenant_id=h.tenant_id AND team_sender.workspace_id=h.workspace_id AND team_sender.user_id=sender.user_id AND team_sender.status='active')
+         AND EXISTS (SELECT 1 FROM team_workspace_memberships team_recipient WHERE team_recipient.tenant_id=h.tenant_id AND team_recipient.workspace_id=h.workspace_id AND team_recipient.user_id=recipient.user_id AND team_recipient.status='active'))) LIMIT 1`,
   ).bind(
     input.handoffId,
     input.approvalId,
@@ -1551,17 +1634,29 @@ export async function isCollaborationHandoffDispatchable(
   return row?.active === 1;
 }
 
+async function commitCollaborationHandoff(db: D1Database, statements: D1PreparedStatement[]) {
+  try { return await db.batch(statements); }
+  catch (error) {
+    if (error instanceof Error && /NOT NULL constraint failed: collaboration_context_snapshots\.snapshot_json/i.test(error.message)) {
+      throw new CollaborationStoreError("Selected assignment sources changed before saving. Reload the room and create a new handoff.", 409);
+    }
+    throw error;
+  }
+}
+
 export async function createRootCollaborationHandoff(
   env: Pick<Env, "AGENT_AUDIT">,
   scope: CollaborationScope,
   input: CollaborationHandoffRow,
+  contextWrite?: D1PreparedStatement,
 ): Promise<CollaborationHandoffRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const db = env.AGENT_AUDIT;
-  const results = await db.batch([
+  const results = await commitCollaborationHandoff(db, [
     db
       .prepare(
-        `INSERT INTO collaboration_handoffs (handoff_id,tenant_id,workspace_id,room_id,task_id,sender_user_id,sender_actor_id,recipient_user_id,recipient_actor_id,parent_handoff_id,root_handoff_id,depth,ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,profile_version,status,created_at) SELECT ?,?,?,?,?,?,?,?,?,NULL,?,0,'[]',?,?,?,'active',? WHERE EXISTS (SELECT 1 FROM collaboration_memberships s WHERE s.tenant_id=? AND s.workspace_id=? AND s.room_id=? AND s.user_id=? AND s.actor_id=? AND s.status='active' AND EXISTS (SELECT 1 FROM collaboration_memberships r WHERE r.tenant_id=s.tenant_id AND r.workspace_id=s.workspace_id AND r.room_id=s.room_id AND r.actor_id=? AND r.status='active')) ON CONFLICT DO NOTHING`,
+        `INSERT INTO collaboration_handoffs (handoff_id,tenant_id,workspace_id,room_id,task_id,sender_user_id,sender_actor_id,recipient_user_id,recipient_actor_id,parent_handoff_id,root_handoff_id,depth,ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,profile_version,status,created_at) SELECT ?,?,?,?,?,?,?,?,?,NULL,?,0,'[]',?,?,?,'active',? WHERE EXISTS (SELECT 1 FROM collaboration_memberships s WHERE s.tenant_id=? AND s.workspace_id=? AND s.room_id=? AND s.user_id=? AND s.actor_id=? AND s.status='active' AND ${teamMemberSql(scope, 's')} AND EXISTS (SELECT 1 FROM collaboration_memberships r WHERE r.tenant_id=s.tenant_id AND r.workspace_id=s.workspace_id AND r.room_id=s.room_id AND r.actor_id=? AND r.status='active' AND ${teamMemberSql(scope, 'r')})) AND NOT EXISTS (SELECT 1 FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=?) ON CONFLICT DO NOTHING`,
       )
       .bind(
         input.handoffId,
@@ -1584,6 +1679,7 @@ export async function createRootCollaborationHandoff(
         scope.userId,
         input.senderActorId,
         input.recipientActorId,
+        input.handoffId,
       ),
     db
       .prepare(
@@ -1601,6 +1697,7 @@ export async function createRootCollaborationHandoff(
         scope.workspaceId,
         input.handoffId,
       ),
+    ...(contextWrite ? [contextWrite] : []),
   ]);
   if (Number(results[0]?.meta?.changes ?? 0) !== 1) return null;
   return getCollaborationHandoff(env, scope, input.handoffId);
@@ -1610,13 +1707,15 @@ export async function createChildCollaborationHandoff(
   env: Pick<Env, "AGENT_AUDIT">,
   scope: CollaborationScope,
   input: CollaborationHandoffRow,
+  contextWrite?: D1PreparedStatement,
 ): Promise<CollaborationHandoffRow | null> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const db = env.AGENT_AUDIT;
-  const results = await db.batch([
+  const results = await commitCollaborationHandoff(db, [
     db
       .prepare(
-        `UPDATE collaboration_handoff_budgets SET remaining=remaining-1,last_spend_id=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND task_id=? AND root_handoff_id=? AND remaining>0 AND NOT EXISTS (SELECT 1 FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=?) AND EXISTS (SELECT 1 FROM collaboration_handoffs parent JOIN collaboration_memberships sender ON sender.tenant_id=parent.tenant_id AND sender.workspace_id=parent.workspace_id AND sender.room_id=parent.room_id AND sender.actor_id=parent.recipient_actor_id AND sender.user_id=? AND sender.status='active' JOIN collaboration_memberships recipient ON recipient.tenant_id=parent.tenant_id AND recipient.workspace_id=parent.workspace_id AND recipient.room_id=parent.room_id AND recipient.actor_id=? AND recipient.user_id=? AND recipient.status='active' WHERE parent.tenant_id=? AND parent.workspace_id=? AND parent.handoff_id=? AND parent.status='active' AND parent.room_id=? AND parent.task_id=?)`,
+        `UPDATE collaboration_handoff_budgets SET remaining=remaining-1,last_spend_id=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND task_id=? AND root_handoff_id=? AND remaining>0 AND NOT EXISTS (SELECT 1 FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=?) AND EXISTS (SELECT 1 FROM collaboration_handoffs parent JOIN collaboration_memberships sender ON sender.tenant_id=parent.tenant_id AND sender.workspace_id=parent.workspace_id AND sender.room_id=parent.room_id AND sender.actor_id=parent.recipient_actor_id AND sender.user_id=? AND sender.status='active' AND ${teamMemberSql(scope, 'sender')} JOIN collaboration_memberships recipient ON recipient.tenant_id=parent.tenant_id AND recipient.workspace_id=parent.workspace_id AND recipient.room_id=parent.room_id AND recipient.actor_id=? AND recipient.user_id=? AND recipient.status='active' AND ${teamMemberSql(scope, 'recipient')} WHERE parent.tenant_id=? AND parent.workspace_id=? AND parent.handoff_id=? AND parent.status='active' AND parent.room_id=? AND parent.task_id=?)`,
       )
       .bind(
         input.handoffId,
@@ -1637,7 +1736,7 @@ export async function createChildCollaborationHandoff(
       ),
     db
       .prepare(
-        `INSERT INTO collaboration_handoffs (handoff_id,tenant_id,workspace_id,room_id,task_id,sender_user_id,sender_actor_id,recipient_user_id,recipient_actor_id,parent_handoff_id,root_handoff_id,depth,ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,profile_version,status,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT remaining FROM collaboration_handoff_budgets WHERE tenant_id=? AND workspace_id=? AND room_id=? AND task_id=? AND root_handoff_id=?),?,?,'active',? WHERE changes()=1 AND EXISTS (SELECT 1 FROM collaboration_handoff_budgets b WHERE b.tenant_id=? AND b.workspace_id=? AND b.room_id=? AND b.task_id=? AND b.root_handoff_id=? AND b.last_spend_id=?) AND EXISTS (SELECT 1 FROM collaboration_handoffs parent JOIN collaboration_memberships sender ON sender.tenant_id=parent.tenant_id AND sender.workspace_id=parent.workspace_id AND sender.room_id=parent.room_id AND sender.actor_id=parent.recipient_actor_id AND sender.user_id=? AND sender.status='active' JOIN collaboration_memberships recipient ON recipient.tenant_id=parent.tenant_id AND recipient.workspace_id=parent.workspace_id AND recipient.room_id=parent.room_id AND recipient.actor_id=? AND recipient.user_id=? AND recipient.status='active' WHERE parent.tenant_id=? AND parent.workspace_id=? AND parent.handoff_id=? AND parent.status='active' AND parent.room_id=? AND parent.task_id=?) ON CONFLICT DO NOTHING`,
+        `INSERT INTO collaboration_handoffs (handoff_id,tenant_id,workspace_id,room_id,task_id,sender_user_id,sender_actor_id,recipient_user_id,recipient_actor_id,parent_handoff_id,root_handoff_id,depth,ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,profile_version,status,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT remaining FROM collaboration_handoff_budgets WHERE tenant_id=? AND workspace_id=? AND room_id=? AND task_id=? AND root_handoff_id=?),?,?,'active',? WHERE changes()=1 AND EXISTS (SELECT 1 FROM collaboration_handoff_budgets b WHERE b.tenant_id=? AND b.workspace_id=? AND b.room_id=? AND b.task_id=? AND b.root_handoff_id=? AND b.last_spend_id=?) AND EXISTS (SELECT 1 FROM collaboration_handoffs parent JOIN collaboration_memberships sender ON sender.tenant_id=parent.tenant_id AND sender.workspace_id=parent.workspace_id AND sender.room_id=parent.room_id AND sender.actor_id=parent.recipient_actor_id AND sender.user_id=? AND sender.status='active' AND ${teamMemberSql(scope, 'sender')} JOIN collaboration_memberships recipient ON recipient.tenant_id=parent.tenant_id AND recipient.workspace_id=parent.workspace_id AND recipient.room_id=parent.room_id AND recipient.actor_id=? AND recipient.user_id=? AND recipient.status='active' AND ${teamMemberSql(scope, 'recipient')} WHERE parent.tenant_id=? AND parent.workspace_id=? AND parent.handoff_id=? AND parent.status='active' AND parent.room_id=? AND parent.task_id=?) ON CONFLICT DO NOTHING`,
       )
       .bind(
         input.handoffId,
@@ -1676,6 +1775,7 @@ export async function createChildCollaborationHandoff(
         input.roomId,
         input.taskId,
       ),
+    ...(contextWrite ? [contextWrite] : []),
   ]);
   if (Number(results[0]?.meta?.changes ?? 0) !== 1 || Number(results[1]?.meta?.changes ?? 0) !== 1)
     return null;
@@ -1689,6 +1789,7 @@ export async function cancelCollaborationHandoff(
   cancelledAt: number,
 ): Promise<boolean> {
   await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
   const result = await env.AGENT_AUDIT.prepare(`WITH target_root AS (
       SELECT root.tenant_id,root.workspace_id,root.room_id,root.root_handoff_id,root.sender_user_id,root.recipient_user_id
       FROM collaboration_handoffs target
@@ -1704,7 +1805,7 @@ export async function cancelCollaborationHandoff(
         SELECT 1 FROM target_root root
         JOIN collaboration_memberships member ON member.tenant_id=root.tenant_id
           AND member.workspace_id=root.workspace_id AND member.room_id=root.room_id
-          AND member.user_id=? AND member.status='active'
+          AND member.user_id=? AND member.status='active' AND ${teamMemberSql(scope, 'member')}
         WHERE root.sender_user_id=member.user_id OR root.recipient_user_id=member.user_id
       )`)
     .bind(

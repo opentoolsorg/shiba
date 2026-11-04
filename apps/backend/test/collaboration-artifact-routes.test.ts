@@ -12,6 +12,7 @@ import { INTERNAL_SIGNATURE_HEADER, verifyInternalRequest } from "../src/edge-id
 import type { Env } from "../src/env.js";
 import { deliverableStorageKey, persistRunDeliverables, verifyExpectedDeliverables } from "../src/run-deliverables.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 
 const state = vi.hoisted(() => ({ runs: new Map<string, DelegatedRun>(), requests: [] as Request[], names: [] as string[] }));
 vi.mock("../src/request-auth.js", () => ({
@@ -42,7 +43,7 @@ const scope = { tenantId: "self-hosted", workspaceId: "default", userId: OWNER }
 
 beforeEach(() => { state.runs.clear(); state.requests.length = 0; state.names.length = 0; });
 
-async function fixture(withSelectedSource = false) {
+async function fixture(withSelectedSource = false, teamWorkspace = false) {
   const { database, sqlite } = customAgentD1();
   const objects = new Map<string, Uint8Array>();
   let duringRead: (() => Promise<void> | void) | undefined;
@@ -65,26 +66,33 @@ async function fixture(withSelectedSource = false) {
       objects.set(key, new TextEncoder().encode(value)); return { key };
     } },
   } as unknown as Env;
-  await createCollaborationRoom(env, scope, { roomId: ROOM, title: "Report", visibility: "shared", createdAt: 1 });
+  const roomScope = { ...scope };
+  if (teamWorkspace) {
+    const workspace = await createTeamWorkspace(env, OWNER, { name: "Report team" });
+    roomScope.workspaceId = workspace.workspaceId;
+    const invite = await createTeamWorkspaceInvitation(env, workspace.workspaceId, OWNER, { email: MEMBER, role: "member" });
+    await acceptTeamWorkspaceInvitation(env, MEMBER, invite.token);
+  }
+  await createCollaborationRoom(env, roomScope, { roomId: ROOM, title: "Report", visibility: "shared", createdAt: 1 });
   for (const [userId, actorId, kind] of [[MEMBER, humanActorId(MEMBER), "human"], [OWNER, "agent:writer", "agent"]] as const) {
-    expect(await addCollaborationMember(env, scope, ROOM, { userId, actorId, kind, displayName: actorId, profileVersion: 1, createdAt: 2 })).toBe(true);
+    expect(await addCollaborationMember(env, roomScope, ROOM, { userId, actorId, kind, displayName: actorId, profileVersion: 1, createdAt: 2 })).toBe(true);
   }
   const handoff: CollaborationHandoffRow = {
-    ...scope, handoffId: HANDOFF, roomId: ROOM, taskId: "task-report", senderUserId: OWNER, senderActorId: humanActorId(OWNER),
+    ...roomScope, handoffId: HANDOFF, roomId: ROOM, taskId: "task-report", senderUserId: OWNER, senderActorId: humanActorId(OWNER),
     recipientUserId: OWNER, recipientActorId: "agent:writer", parentHandoffId: null, rootHandoffId: HANDOFF, depth: 0,
     ancestorHandoffIds: [], remainingBudget: 0, grantedCapabilities: ["room.read"], profileVersion: 1,
     status: "active", createdAt: 3, cancelledAt: null,
   };
-  expect(await createRootCollaborationHandoff(env, scope, handoff)).not.toBeNull();
+  expect(await createRootCollaborationHandoff(env, roomScope, handoff)).not.toBeNull();
   let task = "Write the report.";
   let note: Awaited<ReturnType<typeof createCollaborationMemory>> | undefined;
   if (withSelectedSource) {
-    note = await createCollaborationMemory(env, scope, ROOM, { id: "ctx_release", title: "Release fact", content: "Release is on Tuesday." }, 4);
-    task = (await freezeCollaborationContext(env, scope, ROOM, HANDOFF, task, [], [{ id: note.id, version: note.version, sha256: note.sha256 }])).task;
+    note = await createCollaborationMemory(env, roomScope, ROOM, { id: "ctx_release", title: "Release fact", content: "Release is on Tuesday." }, 4);
+    task = (await freezeCollaborationContext(env, roomScope, ROOM, HANDOFF, task, [], [{ id: note.id, version: note.version, sha256: note.sha256 }])).task;
     await bindCollaborationContextApproval(env, HANDOFF, APPROVAL, task);
   }
-  expect(await pinCollaborationHandoffExecutor(env, scope, HANDOFF, EXECUTOR)).toBe(true);
-  expect(await linkCollaborationHandoffRun(env, scope, HANDOFF, APPROVAL, RUN)).toBe(true);
+  expect(await pinCollaborationHandoffExecutor(env, roomScope, HANDOFF, EXECUTOR)).toBe(true);
+  expect(await linkCollaborationHandoffRun(env, roomScope, HANDOFF, APPROVAL, RUN)).toBe(true);
   const artifacts = await verifyExpectedDeliverables(["reports/report.md"], [{ path: "reports/report.md", content: TEXT, encoding: "utf8" }]);
   const deliverables = (await persistRunDeliverables(env, "sandbox-report", artifacts)).map((item) => ({
     ...item, artifactId: `artifact_${"b".repeat(32)}`, version: 1, sourceRunId: RUN,
@@ -97,7 +105,7 @@ async function fixture(withSelectedSource = false) {
   run.approval = { approvalId: APPROVAL, decidedBy: OWNER, decidedAt: 5, inputHash: runInputHash(run) };
   state.runs.set(`${EXECUTOR}|${RUN}`, run);
   const refs = deliverables.map(({ path, artifactId, version, sha256 }, index) => ({ index, path, artifactId, version, sha256 }));
-  expect(await createCollaborationAgentReply(env, scope, {
+  expect(await createCollaborationAgentReply(env, roomScope, {
     messageId: `agent_reply_${HANDOFF}`, roomId: ROOM, handoffId: HANDOFF, runId: RUN, agentUserId: OWNER,
     agentActorId: "agent:writer", profileVersion: 1, body: "The approved report is ready.", sourceArtifactRefs: refs, createdAt: 6,
   })).not.toBeNull();
@@ -106,13 +114,26 @@ async function fixture(withSelectedSource = false) {
       Authorization: "Bearer fixture", "X-Fixture-User": user,
       "X-Agent-Principal": "agent:spoof", "X-Shiba-Intake": "forged", Cookie: "private-cookie", ...headers,
     } }), env);
-  return { env, sqlite, run, refs, note, get, objects, send,
+  return { env, sqlite, run, refs, note, get, objects, send, roomScope,
     duringRead: (action: () => Promise<void> | void) => { duringRead = action; },
     storedBody: (value: Uint8Array, size = artifacts[0]!.bytes) => { storedBody = value; reportedSize = size; },
   };
 }
 
 describe("membership-bound collaboration artifact downloads", () => {
+  it("binds team downloads to the selected workspace and rechecks membership after the body read", async () => {
+    const f = await fixture(true, true);
+    const ws = f.roomScope.workspaceId;
+    expect((await f.send())?.status).toBe(404);
+    expect((await f.send(MEMBER, `/api/collaboration/rooms/${ROOM}/handoffs/${HANDOFF}/artifacts/0?workspaceId=${ws}`))?.status).toBe(200);
+    expect((await f.send(MEMBER, undefined, { "X-Shiba-Workspace": ws }))?.status).toBe(200);
+    const other = await createTeamWorkspace(f.env, OWNER, { name: "Another team" });
+    expect((await f.send(OWNER, undefined, { "X-Shiba-Workspace": other.workspaceId }))?.status).toBe(404);
+    expect((await f.send(MEMBER, "/api/collaboration/rooms/" + ROOM + "/handoffs/" + HANDOFF + "/artifacts/0?workspaceId=default", { "X-Shiba-Workspace": ws }))?.status).toBe(404);
+    f.duringRead(() => { f.sqlite.prepare("UPDATE team_workspace_memberships SET status='removed' WHERE workspace_id=? AND user_id=?").run(ws, MEMBER); });
+    expect((await f.send(MEMBER, undefined, { "X-Shiba-Workspace": ws }))?.status).toBe(404);
+  });
+
   it("returns only verified private bytes to either active human member, without bearer links or client headers", async () => {
     const f = await fixture(true);
     for (const user of [OWNER, MEMBER]) {
@@ -209,8 +230,10 @@ describe("membership-bound collaboration artifact downloads", () => {
 
   it("denies automated approval evidence and human-forged completion references", async () => {
     const f = await fixture();
-    f.run.approval!.decidedBy = " automation:daily";
-    expect((await f.send())?.status).toBe(404);
+    for (const actor of ["default", "system", "automation", "agent", "mcp", "child", "subagent", " System ", " automation:daily"]) {
+      f.run.approval!.decidedBy = actor;
+      expect((await f.send())?.status, actor).toBe(404);
+    }
     f.run.approval!.decidedBy = OWNER;
     f.sqlite.prepare("UPDATE collaboration_messages SET sender_kind='human'").run();
     expect((await f.send())?.status).toBe(404);

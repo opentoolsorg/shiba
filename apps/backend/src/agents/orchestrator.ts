@@ -113,6 +113,7 @@ import { ADDRESS_RE, type MailboxRecord } from "../mailbox-store.js";
 import { type ApprovedRoute, describeRoute, isApprovedRoute } from "../model-connections.js";
 import { approvalResolveForbidden } from "../approval-resolve-auth.js";
 import { DASHBOARD_ORG_ID, intakeOrgIdForOrchestrator, orgIdFromIntake } from "../org-request-auth.js";
+import { resolveTeamHandoffRunScope, teamHandoffWorkspaceId } from "../collaboration-run-scope.js";
 import { sealChildDispatch } from "../child-dispatch.js";
 import { openRunEnv } from "../run-env-seal.js";
 import { COMPUTER_PREVIEW_MESSAGE, resolveRuntimeName } from "../runtime.js";
@@ -1586,6 +1587,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    */
   private async resolveRoute(
     input: DelegateInput & { sandboxProvider?: string },
+    verifiedOrgId?: string,
   ): Promise<{ harness: string; codingModel: string; route: ApprovedRoute }> {
     const snapshot = await readModelConfig(this.env);
     const { harness, codingModel } = this.resolveHarnessAndModel(input, snapshot.policy.rolePins, snapshot);
@@ -1609,7 +1611,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         repoUrl: input.repoUrl,
         executionTarget: input.executionTarget,
         publishPullRequest: input.publishPullRequest,
-        orgId: intakeOrgIdForOrchestrator(this.name, input as Record<string, unknown>),
+        orgId: verifiedOrgId ?? intakeOrgIdForOrchestrator(this.name, input as Record<string, unknown>),
         initiatorUserId: initiatorUserIdFromOrchestratorName(this.name),
         runtime: input.runtime,
         sandboxProvider: input.sandboxProvider,
@@ -1892,7 +1894,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ? { harness: recovery.input.route.harness, codingModel: recovery.input.route.modelId, route: recovery.input.route }
         : frozen !== undefined && isApprovedRoute(frozen)
           ? { harness: frozen.harness, codingModel: frozen.modelId, route: frozen }
-          : yield* tryRunPromise(() => this.resolveRoute(input));
+          : yield* tryRunPromise(() => this.resolveRoute(input, reserved.orgId));
       const sandboxId = makeSandboxId(input.repoUrl, input.task, callId);
       // Slack thread ids ride the DO name, not the queue body — recovering
       // them here lets the child post progress without new queue plumbing.
@@ -2576,6 +2578,24 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       (input.intake !== LOCAL_INTAKE_DASHBOARD || !/^[A-Za-z0-9_-]{1,128}$/.test(collaborationHandoffId))) {
       return Response.json({ error: "Invalid trusted collaboration handoff context." }, { status: 400 });
     }
+    let intakeOrgId = input.intake === LOCAL_INTAKE_DASHBOARD
+      ? DASHBOARD_ORG_ID : intakeOrgIdForOrchestrator(this.name, input as Record<string, unknown>);
+    const requestedTeamOrg = typeof input.orgId === "string" && input.orgId.startsWith("team:");
+    const savedTeamWorkspace = collaborationHandoffId
+      ? await teamHandoffWorkspaceId(this.env, collaborationHandoffId) : null;
+    if (requestedTeamOrg || savedTeamWorkspace) {
+      if (input.intake !== LOCAL_INTAKE_DASHBOARD || !collaborationHandoffId || !this.name)
+        return Response.json({ error: "Team runs require an authenticated shared-room handoff." }, { status: 403 });
+      const scope = await resolveTeamHandoffRunScope(this.env, {
+        handoffId: collaborationHandoffId, actorId: initiatorUserIdFromOrchestratorName(this.name) ?? "",
+        executorAgentName: this.name, employeeId: typeof input.customAgentId === "string" ? input.customAgentId : "",
+        employeeVersion: Number(input.customAgentVersion ?? input.expectedCustomAgentVersion),
+        task: typeof input.task === "string" ? input.task : "",
+        ...(requestedTeamOrg ? { expectedWorkspaceId: String(input.orgId).slice("team:".length) } : {}),
+      });
+      if (!scope) return Response.json({ error: "Team handoff authority changed. Create a new room request." }, { status: 403 });
+      intakeOrgId = scope.orgId;
+    }
     const kind = typeof input.kind === "string" && input.kind.trim() ? input.kind.trim() : "run";
     if (input.workspaceTarget !== undefined) {
       const parsedTarget = workspaceTargetSchema.safeParse(input.workspaceTarget);
@@ -2666,6 +2686,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const replayQueue = (approvalId: string): Response => {
       const frozen = this.approvals.find((approval) => approval.approvalId === approvalId);
       if (collaborationHandoffId && (!frozen || frozen.collaborationHandoffId !== collaborationHandoffId ||
+          (intakeOrgId.startsWith("team:") && frozen.orgId !== intakeOrgId) ||
           frozen.customAgentId !== input.customAgentId ||
           (input.expectedCustomAgentVersion !== undefined && frozen.customAgentVersion !== input.expectedCustomAgentVersion))) {
         return Response.json({ error: "The retained room approval no longer matches this handoff. Request a new handoff." }, { status: 409 });
@@ -2679,10 +2700,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         return replayQueue(prior.approvalId);
       }
     }
-    const intakeOrgId =
-      input.intake === LOCAL_INTAKE_DASHBOARD
-        ? DASHBOARD_ORG_ID
-        : intakeOrgIdForOrchestrator(this.name, input as Record<string, unknown>);
     if (input.expectedCustomAgentVersion !== undefined &&
       (!Number.isSafeInteger(input.expectedCustomAgentVersion) || Number(input.expectedCustomAgentVersion) < 1)) {
       return Response.json({ error: "Invalid expected custom-agent version." }, { status: 400 });
@@ -2911,7 +2928,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         ...(runtimeForPreflight ? { runtime: runtimeForPreflight } : {}),
         ...(executionTarget ? { executionTarget } : {}),
         ...(role !== "" ? { role } : {}),
-      });
+      }, intakeOrgId);
       route = resolved.route;
     } catch (error) {
       return Response.json(
@@ -3529,6 +3546,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     approved?: unknown;
     decidedBy?: unknown;
     source?: unknown;
+    expectedInputHash?: unknown;
   }): Promise<Response> {
     const { threadKey, approvalId, approved, decidedBy: rawDecidedBy, source } = body;
     if (
@@ -3538,6 +3556,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     ) {
       return Response.json({ error: "Invalid approval payload." }, { status: 400 });
     }
+    if (body.expectedInputHash !== undefined &&
+        (typeof body.expectedInputHash !== "string" || !/^[a-f0-9]{64}$/.test(body.expectedInputHash)))
+      return Response.json({ error: "Invalid approval input hash." }, { status: 400 });
+    const expectedInputHash = body.expectedInputHash;
+    if (expectedInputHash !== undefined && this.frozenRunApprovalHash(approvalId) !== expectedInputHash)
+      return Response.json({ error: "Approval input changed. Reload the exact pending action." }, { status: 409 });
     const decidedBy =
       typeof rawDecidedBy === "string" && rawDecidedBy.trim()
         ? rawDecidedBy.slice(0, 200)
@@ -3616,6 +3640,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     const committed = this.commandReceipt(commandId);
     if (committed?.threadKey === threadKey) return Response.json({ result: committed.outcome });
     const now = Date.now();
+    if (expectedInputHash !== undefined && this.frozenRunApprovalHash(approvalId) !== expectedInputHash)
+      return Response.json({ error: "Approval input changed. Reload the exact pending action." }, { status: 409 });
     const result = resolvePendingApproval(
       this.approvals,
       { threadKey, approvalId, approved, decidedBy },
@@ -3751,6 +3777,8 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
    * the same contract intake holds.
    */
   private async mintChatGateApproval(input: DelegateInput, toolCallId: string): Promise<void> {
+    if (typeof input.orgId === "string" && input.orgId.startsWith("team:"))
+      throw new Error("Request team employee work through a shared room; client composer fields cannot select a team scope.");
     if (input.workspaceTarget) {
       const normalized = workspaceTargetToExecutionTarget(input.workspaceTarget, input.expectedDeliverables ?? []);
       if (input.executionTarget && JSON.stringify(input.executionTarget) !== JSON.stringify(normalized)) {
@@ -5033,7 +5061,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         codingModel?: string;
         connectionId?: string;
         reasoningEffort?: DelegateInput["reasoningEffort"];
-      }) => this.resolveRoute(input as DelegateInput),
+      }) => this.resolveRoute(input as DelegateInput, this.store.get(runId)?.orgId),
       githubTokenConfigured: Boolean(this.env.GITHUB_TOKEN),
     };
     const result = await handleSteeringRequest(host, runId, body, {

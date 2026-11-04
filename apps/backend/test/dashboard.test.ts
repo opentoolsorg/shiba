@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  workspaceVerified: true,
   agent: {
     connectionError: null,
     identified: true,
@@ -22,6 +23,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("agents/react", () => ({
   useAgent: () => mocks.agent,
   useAgentToolEvents: () => ({ runsById: mocks.runsById }),
+}));
+// These static fixtures represent a fully verified personal workspace. Real
+// authentication and workspace resolution run asynchronously in the browser.
+vi.mock("../../frontend/src/team-workspaces-client", async (original) => ({
+  ...await original<typeof import("../../frontend/src/team-workspaces-client")>(),
+  useTeamWorkspaceDirectory: () => ({ verified: mocks.workspaceVerified, loading: !mocks.workspaceVerified,
+    error: null, selectedWorkspaceId: "", workspaces: [], selectWorkspace: vi.fn(), refresh: vi.fn(async () => {}) }),
 }));
 
 vi.mock("@cloudflare/ai-chat/react", () => ({
@@ -49,6 +57,7 @@ import { TaskForm } from "../../web/src/components/TaskForm";
 import { Tooltip } from "../../frontend/src/components/Tooltip";
 
 afterEach(() => {
+  mocks.workspaceVerified = true;
   delete (globalThis as { __shibaTestAgent?: string }).__shibaTestAgent;
   mocks.chat.messages = [];
   mocks.chat.error = null;
@@ -71,6 +80,12 @@ function renderApp(view?: "threads", mode: "chat" | "work" = "chat") {
 }
 
 describe("dashboard rendering", () => {
+  it("does not render personal conversation data before workspace verification", () => {
+    mocks.workspaceVerified = false;
+    const markup = renderApp("threads", "work");
+    expect(markup).toContain("Checking workspace access");
+    expect(markup).not.toContain('data-testid="task-composer"');
+  });
   it("renders the dashboard overview and links to real capability surfaces", () => {
     const markup = renderToStaticMarkup(React.createElement(DashboardView, {
       runs: [],

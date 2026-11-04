@@ -7,6 +7,7 @@ import { addCollaborationMember, createCollaborationRoom, removeCollaborationMem
 import { authenticatedRoomViewerId } from "../src/run-room-events.js";
 import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { acceptTeamWorkspaceInvitation, createTeamWorkspace, createTeamWorkspaceInvitation } from "../src/team-workspaces-store.js";
 
 const auth = vi.hoisted(() => ({ userId: "owner@example.test", authorized: true }));
 vi.mock("../src/request-auth.js", () => ({
@@ -59,6 +60,36 @@ function upgrade(extra: Record<string, string> = {}, origin = "https://worker.te
 }
 
 describe("authenticated shared-room realtime", () => {
+  it("routes a team room using only the verified workspace selector and current member grant", async () => {
+    const { env, sqlite } = await fixture();
+    const workspace = await createTeamWorkspace(env, scope.userId, { name: "Product" });
+    const invite = await createTeamWorkspaceInvitation(env, workspace.workspaceId, scope.userId, { email: "teammate@example.test", role: "member" });
+    await acceptTeamWorkspaceInvitation(env, "teammate@example.test", invite.token);
+    const teamScope = { ...scope, workspaceId: workspace.workspaceId };
+    const teamIdentity = { tenantId: scope.tenantId, workspaceId: workspace.workspaceId, roomId: `room_${"a".repeat(24)}` };
+    await createCollaborationRoom(env, teamScope, { roomId: teamIdentity.roomId, title: "Team room", visibility: "shared", createdAt: 1 });
+    await addCollaborationMember(env, teamScope, teamIdentity.roomId, { userId: "teammate@example.test", actorId: "human:teammate@example.test", displayName: "Teammate", kind: "human", createdAt: 2 });
+    const requests: Request[] = [];
+    const getByName = vi.fn((_name: string) => ({ fetch: async (request: Request) => { requests.push(request); return new Response(null); } }));
+    env.ConversationRoom = { getByName } as unknown as Env["ConversationRoom"];
+    const teamUpgrade = (query: string, headers: Record<string, string> = {}) => new Request(`https://worker.test/api/collaboration/rooms/${teamIdentity.roomId}/realtime?viewer=${crypto.randomUUID()}${query}`, {
+      headers: { Upgrade: "websocket", Origin: "https://worker.test", ...headers },
+    });
+    expect((await handleCollaborationWithRealtime(teamUpgrade(""), env))?.status).toBe(404);
+    for (const user of [scope.userId, "teammate@example.test"]) {
+      auth.userId = user;
+      expect((await handleCollaborationWithRealtime(teamUpgrade(`&workspaceId=${workspace.workspaceId}`), env))?.status).toBe(200);
+    }
+    expect(getByName.mock.calls.every(([name]) => name === collaborationRoomName(teamIdentity))).toBe(true);
+    expect(requests.every((request) => request.headers.get("x-shiba-room-workspace") === workspace.workspaceId)).toBe(true);
+    expect(requests[0]!.headers.get("x-shiba-room-viewer")).not.toBe(requests[1]!.headers.get("x-shiba-room-viewer"));
+    expect((await handleCollaborationWithRealtime(teamUpgrade(`&workspaceId=${workspace.workspaceId}`, { "X-Shiba-Workspace": "default" }), env))?.status).toBe(404);
+    expect((await handleCollaborationWithRealtime(teamUpgrade(`&workspaceId=${workspace.workspaceId}&workspaceId=${workspace.workspaceId}`), env))?.status).toBe(404);
+    sqlite.prepare("UPDATE team_workspace_memberships SET status='removed' WHERE workspace_id=? AND user_id=?").run(workspace.workspaceId, auth.userId);
+    expect((await handleCollaborationWithRealtime(teamUpgrade(`&workspaceId=${workspace.workspaceId}`), env))?.status).toBe(404);
+    expect(requests).toHaveLength(2);
+  });
+
   it("accepts the actual room identifier minted by the HTTP creation route", async () => {
     const { env } = await fixture();
     const created = await handleCollaborationWithRealtime(new Request("https://worker.test/api/collaboration/rooms", { method: "POST", headers: { Origin: "https://worker.test", "Content-Type": "application/json" }, body: JSON.stringify({ title: "Created through the real API" }) }), env);

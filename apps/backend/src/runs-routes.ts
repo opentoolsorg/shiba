@@ -7,7 +7,9 @@ import { getAgentByName } from "agents/routing";
 import { AGENT_PRINCIPAL_HEADER, LOCAL_INTAKE_DASHBOARD, LOCAL_INTAKE_HEADER, isSafeDeliverablePath, MAX_DELIVERABLE_BYTES, type ExecutionTarget } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
-import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
+import { DASHBOARD_ORG_ID, resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
+import { resolveTeamHandoffRunScope } from "./collaboration-run-scope.js";
+import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
 import { signInternalRequest } from "./edge-identity.js";
 
@@ -72,12 +74,24 @@ export async function resolveRunStoreTarget(
     if (!sessionCheck.ok) {
       return { error: Response.json({ error: "Failed to verify session." }, { status: sessionCheck.status }) };
     }
+    const saved = await sessionCheck.json().catch(() => null) as { session?: { metadata?: unknown } } | null;
+    if (!saved?.session || typeof saved.session !== "object")
+      return { error: Response.json({ error: "Failed to verify session." }, { status: 503 }) };
+    if (isTeamScopedRecord(saved.session.metadata))
+      return { error: Response.json({ error: "Use the shared room to inspect team work." }, { status: 404 }) };
     return { agentName: buildSessionAgentName(effectiveUserId, sessionParam), userId: effectiveUserId };
   }
   return { agentName: effectiveUserId, userId: effectiveUserId };
 }
 
 type RunSummary = { runId: string; createdAt?: number };
+
+function isTeamScopedRecord(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return (typeof row.orgId === "string" && row.orgId.startsWith("team:")) ||
+    (typeof row.teamWorkspaceId === "string" && row.teamWorkspaceId.length > 0);
+}
 
 const collaborationExecutorPins = new WeakMap<Request, string>();
 const collaborationProfilePins = new WeakMap<Request, number>();
@@ -120,8 +134,18 @@ async function withSharedRuns(
 }
 
 export async function handleRuns(request: Request, env: Env): Promise<Response | null> {
-  const res = await handleRunsInner(request, env);
+  let res = await handleRunsInner(request, env);
   if (res === null) return null;
+  // Team results require the room's current membership/source fence, including
+  // for deployment operators whose user DO also retains private legacy work.
+  if (request.method === "GET" && /^\/api\/runs(?:\/[^/]+)?$/.test(new URL(request.url).pathname) && res.ok) {
+    const body = await res.clone().json().catch(() => null) as { runs?: unknown[]; run?: unknown } | null;
+    if (body?.run && isTeamScopedRecord(body.run)) res = Response.json({ error: "Run not found. Use its shared room." }, { status: 404 });
+    else if (Array.isArray(body?.runs) && body.runs.some(isTeamScopedRecord)) {
+      const headers = new Headers(res.headers); headers.delete("content-length"); headers.delete("content-encoding");
+      res = Response.json({ ...body, runs: body.runs.filter((run) => !isTeamScopedRecord(run)) }, { status: res.status, headers });
+    }
+  }
   // Run state is live: every response (errors included) is no-store; re-wrap since stub.fetch headers may be immutable.
   const out = new Response(res.body, res);
   out.headers.set("cache-control", "no-store");
@@ -134,6 +158,10 @@ export async function queueCollaborationRun(
   env: Env,
   input: { task: string; repoUrl?: string; executionTarget?: ExecutionTarget; customAgentId: string; profileVersion: number; commandId: string; executorAgentName?: string; collaborationHandoffId?: string; runtime?: "sandbox" | "local"; targetMachineId?: string },
 ): Promise<Response | null> {
+  if (env.BETTER_AUTH_SECRET && await isRestrictedTeamMember(request, env)) {
+    return Response.json({ error: "Employee execution requires a deployment operator. Explicit personal-provider execution grants for invited team members are not available yet." },
+      { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
   const headers = new Headers(request.headers);
   headers.delete("content-length");
   const forwarded = new Request(new URL("/api/runs", request.url), {
@@ -171,6 +199,30 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   }
   if (!(await isAuthorizedRequest(request, env))) {
     return Response.json({ error: "Authentication required." }, { status: 401 });
+  }
+  // Artifact/draft/history operations are already authenticated and resolve
+  // their owner/session below. They do not accept an organization credential.
+  // Organization resolution belongs to new intake and explicit team selectors.
+  const requiresOrgScope = request.headers.has("X-Shiba-Workspace") ||
+    (request.method === "POST" && url.pathname === "/api/runs");
+  let orgAuth: ResolvedOrgAuth;
+  if (requiresOrgScope) {
+    const resolvedOrg = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
+    if (resolvedOrg instanceof Response) return resolvedOrg;
+    orgAuth = resolvedOrg;
+  } else {
+    // Explicit credentials never inherit the ambient human's owner DO.
+    if (request.headers.has("authorization"))
+      return Response.json({ error: "Human session required; API credentials cannot select private run ownership." }, { status: 403 });
+    if (env.BETTER_AUTH_SECRET && await isRestrictedTeamMember(request, env))
+      return Response.json({ error: "Select an active team workspace." }, { status: 403 });
+    orgAuth = { orgId: DASHBOARD_ORG_ID, principal: null };
+  }
+  if (orgAuth.principal) return Response.json({ error: "Human session required." }, { status: 403 });
+  // Team output/control uses the room's source-aware routes. The user's base
+  // DO also contains legacy/private runs and is never a workspace registry.
+  if (orgAuth.workspace && (request.method !== "POST" || url.pathname !== "/api/runs" || !collaborationHandoffPins.has(request))) {
+    return Response.json({ error: "Use the shared room to request and inspect team employee work." }, { status: 403 });
   }
   if (employeeDraftPath) {
     const review = url.pathname.endsWith("/review");
@@ -237,6 +289,18 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
   const stub = await getAgentByName(env.CodingOrchestrator, targetAgentName);
   let rewritten = new Request(new URL(url.pathname + url.search, request.url), request);
   if (request.method === "POST" && url.pathname === "/api/runs" && intakeBody) {
+    if (orgAuth.workspace) {
+      const handoffId = collaborationHandoffPins.get(request)!;
+      const profileVersion = collaborationProfilePins.get(request);
+      const scope = await resolveTeamHandoffRunScope(env, {
+        handoffId, actorId: resolved.userId, executorAgentName: resolved.agentName,
+        employeeId: typeof intakeBody.customAgentId === "string" ? intakeBody.customAgentId : "",
+        employeeVersion: profileVersion ?? 0, task: typeof intakeBody.task === "string" ? intakeBody.task : "",
+        expectedWorkspaceId: orgAuth.workspace.workspaceId,
+      });
+      if (!scope || scope.orgId !== orgAuth.orgId)
+        return Response.json({ error: "Team handoff authority changed. Create a new room request." }, { status: 403 });
+    }
     if (intakeBody.onboardingSourceSnapshot !== undefined || intakeBody.onboardingTask !== undefined) {
       return Response.json({ error: "Onboarding source context is server-owned." }, { status: 400 });
     }
@@ -265,7 +329,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
         skillId: (pin as Record<string, unknown>).skillId as string,
         version: Number((pin as Record<string, unknown>).version),
       }));
-      const resolvedSkills = await resolveSkillPins(env, DASHBOARD_ORG_ID, resolved.userId, requested);
+      const resolvedSkills = await resolveSkillPins(env, orgAuth.orgId, resolved.userId, requested);
       if (!resolvedSkills) {
         return Response.json({ error: "A selected skill is unavailable or no longer active. Reload the Skills view and try again." }, { status: 409 });
       }
@@ -293,7 +357,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
     rewritten = new Request(rewritten, {
       body: JSON.stringify({
         ...safeIntakeBody,
-        orgId: DASHBOARD_ORG_ID,
+        orgId: orgAuth.orgId,
         ...(intakeKind === "run"
           ? {
               threadKey: (() => {
@@ -350,6 +414,16 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       return Response.json({ error: "Invalid deliverable identity." }, { status: 400 });
     }
     if (!/^(0|[1-7])$/.test(rawIndex)) return Response.json({ error: "Invalid deliverable index." }, { status: 400 });
+    const lookup = new Request(new URL(`/api/runs/${encodeURIComponent(runId)}`, request.url), {
+      method: "GET", headers: rewritten.headers,
+    });
+    lookup.headers.delete("content-length");
+    await signInternalRequest(lookup, env);
+    const found = await stub.fetch(lookup);
+    if (!found.ok) return found;
+    const saved = await found.json().catch(() => null) as { run?: unknown } | null;
+    if (!saved?.run || isTeamScopedRecord(saved.run))
+      return Response.json({ error: "Artifact not found. Use its shared room." }, { status: 404 });
     const forwarded = new Request(new URL(url.pathname + url.search, request.url), rewritten);
     await signInternalRequest(forwarded, env);
     return stub.fetch(forwarded);
@@ -376,7 +450,7 @@ async function handleRunsInner(request: Request, env: Env): Promise<Response | n
       deliverables?: { path: string; mediaType: string; bytes: number; sha256: string }[];
     } };
     const item = run?.deliverables?.[index];
-    if (run?.status !== "completed" || !run.sandboxId || !item || run.expectedDeliverables?.[index] !== item.path || !isSafeDeliverablePath(item.path) || !Number.isInteger(item.bytes) || item.bytes < 1 || item.bytes > MAX_DELIVERABLE_BYTES || !/^[a-f0-9]{64}$/.test(item.sha256)) {
+    if (isTeamScopedRecord(run) || run?.status !== "completed" || !run.sandboxId || !item || run.expectedDeliverables?.[index] !== item.path || !isSafeDeliverablePath(item.path) || !Number.isInteger(item.bytes) || item.bytes < 1 || item.bytes > MAX_DELIVERABLE_BYTES || !/^[a-f0-9]{64}$/.test(item.sha256)) {
       return Response.json({ error: "Deliverable not found." }, { status: 404 });
     }
     if (!env.ATTACHMENTS) return Response.json({ error: "Deliverable storage is unavailable." }, { status: 503 });

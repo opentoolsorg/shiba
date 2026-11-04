@@ -60,6 +60,36 @@ class RoomSocket {
 }
 
 describe("CollaborationView room access polling", () => {
+  it("opens and focuses the exact Work handoff once after authorized detail arrives, without guessing approval authority", async () => {
+    const sockets: RoomSocket[] = [];
+    const renderApproval = vi.fn(() => <button type="button">Unexpected approval</button>);
+    vi.stubGlobal("WebSocket", class extends RoomSocket { constructor() { super(); sockets.push(this); } });
+    const handoff = { handoffId: "handoff-first", taskId: "First shared task", senderActorId: "human:owner@example.test", recipientActorId: "agent:writer", parentHandoffId: null, depth: 0, remainingBudget: 0, status: "active", createdAt: 1 };
+    let detail = { ...roomDetail, handoffs: [handoff, { ...handoff, handoffId: "handoff-second", taskId: "Exact second shared task", approvalId: "approval-unverified" }] };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/collaboration/rooms") return jsonResponse({ rooms: [roomDetail.room] });
+      if (String(input) === "/api/collaboration/rooms/room-1") return jsonResponse(detail);
+      return jsonResponse({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView initialRoomId="room-1" initialHandoffId="handoff-second" renderApproval={renderApproval} />);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Work" }).getAttribute("aria-selected")).toBe("true");
+      expect(document.activeElement).toBe(screen.getByText("Exact second shared task").closest("li"));
+    });
+    expect(document.activeElement?.id).toBe("collaboration-handoff-personal-room-1-handoff-second");
+    expect(screen.getByText("Approval: unknown")).toBeTruthy();
+    expect(renderApproval).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Unexpected approval" })).toBeNull();
+    // A new durable response must not consume the navigation intent again.
+    fireEvent.click(screen.getByRole("tab", { name: "People" }));
+    await waitFor(() => expect(sockets).toHaveLength(1));
+    act(() => sockets[0]!.open());
+    detail = { ...detail, messages: [{ ...roomDetail.messages[0]!, body: "New authorized room update" }] };
+    act(() => sockets[0]!.receive({ type: "collaboration:refresh", roomId: "room-1" }));
+    await screen.findByText("New authorized room update");
+    expect(screen.getByRole("tab", { name: "People" }).getAttribute("aria-selected")).toBe("true");
+  });
+
   it("refreshes another member's durable message from a live room notification", async () => {
     const sockets: RoomSocket[] = [];
     vi.stubGlobal("WebSocket", class extends RoomSocket { constructor() { super(); sockets.push(this); } });
@@ -100,6 +130,7 @@ describe("CollaborationView room access polling", () => {
     }));
     render(<CollaborationView />);
     await screen.findByText("Confidential room note");
+    await waitFor(() => expect(sockets).toHaveLength(1));
     deferRead = true;
     act(() => sockets[0]!.open());
     act(() => sockets[0]!.close(1008));
@@ -128,6 +159,7 @@ describe("CollaborationView room access polling", () => {
     render(<CollaborationView />);
     await waitFor(() => expect(reads.length).toBeGreaterThanOrEqual(2));
     const initialReads = [...reads];
+    await waitFor(() => expect(sockets).toHaveLength(1));
     act(() => sockets[0]!.open());
     const latest = reads.at(-1)!;
     expect(initialReads).not.toContain(latest);
@@ -179,6 +211,7 @@ describe("CollaborationView room access polling", () => {
     await screen.findByText("Confidential room note");
     expect(screen.getByRole("link", { name: "reports/private.md" })).toBeTruthy();
     expect(screen.getByText("Private derived summary")).toBeTruthy();
+    await waitFor(() => expect(sockets).toHaveLength(1));
     pending = true;
     act(() => sockets[0]!.open());
     await act(async () => {
@@ -221,6 +254,7 @@ describe("CollaborationView room access polling", () => {
     render(<CollaborationView />);
     await screen.findByText("Confidential room note");
     fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Room-only unsent draft" } });
+    await waitFor(() => expect(sockets).toHaveLength(1));
     pending = true;
     act(() => sockets[0]!.open());
     act(() => poll?.());
@@ -254,6 +288,7 @@ describe("CollaborationView room access polling", () => {
     }));
     render(<CollaborationView />);
     await screen.findByText("Confidential room note");
+    await waitFor(() => expect(sockets).toHaveLength(1));
     pending = true;
     act(() => sockets[0]!.open());
     act(() => sockets[0]!.receive({ type: "collaboration:refresh", roomId: "room-1" }));
@@ -280,6 +315,7 @@ describe("CollaborationView room access polling", () => {
     }));
     render(<CollaborationView />);
     await screen.findByText("Confidential room note");
+    await waitFor(() => expect(sockets).toHaveLength(1));
     phase = "old";
     act(() => sockets[0]!.open());
     fireEvent.click(screen.getByRole("button", { name: /^Other room/ }));
@@ -326,6 +362,7 @@ describe("CollaborationView room access polling", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<CollaborationView />);
     await screen.findByText("Ship after review.");
+    fireEvent.click(screen.getByRole("tab", { name: "Context" }));
     fireEvent.change(screen.getByLabelText("Shared note title"), { target: { value: "Team decision" } });
     fireEvent.change(screen.getByLabelText("Shared note content"), { target: { value: "Keep the scope small." } });
     fireEvent.click(screen.getByRole("button", { name: "Share note with room" }));
@@ -333,12 +370,14 @@ describe("CollaborationView room access polling", () => {
     expect(memory[1]?.id).toMatch(/^ctx_[a-f0-9-]{36}$/);
     fireEvent.click(screen.getByLabelText("Use shared note Release constraints in next handoff"));
     fireEvent.click(screen.getByLabelText("Include message in next handoff: Confidential room note"));
+    fireEvent.click(screen.getByRole("tab", { name: "Work" }));
     fireEvent.change(screen.getByLabelText("Task ID"), { target: { value: "release-plan" } });
     fireEvent.change(screen.getByLabelText("Employee task request"), { target: { value: "Draft the release plan." } });
     fireEvent.change(screen.getByLabelText("Handoff recipient"), { target: { value: "agent:writer" } });
     fireEvent.click(screen.getByRole("button", { name: "Request / create handoff" }));
     await waitFor(() => expect(submitted?.memoryRefs).toEqual([{ id: "ctx_existing", version: 1, sha256: "a".repeat(64) }]));
     expect(submitted?.contextMessageIds).toEqual(["m1"]);
+    fireEvent.click(screen.getByRole("tab", { name: "Context" }));
     await waitFor(() => expect((screen.getByRole("button", { name: "Revoke shared note Release constraints" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByLabelText("Use shared note Release constraints in next handoff"));
     fireEvent.click(screen.getByRole("button", { name: "Revoke shared note Release constraints" }));
@@ -472,6 +511,7 @@ describe("CollaborationView room access polling", () => {
 
     render(<CollaborationView />);
     await screen.findByRole("heading", { name: "Shared room" });
+    fireEvent.click(screen.getByRole("tab", { name: "Work" }));
     fireEvent.change(screen.getByLabelText("Task ID"), { target: { value: "meeting-summary" } });
     fireEvent.change(screen.getByLabelText("Employee task request"), { target: { value: "Summarize these meeting notes." } });
     fireEvent.change(screen.getByLabelText("Employee work destination"), { target: { value: "artifact-workspace" } });
@@ -592,6 +632,7 @@ describe("CollaborationView room access polling", () => {
     );
 
     render(<CollaborationView />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Slack" }));
     fireEvent.change(await screen.findByRole("combobox", { name: "Verified Slack thread" }), {
       target: { value: "T123|C123|1710000000.000100" },
     });
@@ -631,6 +672,7 @@ describe("CollaborationView room access polling", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<CollaborationView />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Slack" }));
     expect(await screen.findByText("Approved content: Confidential room note")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Approve and send" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
@@ -719,4 +761,351 @@ describe("CollaborationView room access polling", () => {
     expect(await screen.findByText("Confidential room note")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
+});
+
+const workspaceA = `ws_${"a".repeat(24)}`;
+const workspaceB = `ws_${"b".repeat(24)}`;
+const ownerRoomDetail = {
+  ...roomDetail,
+  currentUserId: "owner@example.test",
+  members: [
+    {
+      ...roomDetail.members[0],
+      userId: "owner@example.test",
+      actorId: "human:owner@example.test",
+      displayName: "Owner",
+      role: "owner",
+    },
+  ],
+};
+function workspaceResponse(workspaceId: string) {
+  return jsonResponse({
+    workspace: {
+      workspaceId,
+      name: "Product team",
+      version: 1,
+      createdAt: 1,
+      membership: {
+        workspaceId,
+        userId: "owner@example.test",
+        role: "owner",
+        version: 1,
+        joinedAt: 1,
+      },
+      members: [
+        { workspaceId, userId: "owner@example.test", role: "owner", version: 1, joinedAt: 1 },
+        { workspaceId, userId: "teammate@example.test", role: "member", version: 1, joinedAt: 1 },
+      ],
+    },
+  });
+}
+
+describe("CollaborationView embedded team conversation", () => {
+  it("scopes every HTTP call and invites only an explicitly selected current workspace member", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === `/api/workspaces/${workspaceA}`) return workspaceResponse(workspaceA);
+      if (path === "/api/collaboration/rooms") return jsonResponse({ rooms: [roomDetail.room] });
+      if (path.endsWith("/members") && init?.method === "POST")
+        return jsonResponse({ member: {} }, 201);
+      if (path === "/api/collaboration/rooms/room-1") return jsonResponse(ownerRoomDetail);
+      return jsonResponse({ agents: [], computers: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CollaborationView workspaceId={workspaceA} />);
+    const roster = await screen.findByRole("combobox", { name: "Workspace member" });
+    await waitFor(() => expect((roster as HTMLSelectElement).disabled).toBe(false));
+    expect(screen.queryByLabelText("Member user ID or email")).toBeNull();
+    expect(screen.getByRole("option", { name: "teammate@example.test · member" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "owner@example.test · owner" })).toBeNull();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    fireEvent.change(roster, { target: { value: "teammate@example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([path, init]) =>
+            String(path).endsWith("/members") &&
+            JSON.parse(String(init?.body)).userId === "teammate@example.test",
+        ),
+      ).toBe(true),
+    );
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get("X-Shiba-Workspace")).toBe(workspaceA);
+    }
+  });
+
+  it("keeps workspace invitation unavailable when the verified roster cannot load", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input) === `/api/workspaces/${workspaceA}`)
+        return jsonResponse({ error: "Unavailable" }, 503);
+      if (String(input) === "/api/collaboration/rooms")
+        return jsonResponse({ rooms: [roomDetail.room] });
+      if (String(input) === "/api/collaboration/rooms/room-1") return jsonResponse(ownerRoomDetail);
+      return jsonResponse({ agents: [], computers: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CollaborationView workspaceId={workspaceA} />);
+    expect(
+      ((await screen.findByRole("combobox", { name: "Workspace member" })) as HTMLSelectElement)
+        .disabled,
+    ).toBe(true);
+    expect((screen.getByRole("button", { name: "Invite" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(await screen.findByText(/Workspace members could not be loaded/)).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST"),
+    ).toBe(false);
+  });
+
+  it("clears content, sockets and drafts immediately across workspace A to B to A, ignoring late A responses", async () => {
+    const sockets: RoomSocket[] = [];
+    vi.stubGlobal(
+      "WebSocket",
+      class extends RoomSocket {
+        constructor() {
+          super();
+          sockets.push(this);
+        }
+      },
+    );
+    const lateA = deferredResponse();
+    const pendingB = deferredResponse();
+    let deferA = false;
+    let aRound = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        const workspace = new Headers(init?.headers).get("X-Shiba-Workspace");
+        if (path.startsWith("/api/workspaces/")) return workspaceResponse(workspace!);
+        if (path === "/api/collaboration/rooms") return jsonResponse({ rooms: [roomDetail.room] });
+        if (path === "/api/collaboration/rooms/room-1") {
+          if (workspace === workspaceB) return pendingB.promise;
+          if (deferA && aRound === 0) return lateA.promise;
+          return jsonResponse({
+            ...roomDetail,
+            messages: [
+              {
+                ...roomDetail.messages[0]!,
+                body: aRound ? "Fresh team A message" : "Private team A message",
+              },
+            ],
+          });
+        }
+        return jsonResponse({ agents: [], computers: [] });
+      }),
+    );
+    const { rerender } = render(<CollaborationView workspaceId={workspaceA} />);
+    await screen.findByText("Private team A message");
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "A unsent private draft" },
+    });
+    await waitFor(() => expect(sockets).toHaveLength(1));
+    deferA = true;
+    act(() => sockets[0]!.open());
+    rerender(<CollaborationView workspaceId={workspaceB} />);
+    expect(screen.queryByText("Private team A message")).toBeNull();
+    expect(screen.queryByDisplayValue("A unsent private draft")).toBeNull();
+    expect(sockets[0]!.readyState).toBe(3);
+    await act(async () => {
+      lateA.resolve(jsonResponse(roomDetail));
+    });
+    expect(screen.queryByText("Confidential room note")).toBeNull();
+    aRound = 1;
+    rerender(<CollaborationView workspaceId={workspaceA} />);
+    await screen.findByText("Fresh team A message");
+    await act(async () => {
+      pendingB.resolve(
+        jsonResponse({
+          ...roomDetail,
+          messages: [{ ...roomDetail.messages[0]!, body: "Old B response" }],
+        }),
+      );
+    });
+    expect(screen.queryByText("Old B response")).toBeNull();
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("selects an embedded room and employee without importing or automatically joining private context", async () => {
+    const secondRoom = { ...roomDetail.room, roomId: "room-2", title: "Delivery team" };
+    const onRoomChange = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms")
+        return jsonResponse({ rooms: [roomDetail.room, secondRoom] });
+      if (path === "/api/custom-agents")
+        return jsonResponse({
+          agents: [
+            {
+              id: "employee-1",
+              version: 3,
+              slug: "designer",
+              config: { name: "Product Designer" },
+            },
+          ],
+        });
+      if (path.endsWith("/agents") && init?.method === "POST")
+        return jsonResponse({ member: {} }, 201);
+      if (path === "/api/collaboration/rooms/room-2")
+        return jsonResponse({ ...ownerRoomDetail, room: secondRoom });
+      return jsonResponse({ agents: [], computers: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <CollaborationView
+        initialRoomId="room-2"
+        initialEmployeeId="employee-1"
+        onRoomChange={onRoomChange}
+      />,
+    );
+    await screen.findByRole("heading", { name: "Delivery team" });
+    await waitFor(() =>
+      expect((screen.getByLabelText("Employee profile") as HTMLSelectElement).value).toBe(
+        "employee-1",
+      ),
+    );
+    expect(onRoomChange).toHaveBeenCalledWith("room-2");
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([path]) => /memory|sessions|conversations/.test(String(path))),
+    ).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([path, init]) =>
+            String(path).endsWith("/room-2/agents") &&
+            JSON.parse(String(init?.body)).profileVersion === 3,
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("exposes keyboard-operated details while keeping chat separate from execution approvals", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input) === "/api/collaboration/rooms")
+        return jsonResponse({ rooms: [roomDetail.room] });
+      if (String(input) === "/api/collaboration/rooms/room-1") return jsonResponse(roomDetail);
+      return jsonResponse({ agents: [], computers: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CollaborationView />);
+    await screen.findByRole("log", { name: "Conversation messages" });
+    const people = screen.getByRole("tab", { name: "People" });
+    people.focus();
+    fireEvent.keyDown(people, { key: "ArrowRight" });
+    const context = screen.getByRole("tab", { name: "Context" });
+    expect(context.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(context);
+    expect(screen.getByRole("tabpanel", { name: "Context" })).toBeTruthy();
+    expect(screen.queryByRole("tabpanel", { name: "People" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Request employee work" }));
+    expect(screen.getByRole("tabpanel", { name: "Work" })).toBeTruthy();
+    expect(screen.getByText(/Sending a message does not start an employee run/)).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST"),
+    ).toBe(false);
+  });
+
+  it("mounts only authorized available run activity on explicit execution selection and clears it on room denial", async () => {
+    const sockets: RoomSocket[] = [];
+    vi.stubGlobal(
+      "WebSocket",
+      class extends RoomSocket {
+        constructor() {
+          super();
+          sockets.push(this);
+        }
+      },
+    );
+    const handoff = {
+      handoffId: "ho_approved",
+      taskId: "Release review",
+      senderActorId: "human:owner@example.test",
+      recipientActorId: "agent:reviewer",
+      parentHandoffId: null,
+      depth: 1,
+      remainingBudget: 0,
+      status: "active",
+      createdAt: 1,
+    };
+    const renderExecution = vi.fn((item: { runId?: string }) => (
+      <p>Authorized activity {item.runId}</p>
+    ));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/collaboration/rooms")
+          return jsonResponse({ rooms: [roomDetail.room] });
+        if (String(input) === "/api/collaboration/rooms/room-1")
+          return jsonResponse({
+            ...roomDetail,
+            handoffs: [
+              {
+                ...handoff,
+                approvalId: "approval-1",
+                runId: "run-1",
+                execution: { approvalStatus: "approved", runStatus: "running" },
+              },
+              { ...handoff, handoffId: "ho_pending", taskId: "Pending request", runId: "minted-before-approval", execution: { approvalStatus: "pending", runStatus: "pending" } },
+              {
+                ...handoff,
+                handoffId: "ho_hidden",
+                taskId: "Unavailable task",
+                runId: "private-run",
+                execution: { unavailable: true },
+              },
+            ],
+          });
+        return jsonResponse({ agents: [], computers: [] });
+      }),
+    );
+    render(<CollaborationView renderExecution={renderExecution} />);
+    await screen.findByRole("heading", { name: "Shared room" });
+    expect(renderExecution).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("tab", { name: "Execution" }));
+    expect(screen.getByText("Authorized activity run-1")).toBeTruthy();
+    expect(renderExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ roomId: "room-1", runId: "run-1", handoffId: "ho_approved" }),
+    );
+    expect(renderExecution.mock.calls.some(([item]) => item.runId === "private-run" || item.runId === "minted-before-approval")).toBe(false);
+    expect(screen.getByText("Waiting for a human-approved run.")).toBeTruthy();
+    await waitFor(() => expect(sockets).toHaveLength(1));
+    act(() => {
+      sockets[0]!.open();
+      sockets[0]!.close(1008);
+    });
+    expect(screen.queryByText("Authorized activity run-1")).toBeNull();
+    expect(screen.queryByRole("tabpanel", { name: "Execution" })).toBeNull();
+  });
+});
+
+it("shows reloaded human instructions and frozen context, then removes them when source access is lost", async () => {
+  const sockets: RoomSocket[] = [];
+  vi.stubGlobal("WebSocket", class extends RoomSocket { constructor() { super(); sockets.push(this); } });
+  const handoff = { handoffId: "human-assignment", taskId: "Release checklist", senderActorId: "human:owner@example.test", recipientActorId: "human:member@example.test", parentHandoffId: null, depth: 0, remainingBudget: 0, status: "active", createdAt: 1 };
+  let available = true;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) === "/api/collaboration/rooms") return jsonResponse({ rooms: [roomDetail.room] });
+    if (String(input) === "/api/collaboration/rooms/room-1") return jsonResponse({ ...roomDetail, handoffs: [{ ...handoff, ...(available ? {
+      humanRequest: { instructions: "Prepare the checklist by Friday.", task: "Prepare the checklist by Friday.\nFrozen note from human:owner@example.test: keep budget unchanged.", digest: "a".repeat(64), requestedByUserId: "owner@example.test", messageCount: 0, noteCount: 1 },
+    } : { execution: { unavailable: true } }) }] });
+    return jsonResponse({ agents: [], computers: [] });
+  }));
+  render(<CollaborationView />);
+  fireEvent.click(await screen.findByRole("tab", { name: "Work" }));
+  expect(screen.getByLabelText("Assignment instructions").textContent).toBe("Prepare the checklist by Friday.");
+  expect(screen.getByText("Assigned to Member")).toBeTruthy();
+  expect(screen.getByText(/Requested by owner@example.test · 0 messages · 1 notes/)).toBeTruthy();
+  expect(screen.getByText(/Frozen note from human:owner@example.test/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  await waitFor(() => expect(sockets).toHaveLength(1));
+  act(() => sockets[0]!.open());
+  available = false;
+  act(() => sockets[0]!.receive({ type: "collaboration:refresh", roomId: "room-1" }));
+  await waitFor(() => expect(screen.queryByLabelText("Assignment instructions")).toBeNull());
+  expect(screen.queryByText(/Frozen note from human:owner@example.test/)).toBeNull();
+  expect(screen.getByText("Assignment context is unavailable. A source or membership changed.")).toBeTruthy();
 });

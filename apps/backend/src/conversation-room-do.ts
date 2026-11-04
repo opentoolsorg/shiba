@@ -85,6 +85,17 @@ interface RunEventRow {
   created_at: number;
 }
 
+export interface RunRoomReplay {
+  runId: string;
+  after: number;
+  oldest: number;
+  latest: number;
+  nextCursor: number;
+  hasMore: boolean;
+  gap: boolean;
+  frames: RunRoomFrame[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -329,6 +340,51 @@ export class ConversationRoom extends DurableObject<Env> {
     socket.serializeAttachment({ ...attachment, typing: event.typing, typingAt: event.typing ? Date.now() : 0 } satisfies RoomSocketAttachment);
     this.broadcastCollaborationPresence(authorized, attachment.collaboration!.roomId);
     await this.scheduleMaintenanceAlarm();
+  }
+
+  /** Binding-only read. The Worker checks the room audience before and after this RPC. */
+  async readRunEvents(identity: RunRoomIdentity, after: number, limit = 256): Promise<RunRoomReplay> {
+    const ownerId = typeof identity.ownerId === "string" ? identity.ownerId.trim().toLowerCase() : "";
+    if (!ownerId || ownerId.length > 320 || !isValidSessionId(identity.sessionId) ||
+      typeof identity.runId !== "string" || !identity.runId || identity.runId.length > 200 ||
+      !Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 256) {
+      throw new Error("Invalid run replay request.");
+    }
+    // Reading an absent or different room must not create/adopt its identity.
+    const room = this.ctx.storage.sql.exec<{ owner_id: string; session_id: string }>(
+      "SELECT owner_id, session_id FROM room_identity WHERE singleton = 1",
+    ).toArray()[0];
+    if (!room) return { runId: identity.runId, after, oldest: 0, latest: 0, nextCursor: 0, hasMore: false, gap: after > 0, frames: [] };
+    if (room.owner_id !== ownerId || room.session_id !== identity.sessionId) throw new Error("Room identity does not match.");
+    const bounds = this.ctx.storage.sql.exec<{ oldest: number | null; latest: number | null }>(
+      "SELECT MIN(sequence) AS oldest, MAX(sequence) AS latest FROM room_run_events WHERE run_id = ?", identity.runId,
+    ).toArray()[0];
+    const retained = this.ctx.storage.sql.exec<{ oldest: number | null }>(
+      "SELECT MIN(sequence) AS oldest FROM room_run_events",
+    ).toArray()[0]?.oldest ?? 0;
+    const oldest = bounds?.oldest ?? 0;
+    const latest = bounds?.latest ?? 0;
+    const reset = after > latest;
+    const rows = this.ctx.storage.sql.exec<RunEventRow>(
+      "SELECT sequence, event_id, run_id, body, created_at FROM room_run_events WHERE sequence > ? AND run_id = ? ORDER BY sequence ASC LIMIT ?",
+      reset ? 0 : after, identity.runId, limit + 1,
+    ).toArray();
+    let invalid = false;
+    const frames: RunRoomFrame[] = [];
+    for (const row of rows.slice(0, limit)) {
+      let event: unknown;
+      try { event = JSON.parse(row.body); } catch { invalid = true; continue; }
+      if (row.run_id !== identity.runId || !isRunRoomEvent(event)) { invalid = true; continue; }
+      frames.push({ type: "run:event", sequence: row.sequence, eventId: row.event_id,
+        runId: identity.runId, createdAt: row.created_at, event });
+    }
+    return {
+      runId: identity.runId, after, oldest, latest,
+      nextCursor: rows.length ? rows[Math.min(rows.length, limit) - 1]!.sequence : reset ? latest : after,
+      hasMore: rows.length > limit,
+      // Global retention can remove a run's prefix or its entire journal. Never imply completeness.
+      gap: invalid || reset || (retained > 1 && after < retained - 1), frames,
+    };
   }
 
   /** RPC is exposed only on the Worker binding, never through a client frame. */

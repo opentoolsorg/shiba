@@ -1,5 +1,7 @@
 /** Authenticated, versioned skill library. Source URLs are provenance only. */
-import { useRef, useState, type JSX } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type JSX } from "react";
+import { teamWorkspaceHeaders, TeamWorkspaceRequestError } from "../team-workspaces-client";
+import type { SavedSkill } from "../saved";
 import { SkillLibraryCards } from "./SkillLibraryCards";
 import {
   activateSkill,
@@ -19,7 +21,13 @@ import { ExtensionSkillsView } from "./ExtensionSkillsView";
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
 
-export function SkillsView({ embedded = false }: { embedded?: boolean } = {}): JSX.Element {
+export function SkillsView({ embedded = false, workspaceId, actorId }: { embedded?: boolean; workspaceId?: string; actorId?: string | null } = {}): JSX.Element {
+  const scope = `${actorId ?? ""}\0${workspaceId ?? ""}`;
+  const current = useRef(scope); current.current = scope;
+  return workspaceId ? <TeamSkillReview key={scope} workspaceId={workspaceId} isCurrent={() => current.current === scope} /> : <PersonalSkillsView key={scope} embedded={embedded} />;
+}
+
+function PersonalSkillsView({ embedded }: { embedded: boolean }): JSX.Element {
   const [surface, setSurface] = useState<"extensions" | "run">("extensions");
   return (
     <div className="flex h-full min-h-0 flex-1 bg-[var(--bg)] text-[var(--fg)]">
@@ -28,6 +36,119 @@ export function SkillsView({ embedded = false }: { embedded?: boolean } = {}): J
         : <RunAttachedSkillsView onOpenExtensions={() => setSurface("extensions")} />}
     </div>
   );
+}
+
+interface TeamSkillVersion { version: number; name: string; instructions: string }
+const TEAM_CONTROL = "min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs text-[var(--ink)] hover:bg-[var(--panel-2)] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
+const TEAM_FIELD = "min-h-11 w-full border border-[var(--input-line)] bg-[var(--paper)] px-3 py-2 text-sm text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
+
+/** Team drafts never enter the legacy module-global personal skill cache. */
+function TeamSkillReview({ workspaceId, isCurrent }: { workspaceId: string; isCurrent: () => boolean }): JSX.Element {
+  const [skills, setSkills] = useState<SavedSkill[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const [name, setName] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const draftRevision = useRef(0);
+  const [history, setHistory] = useState<{ id: string; versions: TeamSkillVersion[] } | null>(null);
+  const historyEpoch = useRef(0);
+  const requestEpoch = useRef(0);
+  const alive = useRef(true);
+  const controller = useRef(new AbortController());
+  const active = () => alive.current && isCurrent() && !controller.current.signal.aborted;
+
+  const request = async <T,>(url: string, method = "GET", body?: unknown): Promise<T> => {
+    if (!active()) throw new DOMException("Workspace changed.", "AbortError");
+    const response = await fetch(url, { method, credentials: "same-origin", cache: "no-store", signal: controller.current.signal,
+      headers: { ...teamWorkspaceHeaders(workspaceId), ...body !== undefined ? { "Content-Type": "application/json" } : {} },
+      ...body !== undefined ? { body: JSON.stringify(body) } : {} });
+    const payload = await response.json().catch(() => ({})) as T & { error?: unknown };
+    if (!active()) throw new DOMException("Workspace changed.", "AbortError");
+    if (!response.ok) throw new TeamWorkspaceRequestError(typeof payload.error === "string" ? payload.error : `Skill request failed (${response.status}).`, response.status);
+    return payload;
+  };
+  const load = async (nextCursor?: string) => {
+    const epoch = ++requestEpoch.current;
+    setLoading(true);
+    try {
+      const body = await request<{ skills: SavedSkill[]; nextCursor?: string }>(`/api/skills?limit=25${nextCursor ? `&cursor=${encodeURIComponent(nextCursor)}` : ""}`);
+      if (!active() || epoch !== requestEpoch.current) return;
+      if (!Array.isArray(body.skills)) throw new Error("Invalid skill response.");
+      setSkills((previous) => nextCursor ? [...new Map([...previous, ...body.skills].map((skill) => [skill.id, skill])).values()] : body.skills);
+      setCursor(typeof body.nextCursor === "string" ? body.nextCursor : null); setError(null);
+    } catch (cause) {
+      if (active() && epoch === requestEpoch.current) { setSkills([]); setCursor(null); setHistory(null); setError(cause instanceof Error ? cause.message : "Skills unavailable."); }
+    } finally { if (active() && epoch === requestEpoch.current) setLoading(false); }
+  };
+  const initialLoad = useEffectEvent(() => { void load(); });
+  useEffect(() => {
+    alive.current = true; const abort = new AbortController(); controller.current = abort;
+    initialLoad();
+    return () => { alive.current = false; requestEpoch.current++; historyEpoch.current++; abort.abort(); };
+    // A keyed mount owns the workspace's local data and all pending requests.
+  }, []);
+
+  const perform = async (operation: () => Promise<void>) => {
+    if (!active() || pending.current) return;
+    pending.current = true; setBusy(true); setError(null); setNotice(null); requestEpoch.current++;
+    try { await operation(); }
+    catch (cause) {
+      if (active()) {
+        setHistory(null);
+        if (cause instanceof TeamWorkspaceRequestError && [401, 403, 404].includes(cause.status)) { setSkills([]); setCursor(null); setName(""); setInstructions(""); }
+        setError(cause instanceof Error ? cause.message : "Skill update failed.");
+      }
+    } finally { if (active()) { pending.current = false; setBusy(false); setLoading(false); } }
+  };
+  const changeStatus = (skill: SavedSkill, action: "review" | "activate" | "disable") => {
+    if (!skill.owned) return;
+    void perform(async () => {
+      const body = await request<{ skill?: SavedSkill }>(`/api/skills/${encodeURIComponent(skill.id)}/${action}`, "POST", action === "disable" ? undefined : { version: skill.version, reviewedInstructions: skill.instructions });
+      if (!active()) return;
+      if (action !== "disable" && (!body.skill || body.skill.id !== skill.id)) throw new Error("The skill update could not be verified. Refresh before continuing.");
+      setSkills((previous) => previous.map((item) => item.id === skill.id ? body.skill ?? { ...item, status: "disabled", activeVersion: undefined } : item));
+      setNotice(action === "activate" ? "Reviewed version activated. No app permissions or external actions were granted." : action === "review" ? "Instructions marked reviewed. Activation still requires a separate click." : "Skill disabled.");
+    });
+  };
+  const save = () => {
+    if (!name.trim() || !instructions.trim()) return;
+    const revision = draftRevision.current;
+    void perform(async () => {
+      const body = await request<{ skill: SavedSkill }>("/api/skills", "POST", { name: name.trim(), instructions: instructions.trim() });
+      if (!active()) return;
+      if (!body.skill?.id || body.skill.status !== "draft") throw new Error("A draft skill could not be verified. Refresh before continuing.");
+      setSkills((previous) => [...previous, body.skill]);
+      if (revision === draftRevision.current) { setName(""); setInstructions(""); }
+      setNotice("Draft saved in this workspace. Review its instructions before activation.");
+    });
+  };
+  const versions = (skill: SavedSkill) => {
+    if (pending.current) return;
+    if (history?.id === skill.id) { historyEpoch.current++; setHistory(null); return; }
+    const epoch = ++historyEpoch.current; setHistory(null);
+    void perform(async () => {
+      const body = await request<{ versions: TeamSkillVersion[] }>(`/api/skills/${encodeURIComponent(skill.id)}/versions?limit=20`);
+      if (!active() || epoch !== historyEpoch.current) return;
+      if (!Array.isArray(body.versions)) throw new Error("Skill history unavailable.");
+      setHistory({ id: skill.id, versions: body.versions });
+    });
+  };
+
+  return <section aria-label="Team skill review" className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--paper)] text-[var(--ink)]">
+    <header className="border-b border-[var(--line)] p-4 sm:px-7"><p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-2)]">Workspace instructions · deliberate activation</p><h2 className="mt-1 text-xl">Team run-attached skills</h2><p className="mt-2 max-w-3xl text-sm text-[var(--ink-2)]">Review imported employee bundle drafts here. These records stay in the selected team workspace; they are not your personal skill library. Only the skill owner can review, activate or disable it. Activation grants no app access and starts no work.</p></header>
+    <div className="mx-auto grid w-full max-w-4xl gap-4 p-4 sm:p-7">
+      {error && <p role="alert" className="border border-[var(--danger)] p-3 text-sm text-[var(--danger)]">{error}</p>}{notice && <p role="status" className="border border-[var(--line)] p-3 text-sm">{notice}</p>}
+      <div className="border border-[var(--line)] bg-[var(--card)] p-4"><h3 className="text-lg">Add a team draft</h3><label className="mt-3 block text-xs">Skill name<input className={`${TEAM_FIELD} mt-1`} value={name} maxLength={100} onChange={(event) => { draftRevision.current++; setName(event.target.value); }} /></label><label className="mt-3 block text-xs">Skill instructions<textarea className={`${TEAM_FIELD} mt-1 min-h-28`} value={instructions} maxLength={16000} onChange={(event) => { draftRevision.current++; setInstructions(event.target.value); }} /></label><button type="button" className={`${TEAM_CONTROL} mt-3`} disabled={busy || !name.trim() || !instructions.trim()} onClick={save}>Save draft</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-lg">Saved skills</h3><button type="button" className={TEAM_CONTROL} disabled={busy || loading} onClick={() => { setHistory(null); void load(); }}>Refresh skills</button></div>
+      {loading && skills.length === 0 ? <p role="status">Loading workspace skills…</p> : skills.length === 0 ? <p className="border border-dashed border-[var(--line)] p-5 text-sm text-[var(--ink-2)]">No skills available in this workspace. Import an employee bundle or save a draft above.</p> : <ul className="grid gap-3">{skills.map((skill) => <li key={skill.id} className="min-w-0 border border-[var(--line)] bg-[var(--card)] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-sm font-semibold">{skill.name}</h4><p className="mt-1 font-mono text-[10px] text-[var(--ink-2)]">{skill.status} · v{skill.version}{!skill.owned ? " · shared active version" : " · owned by you"}</p></div><div className="flex flex-wrap gap-2"><button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => versions(skill)}>{history?.id === skill.id ? "Hide history" : "Versions"}</button>{skill.owned && skill.status === "draft" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "review")}>Mark reviewed</button>}{skill.owned && skill.status === "review" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "activate")}>Activate reviewed version</button>}{skill.owned && skill.status !== "disabled" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "disable")}>Disable</button>}</div></div><pre className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--ink-2)]">{skill.instructions}</pre>{history?.id === skill.id && <ol className="mt-3 grid gap-2 border-t border-[var(--line)] pt-3">{history.versions.map((version) => <li key={version.version}><p className="font-mono text-[10px]">v{version.version} · {version.name}</p><pre className="mt-1 whitespace-pre-wrap break-words text-xs text-[var(--ink-2)]">{version.instructions}</pre></li>)}</ol>}</li>)}</ul>}
+      {cursor && <button type="button" className={TEAM_CONTROL} disabled={busy || loading} onClick={() => { void load(cursor); }}>Load more skills</button>}
+      <p className="text-xs text-[var(--ink-2)]">Personal extension skills and public library installers remain in the personal workspace. They are not automatically copied or enabled here. Team draft editing and provider setup remain separate from activation.</p>
+    </div>
+  </section>;
 }
 
 function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => void }): JSX.Element {

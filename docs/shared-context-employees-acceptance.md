@@ -1,5 +1,7 @@
 # Shared context and optional employees
 
+The subsequent [team dashboard report](team-dashboard-acceptance.md) records workspace administration, invitation security, unified chat and recipe work. It supersedes this report's baseline capability statements where those features have since changed; the historical test evidence below remains attributed to its original runs.
+
 This report extends the [original phase matrix](control-plane-acceptance.md). It covers the November 4 request for multiplayer, shared memory and Slack continuity, followed by optional employee roles, onboarding, Claude/Codex choices, app/MCP discovery and usable skills. Source implementation, local fixtures, actual local browser behavior and deployed integrations are separate evidence categories.
 
 ## Reference and branch identity
