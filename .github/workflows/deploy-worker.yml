@@ -1,6 +1,8 @@
 name: Deploy worker (alchemy)
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       stage:
@@ -14,6 +16,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -30,7 +36,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          ALCHEMY_STAGE: ${{ inputs.stage }}
+          ALCHEMY_STAGE: ${{ inputs.stage || 'live' }}
           SANDBOX_IMAGE: ${{ inputs.sandbox_image }}
           # Operator-managed vars come from repo secrets too — absent names
           # are skipped by secrets()/configVars() in alchemy.run.ts. The
