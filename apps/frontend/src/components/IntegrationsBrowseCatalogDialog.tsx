@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import type { IntegrationProviderCatalogItem } from "@shiba/shared";
 import { ToneChip } from "./ToneChip";
+import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
+import { integrationRecommendedForRole, type CapabilityRoleFilter } from "../role-capability-recommendations";
 
 function safeLogoUrl(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -22,6 +24,7 @@ export function IntegrationsBrowseCatalogDialog({
   onLinkExisting,
   linkingKey,
   linkActionLabel = "Add to view",
+  roleFilter = "all",
 }: {
   open: boolean;
   onClose: () => void;
@@ -31,6 +34,7 @@ export function IntegrationsBrowseCatalogDialog({
   onLinkExisting?: (item: IntegrationProviderCatalogItem) => void;
   linkingKey?: string | null;
   linkActionLabel?: string;
+  roleFilter?: CapabilityRoleFilter;
 }): JSX.Element | null {
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<IntegrationProviderCatalogItem[]>([]);
@@ -38,6 +42,13 @@ export function IntegrationsBrowseCatalogDialog({
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [role, setRole] = useState<CapabilityRoleFilter>(roleFilter);
+  useEffect(() => { if (open) setRole(roleFilter); }, [open, roleFilter]);
+  const visibleItems = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return items.filter((item) => integrationRecommendedForRole(role, undefined, item) &&
+      (!query || [item.name, item.description, item.providerKey].some((value) => value?.toLowerCase().includes(query))));
+  }, [items, role, search]);
 
   const loadPage = useCallback(
     async (opts: { reset: boolean; query: string; nextCursor: string | null }) => {
@@ -99,7 +110,7 @@ export function IntegrationsBrowseCatalogDialog({
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-3">
           <div>
             <h3 className="text-sm font-semibold text-[var(--fg)]">Browse catalog</h3>
-            <p className="text-xs text-[var(--muted-foreground-2)]">Search SaaS connectors from the configured provider.</p>
+            <p className="text-xs text-[var(--muted-foreground-2)]">Search the configured provider. A listing is not an installed app or an employee permission.</p>
           </div>
           <button
             type="button"
@@ -118,13 +129,14 @@ export function IntegrationsBrowseCatalogDialog({
             aria-label="Search connector catalog"
             className="w-full rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-sm"
           />
+          <div className="mt-2"><RoleCapabilityFilter value={role} onChange={setRole} label="Catalog recommendations for role" /></div>
           {error ? <p className="mt-2 text-xs text-[var(--warning-fg)]">{error}</p> : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {items.length === 0 && !loading ? (
-            <p className="px-4 py-8 text-center text-sm text-[var(--muted-foreground-2)]">No connectors match.</p>
+          {visibleItems.length === 0 && !loading ? (
+            <p className="px-4 py-8 text-center text-sm text-[var(--muted-foreground-2)]">No connectors match on this page. {hasMore ? "Load more to search additional provider entries." : "Try another role or search."}</p>
           ) : (
-            items.map((item) => {
+            visibleItems.map((item) => {
               const logo = safeLogoUrl(item.logoUrl);
               return (
                 <div
@@ -141,7 +153,7 @@ export function IntegrationsBrowseCatalogDialog({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold">{item.name}</span>
-                      {item.isConnected ? <ToneChip tone="ok" label="Connected" /> : null}
+                      <ToneChip tone={item.isConnected ? "ok" : "neutral"} label={item.isConnected ? "Account connected" : item.connectable ? "Sign-in available" : "Catalog only"} />
                       {item.priority === "P0" ? (
                         <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">P0</span>
                       ) : null}
@@ -174,7 +186,7 @@ export function IntegrationsBrowseCatalogDialog({
           )}
         </div>
         <div className="flex justify-between gap-2 border-t border-[var(--border-1)] px-4 py-3">
-          <span className="text-[11px] text-[var(--muted-foreground-2)]">{loading ? "Loading…" : `${items.length} shown`}</span>
+          <span className="text-[11px] text-[var(--muted-foreground-2)]">{loading ? "Loading…" : `${visibleItems.length} shown · ${items.length} loaded`}</span>
           {hasMore ? (
             <button
               type="button"

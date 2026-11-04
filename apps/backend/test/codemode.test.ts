@@ -76,6 +76,16 @@ describe("createRunCodeTool", () => {
     const runCode = createRunCodeTool(env);
     expect(runCode).not.toBeNull();
     expect(runCode?.description).toContain("Execute JavaScript");
+    expect(runCode?.description).not.toContain("memory_bank");
+  });
+
+  it("exposes legacy memory only with an explicit bounded server conversation scope", () => {
+    const env = { LOADER: {} } as { LOADER?: WorkerLoader } as Env;
+    expect(createRunCodeTool(env, undefined, undefined, "slack:T1:C1:123.000001")?.description).toContain("memory_bank");
+    expect(createRunCodeTool(env, undefined, undefined, "alice@example.test")?.description).toContain("memory_bank");
+    for (const name of [null, "default", "global", "orchestrator-agent"]) {
+      expect(createRunCodeTool(env, undefined, ORCHESTRATOR_PRINCIPAL, name)?.description).not.toContain("memory_bank");
+    }
   });
 
   it("includes owner-scoped workspace memory in the signed-in employee tool context", () => {

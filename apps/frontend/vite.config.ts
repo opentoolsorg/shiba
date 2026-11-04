@@ -29,7 +29,7 @@ export default defineConfig({
     port: 5173,
     // Same-origin in prod; in dev the Worker runs on 8788 (8787 is often taken).
     proxy: {
-      "/api": "http://localhost:8788",
+      "/api": { target: "http://localhost:8788", ws: true },
       "/agents": { target: "http://localhost:8788", ws: true },
     },
     open: "/",

@@ -125,13 +125,18 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
   const toggle = async (skill: ExtensionSkillRecord, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     const enabled = !skill.enabled;
+    setBusyId(skill._id);
+    setMutationError(null);
+    setNotice(null);
     setSkills((current) => current.map((item) => item._id === skill._id ? { ...item, enabled } : item));
     try {
       await updateExtensionSkill(skill._id, { enabled });
       setNotice(enabled ? `Enabled “${skill.name}”.` : `Disabled “${skill.name}”.`);
     } catch (cause) {
-      // Match Overlay's optimistic toggle behavior; keep the selected state visible.
+      setSkills((current) => current.map((item) => item._id === skill._id ? { ...item, enabled: skill.enabled } : item));
       setMutationError(cause instanceof Error ? cause.message : "Skill state could not be saved.");
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -181,6 +186,11 @@ export function ExtensionSkillsView({ onOpenRunSkills, embedded = false }: { onO
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 lg:px-8 lg:py-7">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
+          <aside aria-label="Using skills with employees" className="border border-[var(--border-1)] bg-[var(--card)] p-4 text-xs text-[var(--muted-foreground-2)]">
+            <p className="font-medium text-[var(--fg)]">Skills for your employees</p>
+            <p className="mt-1">Enabled skills can be discovered and read during Work, including connected app tasks. Personal skills stay with your account; Workspace skills are shared with workspace members. Disabled and archived skills are unavailable to agents.</p>
+            <p className="mt-2">Review instructions before enabling them. Skills provide guidance; app connections, tool grants and human approvals are configured separately. For an approved coding run, use Run-attached skills to review, activate and pin a specific version.</p>
+          </aside>
           {notice ? <p role="status" className="text-xs text-[var(--success)]">{notice}</p> : null}
           {mutationError ? <p role="alert" className="text-xs text-[var(--destructive)]">{mutationError}</p> : null}
           {loadError ? (

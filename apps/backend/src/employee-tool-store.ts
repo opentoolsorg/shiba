@@ -104,6 +104,8 @@ export interface EmployeeApprovalRecord {
   expiresAt: number;
   decidedBy?: string;
   decidedAt?: number;
+  /** Canonical connection owner vouched by the authenticated human decision route. */
+  decisionOwnerAccountId?: string;
 }
 
 const SCHEMA = [
@@ -181,7 +183,7 @@ async function ensureTables(env: AuditEnv): Promise<void> {
   await initAudit(env);
   for (const sql of SCHEMA) await env.AGENT_AUDIT.prepare(sql).run();
   const approvalColumns = await env.AGENT_AUDIT.prepare("PRAGMA table_info(employee_tool_approvals)").all<{ name: string }>();
-  for (const [name, type] of [["execution_context_id", "TEXT"], ["consumed_at", "INTEGER"], ["consumed_invocation_id", "TEXT"], ["employee_context_json", "TEXT"]]) {
+  for (const [name, type] of [["execution_context_id", "TEXT"], ["consumed_at", "INTEGER"], ["consumed_invocation_id", "TEXT"], ["employee_context_json", "TEXT"], ["decision_owner_account_id", "TEXT"]]) {
     if ((approvalColumns.results ?? []).some((column) => column.name === name)) continue;
     try {
       await env.AGENT_AUDIT.prepare(`ALTER TABLE employee_tool_approvals ADD COLUMN ${name} ${type}`).run();
@@ -412,6 +414,7 @@ function approvalFromRow(row: Record<string, unknown>): EmployeeApprovalRecord |
     createdAt: Number(row.created_at), expiresAt: Number(row.expires_at),
     ...(typeof row.decided_by === "string" ? { decidedBy: row.decided_by } : {}),
     ...(typeof row.decided_at === "number" ? { decidedAt: row.decided_at } : {}),
+    ...(typeof row.decision_owner_account_id === "string" ? { decisionOwnerAccountId: row.decision_owner_account_id } : {}),
   };
 }
 
@@ -525,13 +528,13 @@ export async function listEmployeeActionApprovals(
 
 export async function decideEmployeeActionApproval(
   env: AuditEnv,
-  input: { orgId: string; employeeId: string; approvalId: string; approved: boolean; decidedBy: string; now?: number; requirePendingTransition?: boolean },
+  input: { orgId: string; employeeId: string; approvalId: string; approved: boolean; decidedBy: string; now?: number; requirePendingTransition?: boolean; decisionOwnerAccountId?: string },
 ): Promise<EmployeeApprovalRecord | null> {
   await ensureTables(env);
   const now = input.now ?? Date.now();
-  const updated = await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = ?, decided_by = ?, decided_at = ?
+  const updated = await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = ?, decided_by = ?, decided_at = ?, decision_owner_account_id = ?
     WHERE org_id = ? AND employee_id = ? AND approval_id = ? AND status = 'pending' AND expires_at > ?`)
-    .bind(input.approved ? "approved" : "denied", input.decidedBy, now, input.orgId, input.employeeId, input.approvalId, now).run();
+    .bind(input.approved ? "approved" : "denied", input.decidedBy, now, input.decisionOwnerAccountId ?? null, input.orgId, input.employeeId, input.approvalId, now).run();
   if (input.requirePendingTransition && updated.meta.changes !== 1) return null;
   return getEmployeeActionApproval(env, { orgId: input.orgId, employeeId: input.employeeId, approvalId: input.approvalId, now });
 }

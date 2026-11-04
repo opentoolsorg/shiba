@@ -10,6 +10,7 @@ import {
   type McpToolPolicy,
   type McpTransport,
 } from "../extensions-api";
+import { CuratedMcpConnections } from "./CuratedMcpConnections";
 
 const fieldClass = "min-h-11 w-full rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--fg)]";
 const buttonClass = "min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--card-hover)] disabled:opacity-50";
@@ -252,7 +253,7 @@ export function ExtensionMcpServersView(): JSX.Element {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-3 lg:px-8">
         <div>
           <h3 className="text-sm font-semibold text-[var(--fg)]">MCP servers</h3>
-          <p className="text-xs text-[var(--muted-foreground-2)]">Manage remote servers and their default tool policy.</p>
+          <p className="text-xs text-[var(--muted-foreground-2)]">Manage remote servers and their default tool policy. Saving, authentication and employee permissions are separate.</p>
         </div>
         {view !== "archived" ? <button type="button" className={buttonClass} onClick={openCreate}>Add server</button> : null}
       </div>
@@ -275,6 +276,7 @@ export function ExtensionMcpServersView(): JSX.Element {
       {error ? <p role="alert" className="mx-4 mt-3 rounded border border-[var(--destructive)]/40 px-3 py-2 text-xs text-[var(--destructive)] lg:mx-8">{error}</p> : null}
       {notice ? <p role="status" className="mx-4 mt-3 text-xs text-[var(--muted-foreground-2)] lg:mx-8">{notice}</p> : null}
       <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
+        {view !== "archived" ? <div className="mx-auto mb-6 max-w-6xl"><CuratedMcpConnections /><p className="mt-2 text-xs text-[var(--muted-foreground-2)]">Presets use the reviewed MCP gateway. The configurable servers below use the extensions API. <a href="/agents/" className="text-[var(--primary)] underline">Review gateway tools</a> before <a href="/employee-tools/" className="text-[var(--primary)] underline">granting employee access</a>.</p></div> : null}
         <div className="mx-auto grid max-w-6xl gap-3 md:grid-cols-2 xl:grid-cols-3">
           {loading ? <p role="status" className="text-xs text-[var(--muted-foreground-2)]">Loading MCP servers…</p> : null}
         {!loading && !filteredServers.length ? <div className="col-span-full rounded border border-dashed border-[var(--border-1)] p-8 text-center text-sm text-[var(--muted-foreground-2)]">{searchQuery ? `No servers match "${searchQuery}".` : view === "archived" ? "No archived MCP servers." : "No MCP servers yet. Add a remote server to get started."}</div> : null}
@@ -282,7 +284,7 @@ export function ExtensionMcpServersView(): JSX.Element {
             <article key={server.id} className="flex min-h-52 flex-col gap-4 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)]">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                <span className={`size-2 shrink-0 rounded-full ${server.enabled ? "bg-[var(--success)]" : "bg-[var(--muted-foreground-3)]"}`} title={server.enabled ? "Active" : "Disabled"} />
+                <span className={`size-2 shrink-0 rounded-full ${server.enabled ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground-3)]"}`} title={server.enabled ? "Enabled configuration; health not verified here" : "Disabled"} />
                   <h4 className="min-w-0 break-words text-sm font-semibold text-[var(--fg)]">{server.name}</h4>
                   <span className="rounded border border-[var(--border-1)] px-2 py-0.5 font-mono text-[10px] text-[var(--muted-foreground-2)]">{server.enabled ? "Enabled" : "Disabled"}</span>
                 </div>

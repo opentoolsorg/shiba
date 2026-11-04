@@ -689,6 +689,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         name: agent.config.name,
         slug: agent.slug,
         emoji: agent.config.emoji,
+        roleTemplateId: agent.config.roleTemplateId,
         expectedDeliverables: agent.config.expectedDeliverables,
       })),
     [customAgentRecords],
@@ -1346,7 +1347,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setNotice(null);
         setTask("");
         try {
-          await sendAppToolsWork(appToolsContext, draft, (message) => chat.sendMessage(message), activeOnboardingRef);
+          await sendAppToolsWork(appToolsContext, draft, (message) => chat.sendMessage(message), activeOnboardingRef,
+            selectableSkills.filter((skill) => selectedSkillIds.includes(skill.id)).map((skill) => ({ skillId: skill.id, version: skill.version })));
           if (submitFailed.current) restoreDraft(draftSession, draft, activeOnboardingRef);
         } catch (error) {
           restoreDraft(draftSession, draft, activeOnboardingRef);
@@ -2770,7 +2772,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 className="flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
                 aria-busy={busy}
               >
-                <AgentPageHeader name={employeeName} slug={activeEmployee?.slug} detailsOpen={agentDetailsOpen} onToggleDetails={() => setAgentDetailsOpen((open) => !open)} onExpandSidebar={sessionsCollapsed ? toggleSessionsCollapsed : undefined} />
+                <AgentPageHeader name={employeeName} slug={activeEmployee?.slug} role={activeEmployee?.config.roleTemplateId} detailsOpen={agentDetailsOpen} onToggleDetails={() => setAgentDetailsOpen((open) => !open)} onExpandSidebar={sessionsCollapsed ? toggleSessionsCollapsed : undefined} />
                 {showEmployeeOnboarding ? <div className="max-h-[65vh] shrink-0 overflow-y-auto"><EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /></div> : null}
                 {!threadHasWork && sessionApiAvailable && activeWebSession && selectedSessionId !== "default" ? <div className="shrink-0 px-4 py-2"><ThreadTitleEditor key={selectedSessionId} sessionId={selectedSessionId} name={activeWebSession.name} onRenamed={(renamed) => setWebSessions((current) => applyThreadRename(current, renamed))} /></div> : null}
                 {/* Keep the existing session actions on nonempty threads. */}

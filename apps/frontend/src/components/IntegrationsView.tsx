@@ -142,6 +142,7 @@ export function IntegrationsView({
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [externalMcpServerCount, setExternalMcpServerCount] = useState<number | undefined>(undefined);
+  const [externalMcpReadyServerCount, setExternalMcpReadyServerCount] = useState(0);
   const [externalMcpCatalogConnections, setExternalMcpCatalogConnections] = useState<
     IntegrationBindingInputs["externalMcpCatalogConnections"]
   >(undefined);
@@ -226,10 +227,13 @@ export function IntegrationsView({
     ])
       .then(async ([serversResponse, catalogResponse]) => {
         if (!serversResponse.ok) {
-          if (!cancelled) setExternalMcpServerCount(0);
+          if (!cancelled) { setExternalMcpServerCount(0); setExternalMcpReadyServerCount(0); }
         } else {
-          const body = (await serversResponse.json()) as { servers?: unknown[] };
-          if (!cancelled) setExternalMcpServerCount(Array.isArray(body.servers) ? body.servers.length : 0);
+          const body = (await serversResponse.json()) as { servers?: Array<{ status?: string; health?: string }> };
+          if (!cancelled) {
+            setExternalMcpServerCount(Array.isArray(body.servers) ? body.servers.length : 0);
+            setExternalMcpReadyServerCount((body.servers ?? []).filter((server) => server.status === "enabled" && server.health === "healthy").length);
+          }
         }
         if (!catalogResponse.ok) {
           if (!cancelled) setExternalMcpCatalogConnections([]);
@@ -245,6 +249,7 @@ export function IntegrationsView({
       .catch(() => {
         if (!cancelled) {
           setExternalMcpServerCount(0);
+          setExternalMcpReadyServerCount(0);
           setExternalMcpCatalogConnections([]);
         }
       })
@@ -335,6 +340,7 @@ export function IntegrationsView({
       gmailConnected,
       gmailLoading,
       externalMcpServerCount,
+      externalMcpReadyServerCount,
       externalMcpCatalogConnections,
       externalMcpLoading,
     }),
@@ -346,6 +352,7 @@ export function IntegrationsView({
       gmailConnected,
       gmailLoading,
       externalMcpServerCount,
+      externalMcpReadyServerCount,
       externalMcpCatalogConnections,
       externalMcpLoading,
     ],

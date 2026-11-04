@@ -27,6 +27,7 @@ const EMPTY_FORM = {
   slug: "",
   name: "",
   emoji: "",
+  roleTemplateId: "",
   instructions: "",
   harness: "opencode",
   codingModel: "",
@@ -40,8 +41,11 @@ function readRoleDraft(scope?: string): typeof EMPTY_FORM {
   if (!scope) return EMPTY_FORM;
   try {
     const draft = JSON.parse(localStorage.getItem(`shiba-role-draft-v1:${scope}`) ?? "null");
-    if (draft && Object.keys(EMPTY_FORM).every((key) => typeof draft[key] === "string")) {
-      return Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, draft[key]])) as typeof EMPTY_FORM;
+    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || typeof draft[key] === "string")) {
+      return {
+        ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, draft[key]])),
+        roleTemplateId: EMPLOYEE_TEMPLATES.some((template) => template.id === draft.roleTemplateId) ? draft.roleTemplateId : "",
+      } as typeof EMPTY_FORM;
     }
   } catch { /* Storage unavailable or invalid: keep the editor usable. */ }
   return EMPTY_FORM;
@@ -122,6 +126,7 @@ export function CustomAgentsView({
       slug: template.slug,
       name: template.config.name,
       emoji: template.config.emoji ?? "",
+      roleTemplateId: template.id,
       instructions: template.config.instructions,
       expectedDeliverables: template.config.expectedDeliverables?.join("\n") ?? "",
     }));
@@ -200,6 +205,7 @@ export function CustomAgentsView({
       slug: agent.slug,
       name: agent.config.name,
       emoji: agent.config.emoji ?? "",
+      roleTemplateId: agent.config.roleTemplateId ?? (employeeRole(agent.slug) === "custom" ? "" : employeeRole(agent.slug)),
       instructions: agent.config.instructions,
       harness: agent.config.harness,
       codingModel: agent.config.codingModel ?? "",
@@ -240,6 +246,7 @@ export function CustomAgentsView({
       name,
       instructions,
       harness: form.harness.trim() || "opencode",
+      ...(EMPLOYEE_TEMPLATES.some((template) => template.id === form.roleTemplateId) ? { roleTemplateId: form.roleTemplateId as CustomAgentConfig["roleTemplateId"] } : {}),
       ...(form.emoji.trim() ? { emoji: form.emoji.trim() } : {}),
       ...(form.codingModel.trim() ? { codingModel: form.codingModel.trim() } : {}),
       ...(form.connectionId.trim() ? { connectionId: form.connectionId.trim() } : {}),
@@ -249,7 +256,7 @@ export function CustomAgentsView({
     };
     // Clearing an optional field must clear its old value while other saved
     // settings survive an edit of the visible fields.
-    for (const key of ["emoji", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables"] as const) {
+    for (const key of ["emoji", "roleTemplateId", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables"] as const) {
       if (!form[key].trim()) delete config[key];
     }
     try {
@@ -361,7 +368,7 @@ export function CustomAgentsView({
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
 
           <AgentTemplatesCatalog onUse={async (template: AgentTemplate) => {
-            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: template.id, config: { name: template.name, instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
+            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: template.id, config: { name: template.name, instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
             const body = await response.json().catch(() => ({})) as { error?: string };
             if (!response.ok) throw new Error(body.error ?? `Could not add template (${response.status}).`);
             refresh();
@@ -578,7 +585,7 @@ export function CustomAgentsView({
                   className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-4 py-3 flex flex-col sm:flex-row items-start justify-between gap-3 shadow-[var(--sh-card)]"
                 >
                   <div className="min-w-0">
-                    <div className="mb-3 flex items-center gap-3"><RoleShiba slug={agent.slug} decorative className="size-12" /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug))}</span></div>
+                    <div className="mb-3 flex items-center gap-3"><RoleShiba role={employeeRole(agent.slug, agent.config.roleTemplateId)} decorative className="size-12" /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
                     <div className="text-sm font-medium text-[var(--fg)]">
                       {agent.config.name}
                       <span className="text-[11px] font-mono text-[var(--muted-foreground-2)] ml-2">

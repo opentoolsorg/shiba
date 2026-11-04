@@ -37,8 +37,9 @@ import {
 import { Tooltip } from "./Tooltip";
 import { AgentConversationEmpty } from "./AgentExperience";
 import type { SavedSkill } from "../saved";
-import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type ReasoningEffort } from "@shiba/shared";
+import { HARNESS_REASONING_EFFORTS, type ConnectedComputer, type CustomAgentRoleTemplateId, type ReasoningEffort } from "@shiba/shared";
 import { hasComposerInput, parseArtifactDeliverables } from "../execution-target-input";
+import { describeTaskRoute } from "../supported-task-routes";
 
 // Ambient types for browser Web Speech API.
 interface SpeechRecognitionResultItem {
@@ -145,7 +146,7 @@ export interface TaskComposerProps {
   selectedSkillIds?: string[];
   onToggleSkill?: (id: string) => void;
   /** Org custom agents from /api/custom-agents */
-  customAgents?: { id: string; name: string; slug: string; emoji?: string; expectedDeliverables?: readonly string[] }[];
+  customAgents?: { id: string; name: string; slug: string; emoji?: string; roleTemplateId?: CustomAgentRoleTemplateId; expectedDeliverables?: readonly string[] }[];
   customAgentId?: string;
   projects?: { id: string; name: string; purpose: string; defaultCustomAgentId: string | null; defaultHarness: string | null }[];
   projectContextId?: string;
@@ -162,23 +163,17 @@ export interface TaskComposerProps {
   onEnvVarsChange?: (vars: { name: string; value: string }[]) => void;
 }
 
-// Keep the picker simple: the everyday harnesses plus Pi. Everything else stays
-// reachable — a deployment default, role pin, MCP, or API call naming codex /
-// devin / a subscription / an ACP lane still resolves and runs; when such a
-// harness is already selected it is appended to the list so the field never
-// renders blank.
+// Keep everyday API and ChatGPT routes explicit. A pinned or legacy harness
+// remains visible when selected; the server validates its deployment gate and
+// capabilities before approval. Visibility is not a readiness guarantee.
 const HARNESS_OPTIONS: { value: string; label: string; desc: string }[] = [
   { value: "opencode", label: "OpenCode", desc: "Default autonomous coding engine" },
   { value: "claude-code", label: "Claude Code", desc: "Anthropic Claude Code CLI" },
+  { value: "codex", label: "Codex (API credential)", desc: "OpenAI Codex CLI using the selected API route" },
   {
     value: "codex-subscription",
     label: "Codex (ChatGPT plan)",
     desc: "Your ChatGPT subscription — no AI Gateway token",
-  },
-  {
-    value: "claude-subscription",
-    label: "Claude (setup-token)",
-    desc: "Opt-in setup-token. Prefer Local + Claude Code",
   },
   { value: "pi", label: "Pi", desc: "Earendil Pi agent — Anthropic, OpenAI, Google, xAI" },
 ];
@@ -364,11 +359,14 @@ export function TaskComposer({
   envVars = [],
   onEnvVarsChange,
 }: TaskComposerProps): JSX.Element {
+  const routeDescription = describeTaskRoute({ runtime: runTarget, workType: executionTargetKind,
+    harness, model: routing.codingModel, connectionId: routing.connectionId, connections: routing.connections ?? [] });
   const localTargetBlocked = runTarget === "local" && (
     !localRunAvailable || !targetMachineId || localComputersLoading || localComputersError !== null
   );
   const artifactPathsValid = parseArtifactDeliverables(artifactDeliverables).success;
   const computerTaskBlocked =
+    Boolean(routeDescription.blockedReason) ||
     (executionTargetKind === "artifact-workspace" && !artifactPathsValid) ||
     localTargetBlocked || Boolean(
     customAgentId && (customAgentsLoading || !customAgents.some((agent) => agent.id === customAgentId)),
@@ -547,7 +545,7 @@ export function TaskComposer({
   const harnessBase = runTarget === "local" ? LOCAL_HARNESS_OPTIONS : HARNESS_OPTIONS;
   const harnessOptions =
     harness !== "" && !harnessBase.some((h) => h.value === harness)
-      ? [...harnessBase, { value: harness, label: harness, desc: "Deployment-pinned harness" }]
+      ? [...harnessBase, { value: harness, label: harness, desc: harness === "claude-subscription" ? "Legacy setup-token; deployment opt-in required" : "Deployment-pinned harness; server validates availability" }]
       : harnessBase;
   const currentHarness = harnessOptions.find((h) => h.value === harness);
   const connections = routing.connections ?? [];
@@ -910,7 +908,16 @@ export function TaskComposer({
           ?? (targetMachineId ? `Local: ${localComputers.find((computer) => computer.machineId === targetMachineId)?.hostname ?? "Selected computer"}`
             : localRunAvailable ? "Choose a paired computer before sending." : "No compatible paired computer is online. Refresh or choose Cloud explicitly.")}
       </p> : null}
-
+      <details className="min-w-0 text-[11px] text-[var(--muted-foreground-2)]" aria-label="Selected execution route">
+        <summary className="cursor-pointer break-words">{routeDescription.runtime} · {routeDescription.harness} · {routeDescription.workType}</summary>
+        <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 break-words">
+          <dt>Model</dt><dd>{routeDescription.model}</dd>
+          <dt>Account</dt><dd>{routeDescription.account}</dd>
+          <dt>Billing</dt><dd>{routeDescription.billing}</dd>
+        </dl>
+        <p className="mt-1">{routeDescription.note}</p>
+      </details>
+      {routeDescription.blockedReason ? <p role="status" className="text-xs text-[var(--warning-fg)]">{routeDescription.blockedReason}</p> : null}
 
     </fieldset>
   );
@@ -1386,7 +1393,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
                       }}
                     >
                       <Bot aria-hidden="true" className="size-3.5 text-[var(--icon-muted)] shrink-0" />
-                      <span className="flex-1 truncate">{opt.label}</span>
+                      <span className="flex-1 text-left"><span className="block">{opt.label}</span><span className="block text-[10px] text-[var(--muted-foreground-2)]">{opt.desc}</span></span>
                       {opt.value === harness ? <Check aria-hidden="true" className={menuCheckClass} /> : null}
                     </button>
                   ))}
@@ -1686,7 +1693,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
   };
 
   if (agentName) return <div className="flex min-h-0 flex-1 flex-col">
-    {hero ? <div className="flex min-h-0 flex-1 flex-col overflow-y-auto"><AgentConversationEmpty name={agentName} slug={selectedCustomAgent?.slug} examples={examples} prefillDisabled={task.trim() !== ""} onPrefill={prefill} /></div> : null}
+    {hero ? <div className="flex min-h-0 flex-1 flex-col overflow-y-auto"><AgentConversationEmpty name={agentName} slug={selectedCustomAgent?.slug} role={selectedCustomAgent?.roleTemplateId} examples={examples} prefillDisabled={task.trim() !== ""} onPrefill={prefill} /></div> : null}
     <div className="mx-auto mt-auto w-full max-w-[820px] shrink-0 px-4 pb-3 pt-3">{form}<p className="mt-3 text-center text-xs text-[var(--muted-foreground-2)]">Shiba can make mistakes. Check important info.</p></div>
   </div>;
 

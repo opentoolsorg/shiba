@@ -86,7 +86,7 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain("No sessions yet");
   });
 
-  it("OnboardingModal renders the step checklist with per-step completion buttons", () => {
+  it("OnboardingModal renders optional setup paths with per-step review buttons", () => {
     const html = renderToStaticMarkup(
       React.createElement(OnboardingModal, { isOpen: true, onClose: () => {} }),
     );
@@ -94,7 +94,11 @@ describe("dashboard components SSR (T14 sweep)", () => {
     expect(html).toContain("Connect GitHub");
     expect(html).toContain("Connect Sandbox Runner");
     expect(html).toContain("Connect Model Keys");
-    expect(html).toContain("Mark as Completed ✓");
+    expect(html).toContain("Mark as reviewed");
+    expect(html).toContain("Choose employees");
+    expect(html).toContain("Claude and Codex providers");
+    expect(html).toContain("Apps and MCP servers");
+    expect(html).not.toContain("Mark as Completed");
     expect(html).toContain("Operator &amp; Self-Hosting Setup");
     expect(html).toContain("Open Inbox Setup");
     expect(html).not.toContain("Mark all done");

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import { PageHeader, SkeletonLines, StatusNotice } from "./surface";
 import type { AgentPrincipal } from "../types";
+import { integrationProviderConnectionsResponseSchema, type IntegrationProviderConnection } from "@shiba/shared";
 
-type Capability = "gmail_read" | "run_status" | "queue_run" | "send_email";
+type Capability = "gmail_read" | "run_status" | "queue_run" | "send_email" | "integrations.search_actions" | "integrations.execute";
 type Role = "owner" | "admin" | "operator" | "member" | "viewer";
 interface Employee { id: string; slug: string; version: number; config: { name: string } }
 interface Grant { subjectType: string; subjectId: string; capabilityId: string; resourceId: string; lifecycle: string }
@@ -13,6 +14,8 @@ interface GmailCandidate { messageId: string; threadId: string; from: string; su
 interface EmployeeActor extends AgentPrincipal { source?: "web-session" }
 
 const CAPABILITIES: { id: Capability; label: string; scope: string; description: string; resource: string }[] = [
+  { id: "integrations.search_actions", label: "Discover actions in selected apps", scope: "integrations:read", description: "Discover registered actions for a selected, owned provider connection. This grants no action execution.", resource: "Connected app" },
+  { id: "integrations.execute", label: "Execute approved actions in selected apps", scope: "integrations:execute", description: "Use the selected app connection only after a human approves the exact action payload. The backend binds the grant to its connection and provider policy.", resource: "Connected app" },
   { id: "gmail_read", label: "Read selected Gmail messages", scope: "gmail:read", description: "Read only message IDs selected here from your connected Gmail account. This does not grant mailbox search to the employee.", resource: "Selected Gmail message" },
   { id: "run_status", label: "Read run status", scope: "runs:read", description: "Read status for an explicitly granted run ID.", resource: "Run ID" },
   { id: "queue_run", label: "Queue a coding run", scope: "sandbox:exec", description: "Create a Shiba coding run for an explicitly granted repository URL. Requires exact-payload approval.", resource: "Repository URL" },
@@ -36,7 +39,10 @@ export function EmployeeToolPolicyView(): JSX.Element {
   const [role, setRole] = useState<Role>("member");
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [selected, setSelected] = useState<Capability[]>([]);
-  const [resources, setResources] = useState<Record<Capability, string>>({ gmail_read: "", run_status: "", queue_run: "", send_email: "" });
+  const [resources, setResources] = useState<Record<Capability, string>>({ gmail_read: "", run_status: "", queue_run: "", send_email: "", "integrations.search_actions": "", "integrations.execute": "" });
+  const [appConnections, setAppConnections] = useState<IntegrationProviderConnection[]>([]);
+  const [appConnectionsError, setAppConnectionsError] = useState<string | null>(null);
+  const [appConnectionsLoading, setAppConnectionsLoading] = useState(true);
   const [externalCapabilities, setExternalCapabilities] = useState<ExternalCapability[]>([]);
   const [selectedExternal, setSelectedExternal] = useState<string[]>([]);
   const [externalResources, setExternalResources] = useState<Record<string, string>>({});
@@ -50,6 +56,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const activeEmployees = useMemo(() => employees, [employees]);
+  const selectableAppConnections = useMemo(() => appConnections.filter((connection) => appConnections.filter((other) => other.providerKey === connection.providerKey).length === 1), [appConnections]);
 
   const refreshApprovals = useCallback(async () => {
     const body = await readJson<{ approvals?: Approval[] }>(await fetch("/api/employee-tools/approvals", { credentials: "same-origin" }));
@@ -71,7 +78,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
     const configured = Object.fromEntries(CAPABILITIES.map((cap) => [cap.id, active
       .filter((grant) => grant.capabilityId === `mcp:shiba:${cap.id}` && (grant.subjectType === "workspace" || grant.subjectType === "role" || grant.subjectType === "actor" && grant.subjectId === effectiveActor))
       .map((grant) => grant.resourceId)])) as Record<Capability, string[]>;
-    setResources({ gmail_read: configured.gmail_read.join("\n"), run_status: configured.run_status.join("\n"), queue_run: configured.queue_run.join("\n"), send_email: configured.send_email.join("\n") });
+    setResources(Object.fromEntries(CAPABILITIES.map((cap) => [cap.id, [...new Set(configured[cap.id])].join("\n")])) as Record<Capability, string>);
     const external = next.externalCapabilities ?? [];
     const selectedIds = next.toolScopes.filter((id) => id.startsWith("mcp:shiba:ext_"));
     setExternalCapabilities(external);
@@ -79,6 +86,19 @@ export function EmployeeToolPolicyView(): JSX.Element {
     setExternalResources(Object.fromEntries(selectedIds.map((id) => [id, [...new Set(active.filter((grant) => grant.capabilityId === id &&
       (grant.subjectType === "workspace" || grant.subjectType === "actor" && grant.subjectId === effectiveActor)).map((grant) => grant.resourceId))].join("\n")])));
     setExternalArguments({ ...Object.fromEntries(external.map((item) => [item.capabilityId, item.resourceArguments[0] ?? ""])), ...next.externalResourceArguments });
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/integrations/provider/connections", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+      .then((response) => readJson<unknown>(response))
+      .then((body) => {
+        const parsed = integrationProviderConnectionsResponseSchema.parse(body);
+        if (!controller.signal.aborted) setAppConnections(parsed.connections);
+      })
+      .catch(() => { if (!controller.signal.aborted) setAppConnectionsError("Owned app connections are unavailable. Refresh after connecting an app; new app grants cannot be saved."); })
+      .finally(() => { if (!controller.signal.aborted) setAppConnectionsLoading(false); });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -136,6 +156,9 @@ export function EmployeeToolPolicyView(): JSX.Element {
     for (const id of selected) {
       const values = resources[id].split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
       if (!values.length) { setError(`Add at least one exact resource for ${id.replaceAll("_", " ")}.`); return; }
+      if (id.startsWith("integrations.") && (appConnectionsLoading || appConnectionsError || values.some((value) => !selectableAppConnections.some((connection) => connection.providerKey === value)))) {
+        setError("A selected app connection is unavailable. Reconnect it or remove its grant before saving. No catalog-only app can be granted."); return;
+      }
       resourcesByCapability[`mcp:shiba:${id}`] = values;
     }
     for (const id of selectedExternal) {
@@ -152,6 +175,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
       await readJson(await fetch(`/api/employee-tools/${encodeURIComponent(employeeId)}/policy`, {
         method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" },
         body: JSON.stringify({ expectedVersion: policy.employeeVersion, actorId, role, resourcesByCapability,
+          ...(selected.some((id) => id.startsWith("integrations.")) ? { integrationConnectionIds: Object.fromEntries(selectableAppConnections.filter((connection) => selected.some((id) => id.startsWith("integrations.") && resourcesByCapability[`mcp:shiba:${id}`]?.includes(connection.providerKey))).map((connection) => [connection.providerKey, connection.id])) } : {}),
           ...(selectedExternal.length ? { externalResourceArguments: Object.fromEntries(selectedExternal.map((id) => [id, externalArguments[id]])),
             externalSchemaVersions: Object.fromEntries(selectedExternal.map((id) => [id, externalCapabilities.find((item) => item.capabilityId === id)?.schemaVersion])) } : {}) }),
       }));
@@ -222,7 +246,17 @@ export function EmployeeToolPolicyView(): JSX.Element {
           <label className="flex items-start gap-2 text-xs text-[var(--fg)]"><input type="checkbox" checked={selected.includes(capability.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, capability.id] : current.filter((value) => value !== capability.id))} />
             <span><span className="font-semibold">{capability.label}</span><span className="ml-2 font-mono text-[10px] text-[var(--muted-foreground-2)]">{capability.scope}</span><span className="mt-1 block text-[var(--muted-foreground-2)]">{capability.description}</span></span>
           </label>
-          {selected.includes(capability.id) ? capability.id === "gmail_read" ? <div className="mt-3 space-y-3 text-[10px] text-[var(--muted-foreground-2)]">
+          {selected.includes(capability.id) ? capability.id.startsWith("integrations.") ? <div className="mt-3 space-y-2 text-xs text-[var(--muted-foreground-2)]">
+            <p>Select a connected app from your authenticated account. The server freezes its connection ID and provider policy into this employee version; discovery is separate from execution permission.</p>
+            {appConnectionsError ? <p role="status">{appConnectionsError}</p> : null}
+            {appConnectionsLoading ? <p>Loading owned app connections…</p> : !selectableAppConnections.length ? <p>No unambiguous owned app connections available. <a href="/integrations/?tab=connectors" className="text-[var(--primary)] underline">Connect an app</a> first.</p> : null}
+            {selectableAppConnections.length !== appConnections.length ? <p>Multiple accounts for one app cannot be selected by this resource policy. Choose a single configured account before granting that app.</p> : null}
+            {selectableAppConnections.map((connection) => <label key={connection.id} className="flex min-h-11 items-start gap-2 border border-[var(--border-1)] p-2"><input type="checkbox" checked={resources[capability.id].split("\n").includes(connection.providerKey)} onChange={(event) => setResources((current) => {
+              const values = current[capability.id].split("\n").filter(Boolean);
+              return { ...current, [capability.id]: (event.target.checked ? [...new Set([...values, connection.providerKey])] : values.filter((value) => value !== connection.providerKey)).join("\n") };
+            })} /><span>{connection.providerKey}{connection.identityLabel ? ` · ${connection.identityLabel}` : ""}<span className="block font-mono text-[10px]">Connection {connection.id} · provider {connection.provider}</span></span></label>)}
+            {resources[capability.id].split("\n").filter((value) => value && !selectableAppConnections.some((connection) => connection.providerKey === value)).map((value) => <p key={value}>Saved connection unavailable: {value} <button type="button" className={BUTTON} onClick={() => setResources((current) => ({ ...current, [capability.id]: current[capability.id].split("\n").filter((item) => item !== value).join("\n") }))}>Remove unavailable app grant</button></p>)}
+          </div> : capability.id === "gmail_read" ? <div className="mt-3 space-y-3 text-[10px] text-[var(--muted-foreground-2)]">
             <p>Search reads message metadata from the connected account. Check exact messages to grant; selected IDs are stored in this policy. Thread IDs are shown for context and do not grant whole-thread access.</p>
             <div className="flex gap-2"><input aria-label="Search connected Gmail" className={`${FIELD} normal-case`} value={gmailQuery} onChange={(event) => setGmailQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchGmail(); } }} placeholder="from:… subject:…" /><button type="button" className={BUTTON} disabled={gmailSearching || !gmailQuery.trim()} onClick={() => void searchGmail()}>{gmailSearching ? "Searching…" : "Search Gmail"}</button></div>
             {gmailCandidates.length ? <div className="max-h-56 space-y-2 overflow-auto border border-[var(--border-1)] p-2">{gmailCandidates.map((candidate) => <label key={candidate.messageId} className="flex gap-2"><input type="checkbox" checked={selectedGmailIds.includes(candidate.messageId)} onChange={(event) => toggleGmailId(candidate.messageId, event.target.checked)} /><span><span className="font-semibold text-[var(--fg)]">{candidate.subject || "(no subject)"}</span><span className="block">{candidate.from} · {candidate.date}</span><span className="block font-mono">Message {candidate.messageId} · thread {candidate.threadId}</span></span></label>)}</div> : null}
@@ -254,7 +288,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
           <div className="flex gap-2"><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, true)}>Approve exact payload</button><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, false)}>Deny</button></div>
         </article>)}
       </section>
-      <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: native employee app tools are Gmail selected-message reads, run status, queue run and send email; this selection flow currently supports Gmail only. Reviewed HTTPS MCP tools additionally support exact values in one required string resource argument. Unsupported schemas and transports fail closed. These grants do not constrain shell/CLI tools in a coding harness; they add no token or MCP credential to the sandbox. External MCP clients still authenticate with their own bearer token.</p>
+      <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: native employee tools cover registered provider action discovery and approved execution, Gmail selected-message reads, run status, queue run and send email. App grants select owned provider connections; Gmail grants select exact messages. Reviewed HTTPS MCP tools additionally support exact values in one required string resource argument. Unsupported schemas and transports fail closed. These grants do not constrain shell/CLI tools in a coding harness; they add no token or MCP credential to the sandbox. External MCP clients still authenticate with their own bearer token.</p>
     </div>
   </div>;
 }

@@ -834,7 +834,7 @@ export async function executeApprovedExternalMcpAction(env: Env, server: Externa
 
 export async function listExternalMcpCatalogConnections(env: Env, orgId: string, ownerId: string) {
   await ensure(env);
-  const rows = await env.AGENT_AUDIT.prepare(`SELECT id, catalog_id, connection_label, status, auth_mode, visibility, name, endpoint
+  const rows = await env.AGENT_AUDIT.prepare(`SELECT id, catalog_id, connection_label, status, health, auth_mode, visibility, name, endpoint
     FROM external_mcp_servers WHERE org_id = ? AND owner_id = ? AND catalog_id IS NOT NULL AND status <> 'disabled'
     ORDER BY catalog_id, connection_label, created_at DESC LIMIT ?`)
     .bind(orgId, ownerId, MAX_EXTERNAL_MCP_SERVERS).all<Record<string, unknown>>();
@@ -843,6 +843,7 @@ export async function listExternalMcpCatalogConnections(env: Env, orgId: string,
     catalogId: String(row.catalog_id),
     connectionLabel: typeof row.connection_label === "string" ? row.connection_label : null,
     status: String(row.status),
+    health: String(row.health),
     authMode: String(row.auth_mode),
     visibility: row.visibility === "workspace" ? "workspace" as const : "private" as const,
     name: String(row.name),

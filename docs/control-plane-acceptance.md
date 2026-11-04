@@ -4,6 +4,8 @@ This matrix compares the integrated branch with the supplied plans. The expanded
 
 Completed means source behavior and the stated local verification exist. It does not mean a deployed Cloudflare or Slack acceptance run passed. Partial identifies a bounded implementation or evidence limit. Blocked identifies a requirement that cannot currently be claimed. Final aggregate results are recorded in [the implementation report](control-plane-upgrade.md).
 
+The subsequent November 4 request adds explicit shared-room memory, multiplayer employee work and optional role/onboarding/integration setup. Its [implementation and acceptance report](shared-context-employees-acceptance.md) extends this matrix without treating broader Viktor reference features as completed or weakening the original approval, secret-isolation and CLI recovery boundaries.
+
 ## References and reconciled requirements
 
 | ID | Requirement | Status | Evidence and interpretation |

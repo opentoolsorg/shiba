@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, MessageSquare, PanelLeft, PanelRight, Plus, 
 import type { CustomAgentWire } from "./CustomAgentsView";
 import type { WebThread } from "../agent-threads";
 import { threadAgentId } from "../agent-threads";
-import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
+import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate, type EmployeeRole } from "../employee-templates";
 import { RoleShiba } from "./RoleShiba";
 import { ShibaMark } from "./ShibaMark";
 import { ViewHeader, viewButtonClass } from "./ui/ViewChrome";
@@ -12,7 +12,7 @@ const quietButton = "inline-flex min-h-11 min-w-11 items-center justify-center r
 export const ONBOARDING_DISMISSED_KEY = "shiba.employee-onboarding.dismissed";
 
 export function employeeExamples(agent?: CustomAgentWire): readonly string[] {
-  const role = EMPLOYEE_TEMPLATES.find((template) => template.slug === agent?.slug)?.id;
+  const role = employeeRole(agent?.slug, agent?.config.roleTemplateId);
   switch (role) {
     case "engineering": return ["Fix a small bug and add a regression test", "Review this repository and suggest three focused improvements"];
     case "marketing": return ["Draft a launch brief from the product documentation", "Write three landing page headlines for review"];
@@ -21,13 +21,16 @@ export function employeeExamples(agent?: CustomAgentWire): readonly string[] {
     case "design": return ["Review this flow for accessibility gaps", "Draft empty and error states for this interface"];
     case "research": return ["Research my top three competitors and write a one-page brief", "Summarize the evidence in my supplied research"];
     case "operations": return ["Write a release runbook with rollback steps", "Review our setup instructions for missing checks"];
+    case "gtm": return ["Draft a go-to-market plan from our supplied research", "Propose launch experiments and approval checkpoints"];
+    case "hr": return ["Draft a new-hire onboarding checklist from our policies", "Prepare a job description draft for human review"];
+    case "finance": return ["Analyze this supplied budget and document assumptions", "Reconcile these figures and flag missing evidence"];
     default: return [];
   }
 }
 
-export function AgentAvatar({ name, slug, large = false }: { name: string; slug?: string; large?: boolean }) {
+export function AgentAvatar({ name, slug, role, large = false }: { name: string; slug?: string; role?: EmployeeRole; large?: boolean }) {
   if (slug === undefined) return <span aria-hidden="true" className="shrink-0"><ShibaMark className={large ? "size-20" : "size-8"} /></span>;
-  return <RoleShiba slug={slug} label={name} decorative className={large ? "size-20" : "size-8"} />;
+  return <RoleShiba slug={slug} role={role} label={name} decorative className={large ? "size-20" : "size-8"} />;
 }
 
 export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewThread, onManage }: {
@@ -48,7 +51,7 @@ export function AgentSidebar({ agents, threads, selectedId, onOpenThread, onNewT
       const children = threads.filter((thread) => row.agent ? threadAgentId(thread) === row.id : !threadAgentId(thread) || !agents.some((agent) => agent.id === threadAgentId(thread)));
       return <div key={row.id}>
         <div className="flex items-center">
-          <button type="button" className={`${quietButton} min-w-0 flex-1 justify-start gap-2 text-left text-[13px]`} onClick={() => { const latest = [...children].sort((a, b) => b.updatedAt - a.updatedAt)[0]; if (latest) onOpenThread(latest.id); else onNewThread(row.agent); }}><AgentAvatar name={row.name} slug={row.agent?.slug} /><span className="truncate">{row.name}</span></button>
+          <button type="button" className={`${quietButton} min-w-0 flex-1 justify-start gap-2 text-left text-[13px]`} onClick={() => { const latest = [...children].sort((a, b) => b.updatedAt - a.updatedAt)[0]; if (latest) onOpenThread(latest.id); else onNewThread(row.agent); }}><AgentAvatar name={row.name} slug={row.agent?.slug} role={employeeRole(row.agent?.slug, row.agent?.config.roleTemplateId)} /><span className="truncate">{row.name}</span></button>
           <button type="button" className={quietButton} aria-label={`New thread with ${row.name}`} onClick={() => onNewThread(row.agent)}><Plus aria-hidden="true" className="size-4" /></button>
           <button type="button" className={quietButton} aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.name} threads`} aria-expanded={isExpanded} aria-controls={`${id}-${row.id}`} onClick={() => setExpanded((current) => ({ ...current, [row.id]: !isExpanded }))}>{isExpanded ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronRight aria-hidden="true" className="size-3.5" />}</button>
         </div>
@@ -89,7 +92,7 @@ export async function createEmployeeAgent(template: EmployeeTemplate): Promise<C
   return body.agent;
 }
 
-export function AgentPageHeader({ name, slug, detailsOpen, onToggleDetails, onExpandSidebar }: { name: string; slug?: string; detailsOpen: boolean; onToggleDetails: () => void; onExpandSidebar?: () => void }) {
+export function AgentPageHeader({ name, slug, role, detailsOpen, onToggleDetails, onExpandSidebar }: { name: string; slug?: string; role?: EmployeeRole; detailsOpen: boolean; onToggleDetails: () => void; onExpandSidebar?: () => void }) {
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -110,14 +113,14 @@ export function AgentPageHeader({ name, slug, detailsOpen, onToggleDetails, onEx
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [participantsOpen]);
-  return <div ref={headerRef} className="relative"><ViewHeader section="Agents" view={name} leading={<>{onExpandSidebar ? <button type="button" className={`${quietButton} hidden lg:inline-flex`} aria-label="Expand sidebar" onClick={onExpandSidebar}><PanelLeft aria-hidden="true" className="size-4" /></button> : null}<AgentAvatar name={name} slug={slug} /></>}>
+  return <div ref={headerRef} className="relative"><ViewHeader section="Agents" view={name} leading={<>{onExpandSidebar ? <button type="button" className={`${quietButton} hidden lg:inline-flex`} aria-label="Expand sidebar" onClick={onExpandSidebar}><PanelLeft aria-hidden="true" className="size-4" /></button> : null}<AgentAvatar name={name} slug={slug} role={role} /></>}>
     <button type="button" className={quietButton} aria-label="Participants" aria-expanded={participantsOpen} aria-controls={`${id}-participants`} onClick={() => setParticipantsOpen(!participantsOpen)}><Users aria-hidden="true" className="size-4" /><span className="ml-2 hidden sm:inline">You and agent</span></button>
     <button type="button" className={quietButton} aria-label="Toggle agent details" aria-expanded={detailsOpen} aria-controls="agent-details" onClick={onToggleDetails}><PanelRight aria-hidden="true" className="size-4" /></button>
   </ViewHeader>{participantsOpen ? <div id={`${id}-participants`} className="absolute right-4 top-full z-20 w-60 rounded-xl border border-[var(--border-1)] bg-[var(--popover)] p-4 text-sm text-[var(--fg)] shadow-overlay"><p className="font-medium">Participants</p><p className="mt-3">You</p><p className="mt-2">{name}</p><p className="mt-3 text-xs text-[var(--muted-foreground-2)]">You and this agent work in your Shiba workspace.</p></div> : null}</div>;
 }
 
-export function AgentConversationEmpty({ name, slug, examples = [], onPrefill, prefillDisabled = false }: { name: string; slug?: string; examples?: readonly string[]; onPrefill: (prompt: string) => void; prefillDisabled?: boolean }) {
-  return <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"><AgentAvatar name={name} slug={slug} large /><h2 className="text-base font-medium text-[var(--fg)]">{name}</h2><p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">This is the beginning of your conversation. Messages are stored in your Shiba workspace.</p><p className="max-w-md text-xs leading-relaxed text-[var(--muted-foreground-2)]">Planning can start now. Every sandbox execution requires human approval. Publishing completed changes requires a separate approval.</p>{examples.length ? <div className="mt-4 flex max-w-xl flex-wrap justify-center gap-2">{examples.map((prompt) => <button type="button" key={prompt} disabled={prefillDisabled} title={prefillDisabled ? "Clear your draft to use an example" : undefined} className={`${viewButtonClass} text-left font-normal disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => onPrefill(prompt)}>{prompt}</button>)}</div> : null}</div>;
+export function AgentConversationEmpty({ name, slug, role, examples = [], onPrefill, prefillDisabled = false }: { name: string; slug?: string; role?: EmployeeRole; examples?: readonly string[]; onPrefill: (prompt: string) => void; prefillDisabled?: boolean }) {
+  return <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"><AgentAvatar name={name} slug={slug} role={role} large /><h2 className="text-base font-medium text-[var(--fg)]">{name}</h2><p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground-2)]">This is the beginning of your conversation. Messages are stored in your Shiba workspace.</p><p className="max-w-md text-xs leading-relaxed text-[var(--muted-foreground-2)]">Planning can start now. Every sandbox execution requires human approval. Publishing completed changes requires a separate approval.</p>{examples.length ? <div className="mt-4 flex max-w-xl flex-wrap justify-center gap-2">{examples.map((prompt) => <button type="button" key={prompt} disabled={prefillDisabled} title={prefillDisabled ? "Clear your draft to use an example" : undefined} className={`${viewButtonClass} text-left font-normal disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => onPrefill(prompt)}>{prompt}</button>)}</div> : null}</div>;
 }
 
 export function AgentDetailsPanel({ agent, onClose, onEdit }: { agent?: CustomAgentWire; onClose: () => void; onEdit: () => void }) {
@@ -126,7 +129,8 @@ export function AgentDetailsPanel({ agent, onClose, onEdit }: { agent?: CustomAg
     if (window.innerWidth < 1280) panelRef.current?.scrollIntoView?.({ block: "nearest", behavior: "instant" });
   }, []);
   const name = agent?.config.name ?? "Shiba";
-  const template = EMPLOYEE_TEMPLATES.find((item) => item.slug === agent?.slug);
+  const role = employeeRole(agent?.slug, agent?.config.roleTemplateId);
+  const template = EMPLOYEE_TEMPLATES.find((item) => item.id === role);
   const rows = [
     { label: "Model", preview: agent?.config.codingModel || "Workspace default", value: agent?.config.codingModel || "Uses the workspace model default." },
     { label: "Instructions", preview: agent?.config.instructions.slice(0, 70) || "Workspace instructions", value: agent?.config.instructions || "Use the workspace instructions." },
@@ -135,7 +139,7 @@ export function AgentDetailsPanel({ agent, onClose, onEdit }: { agent?: CustomAg
   ];
   return <aside ref={panelRef} id="agent-details" aria-label="Agent details" className="flex w-full min-w-0 shrink-0 flex-col border-t border-[var(--border-1)] bg-[var(--chrome)] p-5 text-[var(--fg)] xl:w-[370px] xl:overflow-y-auto xl:border-l xl:border-t-0">
     <button type="button" className={`${quietButton} self-end`} aria-label="Close agent details" onClick={onClose}><X aria-hidden="true" className="size-4" /></button>
-    <div className="flex flex-col items-center gap-3 py-5 text-center"><AgentAvatar name={name} slug={agent?.slug} large /><h2 className="text-lg font-medium tracking-tight">{name}</h2><p className="text-xs font-medium text-[var(--muted-foreground-2)]">{agent ? employeeRoleLabel(employeeRole(agent.slug)) : "Shiba"} · Runs on {agent?.config.harness ?? "workspace default"}</p><p className="line-clamp-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--muted-foreground-2)]">{agent?.config.instructions || template?.description || "Helps with tasks in your approved repository."}</p></div>
+    <div className="flex flex-col items-center gap-3 py-5 text-center"><AgentAvatar name={name} slug={agent?.slug} role={role} large /><h2 className="text-lg font-medium tracking-tight">{name}</h2><p className="text-xs font-medium text-[var(--muted-foreground-2)]">{agent ? employeeRoleLabel(role) : "Shiba"} · Runs on {agent?.config.harness ?? "workspace default"}</p><p className="line-clamp-4 whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--muted-foreground-2)]">{agent?.config.instructions || template?.description || "Helps with tasks in your approved repository."}</p></div>
     <section aria-label="Agent information">
       <h3 className="mb-2 text-xs font-medium text-[var(--muted-foreground-2)]">Configuration</h3>
       <div className="divide-y divide-[var(--border-1)] text-sm">{rows.map((row) => <details key={row.label} className="group"><summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-lg py-3 focus-visible:outline-2 focus-visible:outline-[var(--ring)] [&::-webkit-details-marker]:hidden"><span>{row.label}</span><span className="ml-auto max-w-40 truncate text-xs text-[var(--muted-foreground-2)]">{row.preview}</span><ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-[var(--icon-muted)] group-open:rotate-90" /></summary><p className="whitespace-pre-wrap break-words pb-4 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{row.value}</p></details>)}</div><button type="button" className={`${viewButtonClass} mt-4 w-full`} onClick={onEdit}>Manage agents</button>

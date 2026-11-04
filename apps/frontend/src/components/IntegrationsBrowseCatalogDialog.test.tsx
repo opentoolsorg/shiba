@@ -9,6 +9,22 @@ afterEach(() => {
 });
 
 describe("IntegrationsBrowseCatalogDialog", () => {
+  it("filters loaded provider rows by explicit role without connecting a catalog listing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [
+      { id: "stripe", providerKey: "stripe", name: "Stripe", description: "Payments", source: "openconnector", isConnected: false, connectable: false },
+      { id: "hubspot", providerKey: "hubspot", name: "HubSpot", description: "CRM", source: "openconnector", isConnected: false, connectable: true },
+    ], hasMore: false })));
+    const connect = vi.fn();
+    render(<IntegrationsBrowseCatalogDialog open onClose={() => {}} onConnect={connect} roleFilter="finance" />);
+    expect(await screen.findByText("Stripe")).toBeTruthy();
+    expect(screen.queryByText("HubSpot")).toBeNull();
+    expect(screen.getByText("Catalog only")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Catalog recommendations for role"), { target: { value: "sales" } });
+    expect(screen.getByText("HubSpot")).toBeTruthy();
+    expect(screen.queryByText("Stripe")).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
+  });
   it("does not render when open is false", () => {
     const { container } = render(
       <IntegrationsBrowseCatalogDialog open={false} onClose={() => {}} />

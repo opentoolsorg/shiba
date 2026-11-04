@@ -1,4 +1,5 @@
-import { type FormEvent, type JSX, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
 
 interface Room {
   roomId: string;
@@ -25,6 +26,7 @@ interface Message {
   body: string;
   createdAt: number;
   sourceRunId?: string;
+  sourceHandoffId?: string;
   sourceArtifactRefs?: Array<{
     index: number;
     path: string;
@@ -100,6 +102,17 @@ interface EmployeeProfile {
   config: { name: string; emoji?: string; defaultRepoUrl?: string };
 }
 
+interface CollaborationMemoryNote {
+  id: string;
+  version: 1;
+  sha256: string;
+  title: string;
+  content: string;
+  createdByUserId: string;
+  createdAt: number;
+  revokedAt: number | null;
+}
+
 interface RoomDetail {
   room: Room;
   currentUserId: string;
@@ -111,6 +124,7 @@ interface RoomDetail {
   slackDeliveryIntents?: SlackDeliveryIntent[];
   canApproveSlackOutbox?: boolean;
   slackOutboxEnabled?: boolean;
+  memory?: CollaborationMemoryNote[];
 }
 
 interface PairedComputer {
@@ -173,53 +187,150 @@ export function CollaborationView(): JSX.Element {
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [selectedSlackSource, setSelectedSlackSource] = useState("");
   const [handoffRequestId, setHandoffRequestId] = useState("");
+  const [memoryTitle, setMemoryTitle] = useState("");
+  const [memoryContent, setMemoryContent] = useState("");
+  const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [retryableError, setRetryableError] = useState(false);
+  const activeRoomRef = useRef(activeRoomId);
+  const roomReadEpoch = useRef(0);
+  const revokedRooms = useRef(new Set<string>());
+
+  const clearRoomDrafts = useCallback(() => {
+    setMessage("");
+    setTask("");
+    setTaskId("");
+    setRepoUrl("");
+    setWorkDestination("repository");
+    setDeliverablePath("reports/employee-summary.md");
+    setParentHandoffId("");
+    setRecipientActorId("");
+    setHandoffRequestId("");
+    setMemoryTitle("");
+    setMemoryContent("");
+    setSelectedMemoryIds([]);
+    setSelectedMessageIds([]);
+    setInviteUserId("");
+    setSelectedSlackSource("");
+  }, []);
+
+  const isCurrentRoomRead = useCallback((epoch: number, roomId: string) =>
+    roomReadEpoch.current === epoch && activeRoomRef.current === roomId &&
+    !revokedRooms.current.has(roomId), []);
+
+  const loseRoomAccess = useCallback((roomId: string) => {
+    if (activeRoomRef.current !== roomId) return;
+    roomReadEpoch.current++;
+    if (roomId) revokedRooms.current.add(roomId);
+    activeRoomRef.current = "";
+    clearRoomDrafts();
+    setDetail(null);
+    setActiveRoomId("");
+    setRooms((current) => current.filter((room) => room.roomId !== roomId));
+    setError("Access to this room ended. Its contents are no longer available in this session.");
+    setRetryableError(false);
+  }, [clearRoomDrafts]);
+
+  const realtime = useCollaborationRoomRealtime({
+    roomId: activeRoomId,
+    enabled: Boolean(activeRoomId),
+    typingText: message,
+    onAccessLost: loseRoomAccess,
+    onRefresh: (roomId) => {
+      if (activeRoomRef.current !== roomId || revokedRooms.current.has(roomId)) return;
+      const epoch = ++roomReadEpoch.current;
+      void api<RoomDetail>(`/api/collaboration/rooms/${encodeURIComponent(roomId)}`)
+        .then((loaded) => {
+          if (isCurrentRoomRead(epoch, roomId)) setDetail(loaded);
+        })
+        .catch((cause) => {
+          if (!isCurrentRoomRead(epoch, roomId)) return;
+          if (isMembershipLost(cause)) loseRoomAccess(roomId);
+          else {
+            setError(cause instanceof Error ? cause.message : String(cause));
+            setRetryableError(true);
+          }
+        });
+    },
+  });
+
+  useEffect(() => {
+    clearRoomDrafts();
+  }, [activeRoomId, clearRoomDrafts]);
+
+  useEffect(() => {
+    const available = new Set((detail?.memory ?? []).filter((note) => note.revokedAt === null).map((note) => note.id));
+    if (selectedMemoryIds.some((id) => !available.has(id))) {
+      setSelectedMemoryIds((current) => current.filter((id) => available.has(id)));
+      setHandoffRequestId("");
+      setError("A selected shared note is no longer available. Review the shared context before requesting work.");
+    }
+  }, [detail?.memory, selectedMemoryIds]);
 
   const refresh = useCallback(
-    async (roomId = activeRoomId) => {
-      const listed = await api<{ rooms: Room[] }>("/api/collaboration/rooms");
-      setRooms(listed.rooms);
-      const selected = roomId || listed.rooms[0]?.roomId || "";
-      setActiveRoomId(selected);
-      if (!selected) {
-        setDetail(null);
-        return;
+    async (roomId = activeRoomRef.current) => {
+      const epoch = ++roomReadEpoch.current;
+      const previousRoomId = activeRoomRef.current;
+      let selected = previousRoomId;
+      try {
+        const listed = await api<{ rooms: Room[] }>("/api/collaboration/rooms");
+        if (!isCurrentRoomRead(epoch, previousRoomId)) return;
+        const availableRooms = listed.rooms.filter((room) => !revokedRooms.current.has(room.roomId));
+        setRooms(availableRooms);
+        selected = roomId || availableRooms[0]?.roomId || "";
+        if (revokedRooms.current.has(selected)) return;
+        activeRoomRef.current = selected;
+        setActiveRoomId(selected);
+        if (selected !== previousRoomId || !selected) setDetail(null);
+        if (!selected) return;
+        const loaded = await api<RoomDetail>(
+          `/api/collaboration/rooms/${encodeURIComponent(selected)}`,
+        );
+        if (!isCurrentRoomRead(epoch, selected)) return;
+        setDetail(loaded);
+        setError("");
+        setRetryableError(false);
+      } catch (cause) {
+        if (!isCurrentRoomRead(epoch, selected)) return;
+        if (isMembershipLost(cause)) loseRoomAccess(selected);
+        else {
+          setError(cause instanceof Error ? cause.message : String(cause));
+          setRetryableError(true);
+        }
       }
-      const loaded = await api<RoomDetail>(
-        `/api/collaboration/rooms/${encodeURIComponent(selected)}`,
-      );
-      setDetail(loaded);
     },
-    [activeRoomId],
+    [isCurrentRoomRead, loseRoomAccess],
   );
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      const epoch = ++roomReadEpoch.current;
+      let selected = activeRoomId;
       try {
         const listed = await api<{ rooms: Room[] }>("/api/collaboration/rooms");
-        if (cancelled) return;
-        setRooms(listed.rooms);
-        const selected = activeRoomId || listed.rooms[0]?.roomId || "";
+        if (cancelled || !isCurrentRoomRead(epoch, activeRoomId)) return;
+        const availableRooms = listed.rooms.filter((room) => !revokedRooms.current.has(room.roomId));
+        setRooms(availableRooms);
+        selected = activeRoomId || availableRooms[0]?.roomId || "";
+        if (revokedRooms.current.has(selected)) return;
+        activeRoomRef.current = selected;
         setActiveRoomId(selected);
         if (selected) {
           const loaded = await api<RoomDetail>(
             `/api/collaboration/rooms/${encodeURIComponent(selected)}`,
           );
-          if (!cancelled) setDetail(loaded);
-        } else if (!cancelled) setDetail(null);
-        if (!cancelled) setError("");
-        if (!cancelled) setRetryableError(false);
-      } catch (cause) {
-        if (!cancelled && isMembershipLost(cause)) {
-          setDetail(null);
-          setActiveRoomId("");
-          setError(
-            "Access to this room ended. Its contents are no longer available in this session.",
-          );
+          if (cancelled || !isCurrentRoomRead(epoch, selected)) return;
+          setDetail(loaded);
+          setError("");
           setRetryableError(false);
+        } else if (!cancelled && isCurrentRoomRead(epoch, "")) setDetail(null);
+      } catch (cause) {
+        if (cancelled || !isCurrentRoomRead(epoch, selected)) return;
+        if (isMembershipLost(cause)) {
+          loseRoomAccess(selected);
         } else if (!cancelled) {
           setError(cause instanceof Error ? cause.message : String(cause));
           setRetryableError(true);
@@ -232,9 +343,10 @@ export function CollaborationView(): JSX.Element {
     }, 5_000);
     return () => {
       cancelled = true;
+      roomReadEpoch.current++;
       window.clearInterval(timer);
     };
-  }, [activeRoomId]);
+  }, [activeRoomId, isCurrentRoomRead, loseRoomAccess]);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,19 +392,16 @@ export function CollaborationView(): JSX.Element {
   );
 
   const mutate = async (operation: () => Promise<unknown>) => {
+    const operationRoomId = activeRoomId;
     setBusy(true);
     setError("");
     try {
       await operation();
-      await refresh(activeRoomId);
+      if (activeRoomRef.current === operationRoomId) await refresh(operationRoomId);
     } catch (cause) {
+      if (activeRoomRef.current !== operationRoomId) return;
       if (isMembershipLost(cause)) {
-        setDetail(null);
-        setActiveRoomId("");
-        setError(
-          "Access to this room ended. Its contents are no longer available in this session.",
-        );
-        setRetryableError(false);
+        loseRoomAccess(operationRoomId);
       } else {
         setError(cause instanceof Error ? cause.message : String(cause));
         setRetryableError(true);
@@ -395,6 +504,13 @@ export function CollaborationView(): JSX.Element {
   const createHandoff = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !taskId.trim() || !recipientActorId) return;
+    const selectedNotes = selectedMemoryIds.map((id) =>
+      (detail?.memory ?? []).find((note) => note.id === id && note.revokedAt === null),
+    );
+    if (selectedNotes.some((note) => !note)) {
+      setError("A selected shared note was revoked. Review the shared notes before requesting work.");
+      return;
+    }
     const expectedDeliverables = deliverablePath
       .split("\n")
       .map((path) => path.trim())
@@ -413,6 +529,10 @@ export function CollaborationView(): JSX.Element {
           taskId: taskId.trim(),
           recipientActorId,
           task: task.trim(),
+          ...(selectedMessageIds.length > 0 ? { contextMessageIds: selectedMessageIds } : {}),
+          ...(selectedNotes.length > 0 ? {
+            memoryRefs: selectedNotes.map((note) => ({ id: note!.id, version: note!.version, sha256: note!.sha256 })),
+          } : {}),
           ...(workDestination === "artifact-workspace"
             ? {
                 executionTarget: {
@@ -437,6 +557,8 @@ export function CollaborationView(): JSX.Element {
       setDeliverablePath("reports/employee-summary.md");
       setParentHandoffId("");
       setHandoffRequestId("");
+      setSelectedMemoryIds([]);
+      setSelectedMessageIds([]);
     });
   };
 
@@ -507,6 +629,10 @@ export function CollaborationView(): JSX.Element {
                   <button
                     type="button"
                     onClick={() => {
+                      if (activeRoomRef.current === room.roomId) return;
+                      roomReadEpoch.current++;
+                      activeRoomRef.current = room.roomId;
+                      setDetail(null);
                       setActiveRoomId(room.roomId);
                     }}
                     className={`w-full rounded px-3 py-2 text-left text-sm ${room.roomId === activeRoomId ? "bg-[var(--secondary)] text-[var(--fg)]" : "text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)]"}`}
@@ -535,6 +661,20 @@ export function CollaborationView(): JSX.Element {
                     <p className="text-[10px] text-[var(--muted-foreground-2)]">
                       {members.length} active members
                     </p>
+                    <p role="status" aria-label="Room live connection" className="text-[10px] text-[var(--muted-foreground-2)]">
+                      {realtime.status === "connected" ? "Live updates connected" : "Checking for updates"}
+                      {realtime.viewers.length > 0 && ` · ${realtime.viewers.length} online`}
+                    </p>
+                    {realtime.viewers.length > 0 && (
+                      <ul aria-label="Online room members" className="mt-1 flex flex-wrap gap-x-3 text-[10px] text-[var(--muted-foreground-2)]">
+                        {realtime.viewers.map((viewer) => (
+                          <li key={viewer.viewerId}>{viewer.label}{viewer.typing ? " is typing…" : ""}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="mt-1 text-[10px] text-[var(--muted-foreground-2)]">
+                      Select up to 12 messages below to include in the next employee handoff.
+                    </p>
                   </div>
                 </div>
 
@@ -558,18 +698,33 @@ export function CollaborationView(): JSX.Element {
                             <time>{new Date(item.createdAt).toLocaleString()}</time>
                           </div>
                           <p className="whitespace-pre-wrap break-words text-sm">{item.body}</p>
+                          <label className="mt-2 flex items-center gap-2 text-[10px] text-[var(--muted-foreground-2)]">
+                            <input
+                              type="checkbox"
+                              aria-label={`Include message in next handoff: ${item.body.slice(0, 80)}`}
+                              checked={selectedMessageIds.includes(item.messageId)}
+                              disabled={busy || (!selectedMessageIds.includes(item.messageId) && selectedMessageIds.length >= 12)}
+                              onChange={(event) => {
+                                setSelectedMessageIds((current) => event.target.checked
+                                  ? [...current, item.messageId]
+                                  : current.filter((id) => id !== item.messageId));
+                                setHandoffRequestId("");
+                              }}
+                            />
+                            Include in next handoff
+                          </label>
                           {item.sourceRunId && (
                             <div className="mt-2 border-t border-[var(--border-1)] pt-2 text-[10px]">
                               <p>Completed run: {item.sourceRunId}</p>
-                              {item.sourceArtifactRefs?.map((artifact) => (
+                              {item.sourceArtifactRefs?.map((artifact) => item.sourceHandoffId ? (
                                 <a
                                   key={`${item.messageId}-${artifact.index}`}
-                                  href={`/api/runs/${encodeURIComponent(item.sourceRunId ?? "")}/deliverables/${artifact.index}`}
+                                  href={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs/${encodeURIComponent(item.sourceHandoffId)}/artifacts/${artifact.index}`}
                                   className="mr-2 underline"
                                 >
                                   {artifact.path}
                                 </a>
-                              ))}
+                              ) : <span key={`${item.messageId}-${artifact.index}`} className="mr-2">{artifact.path}</span>)}
                             </div>
                           )}
                           {item.sourceSlackEventId && (
@@ -707,9 +862,85 @@ export function CollaborationView(): JSX.Element {
                     </section>
 
                     <section className="border-t border-[var(--border-1)] pt-3">
+                      <h3 className="mb-2 text-xs font-semibold">Shared room notes</h3>
+                      <p className="mb-2 text-[10px] text-[var(--muted-foreground-2)]">
+                        Notes are visible to this room’s members. Select up to eight for the next handoff; their exact versions are included in human approval.
+                      </p>
+                      <ul aria-label="Shared room notes" className="flex flex-col gap-2">
+                        {(detail.memory ?? []).filter((note) => note.revokedAt === null).map((note) => (
+                          <li key={note.id} className="rounded bg-[var(--panel)] p-2 text-[10px]">
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                aria-label={`Use shared note ${note.title} in next handoff`}
+                                checked={selectedMemoryIds.includes(note.id)}
+                                disabled={busy || (!selectedMemoryIds.includes(note.id) && selectedMemoryIds.length >= 8)}
+                                onChange={(event) => {
+                                  setSelectedMemoryIds((current) => event.target.checked
+                                    ? [...current, note.id]
+                                    : current.filter((id) => id !== note.id));
+                                  setHandoffRequestId("");
+                                }}
+                              />
+                              <span className="min-w-0 break-words font-semibold">{note.title} · v{note.version}</span>
+                            </label>
+                            <p className="mt-1 whitespace-pre-wrap break-words">{note.content}</p>
+                            <p className="mt-1 text-[var(--muted-foreground-2)]">Shared by {note.createdByUserId}</p>
+                            {(canManageMembers || note.createdByUserId === detail.currentUserId) && (
+                              <button
+                                type="button"
+                                aria-label={`Revoke shared note ${note.title}`}
+                                disabled={busy}
+                                onClick={() => void mutate(() => api(
+                                  `/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/memory/${encodeURIComponent(note.id)}`,
+                                  request("DELETE", { version: note.version }),
+                                ))}
+                                className="mt-1 text-[var(--destructive)] disabled:opacity-50"
+                              >Revoke</button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <form className="mt-2 flex flex-col gap-2" onSubmit={(event) => {
+                        event.preventDefault();
+                        if (!memoryTitle.trim() || !memoryContent.trim()) return;
+                        void mutate(async () => {
+                          await api(`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/memory`, request("POST", {
+                            id: `ctx_${crypto.randomUUID()}`,
+                            title: memoryTitle.trim(),
+                            content: memoryContent.trim(),
+                          }));
+                          setMemoryTitle("");
+                          setMemoryContent("");
+                        });
+                      }}>
+                        <input
+                          aria-label="Shared note title"
+                          value={memoryTitle}
+                          onChange={(event) => setMemoryTitle(event.target.value)}
+                          maxLength={120}
+                          placeholder="Shared note title"
+                          className="min-w-0 rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                        />
+                        <textarea
+                          aria-label="Shared note content"
+                          value={memoryContent}
+                          onChange={(event) => setMemoryContent(event.target.value)}
+                          maxLength={4000}
+                          rows={3}
+                          placeholder="Context to share with this room"
+                          className="min-w-0 rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
+                        />
+                        <button type="submit" disabled={busy || !memoryTitle.trim() || !memoryContent.trim()} className="rounded border border-[var(--border-1)] px-2 py-2 text-xs disabled:opacity-50">
+                          Share note with room
+                        </button>
+                      </form>
+                    </section>
+
+                    <section className="border-t border-[var(--border-1)] pt-3">
                       <h3 className="mb-2 text-xs font-semibold">Slack thread continuity</h3>
                       <p className="mb-2 text-[10px] text-[var(--muted-foreground-2)]">
-                        Only signed Slack thread events appear here. Mapping authorizes that exact thread to write into this room; Slack identities stay separate from Shiba accounts.
+                        Only Slack threads allowed by the configured owner and audience policy appear here. Linking shares that exact thread with authorized room members. Sending a room message to Slack requires separate approval.
                       </p>
                       {canManageMembers && (
                         <div className="flex gap-2">
@@ -814,6 +1045,9 @@ export function CollaborationView(): JSX.Element {
                           placeholder="Task ID / grouping key"
                           className="rounded border border-[var(--border-1)] bg-[var(--panel)] px-2 py-2 text-xs"
                         />
+                        <p className="text-[10px] text-[var(--muted-foreground-2)]">
+                          Task instructions, selected messages, notes and employee profile must fit the 4,000-character approval limit. Oversized context is rejected; choose short, relevant sources.
+                        </p>
                         <textarea
                           aria-label="Employee task request"
                           value={task}

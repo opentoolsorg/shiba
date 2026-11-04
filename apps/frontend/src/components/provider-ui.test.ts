@@ -17,7 +17,7 @@ describe("providerPhaseLabel", () => {
     });
     expect(providerPhaseLabel({ phase: "connected", testOk: true })).toEqual({
       tone: "ok",
-      label: "Ready",
+      label: "Configuration checked",
     });
     expect(providerPhaseLabel({ phase: "connected", testOk: false })).toEqual({
       tone: "danger",

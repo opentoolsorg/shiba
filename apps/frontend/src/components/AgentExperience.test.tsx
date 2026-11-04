@@ -54,17 +54,18 @@ describe("agent conversation", () => {
   });
 
   it("keeps renamed role identities consistent across sidebar, header, details and empty state", () => {
-    const renamed = { ...agent, config: { ...agent.config, name: "Evidence partner", harness: "codex" } };
+    const renamed = { ...agent, slug: "evidence-partner", config: { ...agent.config, name: "Evidence partner", harness: "codex" } };
     const { container } = render(<>
       <AgentSidebar agents={[renamed]} threads={threads} onOpenThread={vi.fn()} onNewThread={vi.fn()} onManage={vi.fn()} />
-      <AgentPageHeader name={renamed.config.name} slug={renamed.slug} detailsOpen onToggleDetails={vi.fn()} />
+      <AgentPageHeader name={renamed.config.name} slug={renamed.slug} role={renamed.config.roleTemplateId} detailsOpen onToggleDetails={vi.fn()} />
       <AgentDetailsPanel agent={renamed} onClose={vi.fn()} onEdit={vi.fn()} />
-      <AgentConversationEmpty name={renamed.config.name} slug={renamed.slug} onPrefill={vi.fn()} />
+      <AgentConversationEmpty name={renamed.config.name} slug={renamed.slug} role={renamed.config.roleTemplateId} onPrefill={vi.fn()} />
     </>);
     expect(container.querySelectorAll('[data-employee-role="research"]')).toHaveLength(4);
     expect(screen.getByRole("button", { name: "Evidence partner" })).toBeTruthy();
     expect(screen.getByText("Research · Runs on codex")).toBeTruthy();
     expect(renamed.config.name).toBe("Evidence partner");
+    expect(employeeExamples(renamed)).toEqual(employeeExamples(agent));
   });
 
   it("closes participants on Escape and outside pointer activation", () => {
@@ -138,7 +139,7 @@ describe("agent conversation", () => {
 });
 
 describe("employee onboarding", () => {
-  it("renders seven selectable roles and skips without creating anything", () => {
+  it("renders all ten optional roles and skips without creating anything", () => {
     const onSkip = vi.fn();
     const onSelect = vi.fn();
     render(<EmployeeOnboarding onSelect={onSelect} onSkip={onSkip} />);
@@ -150,6 +151,20 @@ describe("employee onboarding", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(onSkip).toHaveBeenCalledOnce();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it.each(EMPLOYEE_TEMPLATES.filter((template) => ["gtm", "hr", "finance"].includes(template.id)))("creates $label only when selected and grants no tools or connections", async (template) => {
+    const saved = { id: template.id, slug: `my-${template.id}`, version: 1, config: { ...template.config, harness: "opencode" } };
+    const request = vi.fn().mockResolvedValue(Response.json({ agent: saved }, { status: 201 }));
+    vi.stubGlobal("fetch", request);
+    render(<EmployeeOnboarding onSelect={async (choice) => { await createEmployeeAgent(choice); }} onSkip={vi.fn()} />);
+    expect(request).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${template.label}`) }));
+    await waitFor(() => expect(request).toHaveBeenCalledOnce());
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
+    expect(body.config).toEqual({ ...template.config, harness: "opencode", approvalPolicy: "standard" });
+    expect(body.config).not.toHaveProperty("connectionId");
+    expect(body.config).not.toHaveProperty("toolScopes");
   });
 
   it("creates a real custom agent with the existing API payload and role instructions", async () => {

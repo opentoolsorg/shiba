@@ -462,7 +462,7 @@ export function AppNavRail({
                 }}
                 className="relative size-8 rounded-full border border-[var(--border-1)] bg-[var(--card)] hover:border-[var(--primary)] flex items-center justify-center transition-all focus-visible:outline-2 focus-visible:outline-[var(--ring)] group"
               >
-                <AgentAvatar name={agent.config.name} slug={agent.slug} />
+                <AgentAvatar name={agent.config.name} slug={agent.slug} role={agent.config.roleTemplateId} />
                 <span className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full bg-[var(--success)] ring-2 ring-[var(--chrome)]" aria-hidden="true" />
               </button>
             </Tooltip>

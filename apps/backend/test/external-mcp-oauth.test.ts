@@ -226,6 +226,7 @@ describe("external MCP OAuth + multi-account", () => {
     expect(prod?.id).not.toBe(staging?.id);
     const listed = await listExternalMcpCatalogConnections(env, "org-a", owner.principal);
     expect(listed.map((row) => row.connectionLabel).sort()).toEqual(["prod", "staging"]);
+    expect(listed.every((row) => row.health === "unknown" && row.status === "draft")).toBe(true);
   });
 
   it("marks vendor-sensitive tools for approval review and queues writes", async () => {

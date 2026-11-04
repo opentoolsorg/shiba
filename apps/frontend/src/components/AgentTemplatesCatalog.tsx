@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from "react";
-import { AGENT_TEMPLATES, validateAgentTemplate } from "@shiba/shared";
+import { AGENT_TEMPLATES, validateAgentTemplate, type CustomAgentConfig } from "@shiba/shared";
 
 function pack(template: (typeof AGENT_TEMPLATES)[number]): string {
   return `${JSON.stringify({ template: { ...template, instructions: undefined }, instructions: template.instructions, skills: {} }, null, 2)}\n\n--- INSTRUCTIONS.md ---\n\n# ${template.name}\n\n${template.instructions}\n`;
@@ -18,10 +18,12 @@ export function AgentTemplatesCatalog({ onUse }: { onUse: (template: (typeof AGE
     setMyLoading(true);
     fetch("/api/custom-agents").then(async (response) => {
       if (!response.ok) throw new Error("Your saved bots could not be loaded.");
-      const body = await response.json() as { agents?: { slug: string; config: { name: string; instructions: string; emoji?: string; harness?: string } }[] };
+      const body = await response.json() as { agents?: { slug: string; config: CustomAgentConfig }[] };
       setMyTemplates((body.agents ?? []).filter((agent) => agent.config.instructions).map((agent) => ({
         id: agent.slug, name: agent.config.name, description: "Saved bot from your workspace.", categories: ["my"],
         appearance: agent.config.emoji, skills: [], plugins: [], harness: agent.config.harness ?? "opencode", chat_lanes: ["slack"], version: "1.0.0", instructions: agent.config.instructions,
+        ...(agent.config.roleTemplateId ? { roleTemplateId: agent.config.roleTemplateId } : {}),
+        ...(agent.config.expectedDeliverables ? { expectedDeliverables: [...agent.config.expectedDeliverables] } : {}),
       })));
       setMessage("");
     }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Your saved bots could not be loaded.")).finally(() => setMyLoading(false));
@@ -52,7 +54,7 @@ export function AgentTemplatesCatalog({ onUse }: { onUse: (template: (typeof AGE
       const metadata = validateAgentTemplate({ ...(parsed.template as object), instructions });
       setBusy(true);
       const slug = metadata.id.slice(0, 48);
-      const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug, config: { name: metadata.name, instructions: metadata.instructions, harness: metadata.harness ?? "opencode", ...(metadata.appearance ? { emoji: metadata.appearance } : {}) } }) });
+      const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug, config: { name: metadata.name, instructions: metadata.instructions, harness: metadata.harness ?? "opencode", ...(metadata.roleTemplateId ? { roleTemplateId: metadata.roleTemplateId } : {}), ...(metadata.expectedDeliverables ? { expectedDeliverables: metadata.expectedDeliverables } : {}), ...(metadata.appearance ? { emoji: metadata.appearance } : {}) } }) });
       const body = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? `Import failed (${response.status}).`);
       setMessage(`${metadata.name} imported as a bot.`);
