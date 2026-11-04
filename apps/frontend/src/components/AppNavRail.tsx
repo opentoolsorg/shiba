@@ -1,9 +1,9 @@
 /**
  * AppNavRail — OpenBot-inspired workspace shell navigation:
- * Left icon rail (chat, connections, tasks, graph, bot avatars stack, store, help, settings)
- * + adjacent sidebar (team selector, view switcher, agents/workflows, thread queue, runtime cards).
+ * Compact icon rail or expanded sidebar (workspace, agents/workflows and threads).
+ * Phones use a separate full navigation sheet.
  */
-import { useState, useMemo, useRef, useEffect, type JSX } from "react";
+import { useState, useMemo, useRef, useEffect, useId, type JSX } from "react";
 import {
   Activity,
   BarChart3,
@@ -277,7 +277,22 @@ export function AppNavRail({
   const accountRef = useRef<HTMLDivElement>(null);
   const teamRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
+  const navigationRef = useRef<HTMLElement>(null);
+  const navigationId = useId();
+  const restoreToggleFocus = useRef(false);
   const identity = workspaceLabel(accountEmail);
+
+  useEffect(() => {
+    if (variant === "rail" && restoreToggleFocus.current) {
+      restoreToggleFocus.current = false;
+      navigationRef.current?.querySelector<HTMLButtonElement>("[data-sidebar-toggle]")?.focus();
+    }
+  }, [collapsed, variant]);
+
+  function toggleSidebar() {
+    restoreToggleFocus.current = true;
+    onToggleCollapse?.();
+  }
 
   useEffect(() => {
     if (searchOpen) filterRef.current?.focus();
@@ -369,6 +384,22 @@ export function AppNavRail({
             <ShibaMark className="size-8" />
           </a>
         </Tooltip>
+
+        {onToggleCollapse ? (
+          <Tooltip content="Expand sidebar" shortcut="⌘B" side="right">
+            <button
+              type="button"
+              data-sidebar-toggle
+              onClick={toggleSidebar}
+              aria-label="Expand sidebar"
+              aria-expanded={false}
+              aria-controls={navigationId}
+              className="size-11 rounded-xl flex items-center justify-center text-[var(--muted-foreground-2)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+            >
+              <PanelLeft className="size-5" strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          </Tooltip>
+        ) : null}
 
         <div className="flex flex-col items-center gap-1.5" role="toolbar" aria-label="Primary navigation rail">
           <Tooltip content="Chat & Threads" side="right">
@@ -532,27 +563,31 @@ export function AppNavRail({
 
   return (
     <aside
+      ref={navigationRef}
+      id={navigationId}
       className={
         variant === "sheet"
           ? "w-[280px] max-w-[85vw] h-full flex flex-col bg-[var(--chrome)] text-[var(--fg)] border-r border-[var(--border-1)] px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] select-none overflow-hidden"
           : "hidden lg:flex h-full select-none"
       }
       aria-label="Primary Left Rail"
-      aria-hidden={variant === "rail" && collapsed ? true : undefined}
+      onFocusCapture={() => { restoreToggleFocus.current = true; }}
+      onBlurCapture={(event) => {
+        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
+          restoreToggleFocus.current = false;
+        }
+      }}
     >
-      {/* 1. Left Icon Rail (OpenBot 56px Rail) */}
-      {variant === "rail" ? leftIconRail : null}
+      {/* The compact rail replaces the expanded desktop navigation. */}
+      {variant === "rail" && collapsed ? leftIconRail : null}
 
       {/* 2. Workspace Sidebar */}
+      {variant === "sheet" || !collapsed ? (
       <div
         className={
           variant === "sheet"
             ? "flex-1 flex flex-col min-h-0 overflow-hidden"
-            : `transition-all duration-200 ease-out h-full flex flex-col bg-[var(--chrome)] text-[var(--fg)] z-30 select-none overflow-hidden ${
-                collapsed
-                  ? "w-0 opacity-0 pointer-events-none border-r-0 p-0"
-                  : "w-[248px] shrink-0 border-r border-[var(--border-1)] py-3 px-3"
-              }`
+            : "h-full flex flex-col bg-[var(--chrome)] text-[var(--fg)] z-30 select-none overflow-hidden w-[248px] shrink-0 border-r border-[var(--border-1)] py-3 px-3"
         }
       >
         {/* TOPBAR: Team Selector Dropdown + Search + Collapse Button */}
@@ -647,8 +682,11 @@ export function AppNavRail({
               <Tooltip content="Collapse sidebar" shortcut="⌘B" side="bottom">
                 <button
                   type="button"
-                  onClick={onToggleCollapse}
+                  data-sidebar-toggle
+                  onClick={toggleSidebar}
                   aria-label="Collapse sidebar"
+                  aria-expanded={true}
+                  aria-controls={navigationId}
                   className="size-8 min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center text-[var(--icon-muted)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] transition-colors focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
                 >
                   <PanelLeft className="size-4" strokeWidth={1.8} aria-hidden="true" />
@@ -1284,6 +1322,7 @@ export function AppNavRail({
           </div>
         </div>
       </div>
+      ) : null}
     </aside>
   );
 }

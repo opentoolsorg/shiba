@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { AppNavRail, workspaceLabel, type AppNavView } from "./AppNavRail";
 import type { SessionItem } from "./SessionsSidebar";
 
@@ -164,6 +165,83 @@ describe("AppNavRail", () => {
     const rail = screen.getByRole("complementary", { name: "Primary Left Rail" });
     expect(rail.className).toContain("hidden");
     expect(rail.className).toContain("lg:flex");
+  });
+
+  it("shows only the full sidebar when desktop navigation is expanded", () => {
+    renderRail({ onToggleCollapse: vi.fn() });
+    expect(screen.getByRole("region", { name: "Sidebar navigation" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Shiba Home" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "App Icon Rail" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Chat & Threads" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Collapse sidebar" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("shows only the accessible compact rail when collapsed, with a way to reopen on every view", () => {
+    const onToggleCollapse = vi.fn();
+    const { onNavigate } = renderRail({ activeView: "work", collapsed: true, onToggleCollapse });
+    const aside = screen.getByRole("complementary", { name: "Primary Left Rail" });
+    const compact = screen.getByRole("navigation", { name: "App Icon Rail" });
+    expect(aside.getAttribute("aria-hidden")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Sidebar navigation" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Shiba Home" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Collapse sidebar" })).toBeNull();
+    const expand = within(compact).getByRole("button", { name: "Expand sidebar" });
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    expect(expand.getAttribute("aria-controls")).toBe(aside.id);
+    expect(expand.className).toContain("size-11");
+    fireEvent.click(within(compact).getByRole("button", { name: "Tasks" }));
+    expect(onNavigate).toHaveBeenCalledWith("tasks");
+    fireEvent.click(expand);
+    expect(onToggleCollapse).toHaveBeenCalledOnce();
+  });
+
+  it("alternates navigation modes without duplicate controls and transfers keyboard focus to the current toggle", () => {
+    function Navigation() {
+      const [collapsed, setCollapsed] = useState(false);
+      return <AppNavRail activeView="work" onNavigate={vi.fn()} collapsed={collapsed} onToggleCollapse={() => setCollapsed((value) => !value)} />;
+    }
+    render(<Navigation />);
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const collapse = screen.getByRole("button", { name: "Collapse sidebar" });
+      collapse.focus();
+      fireEvent.click(collapse);
+      const expand = screen.getByRole("button", { name: "Expand sidebar" });
+      expect(document.activeElement).toBe(expand);
+      expect(screen.queryByRole("region", { name: "Sidebar navigation" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Collapse sidebar" })).toBeNull();
+      fireEvent.click(expand);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Collapse sidebar" }));
+      expect(screen.queryByRole("navigation", { name: "App Icon Rail" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Expand sidebar" })).toBeNull();
+    }
+  });
+
+  it("keeps the mobile sheet fully expanded regardless of the desktop collapse preference", () => {
+    const onClose = vi.fn();
+    const onToggleCollapse = vi.fn();
+    renderRail({ variant: "sheet", collapsed: true, onClose, onToggleCollapse });
+    const aside = screen.getByRole("complementary", { name: "Primary Left Rail" });
+    expect(aside.getAttribute("aria-hidden")).toBeNull();
+    expect(aside.className).not.toContain("lg:flex");
+    expect(screen.getByRole("region", { name: "Sidebar navigation" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "App Icon Rail" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Expand sidebar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Collapse sidebar" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close sidebar" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onToggleCollapse).not.toHaveBeenCalled();
+  });
+
+  it("retains sidebar focus for an external shortcut toggle without stealing focus from the main view", () => {
+    const props = { activeView: "work" as const, onNavigate: vi.fn(), onToggleCollapse: vi.fn() };
+    const { rerender } = render(<><AppNavRail {...props} collapsed={false} /><input aria-label="Main task" /></>);
+    screen.getByRole("button", { name: "New thread" }).focus();
+    rerender(<><AppNavRail {...props} collapsed /><input aria-label="Main task" /></>);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }));
+    const task = screen.getByRole("textbox", { name: "Main task" });
+    task.focus();
+    rerender(<><AppNavRail {...props} collapsed={false} /><input aria-label="Main task" /></>);
+    expect(document.activeElement).toBe(task);
   });
 
   it("opens custom agents from its dedicated navigation, not More", () => {
