@@ -16,7 +16,7 @@ node scripts/mint-token.mjs --agent claude-code --scopes sandbox:exec,runs:read 
 | Flag | Meaning |
 | --- | --- |
 | `--agent <name>` | Principal recorded on every audit row. No whitespace, max 128 chars. |
-| `--scopes <a,b>` | Comma list from: `email:read`, `email:draft`, `email:send`, `email:delete`, `memory:read`, `memory:write`, `runs:read`, `sandbox:exec`, `mcp:external`, `admin:tokens`. |
+| `--scopes <a,b>` | Grant only needed scopes. MCP scopes include `gmail:read`, `email:read`, `email:draft`, `email:send`, `email:delete`, `memory:read`, `memory:write`, `runs:read`, `sandbox:exec`, `mcp:external`, `integrations:read`, `integrations:execute` and `admin:tokens`. `--help` lists all accepted scopes, including the separate API-key scopes. |
 | `--ttl-days N` | Optional. The KV entry expires after N days, and the token stops working then. |
 | `--host <host>` | Your Worker host, used in the printed `claude mcp add` line. |
 | `--write` | Also runs the printed `wrangler kv key put … --remote` for you. Without it, nothing is written. |
@@ -62,16 +62,23 @@ Before minting, confirm `npx wrangler whoami` shows the Cloudflare account that 
 | `delete_email` | `email:delete` | Queue a delete for human approval. |
 | `memory_recall`, `memory_sessions` | `memory:read` | Read memory banked by this verified token principal. |
 | `memory_bank`, `memory_forget` | `memory:write` | Write or forget facts in this verified token principal's memory partition. |
+| `list_skills`, `get_skill_instructions` | `integrations:read` | Discover readable, enabled extension skills and load one skill's instructions by ID and version. Instructions do not grant tools or approval. |
+| `integrations.search_actions` | `integrations:read` | Discover actions for an `employeeId` with current integration grants and an exact `toolkitSlug`. A scope alone does not grant an app connection. |
+| `integrations.execute` | `integrations:execute` | Request an employee-authorized action with exact arguments; execution requires the separate human approval and current connection/resource grants. |
 
 ### Add an owner-reviewed external MCP server
 
-In **Agents & MCP → External MCP servers**, create a draft with an HTTPS Streamable HTTP endpoint and, when needed, the name of an already provisioned `MCP_CREDENTIAL_*` Worker secret. Shiba stores only that reference. No secret value is entered in the dashboard, sent to a model, or copied into the capability catalog. The deployment operator must explicitly set `MCP_TRUSTED_HOSTS` to comma-separated exact public hostnames before Shiba will contact them; an empty list is disabled by default.
+In **MCP → External MCP servers**, create a draft with an HTTPS Streamable HTTP endpoint and, when needed, the name of an already provisioned `MCP_CREDENTIAL_*` Worker secret. This custom-server form stores a reference, not the secret value. Custom public hosts must be exact hostnames in the deployment's comma-separated `MCP_TRUSTED_HOSTS`. The six curated hosts for Stripe, Notion, Sentry, PostHog, Figma and Atlassian are also trusted by the registry; an empty custom allowlist does not disable those presets. Trusting a host permits the explicit connection flow; it does not connect an account, enable a tool or grant access.
+
+**Integrations → MCP servers** provides those six presets with account labels, OAuth sign-in and a bearer form for vendors that support that authentication. OAuth requires the deployment's credential encryption key (`MODEL_CREDENTIAL_KEY`), a vendor-registered client ID in `MCP_OAUTH_CLIENT_<CATALOG_ID>` (uppercase, with hyphens changed to underscores), and the exact Shiba callback URL registered with the vendor: `https://<worker-host>/api/v1/mcp/oauth/callback`. For example, Atlassian uses `MCP_OAUTH_CLIENT_JIRA_ATLASSIAN`. The preset is not proof that the vendor accepts the deployment's client, requested scopes or account tier. Unsupported or missing vendor metadata, client configuration or consent leaves the connection unavailable. There is no automatic vendor-client registration. A token submitted through the dedicated bearer form is stored encrypted by the Worker; credentials are not model context or capability-catalog content. Never paste credentials into chat.
 
 Use **Discover / retry** to fetch a bounded tool schema snapshot. Read each remote description as untrusted text. For each namespaced capability, explicitly review its effect as either read-only or “may mutate” (which requires approval for every exact call), then enable it. Grant each enabled capability only to an active MCP principal that has the `mcp:external` scope. A changed schema disables the affected capability and clears its principal grants until it is reviewed and enabled again. A server health error disables its capabilities; retry discovery before reconnecting.
 
 Discovery accepts a strict JSON Schema subset: objects, strings, numbers, integers, booleans, arrays, string enums, and supported length/item/numeric bounds. Unsupported assertion keywords such as `pattern`, `format`, `uniqueItems`, or `$ref` fail discovery rather than being ignored.
 
-The inbound `/mcp` gateway lists only currently enabled capabilities granted to its verified bearer principal. Policy is reloaded at invocation, and the normal durable tool receipt records the result. Calls classified as potentially mutating first create an exact-argument human approval, visible on the external-server card. The owner's **Approve and dispatch** action executes only that frozen payload and settles its invocation receipt; a model retry never dispatches a write. The tool response is marked untrusted. Shiba supports HTTPS Streamable HTTP with no redirects and optional bearer authentication from a preprovisioned secret reference. OAuth setup, SSE-only and stdio servers, private/local/metadata destinations, custom auth headers and self-hosted private transport are unsupported. No server is contacted unless an authenticated owner explicitly starts discovery or an enabled tool is invoked (or the owner approves a frozen write).
+The inbound `/mcp` gateway lists only currently enabled capabilities granted to its verified bearer principal. Policy is reloaded at invocation, and the normal durable tool receipt records the result. Calls classified as potentially mutating first create an exact-argument human approval, visible on the external-server card. The owner's **Approve and dispatch** action executes only that frozen payload and settles its invocation receipt; a model retry never dispatches a write. The tool response is marked untrusted. Employee use additionally requires the selected employee's capability and exact resource grants in **Employee tools**; an account connection or workspace-visibility label does not grant those permissions.
+
+Shiba supports HTTPS Streamable HTTP, with redirects rejected, and no-auth, bearer-reference or curated OAuth authentication. SSE-only and stdio servers, private/local/metadata destinations, custom auth headers and private-network transport are unsupported. Network requests occur during an authenticated owner's explicit sign-in, bearer revocation, discovery or approved invocation flow, including OAuth metadata discovery and token refresh when needed. A saved draft alone does not execute tools. These supported code paths still require live verification against each configured vendor and deployment.
 
 ### Memory ownership and legacy compatibility
 
@@ -102,7 +109,7 @@ Two read-only tools serve the sign-in flow: `extract_otp` pulls a one-time code 
 
 The gateway has no approve tool. This MCP tool accepts repository/task/branch/publish/test-command inputs, not a per-run harness or model; queued runs use the deployment's configured defaults (`AGENT_HARNESS`, `CODING_MODEL`, and the selected harness's model default) when approved. Harness implementation and verification status are documented in [Coding Harnesses](/docs/claude-code/). No cloud end-to-end run is recorded; the dated local OpenCode exercise did not reach successful model inference.
 
-Run visibility is per-principal: `run_status`, `list_runs`, and `list_approvals` only return records the calling token's principal queued (`queuedBy` is stamped at intake). Operator surfaces — dashboard, Slack, `/api/runs` with an Access identity — still see everything. Pair `sandbox:exec` with `runs:read` on tokens that queue and poll runs.
+Run visibility is per-principal: `run_status`, `list_runs`, and `list_approvals` only return records the calling token's principal queued (`queuedBy` is stamped at intake). Dashboard run reads resolve the verified user's own session; shared operator runs additionally require the configured approver authority. Slack and shared-room views enforce their own source and audience checks. A dashboard login does not grant access to every user's runs. Pair `sandbox:exec` with `runs:read` on tokens that queue and poll runs.
 
 
 ## 4. How `/mcp` is authenticated
@@ -112,6 +119,8 @@ Run visibility is per-principal: `run_status`, `list_runs`, and `list_approvals`
 - The Worker checks the token's shape, then looks up its SHA-256 hash in `AGENT_TOKENS`. A missing, unknown, revoked, or expired token gets a plain `401` before any MCP traffic is served, and so does a KV outage.
 - The verified record reaches the gateway in a Worker-set header. Client copies of that header are stripped.
 - Every tool call is checked against the token's scopes and writes a row to the audit log (`GET /api/audit`). The row holds the principal, the tool, a hash of the arguments and the outcome, never the arguments themselves.
+
+For clients using OAuth instead of a minted static token, Shiba also implements authorization-server and protected-resource metadata, public-client registration, owner consent, authorization code with PKCE, rotating refresh tokens and revocation. These authenticate the incoming MCP client; they are separate from the curated vendors' outgoing OAuth connections above. OAuth clients still receive scoped principals and cannot approve their own actions. Client and deployment compatibility require their own live check.
 
 See [Security](/docs/security/) for the Access bypass policy and [Approval Gates](/docs/approval-gates/) for how a human resolves a queued run.
 

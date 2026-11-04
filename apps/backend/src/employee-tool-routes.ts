@@ -245,6 +245,7 @@ async function configurePolicy(request: Request, env: Env, employeeId: string): 
     catch { return jsonError("integration_connections_unavailable", 503); }
     const selected = resources.map((resource) => connections.find((connection) => connection.providerKey === resource)).filter((connection) => connection !== undefined);
     if (selected.length !== resources.length) return jsonError("integration_connection_not_owned", 403);
+    if (selected.some((connection) => connection.executionReady !== true)) return jsonError("integration_connection_not_ready", 409);
     if (resources.some((resource) => connections.filter((connection) => connection.providerKey === resource).length !== 1)) return jsonError("integration_connection_ambiguous", 409);
     if (integrationConnectionIds !== undefined && selected.some((connection) => (integrationConnectionIds as Record<string, string>)[connection.providerKey] !== connection.id)) {
       return jsonError("integration_connection_selection_changed", 409);
@@ -427,7 +428,7 @@ export async function dispatchEmployeeToolForPrincipal(
     let connections: IntegrationProviderConnection[];
     try { connections = await provider.listConnections({ userId: connection.accountId }); }
     catch { return jsonError("integration_connections_unavailable", 503); }
-    if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId)) return jsonError("integration_connection_disconnected", 403);
+    if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId && item.executionReady === true)) return jsonError("integration_connection_disconnected", 403);
   }
   const policy = { ...connectionPolicy(toolName), version: connection.policyVersion };
 
@@ -504,9 +505,9 @@ export async function dispatchEmployeeToolForPrincipal(
     const provider = getIntegrationProvider(env);
     if (current.policyVersion !== `integrations:${provider.id}`) throw new Error("Integration provider changed.");
     const connections = await provider.listConnections({ userId: connection.accountId! });
-    if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId)) throw new Error("Integration disconnected.");
+    if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId && item.executionReady === true)) throw new Error("Integration disconnected.");
     await beforeDispatch?.();
-  });
+  }, connection.connectionId);
   const registeredDispatchRegistry: Pick<ToolRegistry, "invoke"> = integrationRegistry ?? (toolName === "gmail_read" ? { invoke: async (_name, toolArgs) => {
     const currentIds = (toolArgs as Record<string, unknown>).messageIds as string[];
     const freshEmployee = await getCustomAgentById(env, orgId, employeeId);

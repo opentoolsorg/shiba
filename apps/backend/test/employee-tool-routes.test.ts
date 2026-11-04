@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const authState = vi.hoisted(() => ({ dashboard: false }));
 const tokenState = vi.hoisted(() => ({ principal: "agent-a", orgId: "self-hosted", scopes: ["runs:read", "sandbox:exec"] as string[] }));
 const integrations = vi.hoisted(() => ({
-  listConnections: vi.fn(async ({ userId }: { userId: string }) => [{ id: `connection:${userId}`, provider: "openconnector", providerKey: "github" }]),
+  listConnections: vi.fn(async ({ userId }: { userId: string }) => [{ id: `connection:${userId}`, provider: "openconnector", providerKey: "github", executionReady: true }]),
   searchActions: vi.fn(async () => [{ id: "github.create_issue", service: "github", name: "Create issue" }]),
   executeTool: vi.fn(async () => ({ ok: true, status: "completed", output: { id: 1 } })),
 }));
@@ -117,10 +117,19 @@ describe("employee tool local workflow", () => {
     authState.dashboard = true;
     const bindings = env();
     const employee = await createCustomAgent(bindings, "self-hosted", "connector", { name: "Connector", instructions: "Use selected app", harness: "opencode" });
-    integrations.listConnections.mockResolvedValueOnce([{ id: "account-a", provider: "openconnector", providerKey: "github" }, { id: "account-b", provider: "openconnector", providerKey: "github" }]);
+    integrations.listConnections.mockResolvedValueOnce([{ id: "account-a", provider: "openconnector", providerKey: "github", executionReady: true }, { id: "account-b", provider: "openconnector", providerKey: "github", executionReady: true }]);
     const response = await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:integrations.execute": ["github"] }), bindings);
     expect(response?.status).toBe(409);
     expect(await response?.json()).toMatchObject({ error: "integration_connection_ambiguous" });
+    expect((await getCustomAgentById(bindings, "self-hosted", employee.id))?.version).toBe(1);
+  });
+
+  it("refuses an app grant without current consent provenance before changing employee version", async () => {
+    authState.dashboard = true; const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "connector", { name: "Connector", instructions: "Use selected app", harness: "opencode" });
+    integrations.listConnections.mockResolvedValueOnce([{ id: "configured-static", provider: "openconnector", providerKey: "github", executionReady: false }]);
+    const response = await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:integrations.execute": ["github"] }), bindings);
+    expect(response?.status).toBe(409); expect(await response?.json()).toMatchObject({ error: "integration_connection_not_ready" });
     expect((await getCustomAgentById(bindings, "self-hosted", employee.id))?.version).toBe(1);
   });
 
@@ -162,7 +171,7 @@ describe("employee tool local workflow", () => {
     expect((await handleEmployeeTools(callRequest(employee.id, "integrations.execute", { ...args, arguments: { title: "Changed" } }), bindings))?.status).toBe(202);
     expect(integrations.executeTool).not.toHaveBeenCalled();
     expect((await handleEmployeeTools(callRequest(employee.id, "integrations.execute", args), bindings))?.status).toBe(200);
-    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...args, userId: '["better-auth","owner-a"]' });
+    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...args, userId: '["better-auth","owner-a"]', approvedConnectionId: 'connection:["better-auth","owner-a"]' });
     await handleEmployeeTools(callRequest(employee.id, "integrations.execute", args), bindings);
     expect(integrations.executeTool).toHaveBeenCalledTimes(1);
     authState.dashboard = true;
@@ -277,7 +286,7 @@ describe("employee tool local workflow", () => {
     expect(await otherCall.execute(input)).toMatchObject({ status: "pending_approval" });
     expect(integrations.executeTool).not.toHaveBeenCalled();
     expect(await call.execute(input)).toMatchObject({ ok: true, result: { structuredContent: { ok: true } } });
-    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...input.args, userId: '["better-auth","owner-a"]' });
+    expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...input.args, userId: '["better-auth","owner-a"]', approvedConnectionId: 'connection:["better-auth","owner-a"]' });
   });
 
   it("routes employee endpoints through the org-authenticated API lane", () => {

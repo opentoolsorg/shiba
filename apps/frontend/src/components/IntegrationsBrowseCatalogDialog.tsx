@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import type { IntegrationProviderCatalogItem } from "@shiba/shared";
 import { ToneChip } from "./ToneChip";
 import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
@@ -15,7 +15,12 @@ function safeLogoUrl(value: string | null | undefined): string | null {
   }
 }
 
-export function IntegrationsBrowseCatalogDialog({
+type BrowseProps = { open: boolean; actorId?: string | null; onClose: () => void; onConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null; linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void; linkingKey?: string | null; linkActionLabel?: string; roleFilter?: CapabilityRoleFilter };
+export function IntegrationsBrowseCatalogDialog(props: BrowseProps): JSX.Element | null {
+  const actor = useRef(props.actorId); actor.current = props.actorId;
+  return <ScopedBrowseCatalog key={props.actorId ?? "legacy"} {...props} isCurrent={() => actor.current === props.actorId} />;
+}
+function ScopedBrowseCatalog({
   open,
   onClose,
   onConnect,
@@ -25,17 +30,8 @@ export function IntegrationsBrowseCatalogDialog({
   linkingKey,
   linkActionLabel = "Add to view",
   roleFilter = "all",
-}: {
-  open: boolean;
-  onClose: () => void;
-  onConnect?: (item: IntegrationProviderCatalogItem) => void;
-  connectingKey?: string | null;
-  linkedConnectorKeys?: ReadonlySet<string>;
-  onLinkExisting?: (item: IntegrationProviderCatalogItem) => void;
-  linkingKey?: string | null;
-  linkActionLabel?: string;
-  roleFilter?: CapabilityRoleFilter;
-}): JSX.Element | null {
+  actorId, isCurrent,
+}: BrowseProps & { isCurrent: () => boolean }): JSX.Element | null {
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<IntegrationProviderCatalogItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -43,6 +39,11 @@ export function IntegrationsBrowseCatalogDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<CapabilityRoleFilter>(roleFilter);
+  const controller = useRef<AbortController | null>(null), epoch = useRef(0), mounted = useRef(true), visible = useRef(open);
+  visible.current = open;
+  const scopeCheck = useRef(isCurrent); scopeCheck.current = isCurrent;
+  const active = useCallback(() => mounted.current && scopeCheck.current() && visible.current, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; epoch.current++; controller.current?.abort(); }; }, []);
   useEffect(() => { if (open) setRole(roleFilter); }, [open, roleFilter]);
   const visibleItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -52,6 +53,9 @@ export function IntegrationsBrowseCatalogDialog({
 
   const loadPage = useCallback(
     async (opts: { reset: boolean; query: string; nextCursor: string | null }) => {
+      if (!active() || actorId === null) return;
+      controller.current?.abort(); const abort = new AbortController(); controller.current = abort;
+      const generation = ++epoch.current;
       setLoading(true);
       setError(null);
       try {
@@ -62,6 +66,7 @@ export function IntegrationsBrowseCatalogDialog({
         const response = await fetch(`/api/integrations/provider/catalog?${params.toString()}`, {
           credentials: "same-origin",
           cache: "no-store",
+          signal: abort.signal,
         });
         if (!response.ok) throw new Error(`Catalog unavailable (${response.status}).`);
         const body = (await response.json()) as {
@@ -69,33 +74,31 @@ export function IntegrationsBrowseCatalogDialog({
           nextCursor?: string | null;
           hasMore?: boolean;
         };
+        if (!active() || generation !== epoch.current || abort.signal.aborted) return;
+        if (!Array.isArray(body.items)) throw new Error("Invalid provider catalog response.");
         const pageItems = Array.isArray(body.items) ? body.items : [];
-        setItems((prev) => (opts.reset ? pageItems : [...prev, ...pageItems]));
+        setItems((prev) => [...new Map((opts.reset ? pageItems : [...prev, ...pageItems]).map((item) => [item.providerKey, item])).values()]);
         setCursor(body.nextCursor ?? null);
         setHasMore(Boolean(body.hasMore));
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : String(loadError));
+        if (active() && generation === epoch.current && !abort.signal.aborted) { setItems([]); setHasMore(false); setError(loadError instanceof Error ? loadError.message : String(loadError)); }
       } finally {
-        setLoading(false);
+        if (active() && generation === epoch.current && !abort.signal.aborted) setLoading(false);
       }
     },
-    [],
+    [active, actorId],
   );
 
   useEffect(() => {
-    if (!open) return;
+    epoch.current++; controller.current?.abort();
+    if (!open || actorId === null) { setItems([]); return; }
     setItems([]);
     setCursor(null);
-    void loadPage({ reset: true, query: search, nextCursor: null });
-  }, [open, loadPage]);
-
-  useEffect(() => {
-    if (!open) return;
     const handle = window.setTimeout(() => {
       void loadPage({ reset: true, query: search, nextCursor: null });
-    }, 250);
-    return () => window.clearTimeout(handle);
-  }, [search, open, loadPage]);
+    }, search.trim() ? 250 : 0);
+    return () => { window.clearTimeout(handle); epoch.current++; controller.current?.abort(); };
+  }, [search, open, loadPage, actorId]);
 
   if (!open) return null;
 
@@ -153,7 +156,7 @@ export function IntegrationsBrowseCatalogDialog({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold">{item.name}</span>
-                      <ToneChip tone={item.isConnected ? "ok" : "neutral"} label={item.isConnected ? "Account connected" : item.connectable ? "Sign-in available" : "Catalog only"} />
+                      <ToneChip tone={item.isConnected ? "ok" : "neutral"} label={item.isConnected ? "Account configured" : item.connectable ? "Sign-in available" : item.setupState === "needs_configuration" ? "OAuth app setup required" : item.setupState === "unverified" ? "Readiness unverified" : "Operator setup required"} />
                       {item.priority === "P0" ? (
                         <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">P0</span>
                       ) : null}

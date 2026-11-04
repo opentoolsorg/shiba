@@ -1,14 +1,14 @@
 import {
   INTEGRATION_CATALOG,
   integrationCatalogDomains,
-  SHIBA_INTEGRATIONS_OAUTH_CHANNEL,
   type IntegrationCatalogEntry,
   type IntegrationConnectionPhase,
   type IntegrationDomain,
   type IntegrationProviderCatalogItem,
   type IntegrationProviderHealth,
 } from "@shiba/shared";
-import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { ownedAppConnections, useIntegrationOAuth } from "../integration-oauth";
 import {
   buildIntegrationConnectionSnapshot,
   connectionPhaseLabel,
@@ -100,15 +100,15 @@ function mergeProviderRows(
   for (const item of providerItems) {
     const catalogEntry = INTEGRATION_CATALOG.find((e) =>
       e.id === item.providerKey || e.id === item.id ||
-      (item.source === "openconnector" && e.openConnectorServiceIds?.length === 1 && e.openConnectorServiceIds[0] === item.providerKey),
+      (item.source === "openconnector" && e.openConnectorServiceIds?.includes(item.providerKey)),
     );
-    const connected = item.isConnected || connectedKeys.has(item.providerKey);
+    const connected = connectedKeys.has(item.providerKey);
     const existing = catalogEntry ? byKey.get(catalogEntry.id) : undefined;
-    if (existing) {
-      byKey.set(catalogEntry!.id, {
+    if (catalogEntry && existing && (catalogEntry.openConnectorServiceIds?.length ?? 0) <= 1) {
+      byKey.set(catalogEntry.id, {
         ...existing,
         connected: existing.connected || connected,
-        providerItem: item,
+        providerItem: { ...item, isConnected: connected },
         logoUrl: safeLogoUrl(item.logoUrl),
         description: item.description || existing.description,
       });
@@ -119,7 +119,7 @@ function mergeProviderRows(
       name: item.name,
       description: item.description,
       connected,
-      providerItem: item,
+      providerItem: { ...item, isConnected: connected },
       logoUrl: safeLogoUrl(item.logoUrl),
       docsUrl: item.docsUrl,
       entry: catalogEntry,
@@ -186,7 +186,7 @@ function IntegrationSection({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold text-[var(--fg)]">{row.name}</span>
-                      <ToneChip tone={phaseChip.tone} label={row.providerItem && row.connected ? "Account connected" : phaseChip.label} />
+                      <ToneChip tone={phaseChip.tone} label={row.providerItem?.isConnected ? "Account configured" : phaseChip.label} />
                       {entry ? (
                         <>
                           <span className="rounded border border-[var(--border-1)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--muted-foreground-2)]">
@@ -205,7 +205,8 @@ function IntegrationSection({
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                {row.providerItem?.connectable && !row.connected && onConnect ? <button type="button" onClick={() => onConnect(row.providerItem!)} className="min-h-11 border border-[var(--border-1)] px-3 text-xs text-[var(--primary)]">Connect app</button> : null}
+                {row.providerItem?.connectable && !row.providerItem.isConnected && onConnect ? <button type="button" onClick={() => { if (row.providerItem) onConnect(row.providerItem); }} className="min-h-11 border border-[var(--border-1)] px-3 text-xs text-[var(--primary)]">Connect app</button> : null}
+                {row.providerItem && !row.providerItem.connectable && !row.providerItem.isConnected ? <span className="self-center text-[10px] text-[var(--muted-foreground-2)]">{row.providerItem.setupState === "needs_configuration" ? "OAuth app setup required" : row.providerItem.setupState === "unverified" ? "Sign-in readiness unverified" : "Operator credential setup required"}</span> : null}
                 {entry && CURATED_MCP_VENDORS.some((vendor) => vendor.catalogId === entry.id) ? <a href={`/integrations/?tab=mcp#mcp-preset-${entry.id}`} className="inline-flex min-h-11 items-center border border-[var(--border-1)] px-3 text-xs text-[var(--primary)]">Configure MCP</a> : null}
                 {row.docsUrl ? (
                   <a
@@ -237,7 +238,17 @@ function IntegrationSection({
   );
 }
 
-export function IntegrationCatalogDirectory({
+type DirectoryProps = {
+  bindingInputs: IntegrationBindingInputs; actorId?: string | null; onOpenDocs?: (entry: IntegrationCatalogEntry) => void;
+  linkedConnectorKeys?: ReadonlySet<string>; onLinkExisting?: (item: IntegrationProviderCatalogItem) => void;
+  linkActionLabel?: string; linkingKey?: string | null; onConnectStarted?: (providerKey: string) => void; onOAuthComplete?: () => void;
+  onRequestConnect?: (item: IntegrationProviderCatalogItem) => void; connectingKey?: string | null;
+};
+export function IntegrationCatalogDirectory(props: DirectoryProps): JSX.Element {
+  const actor = useRef(props.actorId); actor.current = props.actorId;
+  return <ScopedIntegrationCatalogDirectory key={props.actorId ?? "legacy"} {...props} isCurrent={() => actor.current === props.actorId} />;
+}
+function ScopedIntegrationCatalogDirectory({
   bindingInputs,
   onOpenDocs,
   linkedConnectorKeys,
@@ -246,16 +257,8 @@ export function IntegrationCatalogDirectory({
   linkingKey,
   onConnectStarted,
   onOAuthComplete,
-}: {
-  bindingInputs: IntegrationBindingInputs;
-  onOpenDocs?: (entry: IntegrationCatalogEntry) => void;
-  linkedConnectorKeys?: ReadonlySet<string>;
-  onLinkExisting?: (item: IntegrationProviderCatalogItem) => void;
-  linkActionLabel?: string;
-  linkingKey?: string | null;
-  onConnectStarted?: (providerKey: string) => void;
-  onOAuthComplete?: () => void;
-}): JSX.Element {
+  actorId, onRequestConnect, connectingKey: externalConnectingKey, isCurrent,
+}: DirectoryProps & { isCurrent: () => boolean }): JSX.Element {
   const [search, setSearch] = useState("");
   const [domain, setDomain] = useState<IntegrationDomain | "all">("all");
   const [recommendedOnly, setRecommendedOnly] = useState(false);
@@ -263,17 +266,21 @@ export function IntegrationCatalogDirectory({
   const [connectedVisible, setConnectedVisible] = useState(LIST_PAGE_SIZE);
   const [availableVisible, setAvailableVisible] = useState(LIST_PAGE_SIZE);
   const [browseOpen, setBrowseOpen] = useState(false);
-  const [connectingKey, setConnectingKey] = useState<string | null>(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
   const [providerHealth, setProviderHealth] = useState<IntegrationProviderHealth | null>(null);
   const [providerItems, setProviderItems] = useState<IntegrationProviderCatalogItem[]>([]);
   const [connectedKeys, setConnectedKeys] = useState<Set<string>>(() => new Set());
   const [catalogCursor, setCatalogCursor] = useState<string | null>(null);
   const [catalogHasMore, setCatalogHasMore] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const controller = useRef(new AbortController()), alive = useRef(true), catalogEpoch = useRef(0), refreshEpoch = useRef(0);
+  const scopeCheck = useRef(isCurrent); scopeCheck.current = isCurrent;
+  const active = useCallback(() => alive.current && scopeCheck.current() && !controller.current.signal.aborted, []);
 
   const loadProviderCatalogPage = useCallback(async (opts: { reset: boolean; cursor?: string | null }) => {
+    const generation = ++catalogEpoch.current;
     setCatalogLoading(true);
+    if (opts.reset) { setProviderItems([]); setCatalogCursor(null); setCatalogHasMore(false); }
     try {
       const params = new URLSearchParams();
       params.set("limit", "20");
@@ -281,70 +288,53 @@ export function IntegrationCatalogDirectory({
       const catalogRes = await fetch(`/api/integrations/provider/catalog?${params.toString()}`, {
         credentials: "same-origin",
         cache: "no-store",
+        signal: controller.current.signal,
       });
-      if (!catalogRes.ok) return;
+      if (!catalogRes.ok) throw new Error(`Provider catalog unavailable (${catalogRes.status}).`);
       const catalog = (await catalogRes.json()) as {
         items?: IntegrationProviderCatalogItem[];
         nextCursor?: string | null;
         hasMore?: boolean;
         fallbackCatalog?: boolean;
       };
+      if (!active() || generation !== catalogEpoch.current) return;
+      if (!Array.isArray(catalog.items)) throw new Error("Invalid provider catalog response.");
       const pageItems = Array.isArray(catalog.items) ? catalog.items : [];
-      setProviderItems((prev) => (opts.reset ? pageItems : [...prev, ...pageItems]));
+      setProviderItems((prev) => [...new Map((opts.reset ? pageItems : [...prev, ...pageItems]).map((item) => [item.providerKey, item])).values()]);
       setCatalogCursor(catalog.nextCursor ?? null);
       setCatalogHasMore(Boolean(catalog.hasMore));
+    } catch (cause) {
+      if (active() && generation === catalogEpoch.current) { setProviderItems([]); setCatalogHasMore(false); setProviderError(cause instanceof Error ? cause.message : "Provider catalog unavailable."); }
     } finally {
-      setCatalogLoading(false);
+      if (active() && generation === catalogEpoch.current) setCatalogLoading(false);
     }
-  }, []);
+  }, [active]);
 
   const refreshProvider = useCallback(async () => {
-    try {
-      const [metaRes, connectionsRes] = await Promise.all([
-        fetch("/api/integrations/provider/meta", { credentials: "same-origin", cache: "no-store" }),
-        fetch("/api/integrations/provider/connections", { credentials: "same-origin", cache: "no-store" }),
-      ]);
-      if (metaRes.ok) {
-        const meta = (await metaRes.json()) as { health?: IntegrationProviderHealth };
-        if (meta.health) setProviderHealth(meta.health);
-      }
-      if (connectionsRes.ok) {
-        const body = (await connectionsRes.json()) as { connections?: Array<{ providerKey: string }> };
-        setConnectedKeys(new Set((body.connections ?? []).map((row) => row.providerKey)));
-      }
-      await loadProviderCatalogPage({ reset: true });
-    } catch {
-      // Provider panel degrades to native Viktor catalog only.
-    }
-  }, [loadProviderCatalogPage]);
+    if (!active() || actorId === null) return;
+    const generation = ++refreshEpoch.current;
+    setConnectedKeys(new Set()); setProviderHealth(null); setProviderError(null);
+    const results = await Promise.allSettled([
+      fetch("/api/integrations/provider/meta", { credentials: "same-origin", cache: "no-store", signal: controller.current.signal }).then(async (response) => { if (!response.ok) throw new Error("Provider readiness unavailable."); return await response.json() as { health?: IntegrationProviderHealth }; }),
+      ownedAppConnections(controller.current.signal),
+      loadProviderCatalogPage({ reset: true }),
+    ]);
+    if (!active() || generation !== refreshEpoch.current) return;
+    const [meta, connections] = results;
+    if (meta?.status === "fulfilled" && meta.value.health) setProviderHealth(meta.value.health);
+    if (connections?.status === "fulfilled") setConnectedKeys(new Set(connections.value.map((row) => row.providerKey)));
+    else setProviderError("Current app account state is unavailable. Previously connected badges were cleared; refresh before granting access.");
+    if (meta?.status === "rejected") setProviderError("Provider readiness is unavailable. Refresh to verify current service authentication.");
+  }, [actorId, active, loadProviderCatalogPage]);
 
   useEffect(() => {
+    alive.current = true; controller.current = new AbortController();
     void refreshProvider();
+    const focus = () => { void refreshProvider(); }; window.addEventListener("focus", focus);
+    return () => { alive.current = false; refreshEpoch.current++; catalogEpoch.current++; controller.current.abort(); window.removeEventListener("focus", focus); };
   }, [refreshProvider]);
-
-  useEffect(() => {
-    const handleOAuthComplete = () => {
-      void refreshProvider();
-      onOAuthComplete?.();
-    };
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel(SHIBA_INTEGRATIONS_OAUTH_CHANNEL);
-      channel.onmessage = handleOAuthComplete;
-    } catch {
-      channel = null;
-    }
-    const onWindowMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as { type?: string } | null;
-      if (data?.type === SHIBA_INTEGRATIONS_OAUTH_CHANNEL) handleOAuthComplete();
-    };
-    window.addEventListener("message", onWindowMessage);
-    return () => {
-      channel?.close();
-      window.removeEventListener("message", onWindowMessage);
-    };
-  }, [refreshProvider, onOAuthComplete]);
+  const oauth = useIntegrationOAuth({ actorId, onVerified: () => { if (active()) { void refreshProvider(); onOAuthComplete?.(); } } });
+  const connectingKey = externalConnectingKey ?? oauth.connectingKey;
 
   const allRows = useMemo(() => {
     const native = nativeRows(INTEGRATION_CATALOG, bindingInputs);
@@ -356,55 +346,29 @@ export function IntegrationCatalogDirectory({
       integrationRecommendedForRole(role, row.entry?.id, row.providerItem));
   }, [search, domain, recommendedOnly, role, bindingInputs, providerItems, connectedKeys]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Changing a filter resets both independently paginated lists.
   useEffect(() => { setConnectedVisible(LIST_PAGE_SIZE); setAvailableVisible(LIST_PAGE_SIZE); }, [search, domain, recommendedOnly, role]);
 
   const connectedRows = useMemo(() => allRows.filter((row) => row.connected), [allRows]);
   const availableRows = useMemo(() => allRows.filter((row) => !row.connected), [allRows]);
 
-  const beginConnect = useCallback(async (item: IntegrationProviderCatalogItem) => {
-    setConnectingKey(item.providerKey);
-    setConnectError(null);
-    try {
-      const response = await fetch("/api/integrations/provider/connect", {
-        method: "POST",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          providerKey: item.providerKey,
-          callbackOrigin: window.location.origin,
-        }),
-      });
-      const body = (await response.json()) as { ok?: boolean; redirectUrl?: string | null; error?: string };
-      if (!response.ok || !body.ok || !body.redirectUrl) {
-        throw new Error(body.error ?? "Connect unavailable.");
-      }
-      const target = new URL(body.redirectUrl);
-      if (target.protocol !== "https:") throw new Error("Connect returned an unsafe redirect URL.");
-      onConnectStarted?.(item.providerKey);
-      window.open(target.href, "shiba-integrations-oauth", "width=520,height=720,noopener,noreferrer");
-      await refreshProvider();
-    } catch (error) {
-      setConnectError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setConnectingKey(null);
-    }
-  }, [onConnectStarted, refreshProvider]);
+  const beginConnect = (item: IntegrationProviderCatalogItem) => { onConnectStarted?.(item.providerKey); if (onRequestConnect) onRequestConnect(item); else void oauth.beginConnect(item); };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-col gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-3 lg:px-8">
-        {providerHealth?.status === "unconfigured" ? (
+        {providerHealth ? (
           <p className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--muted-foreground-2)]">
             {providerHealth.message ??
-              "Connect the open-connector service to enable SaaS sign-in. Showing the available catalog until setup is complete."}
+              (providerHealth.status === "healthy" ? "Service reports healthy. App accounts, live actions and employee grants require separate verification." : "OpenConnector is not ready. Ask the operator to verify service credentials and OAuth app setup.")}
           </p>
         ) : null}
-        {connectError ? (
+        {providerError || oauth.error ? (
           <p className="text-xs text-[var(--warning-fg)]" role="status">
-            {connectError}
+            {providerError ?? oauth.error}
           </p>
         ) : null}
+        {oauth.notice && <p role="status" className="text-xs text-[var(--muted-foreground-2)]">{oauth.notice}</p>}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-[var(--muted-foreground-2)]">
             Search integrations
@@ -474,7 +438,7 @@ export function IntegrationCatalogDirectory({
           ) : null}
         </div>
         <p className="text-[11px] text-[var(--muted-foreground-2)]">
-          {connectedRows.length} configured or linked · {availableRows.length} need setup · {INTEGRATION_CATALOG.length} reference catalog entries ({INTEGRATION_CATALOG.filter((entry) => entry.status === "live").length} implemented product paths).
+          {connectedRows.length} matching configured or linked · {availableRows.length} matching entries need setup · {INTEGRATION_CATALOG.length} reference catalog entries ({INTEGRATION_CATALOG.filter((entry) => entry.status === "live").length} implemented product paths). {providerItems.length} provider listings loaded; {providerItems.filter((item) => item.connectable).length} report verified OAuth app setup.
           {" "}Recommendations do not install apps or grant employee access. Configuration, authentication, health and employee grants are separate steps.
         </p>
       </div>
@@ -504,6 +468,7 @@ export function IntegrationCatalogDirectory({
       </div>
       <IntegrationsBrowseCatalogDialog
         open={browseOpen}
+        actorId={actorId}
         onClose={() => setBrowseOpen(false)}
         onConnect={(item) => void beginConnect(item)}
         connectingKey={connectingKey}

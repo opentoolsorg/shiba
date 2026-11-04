@@ -3507,7 +3507,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
-            <IntegrationsView onNavigate={openView} />
+            <IntegrationsView onNavigate={openView} actorId={orchestratorName ?? undefined} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
           ) : null}

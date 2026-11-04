@@ -17,7 +17,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("IntegrationCatalogDirectory OAuth redirects", () => {
   it("filters merged provider entries and never labels deployment-only bindings connected", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items: [{ id: "campaign-stats", providerKey: "campaign-stats", name: "Live campaign stats", description: "Provider action catalog", source: "openconnector", domain: "marketing", priority: "P0", connectable: true, isConnected: false }], connections: [] })));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true, provider: "openconnector", items: [{ id: "campaign-stats", providerKey: "campaign-stats", name: "Live campaign stats", description: "Provider action catalog", source: "openconnector", domain: "marketing", priority: "P0", connectable: true, isConnected: false }], connections: [] })));
     render(<IntegrationCatalogDirectory bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "Live campaign stats" } });
     expect(await screen.findByText("Live campaign stats")).toBeTruthy();
@@ -36,10 +36,11 @@ describe("IntegrationCatalogDirectory OAuth redirects", () => {
   });
   it.each(["https://oauth.example.com/connect", "http://oauth.example.com", "javascript:alert(1)"])(
     "isolates HTTPS popups and rejects unsafe redirects (%s)", async (redirectUrl) => {
-      const open = vi.spyOn(window, "open").mockReturnValue(null);
+      const popup = { opener: {}, location: { replace: vi.fn() }, close: vi.fn(), closed: false } as unknown as Window;
+      const open = vi.spyOn(window, "open").mockReturnValue(popup);
       vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input).endsWith("/connect")) return Response.json({ ok: true, redirectUrl });
-        return Response.json({ items: [], connections: [], hasMore: false });
+        if (String(input).endsWith("/connect")) return Response.json({ ok: true, redirectUrl, authorizationFingerprint: "a".repeat(64) });
+        return Response.json({ ok: true, provider: "openconnector", items: [], connections: [], hasMore: false });
       }));
       render(<IntegrationCatalogDirectory bindingInputs={{
         setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false,
@@ -47,10 +48,10 @@ describe("IntegrationCatalogDirectory OAuth redirects", () => {
       }} />);
       fireEvent.click(screen.getByRole("button", { name: "Connect fixture" }));
       if (redirectUrl.startsWith("https:")) {
-        await waitFor(() => expect(open).toHaveBeenCalledWith(redirectUrl, "shiba-integrations-oauth", "width=520,height=720,noopener,noreferrer"));
+        await waitFor(() => expect(popup.location.replace).toHaveBeenCalledWith(redirectUrl)); expect(open).toHaveBeenCalledWith("about:blank", "_blank", "width=520,height=720"); expect(popup.opener).toBeNull();
       } else {
         expect(await screen.findByText("Connect returned an unsafe redirect URL.")).toBeTruthy();
-        expect(open).not.toHaveBeenCalled();
+        expect(popup.location.replace).not.toHaveBeenCalled(); expect(popup.close).toHaveBeenCalled();
       }
     },
   );
