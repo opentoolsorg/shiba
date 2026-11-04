@@ -422,11 +422,21 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             this.envScrub = runEnv !== undefined ? runEnvScrubber(runEnv) : null;
             const openJournal = async (capsule: PreparedRuntimeExecution) => {
               if (!input.runRoom) return;
-              const parts = [this.env.GITHUB_TOKEN ?? "", ...Object.values(runEnv ?? {})]
-                .flatMap((value) => value.split(/\r?\n/)).filter(Boolean).sort((a, b) => b.length - a.length);
+              // safeText applies the approved env scrubber to complete values,
+              // including JSON escapes. The journal flushes one line at a time,
+              // so also protect eligible fragments of multiline values. Apply
+              // its collision policy to each fragment, not the combined value.
+              const envParts = Object.entries(runEnv ?? {}).flatMap(([name, value]) =>
+                value.includes("\n") ? value.split(/\r?\n/).filter((part) =>
+                  runEnvScrubber({ [name]: part })(part) !== part) : []);
+              const parts = [...(this.env.GITHUB_TOKEN ?? "").split(/\r?\n/), ...envParts]
+                .filter(Boolean).sort((a, b) => b.length - a.length);
               journalPublisher = await createRunJournalPublisher(this.env, input.runRoom,
                 { jobId: capsule.jobId, generation: capsule.envelopeHash },
-                (text) => this.safeText(parts.reduce((safe, part) => safe.split(part).join("[redacted]"), text), text.length));
+                // The publisher bounds complete redacted lines. Do not truncate
+                // between whole-value and fragment scrubbing: expanded markers
+                // could otherwise cut a credential before its fragment matches.
+                (text) => parts.reduce((safe, part) => safe.split(part).join("[redacted]"), this.safeText(text, Number.MAX_SAFE_INTEGER)));
             };
             if (recovery) await openJournal(recovery);
             const hosts = allowedHostsFor(harness, runInput.codingModel, runInput);
