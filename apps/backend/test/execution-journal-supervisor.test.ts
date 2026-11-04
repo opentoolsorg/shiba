@@ -80,7 +80,7 @@ async function eventually<T>(read: () => Promise<T>, accept: (value: T) => boole
   throw new Error(`Fixture did not settle: ${JSON.stringify(last)}`);
 }
 
-async function drain(item: Fixture, after = 0): Promise<{ page: JournalPage; frames: JournalPage["frames"] }> {
+async function drain(item: Fixture, after = 0, timeout = 5_000): Promise<{ page: JournalPage; frames: JournalPage["frames"] }> {
   const frames: JournalPage["frames"] = [];
   let cursor = after;
   const page = await eventually(async () => {
@@ -94,7 +94,7 @@ async function drain(item: Fixture, after = 0): Promise<{ page: JournalPage; fra
     expect(next.frames.length).toBeLessThanOrEqual(64);
     expect(next.cursor).toBe(cursor);
     return next;
-  }, (next) => next.done);
+  }, (next) => next.done, timeout);
   return { page, frames };
 }
 
@@ -226,14 +226,18 @@ describe("execution journal local supervisor", () => {
 
   it("fails explicitly at the source output cap while no reader is attached", async () => {
     const item = await fixture();
-    item.start("const b=Buffer.alloc(65536,120);function emit(){while(process.stdout.write(b)){}process.stdout.once('drain',emit)}emit()", Date.now() + 4_000);
-    await delay(350);
-    const result = await drain(item);
+    item.start("const b=Buffer.alloc(65536,120);function emit(){while(process.stdout.write(b)){}process.stdout.once('drain',emit)}emit()", Date.now() + 10_000);
+    // Observe only the durable receipt until the source has stopped. Reading
+    // the journal must not be what drives the cap or source termination.
+    await eventually(() => exists(path.join(item.root, item.jobId, "receipt.json")), Boolean, 12_000);
+    // A full 4 MiB capture requires multiple real Node reader processes. Bound
+    // that transport work separately from the source's production output cap.
+    const result = await drain(item, 0, 12_000);
     expect(result.page.state).toBe("limited");
     expect(result.page.exitCode).not.toBe(0);
     expect(result.frames.length).toBeLessThanOrEqual(4_096);
     expect(result.frames.reduce((total, frame) => total + Buffer.from(frame.dataBase64, "base64").byteLength, 0)).toBeLessThanOrEqual(4 * 1024 * 1024);
-  });
+  }, 30_000);
 
   it("honors idempotent cancellation and drains the source before a terminal receipt", async () => {
     const item = await fixture();
