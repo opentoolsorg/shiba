@@ -41,6 +41,25 @@ export function fixtureChildEnv(parent,fixture){
     GIT_CONFIG_NOSYSTEM:'1'};
 }
 
+export function createFixtureAuth(){
+  return {name:'Employee CI fixture operator',email:`employee-fixture-${randomBytes(12).toString('hex')}@example.test`,
+    password:randomBytes(32).toString('base64url'),bootstrapToken:randomBytes(32).toString('hex')};
+}
+
+/** Use the real bootstrap header only for the disposable account's first sign-up. */
+export function fixtureAuthRequest(auth){
+  const created=auth.created===true;
+  return {route:`/api/auth/${created?'sign-in':'sign-up'}/email`,
+    body:{email:auth.email,password:auth.password,...(!created?{name:auth.name}:{})},
+    headers:!created&&auth.bootstrapToken?{'x-shiba-bootstrap-token':auth.bootstrapToken}:{}};
+}
+
+export function fixtureWorkerVars(origin,auth,keys){
+  return {SHIBA_LOCAL_RUNTIME:'1',BETTER_AUTH_URL:origin,BETTER_AUTH_OWNER_EMAIL:auth.email,
+    BETTER_AUTH_BOOTSTRAP_TOKEN:auth.bootstrapToken,PAIRING_SECRET:keys.pairing,
+    BETTER_AUTH_SECRET:keys.auth,INTERNAL_SIGNING_KEY:keys.signing,MEMORY_ENABLED:'0',TYPESAFE_API_KEY:''};
+}
+
 async function assertFreePort(port){
   // Check both localhost address families without terminating any existing process.
   for(const host of ['127.0.0.1','::1']){
@@ -127,11 +146,12 @@ export async function main(){
   try{
     await Promise.all([mkdir(env.HOME,{recursive:true}),mkdir(env.TMPDIR,{recursive:true}),mkdir(path.join(fixture,'state'))]);
     // Use the supported first-owner bootstrap policy, with exactly one disposable identity.
-    const fixtureAuth={name:'Employee CI fixture operator',email:`employee-fixture-${randomBytes(12).toString('hex')}@example.test`,password:randomBytes(32).toString('base64url')};
-    secrets.push(fixtureAuth.email,fixtureAuth.password);
+    const fixtureAuth=createFixtureAuth();
+    secrets.push(fixtureAuth.email,fixtureAuth.password,fixtureAuth.bootstrapToken);
     await writeFile(path.join(fixture,'auth.json'),JSON.stringify(fixtureAuth)+'\n',{mode:0o600});
     const envFile=path.join(fixture,'worker.env');
-    await writeFile(envFile,`SHIBA_LOCAL_RUNTIME=1\nBETTER_AUTH_URL=${origin}\nBETTER_AUTH_OWNER_EMAIL=${fixtureAuth.email}\nPAIRING_SECRET=${secrets[0]}\nBETTER_AUTH_SECRET=${secrets[1]}\nINTERNAL_SIGNING_KEY=${secrets[2]}\n`,{mode:0o600});
+    const workerVars=fixtureWorkerVars(origin,fixtureAuth,{pairing:secrets[0],auth:secrets[1],signing:secrets[2]});
+    await writeFile(envFile,Object.entries(workerVars).map(([name,value])=>`${name}=${value}`).join('\n')+'\n',{mode:0o600});
     const pkg=JSON.parse(await readFile(path.join(ROOT,'package.json'),'utf8'));
     const expectedPnpm=pkg.packageManager.match(/^pnpm@([^+]+)/)?.[1];assert(expectedPnpm,'Repository must pin pnpm.');
     const version=owned('pnpm',['--version'],result.migrationLog);

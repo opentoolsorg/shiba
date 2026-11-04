@@ -151,18 +151,36 @@ describe("app Work and Threads routing", () => {
   });
 
   it("keeps a quick-add draft when browser storage rejects draft writes", async () => {
-    const originalSetItem = Storage.prototype.setItem;
-    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+    const originalFetch = fetch;
+    let finishSessions!: (response: Response) => void;
+    let finishCreation!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions") {
+        return new Promise<Response>((resolve) => {
+          if (options?.method === "POST") finishCreation = resolve;
+          else finishSessions = resolve;
+        });
+      }
+      return originalFetch(url, options);
+    }));
+    const originalSetItem = localStorage.setItem.bind(localStorage);
+    const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
       if (key === "shiba-composer-drafts-v1") throw new Error("Storage blocked");
-      originalSetItem.call(this, key, value);
+      originalSetItem(key, value);
     });
     try {
       render(<App />);
       const input = await screen.findByRole("textbox", { name: "Draft a task and press Enter" });
-      await act(async () => {});
+      await waitFor(() => expect(finishSessions).toBeTypeOf("function"));
+      await act(async () => finishSessions(Response.json({ sessions: [] })));
       fireEvent.change(input, { target: { value: "Keep this task without storage" } });
       fireEvent.submit(input.closest("form")!);
-      await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Keep this task without storage"));
+      await waitFor(() => expect(finishCreation).toBeTypeOf("function"));
+      await act(async () => finishCreation(Response.json({ session: { id: "new-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } })));
+      expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Keep this task without storage");
+      expect(screen.getByRole("button", { name: "Rename thread" })).toBeTruthy();
+      expect(storage).toHaveBeenCalledWith("shiba-composer-drafts-v1", expect.any(String));
+      expect(readDraft(composerDraftScope("test-operator", "new-thread"))).toBe("");
     } finally {
       storage.mockRestore();
     }

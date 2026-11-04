@@ -20,9 +20,13 @@ jobs:
     env:
       STAGE: pr-${{ github.event.pull_request.number }}
       WORKERS_SUBDOMAIN: ${{ secrets.WORKERS_SUBDOMAIN }}
+      # Runner-local state cannot support cleanup on a later close event.
+      # Reuse an existing remote backend; missing bootstrap must fail closed.
+      ALCHEMY_STATE_BACKEND: cloudflare
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -89,6 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       STAGE: pr-${{ github.event.pull_request.number }}
+      ALCHEMY_STATE_BACKEND: cloudflare
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
