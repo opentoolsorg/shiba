@@ -15,7 +15,7 @@ describe("EmployeeToolPolicyView", () => {
       if (url === "/api/agents") return json({ principals: [] });
       if (url === "/api/whoami") return json({ agent: "owner@example.test" });
       if (url === "/api/employee-tools/approvals") return json({ approvals: [] });
-      if (url === "/api/integrations/provider/connections") return json({ ok: true, provider: "openconnector", connections: [{ id: "owned-hubspot", providerKey: "hubspot", provider: "openconnector", identityLabel: "Sales account" }, { id: "owned-github", providerKey: "github", provider: "openconnector" }] });
+      if (url.startsWith("/api/integrations/provider/connections")) return json({ ok: true, provider: "openconnector", connections: [{ id: "owned-hubspot", providerKey: "hubspot", provider: "openconnector", identityLabel: "Sales account", executionReady: true }, { id: "owned-github", providerKey: "github", provider: "openconnector", executionReady: true }] });
       if (url.endsWith("/policy") && init?.method === "PUT") { writes.push(JSON.parse(String(init.body))); return json({ ok: true }); }
       if (url.endsWith("/policy")) return json({ employeeVersion: 3, toolScopes: [], grants: [] });
       return json({ error: "unexpected" }, 500);
@@ -30,7 +30,7 @@ describe("EmployeeToolPolicyView", () => {
     expect(screen.getByText(/Unsupported schemas and transports fail closed/)).toBeTruthy();
   });
 
-  it.each(["missing", "ambiguous"])("refuses a %s app connection while allowing revocation", async (state) => {
+  it.each(["missing", "ambiguous", "unready"])("refuses a %s app connection while allowing revocation", async (state) => {
     const writes: Record<string, unknown>[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -38,7 +38,7 @@ describe("EmployeeToolPolicyView", () => {
       if (url === "/api/agents") return json({ principals: [] });
       if (url === "/api/whoami") return json({ agent: "owner@example.test" });
       if (url === "/api/employee-tools/approvals") return json({ approvals: [] });
-      if (url === "/api/integrations/provider/connections") return json({ ok: true, provider: "openconnector", connections: state === "ambiguous" ? [{ id: "one", providerKey: "former-app", provider: "openconnector" }, { id: "two", providerKey: "former-app", provider: "openconnector" }] : [] });
+      if (url.startsWith("/api/integrations/provider/connections")) return json({ ok: true, provider: "openconnector", connections: state === "ambiguous" ? [{ id: "one", providerKey: "former-app", provider: "openconnector", executionReady: true }, { id: "two", providerKey: "former-app", provider: "openconnector", executionReady: true }] : state === "unready" ? [{ id: "old-consent", providerKey: "former-app", provider: "openconnector", executionReady: false, unavailableReason: "Consent generation unavailable" }] : [] });
       if (url.endsWith("/policy") && init?.method === "PUT") { writes.push(JSON.parse(String(init.body))); return json({ ok: true }); }
       if (url.endsWith("/policy")) return json({ employeeVersion: 1, toolScopes: ["mcp:shiba:integrations.execute"], grants: [{ subjectType: "actor", subjectId: "owner@example.test", capabilityId: "mcp:shiba:integrations.execute", resourceId: "former-app", lifecycle: "active" }] });
       return json({ error: "unexpected" }, 500);
@@ -46,6 +46,7 @@ describe("EmployeeToolPolicyView", () => {
     render(<EmployeeToolPolicyView />);
     expect(await screen.findByText(/Saved connection unavailable: former-app/)).toBeTruthy();
     if (state === "ambiguous") expect(screen.getByText(/Multiple accounts for one app cannot be selected/)).toBeTruthy();
+    if (state === "unready") { expect((screen.getByLabelText("former-app · Employee actions unavailable") as HTMLInputElement).disabled).toBe(true); expect(screen.getByText("Consent generation unavailable")).toBeTruthy(); }
     fireEvent.click(screen.getByRole("button", { name: "Save grants" }));
     expect(await screen.findByText(/No catalog-only app can be granted/)).toBeTruthy();
     expect(writes).toHaveLength(0);

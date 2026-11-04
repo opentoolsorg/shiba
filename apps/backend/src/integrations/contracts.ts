@@ -34,6 +34,8 @@ export interface IntegrationExecuteContext {
   toolkitSlug?: string;
   sessionId?: string;
   connectedAccountId?: string;
+  /** Internal employee-grant binding. Never accepted from an action's model arguments. */
+  approvedConnectionId?: string;
 }
 
 export interface IntegrationAction {
@@ -57,7 +59,7 @@ export interface IntegrationProvider {
   readonly id: IntegrationsProviderId;
   health(): Promise<IntegrationProviderHealth>;
   listCatalog(query: IntegrationCatalogQuery): Promise<IntegrationCatalogPage>;
-  listConnections(args: { userId: string }): Promise<IntegrationProviderConnection[]>;
+  listConnections(args: { userId: string; includeUnavailable?: boolean }): Promise<IntegrationProviderConnection[]>;
   beginConnect(context: IntegrationConnectContext): Promise<IntegrationProviderBeginConnectResponse>;
   disconnect(context: IntegrationConnectContext): Promise<void>;
   executeTool?(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse>;

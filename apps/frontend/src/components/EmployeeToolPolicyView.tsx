@@ -56,7 +56,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const activeEmployees = useMemo(() => employees, [employees]);
-  const selectableAppConnections = useMemo(() => appConnections.filter((connection) => appConnections.filter((other) => other.providerKey === connection.providerKey).length === 1), [appConnections]);
+  const selectableAppConnections = useMemo(() => appConnections.filter((connection) => connection.executionReady === true && appConnections.filter((other) => other.providerKey === connection.providerKey).length === 1), [appConnections]);
 
   const refreshApprovals = useCallback(async () => {
     const body = await readJson<{ approvals?: Approval[] }>(await fetch("/api/employee-tools/approvals", { credentials: "same-origin" }));
@@ -90,7 +90,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/integrations/provider/connections", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+    void fetch("/api/integrations/provider/connections?includeUnavailable=1", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
       .then((response) => readJson<unknown>(response))
       .then((body) => {
         const parsed = integrationProviderConnectionsResponseSchema.parse(body);
@@ -250,7 +250,8 @@ export function EmployeeToolPolicyView(): JSX.Element {
             <p>Select a connected app from your authenticated account. The server freezes its connection ID and provider policy into this employee version; discovery is separate from execution permission.</p>
             {appConnectionsError ? <p role="status">{appConnectionsError}</p> : null}
             {appConnectionsLoading ? <p>Loading owned app connections…</p> : !selectableAppConnections.length ? <p>No unambiguous owned app connections available. <a href="/integrations/?tab=connectors" className="text-[var(--primary)] underline">Connect an app</a> first.</p> : null}
-            {selectableAppConnections.length !== appConnections.length ? <p>Multiple accounts for one app cannot be selected by this resource policy. Choose a single configured account before granting that app.</p> : null}
+            {appConnections.some((connection) => appConnections.filter((other) => other.providerKey === connection.providerKey).length > 1) ? <p>Multiple accounts for one app cannot be selected by this resource policy. Choose a single configured account before granting that app.</p> : null}
+            {appConnections.filter((connection) => connection.executionReady !== true).map((connection) => <div key={connection.id} className="border border-[var(--border-1)] p-2"><label className="flex items-center gap-2"><input type="checkbox" disabled checked={false} readOnly />{connection.providerKey} · Employee actions unavailable</label><p>{connection.unavailableReason ?? "This account's current consent generation could not be verified. Review it in Your app accounts before granting access."}</p></div>)}
             {selectableAppConnections.map((connection) => <label key={connection.id} className="flex min-h-11 items-start gap-2 border border-[var(--border-1)] p-2"><input type="checkbox" checked={resources[capability.id].split("\n").includes(connection.providerKey)} onChange={(event) => setResources((current) => {
               const values = current[capability.id].split("\n").filter(Boolean);
               return { ...current, [capability.id]: (event.target.checked ? [...new Set([...values, connection.providerKey])] : values.filter((value) => value !== connection.providerKey)).join("\n") };

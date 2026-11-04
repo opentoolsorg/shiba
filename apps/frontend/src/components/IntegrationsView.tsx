@@ -130,9 +130,11 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
 export function IntegrationsView({
   onNavigate,
   initialTab,
+  actorId,
 }: {
   onNavigate?: (view: AppNavView) => void;
   initialTab?: "skills" | "mcp" | "connectors";
+  actorId?: string | null;
 }): JSX.Element {
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
@@ -718,7 +720,7 @@ export function IntegrationsView({
               <LoadErrorState message={failed.message} onRetry={reloadAll} />
             </div>
           ) : null}
-          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} onChanged={() => setCatalogRefresh((value) => value + 1)} />
+          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChanged={() => setCatalogRefresh((value) => value + 1)} />
         </>
       )}
     </div>

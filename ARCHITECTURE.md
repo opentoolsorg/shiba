@@ -100,7 +100,7 @@ the authenticated owner ID; request-supplied account IDs cannot select another
 owner's connection. The sibling owns its own D1 and temporary-file R2 bucket or KV namespace.
 Its source and upstream license stay outside Shiba's AGPL source tree.
 See [the deployment guide](docs/OPENCONNECTOR.md) for the separate migration,
-secrets, and deployment sequence.
+secrets, and deployment sequence. The [integration package boundaries](docs/integrations-architecture.md) describe shared contracts, backend adapters, canonical registries and the separate provisioning boundary.
 
 ## 4. Durable Objects — the state map
 

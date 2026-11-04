@@ -1,49 +1,7 @@
 /** Typed same-origin client for the Overlay-compatible extensions API. */
+import { integrationProviderConnectionsResponseSchema } from "@shiba/shared";
 export type ExtensionView = "personal" | "workspace" | "archived";
 export type ExtensionScope = Exclude<ExtensionView, "archived">;
-export type McpTransport = "streamable-http" | "sse";
-export type McpAuthType = "none" | "bearer" | "header" | "oauth";
-export type McpToolPolicy = "allow" | "approval_required" | "deny";
-
-export interface McpExtensionServer {
-  id: string;
-  name: string;
-  description?: string;
-  transport: McpTransport;
-  url: string;
-  enabled: boolean;
-  authType: McpAuthType;
-  hasAuth: boolean;
-  timeoutMs?: number;
-  defaultToolPolicy: McpToolPolicy;
-  toolPolicies: Record<string, McpToolPolicy>;
-  toolCatalogCount: number;
-  scope: ExtensionScope;
-  archivedAt?: number;
-  oauthStatus?: "connected" | "needs_reconnect" | "disconnected";
-}
-
-export interface McpServerInput {
-  name: string;
-  description?: string;
-  transport: McpTransport;
-  url: string;
-  enabled: boolean;
-  authType: McpAuthType;
-  authConfig?: { bearerToken?: string; headerName?: string; headerValue?: string };
-  clearAuthConfig?: boolean;
-  timeoutMs?: number;
-  defaultToolPolicy: McpToolPolicy;
-  scope: ExtensionScope;
-}
-
-export interface McpTestResult {
-  ok: boolean;
-  message: string;
-  requiresAuth?: boolean;
-  toolCount?: number;
-}
-
 export interface WorkspaceConnector {
   id: string;
   providerKey: string;
@@ -64,58 +22,7 @@ export interface OpenConnectorConnection {
 // Client fixtures, enabled explicitly by tests or local review.
 // ---------------------------------------------------------------------------
 
-const MCP_STORAGE_KEY = "shiba-extensions-mcp-v1";
 const CONNECTORS_STORAGE_KEY = "shiba-extensions-connectors-v1";
-
-const DEFAULT_MCP_FIXTURES: McpExtensionServer[] = [
-  {
-    id: "mcp-gh",
-    name: "GitHub MCP Server",
-    description: "Search repositories, read code files, and inspect issues.",
-    transport: "streamable-http",
-    url: "https://mcp.github.com/v1",
-    enabled: true,
-    authType: "oauth",
-    hasAuth: true,
-    timeoutMs: 30000,
-    defaultToolPolicy: "allow",
-    toolPolicies: {},
-    toolCatalogCount: 14,
-    scope: "personal",
-    oauthStatus: "connected",
-  },
-  {
-    id: "mcp-cf",
-    name: "Cloudflare Developer MCP",
-    description: "Query Workers KV, D1 databases, and deployment pipelines.",
-    transport: "sse",
-    url: "https://mcp.cloudflare.com/sse",
-    enabled: true,
-    authType: "bearer",
-    hasAuth: true,
-    timeoutMs: 30000,
-    defaultToolPolicy: "approval_required",
-    toolPolicies: {},
-    toolCatalogCount: 8,
-    scope: "workspace",
-  },
-  {
-    id: "mcp-archived-legacy",
-    name: "Legacy Weather Service",
-    description: "Local mock weather server.",
-    transport: "streamable-http",
-    url: "https://weather-mcp.internal/mcp",
-    enabled: false,
-    authType: "none",
-    hasAuth: false,
-    timeoutMs: 15000,
-    defaultToolPolicy: "deny",
-    toolPolicies: {},
-    toolCatalogCount: 2,
-    scope: "personal",
-    archivedAt: Date.now() - 86400000,
-  },
-];
 
 const DEFAULT_CONNECTOR_FIXTURES: WorkspaceConnector[] = [
   {
@@ -155,25 +62,8 @@ function writeStorage<T>(key: string, items: T[]): void {
   }
 }
 
-let memoryMcpStore: McpExtensionServer[] | null = null;
 let memoryConnectorsStore: WorkspaceConnector[] | null = null;
 let forceStubMode = false;
-
-function getMcpStore(): McpExtensionServer[] {
-  if (!memoryMcpStore) {
-    return saveMcpStore(readStorage(MCP_STORAGE_KEY, DEFAULT_MCP_FIXTURES.map((s) => ({ ...s }))));
-  }
-  return memoryMcpStore;
-}
-
-function saveMcpStore(items: McpExtensionServer[]): McpExtensionServer[] {
-  memoryMcpStore = items.map((item) => {
-    const { authConfig: _authConfig, clearAuthConfig: _clearAuthConfig, ...server } = item as McpExtensionServer & Partial<Pick<McpServerInput, "authConfig" | "clearAuthConfig">>;
-    return server;
-  });
-  writeStorage(MCP_STORAGE_KEY, memoryMcpStore);
-  return memoryMcpStore;
-}
 
 function getConnectorsStore(): WorkspaceConnector[] {
   if (!memoryConnectorsStore) {
@@ -223,7 +113,6 @@ async function requestJson<T>(
   return body;
 }
 
-const mcpBase = "/api/v1/extensions/mcp-servers";
 const connectorsBase = "/api/v1/extensions/connectors";
 
 export const extensionsApi = {
@@ -232,11 +121,9 @@ export const extensionsApi = {
   },
   resetStubFixtures() {
     forceStubMode = false;
-    memoryMcpStore = null;
     memoryConnectorsStore = null;
     if (typeof window !== "undefined") {
       try {
-        localStorage.removeItem(MCP_STORAGE_KEY);
         localStorage.removeItem(CONNECTORS_STORAGE_KEY);
       } catch {
         /* ignore */
@@ -244,163 +131,11 @@ export const extensionsApi = {
     }
   },
 
-  listMcpServers(view: ExtensionView): Promise<{ servers: McpExtensionServer[] }> {
-    return requestJson<{ servers: McpExtensionServer[] }>(
-      `${mcpBase}?view=${view}`,
-      undefined,
-      () => {
-        const store = getMcpStore();
-        if (view === "archived") {
-          return { servers: store.filter((s) => s.archivedAt !== undefined) };
-        }
-        return {
-          servers: store.filter((s) => s.archivedAt === undefined && s.scope === view),
-        };
-      },
-    );
-  },
-
-  createMcpServer(input: McpServerInput): Promise<{ server: McpExtensionServer }> {
-    return requestJson<{ server: McpExtensionServer }>(
-      mcpBase,
-      { method: "POST", body: JSON.stringify(input) },
-      () => {
-        const store = getMcpStore();
-        const server: McpExtensionServer = {
-          id: `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          name: input.name,
-          description: input.description,
-          transport: input.transport,
-          url: input.url,
-          enabled: input.enabled,
-          authType: input.authType,
-          hasAuth: Boolean(input.authConfig?.bearerToken || input.authConfig?.headerValue),
-          timeoutMs: input.timeoutMs ?? 30000,
-          defaultToolPolicy: input.defaultToolPolicy,
-          toolPolicies: {},
-          toolCatalogCount: 0,
-          scope: input.scope,
-          oauthStatus: input.authType === "oauth" ? "disconnected" : undefined,
-        };
-        saveMcpStore([server, ...store]);
-        return { server };
-      },
-    );
-  },
-
-  updateMcpServer(id: string, input: Partial<McpServerInput>): Promise<{ server: McpExtensionServer }> {
-    return requestJson<{ server: McpExtensionServer }>(
-      `${mcpBase}/${encodeURIComponent(id)}`,
-      { method: "PATCH", body: JSON.stringify(input) },
-      () => {
-        const store = getMcpStore();
-        const existing = store.find((s) => s.id === id);
-        if (!existing) throw new Error("MCP server not found");
-        const { authConfig, clearAuthConfig, ...fields } = input;
-        const updated: McpExtensionServer = {
-          ...existing,
-          ...fields,
-          hasAuth: clearAuthConfig
-            ? false
-            : authConfig
-              ? Boolean(authConfig.bearerToken || authConfig.headerValue)
-              : existing.hasAuth,
-        };
-        saveMcpStore(store.map((s) => (s.id === id ? updated : s)));
-        return { server: updated };
-      },
-    );
-  },
-
-  deleteMcpServer(id: string): Promise<{ ok: true }> {
-    return requestJson<{ ok: true }>(
-      `${mcpBase}/${encodeURIComponent(id)}`,
-      { method: "DELETE" },
-      () => {
-        const store = getMcpStore();
-        saveMcpStore(store.filter((s) => s.id !== id));
-        return { ok: true };
-      },
-    );
-  },
-
-  archiveMcpServer(id: string): Promise<{ ok: true }> {
-    return requestJson<{ ok: true }>(
-      `${mcpBase}/${encodeURIComponent(id)}/archive`,
-      { method: "POST" },
-      () => {
-        const store = getMcpStore();
-        saveMcpStore(
-          store.map((s) => (s.id === id ? { ...s, archivedAt: Date.now(), enabled: false } : s)),
-        );
-        return { ok: true };
-      },
-    );
-  },
-
-  restoreMcpServer(id: string): Promise<{ ok: true }> {
-    return requestJson<{ ok: true }>(
-      `${mcpBase}/${encodeURIComponent(id)}/restore`,
-      { method: "POST" },
-      () => {
-        const store = getMcpStore();
-        saveMcpStore(store.map((s) => (s.id === id ? { ...s, archivedAt: undefined } : s)));
-        return { ok: true };
-      },
-    );
-  },
-
-  testMcpServer(input: Partial<McpServerInput> & { id?: string }): Promise<McpTestResult> {
-    return requestJson<McpTestResult>(
-      `${mcpBase}/test`,
-      { method: "POST", body: JSON.stringify(input) },
-      () => {
-        const url = input.url?.trim() || "";
-        if (!url) return { ok: false, message: "URL is required" };
-        try {
-          const parsed = new URL(url);
-          if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-            return { ok: false, message: "URL must use http: or https:" };
-          }
-        } catch {
-          return { ok: false, message: "Invalid URL format" };
-        }
-        if (url.includes("fail") || url.includes("unreachable")) {
-          return { ok: false, message: "Connection refused: server unreachable" };
-        }
-        if (input.authType === "none" && url.includes("secure")) {
-          return { ok: false, message: "401 Unauthorized: authentication required", requiresAuth: true };
-        }
-        return { ok: true, message: "Connected — 6 tools available", toolCount: 6 };
-      },
-    );
-  },
-
-  startMcpOAuth(id: string): Promise<{ redirectUrl: string }> {
-    return requestJson<{ redirectUrl: string }>(
-      `${mcpBase}/${encodeURIComponent(id)}/oauth`,
-      { method: "POST", body: JSON.stringify({}) },
-      () => {
-        const store = getMcpStore();
-        saveMcpStore(store.map((s) => (s.id === id ? { ...s, oauthStatus: "connected" } : s)));
-        return { redirectUrl: `https://auth.example.com/oauth/authorize?client_id=shiba&server=${encodeURIComponent(id)}` };
-      },
-    );
-  },
-
-  disconnectMcpOAuth(id: string): Promise<{ ok: true }> {
-    return requestJson<{ ok: true }>(
-      `${mcpBase}/${encodeURIComponent(id)}/oauth`,
-      { method: "DELETE" },
-      () => {
-        const store = getMcpStore();
-        saveMcpStore(store.map((s) => (s.id === id ? { ...s, oauthStatus: "disconnected" } : s)));
-        return { ok: true };
-      },
-    );
-  },
-
   listConnectors(view: ExtensionView): Promise<{ connectors: WorkspaceConnector[] }> {
+    if (!forceStubMode) {
+      if (view !== "personal") return Promise.reject(new Error("Shared and archived app registries are unavailable. App accounts stay private; configure employee resource grants separately."));
+      return extensionsApi.listOpenConnectorConnections().then(({ connections }) => ({ connectors: connections.map((connection) => ({ ...connection, scope: "personal" as const })) }));
+    }
     return requestJson<{ connectors: WorkspaceConnector[] }>(
       `${connectorsBase}?view=${view}`,
       undefined,
@@ -422,6 +157,7 @@ export const extensionsApi = {
     scope: ExtensionScope;
     identityLabel?: string | null;
   }): Promise<{ connector: WorkspaceConnector }> {
+    if (!forceStubMode) return Promise.reject(new Error("App account linking uses verified OpenConnector consent. Configure employee resource grants separately."));
     return requestJson<{ connector: WorkspaceConnector }>(
       connectorsBase,
       { method: "POST", body: JSON.stringify({ ...input, provider: "openconnector" }) },
@@ -452,6 +188,7 @@ export const extensionsApi = {
   },
 
   archiveConnector(id: string): Promise<{ ok: true }> {
+    if (!forceStubMode) return Promise.reject(new Error("Provider accounts cannot be archived here. Use the explicit Disconnect action to revoke a connection."));
     return requestJson<{ ok: true }>(
       `${connectorsBase}/${encodeURIComponent(id)}/archive`,
       { method: "POST" },
@@ -466,6 +203,7 @@ export const extensionsApi = {
   },
 
   restoreConnector(id: string): Promise<{ ok: true }> {
+    if (!forceStubMode) return Promise.reject(new Error("Provider accounts require a new verified sign-in; local restore is unavailable."));
     return requestJson<{ ok: true }>(
       `${connectorsBase}/${encodeURIComponent(id)}/restore`,
       { method: "POST" },
@@ -478,6 +216,7 @@ export const extensionsApi = {
   },
 
   removeConnector(id: string): Promise<{ ok: true }> {
+    if (!forceStubMode) return Promise.reject(new Error("Use the explicit Disconnect action for the owned OpenConnector account."));
     return requestJson<{ ok: true }>(
       `${connectorsBase}/${encodeURIComponent(id)}`,
       { method: "DELETE" },
@@ -490,6 +229,7 @@ export const extensionsApi = {
   },
 
   moveConnector(id: string, scope: ExtensionScope): Promise<{ connector: WorkspaceConnector }> {
+    if (!forceStubMode) return Promise.reject(new Error("App credentials cannot be moved between people or workspaces. Configure employee resource grants separately."));
     return requestJson<{ connector: WorkspaceConnector }>(
       `${connectorsBase}/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify({ scope }) },
@@ -518,11 +258,15 @@ export const extensionsApi = {
     return { ok: true };
   },
 
-  listOpenConnectorConnections(): Promise<{ connections: OpenConnectorConnection[] }> {
-    return requestJson<{ connections: OpenConnectorConnection[] }>(
+  async listOpenConnectorConnections(): Promise<{ connections: OpenConnectorConnection[] }> {
+    const body = await requestJson<{ connections: OpenConnectorConnection[] }>(
       "/api/integrations/provider/connections",
       undefined,
       () => ({ connections: [] }),
     );
+    if (forceStubMode) return body;
+    const parsed = integrationProviderConnectionsResponseSchema.safeParse(body);
+    if (!parsed.success) throw new Error("The owned app account response could not be verified.");
+    return { connections: parsed.data.connections };
   },
 };

@@ -6,13 +6,15 @@ Cloudflare account. A private `OPEN_CONNECTOR` service binding takes precedence
 over the `OPEN_CONNECTOR_URL` HTTP fallback. `INTEGRATIONS_PROVIDER` accepts only
 `openconnector`; there is no provider switcher. The legacy
 integrations `/session` route returns HTTP 503 with an `unsupported` error;
-connect through the provider connection flow instead. Generic `/execute` uses
-the openconnector tool executor.
+connect through the provider connection flow instead. Direct
+`POST /api/integrations/provider/execute` returns HTTP 403 with
+`employee_action_approval_required`. Use the registered employee action tools
+described below, with current resource grants and exact-action human approval.
 
 No upstream application source is vendored, imported, or linked into Shiba. The
 helper clones upstream release **v1.9.4**, pinned to commit
 `d89dc9f24f5a057bb500272d7dbf333837c77c68`, into gitignored `.openconnector/`.
-The pinned upstream [Apache license](https://github.com/oomol-lab/open-connector/blob/v1.9.4/LICENSE)
+The pinned upstream [Apache license](https://github.com/oomol-lab/open-connector/blob/v1.9.4/LICENSE.txt)
 and Shiba AGPL-3.0-only license apply to their respective distributions. Keeping the
 applications separate preserves their separate distributions and license terms;
 review upstream's license before distributing or offering the sibling service.
@@ -157,10 +159,22 @@ list. Upstream does not send a Shiba popup completion message or accept a Shiba
 callback URL in this flow. Named connections are isolated by Shiba's adapter;
 trusted operators with the upstream administrator token can access all names.
 
+The catalog checks the upstream runtime provider-setup metadata before enabling
+OAuth sign-in. Only `ready` entries are connectable; `needs_configuration`,
+`unsupported` and `unverified` identify setup that still needs attention. A
+provider's declaration that it supports OAuth does not mean its OAuth client is
+configured. Saved connections requiring reauthorization are omitted from the
+usable connection list.
+
 ## Verify and upgrade
 
-Check `<sibling origin>/health` returns `{"ok":true}`, then verify authenticated
-catalog, connect, list, execute and disconnect in Shiba with two distinct users.
+Check `<sibling origin>/health` returns `{"ok":true}`. Shiba's provider health
+probe additionally authenticates bounded admin/runtime metadata reads. A
+`healthy` result establishes service and metadata authentication; a `degraded`
+result means those authenticated reads failed despite a reachable service.
+Neither result proves vendor consent, an action's runtime-token permission or
+employee grants. Then verify authenticated catalog, connect, list, approved
+employee action execution and disconnect in Shiba with two distinct users.
 Check Cloudflare scheduled invocations and D1 cleanup progress: HTTP traffic does
 not substitute for the minute cron. Live operation still needs account resources,
 provider OAuth clients and the secrets above; local mocked tests do not prove

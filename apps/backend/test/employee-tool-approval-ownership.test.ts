@@ -26,7 +26,7 @@ vi.mock("../src/v1-auth.js", async (original) => ({
   requireV1Read: () => true, requireV1Write: () => true,
 }));
 vi.mock("../src/integrations/runtime.js", () => ({ getIntegrationProvider: () => ({
-  id: "openconnector", listConnections: async ({ userId }: { userId: string }) => [{ id: `connection:${userId}`, providerKey: "github" }],
+  id: "openconnector", listConnections: async ({ userId }: { userId: string }) => [{ id: `connection:${userId}`, providerKey: "github", executionReady: true }],
   searchActions: async () => [{ id: "github.create_issue", service: "github", name: "Create issue" }], executeTool: state.execute,
 }) }));
 vi.mock("agents/routing", () => ({ getAgentByName: async () => ({ fetch: async (request: Request | string) => {
@@ -114,7 +114,7 @@ describe("native employee approval owner and operator authorization", () => {
     expect((await f.decide())?.status).toBe(200);
     expect(await f.stored()).toMatchObject({ status: "approved", decidedBy: OWNER, decisionOwnerAccountId: ACCOUNT });
     expect((await f.dispatch()).status).toBe(200);
-    expect(state.execute).toHaveBeenCalledExactlyOnceWith({ ...PRIVATE_ARGS, userId: ACCOUNT });
+    expect(state.execute).toHaveBeenCalledExactlyOnceWith({ ...PRIVATE_ARGS, userId: ACCOUNT, approvedConnectionId: `connection:${ACCOUNT}` });
     expect(state.queueRequests).toHaveLength(0);
   });
 
