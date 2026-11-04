@@ -34,6 +34,7 @@ export interface OAuthAuthorizationServerMetadata {
 export interface ExternalMcpOAuthDiscovery {
   resource: OAuthProtectedResourceMetadata;
   authorizationServer: OAuthAuthorizationServerMetadata;
+  scopes?: string;
 }
 
 export interface ExternalMcpOAuthTokens {
@@ -45,6 +46,7 @@ export interface ExternalMcpOAuthTokens {
   tokenEndpoint?: string;
   clientId?: string;
   revocationEndpoint?: string;
+  resource?: string;
 }
 
 export interface ExternalMcpOAuthPending {
@@ -60,6 +62,8 @@ export interface ExternalMcpOAuthPending {
   clientId: string;
   scopes: string;
   expiresAt: number;
+  resource?: string;
+  serverGeneration?: number;
 }
 
 const TOKEN_KIND = (serverId: string) => `external-mcp-oauth:${serverId}`;
@@ -68,29 +72,105 @@ function oauthReady(env: Env): boolean {
   return modelCredentialKeyConfigured(env);
 }
 
+function parseOAuthTokenResponse(value: unknown): { access_token: string; refresh_token?: string; expires_in?: number; scope?: string; token_type?: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("oauth_token_exchange_failed");
+  const token = value as Record<string, unknown>;
+  const validSecret = (secret: unknown) => typeof secret === "string" && secret.length > 0 && secret.length <= 8192 && !/\s/.test(secret);
+  if (!validSecret(token.access_token) || (token.refresh_token !== undefined && !validSecret(token.refresh_token)) ||
+    (token.expires_in !== undefined && (!Number.isSafeInteger(token.expires_in) || Number(token.expires_in) <= 0 || Number(token.expires_in) > 31_536_000)) ||
+    (token.token_type !== undefined && (typeof token.token_type !== "string" || token.token_type.toLowerCase() !== "bearer")) ||
+    (token.scope !== undefined && (typeof token.scope !== "string" || token.scope.length > 8192))) throw new Error("oauth_token_exchange_failed");
+  return token as ReturnType<typeof parseOAuthTokenResponse>;
+}
+
 function resourceOrigin(vendor: { endpoint: string; resourceOrigin?: string }): URL {
   return new URL(vendor.resourceOrigin ?? vendor.endpoint);
+}
+
+/** Metadata is untrusted input, including URLs delegated by a trusted MCP host. */
+function oauthUrl(value: unknown): URL {
+  if (typeof value !== "string" || value.length > 2048) throw new Error("oauth_discovery_failed");
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error("oauth_discovery_failed"); }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || (url.port && url.port !== "443") ||
+    !host.includes(".") || host.includes(":") || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) ||
+    /(?:^|\.)(?:localhost|local|internal|test|invalid|example)$/.test(host)) throw new Error("oauth_discovery_failed");
+  return url;
+}
+
+async function metadata(url: URL, fetchImpl: typeof fetch): Promise<Record<string, unknown> | null> {
+  const response = await fetchImpl(url, { redirect: "error", signal: AbortSignal.timeout(8_000) });
+  if (!response.ok) { await response.body?.cancel().catch(() => {}); return null; }
+  if (response.url && response.url !== url.href) throw new Error("oauth_discovery_failed");
+  return readBoundedObject(response);
+}
+
+async function readBoundedObject(response: Response, failure = "oauth_discovery_failed"): Promise<Record<string, unknown> | null> {
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const bytes = new Uint8Array(32_768); let used = 0;
+  try {
+    for (;;) {
+      const part = await reader.read(); if (part.done) break;
+      if (used + part.value.length > bytes.length) throw new Error(failure);
+      bytes.set(part.value, used); used += part.value.length;
+    }
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes.subarray(0, used)));
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch { throw new Error(failure); }
+  finally { await reader.cancel().catch(() => {}); }
 }
 
 export async function discoverExternalMcpOAuth(
   vendor: { endpoint: string; resourceOrigin?: string },
   fetchImpl: typeof fetch = fetch,
 ): Promise<ExternalMcpOAuthDiscovery> {
-  const origin = resourceOrigin(vendor);
-  const prUrl = new URL("/.well-known/oauth-protected-resource", origin);
-  const prResponse = await fetchImpl(prUrl, { redirect: "error", signal: AbortSignal.timeout(8_000) });
-  if (!prResponse.ok) throw new Error("oauth_discovery_failed");
-  const resource = (await prResponse.json()) as OAuthProtectedResourceMetadata;
-  if (!resource.authorization_servers?.length) throw new Error("oauth_discovery_failed");
-  const authServerOrigin = resource.authorization_servers[0]!.replace(/\/$/, "");
-  const asUrl = new URL("/.well-known/oauth-authorization-server", `${authServerOrigin}/`);
-  const asResponse = await fetchImpl(asUrl, { redirect: "error", signal: AbortSignal.timeout(8_000) });
-  if (!asResponse.ok) throw new Error("oauth_discovery_failed");
-  const authorizationServer = (await asResponse.json()) as OAuthAuthorizationServerMetadata;
-  if (!authorizationServer.authorization_endpoint || !authorizationServer.token_endpoint) {
-    throw new Error("oauth_discovery_failed");
+  const endpoint = oauthUrl(vendor.endpoint), origin = oauthUrl(resourceOrigin(vendor).href);
+  let advertised: string | undefined, scopes: string | undefined;
+  try {
+    const probe = await fetchImpl(endpoint, { method: "GET", headers: { Accept: "application/json, text/event-stream" }, redirect: "error", signal: AbortSignal.timeout(8_000) });
+    if (probe.status === 401) {
+      const challenge = probe.headers.get("WWW-Authenticate") ?? "";
+      advertised = challenge.match(/\bresource_metadata="([^"\\]{1,2048})"/i)?.[1];
+      scopes = challenge.match(/\bscope="([\x21\x23-\x5b\x5d-\x7e ]{1,512})"/i)?.[1];
+    }
+    await probe.body?.cancel().catch(() => {});
+  } catch { /* Public well-known discovery also works when the MCP endpoint rejects GET. */ }
+  const resourceUrls = advertised ? [oauthUrl(advertised)] : [...new Set([
+    new URL(`/.well-known/oauth-protected-resource${origin.pathname === "/" ? "" : origin.pathname.replace(/\/$/, "")}`, origin).href,
+    new URL("/.well-known/oauth-protected-resource", origin).href,
+  ])].map((url) => new URL(url));
+  let resource: OAuthProtectedResourceMetadata | undefined;
+  for (const url of resourceUrls) {
+    const value = await metadata(url, fetchImpl);
+    if (!value) continue;
+    const resourceUrl = oauthUrl(value.resource);
+    if (resourceUrl.origin !== endpoint.origin || (resourceUrl.pathname !== endpoint.pathname && !endpoint.pathname.startsWith(`${resourceUrl.pathname.replace(/\/$/, "")}/`)) ||
+      !Array.isArray(value.authorization_servers) || value.authorization_servers.length < 1 || value.authorization_servers.length > 8 ||
+      value.authorization_servers.some((server) => typeof server !== "string")) throw new Error("oauth_discovery_failed");
+    resource = value as unknown as OAuthProtectedResourceMetadata;
+    break;
   }
-  return { resource, authorizationServer };
+  if (!resource) throw new Error("oauth_discovery_failed");
+  const issuer = oauthUrl(resource.authorization_servers[0]);
+  if (issuer.search) throw new Error("oauth_discovery_failed");
+  const path = issuer.pathname === "/" ? "" : issuer.pathname.replace(/\/$/, "");
+  const candidates = [...new Set([
+    new URL(`/.well-known/oauth-authorization-server${path}`, issuer).href,
+    new URL(`/.well-known/openid-configuration${path}`, issuer).href,
+    ...(path ? [new URL(`${path}/.well-known/openid-configuration`, issuer).href] : []),
+  ])];
+  for (const candidate of candidates) {
+    const value = await metadata(new URL(candidate), fetchImpl);
+    if (!value) continue;
+    if (oauthUrl(value.issuer).href.replace(/\/$/, "") !== issuer.href.replace(/\/$/, "")) throw new Error("oauth_discovery_failed");
+    oauthUrl(value.authorization_endpoint); oauthUrl(value.token_endpoint);
+    if (value.revocation_endpoint !== undefined) oauthUrl(value.revocation_endpoint);
+    if (!Array.isArray(value.code_challenge_methods_supported) || !value.code_challenge_methods_supported.includes("S256")) throw new Error("oauth_discovery_failed");
+    return { resource, authorizationServer: value as unknown as OAuthAuthorizationServerMetadata, ...(scopes ? { scopes } : {}) };
+  }
+  throw new Error("oauth_discovery_failed");
 }
 
 async function loadPendingByState(env: Env, state: string): Promise<(ExternalMcpOAuthPending & { codeVerifier: string }) | null> {
@@ -110,10 +190,12 @@ async function loadPendingByState(env: Env, state: string): Promise<(ExternalMcp
   );
   // Older pending rows encrypted only the verifier; new rows also retain vendor metadata.
   const secret = pendingSecret.startsWith("{")
-    ? JSON.parse(pendingSecret) as { verifier: string; revocationEndpoint?: string }
+    ? JSON.parse(pendingSecret) as { verifier: string; revocationEndpoint?: string; resource?: string; serverGeneration?: number }
     : { verifier: pendingSecret };
   return {
     revocationEndpoint: secret.revocationEndpoint,
+    resource: secret.resource,
+    serverGeneration: secret.serverGeneration,
     serverId: row.server_id as string,
     orgId: row.org_id as string,
     ownerId: row.owner_id as string,
@@ -172,21 +254,32 @@ export async function beginExternalMcpOAuthConnect(
 ): Promise<{ authorizationUrl: string; state: string }> {
   if (!oauthReady(env)) throw new Error("oauth_storage_unavailable");
   await ensureExternalMcpOAuthSchema(env);
+  const server = await env.AGENT_AUDIT.prepare("SELECT generation,status,endpoint,schema_version FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=?")
+    .bind(input.serverId, input.orgId, input.ownerId).first<{ generation: number; status: string; endpoint: string; schema_version: string | null }>();
+  if (!server || server.status !== "draft" || server.schema_version !== null || await loadStoredTokens(env, input.orgId, input.ownerId, input.serverId)) throw new Error("oauth_state_invalid");
+  oauthUrl(input.discovery.authorizationServer.authorization_endpoint);
+  oauthUrl(input.discovery.authorizationServer.token_endpoint);
+  if (input.discovery.authorizationServer.revocation_endpoint) oauthUrl(input.discovery.authorizationServer.revocation_endpoint);
+  const resource = oauthUrl(input.discovery.resource.resource);
+  if (resource.origin !== new URL(server.endpoint).origin) throw new Error("oauth_discovery_failed");
   const { verifier, challenge } = await generatePkce();
   const state = randomHex(24);
   const cipher = await encryptAuthJson(
-    JSON.stringify({ verifier, revocationEndpoint: input.discovery.authorizationServer.revocation_endpoint }),
+    JSON.stringify({ verifier, revocationEndpoint: input.discovery.authorizationServer.revocation_endpoint,
+      resource: input.discovery.resource.resource, serverGeneration: server.generation }),
     env.MODEL_CREDENTIAL_KEY!,
     input.orgId,
     input.ownerId,
     `external-mcp-pending:${input.serverId}`,
   );
   await env.AGENT_AUDIT.prepare("DELETE FROM external_mcp_oauth_pending WHERE server_id = ?").bind(input.serverId).run();
-  await env.AGENT_AUDIT.prepare(
+  const saved = await env.AGENT_AUDIT.prepare(
     `INSERT INTO external_mcp_oauth_pending
       (state_hash, server_id, org_id, owner_id, catalog_id, redirect_uri, code_verifier_cipher,
        authorization_endpoint, token_endpoint, client_id, scopes, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+     WHERE EXISTS(SELECT 1 FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=? AND generation=? AND status='draft' AND schema_version IS NULL)
+       AND NOT EXISTS(SELECT 1 FROM user_subscription_credentials WHERE workspace_id=? AND user_id=? AND kind=?)`,
   )
     .bind(
       await sha256Hex(state),
@@ -202,13 +295,16 @@ export async function beginExternalMcpOAuthConnect(
       input.scopes,
       Date.now() + 15 * 60_000,
       Date.now(),
+      input.serverId, input.orgId, input.ownerId, server.generation,
+      input.orgId, input.ownerId, TOKEN_KIND(input.serverId),
     )
     .run();
+  if (saved.meta.changes !== 1) throw new Error("oauth_state_invalid");
   const url = new URL(input.discovery.authorizationServer.authorization_endpoint);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", input.clientId);
   url.searchParams.set("redirect_uri", input.redirectUri);
-  url.searchParams.set("scope", input.scopes);
+  if (input.scopes.trim()) url.searchParams.set("scope", input.scopes);
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
@@ -222,16 +318,23 @@ export async function exchangeExternalMcpOAuthCode(
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ serverId: string; orgId: string; ownerId: string }> {
   if (!oauthReady(env)) throw new Error("oauth_storage_unavailable");
+  if (!/^[a-f0-9]{48}$/.test(input.state) || !input.code || input.code.length > 8192) throw new Error("oauth_state_invalid");
   const pending = await loadPendingByState(env, input.state);
   if (!pending || pending.orgId !== input.principal.orgId || pending.ownerId !== input.principal.principal) {
     throw new Error("oauth_state_invalid");
   }
+  // A state is consumed exactly once before exchanging its code; a failed exchange needs a new consent flow.
+  const consumed = await env.AGENT_AUDIT.prepare("DELETE FROM external_mcp_oauth_pending WHERE state_hash=? AND org_id=? AND owner_id=? AND expires_at>?")
+    .bind(await sha256Hex(input.state), pending.orgId, pending.ownerId, Date.now()).run();
+  if (consumed.meta.changes !== 1 || !Number.isSafeInteger(pending.serverGeneration)) throw new Error("oauth_state_invalid");
+  oauthUrl(pending.tokenEndpoint);
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: input.code,
     redirect_uri: pending.redirectUri,
     client_id: pending.clientId,
     code_verifier: pending.codeVerifier,
+    ...(pending.resource ? { resource: pending.resource } : {}),
   });
   const tokenResponse = await fetchImpl(pending.tokenEndpoint, {
     method: "POST",
@@ -240,15 +343,8 @@ export async function exchangeExternalMcpOAuthCode(
     redirect: "error",
     signal: AbortSignal.timeout(8_000),
   });
-  if (!tokenResponse.ok) throw new Error("oauth_token_exchange_failed");
-  const tokenJson = (await tokenResponse.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-    scope?: string;
-    token_type?: string;
-  };
-  if (!tokenJson.access_token) throw new Error("oauth_token_exchange_failed");
+  if (!tokenResponse.ok) { await tokenResponse.body?.cancel().catch(() => {}); throw new Error("oauth_token_exchange_failed"); }
+  const tokenJson = parseOAuthTokenResponse(await readBoundedObject(tokenResponse, "oauth_token_exchange_failed"));
   const expiresAt = Date.now() + (tokenJson.expires_in ?? 3600) * 1000;
   const tokens: ExternalMcpOAuthTokens = {
     tokenEndpoint: pending.tokenEndpoint,
@@ -259,9 +355,10 @@ export async function exchangeExternalMcpOAuthCode(
     expiresAt,
     scope: tokenJson.scope,
     tokenType: tokenJson.token_type ?? "Bearer",
+    resource: pending.resource,
   };
-  await saveExternalMcpOAuthTokens(env, pending.orgId, pending.ownerId, pending.serverId, tokens);
-  await env.AGENT_AUDIT.prepare("DELETE FROM external_mcp_oauth_pending WHERE server_id = ?").bind(pending.serverId).run();
+  if (!await persistExternalMcpOAuthTokens(env, pending.orgId, pending.ownerId, pending.serverId, tokens,
+    { serverGeneration: pending.serverGeneration })) throw new Error("oauth_state_invalid");
   await audit(env, {
     principal: pending.ownerId,
     tool: "external_mcp.connect",
@@ -278,6 +375,13 @@ export async function saveExternalMcpOAuthTokens(
   serverId: string,
   tokens: ExternalMcpOAuthTokens,
 ): Promise<void> {
+  await persistExternalMcpOAuthTokens(env, orgId, ownerId, serverId, tokens);
+}
+
+async function persistExternalMcpOAuthTokens(
+  env: Env, orgId: string, ownerId: string, serverId: string, tokens: ExternalMcpOAuthTokens,
+  guard?: { previousCipher?: string; serverGeneration?: number },
+): Promise<boolean> {
   if (!oauthReady(env)) throw new Error("oauth_storage_unavailable");
   await ensureSubscriptionCredentialSchema(env);
   const cipher = await encryptAuthJson(
@@ -287,17 +391,26 @@ export async function saveExternalMcpOAuthTokens(
     ownerId,
     TOKEN_KIND(serverId),
   );
-  await env.AGENT_AUDIT.prepare(
+  if (guard?.previousCipher !== undefined) {
+    const changed = await env.AGENT_AUDIT.prepare(`UPDATE user_subscription_credentials SET auth_cipher=?,expires_at=?,saved_at=?
+      WHERE workspace_id=? AND user_id=? AND kind=? AND auth_cipher=?`)
+      .bind(cipher, tokens.expiresAt, Date.now(), orgId, ownerId, TOKEN_KIND(serverId), guard.previousCipher).run();
+    return changed.meta.changes === 1;
+  }
+  const written = await env.AGENT_AUDIT.prepare(
     `INSERT INTO user_subscription_credentials
       (workspace_id, user_id, kind, auth_cipher, account_email_hash, expires_at, saved_at)
-     VALUES (?, ?, ?, ?, NULL, ?, ?)
+     SELECT ?, ?, ?, ?, NULL, ?, ?
+     ${guard?.serverGeneration !== undefined ? "WHERE EXISTS(SELECT 1 FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=? AND generation=? AND status IN('draft','error') AND schema_version IS NULL) AND NOT EXISTS(SELECT 1 FROM user_subscription_credentials WHERE workspace_id=? AND user_id=? AND kind=?)" : "WHERE 1=1"}
      ON CONFLICT(workspace_id, user_id, kind) DO UPDATE SET
       auth_cipher = excluded.auth_cipher,
       expires_at = excluded.expires_at,
       saved_at = excluded.saved_at`,
   )
-    .bind(orgId, ownerId, TOKEN_KIND(serverId), cipher, tokens.expiresAt, Date.now())
+    .bind(orgId, ownerId, TOKEN_KIND(serverId), cipher, tokens.expiresAt, Date.now(),
+      ...(guard?.serverGeneration !== undefined ? [serverId, orgId, ownerId, guard.serverGeneration, orgId, ownerId, TOKEN_KIND(serverId)] : []))
     .run();
+  return written.meta.changes === 1;
 }
 
 export async function loadExternalMcpOAuthTokens(
@@ -306,6 +419,10 @@ export async function loadExternalMcpOAuthTokens(
   ownerId: string,
   serverId: string,
 ): Promise<ExternalMcpOAuthTokens | null> {
+  return (await loadStoredTokens(env, orgId, ownerId, serverId))?.tokens ?? null;
+}
+
+async function loadStoredTokens(env: Env, orgId: string, ownerId: string, serverId: string): Promise<{ tokens: ExternalMcpOAuthTokens; cipher: string } | null> {
   if (!oauthReady(env)) return null;
   await ensureSubscriptionCredentialSchema(env);
   const row = await env.AGENT_AUDIT.prepare(
@@ -315,7 +432,7 @@ export async function loadExternalMcpOAuthTokens(
     .first<{ auth_cipher: string }>();
   if (!row) return null;
   const plain = await decryptAuthJson(row.auth_cipher, env.MODEL_CREDENTIAL_KEY!, orgId, ownerId, TOKEN_KIND(serverId));
-  return JSON.parse(plain) as ExternalMcpOAuthTokens;
+  return { tokens: JSON.parse(plain) as ExternalMcpOAuthTokens, cipher: row.auth_cipher };
 }
 
 export async function deleteExternalMcpOAuthTokens(
@@ -344,6 +461,7 @@ export async function revokeExternalMcpOAuth(
     const tokens = await loadExternalMcpOAuthTokens(env, input.orgId, input.ownerId, input.serverId);
     const endpoint = input.revocationEndpoint ?? tokens?.revocationEndpoint;
     if (tokens && endpoint) {
+      oauthUrl(endpoint);
       const body = new URLSearchParams({
         token: tokens.refreshToken ?? tokens.accessToken,
         token_type_hint: tokens.refreshToken ? "refresh_token" : "access_token",
@@ -379,13 +497,17 @@ export async function saveExternalMcpBearerToken(
   ownerId: string,
   serverId: string,
   bearer: string,
+  expectedGeneration?: number,
 ): Promise<void> {
   if (!bearer.trim() || bearer.length > 8_192) throw new Error("invalid_bearer");
-  await saveExternalMcpOAuthTokens(env, orgId, ownerId, serverId, {
+  const server = await env.AGENT_AUDIT.prepare("SELECT generation,status,schema_version FROM external_mcp_servers WHERE id=? AND org_id=? AND owner_id=?")
+    .bind(serverId, orgId, ownerId).first<{ generation: number; status: string; schema_version: string | null }>();
+  if (!server || server.status !== "draft" || server.schema_version !== null || (expectedGeneration !== undefined && server.generation !== expectedGeneration)) throw new Error("oauth_state_invalid");
+  if (!await persistExternalMcpOAuthTokens(env, orgId, ownerId, serverId, {
     accessToken: bearer.trim(),
     expiresAt: Date.now() + 365 * 24 * 60 * 60_000,
     tokenType: "Bearer",
-  });
+  }, { serverGeneration: server.generation })) throw new Error("oauth_state_invalid");
 }
 
 // Single flight within a Worker isolate, scoped to the credential database and owner.
@@ -427,20 +549,22 @@ export async function resolveExternalMcpBearer(
     }
     try {
       // Another isolate may have rotated the credentials while this caller waited.
-      const current = await loadExternalMcpOAuthTokens(env, orgId, ownerId, serverId);
-      if (!current) return undefined;
+      const stored = await loadStoredTokens(env, orgId, ownerId, serverId);
+      if (!stored) return undefined;
+      const current = stored.tokens;
       if (current.expiresAt > Date.now()) return current.accessToken;
       if (!current.refreshToken || !current.tokenEndpoint || !current.clientId) return undefined;
+      oauthUrl(current.tokenEndpoint);
       const response = await fetchImpl(current.tokenEndpoint, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: current.refreshToken, client_id: current.clientId }),
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: current.refreshToken, client_id: current.clientId,
+          ...(current.resource ? { resource: current.resource } : {}) }),
         redirect: "error",
         signal: AbortSignal.timeout(8_000),
       });
-      if (!response.ok) throw new Error("oauth_token_exchange_failed");
-      const token = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; token_type?: string };
-      if (!token.access_token) throw new Error("oauth_token_exchange_failed");
+      if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error("oauth_token_exchange_failed"); }
+      const token = parseOAuthTokenResponse(await readBoundedObject(response, "oauth_token_exchange_failed"));
       const updated: ExternalMcpOAuthTokens = {
         ...current,
         accessToken: token.access_token,
@@ -449,8 +573,8 @@ export async function resolveExternalMcpBearer(
         scope: token.scope ?? current.scope,
         tokenType: token.token_type ?? current.tokenType,
       };
-      await saveExternalMcpOAuthTokens(env, orgId, ownerId, serverId, updated);
-      return updated.accessToken;
+      return await persistExternalMcpOAuthTokens(env, orgId, ownerId, serverId, updated, { previousCipher: stored.cipher })
+        ? updated.accessToken : undefined;
     } finally {
       await env.AGENT_AUDIT.prepare("DELETE FROM external_mcp_oauth_refresh_locks WHERE server_id = ? AND lease_id = ?")
         .bind(serverId, leaseId).run();
@@ -472,5 +596,5 @@ export function readDeploymentOAuthClientId(env: Env, catalogId: string): string
 }
 
 export function defaultOAuthScopes(_catalogId: string): string {
-  return "openid offline_access";
+  return "";
 }

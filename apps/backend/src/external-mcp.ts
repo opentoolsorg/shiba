@@ -12,6 +12,7 @@ import { z, type ZodType } from "zod";
 import { initAudit, audit } from "./audit.js";
 import {
   deleteExternalMcpOAuthTokens,
+  ensureExternalMcpOAuthSchema,
   resolveExternalMcpBearer,
   revokeExternalMcpOAuth,
 } from "./external-mcp-oauth.js";
@@ -336,6 +337,8 @@ async function normalizeTools(remoteTools: unknown) {
 async function withClient<T>(env: Env, server: ExternalMcpServer, action: (client: Client) => Promise<T>, fetchImpl?: typeof fetch): Promise<T> {
   const endpoint = validateExternalMcpEndpoint(server.endpoint, env);
   const token = await authToken(env, server);
+  const current = await getExternalMcpServer(env, server.orgId, server.ownerId, server.id);
+  if (!current || current.status === "disabled" || current.generation !== server.generation || current.endpoint !== server.endpoint) throw new Error("server_not_found");
   const safeFetch: typeof fetch = async (input, init) => {
     const requestUrl = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     if (requestUrl.href !== endpoint.href) throw new Error("destination_not_trusted");
@@ -451,16 +454,26 @@ export async function updateExternalMcpServer(env: Env, input: { orgId: string; 
   validatePublicHttpsEndpoint(endpoint);
   if (!name || name.length > 80 || (credentialRef && !CREDENTIAL_REF.test(credentialRef))) throw new Error("invalid_registration");
   const changed = endpoint !== current.endpoint || credentialRef !== current.credentialRef;
+  const vendor = current.catalogId ? curatedMcpVendorByCatalogId(current.catalogId) : undefined;
+  if (vendor && new URL(endpoint).href !== new URL(vendor.endpoint).href) throw new Error("invalid_endpoint");
   const now = Date.now();
-  await env.AGENT_AUDIT.prepare(`UPDATE external_mcp_servers SET name = ?, endpoint = ?, credential_ref = ?,
+  const update = env.AGENT_AUDIT.prepare(`UPDATE external_mcp_servers SET name = ?, endpoint = ?, credential_ref = ?,
     status = ?, generation = generation + ?, schema_version = ?, health = 'unknown', last_checked_at = NULL,
     last_error_code = NULL, updated_at = ? WHERE id = ? AND org_id = ? AND owner_id = ?`)
     .bind(name, endpoint, credentialRef, changed ? "draft" : current.status, changed ? 1 : 0, changed ? null : current.schemaVersion,
-      now, input.id, input.orgId, input.ownerId).run();
-  if (changed) await env.AGENT_AUDIT.batch([
+      now, input.id, input.orgId, input.ownerId);
+  if (changed) {
+    await ensureExternalMcpOAuthSchema(env);
+    await env.AGENT_AUDIT.batch([
+    update,
     env.AGENT_AUDIT.prepare("UPDATE external_mcp_tools SET enabled = 0, effect = 'unreviewed', reviewed_at = NULL WHERE server_id = ?").bind(input.id),
     env.AGENT_AUDIT.prepare("UPDATE external_mcp_access SET enabled = 0, updated_at = ? WHERE server_id = ?").bind(now, input.id),
+    env.AGENT_AUDIT.prepare("DELETE FROM user_subscription_credentials WHERE workspace_id=? AND user_id=? AND kind=?")
+      .bind(current.orgId, current.ownerId, `external-mcp-oauth:${current.id}`),
+    env.AGENT_AUDIT.prepare("DELETE FROM external_mcp_oauth_pending WHERE server_id=? AND org_id=? AND owner_id=?")
+      .bind(current.id, current.orgId, current.ownerId),
   ]);
+  } else await update.run();
   return getExternalMcpServer(env, input.orgId, input.ownerId, input.id);
 }
 
@@ -572,16 +585,17 @@ export async function listExternalMcpAccess(env: Env, orgId: string, serverId: s
 
 export async function disableExternalMcpServer(env: Env, server: ExternalMcpServer) {
   const now = Date.now();
-  if (modelCredentialKeyConfigured(env)) {
-    await revokeExternalMcpOAuth(env, { orgId: server.orgId, ownerId: server.ownerId, serverId: server.id }).catch(() =>
-      deleteExternalMcpOAuthTokens(env, server.orgId, server.ownerId, server.id));
-  }
   await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare("UPDATE external_mcp_servers SET status = 'disabled', generation = generation + 1, updated_at = ? WHERE id = ? AND org_id = ? AND owner_id = ?")
       .bind(now, server.id, server.orgId, server.ownerId),
     env.AGENT_AUDIT.prepare("UPDATE external_mcp_tools SET enabled = 0 WHERE server_id = ?").bind(server.id),
     env.AGENT_AUDIT.prepare("UPDATE external_mcp_access SET enabled = 0, updated_at = ? WHERE server_id = ?").bind(now, server.id),
   ]);
+  // Revoke local authority before waiting on any vendor response.
+  if (modelCredentialKeyConfigured(env)) {
+    await revokeExternalMcpOAuth(env, { orgId: server.orgId, ownerId: server.ownerId, serverId: server.id }).catch(() =>
+      deleteExternalMcpOAuthTokens(env, server.orgId, server.ownerId, server.id));
+  }
 }
 
 async function recordHealth(env: Env, server: ExternalMcpServer, errorCode: string | null) {

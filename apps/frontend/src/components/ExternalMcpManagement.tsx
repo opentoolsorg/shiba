@@ -210,9 +210,10 @@ export function ExternalMcpManagement(): JSX.Element {
         <h3 className="text-sm font-semibold text-[var(--fg)]">External MCP servers</h3>
         <p className="mt-1 max-w-3xl text-xs text-[var(--muted-foreground-2)]">
           Register HTTPS Streamable HTTP servers you own or trust. Only exact public hostnames
-          configured by the deployment operator can be contacted. OAuth, SSE-only, stdio,
-          local/private hosts, metadata targets, custom auth headers, and redirects are unsupported.
-          Credentials are referenced by Worker secret name only.
+          configured by the deployment operator or the six curated presets can be contacted.
+          Curated OAuth sign-in requires a deployment client registration; bearer fallback is
+          available in the preset panel. SSE-only, stdio, local/private hosts, custom auth headers
+          and redirects are unsupported. Generic credentials use Worker secret references.
         </p>
       </div>
       {error ? (

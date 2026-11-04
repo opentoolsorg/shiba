@@ -10,6 +10,26 @@ afterEach(() => {
 });
 
 describe("CuratedMcpConnections", () => {
+  it("offers an explicit OAuth continuation instead of claiming an asynchronously blocked popup opened", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/catalog-connections")) return Response.json({ connections: [] });
+      if (path === "/api/v1/mcp/servers") return Response.json({ server: { id: "oauth-draft" } });
+      if (path.endsWith("/oauth/begin")) return Response.json({ authorizationUrl: "https://auth.vendor.com/authorize?state=fixture" });
+      return Response.json({ error: "Unexpected" }, { status: 404 });
+    }));
+    render(<CuratedMcpConnections />);
+    fireEvent.change(screen.getAllByLabelText("Label")[0]!, { target: { value: "prod" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Connect with OAuth" })[0]!);
+    const link = await screen.findByRole("link", { name: "Continue Stripe sign-in" });
+    expect(link.getAttribute("href")).toBe("https://auth.vendor.com/authorize?state=fixture");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.queryByText(/sign-in opened/)).toBeNull();
+    open.mockRestore();
+  });
+
   it("rejects unsafe OAuth redirects before opening a vendor window", async () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
