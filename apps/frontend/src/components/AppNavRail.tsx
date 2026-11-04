@@ -36,6 +36,7 @@ import {
   SquarePen,
   Store,
   Terminal,
+  Users,
   Waypoints,
   Workflow,
   X,
@@ -62,6 +63,7 @@ export type AppNavView =
   | "approvals"
   | "swarm"
   | "collaboration"
+  | "team"
   | "agents"
   | "inbox"
   | "memory"
@@ -93,6 +95,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "approvals", label: "Approvals", description: "Review & Decision Queue" },
   { id: "swarm", label: "Swarm", description: "Run Lanes, Modes & Share Links" },
   { id: "collaboration", label: "Collaboration", description: "Private rooms for people and agents" },
+  { id: "team", label: "Team", description: "Workspaces, members and invitations" },
   { id: "providers", label: "Providers", description: "Connect AI Coding Agents" },
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
   { id: "spaces", label: "Spaces", description: "Hosted coworker mini-apps" },
@@ -135,6 +138,7 @@ export interface AppNavRailProps {
   customAgentRecords?: CustomAgentWire[];
   agentThreads?: WebThread[];
   onNewAgentThread?: (agent?: CustomAgentWire) => void;
+  workspaceSwitcher?: React.ReactNode;
 }
 
 export function workspaceLabel(accountEmail: string | null | undefined): { name: string; detail: string } {
@@ -170,6 +174,7 @@ const ICONS: Record<AppNavView, LucideIcon> = {
   remote: Monitor,
   swarm: SquareCheckBig,
   collaboration: MessagesSquare,
+  team: Users,
 };
 
 export function navStatusDotClass(status: string, live?: boolean): string {
@@ -257,6 +262,7 @@ export function AppNavRail({
   customAgentRecords = [],
   agentThreads = [],
   onNewAgentThread,
+  workspaceSwitcher,
 }: AppNavRailProps): JSX.Element {
   const [needsApprovalOpen, setNeedsApprovalOpen] = useState(true);
   const [everythingOpen, setEverythingOpen] = useState(true);
@@ -330,6 +336,7 @@ export function AppNavRail({
     "approvals",
     "swarm",
     "collaboration",
+    "team",
     "inbox",
     "memory",
     "providers",
@@ -652,6 +659,7 @@ export function AppNavRail({
         </div>
 
         {/* View Switcher: Agents | Workflows (OpenBot SidebarViewSwitch) */}
+        {workspaceSwitcher}
         <div className="grid grid-cols-2 p-0.5 rounded-lg bg-[var(--secondary)] mb-2.5 text-xs font-medium shrink-0">
           <button
             type="button"

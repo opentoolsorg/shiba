@@ -7,6 +7,7 @@ import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTempl
 import { RoleShiba } from "./RoleShiba";
 import { ShibaMark } from "./ShibaMark";
 import { ViewHeader, viewButtonClass } from "./ui/ViewChrome";
+import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 const quietButton = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg px-2 text-[var(--muted-foreground-2)] hover:bg-[var(--secondary)] hover:text-[var(--fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 export const ONBOARDING_DISMISSED_KEY = "shiba.employee-onboarding.dismissed";
@@ -85,14 +86,14 @@ export function EmployeeOnboarding({ onSelect, onSkip }: { onSelect: (template: 
   </section>;
 }
 
-export async function createEmployeeAgent(template: EmployeeTemplate): Promise<CustomAgentWire> {
-  const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: template.slug, config: { ...template.config, harness: "opencode", approvalPolicy: "standard" } }) });
+export async function createEmployeeAgent(template: EmployeeTemplate, workspaceId?: string): Promise<CustomAgentWire> {
+  const response = await fetch("/api/custom-agents", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: template.slug, config: { ...template.config, harness: "opencode", approvalPolicy: "standard" } }) });
   const body = await response.json().catch(() => ({})) as { agent?: CustomAgentWire; error?: string };
   if (!response.ok || !body.agent) throw new Error(body.error ?? `Could not create agent (${response.status}).`);
   return body.agent;
 }
 
-export function AgentPageHeader({ name, slug, role, detailsOpen, onToggleDetails, onExpandSidebar }: { name: string; slug?: string; role?: EmployeeRole; detailsOpen: boolean; onToggleDetails: () => void; onExpandSidebar?: () => void }) {
+export function AgentPageHeader({ name, slug, role, detailsOpen, onToggleDetails, onExpandSidebar, onShareWithTeam }: { name: string; slug?: string; role?: EmployeeRole; detailsOpen: boolean; onToggleDetails: () => void; onExpandSidebar?: () => void; onShareWithTeam?: () => void }) {
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -114,9 +115,10 @@ export function AgentPageHeader({ name, slug, role, detailsOpen, onToggleDetails
     };
   }, [participantsOpen]);
   return <div ref={headerRef} className="relative"><ViewHeader section="Agents" view={name} leading={<>{onExpandSidebar ? <button type="button" className={`${quietButton} hidden lg:inline-flex`} aria-label="Expand sidebar" onClick={onExpandSidebar}><PanelLeft aria-hidden="true" className="size-4" /></button> : null}<AgentAvatar name={name} slug={slug} role={role} /></>}>
+    {onShareWithTeam ? <button type="button" className={`${quietButton} gap-2 text-xs`} onClick={() => onShareWithTeam()} aria-describedby={`${id}-share-context`}><Users aria-hidden="true" className="size-4" />Start shared conversation</button> : null}
     <button type="button" className={quietButton} aria-label="Participants" aria-expanded={participantsOpen} aria-controls={`${id}-participants`} onClick={() => setParticipantsOpen(!participantsOpen)}><Users aria-hidden="true" className="size-4" /><span className="ml-2 hidden sm:inline">You and agent</span></button>
     <button type="button" className={quietButton} aria-label="Toggle agent details" aria-expanded={detailsOpen} aria-controls="agent-details" onClick={onToggleDetails}><PanelRight aria-hidden="true" className="size-4" /></button>
-  </ViewHeader>{participantsOpen ? <div id={`${id}-participants`} className="absolute right-4 top-full z-20 w-60 rounded-xl border border-[var(--border-1)] bg-[var(--popover)] p-4 text-sm text-[var(--fg)] shadow-overlay"><p className="font-medium">Participants</p><p className="mt-3">You</p><p className="mt-2">{name}</p><p className="mt-3 text-xs text-[var(--muted-foreground-2)]">You and this agent work in your Shiba workspace.</p></div> : null}</div>;
+  </ViewHeader>{onShareWithTeam ? <p id={`${id}-share-context`} className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--muted-foreground-2)]">A shared conversation starts separately. Your private history is not automatically included; choose what to share in the team chat.</p> : null}{participantsOpen ? <div id={`${id}-participants`} className="absolute right-4 top-full z-20 w-60 rounded-xl border border-[var(--border-1)] bg-[var(--popover)] p-4 text-sm text-[var(--fg)] shadow-overlay"><p className="font-medium">Participants</p><p className="mt-3">You</p><p className="mt-2">{name}</p><p className="mt-3 text-xs text-[var(--muted-foreground-2)]">You and this agent work in your Shiba workspace.</p></div> : null}</div>;
 }
 
 export function AgentConversationEmpty({ name, slug, role, examples = [], onPrefill, prefillDisabled = false }: { name: string; slug?: string; role?: EmployeeRole; examples?: readonly string[]; onPrefill: (prompt: string) => void; prefillDisabled?: boolean }) {

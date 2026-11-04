@@ -25,6 +25,10 @@ import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
 import { handleCollaborationWithRealtime } from "./collaboration-room-routes.js";
+import { handleTeamWorkspaces } from "./team-workspaces-routes.js";
+import { handleTeamWork } from "./team-work-routes.js";
+import { handleEmployeeBundles } from "./employee-bundles-routes.js";
+import { enforceTeamMemberApiPolicy } from "./team-member-auth.js";
 import { handleReasonNetwork } from "./reason-network/routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
@@ -146,6 +150,7 @@ export const DASHBOARD_VIEWS = new Set([
   "approvals",
   "swarm",
   "collaboration",
+  "team",
   "agents",
   "inbox",
   "memory",
@@ -240,7 +245,7 @@ export default {
       // subscription-connect paths it shares that prefix with — those stay
       // gated below), so it is served before the identity gate sees the
       // request. The gate then composes both identity systems.
-      const betterAuthResponse = await handleBetterAuth(request, env);
+      const betterAuthResponse = await handleBetterAuth(request, env, { teamMemberPolicyEnabled: true });
       if (betterAuthResponse) return betterAuthResponse;
       const devOAuthLoopbackResponse = await handleDevOAuthLoopback(request, env);
       if (devOAuthLoopbackResponse) {
@@ -283,6 +288,14 @@ export default {
           { status: 401 },
         );
       }
+      const memberPolicyResponse = await enforceTeamMemberApiPolicy(request, env);
+      if (memberPolicyResponse) return memberPolicyResponse;
+      const workResponse = await handleTeamWork(request, env);
+      if (workResponse) return workResponse;
+      const workspaceResponse = await handleTeamWorkspaces(request, env);
+      if (workspaceResponse) return workspaceResponse;
+      const bundleResponse = await handleEmployeeBundles(request, env);
+      if (bundleResponse) return bundleResponse;
       const gmailResponse = await handleGmail(request, env);
       if (gmailResponse) return gmailResponse;
       const oauthResponse = await handleOAuth(request, env, await resolveUserId(request, env));
@@ -515,6 +528,20 @@ export default {
             }
             if (!checkRes.ok) {
               return Response.json({ error: "Failed to verify session." }, { status: checkRes.status });
+            }
+            const checked = await checkRes.json().catch(() => null) as {
+              session?: { id?: unknown; userId?: unknown; metadata?: Record<string, unknown> };
+            } | null;
+            if (!checked?.session || checked.session.id !== parsed.sessionId || checked.session.userId !== currentUserId) {
+              return Response.json({ error: "Session not found." }, { status: 404 });
+            }
+            const metadata = checked.session.metadata;
+            // Private team-session chat has no proven workspace-aware runtime.
+            // An owner name or current operator login cannot replace its room
+            // and source authority, including after workspace removal.
+            if ((typeof metadata?.orgId === "string" && metadata.orgId.startsWith("team:")) ||
+                (metadata && (Object.hasOwn(metadata, "teamWorkspaceId") || Object.hasOwn(metadata, "teamMembershipVersion")))) {
+              return Response.json({ error: "Use the shared room for team employee work." }, { status: 403 });
             }
           }
         }

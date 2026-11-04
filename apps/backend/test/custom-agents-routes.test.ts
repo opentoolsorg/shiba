@@ -12,6 +12,7 @@ const authState = vi.hoisted(() => ({
 
 vi.mock("../src/request-auth.js", () => ({
   isAuthorizedRequest: vi.fn(async () => authState.dashboard),
+  resolveUserId: vi.fn(async () => authState.dashboard ? "owner@example.test" : null),
 }));
 
 vi.mock("../src/v1-auth.js", async (importOriginal) => {

@@ -2,11 +2,12 @@ import { isSafeDeliverablePath, MAX_DELIVERABLE_BYTES, runInputHash, type Delega
 import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
 import { canReadCollaborationRoom } from "./collaboration-room-access.js";
-import { COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, getCollaborationHandoff, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
+import { getCollaborationHandoff, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
 import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
+import { resolveTeamCollaborationScope } from "./team-collaboration-scope.js";
 
 const ROUTE = /^\/api\/collaboration\/rooms\/([^/]+)\/handoffs\/([^/]+)\/artifacts\/([^/]+)$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -35,7 +36,7 @@ function validRun(run: DelegatedRun | undefined, handoff: CollaborationHandoffRo
         run.runId !== `agent-tool:${handoff.approvalId}` || run.collaborationHandoffId !== handoff.handoffId ||
         run.customAgentId !== handoff.recipientActorId.slice("agent:".length) || run.customAgentVersion !== handoff.profileVersion ||
         !evidence || evidence.approvalId !== handoff.approvalId || typeof evidence.decidedBy !== "string" ||
-        !evidence.decidedBy.trim() || /^(?:(?:system|automation|agent|mcp|child|subagent):|task-cancel$|collaboration-cancellation$)/i.test(evidence.decidedBy.trim()) ||
+        !evidence.decidedBy.trim() || /^(?:(?:default|system|automation|agent|mcp|child|subagent)(?::|$)|task-cancel$|collaboration-cancellation$)/i.test(evidence.decidedBy.trim()) ||
         !Number.isFinite(evidence.decidedAt) || evidence.decidedAt < 1 || typeof evidence.inputHash !== "string" ||
         !SHA256.test(evidence.inputHash) || evidence.inputHash !== runInputHash(run) ||
         typeof run.sandboxId !== "string" || !run.sandboxId || run.sandboxId.length > 200 ||
@@ -76,7 +77,9 @@ async function hasSharedArtifactRef(
   }
 }
 
-async function currentAccess(env: Env, scope: CollaborationScope, handoff: CollaborationHandoffRow, run: DelegatedRun): Promise<boolean> {
+async function currentAccess(request: Request, env: Env, scope: CollaborationScope, handoff: CollaborationHandoffRow, run: DelegatedRun): Promise<boolean> {
+  const currentScope = await resolveTeamCollaborationScope(request, env);
+  if (!currentScope || currentScope.userId !== scope.userId || currentScope.tenantId !== scope.tenantId || currentScope.workspaceId !== scope.workspaceId) return false;
   const identity = { tenantId: scope.tenantId, workspaceId: scope.workspaceId, roomId: handoff.roomId };
   if (!await canReadCollaborationRoom(env, identity, scope.userId)) return false;
   const current = await getCollaborationHandoff(env, scope, handoff.handoffId);
@@ -126,8 +129,9 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
   } catch { return failure(400); }
   if (!/^room_[a-f0-9]{24}$/.test(roomId) || !/^[A-Za-z0-9_-]{1,100}$/.test(handoffId) || !/^[0-7]$/.test(rawIndex)) return failure(400);
   if (!env.AGENT_AUDIT || !env.CodingOrchestrator || !env.ATTACHMENTS) return failure(503);
-  const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, userId };
   try {
+    const scope = await resolveTeamCollaborationScope(request, env);
+    if (!scope || scope.userId !== userId) return failure();
     if (!await canReadCollaborationRoom(env, { ...scope, roomId }, userId)) return failure();
     const handoff = await getCollaborationHandoff(env, scope, handoffId);
     if (!handoff || handoff.roomId !== roomId || handoff.status !== "active" || !handoff.approvalId ||
@@ -145,7 +149,7 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
     const index = Number(rawIndex);
     const item = validRun(run, handoff, index);
     if (!run || !item || !await hasSharedArtifactRef(env, scope, handoff, index, item) ||
-        !await currentAccess(env, scope, handoff, run)) return failure();
+        !await currentAccess(request, env, scope, handoff, run)) return failure();
     const object = await env.ATTACHMENTS.get(deliverableStorageKey(run.sandboxId, item.sha256, index));
     if (!object) return failure();
     if (object.size !== item.bytes) {
@@ -157,7 +161,7 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", body)), (byte) => byte.toString(16).padStart(2, "0")).join("");
     if (hash !== item.sha256) return failure(409);
     // Body reads and hashing yield: removed members and revoked selected sources must lose cached output too.
-    if (!await hasSharedArtifactRef(env, scope, handoff, index, item) || !await currentAccess(env, scope, handoff, run)) return failure();
+    if (!await hasSharedArtifactRef(env, scope, handoff, index, item) || !await currentAccess(request, env, scope, handoff, run)) return failure();
     const types: Record<string, string> = { md: "text/markdown; charset=utf-8", txt: "text/plain; charset=utf-8", json: "application/json; charset=utf-8", csv: "text/csv; charset=utf-8" };
     return new Response(body, { headers: {
       "Cache-Control": "private, no-store", "content-type": types[item.path.split(".").pop()!.toLowerCase()]!,

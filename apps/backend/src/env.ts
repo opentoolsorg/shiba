@@ -476,6 +476,8 @@ export interface Env {
    * case-insensitively. Public hosts refuse every other address.
    */
   BETTER_AUTH_OWNER_EMAIL?: string;
+  /** Verified email sender for invitation enrollment; absent keeps enrollment unavailable. */
+  BETTER_AUTH_VERIFICATION_FROM?: string;
   /** Gmail read-only OAuth. Absent/invalid config fails closed; no generic auth accounts. */
   GMAIL_CLIENT_ID?: string;
   GMAIL_CLIENT_SECRET?: string;

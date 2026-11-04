@@ -1399,6 +1399,37 @@ describe("orchestrator run routes", () => {
 });
 
 describe("approval handoff recovery", () => {
+  it("rejects a mismatched approval input digest before asynchronous admission or execution", async () => {
+    const instance = agent();
+    const queued = await instance.onRequest(new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Frozen room work" }) }));
+    const { approvalId } = await queued.json() as { approvalId: string };
+    const reclaim = vi.spyOn(instance, "reclaimRuns");
+    const response = await instance.onRequest(new Request("https://internal/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test", expectedInputHash: "0".repeat(64) }) }));
+    expect(response.status).toBe(409);
+    expect(reclaim).not.toHaveBeenCalled();
+    expect(instance.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(instance.state.runs).toEqual([]);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the frozen approval digest after asynchronous availability checks", async () => {
+    const instance = agent();
+    const queued = await instance.onRequest(new Request("https://internal/api/runs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: "https://github.com/o/r", task: "Frozen room work" }) }));
+    const { approvalId, approvalInputHash } = await queued.json() as { approvalId: string; approvalInputHash: string };
+    vi.spyOn(instance, "reclaimRuns").mockImplementation(async () => {
+      instance.setState({ ...instance.state, pendingApprovals: instance.state.pendingApprovals!.map((record) => ({ ...record, task: "Changed during await" })) });
+    });
+    const response = await instance.onRequest(new Request("https://internal/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "reviewer@example.test", expectedInputHash: approvalInputHash }) }));
+    expect(response.status).toBe(409);
+    expect(instance.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(instance.state.runs).toEqual([]);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
   it.each(["chat", "app-tools"])("dispatches a frozen API approval after the latest turn switches to %s", async (mode) => {
     const instance = agent();
     const queued = await instance.onRequest(new Request("https://internal/api/runs", {

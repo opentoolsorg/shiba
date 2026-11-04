@@ -9,6 +9,7 @@ import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTempl
 import { RoleShiba } from "./RoleShiba";
 import { AgentTemplatesCatalog } from "./AgentTemplatesCatalog";
 import type { AgentTemplate } from "@shiba/shared";
+import { teamWorkspaceHeaders } from "../team-workspaces-client";
 
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors w-full";
@@ -53,18 +54,7 @@ function readRoleDraft(scope?: string): typeof EMPTY_FORM {
 
 const hasDraft = (form: typeof EMPTY_FORM) => Object.entries(EMPTY_FORM).some(([key, value]) => form[key as keyof typeof EMPTY_FORM] !== value);
 
-export function CustomAgentsView({
-  onStartThread,
-  threads = [],
-  threadsLoading = false,
-  threadsUnavailable = false,
-  onOpenThread,
-  connections = [],
-  modelSuggestions = [],
-  initialTemplateId = null,
-  onInitialTemplateApplied,
-  draftScope,
-}: {
+export interface CustomAgentsViewProps {
   onStartThread?: (agent: CustomAgentWire) => Promise<void>;
   threads?: WebThread[];
   threadsLoading?: boolean;
@@ -75,7 +65,41 @@ export function CustomAgentsView({
   initialTemplateId?: EmployeeTemplate["id"] | null;
   onInitialTemplateApplied?: () => void;
   draftScope?: string;
-}): JSX.Element {
+  workspaceId?: string;
+  actorId?: string;
+}
+
+/** Keep drafts and async callbacks in the account/workspace that created them. */
+export function CustomAgentsView(props: CustomAgentsViewProps): JSX.Element {
+  const scope = JSON.stringify([props.actorId?.trim().toLowerCase() ?? "", props.workspaceId ?? "", props.draftScope ?? ""]);
+  const current = useRef({ scope, generation: 0 });
+  if (current.current.scope !== scope) current.current = { scope, generation: current.current.generation + 1 };
+  const generation = current.current.generation;
+  return <ScopedCustomAgentsView key={generation} {...props} isCurrent={() => current.current.generation === generation} />;
+}
+
+function ScopedCustomAgentsView({
+  onStartThread,
+  threads = [],
+  threadsLoading = false,
+  threadsUnavailable = false,
+  onOpenThread,
+  connections = [],
+  modelSuggestions = [],
+  initialTemplateId = null,
+  onInitialTemplateApplied,
+  draftScope,
+  workspaceId,
+  isCurrent,
+}: CustomAgentsViewProps & { isCurrent: () => boolean }): JSX.Element {
+  const alive = useRef(true);
+  const currentScope = useRef(isCurrent);
+  currentScope.current = isCurrent;
+  const isActive = useCallback(() => alive.current && currentScope.current(), []);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
   const [agents, setAgents] = useState<CustomAgentWire[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -146,35 +170,35 @@ export function CustomAgentsView({
   };
 
   const startThread = async (agent: CustomAgentWire) => {
-    if (!onStartThread || startingThread.current) return;
+    if (!isActive() || !onStartThread || startingThread.current) return;
     startingThread.current = true;
     setStartingAgentId(agent.id);
     setNotice(null);
     try {
       await onStartThread(agent);
     } catch (error) {
-      setNotice({ tone: "err", text: error instanceof Error ? error.message : "Could not start a thread." });
+      if (isActive()) setNotice({ tone: "err", text: error instanceof Error ? error.message : "Could not start a thread." });
     } finally {
-      startingThread.current = false;
-      setStartingAgentId(null);
+      if (isActive()) { startingThread.current = false; setStartingAgentId(null); }
     }
   };
 
   const refresh = useCallback(() => {
+    if (!isActive()) return;
     const request = ++directoryRequest.current;
     setLoadError(null);
-    fetch(showArchived ? "/api/custom-agents?archived=true" : "/api/custom-agents")
+    fetch(showArchived ? "/api/custom-agents?archived=true" : "/api/custom-agents", { headers: teamWorkspaceHeaders(workspaceId) })
       .then(async (r) => {
         if (!r.ok) throw new Error(`Bots could not be loaded (${r.status}).`);
         return (await r.json()) as { agents?: CustomAgentWire[] };
       })
-      .then((body) => { if (request === directoryRequest.current) setAgents(body.agents ?? []); })
+      .then((body) => { if (isActive() && request === directoryRequest.current) setAgents(body.agents ?? []); })
       .catch((error: unknown) => {
-        if (request === directoryRequest.current) setLoadError(error instanceof Error ? error.message : "Bots could not be loaded.");
+        if (isActive() && request === directoryRequest.current) setLoadError(error instanceof Error ? error.message : "Bots could not be loaded.");
       });
-  }, [showArchived]);
+  }, [showArchived, workspaceId, isActive]);
 
-  useEffect(refresh, [refresh]);
+  useEffect(() => { setAgents(null); refresh(); return () => { directoryRequest.current++; }; }, [refresh]);
 
   useEffect(() => {
     if (!initialTemplateId || appliedInitialTemplate.current === initialTemplateId || editingId || busy) return;
@@ -217,7 +241,7 @@ export function CustomAgentsView({
   };
 
   const saveAgent = async () => {
-    if (savingAgent.current || busy) return;
+    if (!isActive() || savingAgent.current || busy) return;
     if (pendingTemplate) {
       setNotice({ tone: "err", text: "Keep your current draft or confirm its replacement before saving." });
       return;
@@ -263,15 +287,16 @@ export function CustomAgentsView({
       const response = editingId
         ? await fetch(`/api/custom-agents/${encodeURIComponent(editingId)}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
             body: JSON.stringify({ config, expectedVersion }),
           })
         : await fetch("/api/custom-agents", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
             body: JSON.stringify({ slug, config }),
           });
       const body = (await response.json().catch(() => ({}))) as { error?: string; agent?: CustomAgentWire };
+      if (!isActive()) return;
       if (!response.ok || !body.agent) {
         setConflict(response.status === 409);
         setNotice({ tone: "err", text: response.status === 409
@@ -288,52 +313,56 @@ export function CustomAgentsView({
         refresh();
       }
     } catch {
-      setNotice({ tone: "err", text: "Save failed: the backend could not be reached." });
+      if (isActive()) setNotice({ tone: "err", text: "Save failed: the backend could not be reached." });
     } finally {
-      savingAgent.current = false;
-      setBusy(false);
+      if (isActive()) { savingAgent.current = false; setBusy(false); }
     }
   };
 
   const changeLifecycle = async (agent: CustomAgentWire, action: "archive" | "restore") => {
-    if (busy) return;
+    if (!isActive() || busy) return;
     setBusy(true);
     setNotice(null);
     try {
       const response = await fetch(`/api/custom-agents/${encodeURIComponent(agent.id)}/${action}`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+        method: "POST", headers: { "content-type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({}),
       });
       const body = await response.json().catch(() => ({})) as { error?: string; agent?: CustomAgentWire };
+      if (!isActive()) return;
       if (!response.ok || !body.agent) throw new Error(body.error ?? `Could not ${action} bot (${response.status}).`);
       setAgents((current) => (current ?? []).filter((item) => item.id !== agent.id));
       if (editingId === agent.id) resetForm();
       setNotice({ tone: "ok", text: action === "archive" ? "Bot archived. Its conversation history is preserved." : "Bot restored." });
       refresh();
     } catch (error) {
-      setNotice({ tone: "err", text: error instanceof Error ? error.message : "Bot could not be updated." });
-    } finally { setBusy(false); }
+      if (isActive()) setNotice({ tone: "err", text: error instanceof Error ? error.message : "Bot could not be updated." });
+    } finally { if (isActive()) setBusy(false); }
   };
 
   const reloadEditingAgent = async () => {
-    if (!editingId || busy) return;
+    if (!isActive() || !editingId || busy) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/custom-agents/${encodeURIComponent(editingId)}`);
+      const response = await fetch(`/api/custom-agents/${encodeURIComponent(editingId)}`, { headers: teamWorkspaceHeaders(workspaceId) });
       const body = await response.json() as { agent?: CustomAgentWire; error?: string };
+      if (!isActive()) return;
       if (!response.ok || !body.agent) throw new Error(body.error ?? "Bot could not be reloaded.");
       startEdit(body.agent);
       setNotice({ tone: "ok", text: "Latest bot loaded. Review it before saving." });
-    } catch (error) { setNotice({ tone: "err", text: error instanceof Error ? error.message : "Bot could not be reloaded." }); }
-    finally { setBusy(false); }
+    } catch (error) { if (isActive()) setNotice({ tone: "err", text: error instanceof Error ? error.message : "Bot could not be reloaded." }); }
+    finally { if (isActive()) setBusy(false); }
   };
 
   const deleteAgent = async (id: string) => {
+    if (!isActive() || busy) return;
     setBusy(true);
     setNotice(null);
     try {
-      const response = await fetch(`/api/custom-agents/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const response = await fetch(`/api/custom-agents/${encodeURIComponent(id)}`, { method: "DELETE", headers: teamWorkspaceHeaders(workspaceId) });
+      if (!isActive()) return;
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!isActive()) return;
         setNotice({ tone: "err", text: body.error ?? `Delete failed (${response.status}).` });
       } else {
         setAgents((current) => (current ?? []).filter((agent) => agent.id !== id));
@@ -343,9 +372,9 @@ export function CustomAgentsView({
         refresh();
       }
     } catch {
-      setNotice({ tone: "err", text: "Delete failed: the backend could not be reached." });
+      if (isActive()) setNotice({ tone: "err", text: "Delete failed: the backend could not be reached." });
     } finally {
-      setBusy(false);
+      if (isActive()) setBusy(false);
     }
   };
 
@@ -367,9 +396,11 @@ export function CustomAgentsView({
         <div className="max-w-3xl mx-auto flex flex-col gap-4">
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
 
-          <AgentTemplatesCatalog onUse={async (template: AgentTemplate) => {
-            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: template.id, config: { name: template.name, instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
+          <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate) => {
+            if (!isActive()) return;
+            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: template.id, config: { name: template.name, instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
             const body = await response.json().catch(() => ({})) as { error?: string };
+            if (!isActive()) return;
             if (!response.ok) throw new Error(body.error ?? `Could not add template (${response.status}).`);
             refresh();
           }} />
@@ -677,47 +708,55 @@ export function CustomAgentsView({
   );
 }
 
-/** Picker options for TaskComposer and automations. */
-export function useCustomAgentOptions(enabled = true): {
+/** Picker options are isolated by the verified account and selected workspace. */
+export function useCustomAgentOptions(enabled = true, workspaceId?: string, actorId?: string): {
   agents: CustomAgentWire[];
   loading: boolean;
   error: string | null;
   refresh: () => void;
 } {
-  const [agents, setAgents] = useState<CustomAgentWire[]>([]);
-  const [loading, setLoading] = useState(enabled);
-  const [error, setError] = useState<string | null>(null);
+  const scope = enabled ? JSON.stringify([actorId?.trim().toLowerCase() ?? "", workspaceId ?? ""]) : "";
+  const current = useRef({ scope, generation: 0 });
   const requestSequence = useRef(0);
+  const controller = useRef<AbortController | null>(null);
+  if (current.current.scope !== scope) {
+    current.current = { scope, generation: current.current.generation + 1 };
+    requestSequence.current++;
+  }
+  const generation = current.current.generation;
+  const [state, setState] = useState<{
+    scope: string; generation: number; agents: CustomAgentWire[]; loading: boolean; error: string | null;
+  }>({ scope, generation, agents: [], loading: enabled, error: null });
 
   const refresh = useCallback(() => {
-    if (!enabled) return;
+    if (!enabled || current.current.scope !== scope || current.current.generation !== generation) return;
+    controller.current?.abort();
+    const requestController = new AbortController();
+    controller.current = requestController;
     const request = ++requestSequence.current;
-    setLoading(true);
-    fetch("/api/custom-agents")
-      .then(async (r) => {
-        if (!r.ok) throw new Error(String(r.status));
-        return (await r.json()) as { agents?: CustomAgentWire[] };
+    const active = () => !requestController.signal.aborted && request === requestSequence.current &&
+      current.current.scope === scope && current.current.generation === generation;
+    setState((previous) => ({ scope, generation,
+      agents: previous.scope === scope && previous.generation === generation ? previous.agents : [],
+      loading: true, error: null }));
+    void fetch("/api/custom-agents", { headers: teamWorkspaceHeaders(workspaceId), signal: requestController.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return (await response.json()) as { agents?: CustomAgentWire[] };
       })
       .then((body) => {
-        if (request !== requestSequence.current) return;
-        setAgents(body.agents ?? []);
-        setError(null);
+        if (active()) setState({ scope, generation, agents: body.agents ?? [], loading: false, error: null });
       })
-      .catch(() => { if (request === requestSequence.current) setError("unavailable"); })
-      .finally(() => { if (request === requestSequence.current) setLoading(false); });
-  }, [enabled]);
+      .catch(() => {
+        if (active()) setState({ scope, generation, agents: [], loading: false, error: "unavailable" });
+      });
+  }, [enabled, scope, generation, workspaceId]);
 
   useEffect(() => {
-    if (!enabled) {
-      requestSequence.current++;
-      setAgents([]);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-    refresh();
-    return () => { requestSequence.current++; };
+    if (enabled) refresh();
+    return () => { controller.current?.abort(); requestSequence.current++; };
   }, [refresh, enabled]);
 
-  return { agents, loading, error, refresh };
+  const visible = enabled && state.scope === scope && state.generation === generation;
+  return { agents: visible ? state.agents : [], loading: enabled && (!visible || state.loading), error: visible ? state.error : null, refresh };
 }

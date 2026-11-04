@@ -6,6 +6,7 @@
 import { listTokens } from "./agent-tokens.js";
 import emailOpenApi from "./email-openapi.json";
 import type { Env } from "./env.js";
+import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { agentCliCatalog } from "./harness/catalog.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
 import { describeRoleModels } from "./agents/roles.js";
@@ -67,7 +68,8 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
         ? "better-auth"
         : "none";
     return Response.json(
-      { agent: (await resolveUserId(request, env)) ?? "default", auth },
+      { agent: (await resolveUserId(request, env)) ?? "default", auth,
+        ...(await isRestrictedTeamMember(request, env) ? { teamMember: true } : {}) },
       {
         headers: { "Cache-Control": "no-store" },
       },

@@ -1,18 +1,20 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Suspense } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 import { ONBOARDING_DISMISSED_KEY } from "./components/AgentExperience";
 import { EMPLOYEE_TEMPLATES } from "./employee-templates";
-import { composerDraftScope, readDraft, writeDraft } from "./saved";
+import { composerDraftScope, readDraft, writeDraft, setSavedLibraryActor } from "./saved";
 
 const mocks = vi.hoisted(() => ({
-  agent: { identified: true, readyState: 1, connectionError: null, addEventListener: vi.fn(), removeEventListener: vi.fn() },
+  suspension: null as Promise<void> | null,
+  agent: { identified: true, readyState: 1, connectionError: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), reconnect: vi.fn() },
   chat: { messages: [], status: "ready", isStreaming: false, setMessages: vi.fn(), sendMessage: vi.fn(), clearHistory: vi.fn() },
   tools: { runsById: {} },
   router: { history: { replace: (path: string) => window.history.replaceState(null, "", path), push: (path: string) => window.history.pushState(null, "", path) } },
 }));
-vi.mock("agents/react", () => ({ useAgent: () => mocks.agent, useAgentToolEvents: () => mocks.tools }));
+vi.mock("agents/react", () => ({ useAgent: () => { if (mocks.suspension) throw mocks.suspension; return mocks.agent; }, useAgentToolEvents: () => mocks.tools }));
 vi.mock("@cloudflare/ai-chat/react", () => ({ useAgentChat: () => mocks.chat }));
 vi.mock("./conversation-room-realtime", () => ({
   useConversationRoomRealtime: () => ({
@@ -29,16 +31,20 @@ vi.mock("./socket-liveness", () => ({ useSocketLiveness: vi.fn() }));
 vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
+vi.mock("./components/InboxTab", () => ({ InboxTab: () => <div data-testid="private-mailbox">PRIVATE-MAILBOX-CONTENT</div> }));
 vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task }: { task: string }) => <div data-testid="task-composer"><textarea aria-label="Task draft" value={task} readOnly /></div> }));
 vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value }: { value: string }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} readOnly /></div> }));
 
 beforeEach(() => {
+  mocks.agent.reconnect.mockClear();
+  mocks.suspension = null;
+  setSavedLibraryActor("test-operator");
   localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
     const path = String(url);
     if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
     if (path === "/api/sessions" && options?.method === "POST") return Response.json({ session: { id: "new-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } });
-    return Response.json({ sessions: [], runs: [], approvals: [], decided: [], agents: [], connections: [], computers: [], entries: [] });
+    return Response.json({ workspaces: [], sessions: [], runs: [], approvals: [], decided: [], agents: [], connections: [], computers: [], entries: [] });
   }));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
@@ -165,7 +171,7 @@ describe("app Work and Threads routing", () => {
     }));
     const originalSetItem = localStorage.setItem.bind(localStorage);
     const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
-      if (key === "shiba-composer-drafts-v1") throw new Error("Storage blocked");
+      if (key === "shiba-composer-drafts-v1:actor:test-operator") throw new Error("Storage blocked");
       originalSetItem(key, value);
     });
     try {
@@ -179,7 +185,7 @@ describe("app Work and Threads routing", () => {
       await act(async () => finishCreation(Response.json({ session: { id: "new-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } })));
       expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Keep this task without storage");
       expect(screen.getByRole("button", { name: "Rename thread" })).toBeTruthy();
-      expect(storage).toHaveBeenCalledWith("shiba-composer-drafts-v1", expect.any(String));
+      expect(storage).toHaveBeenCalledWith("shiba-composer-drafts-v1:actor:test-operator", expect.any(String));
       expect(readDraft(composerDraftScope("test-operator", "new-thread"))).toBe("");
     } finally {
       storage.mockRestore();
@@ -246,5 +252,141 @@ describe("app Work and Threads routing", () => {
     render(<App />);
     await screen.findByRole("textbox", { name: "Task draft" });
     expect(window.location.pathname).toBe("/threads/");
+  });
+
+  it("shows only selected team work and opens the shared chat through Threads", async () => {
+    const id = `ws_${"a".repeat(24)}`;
+    const actor = "owner@example.com";
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (path === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      if (path === `/api/workspaces/${id}/work`) return Response.json({ workspaceId: id, currentActorId: `human:${actor}`, tasks: [{ workspaceId: id, id: "shared-task", roomId: `room_${"b".repeat(24)}`, roomTitle: "Team room", title: "SHARED-TEAM-ONLY", assigneeKind: "human", status: "queued", updatedAt: 1 }], truncated: false });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByText("SHARED-TEAM-ONLY");
+    expect((screen.getByRole("combobox", { name: "Workspace" }) as HTMLSelectElement).value).toBe(id);
+    await act(async () => { window.history.pushState(null, "", "/threads/"); window.dispatchEvent(new PopStateEvent("popstate")); });
+    await screen.findByText(/Chat with your team/);
+    expect(screen.queryByRole("textbox", { name: "Task draft" })).toBeNull();
+    expect(fetch).toHaveBeenCalledWith("/api/collaboration/rooms", expect.objectContaining({ headers: expect.objectContaining({ "X-Shiba-Workspace": id }) }));
+  });
+
+  it("removes invitation secrets from the address before sign-in without submitting them", async () => {
+    const token = "a".repeat(64);
+    window.history.replaceState(null, "", `/app/?view=team&invite=1#invite=${token}`);
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ code: "better_auth" }, { status: 401 });
+      if (String(url) === "/api/auth/invitation-policy") return Response.json({ enabled: true });
+      if (String(url) === "/api/auth/bootstrap") return Response.json({ locked: true });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByLabelText("Invitation token");
+    expect(window.location.hash).toBe("");
+    expect((screen.getByLabelText("Invitation token") as HTMLInputElement).value).toBe(token);
+    for (const [url, options] of vi.mocked(fetch).mock.calls) {
+      expect(String(url)).not.toContain(token);
+      expect(options?.method ?? "GET").toBe("GET");
+    }
+    expect(JSON.stringify(localStorage)).not.toContain(token);
+  });
+
+  it("does not let a late onboarding read interrupt navigation to Team settings", async () => {
+    let finish!: (response: Response) => void;
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: "test-operator", auth: "better-auth" });
+      if (String(url) === "/api/onboarding/progress") return new Promise<Response>(resolve => { finish = resolve; });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    await act(async () => { window.history.pushState(null, "", "/team/"); window.dispatchEvent(new PopStateEvent("popstate")); });
+    await act(async () => finish(Response.json({ revision: 1, currentStep: "channels", dismissedAt: null, activatedAt: null, draftTask: null,
+      connectionVerifiedAt: null, firstSuccessfulRunAt: null, acceptedArtifactAt: null, evidence: { connectedProvider: false, successfulRun: false, acceptedDeliverable: false } })));
+    expect(window.location.pathname).toBe("/team/");
+    expect(screen.queryByRole("textbox", { name: "Task draft" })).toBeNull();
+  });
+
+  it("retains invitation context across an uncommitted suspended render", async () => {
+    const token = "b".repeat(64);
+    window.history.replaceState(null, "", `/app/?view=team&invite=1#invite=${token}`);
+    let resume!: () => void;
+    mocks.suspension = new Promise<void>(resolve => { resume = resolve; });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ code: "better_auth" }, { status: 401 });
+      if (String(url) === "/api/auth/invitation-policy") return Response.json({ enabled: false, reason: "Email transport is unavailable." });
+      if (String(url) === "/api/auth/bootstrap") return Response.json({ locked: true });
+      return originalFetch(url, options);
+    }));
+    render(<Suspense fallback={<p>Loading dashboard</p>}><App /></Suspense>);
+    expect(window.location.hash).toContain(token);
+    await act(async () => { mocks.suspension = null; resume(); });
+    expect((await screen.findByLabelText("Invitation token") as HTMLInputElement).value).toBe(token);
+    expect(window.location.hash).toBe("");
+    expect(screen.getByText("Email transport is unavailable.")).toBeTruthy();
+  });
+
+  it("preserves an invited member's explicit shared-chat view after sign-in", async () => {
+    const id = `ws_${"c".repeat(24)}`, actor = "member@example.com";
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+    window.history.replaceState(null, "", "/collaboration/");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: actor, auth: "better-auth", teamMember: true });
+      if (String(url) === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Shared team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "member", version: 1, joinedAt: 1 } }] });
+      if (String(url) === "/api/collaboration/rooms") return Response.json({ rooms: [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByText(/Chat with your team/);
+    expect(window.location.pathname).toBe("/collaboration/");
+    expect(screen.queryByRole("textbox", { name: "Task draft" })).toBeNull();
+  });
+
+  it("unmounts cached private mail and never revives a private socket in a team workspace", async () => {
+    const id = `ws_${"d".repeat(24)}`, actor = "owner@example.com";
+    window.history.replaceState(null, "", "/inbox/");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (String(url) === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Private-safe team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByTestId("private-mailbox");
+    fireEvent.change(screen.getByRole("combobox", { name: "Workspace" }), { target: { value: id } });
+    await waitFor(() => expect(screen.queryByTestId("private-mailbox")).toBeNull());
+    await act(async () => { window.dispatchEvent(new Event("online")); document.dispatchEvent(new Event("visibilitychange")); });
+    expect(mocks.agent.reconnect).not.toHaveBeenCalled();
+    expect(screen.queryByText("PRIVATE-MAILBOX-CONTENT")).toBeNull();
+  });
+
+  it("reloads before a different verified account can inherit private widget caches", async () => {
+    let actor = "a@example.com";
+    window.history.replaceState(null, "", "/inbox/");
+    const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {});
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      return originalFetch(url, options);
+    }));
+    try {
+      render(<App />);
+      await screen.findByTestId("private-mailbox");
+      actor = "b@example.com";
+      await act(async () => { window.dispatchEvent(new Event("online")); });
+      await waitFor(() => expect(reload).toHaveBeenCalledOnce());
+      expect(screen.queryByTestId("private-mailbox")).toBeNull();
+      expect(screen.queryByText("PRIVATE-MAILBOX-CONTENT")).toBeNull();
+    } finally { reload.mockRestore(); }
   });
 });

@@ -10,6 +10,7 @@ type ConnectionStatus = "offline" | "connecting" | "connected" | "reconnecting";
 
 interface Options {
   roomId: string;
+  workspaceId?: string;
   enabled: boolean;
   typingText: string;
   onRefresh: (roomId: string) => void;
@@ -32,7 +33,8 @@ function viewersFrom(value: unknown): CollaborationRoomViewer[] | null {
 
 /** Presence and invalidation only: durable content and all actions use authenticated HTTP. */
 export function useCollaborationRoomRealtime(options: Options) {
-  const { roomId, enabled, typingText } = options;
+  const { roomId, workspaceId, enabled, typingText } = options;
+  const scopeKey = JSON.stringify([workspaceId ?? "default", roomId]);
   const callbacks = useRef(options);
   callbacks.current = options;
   const socketRef = useRef<WebSocket | null>(null);
@@ -40,13 +42,14 @@ export function useCollaborationRoomRealtime(options: Options) {
   const typingRef = useRef(Boolean(typingText.trim()));
   typingRef.current = Boolean(typingText.trim());
   const [state, setState] = useState<{
+    scopeKey: string;
     roomId: string;
     status: ConnectionStatus;
     viewers: CollaborationRoomViewer[];
-  }>({ roomId: "", status: "offline", viewers: [] });
+  }>({ scopeKey: "", roomId: "", status: "offline", viewers: [] });
 
   useEffect(() => {
-    setState({ roomId, status: "offline", viewers: [] });
+    setState({ scopeKey, roomId, status: "offline", viewers: [] });
     if (!enabled || !roomId || typeof WebSocket === "undefined") return;
     viewerRef.current ??= crypto.randomUUID();
     let stopped = false;
@@ -54,7 +57,7 @@ export function useCollaborationRoomRealtime(options: Options) {
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     const setStatus = (status: ConnectionStatus) => {
-      setState((current) => ({ ...current, roomId, status }));
+      setState((current) => ({ ...current, scopeKey, roomId, status }));
     };
     const connect = () => {
       if (stopped) return;
@@ -62,6 +65,7 @@ export function useCollaborationRoomRealtime(options: Options) {
       const url = new URL(`/api/collaboration/rooms/${encodeURIComponent(roomId)}/realtime`, window.location.href);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       url.searchParams.set("viewer", viewerRef.current!);
+      if (workspaceId) url.searchParams.set("workspaceId", workspaceId);
       let socket: WebSocket;
       const retry = () => {
         if (stopped) return;
@@ -74,7 +78,7 @@ export function useCollaborationRoomRealtime(options: Options) {
       socketRef.current = socket;
       let lastFrameAt = Date.now();
       const current = () => !stopped && socketRef.current === socket &&
-        callbacks.current.roomId === roomId && callbacks.current.enabled;
+        callbacks.current.roomId === roomId && (callbacks.current.workspaceId ?? "default") === (workspaceId ?? "default") && callbacks.current.enabled;
       socket.addEventListener("open", () => {
         if (!current()) return;
         failures = 0;
@@ -98,7 +102,7 @@ export function useCollaborationRoomRealtime(options: Options) {
         if (frame.type === "collaboration:snapshot" || frame.type === "collaboration:presence") {
           const viewers = viewersFrom(frame.viewers);
           if (!viewers) return;
-          setState({ roomId, status: "connected", viewers });
+          setState({ scopeKey, roomId, status: "connected", viewers });
           if (frame.type === "collaboration:snapshot") callbacks.current.onRefresh(roomId);
         } else if (frame.type === "collaboration:refresh") {
           callbacks.current.onRefresh(roomId);
@@ -108,7 +112,7 @@ export function useCollaborationRoomRealtime(options: Options) {
         if (!current()) return;
         socketRef.current = null;
         if (heartbeat) clearInterval(heartbeat);
-        setState({ roomId, status: "offline", viewers: [] });
+        setState({ scopeKey, roomId, status: "offline", viewers: [] });
         if (event.code === 1008) {
           stopped = true;
           callbacks.current.onAccessLost(roomId);
@@ -127,7 +131,7 @@ export function useCollaborationRoomRealtime(options: Options) {
       socketRef.current = null;
       socket?.close();
     };
-  }, [roomId, enabled]);
+  }, [roomId, workspaceId, scopeKey, enabled]);
 
   useEffect(() => {
     const socket = socketRef.current;
@@ -135,5 +139,7 @@ export function useCollaborationRoomRealtime(options: Options) {
     try { socket.send(JSON.stringify({ type: "client_presence", typing: Boolean(typingText.trim()) })); } catch { /* Reconnect restores presence. */ }
   }, [typingText]);
 
-  return state.roomId === roomId ? state : { roomId, status: "offline" as const, viewers: [] };
+  return state.scopeKey === scopeKey && enabled
+    ? { roomId, status: state.status, viewers: state.viewers }
+    : { roomId, status: "offline" as const, viewers: [] };
 }

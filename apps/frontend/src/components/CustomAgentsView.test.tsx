@@ -289,3 +289,146 @@ describe("CustomAgentsView", () => {
     });
   });
 });
+
+const scopeWorkspace = `ws_${"a".repeat(24)}`;
+const scopedAgent = (name: string): CustomAgentWire => ({
+  id: name.toLowerCase().replaceAll(" ", "-"), slug: name.toLowerCase().replaceAll(" ", "-"), version: 1,
+  config: { name, instructions: `${name} private instructions`, harness: "opencode" },
+});
+function pendingAgentResponse() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((finish) => { resolve = finish; });
+  return { promise, resolve };
+}
+
+describe("account-scoped employee directory", () => {
+  it("hides the previous actor's records immediately in the same workspace and ignores their late response", async () => {
+    const lateA = pendingAgentResponse();
+    const currentB = pendingAgentResponse();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ agents: [scopedAgent("Account A employee")] }))
+      .mockImplementationOnce(() => lateA.promise)
+      .mockImplementationOnce(() => currentB.promise);
+    vi.stubGlobal("fetch", fetcher);
+    const hook = renderHook(({ actorId }) => useCustomAgentOptions(true, scopeWorkspace, actorId), { initialProps: { actorId: "a@example.test" } });
+    await waitFor(() => expect(hook.result.current.agents[0]?.config.name).toBe("Account A employee"));
+    act(() => hook.result.current.refresh());
+    hook.rerender({ actorId: "b@example.test" });
+    expect(hook.result.current.agents).toEqual([]);
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.loading).toBe(true);
+    await act(async () => { lateA.resolve(Response.json({ agents: [scopedAgent("Late account A employee")] })); });
+    expect(hook.result.current.agents).toEqual([]);
+    await act(async () => { currentB.resolve(Response.json({ agents: [scopedAgent("Account B employee")] })); });
+    expect(hook.result.current.agents[0]?.config.name).toBe("Account B employee");
+    const oldRequest = fetcher.mock.calls[1]?.[1] as RequestInit | undefined;
+    expect(oldRequest?.signal?.aborted).toBe(true);
+    expect(new Headers(fetcher.mock.calls[2]?.[1]?.headers).get("X-Shiba-Workspace")).toBe(scopeWorkspace);
+  });
+
+  it("does not repaint an old A cache during A to B to A navigation", async () => {
+    const pendingB = pendingAgentResponse();
+    const nextA = pendingAgentResponse();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ agents: [scopedAgent("Old A employee")] }))
+      .mockImplementationOnce(() => pendingB.promise)
+      .mockImplementationOnce(() => nextA.promise);
+    vi.stubGlobal("fetch", fetcher);
+    const hook = renderHook(({ actorId }) => useCustomAgentOptions(true, undefined, actorId), { initialProps: { actorId: "a@example.test" } });
+    await waitFor(() => expect(hook.result.current.agents).toHaveLength(1));
+    hook.rerender({ actorId: "b@example.test" });
+    hook.rerender({ actorId: "a@example.test" });
+    expect(hook.result.current.agents).toEqual([]);
+    expect(hook.result.current.loading).toBe(true);
+    await act(async () => { pendingB.resolve(Response.json({ agents: [scopedAgent("B employee")] })); });
+    expect(hook.result.current.agents).toEqual([]);
+    await act(async () => { nextA.resolve(Response.json({ agents: [scopedAgent("Fresh A employee")] })); });
+    expect(hook.result.current.agents[0]?.config.name).toBe("Fresh A employee");
+  });
+
+  it("hides previous actor errors and clears records synchronously when disabled", async () => {
+    const pendingB = pendingAgentResponse();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: "No access" }, { status: 403 }))
+      .mockImplementationOnce(() => pendingB.promise);
+    vi.stubGlobal("fetch", fetcher);
+    const hook = renderHook(({ actorId, enabled }) => useCustomAgentOptions(enabled, scopeWorkspace, actorId), { initialProps: { actorId: "a@example.test", enabled: true } });
+    await waitFor(() => expect(hook.result.current.error).toBe("unavailable"));
+    hook.rerender({ actorId: "b@example.test", enabled: true });
+    expect(hook.result.current.error).toBeNull();
+    await act(async () => { pendingB.resolve(Response.json({ agents: [scopedAgent("B employee")] })); });
+    expect(hook.result.current.agents).toHaveLength(1);
+    hook.rerender({ actorId: "b@example.test", enabled: false });
+    expect(hook.result.current.agents).toEqual([]);
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.loading).toBe(false);
+  });
+
+  it("removes cached profiles when a current refresh loses authorization", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ agents: [scopedAgent("Team employee")] }))
+      .mockResolvedValueOnce(Response.json({ error: "Workspace removed" }, { status: 404 }));
+    vi.stubGlobal("fetch", fetcher);
+    const hook = renderHook(() => useCustomAgentOptions(true, scopeWorkspace, "a@example.test"));
+    await waitFor(() => expect(hook.result.current.agents).toHaveLength(1));
+    act(() => hook.result.current.refresh());
+    await waitFor(() => expect(hook.result.current.error).toBe("unavailable"));
+    expect(hook.result.current.agents).toEqual([]);
+  });
+
+  it("drops a deferred view directory response after changing actors without requiring an outer key", async () => {
+    const old = pendingAgentResponse();
+    const fetcher = vi.fn()
+      .mockImplementationOnce(() => old.promise)
+      .mockResolvedValueOnce(Response.json({ agents: [scopedAgent("Current employee")] }));
+    vi.stubGlobal("fetch", fetcher);
+    const view = render(<CustomAgentsView actorId="a@example.test" workspaceId={scopeWorkspace} />);
+    view.rerender(<CustomAgentsView actorId="b@example.test" workspaceId={scopeWorkspace} />);
+    await screen.findByText("Current employee");
+    await act(async () => { old.resolve(Response.json({ agents: [scopedAgent("Private old employee")] })); });
+    expect(screen.queryByText("Private old employee")).toBeNull();
+    expect(screen.getByText("Current employee")).toBeTruthy();
+  });
+
+  it.each(["create", "save", "archive", "delete"])("ignores a delayed %s result after the actor changes and does not refetch the previous scope", async (operation) => {
+    const old = scopedAgent("Old employee");
+    const fresh = scopedAgent("Current account employee");
+    const pending = pendingAgentResponse();
+    let currentActor = "a";
+    const fetcher = vi.fn(async (_path: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method) return pending.promise;
+      return Response.json({ agents: [currentActor === "a" ? old : fresh] });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const view = render(<CustomAgentsView actorId="a@example.test" workspaceId={scopeWorkspace} />);
+    await screen.findByText("Old employee");
+    if (operation === "create") {
+      fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Old saved employee" } });
+      fireEvent.change(screen.getByRole("textbox", { name: "Instructions" }), { target: { value: "Old private draft" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    } else if (operation === "save") {
+      fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Old saved employee" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    } else if (operation === "archive") {
+      fireEvent.click(screen.getByRole("button", { name: "Archive bot Old employee" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Delete bot" }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm delete bot" }));
+    }
+    currentActor = "b";
+    view.rerender(<CustomAgentsView actorId="b@example.test" workspaceId={scopeWorkspace} />);
+    expect(screen.queryByText("Old employee")).toBeNull();
+    expect(screen.queryByDisplayValue("Old private draft")).toBeNull();
+    await screen.findByText("Current account employee");
+    const count = fetcher.mock.calls.length;
+    await act(async () => { pending.resolve(Response.json({ agent: scopedAgent("Old saved employee"), ok: true })); });
+    expect(screen.queryByText("Old saved employee")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Bot (created|updated|archived|deleted)\./)).toBeNull();
+    expect(screen.getByText("Current account employee")).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledTimes(count);
+    const mutation = fetcher.mock.calls.find(([, init]) => init?.method);
+    expect(new Headers(mutation?.[1]?.headers).get("X-Shiba-Workspace")).toBe(scopeWorkspace);
+  });
+});

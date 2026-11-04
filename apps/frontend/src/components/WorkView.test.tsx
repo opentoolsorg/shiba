@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { WorkView } from "./WorkView";
 import type { RetainedRun, StoredApproval } from "../types";
+import type { TeamWorkItem } from "../team-work-items";
 
 afterEach(() => cleanup());
 
@@ -57,6 +58,12 @@ const mockApprovals: StoredApproval[] = [
     payload: {},
   },
 ];
+
+const sharedTask: TeamWorkItem = {
+  id: "handoff-1", workspaceId: "workspace-1", roomId: "room-1", roomTitle: "Launch team",
+  title: "Review the launch brief", assigneeKind: "human", assigneeActorId: "human-1", assigneeUserId: "user-1",
+  assigneeName: "Alex", status: "queued", updatedAt: 100,
+};
 
 describe("WorkView", () => {
   it("derives published PRs from pullUrl, excludes archived runs and separates unsuccessful runs", () => {
@@ -194,5 +201,105 @@ describe("WorkView", () => {
     const reviewBtn = screen.getByRole("button", { name: "Review" });
     fireEvent.click(reviewBtn);
     expect(onReviewApproval).toHaveBeenCalledWith("app-1");
+  });
+
+  it("keeps personal history separate from explicitly scoped shared work", () => {
+    const { rerender } = render(<WorkView runs={mockRuns} storedApprovals={mockApprovals} sharedTasks={[sharedTask]} />);
+    expect(screen.getByText("Retry webhook handler")).toBeTruthy();
+    expect(screen.queryByText(sharedTask.title)).toBeNull();
+
+    rerender(<WorkView runs={mockRuns} storedApprovals={mockApprovals} workspaceId="workspace-1" workspaceName="Launch workspace" sharedTasks={[sharedTask]} />);
+    expect(screen.getByText("Launch workspace")).toBeTruthy();
+    expect(screen.getByText(sharedTask.title)).toBeTruthy();
+    expect(screen.queryByText("Retry webhook handler")).toBeNull();
+    expect(screen.queryByText("Add pagination to audit log API")).toBeNull();
+    expect(screen.queryByText("Personal")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Draft a task and press Enter" })).toBeNull();
+  });
+
+  it("filters assignments by the exact human actor instead of employee owner identity", () => {
+    render(<WorkView workspaceId="workspace-1" currentActorId="human-1" sharedTasks={[
+      sharedTask,
+      { ...sharedTask, id: "employee", title: "Employee task", assigneeKind: "agent", assigneeActorId: "human-1" },
+      { ...sharedTask, id: "other-human", title: "Another member task", assigneeActorId: "human-2" },
+    ]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Assigned to me 1" }));
+    expect(screen.getByText(sharedTask.title)).toBeTruthy();
+    expect(screen.queryByText("Employee task")).toBeNull();
+    expect(screen.queryByText("Another member task")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "All shared work 3" }));
+    expect(screen.getByText("Employee task")).toBeTruthy();
+    expect(screen.getByText("Another member task")).toBeTruthy();
+  });
+
+  it("shows Needs you only for an explicitly authorized pending decision and never grants a board approval action", () => {
+    const onReviewApproval = vi.fn();
+    render(<WorkView workspaceId="workspace-1" currentActorId="human-1" onReviewApproval={onReviewApproval} sharedTasks={[
+      { ...sharedTask, id: "allowed", title: "Authorized review", status: "needs-approval", approvalRequired: true, viewerCanApprove: true },
+      { ...sharedTask, id: "unproved", title: "Another owner review", status: "needs-approval", approvalRequired: true },
+      { ...sharedTask, id: "settled", title: "Already completed", status: "completed", approvalRequired: true, viewerCanApprove: true },
+    ]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Needs you 1" }));
+    expect(screen.getByText("Authorized review")).toBeTruthy();
+    expect(screen.queryByText("Another owner review")).toBeNull();
+    expect(screen.queryByText("Already completed")).toBeNull();
+    expect(onReviewApproval).not.toHaveBeenCalled();
+  });
+
+  it("drops stale workspace rows and filters immediately when the selected workspace changes or is removed", () => {
+    const otherTask = { ...sharedTask, id: "other-workspace", title: "Other workspace work", workspaceId: "workspace-2" };
+    const { rerender } = render(<WorkView workspaceId="workspace-1" currentActorId="human-1" sharedTasks={[sharedTask, otherTask]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Needs you 0" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter shared work" }), { target: { value: "old search" } });
+    rerender(<WorkView workspaceId="workspace-2" currentActorId="human-1" sharedTasks={[sharedTask, otherTask]} />);
+    expect(screen.queryByText(sharedTask.title)).toBeNull();
+    expect(screen.getByText(otherTask.title)).toBeTruthy();
+    expect((screen.getByRole("searchbox", { name: "Filter shared work" }) as HTMLInputElement).value).toBe("");
+    rerender(<WorkView runs={mockRuns} sharedTasks={[sharedTask, otherTask]} />);
+    expect(screen.queryByText(otherTask.title)).toBeNull();
+    expect(screen.getByText("Retry webhook handler")).toBeTruthy();
+  });
+
+  it("opens the exact shared handoff from every view and exposes revoked results without a private run link", () => {
+    const onOpenSharedTask = vi.fn();
+    const onOpenTeam = vi.fn();
+    const unavailable = { ...sharedTask, status: "completed" as const, resultAvailable: false, runId: "private-run" };
+    render(<WorkView workspaceId="workspace-1" sharedTasks={[unavailable]} onOpenSharedTask={onOpenSharedTask} onOpenTeam={onOpenTeam} />);
+    for (const view of ["List", "Board", "Timeline"]) {
+      fireEvent.click(screen.getByRole("button", { name: view }));
+      const openTask = screen.getByRole("button", { name: `Open ${sharedTask.title} in ${sharedTask.roomTitle}` });
+      openTask.focus();
+      expect(document.activeElement).toBe(openTask);
+      expect(openTask.className).toContain("min-h-11");
+      fireEvent.click(openTask);
+      expect(onOpenSharedTask).toHaveBeenLastCalledWith(unavailable);
+      expect(screen.getByText("Result unavailable")).toBeTruthy();
+    }
+    expect(screen.queryByRole("link")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Team & chat" }));
+    expect(onOpenTeam).toHaveBeenCalledOnce();
+  });
+
+  it("keeps blocked, cancelled and unknown states distinct from successful execution", () => {
+    render(<WorkView workspaceId="workspace-1" sharedTasks={[
+      { ...sharedTask, id: "blocked", title: "Blocked task", status: "blocked" },
+      { ...sharedTask, id: "cancelled", title: "Cancelled task", status: "cancelled" },
+      { ...sharedTask, id: "unknown", title: "Unavailable task", status: "unknown" },
+    ]} />);
+    for (const [name, title] of [["Blocked", "Blocked task"], ["Cancelled", "Cancelled task"], ["Status unavailable", "Unavailable task"]] as const) {
+      expect(within(screen.getByRole("region", { name: `${name} - 1` })).getByText(title)).toBeTruthy();
+    }
+    expect(screen.queryByRole("region", { name: "Completed - 1" })).toBeNull();
+  });
+
+  it("clears cached shared work on a membership or source refresh error", () => {
+    const { rerender } = render(<WorkView workspaceId="workspace-1" sharedTasks={[sharedTask]} />);
+    expect(screen.getByText(sharedTask.title)).toBeTruthy();
+    rerender(<WorkView workspaceId="workspace-1" sharedTasks={[sharedTask]} sharedTasksError="Workspace access is unavailable." />);
+    expect(screen.getByRole("alert").textContent).toContain("Workspace access is unavailable.");
+    expect(screen.queryByText(sharedTask.title)).toBeNull();
+    expect(screen.getByRole("button", { name: "All shared work 0" })).toBeTruthy();
   });
 });

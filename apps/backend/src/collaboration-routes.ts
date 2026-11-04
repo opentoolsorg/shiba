@@ -15,8 +15,8 @@ import { getAgentByName } from "agents/routing";
 import { randomHex } from "./mailbox-store.js";
 import {
   addCollaborationMember,
-  COLLAB_TENANT_ID,
-  COLLAB_WORKSPACE_ID,
+  collaborationEmployeeOrgId,
+  isCollaborationWorkspaceMember,
   type CollaborationHandoffRow,
   type CollaborationScope,
   CollaborationStoreError,
@@ -52,12 +52,12 @@ import { getCustomAgentVersion } from "./custom-agents-store.js";
 import { deliverApprovedSlackRoomIntent, type SlackRoomOutboxDeps } from "./slack-room-outbox.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import type { Env } from "./env.js";
-import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
+import { resolveTeamCollaborationScope } from "./team-collaboration-scope.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { queueCollaborationRun } from "./runs-routes.js";
 import { isSupportedEmployeeToolScope, resolveEmployeeRunToolContext } from "./employee-run-tools.js";
 import { signInternalRequest } from "./edge-identity.js";
-import { bindCollaborationContextApproval, freezeCollaborationContext, isCollaborationContextCurrent } from "./collaboration-context.js";
+import { bindCollaborationContextApproval, freezeCollaborationContext, isCollaborationContextCurrent, prepareCollaborationHumanAssignment, readCollaborationHumanAssignment } from "./collaboration-context.js";
 import { createCollaborationMemory, listCollaborationMemory, revokeCollaborationMemory } from "./collaboration-memory.js";
 
 const PREFIX = "/api/collaboration";
@@ -114,10 +114,10 @@ async function bodyObject(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
-function scopeFor(userId: string): CollaborationScope {
+function scopeFor(userId: string, current: CollaborationScope): CollaborationScope {
   return {
-    tenantId: COLLAB_TENANT_ID,
-    workspaceId: COLLAB_WORKSPACE_ID,
+    tenantId: current.tenantId,
+    workspaceId: current.workspaceId,
     userId: userId.trim().toLowerCase(),
   };
 }
@@ -258,6 +258,7 @@ async function authorizeRoomAction(
     | "approval.decide"
     | "membership.manage",
 ) {
+  if (!await isCollaborationWorkspaceMember(env, scope)) return { response: json({ error: "Room not found." }, 404) } as const;
   const room = await getCollaborationRoom(env, scope, roomId);
   if (!room) return { response: json({ error: "Room not found." }, 404) } as const;
   const memberRow = await getCollaborationMembership(env, scope, roomId, actorId);
@@ -331,7 +332,11 @@ export async function handleCollaboration(
   const resolvedUserId = await resolveUserId(request, env);
   if (!resolvedUserId?.trim()) return json({ error: "Authenticated user required." }, 401);
   if (!env.AGENT_AUDIT) return json({ error: "Collaboration storage is unavailable." }, 503);
-  const scope = scopeFor(resolvedUserId);
+  let resolvedScope: CollaborationScope | null;
+  try { resolvedScope = await resolveTeamCollaborationScope(request, env); }
+  catch { return json({ error: "Collaboration scope is unavailable." }, 503); }
+  if (!resolvedScope) return json({ error: "Workspace not found." }, 404);
+  const scope = resolvedScope;
   if (
     request.method !== "GET" &&
     request.method !== "HEAD" &&
@@ -399,6 +404,10 @@ export async function handleCollaboration(
         handoffs.map(async (handoff) => {
           if (!await isCollaborationContextCurrent(env, handoff.handoffId)) {
             return { ...handoff, execution: { unavailable: true, runStatus: "unknown", error: "A selected shared source was revoked or changed." } };
+          }
+          if (!handoff.recipientActorId.startsWith("agent:")) {
+            const humanRequest = await readCollaborationHumanAssignment(env, scope, roomId, handoff.handoffId);
+            return humanRequest ? { ...handoff, humanRequest } : handoff;
           }
           if (!handoff.approvalId || !handoff.runId || !env.CodingOrchestrator) return handoff;
           try {
@@ -537,7 +546,7 @@ export async function handleCollaboration(
         await isCollaborationContextCurrent(env, handoff.handoffId) ? handoff.handoffId : null))).filter((id) => id !== null));
       const messages = retainedMessages.filter((message) => !message.sourceHandoffId || readableHandoffs.has(message.sourceHandoffId));
       const currentHandoffs = handoffsWithExecution.map((handoff) => readableHandoffs.has(handoff.handoffId) ? handoff :
-        { ...handoff, execution: { unavailable: true, runStatus: "unknown", error: "A selected shared source was revoked or changed." } });
+        { ...handoff, humanRequest: undefined, execution: { unavailable: true, runStatus: "unknown", error: "A selected shared source was revoked or changed." } });
       const latestAccess = await authorizeRoomAction(env, scope, roomId, humanActorId(scope.userId), "room.read");
       if ("response" in latestAccess && latestAccess.response) return latestAccess.response;
       return json({
@@ -743,6 +752,7 @@ export async function handleCollaboration(
       if (typeof body.userId !== "string" || !body.userId.trim() || body.userId.length > 320)
         return invalidBody("Member userId is required.");
       const userId = body.userId.trim().toLowerCase();
+      if (!await isCollaborationWorkspaceMember(env, scope, userId)) return json({ error: "Choose a current workspace member." }, 403);
       if (!await isCollaborationSlackRoomAudienceAuthorized(env, scope, roomId, userId)) {
         return json({ error: "This identity is not in the retained Slack sources' approved audience." }, 403);
       }
@@ -755,7 +765,7 @@ export async function handleCollaboration(
         createdAt: Date.now(),
       });
       if (!inserted) return json({ error: "Member could not be added." }, 409);
-      const member = await getCollaborationMembership(env, scopeFor(userId), roomId, actorId);
+      const member = await getCollaborationMembership(env, scopeFor(userId, scope), roomId, actorId);
       return json({ member }, 201);
     }
 
@@ -784,7 +794,7 @@ export async function handleCollaboration(
         : 0;
       const profile = await getCustomAgentVersion(
         env,
-        DASHBOARD_ORG_ID,
+        collaborationEmployeeOrgId(scope),
         body.profileId.trim(),
         profileVersion,
       );
@@ -954,7 +964,7 @@ export async function handleCollaboration(
         return invalidBody("Invalid capability list.");
       const senderActor = actorFor(scope, access.membership.actorKind, access.membership.actorId);
       const recipientActor = actorFor(
-        scopeFor(recipient.userId),
+        scopeFor(recipient.userId, scope),
         recipient.actorKind,
         recipient.actorId,
       );
@@ -962,6 +972,14 @@ export async function handleCollaboration(
       let input: CollaborationHandoffRow;
       let saved: CollaborationHandoffRow | null;
       const requestedProfileVersion = recipient.profileVersion ?? undefined;
+      const hasHumanRequest = recipient.actorKind === "human" &&
+        (body.task !== undefined || body.contextMessageIds !== undefined || body.memoryRefs !== undefined);
+      if (hasHumanRequest && (typeof body.task !== "string" || !body.task.trim() || body.task.trim().length > 4_000))
+        return invalidBody("A human assignment must contain 1–4000 characters of instructions.");
+      const humanTask = hasHumanRequest ? String(body.task).trim() : undefined;
+      const prepareHumanWrite = () => humanTask === undefined ? undefined : prepareCollaborationHumanAssignment(
+        env, scope, roomId, String(body.handoffId), recipient.actorId, humanTask, body.contextMessageIds, body.memoryRefs,
+      );
       if (!parentId) {
         const budget = body.budget === undefined ? 4 : body.budget;
         if (
@@ -1029,7 +1047,7 @@ export async function handleCollaboration(
               : `Invalid handoff envelope: ${validation.reason}.`,
           );
         }
-        saved = await createRootCollaborationHandoff(env, scope, input);
+        saved = await createRootCollaborationHandoff(env, scope, input, await prepareHumanWrite());
       } else {
         const parent = await getCollaborationHandoff(env, scope, parentId);
         if (
@@ -1107,7 +1125,7 @@ export async function handleCollaboration(
               : `Invalid handoff envelope: ${validation.reason}.`,
           );
         }
-        saved = await createChildCollaborationHandoff(env, scope, input);
+        saved = await createChildCollaborationHandoff(env, scope, input, await prepareHumanWrite());
       }
       if (!saved) {
         const prior = await getCollaborationHandoff(env, scope, body.handoffId);
@@ -1145,7 +1163,7 @@ export async function handleCollaboration(
             ? null
           : await getCustomAgentVersion(
                 env,
-                DASHBOARD_ORG_ID,
+                collaborationEmployeeOrgId(scope),
                 customAgentId,
                 recipient.profileVersion,
               );
@@ -1162,7 +1180,7 @@ export async function handleCollaboration(
           const toolPolicy = await resolveEmployeeRunToolContext(
             env,
             profile.id,
-            DASHBOARD_ORG_ID,
+            collaborationEmployeeOrgId(scope),
             scope.userId,
           );
           if (!toolPolicy || configuredScopes.some((toolScope) => !toolPolicy.allowed.includes(toolScope))) {
@@ -1286,7 +1304,9 @@ export async function handleCollaboration(
       } else if (recipient.actorKind === "agent" && saved.approvalId) {
         saved.runId = saved.runId ?? `agent-tool:${saved.approvalId}`;
       }
-      return json({ handoff: saved }, 201);
+      const humanRequest = humanTask === undefined ? null : await readCollaborationHumanAssignment(env, scope, roomId, saved.handoffId);
+      if (humanTask !== undefined && !humanRequest) return json({ error: "Human assignment context changed. Reload the room before requesting a new handoff." }, 409);
+      return json({ handoff: { ...saved, ...(humanRequest ? { humanRequest } : {}) } }, 201);
     }
 
     if (

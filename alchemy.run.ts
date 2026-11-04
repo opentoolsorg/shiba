@@ -403,6 +403,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "DISCORD_CHANNEL_REPOS",
       "DISCORD_AGENT_HARNESS",
       "GMAIL_CLIENT_ID",
+      "BETTER_AUTH_VERIFICATION_FROM",
       "GMAIL_REDIRECT_URI",
       "INTEGRATIONS_PROVIDER",
       "OPEN_CONNECTOR_URL",

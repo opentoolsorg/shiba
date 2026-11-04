@@ -37,6 +37,23 @@ describe("agent sidebar", () => {
 });
 
 describe("agent conversation", () => {
+  it("starts a shared conversation only after a click, without transferring private participants or history", () => {
+    const share = vi.fn();
+    render(<AgentPageHeader name="Research bot" detailsOpen={false} onToggleDetails={vi.fn()} onShareWithTeam={share} />);
+    expect(share).not.toHaveBeenCalled();
+    expect(screen.getByText(/Your private history is not automatically included/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Participants" }).textContent).toContain("You and agent");
+    fireEvent.click(screen.getByRole("button", { name: "Start shared conversation" }));
+    expect(share).toHaveBeenCalledWith(); expect(share).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Participants" }));
+    expect(screen.getByText("You")).toBeTruthy();
+    expect(screen.getAllByText("Research bot").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Team members")).toBeNull();
+  });
+  it("hides team sharing if no shared-conversation capability is supplied", () => {
+    render(<AgentPageHeader name="Shiba" detailsOpen={false} onToggleDetails={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Start shared conversation" })).toBeNull();
+  });
   it("uses the real Shiba brand for the built-in profile, not a custom employee label", () => {
     const { container } = render(<AgentDetailsPanel onClose={vi.fn()} onEdit={vi.fn()} />);
     expect(screen.getByText("Shiba · Runs on workspace default")).toBeTruthy();
@@ -139,6 +156,13 @@ describe("agent conversation", () => {
 });
 
 describe("employee onboarding", () => {
+  it("forwards only an explicit team selector when creating the selected role", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ agent })); vi.stubGlobal("fetch", fetcher);
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    await createEmployeeAgent(research, workspaceId);
+    expect(fetcher).toHaveBeenCalledWith("/api/custom-agents", expect.objectContaining({ credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Shiba-Workspace": workspaceId } }));
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body)).toEqual({ slug: research.slug, config: { ...research.config, harness: "opencode", approvalPolicy: "standard" } });
+  });
   it("renders all ten optional roles and skips without creating anything", () => {
     const onSkip = vi.fn();
     const onSelect = vi.fn();
