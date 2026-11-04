@@ -27,6 +27,8 @@ interface Replay {
 interface View {
   key: string;
   terminal: string;
+  terminalTotal: number;
+  terminalEpoch: number;
   diff: string;
   diffNotice: string;
   status: string;
@@ -37,9 +39,11 @@ interface View {
   children: Record<string, string>;
 }
 
-function emptyView(key: string): View {
-  return { key, terminal: "", diff: "", diffNotice: "", status: "", runtime: null, gap: false, limited: false, error: "", children: {} };
+function emptyView(key: string, terminalEpoch = 0): View {
+  return { key, terminal: "", terminalTotal: 0, terminalEpoch, diff: "", diffNotice: "", status: "", runtime: null, gap: false, limited: false, error: "", children: {} };
 }
+
+const nextEpoch = (epoch: number) => epoch === Number.MAX_SAFE_INTEGER ? 0 : epoch + 1;
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -97,14 +101,16 @@ export function RoomExecutionPanel({ workspaceId, roomId, handoffId, runId, onAc
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
     let cursor = 0;
+    let sourceRunId: string | undefined;
     let pendingDiff: string | null = null;
     let current = emptyView(key);
     const isCurrent = () => !stopped && activeKey.current === key;
     setState(current);
     const clearOutput = (error: string) => {
       cursor = 0;
+      sourceRunId = undefined;
       pendingDiff = null;
-      current = { ...emptyView(key), error };
+      current = { ...emptyView(key, nextEpoch(current.terminalEpoch)), error };
       setState(current);
     };
     const poll = async () => {
@@ -128,13 +134,19 @@ export function RoomExecutionPanel({ workspaceId, roomId, handoffId, runId, onAc
         if (!isCurrent()) return;
         const replay = replayFrom(body, roomId, handoffId, runId, cursor);
         if (!replay) throw new Error("invalid replay");
-        if (cursor > replay.latest) { current = emptyView(key); pendingDiff = null; }
+        if (cursor > replay.latest || (sourceRunId !== undefined && sourceRunId !== replay.runId)) {
+          current = emptyView(key, nextEpoch(current.terminalEpoch)); pendingDiff = null;
+        }
+        sourceRunId = replay.runId;
         if (replay.gap) pendingDiff = null;
         current = { ...current, error: "", gap: current.gap || replay.gap, runtime: replay.runtime, status: replay.status.replaceAll("_", " ") };
         for (const { event } of replay.frames) {
           if (event.kind === "terminal" && typeof event.data === "string") {
             const terminal = current.terminal + event.data;
             current.terminal = terminal.slice(-MAX_TERMINAL_CHARS);
+            const totalChars = current.terminalTotal + event.data.length;
+            if (Number.isSafeInteger(totalChars)) current.terminalTotal = totalChars;
+            else { current.terminalTotal = current.terminal.length; current.terminalEpoch = nextEpoch(current.terminalEpoch); }
             current.limited ||= terminal.length > MAX_TERMINAL_CHARS;
           } else if (event.kind === "diff" && typeof event.data === "string") {
             if (event.reset === true) pendingDiff = "";
@@ -187,7 +199,7 @@ export function RoomExecutionPanel({ workspaceId, roomId, handoffId, runId, onAc
       {Object.keys(view.children).length ? <ul aria-label="Task specialist status" className="flex flex-wrap gap-2 font-mono text-xs text-[var(--ink-2)]">
         {Object.entries(view.children).map(([id, status]) => <li key={id}>{id}: {status.replaceAll("_", " ")}</li>)}
       </ul> : null}
-      <TerminalView text={view.terminal} />
+      <TerminalView key={key} text={view.terminal} totalChars={view.terminalTotal} epoch={view.terminalEpoch} />
       {view.diffNotice ? <p role="status" className="text-xs text-[var(--ink-2)]">{view.diffNotice}</p> : null}
       {view.diff ? <div className="min-w-0 overflow-auto"><DiffViewer diff={view.diff} runId={runId} /></div> : null}
     </div>
