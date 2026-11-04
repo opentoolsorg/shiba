@@ -48,8 +48,8 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm docs:check
-      # Built-output assertions (marketing-pages.test.ts) run post-build —
-      # they skip inside `pnpm test`, which runs before dist exists.
+      # Marketing page and SEO assertions run against the generated site.
+      # SEO tests skip in the earlier unit step when dist does not exist.
       - run: pnpm test:built
       - run: pnpm check:deploy
       - run: cp .env.example .env

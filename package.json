@@ -40,7 +40,7 @@
     "shiba": "node scripts/shiba.mjs",
     "test": "turbo run test",
     "test:acceptance": "node apps/backend/test/acceptance/run.mjs",
-    "test:built": "cd apps/backend && pnpm test test/marketing-pages.test.ts",
+    "test:built": "cd apps/backend && pnpm test test/marketing-pages.test.ts test/marketing-seo.test.ts",
     "test:ephemeral": "node scripts/ephemeral-stack.mjs --alchemy",
     "test:live": "pnpm -C apps/backend test:live",
     "typecheck": "turbo run typecheck && tsc -b && pnpm sdk:check-types",

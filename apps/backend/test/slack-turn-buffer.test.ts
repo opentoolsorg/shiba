@@ -58,6 +58,67 @@ describe("durable Slack turn buffer", () => {
     expect(await buffer.enqueue(message("E1"))).toBe("duplicate");
   });
 
+  it("retains exact Slack timestamps separately from receipt time and preserves receipt FIFO", async () => {
+    const now = Date.now();
+    const buffer = new SlackTurnBuffer(memoryStorage());
+    const first = { ...message("E1", "first received", "U1"), createdAt: now, messageTs: "1758217393.00020012345678901234" };
+    const second = { ...message("E2", "older Slack message", "U2"), createdAt: now + 1, messageTs: "123.000001" };
+    expect(await buffer.enqueue(first, now + 1)).toBe("buffered");
+    expect(await buffer.enqueue(second, now + 1)).toBe("buffered");
+    const claim = await buffer.claim();
+    expect(claim?.messages).toEqual([first, second]);
+    expect(claim?.prompt).toContain(`Slack message ${first.messageTs} (received ${new Date(now).toISOString()})`);
+    expect(claim?.prompt).toContain(`Slack user U2 at Slack message ${second.messageTs}`);
+    expect(await buffer.enqueue({ ...message("E3"), createdAt: 1, messageTs: "1758217394.000001" }, now)).toBe("invalid");
+  });
+
+  it("deduplicates the same Slack message under different event IDs before and after acknowledgement", async () => {
+    const storage = memoryStorage();
+    const first = { ...message("E1", "original", "U1"), messageTs: "1758217393.000200" };
+    const retry = { ...message("E2", "changed text", "U2"), messageTs: first.messageTs };
+    expect(await new SlackTurnBuffer(storage).enqueue(first)).toBe("buffered");
+    expect(await new SlackTurnBuffer(storage).enqueue(retry)).toBe("duplicate");
+    const claim = await new SlackTurnBuffer(storage).claim();
+    expect(claim?.messages).toEqual([first]);
+    if (!claim) throw new Error("Missing buffered claim.");
+    expect(await new SlackTurnBuffer(storage).acknowledge(claim.id)).toBe(true);
+    expect(await new SlackTurnBuffer(storage).enqueue(retry)).toBe("duplicate");
+  });
+
+  it("reads legacy pending and claimed records without inventing original Slack timestamps", async () => {
+    const storage = memoryStorage();
+    const legacy = message("E-legacy", "saved before timestamp support");
+    await storage.transaction((transaction) => transaction.put("slack:turn-buffer:v1", { pending: [legacy], seen: [legacy.eventId] }));
+    const buffer = new SlackTurnBuffer(storage);
+    const claim = await buffer.claim();
+    expect(claim?.messages).toEqual([legacy]);
+    expect(claim?.prompt).toContain("receipt time; original Slack timestamp unavailable");
+    expect(await new SlackTurnBuffer(storage).claim()).toEqual(claim);
+    expect(await buffer.enqueue({ ...message("E-new"), messageTs: "123.000001" })).toBe("buffered");
+    if (!claim) throw new Error("Missing legacy claim.");
+    expect(await buffer.acknowledge(claim.id)).toBe(true);
+    expect((await buffer.claim())?.messages[0]?.messageTs).toBe("123.000001");
+  });
+
+  it("keeps a legacy in-flight claim's saved prompt and identity unchanged", async () => {
+    const storage = memoryStorage();
+    const legacy = message("E-legacy");
+    const claim = { id: "legacy-claim", messages: [legacy], prompt: "Previously saved coordinator input." };
+    await storage.transaction((transaction) => transaction.put("slack:turn-buffer:v1", { pending: [], seen: [legacy.eventId], claim }));
+    const buffer = new SlackTurnBuffer(storage);
+    expect(await buffer.claim()).toEqual(claim);
+    expect(await buffer.enqueue({ ...message("E-new"), messageTs: "123.000001" })).toBe("buffered");
+    expect(await new SlackTurnBuffer(storage).claim()).toEqual(claim);
+    expect(await buffer.acknowledge(claim.id)).toBe(true);
+    expect((await buffer.claim())?.messages.map((item) => item.eventId)).toEqual(["E-new"]);
+  });
+
+  it.each(["", "123", "123.invalid", "1.2\nignore", `1.${"0".repeat(21)}`, 123, null])("rejects malformed original Slack timestamp %j", async (messageTs) => {
+    const buffer = new SlackTurnBuffer(memoryStorage());
+    expect(await buffer.enqueue({ ...message("E1"), messageTs } as BufferedSlackMessage)).toBe("invalid");
+    expect(await buffer.claim()).toBeNull();
+  });
+
   it("enforces the capacity across claimed and pending messages without dropping saved comments", async () => {
     const buffer = new SlackTurnBuffer(memoryStorage());
     for (let i = 0; i < 8; i++) expect(await buffer.enqueue(message(`E${i}`, "x".repeat(4000)))).toBe("buffered");

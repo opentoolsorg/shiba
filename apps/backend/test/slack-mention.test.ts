@@ -440,6 +440,7 @@ describe("Slack follow-up buffering", () => {
       queueRun, fetchThread, postMessage, bufferMessage,
     });
     expect(bufferMessage).toHaveBeenCalledWith(expect.objectContaining({ threadKey: THREAD, eventId: "Ev1", userId: "U1", text: "<@U0> include tests" }));
+    expect(bufferMessage).toHaveBeenCalledWith(expect.objectContaining({ messageTs: "1758217393.000200", createdAt: expect.any(Number) }));
     expect(fetchThread).not.toHaveBeenCalled();
     expect(queueRun).not.toHaveBeenCalled();
     expect(postMessage).not.toHaveBeenCalled();
@@ -471,6 +472,106 @@ describe("Slack follow-up buffering", () => {
     });
     expect(queueRun).not.toHaveBeenCalled();
     expect(postMessage.mock.calls[0]?.[0].text).toContain("could not save");
+  });
+});
+
+describe("verified Slack trigger context", () => {
+  it("preserves the verified mention after fetched mute history without unmuting other messages", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_1" }));
+    await handleSlackEvent(mention({ text: `<@U0> VERIFIED-TRIGGER ${REPO}` }), env(), {
+      queueRun, postMessage: async () => {}, fetchThread: async () => [
+        { user: "U2", text: "mute", ts: 1758217300 },
+        { user: "U2", text: "MUTED-HISTORY", ts: 1758217301 },
+      ],
+    });
+    const task = queueRun.mock.calls[0]?.[0].task ?? "";
+    expect(task).toContain("VERIFIED-TRIGGER");
+    expect(task).not.toContain("MUTED-HISTORY");
+    expect(queueRun).toHaveBeenCalledOnce();
+  });
+
+  it("ignores an explicit aside before active buffering or fallback can turn it into a task", async () => {
+    const queueRun = vi.fn<QueueRun>();
+    const fetchThread = vi.fn(async () => [{ user: "U2", text: "existing task", ts: 1758217300 }]);
+    const bufferMessage = vi.fn(async () => ({ buffered: true }));
+    const postMessage = vi.fn<PostMessage>(async () => {});
+    await handleSlackEvent(mention({ text: `aside <@U0> ASIDE-TRIGGER ${REPO}`, thread_ts: "1758217392.000100" }), env(), {
+      queueRun, postMessage, fetchThread, bufferMessage,
+    });
+    expect(queueRun).not.toHaveBeenCalled();
+    expect(bufferMessage).not.toHaveBeenCalled();
+    expect(fetchThread).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps the incoming mention when a full history page omits it", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_1" }));
+    const history = Array.from({ length: 50 }, (_, index) => ({ user: "U2", text: `history-${index}`, ts: 1758217300 + index }));
+    await handleSlackEvent(mention({ thread_ts: "1758217392.000100", ts: "1758217393.000200", text: `<@U0> NEWEST-TRIGGER ${REPO}` }), env(), {
+      queueRun, postMessage: async () => {}, bufferMessage: async () => ({ buffered: false }), fetchThread: async () => history,
+    });
+    const task = queueRun.mock.calls[0]?.[0].task ?? "";
+    expect(task).toContain("NEWEST-TRIGGER");
+    expect(task).toContain("history-49");
+    expect(task).not.toContain("history-0");
+    expect(queueRun).toHaveBeenCalledOnce();
+  });
+
+  it("uses the direct event fields once when history contains stale and duplicate trigger copies", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_1" }));
+    const ts = "1758217392.000100";
+    await handleSlackEvent(mention({ text: `<@U0> VERIFIED-TRIGGER ${REPO}` }), env(), {
+      queueRun, postMessage: async () => {}, fetchThread: async () => [
+        { user: "STALE", text: "STALE-COPY", ts: Number(ts), messageTs: ts },
+        { user: "STALE", text: "DUPLICATE-COPY", ts: Number(ts), messageTs: ts },
+        { user: "STALE", text: "SAME-EVENT-COPY", ts: 1, eventId: "Ev1" },
+      ],
+    });
+    const task = queueRun.mock.calls[0]?.[0].task ?? "";
+    expect(task.match(/VERIFIED-TRIGGER/g)).toHaveLength(1);
+    expect(task).toContain("[U1 ");
+    expect(task).not.toContain("STALE");
+    expect(task).not.toContain("COPY");
+  });
+
+  it("retains a delayed trigger even when fetched history already contains fifty newer messages", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_1" }));
+    await handleSlackEvent(mention({ text: `<@U0> DELAYED-TRIGGER ${REPO}` }), env(), {
+      queueRun, postMessage: async () => {}, fetchThread: async () => Array.from({ length: 55 }, (_, index) => ({
+        user: `U${index + 2}`, text: `newer-${index}`, ts: 1758217400 + index,
+      })),
+    });
+    const task = queueRun.mock.calls[0]?.[0].task ?? "";
+    expect(task).toContain("DELAYED-TRIGGER");
+    expect(task).toContain("newer-54");
+    expect(task).not.toContain("newer-0");
+  });
+
+  it("retains distinct raw timestamps that round to the same number in native Slack history", async () => {
+    const queueRun = vi.fn<QueueRun>(async () => ({ approvalId: "appr_1" }));
+    const first = "1758217392.00010000000000000001", second = "1758217392.00010000000000000002";
+    const fetchImpl = vi.fn(async () => Response.json({ ok: true, messages: [
+      { user: "U2", text: "DISTINCT-HISTORY", ts: first },
+      { user: "STALE", text: "STALE-TRIGGER", ts: second },
+    ] }));
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      await handleSlackEvent(mention({ ts: second, text: `<@U0> EXACT-TRIGGER ${REPO}` }), env(), { queueRun, postMessage: async () => {} });
+      const task = queueRun.mock.calls[0]?.[0].task ?? "";
+      expect(task).toContain("DISTINCT-HISTORY");
+      expect(task).toContain(first);
+      expect(task).toContain(second);
+      expect(task.match(/EXACT-TRIGGER/g)).toHaveLength(1);
+      expect(task).not.toContain("STALE-TRIGGER");
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("rejects an event without an actual message timestamp before queueing or buffering", async () => {
+    const queueRun = vi.fn<QueueRun>();
+    const bufferMessage = vi.fn(async () => ({ buffered: true }));
+    await handleSlackEvent(mention({ ts: undefined, thread_ts: "1758217392.000100" }), env(), { queueRun, bufferMessage, postMessage: async () => {} });
+    expect(queueRun).not.toHaveBeenCalled();
+    expect(bufferMessage).not.toHaveBeenCalled();
   });
 });
 

@@ -6474,10 +6474,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const body = await request.json().catch(() => null) as Record<string, unknown> | null;
       if (!body || body.threadKey !== this.name) return Response.json({ error: "Invalid thread." }, { status: 400 });
       if (!this.store.list().some((run) => isActiveStatus(run.status))) return Response.json({ buffered: false });
-      if (typeof body.eventId !== "string" || typeof body.userId !== "string" || typeof body.text !== "string" || typeof body.createdAt !== "number") {
+      if (typeof body.eventId !== "string" || typeof body.userId !== "string" || typeof body.text !== "string" || typeof body.createdAt !== "number" ||
+          (body.messageTs !== undefined && typeof body.messageTs !== "string")) {
         return Response.json({ error: "Invalid follow-up message." }, { status: 400 });
       }
-      const status = await new SlackTurnBuffer(this.ctx.storage).enqueue({ eventId: body.eventId, userId: body.userId, text: body.text, createdAt: body.createdAt });
+      const status = await new SlackTurnBuffer(this.ctx.storage).enqueue({ eventId: body.eventId, userId: body.userId, text: body.text, createdAt: body.createdAt,
+        ...(typeof body.messageTs === "string" ? { messageTs: body.messageTs } : {}) });
       if (status === "buffered" || status === "duplicate") {
         this.setState({ ...this.state, slackBufferPending: true, slackBufferRevision: (this.state.slackBufferRevision ?? 0) + 1 });
         this.holdOpen(this.flushSlackTurnBuffer().catch((error) => console.error("Slack follow-up queue failed", redactSecrets(String(error)))));

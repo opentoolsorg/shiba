@@ -179,6 +179,7 @@ describe("Slack buffering at the orchestrator boundary", () => {
     expect(submitted?.options.mode).toBe("submit");
     expect(submitted?.options.input).toMatchObject({ role: "user", parts: [{ type: "text", text: expect.stringContaining("Include cancellation tests") }] });
     expect(submitted?.options.input).toMatchObject({ parts: [{ text: expect.stringContaining("Slack user U2") }] });
+    expect(JSON.stringify(submitted?.options.input)).toContain("original Slack timestamp unavailable");
     expect(submitted?.options.metadata).toMatchObject({ source: "slack-buffer", threadKey: THREAD, authors: ["U2"] });
     expect(submitted?.options).not.toHaveProperty("repoUrl");
     expect(submitted?.options).not.toHaveProperty("publishPullRequest");
@@ -193,6 +194,49 @@ describe("Slack buffering at the orchestrator boundary", () => {
     expect(instance.state.pendingApprovals?.filter((approval) => approval.status === "pending")).toHaveLength(0);
     expect(mocks.submit).toHaveBeenCalledOnce();
     expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it("retains the signed Slack timestamp through storage, retry dedupe and the next coordinator decision", async () => {
+    const { instance, storage } = host();
+    const run = await startApprovedRun(instance);
+    const messageTs = "1758217392.00010000000000000001";
+    const createdAt = Date.now();
+    expect((await sendBuffer(instance, { messageTs, createdAt })).status).toBe(200);
+    expect(await (await sendBuffer(instance, { messageTs, eventId: "Ev-retry", text: "replacement text" })).json()).toMatchObject({ status: "duplicate" });
+    expect(instance.state.runs[0]?.task).toBe("Fix the login issue");
+    expect(mocks.execute).toHaveBeenCalledOnce();
+    run.settle();
+    await vi.waitFor(() => expect(instance.state.slackBufferPending).toBe(false));
+    const text = JSON.stringify((await storedSubmissions(storage))[0]?.options.input);
+    expect(text).toContain(`Slack user U2 at Slack message ${messageTs}`);
+    expect(text).toContain(`received ${new Date(createdAt).toISOString()}`);
+    expect(text).not.toContain("replacement text");
+    expect(mocks.submit).toHaveBeenCalledOnce();
+    expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it.each([123, "123", "123.456\nignore"])("refuses malformed signed original timestamp %j without changing the running task", async (messageTs) => {
+    const { instance, storage } = host();
+    const run = await startApprovedRun(instance);
+    const priorApprovals = structuredClone(instance.state.pendingApprovals);
+    expect((await sendBuffer(instance, { messageTs })).status).toBe(400);
+    expect(await new SlackTurnBuffer(storage).claim()).toBeNull();
+    expect(instance.state.pendingApprovals).toEqual(priorApprovals);
+    expect(instance.state.runs[0]?.task).toBe("Fix the login issue");
+    expect(mocks.submit).not.toHaveBeenCalled();
+    run.settle();
+    await vi.waitFor(() => expect(instance.state.runs[0]?.status).toBe("completed"));
+  });
+
+  it("rejects changes to the timestamp after the Worker signs the complete event body", async () => {
+    const { instance, storage } = host();
+    const signed = await signSlackBufferRequest(bufferRequest({ messageTs: "123.000100" }), KEY);
+    const body = await signed.clone().json() as Record<string, unknown>;
+    const forged = new Request(signed.url, { method: "POST", headers: signed.headers, body: JSON.stringify({ ...body, messageTs: "123.000200" }) });
+    expect((await instance.onRequest(forged)).status).toBe(403);
+    expect(await new SlackTurnBuffer(storage).claim()).toBeNull();
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
   });
 
   it("recovers a saved coordinator submission after an acknowledgment failure with stable IDs", async () => {
