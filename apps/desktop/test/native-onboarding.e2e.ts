@@ -39,6 +39,16 @@ async function api<T>(
 
 const progress = (page: Page) => api<Progress>(page, "/api/onboarding/progress");
 
+async function actorDraft(page: Page, actorId: string, step: string) {
+  return page.evaluate(({ key, scope }) => {
+    const stored = JSON.parse(localStorage.getItem(key) ?? "{}") as Record<string, { text: string; updatedAt: number }>;
+    return stored[scope] ?? null;
+  }, {
+    key: `shiba-composer-drafts-v1:actor:${encodeURIComponent(actorId)}`,
+    scope: `onboarding:${actorId}:${step}`,
+  });
+}
+
 test("actual native shared UI retains goal, thread, approved output and review across process restart", async () => {
   const fixture = await startWorkerFixture({ localRuntime: true });
   const userData = await mkdtemp(path.join(tmpdir(), "shiba-native-onboarding-"));
@@ -93,7 +103,11 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await expect.poll(async () => (await progress(page)).draftTask.goal).toBe(goal);
     const savedGoal = await progress(page);
     expect(savedGoal.draftTaskId).toMatch(/^draft_/);
-    expect(await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem("shiba-composer-drafts-v1") ?? "{}") as Record<string, { text: string }>).map((entry) => entry.text))).toContain(audience);
+    const identity = await api<{ agent: string; auth: string }>(page, "/api/whoami");
+    expect(identity).toMatchObject({ agent: "native-owner@example.test", auth: "better-auth" });
+    // Read this verified actor's exact unsent question, not a global/foreign draft.
+    await expect.poll(() => actorDraft(page, identity.agent, "audience")).toMatchObject({ text: audience, updatedAt: expect.any(Number) });
+    expect(await page.evaluate(() => localStorage.getItem("shiba-composer-drafts-v1"))).toBeNull();
     await app.close();
     app = undefined;
 
@@ -101,6 +115,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
     page = await app.firstWindow();
     page.setDefaultTimeout(15_000);
     await page.waitForURL(`${fixture.origin}/app/**`);
+    expect(await api<{ agent: string; auth: string }>(page, "/api/whoami")).toEqual(identity);
+    expect(await actorDraft(page, identity.agent, "audience")).toMatchObject({ text: audience });
     await expect
       .poll(() =>
         page.getByRole("textbox", { name: "Your answer: Audience", exact: true }).inputValue(),
