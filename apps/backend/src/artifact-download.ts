@@ -2,6 +2,9 @@ import type { Env } from "./env.js";
 
 const DOWNLOAD_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ARCHIVE_BYTES = 8_500_000;
+const MAX_TOKEN_LENGTH = 2048;
+const MAX_DOWNLOAD_BODY_BYTES = MAX_TOKEN_LENGTH + "token=".length;
+const DOWNLOAD_PATH = "/api/artifacts/download";
 
 export interface ArtifactDownloadClaims {
   version: 1;
@@ -66,14 +69,15 @@ export function assertWorkspaceArtifactConfiguration(env: SigningEnv & Pick<Env,
   artifactDownloadOrigin(env);
 }
 
-/** An explicit download capability. Provider credentials never appear in this URL. */
+/** The fragment reaches the recipient's browser, never the HTTP request URL. */
 export async function createArtifactDownloadUrl(env: SigningEnv, claims: ArtifactDownloadClaims): Promise<string> {
   if (!validClaims(claims)) throw new Error("Invalid workspace archive download claims.");
   const origin = artifactDownloadOrigin(env);
   const encoded = base64url(new TextEncoder().encode(JSON.stringify(claims)));
   const signature = await crypto.subtle.sign("HMAC", await signingKey(env), new TextEncoder().encode(`shiba-artifact-download:v1:${encoded}`));
-  const url = new URL("/api/artifacts/download", origin);
-  url.searchParams.set("token", `${encoded}.${base64url(new Uint8Array(signature))}`);
+  const url = new URL(DOWNLOAD_PATH, origin);
+  url.searchParams.set("landing", "1");
+  url.hash = new URLSearchParams({ token: `${encoded}.${base64url(new Uint8Array(signature))}` }).toString();
   return url.toString();
 }
 
@@ -82,7 +86,7 @@ export async function verifyArtifactDownloadToken(
   token: string,
   now = Date.now(),
 ): Promise<ArtifactDownloadClaims | null> {
-  if (token.length > 2048) return null;
+  if (token.length > MAX_TOKEN_LENGTH) return null;
   const parts = token.split(".");
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   try {
@@ -98,31 +102,122 @@ export async function verifyArtifactDownloadToken(
   }
 }
 
-/** This route authenticates only the signed, time-bound archive capability. */
+function privateHeaders(): Record<string, string> {
+  return {
+    "cache-control": "private, no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "cross-origin-resource-policy": "same-origin",
+  };
+}
+
+function downloadError(error: string, status: number): Response {
+  return Response.json({ error }, { status, headers: privateHeaders() });
+}
+
+/** Public instructions only: no claims, capability or artifact data is reflected. */
+function downloadLanding(): Response {
+  const nonce = base64url(crypto.getRandomValues(new Uint8Array(18)));
+  return new Response(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Download Shiba artifacts</title></head>
+<body><main><h1>Download artifacts</h1><p id="status" role="status">JavaScript is required to open this private download link.</p>
+<form action="${DOWNLOAD_PATH}" method="post" autocomplete="off"><input id="token" type="hidden" name="token"><button type="submit" disabled>Download artifacts.zip</button></form>
+<p>The link expires seven days after creation. Anyone with the complete link can download this archive.</p></main>
+<script nonce="${nonce}">
+const fragment = new URLSearchParams(location.hash.slice(1));
+history.replaceState(null, "", location.pathname);
+const values = [...fragment.entries()];
+const token = values.length === 1 && values[0][0] === "token" ? values[0][1] : "";
+if (token.length > 0 && token.length <= ${MAX_TOKEN_LENGTH} && /^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(token)) {
+  document.getElementById("token").value = token;
+  document.querySelector("button").disabled = false;
+  document.getElementById("status").textContent = "Your private download is ready. Select Download to retrieve the archive.";
+} else {
+  document.getElementById("status").textContent = "This download link is missing or invalid. Open the complete link from Shiba.";
+}
+</script></body></html>`, { headers: {
+    ...privateHeaders(),
+    "content-type": "text/html; charset=utf-8",
+    // no-referrer makes browser form POSTs send Origin: null. Keep same-origin
+    // attribution for the POST guard; the fragment is never a referrer and is
+    // cleared before submission. Cross-origin destinations receive no referrer.
+    "referrer-policy": "same-origin",
+    "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
+    "cross-origin-opener-policy": "same-origin",
+  } });
+}
+
+/** Bound the untrusted stream before parsing; never buffer an arbitrary request. */
+async function postedDownloadToken(request: Request): Promise<string | null> {
+  if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/x-www-form-urlencoded") return null;
+  const length = request.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_DOWNLOAD_BODY_BYTES)) return null;
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > MAX_DOWNLOAD_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(part.value);
+    }
+    const body = new Uint8Array(bytes);
+    let offset = 0;
+    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+    const fields = [...new URLSearchParams(new TextDecoder("utf-8", { fatal: true }).decode(body)).entries()];
+    return fields.length === 1 && fields[0]?.[0] === "token" ? fields[0][1] : null;
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/** This exact route authenticates only the signed, time-bound archive capability. */
 export async function handleArtifactDownload(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
-  if (url.pathname !== "/api/artifacts/download") return null;
-  if (request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405, headers: { allow: "GET" } });
-  const tokens = url.searchParams.getAll("token");
-  const claims = tokens.length === 1 ? await verifyArtifactDownloadToken(env, tokens[0] ?? "") : null;
-  if (!claims) return Response.json({ error: "Invalid or expired artifact download." }, { status: 403 });
-  if (!env.ARTIFACTS) return Response.json({ error: "Workspace artifact storage is unavailable." }, { status: 503 });
+  if (url.pathname !== DOWNLOAD_PATH) return null;
+  if (request.method !== "GET" && request.method !== "POST") {
+    return new Response(null, { status: 405, headers: { ...privateHeaders(), allow: "GET, POST" } });
+  }
+  const fields = [...url.searchParams.entries()];
+  if (request.method === "GET" && fields.length === 1 && fields[0]?.[0] === "landing" && fields[0][1] === "1") return downloadLanding();
+  let token: string | null = null;
+  if (request.method === "POST") {
+    const origin = request.headers.get("origin");
+    const site = request.headers.get("sec-fetch-site");
+    if (url.search || (origin !== null && origin !== url.origin) || (site !== null && site !== "same-origin" && site !== "none")) {
+      return downloadError("Invalid or expired artifact download.", 403);
+    }
+    token = await postedDownloadToken(request);
+  } else {
+    // Existing delivered links retain their original expiry (at most seven days).
+    // They can still enter URL logs; only newly issued fragment links avoid that.
+    token = fields.length === 1 && fields[0]?.[0] === "token" ? fields[0][1] : null;
+  }
+  const claims = token !== null ? await verifyArtifactDownloadToken(env, token) : null;
+  if (!claims) return downloadError("Invalid or expired artifact download.", 403);
+  if (!env.ARTIFACTS) return downloadError("Workspace artifact storage is unavailable.", 503);
   const object = await env.ARTIFACTS.get(`run-archives/${claims.scope}/${claims.sha256}.zip`);
-  if (!object) return Response.json({ error: "Artifact not found." }, { status: 404 });
+  if (!object) return downloadError("Artifact not found.", 404);
   const digest = object.checksums?.sha256;
   const hash = digest ? Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("") : null;
   if (object.size !== claims.bytes || hash !== claims.sha256 ||
       object.customMetadata?.scope !== claims.scope || object.customMetadata?.sha256 !== claims.sha256 ||
       object.customMetadata?.bytes !== String(claims.bytes) || object.customMetadata?.fileCount !== String(claims.fileCount)) {
     await object.body.cancel();
-    return Response.json({ error: "Artifact integrity check failed." }, { status: 409 });
+    return downloadError("Artifact integrity check failed.", 409);
   }
   return new Response(object.body, { headers: {
     "content-type": "application/zip",
     "content-disposition": 'attachment; filename="artifacts.zip"',
     "content-length": String(claims.bytes),
-    "x-content-type-options": "nosniff",
-    "cache-control": "private, no-store",
-    "referrer-policy": "no-referrer",
+    ...privateHeaders(),
   } });
 }
