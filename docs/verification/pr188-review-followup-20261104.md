@@ -4,6 +4,8 @@ Prepared November 4, 2026 against source HEAD `ff97eb18582927886dbbfade8c917f4fc
 
 The frozen source passed all eight workspace test tasks: **5,984 tests passed and three opt-in live tests skipped** (backend 4,811; frontend 848; other packages 325). Typecheck including SDK synchronization, import lint, `check:ci`, build, five built-site tests, deployment configuration/drift checks, local secret-example checks, and all 37 guarded preview-updater tests passed. The local test command limited workspace concurrency to one and Vitest workers to two. GitHub CI for the final commit is tracked separately; this local run is not a deployed acceptance result.
 
+Full GitHub [CI at `5512b15`](https://github.com/opentoolsorg/shiba/actions/runs/41900901950) passed all three jobs. Its [Desktop run](https://github.com/opentoolsorg/shiba/actions/runs/41900901951) passed the image build and eight native tests, but the native onboarding test's default one-second claim poll expired before asynchronous dispatch. Logs show the claim preceding the approval response and execution starting as the poll failed. Independent source review found no local approval/dispatch regression. The fixture now waits for the exact approval ID/thread's UI POST, checks HTTP 200 and `result: approved`, then permits a bounded 15-second claim wait. The preapproval denial and output/restart assertions remain. This changes test synchronization only; the macOS rerun is tracked separately.
+
 ## Review threads
 
 | Thread | Source and status | Focused evidence and limits |
