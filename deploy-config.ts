@@ -40,12 +40,13 @@ export function deploymentConfig(
   if (env.BETTER_AUTH_SECRET && env.BETTER_AUTH_SECRET.length < 32) {
     throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
   }
-  if (!accessEnabled && (!env.BETTER_AUTH_SECRET ||
-    !(env.BETTER_AUTH_BOOTSTRAP_TOKEN?.trim() || env.BETTER_AUTH_OWNER_EMAIL?.trim()))) {
+  const betterAuthEnabled = Boolean(env.BETTER_AUTH_SECRET &&
+    (env.BETTER_AUTH_BOOTSTRAP_TOKEN?.trim() || env.BETTER_AUTH_OWNER_EMAIL?.trim()));
+  if (isLiveStage && !accessEnabled && !betterAuthEnabled) {
     throw new Error("Public stages require managed Access or BETTER_AUTH_SECRET with a bootstrap token or owner email");
   }
   if (env.BETTER_AUTH_OWNER_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.BETTER_AUTH_OWNER_EMAIL)) {
     throw new Error("BETTER_AUTH_OWNER_EMAIL must be an email address");
   }
-  return { workerHost, accessEnabled, accessEmails };
+  return { workerHost, accessEnabled, accessEmails, openDashboard: !isLiveStage && !accessEnabled && !betterAuthEnabled };
 }

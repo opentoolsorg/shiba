@@ -158,6 +158,14 @@ describe("gate composition", () => {
     expect(isAuthenticated(new Request("http://localhost/api/runs"), env)).toBe(true);
   });
 
+  it("opens dashboard requests when the preview binding opts in", async () => {
+    const env = { ASSETS: {}, CodingOrchestrator: {}, Sandbox: {}, OPEN_DASHBOARD: "1" } as unknown as Env;
+    const request = new Request("https://example.com/api/runs");
+    expect(isAuthenticated(request, env)).toBe(true);
+    expect(await isAuthorizedRequest(request, env)).toBe(true);
+    expect(await resolveUserId(request, env)).toBeNull();
+  });
+
   it("better-auth mode rejects non-loopback without a session", async () => {
     const env = makeEnv();
     const request = new Request("https://example.com/api/runs");
