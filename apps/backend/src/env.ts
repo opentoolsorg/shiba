@@ -97,6 +97,13 @@ export interface Env {
   MCP_RATE_LIMIT?: RateLimit;
   /** Comma-separated exact HTTPS destination hostnames trusted for outbound MCP. Empty means disabled. */
   MCP_TRUSTED_HOSTS?: string;
+  /** Optional vendor-registered client IDs for curated remote MCP OAuth. */
+  MCP_OAUTH_CLIENT_STRIPE?: string;
+  MCP_OAUTH_CLIENT_NOTION?: string;
+  MCP_OAUTH_CLIENT_SENTRY?: string;
+  MCP_OAUTH_CLIENT_POSTHOG?: string;
+  MCP_OAUTH_CLIENT_FIGMA?: string;
+  MCP_OAUTH_CLIENT_JIRA_ATLASSIAN?: string;
   /**
    * Optional. Workers Browser Rendering endpoint (wrangler `browser` binding,
    * megaplan T33). `puppeteer.launch()` accepts the Fetcher shape directly;

@@ -325,6 +325,14 @@ export const Worker = Cloudflare.Worker("Worker", {
       "OPEN_CONNECTOR_ADMIN_TOKEN",
       "OPEN_CONNECTOR_RUNTIME_TOKEN",
       "MODEL_CREDENTIAL_KEY",
+      // Optional OAuth client IDs registered by the operator for curated MCP vendors.
+      // Unset IDs keep that vendor's OAuth connect path unavailable.
+      "MCP_OAUTH_CLIENT_STRIPE",
+      "MCP_OAUTH_CLIENT_NOTION",
+      "MCP_OAUTH_CLIENT_SENTRY",
+      "MCP_OAUTH_CLIENT_POSTHOG",
+      "MCP_OAUTH_CLIENT_FIGMA",
+      "MCP_OAUTH_CLIENT_JIRA_ATLASSIAN",
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
