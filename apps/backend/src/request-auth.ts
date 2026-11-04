@@ -102,10 +102,8 @@ export function isAuthenticated(request: Request, env: Env): boolean {
   // `/api/local` self-authenticates with a bearer token — same shape as
   // /mcp, exempt from the Access gate.
   if (isLocalRuntimePath(pathname)) return true;
-  // Anonymous previews may expose only the static shell and its assets.
-  // This flag never grants API identity, private data, or execution authority.
-  if (env.OPEN_DASHBOARD === "1" && (request.method === "GET" || request.method === "HEAD") &&
-      (pathname === "/" || pathname === "/app" || pathname.startsWith("/app/") || pathname.startsWith("/assets/"))) return true;
+  // Preview stages with no identity lane serve the dashboard + API openly as "default".
+  if (env.OPEN_DASHBOARD === "1" && !isAccessConfigured(env) && !isBetterAuthConfigured(env)) return true;
   // `/api/auth/*` self-authenticates: sign-in/sign-up/session verbs are how
   // a caller proves identity in the first place. The subscription-connect
   // paths under /api/auth are NOT exempted here — they stay gated below.
@@ -178,5 +176,7 @@ export async function resolveUserId(
   if (isBetterAuthConfigured(env)) {
     return resolveBetterAuthUserId(request, env);
   }
+  // Open previews share one synthetic owner; configured identities stay authoritative above.
+  if (env.OPEN_DASHBOARD === "1") return "default";
   return getUserId(request);
 }

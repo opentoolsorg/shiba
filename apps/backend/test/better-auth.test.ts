@@ -159,25 +159,28 @@ describe("gate composition", () => {
     expect(isAuthenticated(new Request("http://localhost/api/runs"), env)).toBe(true);
   });
 
-  it("limits anonymous previews to the static shell without inventing an owner", async () => {
+  it("opens dashboard and API requests as default when the preview binding opts in", async () => {
     const env = { ASSETS: {}, CodingOrchestrator: {}, Sandbox: {}, OPEN_DASHBOARD: "1" } as unknown as Env;
+    for (const path of ["/app/", "/api/whoami", "/api/tasks", "/api/runs"]) {
+      const request = new Request(`https://example.com${path}`);
+      expect(isAuthenticated(request, env)).toBe(true);
+      expect(await isAuthorizedRequest(request, env)).toBe(true);
+      expect(await resolveUserId(request, env)).toBe("default");
+    }
+    const request = new Request("https://example.com/api/runs", { method: "POST" });
+    expect(await isAuthorizedRequest(request, env)).toBe(true);
+    await expect(resolveRunStoreTarget(request, env, new URL(request.url))).resolves.toEqual({
+      agentName: "default",
+      userId: "default",
+    });
+  });
+
+  it("ignores a stale preview flag when Better Auth is configured", async () => {
+    const env = makeEnv({ OPEN_DASHBOARD: "1" });
     const request = new Request("https://example.com/api/runs");
-    expect(isAuthenticated(new Request("https://example.com/app/"), env)).toBe(true);
     expect(isAuthenticated(request, env)).toBe(false);
     expect(await isAuthorizedRequest(request, env)).toBe(false);
     expect(await resolveUserId(request, env)).toBeNull();
-    const target = await resolveRunStoreTarget(request, env, new URL(request.url));
-    expect("error" in target).toBe(true);
-    if ("error" in target) expect(target.error.status).toBe(401);
-  });
-
-  it.each(["/api/api-keys", "/api/org/model-keys", "/api/workspaces", "/api/collaboration/rooms", "/api/providers", "/agents/coding-orchestrator/default"])("does not authorize %s through the preview flag", async (path) => {
-    const env = { OPEN_DASHBOARD: "1" } as unknown as Env;
-    for (const method of ["GET", "POST"]) {
-      const request = new Request(`https://example.com${path}`, { method });
-      expect(await isAuthorizedRequest(request, env)).toBe(false);
-      expect(await resolveUserId(request, env)).toBeNull();
-    }
   });
 
   it("better-auth mode rejects non-loopback without a session", async () => {

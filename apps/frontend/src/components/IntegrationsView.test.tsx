@@ -281,7 +281,7 @@ describe("IntegrationsView capability catalog", () => {
 
     // Switch to MCP servers tab
     fireEvent.click(screen.getByRole("tab", { name: "MCP servers" }));
-    expect(await screen.findByLabelText("Search servers")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Custom MCP servers" })).toBeTruthy();
 
     // Switch back to Connectors tab
     fireEvent.click(screen.getByRole("tab", { name: "Connectors" }));
