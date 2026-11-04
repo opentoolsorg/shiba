@@ -23,6 +23,7 @@ import {
   isAuthorizedRequest,
   resolveUserId,
 } from "../src/request-auth.js";
+import { resolveRunStoreTarget } from "../src/runs-routes.js";
 
 vi.mock("@cloudflare/sandbox", () => ({
   Sandbox: class {},
@@ -158,12 +159,25 @@ describe("gate composition", () => {
     expect(isAuthenticated(new Request("http://localhost/api/runs"), env)).toBe(true);
   });
 
-  it("opens dashboard requests when the preview binding opts in", async () => {
+  it("limits anonymous previews to the static shell without inventing an owner", async () => {
     const env = { ASSETS: {}, CodingOrchestrator: {}, Sandbox: {}, OPEN_DASHBOARD: "1" } as unknown as Env;
     const request = new Request("https://example.com/api/runs");
-    expect(isAuthenticated(request, env)).toBe(true);
-    expect(await isAuthorizedRequest(request, env)).toBe(true);
+    expect(isAuthenticated(new Request("https://example.com/app/"), env)).toBe(true);
+    expect(isAuthenticated(request, env)).toBe(false);
+    expect(await isAuthorizedRequest(request, env)).toBe(false);
     expect(await resolveUserId(request, env)).toBeNull();
+    const target = await resolveRunStoreTarget(request, env, new URL(request.url));
+    expect("error" in target).toBe(true);
+    if ("error" in target) expect(target.error.status).toBe(401);
+  });
+
+  it.each(["/api/api-keys", "/api/org/model-keys", "/api/workspaces", "/api/collaboration/rooms", "/api/providers", "/agents/coding-orchestrator/default"])("does not authorize %s through the preview flag", async (path) => {
+    const env = { OPEN_DASHBOARD: "1" } as unknown as Env;
+    for (const method of ["GET", "POST"]) {
+      const request = new Request(`https://example.com${path}`, { method });
+      expect(await isAuthorizedRequest(request, env)).toBe(false);
+      expect(await resolveUserId(request, env)).toBeNull();
+    }
   });
 
   it("better-auth mode rejects non-loopback without a session", async () => {
