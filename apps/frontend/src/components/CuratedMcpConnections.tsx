@@ -1,5 +1,5 @@
 import { CURATED_MCP_VENDORS, type CuratedMcpVendor } from "@shiba/shared";
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
 import { roleCapabilityRecommendations, type CapabilityRoleFilter } from "../role-capability-recommendations";
 
@@ -29,6 +29,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 /** Connect curated vendor MCPs (OAuth or bearer fallback) from Integrations. */
 export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void }): JSX.Element {
+  const changed = useRef(onChanged); changed.current = onChanged;
   const [connections, setConnections] = useState<CatalogConnection[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [visibility, setVisibility] = useState<Record<string, "private" | "workspace">>({});
@@ -37,6 +38,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [role, setRole] = useState<CapabilityRoleFilter>("all");
+  const [oauthLinks, setOauthLinks] = useState<Record<string, string>>({});
 
   const vendors = CURATED_MCP_VENDORS.filter((vendor) => role === "all" || roleCapabilityRecommendations(role).mcpCatalogIds.includes(vendor.catalogId));
 
@@ -47,6 +49,9 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
 
   useEffect(() => {
     void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    const focus = () => { void refresh().then(() => changed.current?.()).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); };
+    window.addEventListener("focus", focus);
+    return () => window.removeEventListener("focus", focus);
   }, [refresh]);
 
   const run = async (key: string, action: () => Promise<void>, success: string) => {
@@ -81,6 +86,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
         </p>
         <div className="mt-3"><RoleCapabilityFilter value={role} onChange={setRole} label="MCP presets for role" /></div>
         <p className="mt-2 text-xs text-[var(--muted-foreground-2)]">After sign-in, <a href="/agents/" className="text-[var(--primary)] underline">discover and review exact tools</a>, then <a href="/employee-tools/" className="text-[var(--primary)] underline">grant selected employee resources</a>. Saved credentials alone do not enable employee tools. Workspace visibility does not grant tool access.</p>
+        <button type="button" disabled={busy !== null} className="mt-3 min-h-11 border border-[var(--border-1)] px-3 text-xs" onClick={() => void run("refresh", async () => {}, "Connection status refreshed.")}>Refresh connection status</button>
       </div>
       {error ? <p className="px-4 py-2 text-xs text-[var(--danger-fg)]">{error}</p> : null}
       {notice ? <p className="px-4 py-2 text-xs text-[var(--success-fg)]">{notice}</p> : null}
@@ -90,6 +96,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
             <span className="text-[13px] font-semibold text-[var(--fg)]">{vendor.name}</span>
             <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">{vendor.endpoint}</span>
           </div>
+          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{vendor.catalogId === "figma" ? "Figma restricts access to approved MCP clients. Shiba registration and live compatibility have not been verified." : vendor.catalogId === "notion" ? "Notion OAuth requires a registered client. Owner-generated bearer MCP tokens require a Business or Enterprise workspace; guest access is unsupported." : vendor.catalogId === "sentry" ? "Sentry documents OAuth-only connections. A static bearer fallback is unavailable here." : vendor.catalogId === "stripe" ? "Stripe OAuth requires a registered client. Bearer access uses a vendor-issued Agent API key with explicit permissions." : "Vendor account, permissions and deployment OAuth client configuration are required. Live account compatibility has not been verified."}</p>
           <ul className="mt-2 space-y-1 text-xs text-[var(--muted-foreground-2)]">
             {connectionsFor(vendor).length === 0 ? (
               <li>No connections yet.</li>
@@ -147,6 +154,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
               Bearer fallback (optional)
               <input
                 type="password"
+                disabled={vendor.catalogId === "figma" || vendor.catalogId === "sentry"}
                 value={bearer[vendor.catalogId] ?? ""}
                 onChange={(event) => setBearer((current) => ({ ...current, [vendor.catalogId]: event.target.value }))}
                 placeholder="Paste vendor MCP bearer if OAuth client is not configured"
@@ -179,18 +187,20 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                         credentialRef: null,
                       }),
                     });
+                    try {
                     const begin = await request<{ authorizationUrl: string }>(
                       `/api/v1/mcp/servers/${created.server.id}/oauth/begin`,
                       { method: "POST", body: JSON.stringify({ redirectUri }) },
-                    ).catch(async (cause: unknown) => {
+                    );
+                    const target = new URL(begin.authorizationUrl);
+                    if (target.protocol !== "https:" || target.username || target.password || target.hash) throw new Error("OAuth returned an unsafe redirect URL.");
+                    setOauthLinks((current) => ({ ...current, [vendor.catalogId]: target.href }));
+                    } catch (cause) {
                       await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" }).catch(() => {});
                       throw cause;
-                    });
-                    const target = new URL(begin.authorizationUrl);
-                    if (target.protocol !== "https:") throw new Error("OAuth returned an unsafe redirect URL.");
-                    window.open(target.href, "_blank", "noopener,noreferrer");
+                    }
                   },
-                  "OAuth sign-in opened — finish in the vendor window, then refresh.",
+                  "OAuth sign-in link ready. Continue sign-in, then refresh connection status.",
                 )
               }
             >
@@ -198,7 +208,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
             </button>
             <button
               type="button"
-              disabled={busy !== null || !(bearer[vendor.catalogId] ?? "").trim()}
+              disabled={busy !== null || vendor.catalogId === "figma" || vendor.catalogId === "sentry" || !(bearer[vendor.catalogId] ?? "").trim()}
               className="border border-[var(--border-1)] bg-[var(--panel)] px-3 py-1.5 text-[10px] font-mono hover:border-[var(--primary)] disabled:opacity-50"
               onClick={() =>
                 void run(
@@ -235,6 +245,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
             >
               Save bearer fallback
             </button>
+            {oauthLinks[vendor.catalogId] ? <a href={oauthLinks[vendor.catalogId]} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center border border-[var(--border-1)] px-3 text-xs underline">Continue {vendor.name} sign-in</a> : null}
           </div>
         </div>
       ))}

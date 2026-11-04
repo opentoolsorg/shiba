@@ -1,129 +1,58 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtensionMcpServersView } from "./ExtensionMcpServersView";
-import { extensionsApi } from "../extensions-api";
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-beforeEach(() => {
-  extensionsApi.resetStubFixtures();
-  extensionsApi.useStubs(true);
-  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ connections: [] })));
-});
-
-describe("ExtensionMcpServersView", () => {
-  it("renders server cards from the default personal view", async () => {
+describe("Extension MCP uses the canonical reviewed registry", () => {
+  it("uses normal HTTP and shows all six presets without shadow fixtures or unsupported controls", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path=String(input); calls.push(path);
+      if(path === "/api/v1/mcp/servers") return Response.json({ servers: [] });
+      if(path === "/api/agents") return Response.json({ principals: [] });
+      if(path === "/api/v1/mcp/catalog-connections") return Response.json({ connections: [] });
+      return Response.json({error:"Unexpected endpoint"},{status:404});
+    }));
     render(<ExtensionMcpServersView />);
-    expect(await screen.findByText("GitHub MCP Server")).toBeTruthy();
-    expect(screen.getByText("https://mcp.github.com/v1")).toBeTruthy();
-    expect(screen.getByText("OAuth: connected")).toBeTruthy();
-    expect(screen.getByText("Streamable HTTP")).toBeTruthy();
-  });
-
-  it("switches tabs between Personal, Workspace, and Archived", async () => {
-    render(<ExtensionMcpServersView />);
-    expect(await screen.findByText("GitHub MCP Server")).toBeTruthy();
-
-    // Switch to Workspace
-    fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
-    expect(await screen.findByText("Cloudflare Developer MCP")).toBeTruthy();
+    await screen.findByText("No external MCP servers registered. The built-in Shiba gateway is separate.");
+    expect(screen.getAllByRole("button",{name:"Connect with OAuth"})).toHaveLength(6);
     expect(screen.queryByText("GitHub MCP Server")).toBeNull();
-
-    // Switch to Archived
-    fireEvent.click(screen.getByRole("tab", { name: "Archived" }));
-    expect(await screen.findByText("Legacy Weather Service")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Restore" })).toBeTruthy();
+    expect(screen.queryByLabelText("Transport")).toBeNull();
+    expect(screen.queryByLabelText("Custom header")).toBeNull();
+    expect(calls).toContain("/api/v1/mcp/servers");
+    expect(calls.some(path=>path.includes("/extensions/mcp-servers"))).toBe(false);
   });
-
-  it("filters servers by search query", async () => {
+  it("reports authentication failures without claiming saved or connected servers", async () => {
+    vi.stubGlobal("fetch",vi.fn(async()=>Response.json({error:"Sign in required"},{status:401})));
     render(<ExtensionMcpServersView />);
-    await screen.findByText("GitHub MCP Server");
-
-    const searchInput = screen.getByLabelText("Search servers");
-    fireEvent.change(searchInput, { target: { value: "notfound" } });
-    expect(await screen.findByText(/No servers match/)).toBeTruthy();
-
-    fireEvent.change(searchInput, { target: { value: "github" } });
-    expect(await screen.findByText("GitHub MCP Server")).toBeTruthy();
+    await waitFor(()=>expect(screen.getAllByText("Sign in required").length).toBeGreaterThan(0));
+    expect(screen.queryByText("GitHub MCP Server")).toBeNull();
+    expect(screen.queryByText("OAuth: connected")).toBeNull();
   });
-
-  it("creates a new server via the dialog", async () => {
-    render(<ExtensionMcpServersView />);
-    await screen.findByText("GitHub MCP Server");
-
-    fireEvent.click(screen.getByRole("button", { name: "Add server" }));
-    expect(await screen.findByRole("heading", { name: "Add MCP server" })).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Stripe MCP" } });
-    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Process charges" } });
-    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://stripe-mcp.internal" } });
-    fireEvent.change(screen.getByLabelText("Transport"), { target: { value: "streamable-http" } });
-    fireEvent.change(screen.getByLabelText("Authentication"), { target: { value: "bearer" } });
-    fireEvent.change(screen.getByLabelText("Bearer token"), { target: { value: "sk_test_123" } });
-    fireEvent.change(screen.getByLabelText("Default tool policy"), { target: { value: "approval_required" } });
-
-    const submitBtns = screen.getAllByRole("button", { name: "Add server" });
-    const submitBtn = submitBtns[submitBtns.length - 1];
-    expect(submitBtn).toBeDefined();
-    fireEvent.click(submitBtn!);
-
-    expect(await screen.findByText("Stripe MCP")).toBeTruthy();
-    expect(screen.getByText("https://stripe-mcp.internal")).toBeTruthy();
-  });
-
-  it("tests connection inside dialog", async () => {
-    render(<ExtensionMcpServersView />);
-    await screen.findByText("GitHub MCP Server");
-
-    fireEvent.click(screen.getByRole("button", { name: "Add server" }));
-    await screen.findByRole("heading", { name: "Add MCP server" });
-
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test Svc" } });
-    fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://test.local" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
-    expect(await screen.findByText(/Connected — 6 tools available/)).toBeTruthy();
-  });
-
-  it("toggles server enabled and moves scope", async () => {
-    render(<ExtensionMcpServersView />);
-    expect(await screen.findByText("GitHub MCP Server")).toBeTruthy();
-
-    // Toggle disable
-    const disableBtn = screen.getByRole("button", { name: "Disable" });
-    fireEvent.click(disableBtn);
-    expect(await screen.findByText("Server disabled.")).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Enable" })).toBeTruthy();
-
-    // Move scope to Workspace
-    const moveBtn = screen.getByRole("button", { name: "Move to Workspace" });
-    fireEvent.click(moveBtn);
-    expect(await screen.findByText("Moved to Workspace.")).toBeTruthy();
-
-    // Switch to Workspace tab to confirm it arrived
-    fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
-    expect(await screen.findByText("GitHub MCP Server")).toBeTruthy();
-  });
-
-  it("archives, restores, and deletes a server", async () => {
-    render(<ExtensionMcpServersView />);
-    await screen.findByText("GitHub MCP Server");
-
-    // Archive
-    const archiveBtn = screen.getByRole("button", { name: "Archive" });
-    fireEvent.click(archiveBtn);
-    expect(await screen.findByText("Server archived.")).toBeTruthy();
-
-    // Switch to Archived
-    fireEvent.click(screen.getByRole("tab", { name: "Archived" }));
-    expect(await screen.findByText("Legacy Weather Service")).toBeTruthy();
-    const restoreBtns = await screen.findAllByRole("button", { name: "Restore" });
-    expect(restoreBtns[0]).toBeDefined();
-    fireEvent.click(restoreBtns[0]!);
-    expect(await screen.findByText("Server restored.")).toBeTruthy();
+  it("saves a real registry draft and exposes discovery without auto-enabling capabilities", async () => {
+    let saved=false;
+    const writes:Array<{path:string;body:unknown}>=[];
+    vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const path=String(input);
+      if(path==="/api/v1/mcp/catalog-connections")return Response.json({connections:[]});
+      if(path==="/api/agents")return Response.json({principals:[]});
+      if(path==="/api/v1/mcp/servers" && init?.method==="POST"){
+        writes.push({path,body:JSON.parse(String(init.body))});saved=true;return Response.json({server:{id:"server1"}},{status:201});
+      }
+      if(path==="/api/v1/mcp/servers")return Response.json({servers:saved?[{id:"server1",name:"Account MCP",endpoint:"https://mcp.example.com/mcp",status:"draft",health:"unknown",tools:[]}]:[]});
+      if(path.endsWith("/tools"))return Response.json({tools:[],access:[]});
+      if(path.endsWith("/approvals"))return Response.json({approvals:[]});
+      return Response.json({error:"Unexpected"},{status:404});
+    }));
+    render(<ExtensionMcpServersView/>);
+    fireEvent.change(screen.getByLabelText("MCP server name"),{target:{value:"Account MCP"}});
+    fireEvent.change(screen.getByLabelText("MCP server HTTPS endpoint"),{target:{value:"https://mcp.example.com/mcp"}});
+    fireEvent.click(screen.getByRole("button",{name:"Save draft"}));
+    await screen.findByText("Account MCP");
+    expect(writes).toEqual([{path:"/api/v1/mcp/servers",body:{name:"Account MCP",transport:"streamable_http",url:"https://mcp.example.com/mcp",credentialRef:null}}]);
+    expect(screen.getByRole("button",{name:"Discover / retry"})).toBeTruthy();
+    expect(writes.some(item=>/enable|grant/.test(item.path))).toBe(false);
   });
 });
