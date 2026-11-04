@@ -144,16 +144,18 @@ describe("external MCP OAuth + multi-account", () => {
     expect(discovery.scopes).toBe("reports:read");
   });
 
-  it.each(["http://127.0.0.1/token", "https://127.0.0.1/token", "https://user:password@auth.vendor.com/token", "https://metadata.internal/token"])("rejects unsafe delegated token endpoint %s before fetching it", async (tokenEndpoint) => {
+  it.each(["authorization_endpoint", "token_endpoint", "revocation_endpoint"].flatMap((field) =>
+    ["http://127.0.0.1/token", "https://127.0.0.1/token", "https://user:password@auth.vendor.com/token", "https://metadata.internal/token"].map((endpoint) => ({ field, endpoint })),
+  ))("rejects unsafe delegated $field $endpoint before using it", async ({ field, endpoint }) => {
     const calls: string[] = [];
     const fixtureFetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input); calls.push(url);
       if (url === stripeEndpoint || url === `${stripeEndpoint}/`) return new Response(null, { status: 405 });
       if (url.includes("oauth-protected-resource")) return Response.json({ resource: stripeEndpoint, authorization_servers: ["https://auth.vendor.com"] });
-      return Response.json({ issuer: "https://auth.vendor.com", authorization_endpoint: "https://auth.vendor.com/authorize", token_endpoint: tokenEndpoint, code_challenge_methods_supported: ["S256"] });
+      return Response.json({ issuer: "https://auth.vendor.com", authorization_endpoint: "https://auth.vendor.com/authorize", token_endpoint: "https://auth.vendor.com/token", revocation_endpoint: "https://auth.vendor.com/revoke", code_challenge_methods_supported: ["S256"], [field]: endpoint });
     });
     await expect(discoverExternalMcpOAuth({ endpoint: stripeEndpoint }, fixtureFetch)).rejects.toThrow("oauth_discovery_failed");
-    expect(calls).not.toContain(tokenEndpoint);
+    expect(calls).not.toContain(endpoint);
   });
 
   it("never restores credentials when the connection is revoked during code exchange", async () => {

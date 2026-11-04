@@ -31,6 +31,8 @@
   "vars": {
     // No upstream MCP host is enabled by default. Operators must list exact public
     // hostnames here and pre-provision referenced MCP_CREDENTIAL_* secrets.
+    // Optional MCP_OAUTH_CLIENT_* IDs are Wrangler secrets listed in
+    // worker-secrets.json; unset vendors remain unavailable for OAuth.
     "MCP_TRUSTED_HOSTS": "",
     "INTEGRATIONS_PROVIDER": "openconnector",
     // Slack canvas access requires an explicit team/channel owner policy.
