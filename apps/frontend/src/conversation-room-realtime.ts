@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { roomTabIdentity } from "./room-tab-identity";
 
 export interface ConversationRoomViewer {
   viewerId: string;
@@ -57,6 +58,7 @@ interface UseConversationRoomRealtimeOptions {
 }
 
 interface LocalPublisher {
+  localViewerId: string;
   streamId: string;
   handleId: string;
   baselineAssistantIds: Set<string>;
@@ -81,19 +83,6 @@ function newId(): string {
   });
 }
 
-function tabViewerId(): string {
-  try {
-    const key = "shiba-room-viewer";
-    const existing = window.sessionStorage.getItem(key);
-    if (existing && /^[0-9a-f-]{36}$/i.test(existing)) return existing;
-    const id = newId();
-    window.sessionStorage.setItem(key, id);
-    return id;
-  } catch {
-    return newId();
-  }
-}
-
 function messageText(message: ChatMessageLike): string {
   if (!Array.isArray(message.parts)) return "";
   return message.parts
@@ -110,7 +99,7 @@ function viewerMessageOwner(message: ChatMessageLike): string | null {
 
 function belongsToLocalPublisher(message: ChatMessageLike, publisher: LocalPublisher, viewerId: string): boolean {
   const owner = viewerMessageOwner(message);
-  if (owner !== null) return owner === viewerId;
+  if (owner !== null) return owner === viewerId || owner === publisher.localViewerId;
   return !publisher.baselineUserMessageIds.has(message.id) &&
     Boolean(publisher.userText) && messageText(message).trim() === publisher.userText;
 }
@@ -154,8 +143,11 @@ export function useConversationRoomRealtime({
   onRunEvent,
   realtimePath,
 }: UseConversationRoomRealtimeOptions) {
-  const [viewerId] = useState(tabViewerId);
+  const [tabIdentity] = useState(() => roomTabIdentity());
+  const [viewerId, setViewerId] = useState(tabIdentity.provisionalId);
+  const [identityReady, setIdentityReady] = useState(false);
   const [assignedViewerId, setAssignedViewerId] = useState<string | null>(null);
+  const assignedViewerRef = useRef<string | null>(null);
   const [status, setStatus] = useState<ConversationRoomStatus>(enabled ? "connecting" : "offline");
   const [viewers, setViewers] = useState<ConversationRoomViewer[]>([]);
   const [remoteStream, setRemoteStream] = useState<ConversationRoomStream | null>(null);
@@ -177,6 +169,20 @@ export function useConversationRoomRealtime({
   onRunEventRef.current = onRunEvent;
   messagesRef.current = messages;
 
+  useEffect(() => {
+    if (!enabled) { setIdentityReady(false); return; }
+    let stopped = false;
+    const claim = tabIdentity.retain();
+    const ready = (id: string) => {
+      if (stopped) return;
+      setViewerId(id);
+      setIdentityReady(true);
+    };
+    if (claim.currentId) ready(claim.currentId);
+    else void claim.ready.then(ready);
+    return () => { stopped = true; claim.release(); };
+  }, [enabled, tabIdentity]);
+
   const send = useCallback((event: unknown) => {
     const socket = socketRef.current;
     if (socket?.readyState !== WebSocket.OPEN) return false;
@@ -197,10 +203,11 @@ export function useConversationRoomRealtime({
       typingSentRef.current = false;
       cursorSentAtRef.current = 0;
       setAssignedViewerId(null);
+      assignedViewerRef.current = null;
       setReplayGap(false);
     }
-    if (!enabled) {
-      setStatus("offline");
+    if (!enabled || !identityReady) {
+      setStatus(enabled ? "connecting" : "offline");
       setViewers([]);
       setRemoteStream(null);
       return;
@@ -264,7 +271,7 @@ export function useConversationRoomRealtime({
           publisher.lastText = "";
           for (const message of messagesRef.current) {
             if (
-              message.role === "user" && belongsToLocalPublisher(message, publisher, viewerId) &&
+              message.role === "user" && belongsToLocalPublisher(message, publisher, assignedViewerRef.current ?? viewerId) &&
               !publisher.sentUserMessageIds.has(message.id)
             ) {
               const text = messageText(message).trim();
@@ -314,7 +321,10 @@ export function useConversationRoomRealtime({
           replayPendingRef.current = false;
           for (const runFrame of pending.sort((a, b) => a.sequence - b.sequence)) acceptRunFrame(runFrame);
         } else if (frame.type === "snapshot") {
-          if (typeof frame.viewerId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(frame.viewerId)) setAssignedViewerId(frame.viewerId);
+          if (typeof frame.viewerId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(frame.viewerId)) {
+            assignedViewerRef.current = frame.viewerId;
+            setAssignedViewerId(frame.viewerId);
+          }
           setViewers(Array.isArray(frame.viewers) ? frame.viewers as ConversationRoomViewer[] : []);
           if (Array.isArray(frame.messages)) {
             for (const message of frame.messages) {
@@ -334,10 +344,10 @@ export function useConversationRoomRealtime({
             }
           }
           const streams = Array.isArray(frame.streams) ? frame.streams as ConversationRoomStream[] : [];
-          setRemoteStream(streams.find((stream) => stream.viewerId !== viewerId) ?? null);
+          setRemoteStream(streams.find((stream) => stream.viewerId !== (assignedViewerRef.current ?? viewerId)) ?? null);
         } else if (frame.type === "presence" && Array.isArray(frame.viewers)) {
           setViewers(frame.viewers as ConversationRoomViewer[]);
-        } else if (frame.type === "message" && frame.viewerId !== viewerId &&
+        } else if (frame.type === "message" && frame.viewerId !== (assignedViewerRef.current ?? viewerId) &&
           typeof frame.messageId === "string" && typeof frame.text === "string" &&
           typeof frame.createdAt === "number") {
           onMessageRef.current({
@@ -350,9 +360,9 @@ export function useConversationRoomRealtime({
         } else if (frame.type === "stream:lease" && typeof frame.streamId === "string" && typeof frame.resumeToken === "string") {
           const publisher = publisherRef.current;
           if (publisher?.streamId === frame.streamId) publisher.resumeToken = frame.resumeToken;
-        } else if (frame.type === "stream:start" && frame.viewerId !== viewerId && typeof frame.streamId === "string") {
+        } else if (frame.type === "stream:start" && frame.viewerId !== (assignedViewerRef.current ?? viewerId) && typeof frame.streamId === "string") {
           setRemoteStream({ streamId: frame.streamId, viewerId: String(frame.viewerId), text: "" });
-        } else if (frame.type === "stream:delta" && frame.viewerId !== viewerId &&
+        } else if (frame.type === "stream:delta" && frame.viewerId !== (assignedViewerRef.current ?? viewerId) &&
           typeof frame.streamId === "string" && typeof frame.text === "string") {
           setRemoteStream({ streamId: frame.streamId, viewerId: String(frame.viewerId), text: frame.text });
         } else if (frame.type === "stream:end" && typeof frame.streamId === "string") {
@@ -384,7 +394,7 @@ export function useConversationRoomRealtime({
       setViewers([]);
       setRemoteStream(null);
     };
-  }, [enabled, send, sessionId, viewerId, realtimePath, roomIdentity]);
+  }, [enabled, identityReady, send, sessionId, viewerId, realtimePath, roomIdentity]);
 
   useEffect(() => {
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
@@ -410,7 +420,7 @@ export function useConversationRoomRealtime({
     if (!publisher) return;
     for (const message of messages) {
       if (
-        message.role === "user" && belongsToLocalPublisher(message, publisher, viewerId) &&
+        message.role === "user" && belongsToLocalPublisher(message, publisher, assignedViewerRef.current ?? viewerId) &&
         !publisher.sentUserMessageIds.has(message.id)
       ) {
         const text = messageText(message).trim();
@@ -429,6 +439,7 @@ export function useConversationRoomRealtime({
       send({ type: "stream:end", streamId: publisherRef.current.streamId, status: "failed" });
     }
     publisherRef.current = {
+      localViewerId: assignedViewerRef.current ?? viewerId,
       streamId,
       handleId: streamId,
       baselineAssistantIds: new Set(messagesRef.current.filter((message) => message.role === "assistant").map((message) => message.id)),
@@ -439,7 +450,7 @@ export function useConversationRoomRealtime({
     };
     send({ type: "stream:start", streamId });
     return streamId;
-  }, [send]);
+  }, [send, viewerId]);
 
   const finishStream = useCallback((streamId: string, status: "complete" | "failed") => {
     const publisher = publisherRef.current;

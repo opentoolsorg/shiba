@@ -30,7 +30,7 @@ import { AgentDetailsPanel, AgentPageHeader, EmployeeOnboarding, ONBOARDING_DISM
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { useProjectContexts } from "./project-contexts";
-import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables } from "./execution-target-input";
+import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables, type DashboardExecutionTargetFields } from "./execution-target-input";
 import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
 import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
@@ -624,7 +624,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const submitFailed = useRef(false);
   const submitInFlight = useRef(false);
   // Same request body => same commandId, so a retried POST dedupes server-side.
-  const runCommand = useRef<{ key: string; id: string } | null>(null);
+  const runCommand = useRef<{ key: string; id: string; executionTarget: DashboardExecutionTargetFields["executionTarget"] } | null>(null);
   const clearInFlight = useRef(false);
   const [decisions, setDecisions] = useState<Record<string, boolean>>({});
   const [approvalAnnouncement, setApprovalAnnouncement] = useState("");
@@ -1493,16 +1493,21 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
           ...(projectContextId ? { projectContextId } : {}),
         };
+        // A retry retains its command ID across daemon re-pairing, but a
+        // different owner, conversation or runtime is a distinct command.
+        // The automatic workspace ID is generated state, not changed intent.
+        const keyTarget = fields.executionTarget.kind === "artifact-workspace" && fields.executionTarget.expectedDeliverables.length === 0
+          ? { ...fields.executionTarget, workspaceId: undefined }
+          : fields.executionTarget;
+        const key = JSON.stringify({ ...fields, executionTarget: keyTarget, owner: orchestratorName, runtime: runTarget, session: selectedSessionId });
+        if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID(), executionTarget: fields.executionTarget };
+        const commandId = runCommand.current.id;
         const body = {
           ...fields,
+          executionTarget: runCommand.current.executionTarget,
           runtime: runTarget,
           ...(runTarget === "local" ? { targetMachineId: selectedLocalMachineId } : {}),
         };
-        // A retry retains its command ID across daemon re-pairing, but a
-        // different conversation or runtime is a distinct command.
-        const key = JSON.stringify({ ...fields, runtime: runTarget, session: selectedSessionId });
-        if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID() };
-        const commandId = runCommand.current.id;
         const draft = task;
         const draftSession = composerScope;
         setTask("");
