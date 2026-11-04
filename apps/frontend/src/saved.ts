@@ -364,6 +364,8 @@ export interface LibrarySkillCard {
   version: string;
   installed: boolean;
   installedSkillId?: string;
+  installedStatus?: SavedSkill["status"];
+  installedVersion?: number;
   updateAvailable: boolean;
 }
 

@@ -29,20 +29,22 @@ export async function handleSkillLibrary(request: Request, env: Env): Promise<Re
     if (request.method !== "GET") return methodNotAllowed();
     const installs = await listSkillInstalls(env, auth.orgId, ownerId);
     const installBySlug = new Map(installs.map((row) => [row.librarySlug, row]));
-    const skills = listLibrarySkills().map((entry) => {
+    const skills = await Promise.all(listLibrarySkills().map(async (entry) => {
       const install = installBySlug.get(entry.slug);
-      const updateAvailable = install ? install.libraryVersion !== entry.version : false;
+      const skill = install ? await getSkill(env, auth.orgId, ownerId, install.skillId) : null;
+      const installed = Boolean(skill && skill.status !== "disabled");
+      const updateAvailable = installed && install ? install.libraryVersion !== entry.version : false;
       return {
         slug: entry.slug,
         name: entry.name,
         summary: entry.summary,
         tags: entry.tags,
         version: entry.version,
-        installed: install !== undefined,
-        ...(install ? { installedSkillId: install.skillId } : {}),
+        installed,
+        ...(installed && skill ? { installedSkillId: skill.id, installedStatus: skill.status, installedVersion: skill.version } : {}),
         updateAvailable,
       };
-    });
+    }));
     return Response.json({ ok: true, skills }, { headers: { "cache-control": "no-store" } });
   }
 
