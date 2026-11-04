@@ -76,6 +76,8 @@ After source freeze, `pnpm typecheck`, `pnpm lint`, `pnpm lint:imports`, `pnpm c
 
 The serialized workspace run exercised 5,389 tests: 5,378 passed, three opt-in live tests skipped and eight older UI/tool-inventory assertions failed. The four affected fixture files were updated for scoped skill readers, optional review steps and configuration-only provider labels; all 47 tests in those files then passed. Production source was unchanged during that correction. A fresh full run and the pushed commit's CI results are reported with the PR's exact head; this report does not substitute a partial rerun for a successful whole-suite command. Focused suites and synthetic external adapters do not establish installed Slack, provider, live Cloudflare or R2 acceptance.
 
+The first pushed browser job at `c7794ae` built successfully but stopped before browser tests: GitHub's `ubuntu-latest` image had migrated to Ubuntu 26.04, unsupported by the pinned Playwright 1.55.1 dependency/browser map. The browser job now explicitly selects Ubuntu 24.04, which that exact upstream version supports. The browser version and application permissions are unchanged; the failed attempt is not browser acceptance evidence.
+
 ## Remaining access and product limits
 
 | Requested outcome | Status | Evidence or remaining requirement |

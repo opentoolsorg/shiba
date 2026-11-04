@@ -63,7 +63,9 @@ jobs:
     timeout-minutes: 30
   verify-shiba:
     if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}"
-    runs-on: ubuntu-latest
+    # The pinned Playwright 1.55.1 browser/dependency map supports Ubuntu 24.04.
+    # Keep runner image upgrades separate from browser-version upgrades.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
