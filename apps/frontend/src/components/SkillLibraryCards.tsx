@@ -62,7 +62,7 @@ export function SkillLibraryCards(): JSX.Element {
   };
 
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="skill-library-heading">
+    <section className="flex min-w-0 w-full flex-col gap-3" aria-labelledby="skill-library-heading">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 id="skill-library-heading" className="text-sm font-semibold text-[var(--fg)]">
@@ -96,7 +96,7 @@ export function SkillLibraryCards(): JSX.Element {
         loading && library.length === 0 ? (
           <p role="status" className="text-xs text-[var(--muted-foreground-2)]">Loading library…</p>
         ) : (
-          <ul className="grid gap-3 sm:grid-cols-2">
+          <ul className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
             {visibleLibrary.map((skill) => (
               <LibraryCard key={skill.slug} skill={skill} busy={busySlug === skill.slug} onInstall={install} onUninstall={uninstall} />
             ))}
@@ -121,10 +121,10 @@ function LibraryCard({
   onUninstall: (slug: string) => void;
 }): JSX.Element {
   return (
-    <li className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-2 shadow-[var(--sh-card)]">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="text-sm font-medium text-[var(--fg)]">{skill.name}</div>
+    <li className="min-w-0 max-w-full rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-2 shadow-[var(--sh-card)]">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="break-words text-sm font-medium text-[var(--fg)]">{skill.name}</div>
           <div className="text-[10px] text-[var(--muted-foreground-2)]">v{skill.version}</div>
         </div>
         {skill.installed ? (
@@ -142,13 +142,13 @@ function LibraryCard({
             type="button"
             disabled={busy}
             onClick={() => void onInstall(skill.slug)}
-            className="text-[10px] border border-[var(--primary)]/30 text-[var(--primary)] rounded px-2 py-1 disabled:opacity-50"
+            className="min-h-11 shrink-0 text-[10px] border border-[var(--primary)]/30 text-[var(--primary)] rounded px-3 py-1 disabled:opacity-50"
           >
             Install
           </button>
         )}
       </div>
-      <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">{skill.summary}</p>
+      <p className="break-words text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">{skill.summary}</p>
       {skill.installed && skill.installedStatus !== "active" ? <p className="text-[11px] text-[var(--muted-foreground-2)]">Review and activate the installed version in Saved skills below before attaching it to work.</p> : null}
       <div className="flex flex-wrap gap-1">
         {skill.tags.map((tag) => (
@@ -169,8 +169,8 @@ function InstalledSkillsList({ skills, loading }: { skills: SavedSkill[]; loadin
   return (
     <ul className="flex flex-col gap-2">
       {skills.map((skill) => (
-        <li key={skill.id} className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-3 py-2 text-xs flex justify-between gap-2">
-          <span className="font-medium text-[var(--fg)]">{skill.name}</span>
+        <li key={skill.id} className="min-w-0 rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-3 py-2 text-xs flex flex-wrap justify-between gap-2">
+          <span className="break-words font-medium text-[var(--fg)]">{skill.name}</span>
           <span className="text-[var(--muted-foreground-2)]">{skill.status} · v{skill.version}</span>
         </li>
       ))}

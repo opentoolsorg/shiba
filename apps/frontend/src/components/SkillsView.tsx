@@ -30,7 +30,7 @@ export function SkillsView({ embedded = false, workspaceId, actorId }: { embedde
 function PersonalSkillsView({ embedded }: { embedded: boolean }): JSX.Element {
   const [surface, setSurface] = useState<"extensions" | "run">("extensions");
   return (
-    <div className="flex h-full min-h-0 flex-1 bg-[var(--bg)] text-[var(--fg)]">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 bg-[var(--bg)] text-[var(--fg)]">
       {surface === "extensions"
         ? <ExtensionSkillsView embedded={embedded} onOpenRunSkills={() => setSurface("run")} />
         : <RunAttachedSkillsView onOpenExtensions={() => setSurface("extensions")} />}
@@ -245,21 +245,21 @@ function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => v
   const showLoadMore = savedSkills.hasMore;
 
   return (
-    <div className="min-h-0 flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+    <div className="min-h-0 min-w-0 w-full flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <div className="min-w-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0">
+        <div className="flex min-w-0 flex-col items-start justify-between gap-3 sm:flex-row">
+          <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-[var(--fg)]">Run-attached skills</h2>
             <p className="text-xs text-[var(--muted-foreground-2)]">
               Versioned instruction bundles scoped to your signed-in account or workspace. Review a draft before activating it. Source links are labels only; Shiba never downloads or executes their contents.
             </p>
           </div>
-          <button type="button" onClick={onOpenExtensions} className="min-h-11 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs hover:bg-[var(--secondary)]">Workspace skills</button>
+          <button type="button" onClick={onOpenExtensions} className="min-h-11 max-w-full shrink-0 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs hover:bg-[var(--secondary)]">Workspace skills</button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
-        <div className="max-w-3xl mx-auto flex flex-col gap-4">
+      <div className="min-h-0 min-w-0 w-full flex-1 overflow-y-auto p-4 lg:p-8">
+        <div className="min-w-0 w-full max-w-3xl mx-auto flex flex-col gap-4">
           <SkillLibraryCards />
           <FounderSkillLibrary />
           <div className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] p-4 flex flex-col gap-2.5 shadow-[var(--sh-overlay)]">
@@ -267,7 +267,7 @@ function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => v
             <input type="text" value={name} onChange={(event) => { draftRevision.current += 1; setName(event.target.value); }} placeholder="Skill name" aria-label="Skill name" className={`${FIELD} w-full`} />
             <input type="url" value={sourceUrl} onChange={(event) => { draftRevision.current += 1; setSourceUrl(event.target.value); }} placeholder="Optional HTTPS source link (provenance only)" aria-label="Skill source URL" className={`${FIELD} w-full font-mono`} />
             <textarea value={instructions} onChange={(event) => { draftRevision.current += 1; setInstructions(event.target.value); }} placeholder="Reviewed instructions to attach to runs" aria-label="Skill instructions" rows={5} maxLength={16000} className={`${FIELD} w-full resize-y`} />
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
               <button type="button" disabled={saving} onClick={() => void saveDraft()} className="text-[11px] bg-[var(--primary-soft)] border border-[var(--primary)]/15 text-[var(--primary)] font-medium py-1.5 px-3 rounded-[var(--radius-button)] disabled:opacity-50">
                 {saving ? "Saving…" : editingId ? "Save new version" : "Save draft"}
               </button>
@@ -291,7 +291,7 @@ function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => v
             <ul className="flex flex-col gap-2">
               {skills.map((skill) => (
                 <li key={skill.id} className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--card)] px-4 py-3 flex flex-col gap-3 shadow-[var(--sh-card)]">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-col items-start justify-between gap-3 sm:flex-row">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium text-[var(--fg)]">{skill.name}</span>
@@ -301,7 +301,7 @@ function RunAttachedSkillsView({ onOpenExtensions }: { onOpenExtensions: () => v
                       {skill.sourceUrl ? <div className="text-[11px] font-mono text-[var(--muted-foreground-2)] truncate mt-1">Source: {skill.sourceUrl}</div> : null}
                       {skill.activeVersion !== undefined && skill.activeVersion !== skill.version ? <div className="text-[10px] text-[var(--muted-foreground-2)]">Active version v{skill.activeVersion}</div> : null}
                     </div>
-                    <div className="flex flex-wrap justify-end gap-1.5">
+                    <div className="flex min-w-0 max-w-full flex-wrap gap-1.5 sm:justify-end">
                       {skill.owned && skill.status !== "disabled" ? <button type="button" onClick={() => { draftRevision.current += 1; setEditingId(skill.id); setName(skill.name); setSourceUrl(skill.sourceUrl ?? ""); setInstructions(skill.instructions); }} className="text-[10px] border border-[var(--border-1)] rounded px-2 py-1">Edit</button> : null}
                       <button type="button" onClick={() => void toggleHistory(skill.id)} className="text-[10px] border border-[var(--border-1)] rounded px-2 py-1">{historyId === skill.id ? "Hide history" : "Versions"}</button>
                       {skill.owned && skill.status === "draft" ? <button type="button" disabled={busyId === skill.id} onClick={() => void perform(skill.id, () => reviewSkill(skill.id, skill.version, skill.instructions))} className="text-[10px] border border-[var(--border-1)] rounded px-2 py-1 disabled:opacity-50">Mark reviewed</button> : null}

@@ -492,9 +492,9 @@ export function IntegrationsView({
   }, [status, mailboxes.state, providers, savedSkills, toolDirectory, libraryCatalog, spacesCatalog]);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-      <div className="border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex items-center justify-between gap-4">
-        <div>
+    <div className="min-h-0 min-w-0 w-full flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <div className="min-w-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex flex-col items-start justify-between gap-3 lg:flex-row lg:gap-4">
+        <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
             <span>Integrations</span>
           </h2>
@@ -502,7 +502,7 @@ export function IntegrationsView({
             Third-party apps and channels your agents can reach — connect once, use everywhere.
           </p>
         </div>
-        {activeTab === "connectors" ? <div className="flex shrink-0 flex-wrap gap-2">
+        {activeTab === "connectors" ? <div className="flex min-w-0 w-full flex-wrap gap-2 lg:w-auto lg:max-w-[60%] lg:justify-end">
           {showCapabilityCatalog ? (
             <button
               type="button"
@@ -511,7 +511,7 @@ export function IntegrationsView({
                 mailboxes.reload();
                 setCatalogRefresh((value) => value + 1);
               }}
-              className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+              className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
               aria-label="Refresh integration status"
             >
               Refresh status
@@ -521,7 +521,7 @@ export function IntegrationsView({
             <button
               type="button"
               onClick={() => setShowSetupDetails((shown) => !shown)}
-              className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+              className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
               aria-pressed={showSetupDetails}
             >
               {showSetupDetails ? "Hide setup details" : "Show setup details"}
@@ -533,7 +533,7 @@ export function IntegrationsView({
               setShowCapabilityCatalog((shown) => !shown);
               if (!showCapabilityCatalog) setShowSetupDetails(false);
             }}
-            className="border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
+            className="min-h-11 max-w-full whitespace-normal border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-xs font-semibold hover:bg-[var(--card-hover)]"
             aria-pressed={showCapabilityCatalog}
           >
             {showCapabilityCatalog ? "Back to integration catalog" : "Browse capability catalog"}
