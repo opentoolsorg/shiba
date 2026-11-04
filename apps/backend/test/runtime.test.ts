@@ -780,7 +780,13 @@ describe("worker authentication gate (T7)", () => {
     const now = Date.now();
     const url = await createArtifactDownloadUrl(env, { version: 1, scope, sha256, bytes: archive.bytes.byteLength,
       fileCount: 0, issuedAt: now, expiresAt: now + 60_000 });
-    const response = await worker.fetch(new Request(url), env);
+    const link = new URL(url);
+    const landing = await worker.fetch(new Request(link), env);
+    expect(landing.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(get).not.toHaveBeenCalled();
+    const response = await worker.fetch(new Request(new URL(link.pathname, link), {
+      method: "POST", body: new URLSearchParams(link.hash.slice(1)), headers: { origin: link.origin, "sec-fetch-site": "same-origin" },
+    }), env);
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(archive.bytes);
     expect(get).toHaveBeenCalledExactlyOnceWith(`run-archives/${scope}/${sha256}.zip`);

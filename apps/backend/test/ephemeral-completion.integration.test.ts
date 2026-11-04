@@ -190,7 +190,10 @@ describe("local new-ephemeral approval to archive completion integration", () =>
     expect(completionWrites.length).toBeGreaterThan(0);
     expect(completionWrites.every((state) => state.runs.find((item) => item.runId === run.runId)?.artifactBundle?.downloadUrl === bundle.downloadUrl)).toBe(true);
     expect(context.slackMessages.some((message) => String(message.text).includes(`Artifacts: ${bundle?.downloadUrl}`))).toBe(true);
-    const response = await handleArtifactDownload(new Request(bundle.downloadUrl), context.env);
+    const link = new URL(bundle.downloadUrl);
+    const response = await handleArtifactDownload(new Request(new URL(link.pathname, link), {
+      method: "POST", body: new URLSearchParams(link.hash.slice(1)), headers: { origin: link.origin, "sec-fetch-site": "same-origin" },
+    }), context.env);
     expect(response?.status).toBe(200);
     if (!response) throw new Error("Artifact download route was not handled.");
     const zip = unzipSync(new Uint8Array(await response.arrayBuffer()));

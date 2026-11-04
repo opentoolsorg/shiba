@@ -15,6 +15,11 @@ const signing = { ARTIFACT_SIGNING_KEY: "test-artifact-signing-key-32-bytes-long
 const identity = { ownerId: "owner", runId: "agent-tool:approved", sandboxId: "sandbox" };
 const file = (path: string, content: string | null, encoding: "utf8" | "base64" = "utf8"): CapturedFile => ({ path, content, encoding });
 
+function downloadRequest(link: string): Request {
+  const url = new URL(link);
+  return new Request(new URL(url.pathname, url), { method: "POST", body: new URLSearchParams(url.hash.slice(1)) });
+}
+
 function storage() {
   type Stored = { bytes: Uint8Array<ArrayBuffer>; metadata: Record<string, string>; checksum: ArrayBuffer };
   const objects = new Map<string, Stored>();
@@ -88,13 +93,13 @@ describe("ephemeral workspace artifact archives", () => {
     expect(bundle.fileCount).toBe(1);
     expect(bundle.sha256).toBe(createHash("sha256").update([...s.objects.values()][0]!.bytes).digest("hex"));
     expect(s.put.mock.calls[0]?.[1]).toBeInstanceOf(ReadableStream);
-    const response = await handleArtifactDownload(new Request(bundle.downloadUrl), s.env);
+    const response = await handleArtifactDownload(downloadRequest(bundle.downloadUrl), s.env);
     expect(response?.status).toBe(200);
     expect(response?.headers.get("content-disposition")).toBe('attachment; filename="artifacts.zip"');
     expect(response?.headers.get("cache-control")).toBe("private, no-store");
     expect(unzipSync(new Uint8Array(await response!.arrayBuffer()))["empty.csv"]).toEqual(new Uint8Array());
     vi.setSystemTime(bundle.expiresAt);
-    expect((await handleArtifactDownload(new Request(bundle.downloadUrl), s.env))?.status).toBe(403);
+    expect((await handleArtifactDownload(downloadRequest(bundle.downloadUrl), s.env))?.status).toBe(403);
     expect(s.get).toHaveBeenCalledTimes(1);
   });
 
@@ -111,15 +116,15 @@ describe("ephemeral workspace artifact archives", () => {
     const s = storage();
     const bundle = await persistWorkspaceArchive(s.env, identity, [], NOW);
     const original = new URL(bundle.downloadUrl);
-    const token = original.searchParams.get("token")!;
+    const token = new URLSearchParams(original.hash.slice(1)).get("token")!;
     const [payload, signature] = token.split(".");
     const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
     const altered = Buffer.from(JSON.stringify({ ...claims, scope: "b".repeat(64) })).toString("base64url");
     for (const candidate of ["", "garbage", `${altered}.${signature}`, `${payload}.${signature!.slice(0, -1)}x`]) {
-      const url = new URL(original); url.searchParams.set("token", candidate);
+      const url = new URL(original.pathname, original); url.searchParams.set("token", candidate);
       expect((await handleArtifactDownload(new Request(url), s.env))?.status).toBe(403);
     }
-    const duplicate = new URL(original); duplicate.searchParams.append("token", token);
+    const duplicate = new URL(original.pathname, original); duplicate.searchParams.append("token", token); duplicate.searchParams.append("token", token);
     expect((await handleArtifactDownload(new Request(duplicate), s.env))?.status).toBe(403);
     expect(await verifyArtifactDownloadToken({ ...signing, ARTIFACT_SIGNING_KEY: "other-artifact-signing-key-32-bytes-long" }, token, NOW)).toBeNull();
     expect(s.get).not.toHaveBeenCalled();
@@ -129,7 +134,7 @@ describe("ephemeral workspace artifact archives", () => {
     const claims = { version: 1 as const, scope: "a".repeat(64), sha256: "b".repeat(64), bytes: 22, fileCount: 0, issuedAt: NOW, expiresAt: NOW + 604_800_000 };
     await expect(createArtifactDownloadUrl(signing, { ...claims, expiresAt: claims.expiresAt + 1 })).rejects.toThrow("claims");
     const url = new URL(await createArtifactDownloadUrl(signing, { ...claims, issuedAt: NOW + 1 }));
-    expect(await verifyArtifactDownloadToken(signing, url.searchParams.get("token")!, NOW)).toBeNull();
+    expect(await verifyArtifactDownloadToken(signing, new URLSearchParams(url.hash.slice(1)).get("token")!, NOW)).toBeNull();
     const s = storage();
     await expect(persistWorkspaceArchive({ ...s.env, ARTIFACT_SIGNING_KEY: "" }, identity, [], NOW)).rejects.toThrow("signing requires");
     await expect(persistWorkspaceArchive({ ...s.env, WORKER_HOSTNAME: "http://insecure.test" }, identity, [], NOW)).rejects.toThrow("HTTPS");
@@ -143,10 +148,10 @@ describe("ephemeral workspace artifact archives", () => {
     const bundle = await persistWorkspaceArchive(s.env, identity, [], NOW);
     const stored = [...s.objects.values()][0]!;
     stored.checksum = new Uint8Array(32).buffer;
-    expect((await handleArtifactDownload(new Request(bundle.downloadUrl), s.env))?.status).toBe(409);
+    expect((await handleArtifactDownload(downloadRequest(bundle.downloadUrl), s.env))?.status).toBe(409);
     s.objects.clear();
-    expect((await handleArtifactDownload(new Request(bundle.downloadUrl), s.env))?.status).toBe(404);
+    expect((await handleArtifactDownload(downloadRequest(bundle.downloadUrl), s.env))?.status).toBe(404);
     expect(await handleArtifactDownload(new Request("https://shiba.test/api/runs"), s.env)).toBeNull();
-    expect((await handleArtifactDownload(new Request(bundle.downloadUrl, { method: "POST" }), s.env))?.status).toBe(405);
+    expect((await handleArtifactDownload(new Request(bundle.downloadUrl, { method: "DELETE" }), s.env))?.status).toBe(405);
   });
 });
