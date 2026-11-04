@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { installLibrarySkill, uninstallLibrarySkill } from "../src/skill-library/install.js";
 import { getSkillInstall, listSkillInstalls } from "../src/skill-library-store.js";
-import { disableSkill, getSkill } from "../src/skills-store.js";
+import { activateSkill, disableSkill, getSkill, reviewSkill } from "../src/skills-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const slug = "pr-review-checklist";
@@ -15,6 +15,16 @@ function setup() {
 }
 
 describe("library install ownership and concurrency", () => {
+  it("reports the actual reviewed and active status on idempotent installs without replacing instructions", async () => {
+    const { bindings } = setup();
+    const installed = await installLibrarySkill(bindings, orgId, ownerId, slug);
+    const skill = await getSkill(bindings, orgId, ownerId, installed.skillId);
+    if (!skill) throw new Error("Missing installed draft");
+    await reviewSkill(bindings, orgId, ownerId, skill.id, skill.version, skill.content.instructions);
+    expect(await installLibrarySkill(bindings, orgId, ownerId, slug)).toMatchObject({ skillId: skill.id, status: "review", created: false });
+    await activateSkill(bindings, orgId, ownerId, skill.id, skill.version, skill.content.instructions);
+    expect(await installLibrarySkill(bindings, orgId, ownerId, slug)).toMatchObject({ skillId: skill.id, status: "active", created: false });
+  });
   it("keeps installs and uninstall authority separate for owners in the same org", async () => {
     const { bindings } = setup();
     const first = await installLibrarySkill(bindings, orgId, ownerId, slug);

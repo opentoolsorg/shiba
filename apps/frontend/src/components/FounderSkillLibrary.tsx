@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
-import { reloadSavedSkills } from "../saved";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { validateEmployeeBundle, type EmployeeBundle } from "@shiba/shared";
+import { reloadSavedSkills, useSavedSkills } from "../saved";
+import { EmployeeBundleReview } from "./EmployeeBundleReview";
 
 interface LibrarySkill {
   id: string;
@@ -9,48 +11,84 @@ interface LibrarySkill {
   schedule: { label: string; cron: string; timezone: string };
   integrationCatalogIds: string[];
   requiresSensitiveApproval: boolean;
+  installed?: boolean;
+  installedSkillId?: string;
+  installedStatus?: "draft" | "review" | "active" | "disabled";
+  installedVersion?: number;
 }
+const button = "min-h-11 border border-[var(--border-1)] rounded px-3 py-2 text-xs disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]";
 
 export function FounderSkillLibrary(): JSX.Element {
   const [skills, setSkills] = useState<LibrarySkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [setup, setSetup] = useState<{ recipe: EmployeeBundle; signal: AbortSignal } | null>(null);
+  const controller = useRef<AbortController | null>(null);
+  const pending = useRef(false);
+  const loadEpoch = useRef(0);
+  const savedSkills = useSavedSkills();
+  const visibleSkills = skills?.map((skill) => {
+    const installed = savedSkills.skills.find((saved) => saved.id === skill.installedSkillId);
+    return installed ? { ...skill, installed: installed.status !== "disabled", installedStatus: installed.status, installedVersion: installed.version } : skill;
+  });
+  const current = (signal: AbortSignal) => controller.current?.signal === signal && !signal.aborted;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal: AbortSignal) => {
+    const epoch = ++loadEpoch.current;
     setError(null);
     try {
-      const response = await fetch("/api/founder-skills");
+      const response = await fetch("/api/founder-skills", { credentials: "same-origin", cache: "no-store", signal });
       const body = await response.json().catch(() => ({})) as { skills?: LibrarySkill[]; error?: string };
-      if (!response.ok) {
-        setError(body.error ?? `Library could not be loaded (${response.status}).`);
-        setSkills([]);
-        return;
+      if (controller.current?.signal !== signal || signal.aborted || epoch !== loadEpoch.current) return;
+      if (!response.ok || !Array.isArray(body.skills)) throw new Error(body.error ?? `Library could not be loaded (${response.status}).`);
+      setSkills(body.skills);
+    } catch (cause) {
+      if (controller.current?.signal === signal && !signal.aborted && epoch === loadEpoch.current) {
+        setError(cause instanceof Error ? cause.message : "Library could not be loaded."); setSkills([]);
       }
-      setSkills(body.skills ?? []);
-    } catch {
-      setError("Library could not be loaded: the backend could not be reached.");
-      setSkills([]);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const active = new AbortController(); controller.current = active;
+    void load(active.signal);
+    return () => { active.abort(); loadEpoch.current++; };
+  }, [load]);
 
   const install = async (id: string) => {
-    setBusyId(`install-${id}`);
-    setNotice(null);
+    const signal = controller.current?.signal;
+    if (!signal || !current(signal) || pending.current) return;
+    pending.current = true; setBusyId(`install-${id}`); setNotice(null); setError(null);
     try {
-      const response = await fetch(`/api/founder-skills/${encodeURIComponent(id)}/install`, { method: "POST" });
-      const body = await response.json().catch(() => ({})) as { error?: string; skill?: { id?: string } };
-      if (!response.ok) setNotice(body.error ?? `Install failed (${response.status}).`);
-      else {
-        setNotice(`Installed "${id}" as draft skill ${body.skill?.id ?? ""}. Review it in your skill list below.`);
-        void reloadSavedSkills().catch(() => {});
-      }
-    } catch {
-      setNotice("Install failed: the backend could not be reached.");
+      const response = await fetch(`/api/founder-skills/${encodeURIComponent(id)}/install`, { method: "POST", credentials: "same-origin", cache: "no-store", signal });
+      const body = await response.json().catch(() => ({})) as { error?: string; skill?: { id?: string; status?: LibrarySkill["installedStatus"]; version?: number } };
+      if (!current(signal)) return;
+      if (!response.ok || !body.skill?.id) throw new Error(body.error ?? `Install failed (${response.status}).`);
+      setSkills((previous) => previous?.map((skill) => skill.id === id ? { ...skill, installed: body.skill?.status !== "disabled", installedSkillId: body.skill?.id, installedStatus: body.skill?.status, installedVersion: body.skill?.version } : skill) ?? []);
+      setNotice(`Installed "${id}" as ${body.skill.status ?? "draft"} skill ${body.skill.id}. Review it in your skill list below. No schedule or app permissions were installed.`);
+      void reloadSavedSkills().catch(() => {});
+    } catch (cause) {
+      if (current(signal)) setError(cause instanceof Error ? cause.message : "Install failed: the backend could not be reached.");
     } finally {
-      setBusyId(null);
+      if (current(signal)) { pending.current = false; setBusyId(null); }
+    }
+  };
+
+  const reviewSetup = async (id: string) => {
+    const signal = controller.current?.signal;
+    if (!signal || !current(signal) || pending.current) return;
+    pending.current = true; setBusyId(`setup-${id}`); setNotice(null); setError(null); setSetup(null);
+    try {
+      const response = await fetch(`/api/founder-skills/${encodeURIComponent(id)}/setup`, { credentials: "same-origin", cache: "no-store", signal });
+      const body = await response.json().catch(() => ({})) as { recipe?: unknown; error?: string };
+      if (!current(signal)) return;
+      if (!response.ok) throw new Error(body.error ?? `Setup unavailable (${response.status}).`);
+      setSetup({ recipe: validateEmployeeBundle(body.recipe), signal });
+    } catch (cause) {
+      if (current(signal)) setError(cause instanceof Error ? cause.message : "Setup could not be loaded.");
+    } finally {
+      if (current(signal)) { pending.current = false; setBusyId(null); }
     }
   };
 
@@ -58,44 +96,34 @@ export function FounderSkillLibrary(): JSX.Element {
     <section aria-labelledby="founder-skill-library-heading" className="rounded-[var(--radius-button)] border border-[var(--border-2)] bg-[var(--section)] p-4 flex flex-col gap-3">
       <div>
         <h3 id="founder-skill-library-heading" className="text-sm font-semibold text-[var(--fg)]">Founder skill library</h3>
-        <p className="text-xs text-[var(--muted-foreground-2)] mt-1">
-          Coworker skills with schedules, Slack digests, and open-connector actions. Install creates a draft for review. Configure integration grants and actions before scheduling.
-        </p>
+        <p className="text-xs text-[var(--muted-foreground-2)] mt-1">Six setup templates. Install instructions as a draft, or review an employee bundle to create an archived bot and draft skills. Connection recommendations and suggested schedules remain unconfigured. External actions require their own approval.</p>
       </div>
       {error ? <p role="alert" className="text-xs text-[var(--destructive)]">{error}</p> : null}
+      {error && controller.current ? <button type="button" className={button} disabled={busyId !== null} onClick={() => { const signal = controller.current?.signal; if (signal) void load(signal); }}>Retry founder library</button> : null}
       {notice ? <p role="status" className="text-xs text-[var(--primary)]">{notice}</p> : null}
-      {skills === null ? (
-        <p className="text-xs text-[var(--muted-foreground-2)]">Loading library…</p>
-      ) : (
+      {skills === null ? <p className="text-xs text-[var(--muted-foreground-2)]">Loading library…</p> : (
         <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {skills.map((skill) => (
+          {visibleSkills?.map((skill) => (
             <li key={skill.id} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-3 flex flex-col gap-2">
-              <div className="flex items-start justify-between gap-2">
-                <span className="text-xs font-semibold text-[var(--fg)]">{skill.name}</span>
-                <span className="text-[10px] font-mono text-[var(--muted-foreground-2)] whitespace-nowrap">{skill.schedule.label}</span>
-              </div>
+              <span className="text-xs font-semibold text-[var(--fg)]">{skill.name}</span>
               <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed flex-1">{skill.description}</p>
-              {skill.integrationCatalogIds.length ? (
-                <p className="text-[10px] text-[var(--muted-foreground-3)]">Integrations: {skill.integrationCatalogIds.join(", ")}</p>
-              ) : null}
-              {skill.requiresSensitiveApproval ? (
-                <p className="text-[10px] text-[var(--warning-fg)]">Sensitive — Slack post waits for approval.</p>
-              ) : null}
+              <p className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Suggested: {skill.schedule.label} · not scheduled</p>
+              {skill.integrationCatalogIds.length ? <p className="text-[10px] text-[var(--muted-foreground-3)]">Required sources: {skill.integrationCatalogIds.join(", ")} · verify supported actions and connect separately</p> : null}
+              {skill.requiresSensitiveApproval ? <p className="text-[10px] text-[var(--warning-fg)]">Sensitive updates stay drafts until separately approved.</p> : null}
+              {skill.installed ? <p className="text-xs">Installed instructions: {skill.installedStatus ?? "review required"}{skill.installedVersion ? ` · v${skill.installedVersion}` : ""}</p> : null}
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={busyId === `install-${skill.id}`}
-                  onClick={() => void install(skill.id)}
-                  className="text-[10px] border border-[var(--border-1)] rounded px-2 py-1 disabled:opacity-50"
-                >
-                  Install draft
-                </button>
-
+                <button type="button" disabled={busyId !== null || skill.installed} onClick={() => void install(skill.id)} className={button}>{skill.installed ? "Instructions installed" : "Install draft"}</button>
+                <button type="button" aria-label={`Review employee setup: ${skill.name}`} disabled={busyId !== null} onClick={() => void reviewSetup(skill.id)} className={button}>Review employee setup</button>
               </div>
             </li>
           ))}
         </ul>
       )}
+      {setup ? <EmployeeBundleReview key={setup.recipe.profile.provenance?.id} recipe={setup.recipe} onClose={() => setSetup(null)} onImported={(result) => {
+        if (!current(setup.signal)) return;
+        setSetup(null); setNotice(`Archived bot ${result.employeeId} and ${result.skillIds.length} draft skill(s) created. Review and restore the bot in Agents, activate selected skill versions, and configure your provider and exact integration grants before work. No executable schedule was installed.`);
+        void reloadSavedSkills().catch(() => {});
+      }} /> : null}
     </section>
   );
 }

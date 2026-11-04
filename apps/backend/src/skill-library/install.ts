@@ -1,22 +1,35 @@
 import type { AuditEnv } from "../audit.js";
-import { getLibrarySkill } from "./index.js";
+import { getLibrarySkill, type LibrarySkill } from "./index.js";
 import { deleteSkillInstall, getSkillInstall, recordSkillInstall } from "../skill-library-store.js";
-import { createSkill, disableSkill, getSkill } from "../skills-store.js";
+import { createSkill, disableSkill, getSkill, type SkillStatus } from "../skills-store.js";
+
+type InstallResult = { skillId: string; status: SkillStatus; created: boolean };
 
 export async function installLibrarySkill(
   env: AuditEnv,
   orgId: string,
   ownerId: string,
   slug: string,
-): Promise<{ skillId: string; status: "draft"; created: boolean }> {
+): Promise<InstallResult> {
   const definition = getLibrarySkill(slug);
   if (!definition) throw new Error("unknown_slug");
+  return installSkillDefinition(env, orgId, ownerId, definition);
+}
+
+/** Shared owner-scoped CAS installation for trusted built-in catalog definitions. */
+export async function installSkillDefinition(
+  env: AuditEnv,
+  orgId: string,
+  ownerId: string,
+  definition: Pick<LibrarySkill, "slug" | "name" | "version" | "instructions" | "sourceUrl">,
+): Promise<InstallResult> {
+  const slug = definition.slug;
 
   const existing = await getSkillInstall(env, orgId, ownerId, slug);
   if (existing) {
     const skill = await getSkill(env, orgId, ownerId, existing.skillId);
     if (skill && skill.status !== "disabled") {
-      return { skillId: existing.skillId, status: "draft", created: false };
+      return { skillId: existing.skillId, status: skill.status, created: false };
     }
   }
 
@@ -43,7 +56,9 @@ export async function installLibrarySkill(
   await disableSkill(env, orgId, ownerId, created.id);
   const winner = await getSkillInstall(env, orgId, ownerId, slug);
   if (!winner) throw new Error("skill_install_conflict");
-  return { skillId: winner.skillId, status: "draft", created: false };
+  const skill = await getSkill(env, orgId, ownerId, winner.skillId);
+  if (!skill) throw new Error("skill_install_conflict");
+  return { skillId: winner.skillId, status: skill.status, created: false };
 }
 
 export async function uninstallLibrarySkill(

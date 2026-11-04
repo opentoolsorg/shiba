@@ -12,6 +12,10 @@ export function SkillLibraryCards(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const savedSkills = useSavedSkills();
+  const visibleLibrary = library.map((skill) => {
+    const installed = savedSkills.skills.find((saved) => saved.id === skill.installedSkillId);
+    return installed ? { ...skill, installed: installed.status !== "disabled", installedStatus: installed.status, installedVersion: installed.version } : skill;
+  });
 
   const reloadLibrary = useCallback(async () => {
     setLoading(true);
@@ -93,7 +97,7 @@ export function SkillLibraryCards(): JSX.Element {
           <p role="status" className="text-xs text-[var(--muted-foreground-2)]">Loading library…</p>
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2">
-            {library.map((skill) => (
+            {visibleLibrary.map((skill) => (
               <LibraryCard key={skill.slug} skill={skill} busy={busySlug === skill.slug} onInstall={install} onUninstall={uninstall} />
             ))}
           </ul>
@@ -125,7 +129,7 @@ function LibraryCard({
         </div>
         {skill.installed ? (
           <div className="flex flex-col items-end gap-1">
-            <span className="text-[10px] rounded-full border border-[var(--primary)]/30 text-[var(--primary)] px-2 py-0.5">Installed</span>
+            <span className="text-[10px] rounded-full border border-[var(--primary)]/30 text-[var(--primary)] px-2 py-0.5">{skill.installedStatus ? skill.installedStatus === "active" ? "Active instructions" : `Installed · ${skill.installedStatus}` : "Installed"}</span>
             {skill.updateAvailable ? (
               <span className="text-[9px] text-[var(--warning-fg)]">Update available</span>
             ) : null}
@@ -145,6 +149,7 @@ function LibraryCard({
         )}
       </div>
       <p className="text-[11px] text-[var(--muted-foreground-2)] leading-relaxed">{skill.summary}</p>
+      {skill.installed && skill.installedStatus !== "active" ? <p className="text-[11px] text-[var(--muted-foreground-2)]">Review and activate the installed version in Saved skills below before attaching it to work.</p> : null}
       <div className="flex flex-wrap gap-1">
         {skill.tags.map((tag) => (
           <span key={tag} className="text-[9px] font-mono border border-[var(--border-1)] rounded px-1.5 py-0.5 text-[var(--muted-foreground-2)]">{tag}</span>
