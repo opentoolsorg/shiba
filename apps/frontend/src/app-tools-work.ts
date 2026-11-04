@@ -27,13 +27,15 @@ export function appToolsWorkIssue(context: AppToolsWorkContext): string | null {
 export async function sendAppToolsWork(
   context: AppToolsWorkContext,
   text: string,
-  sendMessage: (message: { text: string; metadata: { shibaMode: "work"; shibaWorkTarget: "app-tools"; shibaDraftTaskId?: string; shibaDraftTaskVersion?: number } }) => Promise<unknown>,
+  sendMessage: (message: { text: string; metadata: { shibaMode: "work"; shibaWorkTarget: "app-tools"; shibaDraftTaskId?: string; shibaDraftTaskVersion?: number; shibaSkillPins?: Array<{ skillId: string; version: number }> } }) => Promise<unknown>,
   draftRef?: OnboardingDraftRef | null,
+  skillPins: readonly { skillId: string; version: number }[] = [],
 ): Promise<void> {
   const issue = appToolsWorkIssue(context);
   if (issue) throw new Error(issue);
   if (context.hasPreparedContext && !draftRef) throw new Error("Review the saved first task draft before sending.");
   if (!text.trim()) throw new Error("Enter a task first.");
   if (draftRef !== undefined && draftRef !== null && !isOnboardingDraftRef(draftRef)) throw new Error("Review the saved first task draft before sending.");
-  await sendMessage({ text: text.trim(), metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", ...(draftRef ? { shibaDraftTaskId: draftRef.draftTaskId, shibaDraftTaskVersion: draftRef.version } : {}) } });
+  if (skillPins.length > 5 || new Set(skillPins.map((pin) => pin.skillId)).size !== skillPins.length || skillPins.some((pin) => typeof pin.skillId !== "string" || !pin.skillId.trim() || pin.skillId.length > 100 || !Number.isSafeInteger(pin.version) || pin.version < 1)) throw new Error("Review the selected skill versions before sending.");
+  await sendMessage({ text: text.trim(), metadata: { shibaMode: "work", shibaWorkTarget: "app-tools", ...(draftRef ? { shibaDraftTaskId: draftRef.draftTaskId, shibaDraftTaskVersion: draftRef.version } : {}), ...(skillPins.length ? { shibaSkillPins: skillPins.map(({ skillId, version }) => ({ skillId, version })) } : {}) } });
 }

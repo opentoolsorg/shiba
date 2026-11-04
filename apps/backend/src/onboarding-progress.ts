@@ -1,5 +1,5 @@
 import { getAgentByName } from "agents/routing";
-import { onboardingTaskText, type AcpProviderCard } from "@shiba/shared";
+import { CUSTOM_AGENT_ROLE_TEMPLATE_IDS, onboardingTaskText, type AcpProviderCard } from "@shiba/shared";
 import { z } from "zod";
 import type { Env } from "./env.js";
 import { readProviderSnapshot } from "./acp-providers.js";
@@ -27,7 +27,7 @@ const draftFields = z.object({
   contextAnswer: answer, employeeAnswer: answer, connectionAnswer: answer,
   employeeId: nullableId,
   employeeVersion: z.number().int().positive().safe().nullable(),
-  employeeTemplateId: z.enum(["engineering", "marketing", "research", "operations", "sales", "product", "design"]).nullable(),
+  employeeTemplateId: z.enum(CUSTOM_AGENT_ROLE_TEMPLATE_IDS).nullable(),
   employeeTemplateVersion: z.literal(1).nullable(),
   sourceIds: z.array(z.string().trim().min(1).max(128)).max(25).refine((items) => new Set(items).size === items.length),
   completedSteps: stepList, skippedSteps: stepList,

@@ -1,4 +1,4 @@
-import type { IntegrationProviderConnection } from "@shiba/shared";
+import { parseChatThreadName, type IntegrationProviderConnection } from "@shiba/shared";
 import { registerIntegrationTools, integrationToolInput } from "./mcp-integration-tools.js";
 import { getIntegrationProvider } from "./integrations/runtime.js";
 import type { TokenRecord } from "./agent-tokens.js";
@@ -7,6 +7,10 @@ import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { resolveUserId } from "./request-auth.js";
 import { gmailOwner } from "./gmail-routes.js";
+import { resolveOwnedAppSession } from "./employee-app-session.js";
+import { parseSessionAgentName } from "./web-sessions.js";
+import { parseSlackThreadName } from "./slack-thread.js";
+import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
 import { isGmailConnectionActive, readGmailForEmployee, resolveGmailResourceCandidates } from "./gmail.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import { getCustomAgentById, updateCustomAgent } from "./custom-agents-store.js";
@@ -38,6 +42,7 @@ import {
   resolveEmployeeConnectionGrant,
   resolveEmployeeToolPolicy,
   employeeExternalPolicyVersion,
+  type EmployeeApprovalRecord,
 } from "./employee-tool-store.js";
 
 const MAX_TOOLS = 50;
@@ -45,6 +50,50 @@ const APPROVAL_TTL_MS = 15 * 60_000;
 const EMPLOYEE_CLAIM_META = "com.shiba/employee-action-claim";
 const ROLES: readonly EmployeeRole[] = ["owner", "admin", "operator", "member", "viewer"];
 type EmployeeToolResult = Awaited<ReturnType<ToolRegistry["invoke"]>>;
+
+function humanDecisionIdentity(value: string | null | undefined): value is string {
+  return Boolean(value && value === value.trim() && !/^(default|system|automation|agent|mcp|child|subagent)$/i.test(value) &&
+    !/^(automation|system|agent|mcp|child|subagent):/i.test(value));
+}
+
+/** A saved employee/actor label is not ownership of a private connection or app session. */
+async function currentNativeApprovalContext(env: Env, row: EmployeeApprovalRecord): Promise<boolean> {
+  const profile = await getCustomAgentById(env, row.orgId, row.employeeId);
+  if (!profile || profile.version !== row.employeeVersion || !row.resourceId) return false;
+  const grant = await resolveEmployeeConnectionGrant(env, { orgId: row.orgId, employeeId: row.employeeId,
+    employeeVersion: row.employeeVersion, actorId: row.actorId, capabilityId: row.capability.id, resourceId: row.resourceId });
+  if (!grant || grant.connectionId !== row.connectionId || grant.generation !== row.connectionGeneration ||
+      grant.policyVersion !== row.policyVersion || grant.accountId !== row.accountId) return false;
+  if (!row.executionContextId) return true;
+  if (parseSlackThreadName(row.executionContextId) || parseChatThreadName(row.executionContextId)) return true;
+  if (!parseSessionAgentName(row.executionContextId)) return false;
+  const session = await resolveOwnedAppSession(env, row.executionContextId);
+  return Boolean(session && session.userId === row.actorId && session.metadata?.customAgentId === row.employeeId &&
+    (session.metadata?.orgId ?? "self-hosted") === row.orgId);
+}
+
+async function nativeApprovalAudience(env: Env, row: EmployeeApprovalRecord, userId: string, ownerAccountId: string | null): Promise<boolean> {
+  if (!humanDecisionIdentity(userId) || !await currentNativeApprovalContext(env, row)) return false;
+  if (row.accountId) return ownerAccountId !== null && ownerAccountId === row.accountId;
+  // Missing private connection provenance never falls back to an operator role.
+  if (row.action.startsWith("integrations.")) return false;
+  if (row.executionContextId && parseSessionAgentName(row.executionContextId)) return row.actorId === userId;
+  return isApprover(userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS));
+}
+
+async function nativeApprovalDecisionCurrent(env: Env, row: EmployeeApprovalRecord): Promise<boolean> {
+  if (row.status !== "approved" || !humanDecisionIdentity(row.decidedBy) || !await currentNativeApprovalContext(env, row)) return false;
+  if (row.accountId) return row.decisionOwnerAccountId === row.accountId;
+  if (row.action.startsWith("integrations.")) return false;
+  if (row.executionContextId && parseSessionAgentName(row.executionContextId)) return row.decidedBy === row.actorId;
+  const slack = row.executionContextId && parseSlackThreadName(row.executionContextId);
+  if (slack && row.decidedBy.startsWith("slack:")) return isApprover(row.decidedBy.slice(6), parseApproverAllowlist(env.SLACK_APPROVERS));
+  const chat = row.executionContextId && parseChatThreadName(row.executionContextId);
+  if (chat && row.decidedBy.startsWith(`${chat.platform}:`)) {
+    return isApprover(row.decidedBy.slice(chat.platform.length + 1), parseApproverAllowlist(chat.platform === "telegram" ? env.TELEGRAM_APPROVERS : env.DISCORD_APPROVERS));
+  }
+  return isApprover(row.decidedBy, parseApproverAllowlist(env.DASHBOARD_APPROVERS));
+}
 
 /** Only actions with a reviewed input shape and known side-effect contract are dispatchable. */
 export const EMPLOYEE_TOOL_ACTIONS = {
@@ -137,6 +186,11 @@ async function configurePolicy(request: Request, env: Env, employeeId: string): 
   if (!profile) return jsonError("not_found", 404);
   if (profile.version !== Number(body.expectedVersion)) return jsonError("version_conflict", 409);
   const resourcesByCapability = body.resourcesByCapability as Record<string, unknown>;
+  const integrationConnectionIds = body.integrationConnectionIds;
+  if (integrationConnectionIds !== undefined && (typeof integrationConnectionIds !== "object" || integrationConnectionIds === null || Array.isArray(integrationConnectionIds) || Object.keys(integrationConnectionIds).length > MAX_TOOLS ||
+      Object.entries(integrationConnectionIds).some(([key, value]) => !key || key.length > 200 || typeof value !== "string" || !value || value.length > 500))) {
+    return jsonError("invalid_integration_connection_selection", 400);
+  }
   const entries = Object.entries(resourcesByCapability);
   if (entries.length > MAX_TOOLS || entries.some(([id, resources]) =>
     !supportedToolId(id) || !Array.isArray(resources) || resources.length < 1 || resources.length > 100 ||
@@ -191,6 +245,10 @@ async function configurePolicy(request: Request, env: Env, employeeId: string): 
     catch { return jsonError("integration_connections_unavailable", 503); }
     const selected = resources.map((resource) => connections.find((connection) => connection.providerKey === resource)).filter((connection) => connection !== undefined);
     if (selected.length !== resources.length) return jsonError("integration_connection_not_owned", 403);
+    if (resources.some((resource) => connections.filter((connection) => connection.providerKey === resource).length !== 1)) return jsonError("integration_connection_ambiguous", 409);
+    if (integrationConnectionIds !== undefined && selected.some((connection) => (integrationConnectionIds as Record<string, string>)[connection.providerKey] !== connection.id)) {
+      return jsonError("integration_connection_selection_changed", 409);
+    }
     resourceConnectionsByCapability[id] = Object.fromEntries(selected.map((connection) => [connection.providerKey, connection.id]));
     resourceAccountsByCapability[id] = Object.fromEntries(selected.map((connection) => [connection.providerKey, owner]));
     resourcePolicyVersionsByCapability[id] = Object.fromEntries(selected.map((connection) => [connection.providerKey, `integrations:${provider.id}`]));
@@ -290,6 +348,7 @@ export async function dispatchEmployeeToolForPrincipal(
   toolNameRaw: string,
   args: Record<string, unknown>,
   executionContextId?: string,
+  beforeDispatch?: () => Promise<void>,
 ): Promise<Response> {
   if (principal.kind !== "agent" || principal.revoked || !principal.orgId || !principal.principal) {
     return jsonError("active_employee_agent_required", 401);
@@ -373,6 +432,7 @@ export async function dispatchEmployeeToolForPrincipal(
   const policy = { ...connectionPolicy(toolName), version: connection.policyVersion };
 
   let approval;
+  let nativeApprovalRecord: EmployeeApprovalRecord | undefined;
   if (action.risk === "external_write") {
     const argumentDigest = await hashToolArgs(args);
     const saved = await findEmployeeActionApproval(env, {
@@ -382,6 +442,7 @@ export async function dispatchEmployeeToolForPrincipal(
       ...(executionContextId ? { executionContextId } : {}),
     });
     if (!saved || saved.status === "denied" || saved.status === "expired") {
+      await beforeDispatch?.();
       const pending = await requestEmployeeActionApproval(env, {
         orgId: principal.orgId, employeeId, employeeVersion: employee.version, actorId: principal.principal,
         connectionId: connection.connectionId, connectionGeneration: connection.generation,
@@ -404,6 +465,7 @@ export async function dispatchEmployeeToolForPrincipal(
         employeeId, employeeVersion: employee.version, tool: toolName }, { status: 202, headers: { "cache-control": "no-store" } });
     }
     if (saved.status !== "approved") return Response.json({ ok: true, status: saved.status, approvalId: saved.approvalId }, { status: 202, headers: { "cache-control": "no-store" } });
+    if (!await nativeApprovalDecisionCurrent(env, saved)) return jsonError("employee_approval_authority_changed", 403);
     const idempotencyKey = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${saved.approvalId}`;
     if (Date.now() >= saved.expiresAt) {
       const receipt = await getCapabilityInvocationByIdempotencyKey(env, {
@@ -426,10 +488,13 @@ export async function dispatchEmployeeToolForPrincipal(
         } },
       } }, { headers: { "cache-control": "no-store" } });
     }
+    nativeApprovalRecord = saved;
     approval = asEmployeeActionApproval(saved);
   }
   const integrationRegistry = toolName.startsWith("integrations.") ? createToolRegistry(env) : null;
   if (integrationRegistry && connection.accountId) registerIntegrationTools(integrationRegistry, env, connection.accountId, async () => {
+    await beforeDispatch?.();
+    if (nativeApprovalRecord && !await nativeApprovalDecisionCurrent(env, nativeApprovalRecord)) throw new Error("Employee approval authority changed.");
     const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
     if (!freshEmployee || freshEmployee.version !== employee.version) throw new Error("Employee policy changed.");
     const current = await resolveEmployeeConnectionGrant(env, { orgId, employeeId, employeeVersion: employee.version, actorId,
@@ -440,12 +505,14 @@ export async function dispatchEmployeeToolForPrincipal(
     if (current.policyVersion !== `integrations:${provider.id}`) throw new Error("Integration provider changed.");
     const connections = await provider.listConnections({ userId: connection.accountId! });
     if (!connections.some((item) => item.providerKey === resourceId && item.id === connection.connectionId)) throw new Error("Integration disconnected.");
+    await beforeDispatch?.();
   });
   const registeredDispatchRegistry: Pick<ToolRegistry, "invoke"> = integrationRegistry ?? (toolName === "gmail_read" ? { invoke: async (_name, toolArgs) => {
     const currentIds = (toolArgs as Record<string, unknown>).messageIds as string[];
     const freshEmployee = await getCustomAgentById(env, orgId, employeeId);
     if (!freshEmployee || freshEmployee.version !== employee.version) throw new Error("Employee policy changed.");
     const data = await readGmailForEmployee(env, connection.accountId!, connection.connectionId, actorId, currentIds, async (selectedId) => {
+      await beforeDispatch?.();
       const current = await resolveEmployeeConnectionGrant(env, { orgId, employeeId, employeeVersion: employee.version, actorId,
         capabilityId: id, resourceId: selectedId });
       return Boolean(current && current.connectionId === connection.connectionId && current.accountId === connection.accountId &&
@@ -453,24 +520,32 @@ export async function dispatchEmployeeToolForPrincipal(
     });
     return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
   } } : registry);
+  const guardedDispatchRegistry: Pick<ToolRegistry, "invoke"> = beforeDispatch ? {
+    invoke: async (name, toolArgs, callPrincipal, options) => {
+      await beforeDispatch();
+      return registeredDispatchRegistry.invoke(name, toolArgs, callPrincipal, options);
+    },
+  } : registeredDispatchRegistry;
   const approvedAction = approval;
   const dispatchRegistry: Pick<ToolRegistry, "invoke"> = approvedAction ? {
     invoke: async (name, toolArgs, callPrincipal, options) => {
       const idempotencyKey = options?.idempotencyKey;
       if (!idempotencyKey) return employeeClaimFailure("missing idempotency key");
+      await beforeDispatch?.();
+      if (!nativeApprovalRecord || !await nativeApprovalDecisionCurrent(env, nativeApprovalRecord)) return employeeClaimFailure("approval authority changed");
       const claim = await claimEmployeeActionInvocation(env, {
         approvalId: approvedAction.approvalId, orgId, principal: actorId, tool: name,
         argsHash: await hashToolArgs(toolArgs), idempotencyKey,
       });
       if (claim.kind === "claimed") {
-        return registeredDispatchRegistry.invoke(name, toolArgs, callPrincipal, {
+        return guardedDispatchRegistry.invoke(name, toolArgs, callPrincipal, {
           ...options, idempotencyKey, claimedInvocation: claim.receipt,
         });
       }
       if (claim.kind === "replay") return employeeReceiptReplay(claim.receipt);
       return employeeClaimFailure(claim.kind);
     },
-  } : registeredDispatchRegistry;
+  } : guardedDispatchRegistry;
   const result = await dispatchEmployeeTool({
     registry: dispatchRegistry, authority, selection, toolName, args, connection,
     connectionPolicy: policy, ...(approval ? { approval } : {}),
@@ -500,11 +575,14 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
   // Payload previews can contain email text or repository tasks; only the
   // authenticated dashboard operator sees or decides these exact records.
   if (auth.principal) return v1Forbidden();
+  const ownerId = await resolveUserId(request, env);
+  if (!humanDecisionIdentity(ownerId)) return jsonError("authenticated_human_required", 401);
+  const ownerAccountId = await gmailOwner(request, env);
   if (request.method === "GET" && !approvalId) {
     const rows = await listEmployeeActionApprovals(env, { orgId: auth.orgId, status: "pending", limit: 50 });
-    const ownerId = await resolveUserId(request, env);
-    const visible = await Promise.all(rows.map(async (row) => !row.employeeContext || ownerId &&
-      await getExternalMcpServer(env, auth.orgId, ownerId, row.employeeId) ? row : null));
+    const visible = await Promise.all(rows.map(async (row) => row.employeeContext
+      ? await getExternalMcpServer(env, auth.orgId, ownerId, row.employeeId) ? row : null
+      : await nativeApprovalAudience(env, row, ownerId, ownerAccountId) ? row : null));
     return Response.json({ ok: true, approvals: visible.filter((row) => row !== null) }, { headers: { "cache-control": "no-store" } });
   }
   if (request.method === "POST" && approvalId) {
@@ -515,11 +593,11 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
     });
     if (!record) return jsonError("not_found", 404);
     if (record.employeeContext) return jsonError("external_mcp_owner_approval_route_required", 409);
-    const decidedBy = await resolveUserId(request, env);
-    if (!decidedBy) return jsonError("authentication_required", 401);
+    if (!await nativeApprovalAudience(env, record, ownerId, ownerAccountId)) return jsonError("not_found", 404);
     const decided = await decideEmployeeActionApproval(env, {
       orgId: auth.orgId, employeeId: record.employeeId, approvalId,
-      approved: body.approved, decidedBy,
+      approved: body.approved, decidedBy: ownerId, requirePendingTransition: true,
+      ...(record.accountId ? { decisionOwnerAccountId: ownerAccountId! } : {}),
     });
     if (!decided || decided.status === "pending" || decided.status === "expired") return jsonError("approval_not_decidable", 409);
     return Response.json({ ok: true, approvalId, status: decided.status, decidedAt: decided.decidedAt }, { headers: { "cache-control": "no-store" } });

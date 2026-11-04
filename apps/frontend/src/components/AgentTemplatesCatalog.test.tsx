@@ -38,6 +38,40 @@ describe("AgentTemplatesCatalog", () => {
     await waitFor(() => expect(onUse).toHaveBeenCalledWith(AGENT_TEMPLATES[0]));
   });
 
+  it("round-trips an explicitly chosen role and required outputs through a saved bot pack", async () => {
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async (value: string) => { copied = value; }) } });
+    const request = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST"
+      ? Response.json({ agent: { id: "imported" } }, { status: 201 })
+      : Response.json({ agents: [{ slug: "people-partner", config: { name: "People partner", roleTemplateId: "hr", instructions: "Draft only from approved policies.", harness: "codex", expectedDeliverables: ["hr/workflow.md"] } }] }));
+    vi.stubGlobal("fetch", request);
+    render(<AgentTemplatesCatalog onUse={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Template category" }), { target: { value: "my" } });
+    await screen.findByRole("heading", { name: /People partner/ });
+    fireEvent.click(screen.getByRole("button", { name: "Copy pack" }));
+    await waitFor(() => expect(copied).toContain('"roleTemplateId": "hr"'));
+    fireEvent.click(screen.getByText("Paste import"));
+    fireEvent.change(screen.getByLabelText("Template pack JSON"), { target: { value: copied } });
+    fireEvent.click(screen.getByRole("button", { name: "Create bot from pack" }));
+    await screen.findByText("People partner imported as a bot.");
+    const write = request.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(write?.[0]).toBe("/api/custom-agents");
+    expect(JSON.parse(String(write?.[1]?.body))).toEqual({ slug: "people-partner", config: {
+      name: "People partner", roleTemplateId: "hr", instructions: "Draft only from approved policies.", harness: "codex", expectedDeliverables: ["hr/workflow.md"],
+    } });
+  });
+
+  it("rejects a forged role identifier before creating an imported bot", async () => {
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+    render(<AgentTemplatesCatalog onUse={vi.fn()} />);
+    fireEvent.click(screen.getByText("Paste import"));
+    fireEvent.change(screen.getByLabelText("Template pack JSON"), { target: { value: JSON.stringify({ template: { ...AGENT_TEMPLATES[0], roleTemplateId: "administrator" }, instructions: "Draft." }) } });
+    fireEvent.click(screen.getByRole("button", { name: "Create bot from pack" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("roleTemplateId"));
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it.each(["denied", "unavailable"])("reports a copy error when clipboard access is %s", async (access) => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,

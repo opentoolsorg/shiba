@@ -1,6 +1,7 @@
 import type { AcpProviderCard, AcpProvidersSnapshot } from "@shiba/shared";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { desktopCanSignInClaude, desktopCodexAuthorizationUrl } from "../desktop-provider";
+import { describeProviderRoute } from "../supported-task-routes";
 import { LoadErrorState } from "./LoadErrorState";
 import { ConnectionsCard } from "./ModelRoutingSection";
 import { providerPhaseLabel } from "./provider-phase";
@@ -371,7 +372,7 @@ function DisconnectedActions({
             onClick={() => onConnectOauth(card.id)}
             className={PRIMARY}
           >
-            {actionLabel(busy, action, "oauth", "Connect with sign-in", "Working…")}
+            {actionLabel(busy, action, "oauth", card.id === "claude" ? "Review Claude connection options" : "Connect with sign-in", "Working…")}
           </button>
         ) : null}
         {claudeOnDesktop ? (
@@ -399,7 +400,7 @@ function DisconnectedActions({
             onClick={() => onConnectSetupToken(card.id)}
             className={SECONDARY}
           >
-            {actionLabel(busy, action, "setup-token", "Use setup-token (opt-in)", "Checking…")}
+            {actionLabel(busy, action, "setup-token", "Legacy setup-token (deployment opt-in)", "Checking…")}
           </button>
         ) : null}
         {card.capabilities.apiKey ? (
@@ -447,7 +448,7 @@ function ConnectedActions({
         onClick={() => onTest(card.id)}
         className={PRIMARY}
       >
-        {actionLabel(busy, action, "test", "Test connection", "Testing…")}
+        {actionLabel(busy, action, "test", "Check saved configuration", "Checking…")}
       </button>
       {card.isDefault ? null : (
         <button
@@ -547,6 +548,7 @@ function ProviderCard({
   onDefault: (id: string) => void;
 }): JSX.Element {
   const phase = providerPhaseLabel(card.connection);
+  const route = describeProviderRoute(card);
   const ordinal = String(index + 1).padStart(2, "0");
   return (
     <article
@@ -573,6 +575,12 @@ function ProviderCard({
 
       <div className="flex flex-1 flex-col px-3 py-3">
         <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.blurb}</p>
+        <dl data-testid={`provider-route-${card.id}`} className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 break-words text-[11px] text-[var(--muted-foreground-2)]">
+          <dt>Task harness</dt><dd>{route.harness}</dd>
+          <dt>Runtime</dt><dd>{route.runtime}</dd>
+          <dt>Account / billing</dt><dd>{route.account}</dd>
+        </dl>
+        <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">{route.note}</p>
         {card.connection.message ? (
           <p
             data-testid={`provider-signin-message-${card.id}`}
@@ -599,9 +607,9 @@ function ProviderCard({
       </div>
 
       <footer className="mt-auto flex min-w-0 flex-wrap gap-px border-t border-[var(--border-1)] bg-[var(--border-1)] font-mono text-[10px] text-[var(--muted-foreground-2)]">
-        <Fact label="Lane" value={card.capabilities.acp ? "ACP" : "CLI"} />
-        <Fact label="Harness" value={card.harness} />
-        <Fact label="Model" value={card.defaultModel} />
+        <Fact label="Registry protocol" value={card.protocol.toUpperCase()} />
+        <Fact label="Registry adapter" value={card.harness} />
+        <Fact label="Adapter default model" value={card.defaultModel} />
         <a
           href={card.docsUrl}
           target="_blank"
@@ -746,7 +754,7 @@ export function ProvidersBoard({
     >
       <PageHeader
         title="Providers"
-        detail="Codex uses your ChatGPT plan. Claude pairs a computer or takes a setup token. Gemini (Antigravity), Grok, and Cursor support Connect with sign-in; OpenCode and API-key lanes still accept a pasted key. Credentials stay encrypted and attach at egress."
+        detail="Choose a supported API credential, ChatGPT connection, or paired local CLI. Account, billing and work type depend on the selected task route. Saved configuration checks do not run a model or verify quota."
       >
         {defaultLabel ? (
           <span
@@ -773,7 +781,7 @@ export function ProvidersBoard({
           {error && snapshot === null ? null : (
             <section className="flex flex-col gap-3">
               <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[var(--border-1)] pb-2">
-                <h3 className="text-sm font-semibold text-[var(--fg)]">Sandbox adapters</h3>
+                <h3 className="text-sm font-semibold text-[var(--fg)]">Coding connections</h3>
                 <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                   Org default is recorded here. A run still uses the harness for that task.
                 </p>

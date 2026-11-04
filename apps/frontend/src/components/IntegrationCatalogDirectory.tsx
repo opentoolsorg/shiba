@@ -1,8 +1,6 @@
 import {
   INTEGRATION_CATALOG,
-  filterIntegrationCatalogByDomain,
   integrationCatalogDomains,
-  searchIntegrationCatalog,
   SHIBA_INTEGRATIONS_OAUTH_CHANNEL,
   type IntegrationCatalogEntry,
   type IntegrationConnectionPhase,
@@ -18,6 +16,9 @@ import {
 } from "../integration-connection-bindings";
 import { IntegrationsBrowseCatalogDialog } from "./IntegrationsBrowseCatalogDialog";
 import { ToneChip } from "./ToneChip";
+import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
+import { integrationRecommendedForRole, type CapabilityRoleFilter } from "../role-capability-recommendations";
+import { CURATED_MCP_VENDORS } from "@shiba/shared";
 
 const LIST_PAGE_SIZE = 8;
 
@@ -75,7 +76,7 @@ function nativeRows(
   const connections = buildIntegrationConnectionSnapshot(entries, bindingInputs);
   return entries.map((entry) => {
     const phase = connections[entry.id] ?? "catalog_only";
-    const connected = phase === "configured" || phase === "available_via_deployment";
+    const connected = phase === "configured";
     return {
       key: `native:${entry.id}`,
       name: entry.name,
@@ -136,6 +137,7 @@ function IntegrationSection({
   onShowMore,
   emptyLabel,
   onOpenDocs,
+  onConnect,
 }: {
   title: string;
   hint: string;
@@ -144,6 +146,7 @@ function IntegrationSection({
   onShowMore: () => void;
   emptyLabel: string;
   onOpenDocs?: (entry: IntegrationCatalogEntry) => void;
+  onConnect?: (item: IntegrationProviderCatalogItem) => void;
 }): JSX.Element {
   const visible = rows.slice(0, visibleCount);
   return (
@@ -183,7 +186,7 @@ function IntegrationSection({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[13px] font-semibold text-[var(--fg)]">{row.name}</span>
-                      <ToneChip tone={phaseChip.tone} label={row.connected ? "Connected" : phaseChip.label} />
+                      <ToneChip tone={phaseChip.tone} label={row.providerItem && row.connected ? "Account connected" : phaseChip.label} />
                       {entry ? (
                         <>
                           <span className="rounded border border-[var(--border-1)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--muted-foreground-2)]">
@@ -201,6 +204,9 @@ function IntegrationSection({
                     <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{row.description}</p>
                   </div>
                 </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                {row.providerItem?.connectable && !row.connected && onConnect ? <button type="button" onClick={() => onConnect(row.providerItem!)} className="min-h-11 border border-[var(--border-1)] px-3 text-xs text-[var(--primary)]">Connect app</button> : null}
+                {entry && CURATED_MCP_VENDORS.some((vendor) => vendor.catalogId === entry.id) ? <a href={`/integrations/?tab=mcp#mcp-preset-${entry.id}`} className="inline-flex min-h-11 items-center border border-[var(--border-1)] px-3 text-xs text-[var(--primary)]">Configure MCP</a> : null}
                 {row.docsUrl ? (
                   <a
                     href={row.docsUrl}
@@ -212,6 +218,7 @@ function IntegrationSection({
                     Docs ↗
                   </a>
                 ) : null}
+                </div>
               </div>
             );
           })
@@ -252,6 +259,7 @@ export function IntegrationCatalogDirectory({
   const [search, setSearch] = useState("");
   const [domain, setDomain] = useState<IntegrationDomain | "all">("all");
   const [recommendedOnly, setRecommendedOnly] = useState(false);
+  const [role, setRole] = useState<CapabilityRoleFilter>("all");
   const [connectedVisible, setConnectedVisible] = useState(LIST_PAGE_SIZE);
   const [availableVisible, setAvailableVisible] = useState(LIST_PAGE_SIZE);
   const [browseOpen, setBrowseOpen] = useState(false);
@@ -338,17 +346,17 @@ export function IntegrationCatalogDirectory({
     };
   }, [refreshProvider, onOAuthComplete]);
 
-  const filteredCatalog = useMemo(() => {
-    let entries = searchIntegrationCatalog(INTEGRATION_CATALOG, search);
-    entries = filterIntegrationCatalogByDomain(entries, domain);
-    if (recommendedOnly) entries = entries.filter((entry) => entry.priority === "P0");
-    return entries;
-  }, [search, domain, recommendedOnly]);
-
   const allRows = useMemo(() => {
-    const native = nativeRows(filteredCatalog, bindingInputs);
-    return mergeProviderRows(native, providerItems, connectedKeys);
-  }, [filteredCatalog, bindingInputs, providerItems, connectedKeys]);
+    const native = nativeRows(INTEGRATION_CATALOG, bindingInputs);
+    const query = search.trim().toLowerCase();
+    return mergeProviderRows(native, providerItems, connectedKeys).filter((row) =>
+      (!query || [row.name, row.description, row.entry?.id, row.providerItem?.providerKey].some((value) => value?.toLowerCase().includes(query))) &&
+      (domain === "all" || (row.providerItem?.domain ?? row.entry?.domain) === domain) &&
+      (!recommendedOnly || (row.providerItem?.priority ?? row.entry?.priority) === "P0") &&
+      integrationRecommendedForRole(role, row.entry?.id, row.providerItem));
+  }, [search, domain, recommendedOnly, role, bindingInputs, providerItems, connectedKeys]);
+
+  useEffect(() => { setConnectedVisible(LIST_PAGE_SIZE); setAvailableVisible(LIST_PAGE_SIZE); }, [search, domain, recommendedOnly, role]);
 
   const connectedRows = useMemo(() => allRows.filter((row) => row.connected), [allRows]);
   const availableRows = useMemo(() => allRows.filter((row) => !row.connected), [allRows]);
@@ -427,6 +435,7 @@ export function IntegrationCatalogDirectory({
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <RoleCapabilityFilter value={role} onChange={setRole} />
           <button
             type="button"
             aria-pressed={recommendedOnly}
@@ -465,29 +474,31 @@ export function IntegrationCatalogDirectory({
           ) : null}
         </div>
         <p className="text-[11px] text-[var(--muted-foreground-2)]">
-          {connectedRows.length} connected · {availableRows.length} available · {filteredCatalog.length} of{" "}
-          {INTEGRATION_CATALOG.length} catalog rows.
+          {connectedRows.length} configured or linked · {availableRows.length} need setup · {INTEGRATION_CATALOG.length} reference catalog entries ({INTEGRATION_CATALOG.filter((entry) => entry.status === "live").length} implemented product paths).
+          {" "}Recommendations do not install apps or grant employee access. Configuration, authentication, health and employee grants are separate steps.
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="mx-auto flex max-w-6xl flex-col gap-8">
           <IntegrationSection
-            title="Connected"
-            hint="Native deployment bindings and SaaS accounts linked through the integrations provider."
+            title="Configured connections"
+            hint="Deployment configuration or provider-linked accounts. This does not grant employee access or prove a successful live action."
             rows={connectedRows}
             visibleCount={connectedVisible}
             onShowMore={() => setConnectedVisible((value) => value + LIST_PAGE_SIZE)}
             emptyLabel="Nothing connected yet — finish native setup or connect a SaaS app from Available."
             onOpenDocs={onOpenDocs}
+            onConnect={(item) => void beginConnect(item)}
           />
           <IntegrationSection
-            title="Available"
-            hint="Catalog entries you can wire next — native setup or open-connector sign-in."
+            title="Discover and set up"
+            hint="Reference entries may require deployment support. Connect buttons appear only for provider-reported sign-in paths; MCP presets still require authentication, discovery and review."
             rows={availableRows}
             visibleCount={availableVisible}
             onShowMore={() => setAvailableVisible((value) => value + LIST_PAGE_SIZE)}
             emptyLabel="No available integrations match this filter."
             onOpenDocs={onOpenDocs}
+            onConnect={(item) => void beginConnect(item)}
           />
         </div>
       </div>
@@ -500,6 +511,7 @@ export function IntegrationCatalogDirectory({
         onLinkExisting={onLinkExisting}
         linkActionLabel={linkActionLabel}
         linkingKey={linkingKey}
+        roleFilter={role}
       />
     </div>
   );

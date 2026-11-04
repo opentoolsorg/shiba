@@ -70,12 +70,14 @@ export interface ExtensionSkillDirectoryEntry {
   name: string;
   description: string;
   enabled: boolean;
+  version: number;
 }
 
 export interface ExtensionSkillInstructions {
   _id: string;
   name: string;
   instructions: string;
+  version: number;
 }
 
 export interface CreateExtensionSkillRequest {

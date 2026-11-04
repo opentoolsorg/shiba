@@ -2,6 +2,8 @@
 
 This change extends the control plane at baseline `be13d0b`. It preserves the existing execution target, approval, event log, room, and Slack contracts. The later November 3 specification controls conflicting requirements. Reference verification and license findings are in [the reference audit](control-plane-reference-audit.md).
 
+The later November 4 requests for shared context and optional employees are tracked separately in the [shared-context and employee acceptance report](shared-context-employees-acceptance.md), including actual local browser evidence and the limits of deployed integration verification.
+
 ## Workspace and artifacts
 
 The API accepts a `workspaceTarget` of `github` or `ephemeral`. Intake normalizes it into the established frozen `executionTarget`, so workspace identity, template hints, and required outputs participate in approval hashing. An ephemeral workspace has no repository or publication permission. It initializes `/workspace/.shiba` and `/workspace/out` without a clone. Existing artifact workspace callers retain their required text deliverable contract.

@@ -94,9 +94,9 @@ describe("IntegrationsView Viktor catalog", () => {
   it("renders Connected and Available sections with search and domain filter", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
-    expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Available" })).toBeTruthy();
-    expect(screen.getByText(new RegExp(`of ${INTEGRATION_CATALOG.length} catalog rows`))).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Configured connections" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Discover and set up" })).toBeTruthy();
+    expect(screen.getByText(new RegExp(`${INTEGRATION_CATALOG.length} reference catalog entries`))).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     expect(await screen.findByTestId("integration-catalog-row-hubspot")).toBeTruthy();
@@ -116,7 +116,7 @@ describe("IntegrationsView Viktor catalog", () => {
     render(<IntegrationsView />);
     await screen.findByTestId("integration-catalog-row-github");
     const githubRow = screen.getByTestId("integration-catalog-row-github");
-    expect(githubRow.textContent).toMatch(/Connected/);
+    expect(githubRow.textContent).toMatch(/Configured/);
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     const hubspotRow = await screen.findByTestId("integration-catalog-row-hubspot");
     expect(hubspotRow.textContent).toMatch(/Available|Catalog/i);
@@ -126,7 +126,7 @@ describe("IntegrationsView Viktor catalog", () => {
   it("preserves setup detail panels behind Show setup details", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
-    await screen.findByRole("heading", { name: "Connected" });
+    await screen.findByRole("heading", { name: "Configured connections" });
     fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
     expect(await screen.findByTestId("integration-linear")).toBeTruthy();
     expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);
@@ -285,6 +285,6 @@ describe("IntegrationsView capability catalog", () => {
 
     // Switch back to Connectors tab
     fireEvent.click(screen.getByRole("tab", { name: "Connectors" }));
-    expect(await screen.findByRole("heading", { name: "Connected" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Configured connections" })).toBeTruthy();
   });
 });

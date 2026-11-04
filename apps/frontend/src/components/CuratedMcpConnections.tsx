@@ -1,18 +1,19 @@
 import { CURATED_MCP_VENDORS, type CuratedMcpVendor } from "@shiba/shared";
 import { useCallback, useEffect, useState, type JSX } from "react";
+import { RoleCapabilityFilter } from "./RoleCapabilityFilter";
+import { roleCapabilityRecommendations, type CapabilityRoleFilter } from "../role-capability-recommendations";
 
 type CatalogConnection = {
   id: string;
   catalogId: string;
   connectionLabel: string | null;
   status: string;
+  health?: string;
   authMode: string;
   visibility: "private" | "workspace";
   name: string;
   endpoint: string;
 };
-
-const PRIORITY_IDS = new Set(["stripe", "notion", "sentry"]);
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -35,8 +36,9 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [role, setRole] = useState<CapabilityRoleFilter>("all");
 
-  const vendors = CURATED_MCP_VENDORS.filter((vendor) => PRIORITY_IDS.has(vendor.catalogId));
+  const vendors = CURATED_MCP_VENDORS.filter((vendor) => role === "all" || roleCapabilityRecommendations(role).mcpCatalogIds.includes(vendor.catalogId));
 
   const refresh = useCallback(async () => {
     const body = await request<{ connections?: CatalogConnection[] }>("/api/v1/mcp/catalog-connections");
@@ -74,14 +76,16 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
           Custom MCP connections
         </p>
         <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">
-          Official remote MCPs with OAuth 2.1 (RFC 9728) or a bearer token fallback. Labels keep multi-account
+          Six remote MCP presets. Sign-in depends on deployment and vendor support; nothing connects automatically. Labels keep multi-account
           connections separate (for example <span className="font-mono">stripe:prod</span>).
         </p>
+        <div className="mt-3"><RoleCapabilityFilter value={role} onChange={setRole} label="MCP presets for role" /></div>
+        <p className="mt-2 text-xs text-[var(--muted-foreground-2)]">After sign-in, <a href="/agents/" className="text-[var(--primary)] underline">discover and review exact tools</a>, then <a href="/employee-tools/" className="text-[var(--primary)] underline">grant selected employee resources</a>. Saved credentials alone do not enable employee tools. Workspace visibility does not grant tool access.</p>
       </div>
       {error ? <p className="px-4 py-2 text-xs text-[var(--danger-fg)]">{error}</p> : null}
       {notice ? <p className="px-4 py-2 text-xs text-[var(--success-fg)]">{notice}</p> : null}
       {vendors.map((vendor) => (
-        <div key={vendor.catalogId} className="border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
+        <div key={vendor.catalogId} id={`mcp-preset-${vendor.catalogId}`} className="scroll-mt-4 border-b border-[var(--border-1)] px-4 py-3 last:border-b-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[13px] font-semibold text-[var(--fg)]">{vendor.name}</span>
             <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">{vendor.endpoint}</span>
@@ -95,7 +99,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                   <span className="font-mono text-[var(--fg)]">
                     {vendor.catalogId}:{connection.connectionLabel ?? "default"}
                   </span>
-                  <span>{connection.status}</span>
+                  <span>{connection.status}</span><span>health: {connection.health ?? "unknown"}</span>
                   <span>{connection.visibility}</span>
                   <button
                     type="button"
@@ -182,7 +186,9 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                       await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" }).catch(() => {});
                       throw cause;
                     });
-                    window.open(begin.authorizationUrl, "_blank", "noopener,noreferrer");
+                    const target = new URL(begin.authorizationUrl);
+                    if (target.protocol !== "https:") throw new Error("OAuth returned an unsafe redirect URL.");
+                    window.open(target.href, "_blank", "noopener,noreferrer");
                   },
                   "OAuth sign-in opened — finish in the vendor window, then refresh.",
                 )
@@ -220,6 +226,7 @@ export function CuratedMcpConnections({ onChanged }: { onChanged?: () => void })
                       await request(`/api/v1/mcp/servers/${created.server.id}`, { method: "DELETE" }).catch(() => {});
                       throw cause;
                     });
+                    setBearer((current) => ({ ...current, [vendor.catalogId]: "" }));
                     await request(`/api/v1/mcp/servers/${created.server.id}/discover`, { method: "POST", body: "{}" });
                   },
                   "Bearer saved — discover tools below in External MCP.",

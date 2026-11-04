@@ -6,7 +6,7 @@ export function providerPhaseLabel(connection: Pick<AcpProviderConnection, "phas
 } {
   switch (connection.phase) {
     case "connected":
-      if (connection.testOk === true) return { tone: "ok", label: "Ready" };
+      if (connection.testOk === true) return { tone: "ok", label: "Configuration checked" };
       if (connection.testOk === false) return { tone: "danger", label: "Test failed" };
       return { tone: "ok", label: "Connected" };
     case "waiting":

@@ -12,6 +12,7 @@ afterEach(() => {
 beforeEach(() => {
   extensionsApi.resetStubFixtures();
   extensionsApi.useStubs(true);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ connections: [] })));
 });
 
 describe("ExtensionMcpServersView", () => {

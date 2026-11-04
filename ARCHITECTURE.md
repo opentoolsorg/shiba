@@ -7,6 +7,8 @@ entry (`apps/backend/src/index.ts`) — as-built, not aspirational.
 
 **Status:** see `PLAN.md` §2.0 for earlier verification. The current control plane upgrade and its live acceptance limits are documented in [control-plane-upgrade.md](docs/control-plane-upgrade.md). Plan and gaps live in `PLAN.md`; evidence in `VERIFICATION.md`.
 
+The November 4 [shared-context and employee report](docs/shared-context-employees-acceptance.md) describes explicit collaboration-room realtime, selected shared notes, revoked-source output guards and optional role setup. Room notes live in D1 under existing membership and Slack-origin audience checks. Private Memory DO facts stay scoped to their owner or exact Slack thread; there is no shared JavaScript heap or automatic private-transcript merge.
+
 **Companions:** `spec/GOAL.md` (product contract — *currently contradicted by
 the tree*, see `PLAN.md` §17.2 T27) · `design.md` (visual design system, not
 this) · `PLAN.md` §17 (parity roadmap).

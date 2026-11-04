@@ -3,6 +3,7 @@ import type { Env } from "./env.js";
 import { isRunRoomEvent, MAX_RUN_ROOM_EVENTS, MAX_RUN_JOURNAL_FRAMES, MAX_RUN_JOURNAL_EVENTS, MAX_RUN_JOURNAL_CHARS, MAX_RUN_JOURNAL_BATCH_EVENTS, MAX_RUN_JOURNAL_BATCH_CHARS, type RunJournalIdentity, type RunJournalBatch, type RunRoomEvent, type RunRoomFrame, type RunRoomIdentity } from "./run-room-events.js";
 import { isValidSessionId } from "./web-sessions.js";
 import { timingSafeEqualString } from "./security.js";
+import { canReadCollaborationRoom, isCollaborationRoomIdentity, type CollaborationRoomIdentity } from "./collaboration-room-access.js";
 
 const VIEWER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -18,6 +19,8 @@ const CURSOR_TTL_MS = 15_000;
 const CURSOR_INTERVAL_MS = 100;
 const STREAM_TTL_MS = 2 * 60_000;
 const JOURNAL_ID = /^[a-f0-9]{64}$/;
+const MEMBERSHIP_RECHECK_MS = 15_000;
+const MAX_COLLABORATION_SOCKETS = 64;
 
 interface RunJournalRow {
   [key: string]: string | number;
@@ -45,6 +48,7 @@ interface RoomSocketAttachment {
   cursorAt: number;
   readOnly?: boolean;
   runId?: string;
+  collaboration?: CollaborationRoomIdentity;
 }
 
 interface RoomViewer {
@@ -186,6 +190,7 @@ export class ConversationRoom extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname === "/internal/collaboration-room") return this.fetchCollaboration(request);
     if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("WebSocket upgrade required.", { status: 426 });
     }
@@ -230,6 +235,100 @@ export class ConversationRoom extends DurableObject<Env> {
     });
     this.broadcastPresence();
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private async fetchCollaboration(request: Request): Promise<Response> {
+    if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("WebSocket upgrade required.", { status: 426 });
+    const identity: CollaborationRoomIdentity = {
+      tenantId: request.headers.get("x-shiba-room-tenant") ?? "",
+      workspaceId: request.headers.get("x-shiba-room-workspace") ?? "",
+      roomId: request.headers.get("x-shiba-room-session") ?? "",
+    };
+    const actorId = request.headers.get("x-shiba-room-actor") ?? "";
+    const viewerId = request.headers.get("x-shiba-room-viewer") ?? "";
+    if (!isCollaborationRoomIdentity(identity) || !VIEWER_ID.test(viewerId) || !(await canReadCollaborationRoom(this.env, identity, actorId))) {
+      return Response.json({ error: "Room not found." }, { status: 404 });
+    }
+    if (!this.bindIdentity(`collaboration:${identity.tenantId}:${identity.workspaceId}`, identity.roomId)) return Response.json({ error: "Room identity does not match." }, { status: 403 });
+    const authorized = await this.authorizedCollaborationSockets();
+    // Another upgrade may finish during the D1 checks above. Check the live
+    // count without yielding between enforcing the bound and accepting a socket.
+    const connected = this.ctx.getWebSockets().filter((socket) => socket.readyState === 1 && attachmentFor(socket)?.collaboration).length;
+    if (connected >= MAX_COLLABORATION_SOCKETS) return Response.json({ error: "Room connection limit reached." }, { status: 429 });
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+    server.serializeAttachment({
+      ownerId: `collaboration:${identity.tenantId}:${identity.workspaceId}`,
+      actorId, sessionId: identity.roomId, viewerId, joinedAt: Date.now(), typing: false,
+      typingAt: 0, connectionId: crypto.randomUUID(), viewerLabel: actorId,
+      cursor: null, cursorAt: 0, collaboration: identity,
+    } satisfies RoomSocketAttachment);
+    this.ctx.acceptWebSocket(server);
+    const sockets = [...authorized, server];
+    this.send(server, { type: "collaboration:snapshot", roomId: identity.roomId, viewers: this.collaborationViewers(sockets) });
+    this.broadcastCollaborationPresence(sockets, identity.roomId);
+    await this.scheduleMaintenanceAlarm();
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** Content-free notifications only; durable messages remain behind the HTTP grants. */
+  async notifyCollaborationChange(identity: CollaborationRoomIdentity): Promise<void> {
+    if (!isCollaborationRoomIdentity(identity) || !this.bindIdentity(`collaboration:${identity.tenantId}:${identity.workspaceId}`, identity.roomId)) throw new Error("Invalid collaboration room identity.");
+    const sockets = await this.authorizedCollaborationSockets();
+    for (const socket of sockets) this.send(socket, { type: "collaboration:refresh", roomId: identity.roomId });
+    this.broadcastCollaborationPresence(sockets, identity.roomId);
+    await this.scheduleMaintenanceAlarm();
+  }
+
+  private async authorizedCollaborationSockets(): Promise<WebSocket[]> {
+    const authorized: WebSocket[] = [];
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket.readyState !== 1) continue;
+      const attachment = attachmentFor(socket);
+      if (!attachment?.collaboration) continue;
+      try {
+        if (await canReadCollaborationRoom(this.env, attachment.collaboration, attachment.actorId)) {
+          authorized.push(socket);
+          continue;
+        }
+        socket.close(1008, "Room access ended.");
+      } catch {
+        socket.close(1011, "Room membership could not be verified.");
+      }
+    }
+    return authorized;
+  }
+
+  private collaborationViewers(sockets: WebSocket[]): Array<{ viewerId: string; label: string; typing: boolean }> {
+    const viewers = new Map<string, { viewerId: string; label: string; typing: boolean }>();
+    for (const socket of sockets) {
+      const attachment = attachmentFor(socket);
+      if (!attachment?.collaboration) continue;
+      viewers.set(attachment.viewerId, { viewerId: attachment.viewerId, label: attachment.actorId, typing: attachment.typing && attachment.typingAt + TYPING_TTL_MS > Date.now() });
+    }
+    return [...viewers.values()];
+  }
+
+  private broadcastCollaborationPresence(sockets: WebSocket[], roomId: string): void {
+    const event = { type: "collaboration:presence", roomId, viewers: this.collaborationViewers(sockets) };
+    for (const socket of sockets) this.send(socket, event);
+  }
+
+  private async collaborationMessage(socket: WebSocket, attachment: RoomSocketAttachment, raw: string | ArrayBuffer): Promise<void> {
+    const authorized = await this.authorizedCollaborationSockets();
+    if (!authorized.includes(socket)) return;
+    if (raw === "ping") { this.send(socket, { type: "pong" }); return; }
+    if (typeof raw !== "string" || raw.length > MAX_FRAME_CHARS) { this.send(socket, { type: "error", error: "Invalid room event." }); return; }
+    let event: unknown;
+    try { event = JSON.parse(raw); } catch { this.send(socket, { type: "error", error: "Invalid room event." }); return; }
+    if (isRecord(event) && event.type === "ping") { this.send(socket, { type: "pong" }); return; }
+    if (!isRecord(event) || event.type !== "client_presence" || typeof event.typing !== "boolean") {
+      this.send(socket, { type: "error", error: "Shared room sockets only accept presence. Use the authenticated room actions." });
+      return;
+    }
+    socket.serializeAttachment({ ...attachment, typing: event.typing, typingAt: event.typing ? Date.now() : 0 } satisfies RoomSocketAttachment);
+    this.broadcastCollaborationPresence(authorized, attachment.collaboration!.roomId);
+    await this.scheduleMaintenanceAlarm();
   }
 
   /** RPC is exposed only on the Worker binding, never through a client frame. */
@@ -346,6 +445,7 @@ export class ConversationRoom extends DurableObject<Env> {
       socket.close(1008, "Room identity is unavailable.");
       return;
     }
+    if (attachment.collaboration) return this.collaborationMessage(socket, attachment, raw);
     if (raw === "ping") {
       if (socket.readyState === 1) socket.send("pong");
       return;
@@ -541,12 +641,14 @@ export class ConversationRoom extends DurableObject<Env> {
   }
 
   async webSocketClose(): Promise<void> {
+    await this.refreshCollaborationPresence();
     this.broadcastPresence();
     this.pruneRelayStreams();
     await this.scheduleMaintenanceAlarm();
   }
 
   async webSocketError(): Promise<void> {
+    await this.refreshCollaborationPresence();
     this.broadcastPresence();
     await this.scheduleMaintenanceAlarm();
   }
@@ -577,6 +679,7 @@ export class ConversationRoom extends DurableObject<Env> {
         updatedAt: now,
       });
     }
+    await this.refreshCollaborationPresence();
     this.broadcastPresence();
     await this.scheduleMaintenanceAlarm();
   }
@@ -587,7 +690,7 @@ export class ConversationRoom extends DurableObject<Env> {
     for (const socket of this.ctx.getWebSockets()) {
       if (socket.readyState !== 1) continue;
       const attachment = attachmentFor(socket);
-      if (!attachment) continue;
+      if (!attachment || attachment.collaboration) continue;
       const current = unique.get(attachment.viewerId);
       const cursor = attachment.cursor && attachment.cursorAt + CURSOR_TTL_MS > now ? attachment.cursor : null;
       unique.set(attachment.viewerId, {
@@ -702,6 +805,7 @@ export class ConversationRoom extends DurableObject<Env> {
   private broadcast(event: unknown): void {
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = attachmentFor(socket);
+      if (attachment?.collaboration) continue;
       if (attachment?.readOnly && isRecord(event) && event.type !== "presence" &&
         (event.type !== "run:event" || event.runId !== attachment.runId)) continue;
       this.send(socket, event);
@@ -712,12 +816,19 @@ export class ConversationRoom extends DurableObject<Env> {
     this.broadcast({ type: "presence", viewers: this.viewers() });
   }
 
+  private async refreshCollaborationPresence(): Promise<void> {
+    const sockets = await this.authorizedCollaborationSockets();
+    const roomId = sockets[0] && attachmentFor(sockets[0])?.collaboration?.roomId;
+    if (roomId) this.broadcastCollaborationPresence(sockets, roomId);
+  }
+
   private async scheduleMaintenanceAlarm(): Promise<void> {
     const attachments = this.ctx.getWebSockets()
       .filter((socket) => socket.readyState === 1)
       .map(attachmentFor)
       .filter((attachment): attachment is RoomSocketAttachment => attachment !== null);
     const expiries = attachments.flatMap((attachment) => [
+      ...(attachment.collaboration ? [Date.now() + MEMBERSHIP_RECHECK_MS] : []),
       ...(attachment.typing ? [attachment.typingAt + TYPING_TTL_MS] : []),
       ...(attachment.cursor ? [attachment.cursorAt + CURSOR_TTL_MS] : []),
     ]);

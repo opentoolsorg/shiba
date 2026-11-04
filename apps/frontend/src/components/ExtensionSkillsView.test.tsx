@@ -23,6 +23,29 @@ const makeSkill = (overrides: Partial<ExtensionSkillRecord> = {}): ExtensionSkil
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("ExtensionSkillsView", () => {
+  it("explains employee availability without implying skills grant apps or approvals", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    render(<ExtensionSkillsView />);
+    const guide = screen.getByRole("complementary", { name: "Using skills with employees" });
+    expect(guide.textContent).toContain("including connected app tasks");
+    expect(guide.textContent).toContain("Disabled and archived skills are unavailable");
+    expect(guide.textContent).toContain("tool grants and human approvals are configured separately");
+    await screen.findByText("No skills yet");
+  });
+
+  it("rolls back a failed enablement change instead of reporting an unavailable skill as enabled", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Response.json({ error: "Enablement denied" }, { status: 403 });
+      return Response.json([makeSkill({ enabled: false })]);
+    }));
+    render(<ExtensionSkillsView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Enable Writing" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Enable Writing" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Disable Writing" })).toBeNull();
+    expect(screen.queryByText("Enabled “Writing”.")).toBeNull();
+  });
+
   it("creates, enables, shares, archives, and restores skills across scoped views", async () => {
     const skills: ExtensionSkillRecord[] = [];
     const calls: Array<{ url: string; method: string; body?: Record<string, unknown> }> = [];

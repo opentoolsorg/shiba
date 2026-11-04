@@ -151,7 +151,7 @@ export async function listExtensionSkillDirectory(
       : (row.workspaceId === options.workspaceId || (!row.workspaceId && row.userId === userId)) && readableBy(row, userId))
     .filter((row) => !options.workspaceOnly || effectiveScope(row) === "workspace")
     .filter((row) => options.scope === undefined || (effectiveScope(row) === options.scope && (options.scope !== "personal" || row.userId === userId)))
-    .map((row) => ({ _id: row._id, name: row.name, description: row.description, enabled: row.enabled }));
+    .map((row) => ({ _id: row._id, name: row.name, description: row.description, enabled: row.enabled, version: row.version }));
 }
 
 export async function getExtensionSkill(
@@ -172,10 +172,13 @@ export async function getExtensionSkillInstructions(
   orgId: string,
   userId: string,
   id: string,
+  options: { workspaceId?: string; expectedVersion?: number } = {},
 ): Promise<ExtensionSkillInstructions | null> {
   const skill = await readById(env, orgId, id);
-  if (!skill || !readableBy(skill, userId)) return null;
-  return { _id: skill._id, name: skill.name, instructions: skill.instructions };
+  if (!skill || !skill.enabled || skill.archivedAt !== undefined || !readableBy(skill, userId)) return null;
+  if (options.workspaceId !== undefined && skill.workspaceId !== options.workspaceId && (skill.workspaceId || skill.userId !== userId)) return null;
+  if (options.expectedVersion !== undefined && skill.version !== options.expectedVersion) return null;
+  return { _id: skill._id, name: skill.name, instructions: skill.instructions, version: skill.version };
 }
 
 export async function createExtensionSkill(

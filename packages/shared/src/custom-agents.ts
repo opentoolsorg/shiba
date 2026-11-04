@@ -14,10 +14,19 @@ export const CUSTOM_AGENT_SANDBOX_PROVIDERS = [
 ] as const;
 export type CustomAgentSandboxProvider = (typeof CUSTOM_AGENT_SANDBOX_PROVIDERS)[number];
 
+/** Optional template provenance; these labels do not grant tools or connections. */
+export const CUSTOM_AGENT_ROLE_TEMPLATE_IDS = [
+  "engineering", "marketing", "sales", "product", "design", "research", "operations",
+  "gtm", "hr", "finance",
+] as const;
+export type CustomAgentRoleTemplateId = (typeof CUSTOM_AGENT_ROLE_TEMPLATE_IDS)[number];
+
 /** Versioned config blob stored in D1 (JSON). */
 export interface CustomAgentConfig {
   name: string;
   emoji?: string;
+  /** The chosen editable role template, retained when the bot is renamed. */
+  roleTemplateId?: CustomAgentRoleTemplateId;
   instructions: string;
   /** Optional workspace outputs frozen into each approval. */
   expectedDeliverables?: readonly string[];

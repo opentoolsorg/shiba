@@ -24,7 +24,7 @@ import { withVerifiedAccessIdentity } from "./access-jwt.js";
 import { handleActivity } from "./activity-routes.js";
 import { handleApprovals } from "./approvals-routes.js";
 import { handleOnboardingProgress } from "./onboarding-progress.js";
-import { handleCollaboration } from "./collaboration-routes.js";
+import { handleCollaborationWithRealtime } from "./collaboration-room-routes.js";
 import { handleReasonNetwork } from "./reason-network/routes.js";
 import { handleSubscriptionAuth } from "./auth-routes.js";
 import { handleUserOpenAiSubscription } from "./subscription-auth-routes.js";
@@ -348,7 +348,7 @@ export default {
       if (approvalsResponse) {
         return approvalsResponse;
       }
-      const collaborationResponse = await handleCollaboration(request, env);
+      const collaborationResponse = await handleCollaborationWithRealtime(request, env);
       if (collaborationResponse) return collaborationResponse;
       const computersResponse = await handleComputers(request, env);
       if (computersResponse) {

@@ -8,7 +8,7 @@ const integrations = vi.hoisted(() => ({
   executeTool: vi.fn(async () => ({ ok: true, status: "completed", output: { id: 1 } })),
 }));
 vi.mock("../src/integrations/runtime.js", () => ({ getIntegrationProvider: () => ({ id: "openconnector", ...integrations }) }));
-const orchestrator = vi.hoisted(() => ({ requests: [] as Request[] }));
+const orchestrator = vi.hoisted(() => ({ requests: [] as Request[], sessions: [] as unknown[] }));
 
 vi.mock("../src/request-auth.js", () => ({
   isAuthorizedRequest: vi.fn(async () => authState.dashboard),
@@ -31,8 +31,10 @@ vi.mock("../src/agent-tokens.js", async (importOriginal) => {
 });
 vi.mock("agents/routing", () => ({
   getAgentByName: async () => ({ fetch: async (request: Request) => {
-    orchestrator.requests.push(request);
+    request = request instanceof Request ? request : new Request(request);
     const url = new URL(request.url);
+    if (url.pathname === "/internal/web-sessions") return Response.json({ sessions: orchestrator.sessions });
+    orchestrator.requests.push(request);
     if (url.pathname === "/api/runs" && request.method === "POST") {
       return Response.json({ approvalId: "run-approval-1" }, { status: 202 });
     }
@@ -60,9 +62,17 @@ import { hashToolArgs, createToolRegistry } from "../src/mcp-gateway.js";
 import { registerAllMcpTools } from "../src/mcp-tool-registration.js";
 import { isOrgApiPath } from "../src/public-routes.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
+import { buildSessionAgentName } from "../src/web-sessions.js";
 
 function env(): Env {
-  return { AGENT_AUDIT: customAgentD1().database, CodingOrchestrator: {} } as unknown as Env;
+  return { AGENT_AUDIT: customAgentD1().database, CodingOrchestrator: {}, DASHBOARD_APPROVERS: "owner@example.test" } as unknown as Env;
+}
+
+function appSession(userId: string, employeeId: string): string {
+  const id = crypto.randomUUID();
+  const agentName = buildSessionAgentName(userId, id);
+  orchestrator.sessions.push({ id, agentName, userId, name: "Employee session", createdAt: Date.now(), updatedAt: Date.now(), metadata: { customAgentId: employeeId, orgId: "self-hosted" } });
+  return agentName;
 }
 
 function policyRequest(employeeId: string, body: unknown, expectedVersion = 1) {
@@ -86,6 +96,32 @@ describe("employee tool local workflow", () => {
     tokenState.orgId = "self-hosted";
     tokenState.scopes = ["runs:read", "sandbox:exec"];
     orchestrator.requests.length = 0;
+    orchestrator.sessions.length = 0;
+  });
+
+  it.each([true, false])("binds the selected integration connection before version mutation (current: %s)", async (current) => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "connector", { name: "Connector", instructions: "Use selected app", harness: "opencode" });
+    const request = new Request(`https://x/api/employee-tools/${employee.id}/policy`, {
+      method: "PUT", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ expectedVersion: 1, actorId: tokenState.principal, role: "operator", resourcesByCapability: { "mcp:shiba:integrations.search_actions": ["github"] }, integrationConnectionIds: { github: current ? 'connection:["better-auth","owner-a"]' : "old-connection" } }),
+    });
+    const response = await handleEmployeeTools(request, bindings);
+    expect(response?.status).toBe(current ? 200 : 409);
+    if (!current) expect(await response?.json()).toMatchObject({ error: "integration_connection_selection_changed" });
+    expect((await getCustomAgentById(bindings, "self-hosted", employee.id))?.version).toBe(current ? 2 : 1);
+  });
+
+  it("refuses ambiguous app accounts instead of silently selecting the first", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "connector", { name: "Connector", instructions: "Use selected app", harness: "opencode" });
+    integrations.listConnections.mockResolvedValueOnce([{ id: "account-a", provider: "openconnector", providerKey: "github" }, { id: "account-b", provider: "openconnector", providerKey: "github" }]);
+    const response = await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:integrations.execute": ["github"] }), bindings);
+    expect(response?.status).toBe(409);
+    expect(await response?.json()).toMatchObject({ error: "integration_connection_ambiguous" });
+    expect((await getCustomAgentById(bindings, "self-hosted", employee.id))?.version).toBe(1);
   });
 
   it("gates integration actions on current owner grants and exact approval, and suppresses replay", async () => {
@@ -216,7 +252,7 @@ describe("employee tool local workflow", () => {
     integrations.executeTool.mockClear();
     const sessionTools = (session: string) => createEmployeeRunTools(bindings, () => employee.id,
       () => session, () => "self-hosted", () => "agent-a");
-    const tools = sessionTools("web:owner:integration-a");
+    const tools = sessionTools(appSession("agent-a", employee.id));
     const catalog = tools.employee_tool_catalog as unknown as { execute: (args: object) => Promise<unknown> };
     type RunCall = { execute: (input: { tool: string; args: Record<string, unknown> }) => Promise<Record<string, unknown>> };
     const call = tools.employee_tool_call as unknown as RunCall;
@@ -237,7 +273,7 @@ describe("employee tool local workflow", () => {
       body: JSON.stringify({ employeeId: employee.id, approved: true }),
     }), bindings))?.status).toBe(200);
     authState.dashboard = false;
-    const otherCall = sessionTools("web:owner:integration-b").employee_tool_call as unknown as RunCall;
+    const otherCall = sessionTools(appSession("agent-a", employee.id)).employee_tool_call as unknown as RunCall;
     expect(await otherCall.execute(input)).toMatchObject({ status: "pending_approval" });
     expect(integrations.executeTool).not.toHaveBeenCalled();
     expect(await call.execute(input)).toMatchObject({ ok: true, result: { structuredContent: { ok: true } } });
@@ -384,6 +420,7 @@ describe("employee tool local workflow", () => {
 
   it("binds normal employee-run approvals to the session and profile version", async () => {
     authState.dashboard = true;
+    tokenState.principal = "owner@example.test";
     const bindings = env();
     const employee = await createCustomAgent(bindings, "self-hosted", "normal-run-builder", {
       name: "Normal run builder", instructions: "Queue one approved repository", harness: "opencode",
@@ -391,10 +428,12 @@ describe("employee tool local workflow", () => {
     const repoUrl = "https://github.com/acme/demo";
     expect((await handleEmployeeTools(policyRequest(employee.id, { "mcp:shiba:queue_run": [repoUrl] }), bindings))?.status).toBe(200);
     const args = { repoUrl, task: "Inspect the repository" };
-    const sessionA = createEmployeeRunTools(bindings, () => employee.id, () => "web:owner:session-a", () => "self-hosted", () => "agent-a").employee_tool_call as unknown as {
+    const contextA = appSession("owner@example.test", employee.id);
+    const contextB = appSession("owner@example.test", employee.id);
+    const sessionA = createEmployeeRunTools(bindings, () => employee.id, () => contextA, () => "self-hosted", () => "owner@example.test").employee_tool_call as unknown as {
       execute: (input: { tool: string; args: Record<string, unknown> }) => Promise<Record<string, unknown>>;
     };
-    const sessionB = createEmployeeRunTools(bindings, () => employee.id, () => "web:owner:session-b", () => "self-hosted", () => "agent-a").employee_tool_call as unknown as {
+    const sessionB = createEmployeeRunTools(bindings, () => employee.id, () => contextB, () => "self-hosted", () => "owner@example.test").employee_tool_call as unknown as {
       execute: (input: { tool: string; args: Record<string, unknown> }) => Promise<Record<string, unknown>>;
     };
     authState.dashboard = false;
@@ -405,7 +444,7 @@ describe("employee tool local workflow", () => {
     const listed = await handleEmployeeTools(new Request("https://x/api/employee-tools/approvals", {
       headers: { "CF-Access-Authenticated-User-Email": "owner@example.test" },
     }), bindings);
-    expect(await listed?.json()).toMatchObject({ approvals: [expect.objectContaining({ approvalId: approvalA, executionContextId: "web:owner:session-a" })] });
+    expect(await listed?.json()).toMatchObject({ approvals: [expect.objectContaining({ approvalId: approvalA, executionContextId: contextA })] });
     const decision = await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${approvalA}`, {
       method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
       body: JSON.stringify({ employeeId: employee.id, approved: true }),

@@ -7,6 +7,53 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("EmployeeToolPolicyView", () => {
+  it("grants registered app actions only for selected owned connections, preserving versioned policy", async () => {
+    const writes: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/custom-agents") return json({ agents: [{ id: "employee-1", slug: "sales", version: 3, config: { name: "Sales" } }] });
+      if (url === "/api/agents") return json({ principals: [] });
+      if (url === "/api/whoami") return json({ agent: "owner@example.test" });
+      if (url === "/api/employee-tools/approvals") return json({ approvals: [] });
+      if (url === "/api/integrations/provider/connections") return json({ ok: true, provider: "openconnector", connections: [{ id: "owned-hubspot", providerKey: "hubspot", provider: "openconnector", identityLabel: "Sales account" }, { id: "owned-github", providerKey: "github", provider: "openconnector" }] });
+      if (url.endsWith("/policy") && init?.method === "PUT") { writes.push(JSON.parse(String(init.body))); return json({ ok: true }); }
+      if (url.endsWith("/policy")) return json({ employeeVersion: 3, toolScopes: [], grants: [] });
+      return json({ error: "unexpected" }, 500);
+    }));
+    render(<EmployeeToolPolicyView />);
+    fireEvent.click(await screen.findByLabelText(/Discover actions in selected apps/));
+    fireEvent.click(await screen.findByLabelText(/hubspot · Sales account/));
+    expect(screen.queryByRole("textbox", { name: /connected app/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save grants" }));
+    await screen.findByText(/Policy saved/);
+    expect(writes).toEqual([{ expectedVersion: 3, actorId: "owner@example.test", role: "member", resourcesByCapability: { "mcp:shiba:integrations.search_actions": ["hubspot"] }, integrationConnectionIds: { hubspot: "owned-hubspot" } }]);
+    expect(screen.getByText(/Unsupported schemas and transports fail closed/)).toBeTruthy();
+  });
+
+  it.each(["missing", "ambiguous"])("refuses a %s app connection while allowing revocation", async (state) => {
+    const writes: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/custom-agents") return json({ agents: [{ id: "employee-1", slug: "sales", version: 1, config: { name: "Sales" } }] });
+      if (url === "/api/agents") return json({ principals: [] });
+      if (url === "/api/whoami") return json({ agent: "owner@example.test" });
+      if (url === "/api/employee-tools/approvals") return json({ approvals: [] });
+      if (url === "/api/integrations/provider/connections") return json({ ok: true, provider: "openconnector", connections: state === "ambiguous" ? [{ id: "one", providerKey: "former-app", provider: "openconnector" }, { id: "two", providerKey: "former-app", provider: "openconnector" }] : [] });
+      if (url.endsWith("/policy") && init?.method === "PUT") { writes.push(JSON.parse(String(init.body))); return json({ ok: true }); }
+      if (url.endsWith("/policy")) return json({ employeeVersion: 1, toolScopes: ["mcp:shiba:integrations.execute"], grants: [{ subjectType: "actor", subjectId: "owner@example.test", capabilityId: "mcp:shiba:integrations.execute", resourceId: "former-app", lifecycle: "active" }] });
+      return json({ error: "unexpected" }, 500);
+    }));
+    render(<EmployeeToolPolicyView />);
+    expect(await screen.findByText(/Saved connection unavailable: former-app/)).toBeTruthy();
+    if (state === "ambiguous") expect(screen.getByText(/Multiple accounts for one app cannot be selected/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save grants" }));
+    expect(await screen.findByText(/No catalog-only app can be granted/)).toBeTruthy();
+    expect(writes).toHaveLength(0);
+    fireEvent.click(screen.getByLabelText(/Execute approved actions in selected apps/));
+    fireEvent.click(screen.getByRole("button", { name: "Revoke all grants" }));
+    await screen.findByText(/All tool grants revoked/);
+    expect(writes[0]?.resourcesByCapability).toEqual({});
+  });
   it("saves reviewed MCP resource grants and routes external consent through the owner dispatch action", async () => {
     const capabilityId = `mcp:shiba:ext_${"a".repeat(12)}_${"b".repeat(16)}`;
     let version = 1;
@@ -65,7 +112,7 @@ describe("EmployeeToolPolicyView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save grants" }));
     await screen.findByText(/Policy saved/);
     expect(writes[0]?.resourcesByCapability).toEqual({ "mcp:shiba:gmail_read": ["msg_selected"] });
-    expect(screen.getByText(/selection flow currently supports Gmail only/)).toBeTruthy();
+    expect(screen.getByText(/Gmail grants select exact messages/)).toBeTruthy();
   });
 
   it("loads real API state, configures exact resources, and decides a pending exact-payload approval", async () => {

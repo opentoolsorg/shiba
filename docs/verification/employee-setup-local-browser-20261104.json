@@ -1,0 +1,1014 @@
+{
+  "baseHead": "c6ce663f99d92b9be960e8be5be797ea425733b8",
+  "startedAt": "2026-11-04T11:20:36.964Z",
+  "checks": [
+    {
+      "name": "All 10 optional role cards save exact template metadata in onboarding",
+      "status": "pass",
+      "details": {
+        "roles": [
+          "Engineering",
+          "Marketing",
+          "Sales",
+          "Product",
+          "Design",
+          "Research",
+          "Operations",
+          "GTM",
+          "HR",
+          "Finance"
+        ]
+      }
+    },
+    {
+      "name": "Custom role is optional free text and clears template selection",
+      "status": "pass"
+    },
+    {
+      "name": "Onboarding reload resumes at saved Context after optional skips",
+      "status": "pass"
+    },
+    {
+      "name": "Skills setup explains readiness, sharing and separate grants without enabling skills",
+      "status": "pass"
+    },
+    {
+      "name": "Setup link navigation saves draft and resumes Connections",
+      "status": "pass"
+    },
+    {
+      "name": "Prepare creates a brief only; activation evidence stays false",
+      "status": "pass",
+      "details": {
+        "connectedProvider": false,
+        "successfulRun": false,
+        "acceptedDeliverable": false
+      }
+    },
+    {
+      "name": "All 10 roles create local editable profiles and persist roleTemplateId",
+      "status": "pass",
+      "details": {
+        "profiles": [
+          {
+            "name": "QA Finance",
+            "role": "finance"
+          },
+          {
+            "name": "QA HR",
+            "role": "hr"
+          },
+          {
+            "name": "QA GTM",
+            "role": "gtm"
+          },
+          {
+            "name": "QA Operations",
+            "role": "operations"
+          },
+          {
+            "name": "QA Research",
+            "role": "research"
+          },
+          {
+            "name": "QA Design",
+            "role": "design"
+          },
+          {
+            "name": "QA Product",
+            "role": "product"
+          },
+          {
+            "name": "QA Sales",
+            "role": "sales"
+          },
+          {
+            "name": "QA Marketing",
+            "role": "marketing"
+          },
+          {
+            "name": "QA Engineering",
+            "role": "engineering"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Role survives browser reload and custom profile rename",
+      "status": "pass"
+    },
+    {
+      "name": "Unsaved local employee configuration survives reload and is discardable",
+      "status": "pass"
+    },
+    {
+      "name": "Claude Code, Codex API and Codex ChatGPT routes are separately reviewable without submission",
+      "status": "pass",
+      "details": {
+        "routes": [
+          {
+            "label": "Claude Code",
+            "text": "Cloud sandbox \u00b7 claude-code \u00b7 Repository work\nModel\nDeployment default (resolved at approval)\nAccount\nAccount route is resolved by the server and frozen for approval.\nBilling\nProvider API or gateway account selected by the approved route.\n\nProvider access, model support and quota are validated when used. Starting work still requires human approval.",
+            "sendDisabled": true
+          },
+          {
+            "label": "Codex (API credential)",
+            "text": "Cloud sandbox \u00b7 codex \u00b7 Repository work\nModel\nDeployment default (resolved at approval)\nAccount\nAccount route is resolved by the server and frozen for approval.\nBilling\nProvider API or gateway account selected by the approved route.\n\nProvider access, model support and quota are validated when used. Starting work still requires human approval.",
+            "sendDisabled": true
+          },
+          {
+            "label": "Codex (ChatGPT plan)",
+            "text": "Cloud sandbox \u00b7 codex-subscription \u00b7 Repository work\nModel\nDeployment default (resolved at approval)\nAccount\nSigned-in user's ChatGPT connection; access and plan consent are checked by the server.\nBilling\nChatGPT plan; requires an attributed human initiator.\n\nProvider access, model support and quota are validated when used. Starting work still requires human approval.",
+            "sendDisabled": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "All six actual MCP preset forms are discoverable; no existing connections",
+      "status": "pass",
+      "details": {
+        "presets": [
+          "stripe",
+          "notion",
+          "sentry",
+          "posthog",
+          "figma",
+          "jira-atlassian"
+        ],
+        "empty": 6
+      }
+    },
+    {
+      "name": "All 10 roles filter app recommendations and MCP presets to their exact configured mappings",
+      "status": "pass",
+      "details": {
+        "groups": [
+          {
+            "role": "engineering",
+            "mcp": [
+              "jira-atlassian",
+              "notion",
+              "sentry"
+            ],
+            "apps": [
+              "slack",
+              "github",
+              "linear",
+              "jira-atlassian",
+              "sentry"
+            ]
+          },
+          {
+            "role": "marketing",
+            "mcp": [
+              "figma",
+              "notion",
+              "posthog"
+            ],
+            "apps": [
+              "google-ads",
+              "meta-ads",
+              "posthog",
+              "webflow",
+              "hubspot",
+              "gmail-calendar"
+            ]
+          },
+          {
+            "role": "sales",
+            "mcp": [
+              "notion"
+            ],
+            "apps": [
+              "hubspot",
+              "salesforce",
+              "apollo",
+              "attio",
+              "gmail-calendar"
+            ]
+          },
+          {
+            "role": "product",
+            "mcp": [
+              "figma",
+              "jira-atlassian",
+              "notion",
+              "posthog"
+            ],
+            "apps": [
+              "posthog",
+              "notion",
+              "figma",
+              "github",
+              "linear"
+            ]
+          },
+          {
+            "role": "design",
+            "mcp": [
+              "figma",
+              "notion"
+            ],
+            "apps": [
+              "slack",
+              "notion",
+              "google-drive-docs-sheets",
+              "figma"
+            ]
+          },
+          {
+            "role": "research",
+            "mcp": [
+              "notion"
+            ],
+            "apps": [
+              "gmail-calendar",
+              "notion",
+              "google-drive-docs-sheets"
+            ]
+          },
+          {
+            "role": "operations",
+            "mcp": [
+              "jira-atlassian",
+              "notion"
+            ],
+            "apps": [
+              "slack",
+              "notion",
+              "google-drive-docs-sheets",
+              "airtable",
+              "monday-clickup-asana"
+            ]
+          },
+          {
+            "role": "gtm",
+            "mcp": [
+              "notion",
+              "posthog"
+            ],
+            "apps": [
+              "posthog",
+              "hubspot",
+              "salesforce",
+              "gmail-calendar",
+              "slack"
+            ]
+          },
+          {
+            "role": "hr",
+            "mcp": [
+              "notion"
+            ],
+            "apps": [
+              "gmail-calendar",
+              "slack",
+              "notion",
+              "google-drive-docs-sheets"
+            ]
+          },
+          {
+            "role": "finance",
+            "mcp": [
+              "notion",
+              "stripe"
+            ],
+            "apps": [
+              "gmail-calendar",
+              "google-drive-docs-sheets",
+              "stripe",
+              "quickbooks"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Catalog-only entries remain non-runnable; supported Stripe exposes precise setup link and no false connected badge",
+      "status": "pass"
+    },
+    {
+      "name": "Configure MCP navigation reaches the exact preset on actual MCP page",
+      "status": "pass"
+    },
+    {
+      "name": "390px mobile loaded content fits profiles, app directory, MCP presets, skills and draft routes",
+      "status": "pass",
+      "details": {
+        "mobile": [
+          {
+            "label": "role profiles",
+            "viewport": 390,
+            "body": 390,
+            "document": 390,
+            "renderedTextCharacters": 23678,
+            "loadingOnly": false
+          },
+          {
+            "label": "app directory",
+            "viewport": 390,
+            "body": 390,
+            "document": 390,
+            "renderedTextCharacters": 4064,
+            "loadingOnly": false
+          },
+          {
+            "label": "MCP presets",
+            "viewport": 390,
+            "body": 390,
+            "document": 390,
+            "renderedTextCharacters": 1991,
+            "loadingOnly": false
+          },
+          {
+            "label": "skills",
+            "viewport": 390,
+            "body": 390,
+            "document": 390,
+            "renderedTextCharacters": 786,
+            "loadingOnly": false
+          },
+          {
+            "label": "draft routes",
+            "viewport": 390,
+            "body": 390,
+            "document": 390,
+            "renderedTextCharacters": 1102,
+            "loadingOnly": false
+          }
+        ],
+        "readiness": "Waited for actual surface-specific controls then two animation frames; rejected session-loading-only pages."
+      }
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Encountered a script tag while rendering React component. Scripts inside React components are never executed when rendering on the client. Consider using template tag instead (https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template).",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  ],
+  "failedRequests": [
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/computers",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/setup/status",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/mailboxes",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/computers",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/setup/status",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/mailboxes",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/computers",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/setup/status",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/mailboxes",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/computers",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/setup/status",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/mailboxes",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/model-config",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/agents",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/computers",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/setup/status",
+      "error": "net::ERR_ABORTED"
+    },
+    {
+      "path": "/api/mailboxes",
+      "error": "net::ERR_ABORTED"
+    }
+  ],
+  "blockedMutations": [],
+  "boundaries": "Actual local Worker/DO/D1/R2 and BetterAuth cookies; all remote/model/container/send bindings disabled. Browser mutation allowlist: onboarding progress and local profile configuration only. No connections, grants, approvals, MCP activation or task submissions.",
+  "sourceBefore": {
+    "sha256": "d65c2592f3c1bd2c0824ab34751ac7c80d36dde576ddf673a03fedc7d15038c4",
+    "files": {
+      "apps/backend/src/collaboration-artifact-routes.ts": "c0663a31f1d01e05411ae40114c5089d9f6007208b2571a2367b33cfc7456e34",
+      "apps/backend/src/collaboration-context.ts": "258cb9d8bfedf0d4faa298554bc691c15037689a79a7303a7401fb8379448962",
+      "apps/backend/src/collaboration-memory.ts": "96fa35dec5c27e5c9af87c0d652add0af6218ddff3cc5718a03904180128bda0",
+      "apps/backend/src/collaboration-room-access.ts": "6f88e7092e15a6ddbd858d4f7bf2bb0b4652adedb97f7c89f1a2f8e1b9c51d86",
+      "apps/backend/src/collaboration-room-routes.ts": "d2e863091b0daf3ae61142f2f1aa648e0e6838dc9ab747decdf9b23f7c44eb16",
+      "apps/backend/src/memory-scope.ts": "664037ff55bf9cad001fd317e1fa0b885f3a8bb90952acbce3003bb46d05b917",
+      "apps/backend/test/collaboration-artifact-routes.test.ts": "f4a08dceaf21844d98dd40d4d719ae62a7056ac25a491439f5683afb243050d5",
+      "apps/backend/test/collaboration-context.test.ts": "b0bd3b60cdd6f6a79a43273262b0ff134e2d1fb5149fc39821d199863061d5b5",
+      "apps/backend/test/collaboration-memory.test.ts": "e74e9c148b00b6557b43a7e389fafa9d4f43c6d280a50ee991c1f5e4ce431187",
+      "apps/backend/test/collaboration-room-auth.test.ts": "5760825f4f8062b88f937a51ba5fce5e3fa4dda64b851d818e524f58cdac9148",
+      "apps/backend/test/collaboration-room-realtime.test.ts": "697da8e44e5db4adfb65b35f12a8163af49a010f338bc56ec8494d41b582e875",
+      "apps/backend/test/custom-agents-schema.test.ts": "f46631bea642c6580dd7c921144ad62c86e4e2c26932daef8de3d1feba7e752f",
+      "apps/backend/test/memory-scope.test.ts": "721e8202c5e64f4e4a7d5f95aafa03589cc07ce34f5900e5805fd22393245fc2",
+      "apps/backend/test/orchestrator-extension-skills.test.ts": "5f0c5a3b0560b79b316e9a0820e11ca0b6099a4e8cebb9f858b60d3b73a6ac28",
+      "apps/backend/test/orchestrator-memory-scope.test.ts": "c282a5666e7d7a7d4ebbc1146546de31d91b0e24d1a62dae9fb539ad9dcfcfa5",
+      "apps/frontend/src/collaboration-room-realtime.test.tsx": "73e54a918064ca9ba9ce14ff2773c3072a7597dde415a95a48dc08a0e54fbfba",
+      "apps/frontend/src/collaboration-room-realtime.ts": "3e7727d2a8add4efcb109c90260e47a947eacd455f31357631042675173f44a0",
+      "apps/frontend/src/components/OnboardingModal.test.tsx": "ed35d84092d40f548f8e184902c28b356bdb6b0cb2951d12cc06f85bd649373e",
+      "apps/frontend/src/components/RoleCapabilityFilter.tsx": "3e7ba094caf5efe5a5162c736978010db52396834b1d10f4f192f537ccd445dd",
+      "apps/frontend/src/components/TaskComposerRoutes.test.tsx": "3dd933d8a37e1bfc02f2ccdf37f18b07e60dd238dd0ebec91c5228e019b7557d",
+      "apps/frontend/src/integration-connection-bindings.test.ts": "decc98adcc8abc370a2559b092a4485d8bf89f5b38b0f3ce6108bbbe33d8de9d",
+      "apps/frontend/src/role-capability-recommendations.test.ts": "06eccbea80ac8493d09f2755c64f7bf928399a737b40398557c501498bf747fc",
+      "apps/frontend/src/role-capability-recommendations.ts": "cfcc46315a22c26b5a526fc94e1b29089942bc8a6ce190da91ea983b444f97cb",
+      "apps/frontend/src/supported-task-routes.test.ts": "da1f8906a1364956e6d0e8afd0c3a203ec1ebedc577e966a0747b3fb7011da7a",
+      "apps/frontend/src/supported-task-routes.ts": "fb4418c1a689087c7753db7a950038cbb6327312597dd9e3bab38d52d23d1c24",
+      "docs/verification/multiplayer-local-browser-20261104.json": "51e01d665f1f255b1c6c25809c61b863d3f8bd1864def562e22043e29ca69e97",
+      "apps/backend/src/agents/orchestrator.ts": "f80d5a9478a9f76e126f4e0f875478a9390cfbcc558edb8291f27e98d2049ad7",
+      "apps/backend/src/codemode.ts": "d352a782e77014feea2f964b305609cc7a24c6b0912917c550410bb057361f6f",
+      "apps/backend/src/collaboration-routes.ts": "32718032e17dc416def02d28ab6b57b1c6022d630000b55a9d5838e54d82bcf3",
+      "apps/backend/src/collaboration-store.ts": "f29920c001a235ce4494c65fe1aca4b29a1b687d5b6d8f8c62bc16c1bbec802a",
+      "apps/backend/src/conversation-room-do.ts": "c6f3b873a92f66eede11d60556962d997d7ec90b84d83b6e97acb7352d398c8c",
+      "apps/backend/src/custom-agents-schema.ts": "0f022e9e895ed3f02e9499894f74f528662d89aa180c3b353b6b8bd014f7460f",
+      "apps/backend/src/employee-tool-routes.ts": "2088b378943d54a381ef95bc31a2ba5dddc374971665812d964b7795d8d890a9",
+      "apps/backend/src/env.ts": "1c90f69fbd89addcbbaf090beaa6178c5f0e00ab95036ce739d99db485b3fe1e",
+      "apps/backend/src/extension-skills-store.ts": "adee23b44e8ddf16cd9906c3e16ad23c65b73fa72ea530e206bf44bd01c8f1f2",
+      "apps/backend/src/extension-skills-tools.ts": "7dbbabdb73e7ffd3ebfbf7103b4b56c1c22bc40bc2203175d0c8f6c2dc5cc67b",
+      "apps/backend/src/external-mcp.ts": "b027f7916f93ab3ff6ef13655a2ce98f842cdfe1fed068d470a949d149463f29",
+      "apps/backend/src/index.ts": "2524168a2b1b3924f8b3f79cb8758cb2e94f55fc88da28c44318ef3e9dd5ba1a",
+      "apps/backend/src/mcp-memory-tools.ts": "b10433f99cd9a702f000380bffa04b4e8f554bfddca9632521d098dbcf3197cd",
+      "apps/backend/src/onboarding-progress.ts": "a6e8151690ea3226558a739345b9a07658bf1f21c736d8dfa1bd4f9a873fc8ac",
+      "apps/backend/src/slack-room-outbox.ts": "b7b790b5e17221b964c3931f756ff2ab963065b3209f79f4c06c4dfae44d5d09",
+      "apps/backend/test/codemode.test.ts": "65799654d5bdf3f39f5979563f066a4327ea8f4c56e4cdd77ae1a1b6e8579b54",
+      "apps/backend/test/collaboration-employee-handoff.test.ts": "288c0a8d2ef557fd9895886ce9fc7a689468d353e6c669db755e7b01a1c92472",
+      "apps/backend/test/collaboration-routes.test.ts": "e33fd29045c85e97eb7e2fea39db0a0292dc8e47399e84cc73a0762d9978c32d",
+      "apps/backend/test/custom-agents-routes.test.ts": "1f96fc5e68cdf881ac520b98f7abf017e3c8085511d384df4dc10d50d7b33efc",
+      "apps/backend/test/employee-tool-routes.test.ts": "b61d30c2a51c7118db73428f218f5962df7d9f7881b8019adbec01096d0c6285",
+      "apps/backend/test/extension-skills-routes.test.ts": "39d84bf7810978fc63d255d8f587cea0a5e0612a24eb52d0bce90a53925c5ed8",
+      "apps/backend/test/extension-skills-tools.test.ts": "5fc90c0e56534f29cef1284b0690ce9bdf569a7dd746c4296a35d016ee67f04f",
+      "apps/backend/test/external-mcp-oauth.test.ts": "aa095b60d757432d540d7e8339c7775adcf6850a1d8ef457b1743b77da410c22",
+      "apps/backend/test/mcp-memory-tools.test.ts": "6dde3ae35fe525baa9a6db90805ca7f5365ec24db89f01a5401edce56ca279f6",
+      "apps/backend/test/onboarding-progress.test.ts": "2ea0e991865701c29702f527795d28129b519ea397913aa7197ce7415396073d",
+      "apps/backend/test/slack-room-bridge.test.ts": "7fe099ad4ec0b19c005b36a0ed7e9e2e9ba3ff8674b2f3610192e0f6b13b2a4f",
+      "apps/frontend/src/agent-templates.test.ts": "8dd17364f3a7ad6540e946f0061b25e2725ca7f001288b104088eca4d8b8009e",
+      "apps/frontend/src/app.tsx": "841e0f9602d20d8b1d1e1ae8ea57ad9a5b49c6c040789ebe7a484148b4256d7c",
+      "apps/frontend/src/components/AgentExperience.test.tsx": "976e2633f9b4d241ce5c518f975ac5a4d3754cfaca5e3d088420d2b72d422cbb",
+      "apps/frontend/src/components/AgentExperience.tsx": "ceb2015b7bc67bd7466ba3d83d57dfa09987cbd1e173e709dfd8d56a1b82f376",
+      "apps/frontend/src/components/AgentTemplatesCatalog.test.tsx": "9cb3717b5acadc1edf82443faa34d1a4ba40ef354cb6843b51ed413eeaf1aa62",
+      "apps/frontend/src/components/AgentTemplatesCatalog.tsx": "8a43ab46dd4d2f429d5bafc26a5107439c2c645796b3f75b8840c1c89e50f702",
+      "apps/frontend/src/components/AppNavRail.tsx": "3371fd3606785b900db54c4a97b2351f9f420f680b2f2f3e0a896c3805e7b643",
+      "apps/frontend/src/components/CollaborationView.test.tsx": "55ed146bf1c5b25dca1433d852d0559eab9e30898270ac02d56f886f1a1ef566",
+      "apps/frontend/src/components/CollaborationView.tsx": "4a54fd5ae67d16edef1c1198a376f0e85932c2587863a31d4c8be5942d608b20",
+      "apps/frontend/src/components/ConversationalOnboarding.test.tsx": "5f07edf8dc9c65c77db7149160b6ab1acd0fd1dd8fd61c67b5ffb98981697b9a",
+      "apps/frontend/src/components/ConversationalOnboarding.tsx": "4329a1bbc1cbcd63e020cb191d7be0e991ead03d4bd285823ce49439d5a1c56d",
+      "apps/frontend/src/components/CuratedMcpConnections.test.tsx": "dedac5dd39ed4d3a4434161563735f3ea89c7d2e14d85a431f84cf2f05baf8f8",
+      "apps/frontend/src/components/CuratedMcpConnections.tsx": "5d6945006eee976fb748c7295cb98b951f71a6d27c1db189e68925026ca42e6d",
+      "apps/frontend/src/components/CustomAgentsView.roles.test.tsx": "dd4f52d8fad3bfe1ffb76ed40f1a6117d929dc30b9f1319f00cf4323d05e6e7b",
+      "apps/frontend/src/components/CustomAgentsView.tsx": "77bc93b02fe83e6933acabf845546f554bfbe183fadddb25c8842dafa6f372c2",
+      "apps/frontend/src/components/EmployeeToolPolicyView.test.tsx": "0cd82434a5c74ca330babb438b1210afaabaca6102f27b1a34acc2e009f3bad9",
+      "apps/frontend/src/components/EmployeeToolPolicyView.tsx": "a09f03a08d533c7acd963b12d0233a2d09128caa7b65a09760cf8e6289bc71a8",
+      "apps/frontend/src/components/ExtensionMcpServersView.test.tsx": "2710ce3ab0e0dc8554bd176f5825e830df98c1029486116641e055dc237f3813",
+      "apps/frontend/src/components/ExtensionMcpServersView.tsx": "ce7b94f42570ed5c97c3a17351e21a3a017af46d8c267f257d516c4bd56e1895",
+      "apps/frontend/src/components/ExtensionSkillsView.test.tsx": "8cb695a1028a875f4768629fd518d88dc1608ee28354a4bd12519eed0d973abd",
+      "apps/frontend/src/components/ExtensionSkillsView.tsx": "724a5a5bf336922ee90fffc0ebb5ab0825b61794d4a795d0e586c9d303246e96",
+      "apps/frontend/src/components/IntegrationCatalogDirectory.test.tsx": "3adfe22d1de60b456482216412b704040b6182b408262d04b6acea52e9135def",
+      "apps/frontend/src/components/IntegrationCatalogDirectory.tsx": "003f2ada9a82f8d2967c4d647f318dbc4654e1442c6f1c86a431e385be1ab2a3",
+      "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.test.tsx": "27d7f5efbb6f8e50b164dbd6862e868d9e96b653d1c1b4e04f48c07abe537d18",
+      "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.tsx": "acec3f171a2723460ae16a0a66782b00751d4acdd4986447e0808d8e04b86c7f",
+      "apps/frontend/src/components/IntegrationsView.test.tsx": "76c8bc70548bc44513436a810d755e03d61a5272aa8905b8a766b45a51af6872",
+      "apps/frontend/src/components/IntegrationsView.tsx": "de162b893cfe8beea7be7a3b1c99e8337bf7ae5d397d56e29b9c8e19d4e7b4fb",
+      "apps/frontend/src/components/OnboardingModal.tsx": "40e46508aa5c90ef6e550120832d12a94ff98ada22647666b7ea9b4e11539d10",
+      "apps/frontend/src/components/ProvidersView.test.tsx": "3889e0bb3c9474dbfeefcc7bc4ee67e099e2562aa43d4e9f792688a3ff2293f5",
+      "apps/frontend/src/components/ProvidersView.tsx": "9c54f93c2b585b9a8dc36945583a5b59ffafeda18fa02ce1a7e34103c5b3e894",
+      "apps/frontend/src/components/RoleShiba.test.tsx": "da59a11ae57baed0e7ef7dc5652fb4c2ab0d4177b5bd8165a831000b07b4b00d",
+      "apps/frontend/src/components/RoleShiba.tsx": "3d3def8aff853ed3779f5d380d12c958e3af26b448693dfe45e585a95bf24e4f",
+      "apps/frontend/src/components/TaskComposer.tsx": "393da483a9eedc680758d3092914d7ae7638bc49bbb6e4aaac40d659550d32d4",
+      "apps/frontend/src/components/WorkspaceConnectorsPanel.test.tsx": "0c933851d312656d67bc729e6a0bbabc25e3f57fb5b7b84f720757e2d6c4a286",
+      "apps/frontend/src/components/provider-phase.ts": "ce7cd34b89b2b513e519db99b3e3c1dffdeb9dcacf4ed117c7598194d132825e",
+      "apps/frontend/src/components/provider-ui.test.ts": "bcb245b4ad474ad03ea0e76219ec28e08dc3037a79247714e3dca754a2e8f6da",
+      "apps/frontend/src/employee-templates.test.ts": "e84e35b94a7c09dcc47b91d8938203bfd413c7c4427297142adb0cfbf72ed6f5",
+      "apps/frontend/src/employee-templates.ts": "fd31799945026df2012d269963bb6b1532a3ac5f85ce15e382a23860c611c238",
+      "apps/frontend/src/integration-connection-bindings.ts": "be5e106ab9f7d2c2c86b6d19788e94e2e39aec47475bc4952d8abe756457c29e",
+      "apps/frontend/vite.config.ts": "ee01fc88611af3370ac844bd7815191afdc6b5ee124bf043cfd525007cff0abd",
+      "docs/control-plane-live-acceptance.md": "31fa350f1a4a98267aecb67a366e03b0f48bc33b8c90c294f50b105c4367ba07",
+      "packages/shared/src/agent-templates.ts": "75582613ac9d2f5053e0a731de679dfdc840dea2f97395ef8babe8ab7a713bf1",
+      "packages/shared/src/custom-agents.ts": "ef2105ccff08d21582b12fafc2be8f4b3b4dd73ce33588c6bb27e3c6498bc8e0",
+      "packages/shared/src/extensions/skills.ts": "cbdb0471633a2d52d1a54c3005ffc05a541e132da8a2a79f9ba7462dc1da5831"
+    }
+  },
+  "sourceAfter": {
+    "sha256": "d65c2592f3c1bd2c0824ab34751ac7c80d36dde576ddf673a03fedc7d15038c4",
+    "files": {
+      "apps/backend/src/collaboration-artifact-routes.ts": "c0663a31f1d01e05411ae40114c5089d9f6007208b2571a2367b33cfc7456e34",
+      "apps/backend/src/collaboration-context.ts": "258cb9d8bfedf0d4faa298554bc691c15037689a79a7303a7401fb8379448962",
+      "apps/backend/src/collaboration-memory.ts": "96fa35dec5c27e5c9af87c0d652add0af6218ddff3cc5718a03904180128bda0",
+      "apps/backend/src/collaboration-room-access.ts": "6f88e7092e15a6ddbd858d4f7bf2bb0b4652adedb97f7c89f1a2f8e1b9c51d86",
+      "apps/backend/src/collaboration-room-routes.ts": "d2e863091b0daf3ae61142f2f1aa648e0e6838dc9ab747decdf9b23f7c44eb16",
+      "apps/backend/src/memory-scope.ts": "664037ff55bf9cad001fd317e1fa0b885f3a8bb90952acbce3003bb46d05b917",
+      "apps/backend/test/collaboration-artifact-routes.test.ts": "f4a08dceaf21844d98dd40d4d719ae62a7056ac25a491439f5683afb243050d5",
+      "apps/backend/test/collaboration-context.test.ts": "b0bd3b60cdd6f6a79a43273262b0ff134e2d1fb5149fc39821d199863061d5b5",
+      "apps/backend/test/collaboration-memory.test.ts": "e74e9c148b00b6557b43a7e389fafa9d4f43c6d280a50ee991c1f5e4ce431187",
+      "apps/backend/test/collaboration-room-auth.test.ts": "5760825f4f8062b88f937a51ba5fce5e3fa4dda64b851d818e524f58cdac9148",
+      "apps/backend/test/collaboration-room-realtime.test.ts": "697da8e44e5db4adfb65b35f12a8163af49a010f338bc56ec8494d41b582e875",
+      "apps/backend/test/custom-agents-schema.test.ts": "f46631bea642c6580dd7c921144ad62c86e4e2c26932daef8de3d1feba7e752f",
+      "apps/backend/test/memory-scope.test.ts": "721e8202c5e64f4e4a7d5f95aafa03589cc07ce34f5900e5805fd22393245fc2",
+      "apps/backend/test/orchestrator-extension-skills.test.ts": "5f0c5a3b0560b79b316e9a0820e11ca0b6099a4e8cebb9f858b60d3b73a6ac28",
+      "apps/backend/test/orchestrator-memory-scope.test.ts": "c282a5666e7d7a7d4ebbc1146546de31d91b0e24d1a62dae9fb539ad9dcfcfa5",
+      "apps/frontend/src/collaboration-room-realtime.test.tsx": "73e54a918064ca9ba9ce14ff2773c3072a7597dde415a95a48dc08a0e54fbfba",
+      "apps/frontend/src/collaboration-room-realtime.ts": "3e7727d2a8add4efcb109c90260e47a947eacd455f31357631042675173f44a0",
+      "apps/frontend/src/components/OnboardingModal.test.tsx": "ed35d84092d40f548f8e184902c28b356bdb6b0cb2951d12cc06f85bd649373e",
+      "apps/frontend/src/components/RoleCapabilityFilter.tsx": "3e7ba094caf5efe5a5162c736978010db52396834b1d10f4f192f537ccd445dd",
+      "apps/frontend/src/components/TaskComposerRoutes.test.tsx": "3dd933d8a37e1bfc02f2ccdf37f18b07e60dd238dd0ebec91c5228e019b7557d",
+      "apps/frontend/src/integration-connection-bindings.test.ts": "decc98adcc8abc370a2559b092a4485d8bf89f5b38b0f3ce6108bbbe33d8de9d",
+      "apps/frontend/src/role-capability-recommendations.test.ts": "06eccbea80ac8493d09f2755c64f7bf928399a737b40398557c501498bf747fc",
+      "apps/frontend/src/role-capability-recommendations.ts": "cfcc46315a22c26b5a526fc94e1b29089942bc8a6ce190da91ea983b444f97cb",
+      "apps/frontend/src/supported-task-routes.test.ts": "da1f8906a1364956e6d0e8afd0c3a203ec1ebedc577e966a0747b3fb7011da7a",
+      "apps/frontend/src/supported-task-routes.ts": "fb4418c1a689087c7753db7a950038cbb6327312597dd9e3bab38d52d23d1c24",
+      "docs/verification/multiplayer-local-browser-20261104.json": "51e01d665f1f255b1c6c25809c61b863d3f8bd1864def562e22043e29ca69e97",
+      "apps/backend/src/agents/orchestrator.ts": "f80d5a9478a9f76e126f4e0f875478a9390cfbcc558edb8291f27e98d2049ad7",
+      "apps/backend/src/codemode.ts": "d352a782e77014feea2f964b305609cc7a24c6b0912917c550410bb057361f6f",
+      "apps/backend/src/collaboration-routes.ts": "32718032e17dc416def02d28ab6b57b1c6022d630000b55a9d5838e54d82bcf3",
+      "apps/backend/src/collaboration-store.ts": "f29920c001a235ce4494c65fe1aca4b29a1b687d5b6d8f8c62bc16c1bbec802a",
+      "apps/backend/src/conversation-room-do.ts": "c6f3b873a92f66eede11d60556962d997d7ec90b84d83b6e97acb7352d398c8c",
+      "apps/backend/src/custom-agents-schema.ts": "0f022e9e895ed3f02e9499894f74f528662d89aa180c3b353b6b8bd014f7460f",
+      "apps/backend/src/employee-tool-routes.ts": "2088b378943d54a381ef95bc31a2ba5dddc374971665812d964b7795d8d890a9",
+      "apps/backend/src/env.ts": "1c90f69fbd89addcbbaf090beaa6178c5f0e00ab95036ce739d99db485b3fe1e",
+      "apps/backend/src/extension-skills-store.ts": "adee23b44e8ddf16cd9906c3e16ad23c65b73fa72ea530e206bf44bd01c8f1f2",
+      "apps/backend/src/extension-skills-tools.ts": "7dbbabdb73e7ffd3ebfbf7103b4b56c1c22bc40bc2203175d0c8f6c2dc5cc67b",
+      "apps/backend/src/external-mcp.ts": "b027f7916f93ab3ff6ef13655a2ce98f842cdfe1fed068d470a949d149463f29",
+      "apps/backend/src/index.ts": "2524168a2b1b3924f8b3f79cb8758cb2e94f55fc88da28c44318ef3e9dd5ba1a",
+      "apps/backend/src/mcp-memory-tools.ts": "b10433f99cd9a702f000380bffa04b4e8f554bfddca9632521d098dbcf3197cd",
+      "apps/backend/src/onboarding-progress.ts": "a6e8151690ea3226558a739345b9a07658bf1f21c736d8dfa1bd4f9a873fc8ac",
+      "apps/backend/src/slack-room-outbox.ts": "b7b790b5e17221b964c3931f756ff2ab963065b3209f79f4c06c4dfae44d5d09",
+      "apps/backend/test/codemode.test.ts": "65799654d5bdf3f39f5979563f066a4327ea8f4c56e4cdd77ae1a1b6e8579b54",
+      "apps/backend/test/collaboration-employee-handoff.test.ts": "288c0a8d2ef557fd9895886ce9fc7a689468d353e6c669db755e7b01a1c92472",
+      "apps/backend/test/collaboration-routes.test.ts": "e33fd29045c85e97eb7e2fea39db0a0292dc8e47399e84cc73a0762d9978c32d",
+      "apps/backend/test/custom-agents-routes.test.ts": "1f96fc5e68cdf881ac520b98f7abf017e3c8085511d384df4dc10d50d7b33efc",
+      "apps/backend/test/employee-tool-routes.test.ts": "b61d30c2a51c7118db73428f218f5962df7d9f7881b8019adbec01096d0c6285",
+      "apps/backend/test/extension-skills-routes.test.ts": "39d84bf7810978fc63d255d8f587cea0a5e0612a24eb52d0bce90a53925c5ed8",
+      "apps/backend/test/extension-skills-tools.test.ts": "5fc90c0e56534f29cef1284b0690ce9bdf569a7dd746c4296a35d016ee67f04f",
+      "apps/backend/test/external-mcp-oauth.test.ts": "aa095b60d757432d540d7e8339c7775adcf6850a1d8ef457b1743b77da410c22",
+      "apps/backend/test/mcp-memory-tools.test.ts": "6dde3ae35fe525baa9a6db90805ca7f5365ec24db89f01a5401edce56ca279f6",
+      "apps/backend/test/onboarding-progress.test.ts": "2ea0e991865701c29702f527795d28129b519ea397913aa7197ce7415396073d",
+      "apps/backend/test/slack-room-bridge.test.ts": "7fe099ad4ec0b19c005b36a0ed7e9e2e9ba3ff8674b2f3610192e0f6b13b2a4f",
+      "apps/frontend/src/agent-templates.test.ts": "8dd17364f3a7ad6540e946f0061b25e2725ca7f001288b104088eca4d8b8009e",
+      "apps/frontend/src/app.tsx": "841e0f9602d20d8b1d1e1ae8ea57ad9a5b49c6c040789ebe7a484148b4256d7c",
+      "apps/frontend/src/components/AgentExperience.test.tsx": "976e2633f9b4d241ce5c518f975ac5a4d3754cfaca5e3d088420d2b72d422cbb",
+      "apps/frontend/src/components/AgentExperience.tsx": "ceb2015b7bc67bd7466ba3d83d57dfa09987cbd1e173e709dfd8d56a1b82f376",
+      "apps/frontend/src/components/AgentTemplatesCatalog.test.tsx": "9cb3717b5acadc1edf82443faa34d1a4ba40ef354cb6843b51ed413eeaf1aa62",
+      "apps/frontend/src/components/AgentTemplatesCatalog.tsx": "8a43ab46dd4d2f429d5bafc26a5107439c2c645796b3f75b8840c1c89e50f702",
+      "apps/frontend/src/components/AppNavRail.tsx": "3371fd3606785b900db54c4a97b2351f9f420f680b2f2f3e0a896c3805e7b643",
+      "apps/frontend/src/components/CollaborationView.test.tsx": "55ed146bf1c5b25dca1433d852d0559eab9e30898270ac02d56f886f1a1ef566",
+      "apps/frontend/src/components/CollaborationView.tsx": "4a54fd5ae67d16edef1c1198a376f0e85932c2587863a31d4c8be5942d608b20",
+      "apps/frontend/src/components/ConversationalOnboarding.test.tsx": "5f07edf8dc9c65c77db7149160b6ab1acd0fd1dd8fd61c67b5ffb98981697b9a",
+      "apps/frontend/src/components/ConversationalOnboarding.tsx": "4329a1bbc1cbcd63e020cb191d7be0e991ead03d4bd285823ce49439d5a1c56d",
+      "apps/frontend/src/components/CuratedMcpConnections.test.tsx": "dedac5dd39ed4d3a4434161563735f3ea89c7d2e14d85a431f84cf2f05baf8f8",
+      "apps/frontend/src/components/CuratedMcpConnections.tsx": "5d6945006eee976fb748c7295cb98b951f71a6d27c1db189e68925026ca42e6d",
+      "apps/frontend/src/components/CustomAgentsView.roles.test.tsx": "dd4f52d8fad3bfe1ffb76ed40f1a6117d929dc30b9f1319f00cf4323d05e6e7b",
+      "apps/frontend/src/components/CustomAgentsView.tsx": "77bc93b02fe83e6933acabf845546f554bfbe183fadddb25c8842dafa6f372c2",
+      "apps/frontend/src/components/EmployeeToolPolicyView.test.tsx": "0cd82434a5c74ca330babb438b1210afaabaca6102f27b1a34acc2e009f3bad9",
+      "apps/frontend/src/components/EmployeeToolPolicyView.tsx": "a09f03a08d533c7acd963b12d0233a2d09128caa7b65a09760cf8e6289bc71a8",
+      "apps/frontend/src/components/ExtensionMcpServersView.test.tsx": "2710ce3ab0e0dc8554bd176f5825e830df98c1029486116641e055dc237f3813",
+      "apps/frontend/src/components/ExtensionMcpServersView.tsx": "ce7b94f42570ed5c97c3a17351e21a3a017af46d8c267f257d516c4bd56e1895",
+      "apps/frontend/src/components/ExtensionSkillsView.test.tsx": "8cb695a1028a875f4768629fd518d88dc1608ee28354a4bd12519eed0d973abd",
+      "apps/frontend/src/components/ExtensionSkillsView.tsx": "724a5a5bf336922ee90fffc0ebb5ab0825b61794d4a795d0e586c9d303246e96",
+      "apps/frontend/src/components/IntegrationCatalogDirectory.test.tsx": "3adfe22d1de60b456482216412b704040b6182b408262d04b6acea52e9135def",
+      "apps/frontend/src/components/IntegrationCatalogDirectory.tsx": "003f2ada9a82f8d2967c4d647f318dbc4654e1442c6f1c86a431e385be1ab2a3",
+      "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.test.tsx": "27d7f5efbb6f8e50b164dbd6862e868d9e96b653d1c1b4e04f48c07abe537d18",
+      "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.tsx": "acec3f171a2723460ae16a0a66782b00751d4acdd4986447e0808d8e04b86c7f",
+      "apps/frontend/src/components/IntegrationsView.test.tsx": "76c8bc70548bc44513436a810d755e03d61a5272aa8905b8a766b45a51af6872",
+      "apps/frontend/src/components/IntegrationsView.tsx": "de162b893cfe8beea7be7a3b1c99e8337bf7ae5d397d56e29b9c8e19d4e7b4fb",
+      "apps/frontend/src/components/OnboardingModal.tsx": "40e46508aa5c90ef6e550120832d12a94ff98ada22647666b7ea9b4e11539d10",
+      "apps/frontend/src/components/ProvidersView.test.tsx": "3889e0bb3c9474dbfeefcc7bc4ee67e099e2562aa43d4e9f792688a3ff2293f5",
+      "apps/frontend/src/components/ProvidersView.tsx": "9c54f93c2b585b9a8dc36945583a5b59ffafeda18fa02ce1a7e34103c5b3e894",
+      "apps/frontend/src/components/RoleShiba.test.tsx": "da59a11ae57baed0e7ef7dc5652fb4c2ab0d4177b5bd8165a831000b07b4b00d",
+      "apps/frontend/src/components/RoleShiba.tsx": "3d3def8aff853ed3779f5d380d12c958e3af26b448693dfe45e585a95bf24e4f",
+      "apps/frontend/src/components/TaskComposer.tsx": "393da483a9eedc680758d3092914d7ae7638bc49bbb6e4aaac40d659550d32d4",
+      "apps/frontend/src/components/WorkspaceConnectorsPanel.test.tsx": "0c933851d312656d67bc729e6a0bbabc25e3f57fb5b7b84f720757e2d6c4a286",
+      "apps/frontend/src/components/provider-phase.ts": "ce7cd34b89b2b513e519db99b3e3c1dffdeb9dcacf4ed117c7598194d132825e",
+      "apps/frontend/src/components/provider-ui.test.ts": "bcb245b4ad474ad03ea0e76219ec28e08dc3037a79247714e3dca754a2e8f6da",
+      "apps/frontend/src/employee-templates.test.ts": "e84e35b94a7c09dcc47b91d8938203bfd413c7c4427297142adb0cfbf72ed6f5",
+      "apps/frontend/src/employee-templates.ts": "fd31799945026df2012d269963bb6b1532a3ac5f85ce15e382a23860c611c238",
+      "apps/frontend/src/integration-connection-bindings.ts": "be5e106ab9f7d2c2c86b6d19788e94e2e39aec47475bc4952d8abe756457c29e",
+      "apps/frontend/vite.config.ts": "ee01fc88611af3370ac844bd7815191afdc6b5ee124bf043cfd525007cff0abd",
+      "docs/control-plane-live-acceptance.md": "31fa350f1a4a98267aecb67a366e03b0f48bc33b8c90c294f50b105c4367ba07",
+      "packages/shared/src/agent-templates.ts": "75582613ac9d2f5053e0a731de679dfdc840dea2f97395ef8babe8ab7a713bf1",
+      "packages/shared/src/custom-agents.ts": "ef2105ccff08d21582b12fafc2be8f4b3b4dd73ce33588c6bb27e3c6498bc8e0",
+      "packages/shared/src/extensions/skills.ts": "cbdb0471633a2d52d1a54c3005ffc05a541e132da8a2a79f9ba7462dc1da5831"
+    }
+  },
+  "driverIssues": [
+    "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Review setup draft', exact: true })\u001b[22m\n\n    at /tmp/shiba-role-ui-local/roles-browser.cjs:16:68",
+    "locator.click: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('menuitemradio', { name: /^Codex \\(API credential\\)/ })\u001b[22m\n\n    at /tmp/shiba-role-ui-local/directory-browser.cjs:5:639",
+    "Initial900ms mobile-navigation screenshots captured session loading, so that check was discarded and rerun with ready-content selectors."
+  ],
+  "finishedAt": "2026-11-04T11:29:21.752Z",
+  "httpErrors": [
+    {
+      "path": "/api/computers",
+      "status": 404
+    },
+    {
+      "path": "/api/computers",
+      "status": 404
+    },
+    {
+      "path": "/api/computers",
+      "status": 404
+    },
+    {
+      "path": "/api/computers",
+      "status": 404
+    },
+    {
+      "path": "/api/integrations/provider/connections",
+      "status": 503
+    },
+    {
+      "path": "/api/v1/extensions/connectors",
+      "status": 404
+    },
+    {
+      "path": "/api/v1/extensions/connectors",
+      "status": 404
+    },
+    {
+      "path": "/api/integrations/provider/connections",
+      "status": 503
+    },
+    {
+      "path": "/api/computers",
+      "status": 404
+    },
+    {
+      "path": "/api/integrations/provider/catalog",
+      "status": 503
+    },
+    {
+      "path": "/api/integrations/provider/catalog",
+      "status": 503
+    },
+    {
+      "path": "/api/v1/extensions/mcp-servers",
+      "status": 404
+    },
+    {
+      "path": "/api/v1/extensions/mcp-servers",
+      "status": 404
+    }
+  ],
+  "routeOptions": [
+    "Claude CodeAnthropic Claude Code CLI",
+    "Codex (API credential)OpenAI Codex CLI using the selected API route",
+    "Codex (ChatGPT plan)Your ChatGPT subscription \u2014 no AI Gateway token"
+  ],
+  "routes": [
+    {
+      "label": "Claude Code",
+      "text": "Cloud sandbox \u00b7 claude-code \u00b7 Repository work\nModel\nDeployment default (resolved at approval)\nAccount\nAccount route is resolved by the server and frozen for approval.\nBilling\nProvider API or gateway account selected by the approved route.\n\nProvider access, model support and quota are validated when used. Starting work still requires human approval.",
+      "sendDisabled": true
+    },
+    {
+      "label": "Codex (API credential)",
+      "text": "Cloud sandbox \u00b7 codex \u00b7 Repository work\nModel\nDeployment default (resolved at approval)\nAccount\nAccount route is resolved by the server and frozen for approval.\nBilling\nProvider API or gateway account selected by the approved route.\n\nProvider access, model support and quota are validated when used. Starting work still requires human approval.",
+      "sendDisabled": true
+    },
+    {
+      "label": "Codex (ChatGPT plan)",
+      "text": "Cloud sandbox \u00b7 codex-subscription \u00b7 Repository work\nModel\nDeployment default (resolved at approval)\nAccount\nSigned-in user's ChatGPT connection; access and plan consent are checked by the server.\nBilling\nChatGPT plan; requires an attributed human initiator.\n\nProvider access, model support and quota are validated when used. Starting work still requires human approval.",
+      "sendDisabled": true
+    }
+  ],
+  "setupEvidence": {
+    "status": 200,
+    "gateway": {
+      "token": false,
+      "reachable": "error"
+    },
+    "doctorFindings": [
+      {
+        "id": "gateway.token",
+        "severity": "warn",
+        "message": "AI_GATEWAY_TOKEN is unset \u2014 gateway-backed harnesses cannot reach providers."
+      },
+      {
+        "id": "role.orchestrator",
+        "severity": "error",
+        "message": "Role orchestrator: AI Gateway is not configured (AI_GATEWAY_TOKEN is unset). Add the gateway token, connect Codex with Sign in with ChatGPT, or run Claude on a paired local daemon."
+      },
+      {
+        "id": "role.fixer",
+        "severity": "error",
+        "message": "Role fixer: AI Gateway is not configured (AI_GATEWAY_TOKEN is unset). Add the gateway token, connect Codex with Sign in with ChatGPT, or run Claude on a paired local daemon."
+      }
+    ]
+  },
+  "finalSource": {
+    "baseHead": "c6ce663f99d92b9be960e8be5be797ea425733b8",
+    "files": {
+      "apps/backend/src/collaboration-artifact-routes.ts": "c0663a31f1d01e05411ae40114c5089d9f6007208b2571a2367b33cfc7456e34",
+      "apps/backend/src/collaboration-context.ts": "258cb9d8bfedf0d4faa298554bc691c15037689a79a7303a7401fb8379448962",
+      "apps/backend/src/collaboration-memory.ts": "96fa35dec5c27e5c9af87c0d652add0af6218ddff3cc5718a03904180128bda0",
+      "apps/backend/src/collaboration-room-access.ts": "6f88e7092e15a6ddbd858d4f7bf2bb0b4652adedb97f7c89f1a2f8e1b9c51d86",
+      "apps/backend/src/collaboration-room-routes.ts": "d2e863091b0daf3ae61142f2f1aa648e0e6838dc9ab747decdf9b23f7c44eb16",
+      "apps/backend/src/memory-scope.ts": "664037ff55bf9cad001fd317e1fa0b885f3a8bb90952acbce3003bb46d05b917",
+      "apps/backend/test/collaboration-artifact-routes.test.ts": "f4a08dceaf21844d98dd40d4d719ae62a7056ac25a491439f5683afb243050d5",
+      "apps/backend/test/collaboration-context.test.ts": "b0bd3b60cdd6f6a79a43273262b0ff134e2d1fb5149fc39821d199863061d5b5",
+      "apps/backend/test/collaboration-memory.test.ts": "e74e9c148b00b6557b43a7e389fafa9d4f43c6d280a50ee991c1f5e4ce431187",
+      "apps/backend/test/collaboration-room-auth.test.ts": "5760825f4f8062b88f937a51ba5fce5e3fa4dda64b851d818e524f58cdac9148",
+      "apps/backend/test/collaboration-room-realtime.test.ts": "697da8e44e5db4adfb65b35f12a8163af49a010f338bc56ec8494d41b582e875",
+      "apps/backend/test/custom-agents-schema.test.ts": "f46631bea642c6580dd7c921144ad62c86e4e2c26932daef8de3d1feba7e752f",
+      "apps/backend/test/memory-scope.test.ts": "721e8202c5e64f4e4a7d5f95aafa03589cc07ce34f5900e5805fd22393245fc2",
+      "apps/backend/test/orchestrator-extension-skills.test.ts": "5f0c5a3b0560b79b316e9a0820e11ca0b6099a4e8cebb9f858b60d3b73a6ac28",
+      "apps/backend/test/orchestrator-memory-scope.test.ts": "c282a5666e7d7a7d4ebbc1146546de31d91b0e24d1a62dae9fb539ad9dcfcfa5",
+      "apps/frontend/src/collaboration-room-realtime.test.tsx": "73e54a918064ca9ba9ce14ff2773c3072a7597dde415a95a48dc08a0e54fbfba",
+      "apps/frontend/src/collaboration-room-realtime.ts": "3e7727d2a8add4efcb109c90260e47a947eacd455f31357631042675173f44a0",
+      "apps/frontend/src/components/OnboardingModal.test.tsx": "ed35d84092d40f548f8e184902c28b356bdb6b0cb2951d12cc06f85bd649373e",
+      "apps/frontend/src/components/RoleCapabilityFilter.tsx": "3e7ba094caf5efe5a5162c736978010db52396834b1d10f4f192f537ccd445dd",
+      "apps/frontend/src/components/TaskComposerRoutes.test.tsx": "3dd933d8a37e1bfc02f2ccdf37f18b07e60dd238dd0ebec91c5228e019b7557d",
+      "apps/frontend/src/integration-connection-bindings.test.ts": "decc98adcc8abc370a2559b092a4485d8bf89f5b38b0f3ce6108bbbe33d8de9d",
+      "apps/frontend/src/role-capability-recommendations.test.ts": "06eccbea80ac8493d09f2755c64f7bf928399a737b40398557c501498bf747fc",
+      "apps/frontend/src/role-capability-recommendations.ts": "cfcc46315a22c26b5a526fc94e1b29089942bc8a6ce190da91ea983b444f97cb",
+      "apps/frontend/src/supported-task-routes.test.ts": "da1f8906a1364956e6d0e8afd0c3a203ec1ebedc577e966a0747b3fb7011da7a",
+      "apps/frontend/src/supported-task-routes.ts": "fb4418c1a689087c7753db7a950038cbb6327312597dd9e3bab38d52d23d1c24",
+      "docs/shared-context-employees-acceptance.md": "513f76c5eca3a95d61850a1b164337e3e3f9054524b8b715b58f456f20c0ee62",
+      "docs/verification/multiplayer-local-browser-20261104.json": "51e01d665f1f255b1c6c25809c61b863d3f8bd1864def562e22043e29ca69e97",
+      "ARCHITECTURE.md": "ee2e842358333b71e33178e5fa99e9360a23b27b5aa8a6352aec88a7fb695031",
+      "apps/backend/src/agents/orchestrator.ts": "f80d5a9478a9f76e126f4e0f875478a9390cfbcc558edb8291f27e98d2049ad7",
+      "apps/backend/src/codemode.ts": "d352a782e77014feea2f964b305609cc7a24c6b0912917c550410bb057361f6f",
+      "apps/backend/src/collaboration-routes.ts": "32718032e17dc416def02d28ab6b57b1c6022d630000b55a9d5838e54d82bcf3",
+      "apps/backend/src/collaboration-store.ts": "f29920c001a235ce4494c65fe1aca4b29a1b687d5b6d8f8c62bc16c1bbec802a",
+      "apps/backend/src/conversation-room-do.ts": "c6f3b873a92f66eede11d60556962d997d7ec90b84d83b6e97acb7352d398c8c",
+      "apps/backend/src/custom-agents-schema.ts": "0f022e9e895ed3f02e9499894f74f528662d89aa180c3b353b6b8bd014f7460f",
+      "apps/backend/src/employee-tool-routes.ts": "2088b378943d54a381ef95bc31a2ba5dddc374971665812d964b7795d8d890a9",
+      "apps/backend/src/env.ts": "1c90f69fbd89addcbbaf090beaa6178c5f0e00ab95036ce739d99db485b3fe1e",
+      "apps/backend/src/extension-skills-store.ts": "adee23b44e8ddf16cd9906c3e16ad23c65b73fa72ea530e206bf44bd01c8f1f2",
+      "apps/backend/src/extension-skills-tools.ts": "7dbbabdb73e7ffd3ebfbf7103b4b56c1c22bc40bc2203175d0c8f6c2dc5cc67b",
+      "apps/backend/src/external-mcp.ts": "b027f7916f93ab3ff6ef13655a2ce98f842cdfe1fed068d470a949d149463f29",
+      "apps/backend/src/index.ts": "2524168a2b1b3924f8b3f79cb8758cb2e94f55fc88da28c44318ef3e9dd5ba1a",
+      "apps/backend/src/mcp-memory-tools.ts": "b10433f99cd9a702f000380bffa04b4e8f554bfddca9632521d098dbcf3197cd",
+      "apps/backend/src/onboarding-progress.ts": "a6e8151690ea3226558a739345b9a07658bf1f21c736d8dfa1bd4f9a873fc8ac",
+      "apps/backend/src/slack-room-outbox.ts": "b7b790b5e17221b964c3931f756ff2ab963065b3209f79f4c06c4dfae44d5d09",
+      "apps/backend/test/codemode.test.ts": "65799654d5bdf3f39f5979563f066a4327ea8f4c56e4cdd77ae1a1b6e8579b54",
+      "apps/backend/test/collaboration-employee-handoff.test.ts": "288c0a8d2ef557fd9895886ce9fc7a689468d353e6c669db755e7b01a1c92472",
+      "apps/backend/test/collaboration-routes.test.ts": "e33fd29045c85e97eb7e2fea39db0a0292dc8e47399e84cc73a0762d9978c32d",
+      "apps/backend/test/custom-agents-routes.test.ts": "1f96fc5e68cdf881ac520b98f7abf017e3c8085511d384df4dc10d50d7b33efc",
+      "apps/backend/test/employee-tool-routes.test.ts": "b61d30c2a51c7118db73428f218f5962df7d9f7881b8019adbec01096d0c6285",
+      "apps/backend/test/extension-skills-routes.test.ts": "39d84bf7810978fc63d255d8f587cea0a5e0612a24eb52d0bce90a53925c5ed8",
+      "apps/backend/test/extension-skills-tools.test.ts": "5fc90c0e56534f29cef1284b0690ce9bdf569a7dd746c4296a35d016ee67f04f",
+      "apps/backend/test/external-mcp-oauth.test.ts": "aa095b60d757432d540d7e8339c7775adcf6850a1d8ef457b1743b77da410c22",
+      "apps/backend/test/mcp-memory-tools.test.ts": "6dde3ae35fe525baa9a6db90805ca7f5365ec24db89f01a5401edce56ca279f6",
+      "apps/backend/test/onboarding-progress.test.ts": "2ea0e991865701c29702f527795d28129b519ea397913aa7197ce7415396073d",
+      "apps/backend/test/slack-room-bridge.test.ts": "7fe099ad4ec0b19c005b36a0ed7e9e2e9ba3ff8674b2f3610192e0f6b13b2a4f",
+      "apps/frontend/src/agent-templates.test.ts": "8dd17364f3a7ad6540e946f0061b25e2725ca7f001288b104088eca4d8b8009e",
+      "apps/frontend/src/app.tsx": "841e0f9602d20d8b1d1e1ae8ea57ad9a5b49c6c040789ebe7a484148b4256d7c",
+      "apps/frontend/src/components/AgentExperience.test.tsx": "976e2633f9b4d241ce5c518f975ac5a4d3754cfaca5e3d088420d2b72d422cbb",
+      "apps/frontend/src/components/AgentExperience.tsx": "ceb2015b7bc67bd7466ba3d83d57dfa09987cbd1e173e709dfd8d56a1b82f376",
+      "apps/frontend/src/components/AgentTemplatesCatalog.test.tsx": "9cb3717b5acadc1edf82443faa34d1a4ba40ef354cb6843b51ed413eeaf1aa62",
+      "apps/frontend/src/components/AgentTemplatesCatalog.tsx": "8a43ab46dd4d2f429d5bafc26a5107439c2c645796b3f75b8840c1c89e50f702",
+      "apps/frontend/src/components/AppNavRail.tsx": "3371fd3606785b900db54c4a97b2351f9f420f680b2f2f3e0a896c3805e7b643",
+      "apps/frontend/src/components/CollaborationView.test.tsx": "55ed146bf1c5b25dca1433d852d0559eab9e30898270ac02d56f886f1a1ef566",
+      "apps/frontend/src/components/CollaborationView.tsx": "4a54fd5ae67d16edef1c1198a376f0e85932c2587863a31d4c8be5942d608b20",
+      "apps/frontend/src/components/ConversationalOnboarding.test.tsx": "5f07edf8dc9c65c77db7149160b6ab1acd0fd1dd8fd61c67b5ffb98981697b9a",
+      "apps/frontend/src/components/ConversationalOnboarding.tsx": "4329a1bbc1cbcd63e020cb191d7be0e991ead03d4bd285823ce49439d5a1c56d",
+      "apps/frontend/src/components/CuratedMcpConnections.test.tsx": "dedac5dd39ed4d3a4434161563735f3ea89c7d2e14d85a431f84cf2f05baf8f8",
+      "apps/frontend/src/components/CuratedMcpConnections.tsx": "5d6945006eee976fb748c7295cb98b951f71a6d27c1db189e68925026ca42e6d",
+      "apps/frontend/src/components/CustomAgentsView.roles.test.tsx": "dd4f52d8fad3bfe1ffb76ed40f1a6117d929dc30b9f1319f00cf4323d05e6e7b",
+      "apps/frontend/src/components/CustomAgentsView.tsx": "77bc93b02fe83e6933acabf845546f554bfbe183fadddb25c8842dafa6f372c2",
+      "apps/frontend/src/components/EmployeeToolPolicyView.test.tsx": "0cd82434a5c74ca330babb438b1210afaabaca6102f27b1a34acc2e009f3bad9",
+      "apps/frontend/src/components/EmployeeToolPolicyView.tsx": "a09f03a08d533c7acd963b12d0233a2d09128caa7b65a09760cf8e6289bc71a8",
+      "apps/frontend/src/components/ExtensionMcpServersView.test.tsx": "2710ce3ab0e0dc8554bd176f5825e830df98c1029486116641e055dc237f3813",
+      "apps/frontend/src/components/ExtensionMcpServersView.tsx": "ce7b94f42570ed5c97c3a17351e21a3a017af46d8c267f257d516c4bd56e1895",
+      "apps/frontend/src/components/ExtensionSkillsView.test.tsx": "8cb695a1028a875f4768629fd518d88dc1608ee28354a4bd12519eed0d973abd",
+      "apps/frontend/src/components/ExtensionSkillsView.tsx": "724a5a5bf336922ee90fffc0ebb5ab0825b61794d4a795d0e586c9d303246e96",
+      "apps/frontend/src/components/IntegrationCatalogDirectory.test.tsx": "3adfe22d1de60b456482216412b704040b6182b408262d04b6acea52e9135def",
+      "apps/frontend/src/components/IntegrationCatalogDirectory.tsx": "003f2ada9a82f8d2967c4d647f318dbc4654e1442c6f1c86a431e385be1ab2a3",
+      "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.test.tsx": "27d7f5efbb6f8e50b164dbd6862e868d9e96b653d1c1b4e04f48c07abe537d18",
+      "apps/frontend/src/components/IntegrationsBrowseCatalogDialog.tsx": "acec3f171a2723460ae16a0a66782b00751d4acdd4986447e0808d8e04b86c7f",
+      "apps/frontend/src/components/IntegrationsView.test.tsx": "76c8bc70548bc44513436a810d755e03d61a5272aa8905b8a766b45a51af6872",
+      "apps/frontend/src/components/IntegrationsView.tsx": "de162b893cfe8beea7be7a3b1c99e8337bf7ae5d397d56e29b9c8e19d4e7b4fb",
+      "apps/frontend/src/components/OnboardingModal.tsx": "40e46508aa5c90ef6e550120832d12a94ff98ada22647666b7ea9b4e11539d10",
+      "apps/frontend/src/components/ProvidersView.test.tsx": "3889e0bb3c9474dbfeefcc7bc4ee67e099e2562aa43d4e9f792688a3ff2293f5",
+      "apps/frontend/src/components/ProvidersView.tsx": "9c54f93c2b585b9a8dc36945583a5b59ffafeda18fa02ce1a7e34103c5b3e894",
+      "apps/frontend/src/components/RoleShiba.test.tsx": "da59a11ae57baed0e7ef7dc5652fb4c2ab0d4177b5bd8165a831000b07b4b00d",
+      "apps/frontend/src/components/RoleShiba.tsx": "3d3def8aff853ed3779f5d380d12c958e3af26b448693dfe45e585a95bf24e4f",
+      "apps/frontend/src/components/TaskComposer.tsx": "393da483a9eedc680758d3092914d7ae7638bc49bbb6e4aaac40d659550d32d4",
+      "apps/frontend/src/components/WorkspaceConnectorsPanel.test.tsx": "0c933851d312656d67bc729e6a0bbabc25e3f57fb5b7b84f720757e2d6c4a286",
+      "apps/frontend/src/components/provider-phase.ts": "ce7cd34b89b2b513e519db99b3e3c1dffdeb9dcacf4ed117c7598194d132825e",
+      "apps/frontend/src/components/provider-ui.test.ts": "bcb245b4ad474ad03ea0e76219ec28e08dc3037a79247714e3dca754a2e8f6da",
+      "apps/frontend/src/employee-templates.test.ts": "e84e35b94a7c09dcc47b91d8938203bfd413c7c4427297142adb0cfbf72ed6f5",
+      "apps/frontend/src/employee-templates.ts": "fd31799945026df2012d269963bb6b1532a3ac5f85ce15e382a23860c611c238",
+      "apps/frontend/src/integration-connection-bindings.ts": "be5e106ab9f7d2c2c86b6d19788e94e2e39aec47475bc4952d8abe756457c29e",
+      "apps/frontend/vite.config.ts": "ee01fc88611af3370ac844bd7815191afdc6b5ee124bf043cfd525007cff0abd",
+      "docs/control-plane-acceptance.md": "530032f84c3e251de91343639436098d8336933926446c8970c5e15c780a7029",
+      "docs/control-plane-live-acceptance.md": "31fa350f1a4a98267aecb67a366e03b0f48bc33b8c90c294f50b105c4367ba07",
+      "packages/shared/src/agent-templates.ts": "75582613ac9d2f5053e0a731de679dfdc840dea2f97395ef8babe8ab7a713bf1",
+      "packages/shared/src/custom-agents.ts": "ef2105ccff08d21582b12fafc2be8f4b3b4dd73ce33588c6bb27e3c6498bc8e0",
+      "packages/shared/src/extensions/skills.ts": "cbdb0471633a2d52d1a54c3005ffc05a541e132da8a2a79f9ba7462dc1da5831"
+    },
+    "sha256": "819cf43c98d4bdfb5ee7e15f3cd31924c48f025aac59703050655e32bb4411b8"
+  },
+  "sourceChangesDuringEvidence": [
+    "docs/shared-context-employees-acceptance.md",
+    "ARCHITECTURE.md",
+    "docs/control-plane-acceptance.md"
+  ],
+  "sourceLimitations": "Tests ran against a dirty integrated worktree rooted at the stated commit, through Vite actual source and an isolated local Worker. Per-file hashes identify the tested worktree; this is not exact-commit deployed CI or live Cloudflare/vendor proof. Only frontend files unchanged across the recorded interval may be treated as frozen during browser QA.",
+  "persistedCounts": {
+    "orchestrators": [
+      {
+        "cf_agents_runs": 0,
+        "cf_agents_facet_runs": 0,
+        "cf_agent_tool_runs": 0,
+        "cf_agents_task_runs": 0,
+        "cf_think_action_pending_approvals": 0
+      },
+      {
+        "cf_agents_runs": 0,
+        "cf_agents_facet_runs": 0,
+        "cf_agent_tool_runs": 0,
+        "cf_agents_task_runs": 0,
+        "cf_think_action_pending_approvals": 0
+      },
+      {}
+    ],
+    "directory": {
+      "org_custom_agents": 10,
+      "org_custom_agent_versions": 11,
+      "external_mcp_approval_uses": 0
+    }
+  },
+  "credentialReadinessLimit": "All three Send task controls were disabled in repository drafts with no selected repository. This is not isolated proof of the credential gate. Actual read-only setup diagnostics and provider registry establish missing credentials; task preflight, inference, quota and external actions were deliberately not invoked.",
+  "liveBlockers": [
+    "No real model credentials or provider accounts in isolated environment; no model/CLI execution tested.",
+    "No OpenConnector configured: provider catalog and connections return503.",
+    "Optional local paired-computer and extension connector/MCP endpoints return404 with those deployment features disabled.",
+    "Cloudflare hosted deployment, Slack delivery/approvals, real MCP OAuth/tool discovery and live native app side effects require separately authorized/configured integration testing."
+  ],
+  "expectedLocalHttpErrors": [
+    {
+      "path": "/api/computers",
+      "status": 404
+    },
+    {
+      "path": "/api/integrations/provider/connections",
+      "status": 503
+    },
+    {
+      "path": "/api/v1/extensions/connectors",
+      "status": 404
+    },
+    {
+      "path": "/api/integrations/provider/catalog",
+      "status": 503
+    },
+    {
+      "path": "/api/v1/extensions/mcp-servers",
+      "status": 404
+    }
+  ],
+  "providerEvidence": {
+    "defaultProviderId": null,
+    "providers": [
+      {
+        "id": "claude",
+        "phase": "disconnected",
+        "authMode": null,
+        "testOk": null
+      },
+      {
+        "id": "codex",
+        "phase": "disconnected",
+        "authMode": null,
+        "testOk": null
+      },
+      {
+        "id": "gemini",
+        "phase": "disconnected",
+        "authMode": null,
+        "testOk": null
+      },
+      {
+        "id": "grok",
+        "phase": "disconnected",
+        "authMode": null,
+        "testOk": null
+      },
+      {
+        "id": "cursor",
+        "phase": "disconnected",
+        "authMode": null,
+        "testOk": null
+      }
+    ]
+  },
+  "savedMcpConnections": 0,
+  "cleanup": {
+    "stoppedOwnedProcessCount": 9,
+    "forcedStops": 0,
+    "privateTemporaryStateRemoved": true,
+    "remainingListeners": [
+      1040
+    ]
+  },
+  "retainedScreenshots": [
+    "roles-ten-role-profiles.png",
+    "roles-skills-readiness.png",
+    "roles-route-codex--api-credential-.png",
+    "roles-mcp-presets.png",
+    "roles-mobile-MCP-presets.png"
+  ]
+}

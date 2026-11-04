@@ -237,7 +237,13 @@ export function createEmployeeRunTools(
           }
           return { ok: !result.isError, result };
         }
-        const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId);
+        const beforeDispatch = trustedBinding.skillPins?.length ? async () => {
+          const current = await currentContext();
+          if (!current || JSON.stringify(await binding(current, executionContextId)) !== JSON.stringify(trustedBinding)) {
+            throw new Error("Selected skill or employee context changed before dispatch.");
+          }
+        } : undefined;
+        const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId, beforeDispatch);
         const body = await response.json().catch(() => ({})) as Record<string, unknown>;
         if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Employee tool call failed (${response.status}).`);
         if (draftStore && toolName === "gmail_read") {

@@ -273,7 +273,7 @@ export interface Env {
   SLACK_APPROVALS_CHANNEL?: string;
   /** Optional. Must be exactly `true` to enable approved collaboration-room outbox delivery. */
   SLACK_ROOM_OUTBOX_ENABLED?: string;
-  /** Optional. Exact Slack team/channel to Access owner and read-only viewer policy. Empty disables canvas views. */
+  /** Exact Slack team/channel to Access owner/viewer policy for canvas and collaboration imports. Empty or invalid fails closed. */
   SLACK_CANVAS_OWNERS?: string;
   /** Optional. Daily USD budget for the /api/usage report's budget line. */
   USAGE_BUDGET_USD?: string;

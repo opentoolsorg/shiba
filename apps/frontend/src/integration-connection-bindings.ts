@@ -14,8 +14,9 @@ export type IntegrationBindingInputs = {
   gmailConnected: boolean | null;
   gmailLoading: boolean;
   externalMcpServerCount: number | undefined;
+  externalMcpReadyServerCount?: number;
   externalMcpCatalogConnections:
-    | Array<{ catalogId: string; connectionLabel: string | null; status: string }>
+    | Array<{ catalogId: string; connectionLabel: string | null; status: string; health?: string }>
     | undefined;
   externalMcpLoading: boolean;
 };
@@ -81,8 +82,8 @@ function phaseForBinding(
     case "external_mcp":
       return bindingPhase(
         inputs.externalMcpLoading,
+        (inputs.externalMcpReadyServerCount ?? 0) > 0,
         (inputs.externalMcpServerCount ?? 0) > 0,
-        false,
       );
     default:
       return "not_set_up";
@@ -91,10 +92,9 @@ function phaseForBinding(
 
 function phaseForMcpCatalog(catalogId: string, inputs: IntegrationBindingInputs): IntegrationConnectionPhase {
   if (inputs.externalMcpLoading) return "loading";
-  const matches = (inputs.externalMcpCatalogConnections ?? []).filter(
-    (connection) => connection.catalogId === catalogId && connection.status !== "disabled",
-  );
-  if (matches.length > 0) return "configured";
+  const matches = (inputs.externalMcpCatalogConnections ?? []).filter((connection) => connection.catalogId === catalogId);
+  if (matches.some((connection) => connection.status === "enabled" && connection.health === "healthy")) return "configured";
+  if (matches.some((connection) => connection.status !== "disabled")) return "partial";
   return "not_set_up";
 }
 
@@ -135,7 +135,7 @@ export function connectionPhaseLabel(phase: IntegrationConnectionPhase): {
     case "partial":
       return { tone: "pending", label: "Needs attention" };
     case "configured":
-      return { tone: "ok", label: "Connected" };
+      return { tone: "ok", label: "Configured" };
     case "available_via_deployment":
       return { tone: "neutral", label: "Available via deployment" };
     default:

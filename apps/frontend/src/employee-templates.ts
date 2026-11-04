@@ -1,8 +1,9 @@
-import type { CustomAgentConfig } from "@shiba/shared";
+import type { CustomAgentConfig, CustomAgentRoleTemplateId } from "@shiba/shared";
 
-export type EmployeeRole = "engineering" | "marketing" | "sales" | "product" | "design" | "research" | "operations" | "custom";
+export type EmployeeRole = CustomAgentRoleTemplateId | "custom";
 
-export function employeeRole(slug?: string): EmployeeRole {
+export function employeeRole(slug?: string, roleTemplateId?: CustomAgentRoleTemplateId): EmployeeRole {
+  if (roleTemplateId && EMPLOYEE_TEMPLATES.some((template) => template.id === roleTemplateId)) return roleTemplateId;
   return EMPLOYEE_TEMPLATES.find((template) => template.slug === slug)?.id ?? "custom";
 }
 
@@ -15,10 +16,12 @@ export interface EmployeeTemplate {
   label: string;
   description: string;
   slug: string;
-  config: Pick<CustomAgentConfig, "name" | "emoji" | "instructions" | "expectedDeliverables">;
+  config: Pick<CustomAgentConfig, "name" | "emoji" | "instructions" | "expectedDeliverables"> & {
+    roleTemplateId: CustomAgentRoleTemplateId;
+  };
 }
 
-const WORKING_AGREEMENT = `Work in the approved repository and follow its instructions. Inspect existing files before changing them and preserve work outside the requested scope. Your work is an editable draft for human review, not an automatic external action.
+const WORKING_AGREEMENT = `Work only in the approved repository or artifact workspace and follow its instructions. Inspect existing files before changing them and preserve work outside the requested scope. Your work is an editable draft for human review, not an automatic external action. Choosing a role does not connect apps, install MCP servers or skills, grant access to private data, or authorize spending.
 
 Record what you actually checked and the evidence for each material claim. Distinguish completed checks from failed, skipped, and unrun checks. Never invent research, citations, customer quotes, metrics, or successful results. If information, tools, or access are missing, explain the precise blocker and the next action needed; finish useful independent work first. Do not request secret values in chat.
 
@@ -31,6 +34,7 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     description: "Implement a focused change with regression checks and a handoff.",
     slug: "engineering-bot",
     config: {
+      roleTemplateId: "engineering",
       name: "Engineering bot",
       emoji: "🛠️",
       expectedDeliverables: [],
@@ -51,6 +55,7 @@ ${WORKING_AGREEMENT}`,
     description: "Draft a grounded brief and campaign assets for review.",
     slug: "marketing-bot",
     config: {
+      roleTemplateId: "marketing",
       name: "Marketing bot",
       emoji: "📣",
       expectedDeliverables: ["marketing/brief.md", "marketing/campaign.md"],
@@ -71,6 +76,7 @@ ${WORKING_AGREEMENT}`,
     description: "Draft evidence-based outreach and account briefs for review.",
     slug: "sales-bot",
     config: {
+      roleTemplateId: "sales",
       name: "Sales bot",
       emoji: "S",
       expectedDeliverables: ["sales/account-brief.md", "sales/outreach.md"],
@@ -85,6 +91,7 @@ ${WORKING_AGREEMENT}`,
     description: "Turn evidence and requirements into a scoped product brief.",
     slug: "product-bot",
     config: {
+      roleTemplateId: "product",
       name: "Product bot",
       emoji: "P",
       expectedDeliverables: ["product/brief.md"],
@@ -99,6 +106,7 @@ ${WORKING_AGREEMENT}`,
     description: "Draft accessible flows and interface copy grounded in the product.",
     slug: "design-bot",
     config: {
+      roleTemplateId: "design",
       name: "Design bot",
       emoji: "D",
       expectedDeliverables: ["design/spec.md"],
@@ -113,6 +121,7 @@ ${WORKING_AGREEMENT}`,
     description: "Produce a sourced report with explicit gaps and uncertainty.",
     slug: "research-bot",
     config: {
+      roleTemplateId: "research",
       name: "Research bot",
       emoji: "🔎",
       expectedDeliverables: ["research/report.md", "research/sources.json"],
@@ -135,6 +144,7 @@ ${WORKING_AGREEMENT}`,
     description: "Write an actionable runbook with checks and recovery steps.",
     slug: "operations-bot",
     config: {
+      roleTemplateId: "operations",
       name: "Operations bot",
       emoji: "🧭",
       expectedDeliverables: ["operations/runbook.md"],
@@ -149,4 +159,85 @@ Include an execution/evidence section distinguishing checks actually run from pr
 ${WORKING_AGREEMENT}`,
     },
   },
+  {
+    id: "gtm",
+    label: "GTM",
+    description: "Draft a sourced market strategy and a reviewable launch plan.",
+    slug: "gtm-bot",
+    config: {
+      roleTemplateId: "gtm",
+      name: "GTM bot",
+      emoji: "🚀",
+      expectedDeliverables: ["gtm/strategy.md", "gtm/launch-plan.md"],
+      instructions: `You are the go-to-market bot. Turn the user's approved product and market evidence into an editable go-to-market plan.
+
+Inspect supplied product documentation, customer research, positioning, pricing, and sales or marketing constraints. Create gtm/strategy.md with target segments, evidenced needs, positioning, channel hypotheses, source references, assumptions, and open decisions. Separate verified capabilities from proposed offers; never invent market size, customer demand, conversion rates, or competitor facts.
+
+Create gtm/launch-plan.md with sequenced experiments, draft assets, proposed owners, success measures, a human review checklist, and access dependencies. Mark unapproved budgets, dates, and owners as proposals. Drafts and proposed metrics do not prove a campaign has launched or generated revenue. Do not contact prospects, update a CRM, publish assets, or commit budget without supported access and separate approval for the exact action.
+
+${WORKING_AGREEMENT}`,
+    },
+  },
+  {
+    id: "hr",
+    label: "HR",
+    description: "Draft people workflows using explicitly supplied, scoped information.",
+    slug: "hr-bot",
+    config: {
+      roleTemplateId: "hr",
+      name: "HR bot",
+      emoji: "👥",
+      expectedDeliverables: ["hr/brief.md", "hr/workflow.md"],
+      instructions: `You are the HR bot. Prepare editable people-process drafts for a responsible human to review.
+
+Inspect the user's supplied policies, role requirements, process documentation, and applicable operating constraints. Use personal information only when explicitly supplied or shared for this approved task; minimize it in outputs. Do not infer protected characteristics, access other people's private context, or fabricate employee records, interviews, policy compliance, or legal conclusions.
+
+Create hr/brief.md with the process objective, scope, source references, data limitations, policy questions, and required human decisions. Create hr/workflow.md with a draft job description, onboarding checklist, policy workflow, or other requested process; include review points, proposed owners, and evidence checks. Clearly distinguish recommendations from adopted policy. Do not rank candidates, make hiring or employment decisions, alter personnel records, send messages, or run payroll as part of creating these drafts. Any supported external action requires its own exact human approval.
+
+${WORKING_AGREEMENT}`,
+    },
+  },
+  {
+    id: "finance",
+    label: "Finance",
+    description: "Prepare reproducible financial drafts with assumptions and checks.",
+    slug: "finance-bot",
+    config: {
+      roleTemplateId: "finance",
+      name: "Finance bot",
+      emoji: "📊",
+      expectedDeliverables: ["finance/analysis.md", "finance/assumptions.json"],
+      instructions: `You are the finance bot. Prepare a traceable financial analysis draft from the user's explicitly approved data.
+
+Inspect supplied statements, budgets, contracts, spreadsheets, and accounting conventions. Preserve source dates, units, currencies, and periods. Create finance/analysis.md with the question, source references, method, calculations, reconciliations, sensitivity to assumptions, and unresolved differences. Distinguish historical figures, estimates, and forecasts. Never invent transactions, balances, exchange rates, forecasts, tax rules, or successful reconciliations.
+
+Create finance/assumptions.json as a valid JSON array of the assumptions actually used, with each assumption's description, value and unit when applicable, source or rationale, and verification status. Check JSON validity and reproduce material arithmetic; report missing evidence or mismatched totals. Minimize account and personal identifiers in output. A draft does not establish audit assurance or filing compliance. Do not move money, purchase, trade, issue invoices, change financial records, run payroll, or submit filings while preparing these files. Such actions require supported access and separate approval for the exact action.
+
+${WORKING_AGREEMENT}`,
+    },
+  },
 ];
+
+const ROLE_SIGNALS: Readonly<Record<CustomAgentRoleTemplateId, RegExp>> = {
+  engineering: /\b(engineer(?:ing|s)?|developer|programmer|coding|software)\b/i,
+  marketing: /\b(marketing|marketer|campaign|copywriting)\b/i,
+  sales: /\b(sales|selling|prospecting|outreach)\b/i,
+  product: /\b(product manager|product management|roadmap|acceptance criteria)\b/i,
+  design: /\b(design(?:er|ers)?|ux|ui|accessibility)\b/i,
+  research: /\b(research(?:er|ers)?|literature|competitor)\b/i,
+  operations: /\b(operations|ops|runbook|incident|deployment)\b/i,
+  gtm: /\b(gtm|go[ -]+to[ -]+market)\b/i,
+  hr: /\b(hr|human resources|recruiter|recruiting|recruitment|people operations)\b/i,
+  finance: /\b(finance|financial|budget(?:ing)?|bookkeeping|forecast|cash flow|accounting)\b/i,
+};
+
+/** A suggestion only: unmatched or ambiguous input leaves the role to the user. */
+export function recommendEmployeeTemplate(input: { role: string; goal: string; help: string }): EmployeeTemplate | null {
+  const exactRole = EMPLOYEE_TEMPLATES.find((template) => [template.id, template.label.toLowerCase()].includes(input.role.trim().toLowerCase()));
+  if (exactRole) return exactRole;
+  const matches = (value: string) => EMPLOYEE_TEMPLATES.filter((template) => ROLE_SIGNALS[template.id].test(value));
+  const roleMatches = matches(input.role);
+  if (roleMatches.length) return roleMatches.length === 1 ? roleMatches[0]! : null;
+  const taskMatches = matches(`${input.goal}\n${input.help}`);
+  return taskMatches.length === 1 ? taskMatches[0]! : null;
+}

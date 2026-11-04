@@ -13,6 +13,7 @@ afterEach(() => {
 beforeEach(() => {
   extensionsApi.resetStubFixtures();
   extensionsApi.useStubs(true);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ connections: [], items: [], hasMore: false })));
 });
 
 const mockBindingInputs: IntegrationBindingInputs = {

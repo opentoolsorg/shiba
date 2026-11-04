@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleCollaboration } from "../src/collaboration-routes.js";
+import { addCollaborationMember, isCollaborationSlackRoomAudienceAuthorized } from "../src/collaboration-store.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
@@ -40,6 +41,10 @@ function fixture() {
   const env = {
     AGENT_AUDIT: database,
     SLACK_SIGNING_SECRET: SIGNING_SECRET,
+    SLACK_CANVAS_OWNERS: JSON.stringify([{
+      teamId: "T123", channelId: "C123", ownerId: "owner@example.test",
+      viewerIds: ["member@example.test", "author@example.test", "approver@example.test"],
+    }]),
   } as unknown as Env;
   const send = (
     path: string,
@@ -133,6 +138,150 @@ beforeEach(() => {
 });
 
 describe("signed Slack continuity through persistent collaboration rooms", () => {
+  it("does not let a second room owner discover or link another owner's observed private Slack source", async () => {
+    const f = fixture();
+    await dispatchSignedEvent(f, event("EvPrivateSource"));
+    authState.userId = "other-owner@example.test";
+    const { room } = await json<{ room: { roomId: string } }>(
+      await f.send("/rooms", "POST", { title: "Other owner's room" }),
+    );
+    const detail = await json<{ slackSources: unknown[] }>(await f.send(`/rooms/${room.roomId}`));
+    expect(detail.slackSources).toEqual([]);
+    expect((await f.send(`/rooms/${room.roomId}/slack-links`, "POST", {
+      teamId: "T123", channelId: "C123", threadTs: "1710000000.000100",
+    }))?.status).toBe(409);
+    await dispatchSignedEvent(f, event("EvPrivateReply", {
+      type: "message", thread_ts: "1710000000.000100", ts: "1710000001.000200", text: "Private source content",
+    }));
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_messages").get()?.count).toBe(0);
+  });
+
+  it("requires an exact configured Slack owner and a permitted room audience before linking", async () => {
+    const f = fixture();
+    const { room } = await json<{ room: { roomId: string } }>(
+      await f.send("/rooms", "POST", { title: "Audience fence" }),
+    );
+    await dispatchSignedEvent(f, event("EvAudienceRoot"));
+    const policy = f.env.SLACK_CANVAS_OWNERS;
+    for (const invalid of [undefined, "[]", "not json", JSON.stringify([
+      { teamId: "T999", channelId: "C123", ownerId: "owner@example.test" },
+    ]), JSON.stringify([
+      { teamId: "T123", channelId: "C999", ownerId: "owner@example.test" },
+    ])]) {
+      f.env.SLACK_CANVAS_OWNERS = invalid;
+      expect((await json<{ slackSources: unknown[] }>(await f.send(`/rooms/${room.roomId}`))).slackSources).toEqual([]);
+      expect((await f.send(`/rooms/${room.roomId}/slack-links`, "POST", {
+        teamId: "T123", channelId: "C123", threadTs: "1710000000.000100",
+      }))?.status).toBe(409);
+    }
+    f.env.SLACK_CANVAS_OWNERS = policy;
+    expect((await f.send(`/rooms/${room.roomId}/members`, "POST", { userId: "ungranted@example.test" }))?.status).toBe(201);
+    expect((await json<{ slackSources: unknown[] }>(await f.send(`/rooms/${room.roomId}`))).slackSources).toEqual([]);
+    expect((await f.send(`/rooms/${room.roomId}/slack-links`, "POST", {
+      teamId: "T123", channelId: "C123", threadTs: "1710000000.000100",
+    }))?.status).toBe(409);
+  });
+
+  it("shares two signed human replies only with the permitted room and keeps the retained audience after revocation", async () => {
+    const f = fixture();
+    const { room } = await json<{ room: { roomId: string } }>(
+      await f.send("/rooms", "POST", { title: "Two Slack humans" }),
+    );
+    await f.send(`/rooms/${room.roomId}/members`, "POST", { userId: "member@example.test" });
+    await dispatchSignedEvent(f, event("EvTwoHumansRoot"));
+    const { link } = await json<{ link: { linkId: string } }>(await f.send(`/rooms/${room.roomId}/slack-links`, "POST", {
+      teamId: "T123", channelId: "C123", threadTs: "1710000000.000100",
+    }));
+    const replies = [event("EvHumanOne", {
+      type: "message", user: "U123", thread_ts: "1710000000.000100", ts: "1710000001.000200", text: "First human context",
+    }), event("EvHumanTwo", {
+      type: "message", user: "U456", thread_ts: "1710000000.000100", ts: "1710000002.000300", text: "Second human context",
+    })];
+    for (const reply of replies) await dispatchSignedEvent(f, reply);
+    clearSeenSlackEvents();
+    await dispatchSignedEvent(f, replies[1]);
+    authState.userId = "member@example.test";
+    const detail = await json<{ messages: Array<{ body: string; sourceSlackUserId: string }> }>(await f.send(`/rooms/${room.roomId}`));
+    expect(detail.messages.map(({ body, sourceSlackUserId }) => ({ body, sourceSlackUserId }))).toEqual([
+      { body: "First human context", sourceSlackUserId: "U123" },
+      { body: "Second human context", sourceSlackUserId: "U456" },
+    ]);
+    const scope = { tenantId: "self-hosted", workspaceId: "default", userId: "owner@example.test" };
+    expect(await isCollaborationSlackRoomAudienceAuthorized(f.env, scope, room.roomId)).toBe(true);
+    expect(await isCollaborationSlackRoomAudienceAuthorized(f.env, scope, room.roomId, "ungranted@example.test")).toBe(false);
+    authState.userId = "owner@example.test";
+    await f.send(`/rooms/${room.roomId}/slack-links/${link.linkId}`, "DELETE");
+    expect(await isCollaborationSlackRoomAudienceAuthorized(f.env, scope, room.roomId, "ungranted@example.test")).toBe(false);
+    f.env.SLACK_CANVAS_OWNERS = "[]";
+    expect(await isCollaborationSlackRoomAudienceAuthorized(f.env, scope, room.roomId)).toBe(false);
+    await dispatchSignedEvent(f, event("EvAfterPolicyRevocation", {
+      type: "message", thread_ts: "1710000000.000100", ts: "1710000003.000400", text: "Must not enter the room",
+    }));
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM collaboration_messages").get()?.count).toBe(2);
+  });
+
+  it("fences both serial orders of a racing Slack link and room-reader addition inside SQL", async () => {
+    const f = fixture();
+    const scope = { tenantId: "self-hosted", workspaceId: "default", userId: "owner@example.test" };
+    const { room } = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Link wins the race" }));
+    await dispatchSignedEvent(f, event("EvRaceLinkRoot"));
+    // Simulate an invite handler that completed its preflight before another
+    // request linked the Slack thread. The mutation must reject the stale grant.
+    expect(await isCollaborationSlackRoomAudienceAuthorized(f.env, scope, room.roomId, "ungranted@example.test")).toBe(true);
+    const { link } = await json<{ link: { linkId: string } }>(await f.send(`/rooms/${room.roomId}/slack-links`, "POST", {
+      teamId: "T123", channelId: "C123", threadTs: "1710000000.000100",
+    }));
+    const reader = {
+      userId: "ungranted@example.test", displayName: "Unpermitted reader",
+      actorId: "human:ungranted@example.test", kind: "human" as const, createdAt: Date.now(),
+    };
+    expect(await addCollaborationMember(f.env, scope, room.roomId, reader)).toBe(false);
+    expect(await addCollaborationMember(f.env, scope, room.roomId, {
+      ...reader, actorId: "agent:unpermitted-owner", kind: "agent", profileVersion: 1,
+    })).toBe(false);
+    await f.send(`/rooms/${room.roomId}/slack-links/${link.linkId}`, "DELETE");
+    expect(await addCollaborationMember(f.env, scope, room.roomId, reader)).toBe(false);
+
+    const other = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Invite wins the race" }));
+    await dispatchSignedEvent(f, event("EvRaceInviteRoot", { ts: "1710000010.001000" }));
+    // The link's observed source was valid before the competing invite committed.
+    expect((await json<{ slackSources: unknown[] }>(await f.send(`/rooms/${other.room.roomId}`))).slackSources.length).toBeGreaterThan(0);
+    expect(await addCollaborationMember(f.env, scope, other.room.roomId, reader)).toBe(true);
+    expect((await f.send(`/rooms/${other.room.roomId}/slack-links`, "POST", {
+      teamId: "T123", channelId: "C123", threadTs: "1710000010.001000",
+    }))?.status).toBe(409);
+  });
+
+  it("rechecks the Slack origin policy after installation verification before any outbound post", async () => {
+    const f = fixture();
+    const { room } = await json<{ room: { roomId: string } }>(await f.send("/rooms", "POST", { title: "Revoked origin" }));
+    await dispatchSignedEvent(f, event("EvPolicyOutboxRoot"));
+    const { link } = await json<{ link: { linkId: string } }>(await f.send(`/rooms/${room.roomId}/slack-links`, "POST", {
+      teamId: "T123", channelId: "C123", threadTs: "1710000000.000100",
+    }));
+    const { message } = await json<{ message: { messageId: string } }>(await f.send(`/rooms/${room.roomId}/messages`, "POST", { body: "Frozen authorized reply" }));
+    f.env.SLACK_BOT_TOKEN = "xoxb-test-mock-only";
+    f.env.SLACK_APPROVALS_CHANNEL = "C123";
+    f.env.SLACK_ROOM_OUTBOX_ENABLED = "true";
+    f.env.DASHBOARD_APPROVERS = "owner@example.test";
+    const { intent } = await json<{ intent: { intentId: string } }>(await f.send(
+      `/rooms/${room.roomId}/messages/${message.messageId}/slack-delivery`, "POST", { linkId: link.linkId },
+    ));
+    const postMessage = vi.fn(async () => ({ channel: "C123", ts: "must-not-post" }));
+    await f.send(`/rooms/${room.roomId}/slack-delivery/${intent.intentId}/approve`, "POST", {}, {
+      slackOutbox: {
+        verifyInstallation: async () => {
+          f.env.SLACK_CANVAS_OWNERS = "[]";
+          return { teamId: "T123", userId: "W123", botId: "B123" };
+        },
+        postMessage,
+      },
+    });
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(f.sqlite.prepare("SELECT status,delivery_status FROM collaboration_slack_delivery_intents").get())
+      .toEqual({ status: "blocked", delivery_status: "blocked" });
+  });
+
   it("runs the production Worker signed-event callback and durable seenDelivery fence", async () => {
     const f = fixture();
     const durableKeys = new Set<string>();

@@ -42,7 +42,7 @@ async function stableClientMsgId(intentId: string): Promise<string> {
  * network timeout. A stable client_msg_id is included as an extra dedupe aid.
  */
 export async function deliverApprovedSlackRoomIntent(
-  env: Pick<Env, "AGENT_AUDIT" | "SLACK_BOT_TOKEN" | "SLACK_APPROVALS_CHANNEL" | "SLACK_ROOM_OUTBOX_ENABLED" | "DASHBOARD_APPROVERS">,
+  env: Pick<Env, "AGENT_AUDIT" | "SLACK_CANVAS_OWNERS" | "SLACK_BOT_TOKEN" | "SLACK_APPROVALS_CHANNEL" | "SLACK_ROOM_OUTBOX_ENABLED" | "DASHBOARD_APPROVERS">,
   scope: CollaborationScope,
   roomId: string,
   intentId: string,
