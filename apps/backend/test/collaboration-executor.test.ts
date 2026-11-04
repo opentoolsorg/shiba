@@ -15,6 +15,10 @@ describe("server-only collaboration executor addresses", () => {
     expect(parsed?.sessionId).not.toBe("default");
     expect(Object.keys(parsed!)).toEqual(["agentName", "ownerId", "sessionId"]);
   });
+  it.each([...Array.from({ length: 33 }, (_, index) => index), 127])("rejects control/space character %i in an otherwise matching owner", (code) => {
+    const invalidOwner = `own${String.fromCharCode(code)}er@example.test`;
+    expect(() => mintCollaborationExecutor({ ...scope, userId: invalidOwner }, invalidOwner)).toThrow("Invalid collaboration executor");
+  });
   it("preserves only the existing own-base executor in the legacy default workspace", () => {
     const legacy = { ...scope, workspaceId: "default" };
     expect(mintCollaborationExecutor(legacy, rawOwner)).toBe(rawOwner);
