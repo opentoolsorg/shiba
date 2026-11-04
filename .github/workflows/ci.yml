@@ -54,7 +54,11 @@ jobs:
       - run: pnpm check:deploy
       - run: cp .env.example .env
       - run: node scripts/check-dev-vars-example.mjs
-      - run: pnpm env:load && pnpm env:scan
+      - name: Validate example environment with a synthetic account
+        # Schema checks use no Cloudflare credentials or deployment command.
+        env:
+          CLOUDFLARE_ACCOUNT_ID: '00000000000000000000000000000000'
+        run: pnpm env:load && pnpm env:scan
 
     timeout-minutes: 30
   verify-shiba:
@@ -123,6 +127,11 @@ jobs:
             .verify/employee-ci-*/result.json
             .verify/wrangler.log
             .verify/migrate.log
+            !.verify/**/auth.json
+            !.verify/**/run.env*
+            !.verify/**/worker.env
+            !.verify/**/state/**
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 3
 concurrency:

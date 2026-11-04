@@ -2,9 +2,8 @@
 # The "-opencode" variant ships the sandbox container server plus git,
 # node, and miscellaneous dev tools. Harness CLIs are pinned on top so the
 # exact versions are deterministic regardless of what the base image baked in.
-# The @sha256 digest pins the multi-arch manifest list (amd64+arm64) fetched
-# via the Docker Registry v2 manifest API — pull-by-tag retag attacks can't
-# move it.
+# The @sha256 digest pins the linux/amd64 image manifest verified through
+# the Docker Registry v2 API. Later tag changes cannot move it.
 FROM docker.io/cloudflare/sandbox:0.12.9-opencode@sha256:7b84b0163bd93f090504daf2f8e33d74a219a90774802f028adbb5b9de8107b5
 
 COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim

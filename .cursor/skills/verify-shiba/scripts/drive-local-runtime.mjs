@@ -16,14 +16,9 @@ import {spawn, execFile} from 'node:child_process';
 import {mkdirSync, writeFileSync} from 'node:fs';
 import {promisify} from 'node:util';
 import {createHash} from 'node:crypto';
-import {createRequire} from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-// Reuse the repository's existing Playwright Core dependency from the desktop
-// workspace. The fixture supplies its own installed Chromium executable, so
-// it does not need Playwright's browser-download package.
-const desktopRequire=createRequire(new URL('../../../../apps/desktop/package.json',import.meta.url));
-const {chromium}=desktopRequire('playwright-core');
+import {chromium} from 'playwright';
 import {launchLifecycleTarget} from './lifecycle-target.mjs';
 import {selectRepositoryTask} from './composer-target.mjs';
 import {fixtureAuthRequest} from './run-employee-ci.mjs';

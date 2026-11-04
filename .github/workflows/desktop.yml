@@ -70,6 +70,11 @@ jobs:
             .verify/employee-ci-*/migrate.log
             .verify/employee-ci-*/result.json
             .verify/evidence/**
+            !.verify/**/auth.json
+            !.verify/**/run.env*
+            !.verify/**/worker.env
+            !.verify/**/state/**
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 3
     concurrency:

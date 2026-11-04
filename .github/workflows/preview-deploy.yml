@@ -1,6 +1,6 @@
 name: Preview deploy (alchemy, pr-<n> stage)
 
-# Labeled same-repo PRs get an isolated
+# The preview:deploy label on a same-repo PR starts an isolated
 # ALCHEMY_STAGE=pr-<n> deploy (worker/stores suffixed by alchemy.run.ts) and a
 # comment with its workers.dev URL. Fork PRs skip (no secrets + no trust);
 # the close job destroys the stage when the PR merges or closes.
@@ -15,7 +15,7 @@ permissions:
   contents: read
 jobs:
   deploy-preview:
-    if: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' && github.event.pull_request.state == 'open' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'preview:deploy' && github.event.pull_request.state == 'open' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     env:
       STAGE: pr-${{ github.event.pull_request.number }}
