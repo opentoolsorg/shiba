@@ -172,6 +172,15 @@ Record the account, exact action, success/error, cleanup and cross-user denial
 without recording credential values. This document does not claim those live
 vendor checks have passed.
 
+The [November 4 browser acceptance](verification/integrations-local-browser-20261104.md)
+records ten actual local Worker/dashboard journeys and twelve separate responsive
+component checks, including before/after mobile screenshots. The OpenConnector
+HTTP service was a synthetic fixture; remote MCP success and vendor actions were
+not exercised. Reports retain expected HTTP failures and SDK navigation warnings.
+The [preview observation](verification/preview-auth-reexposure-20261104.json)
+separately records the deployed anonymous default identity after external operator
+changes; the branch's static-only authentication protection is not deployed there.
+
 ## Consent and dispatch limits
 
 OpenConnector OAuth accounts use an opaque Shiba connection identifier derived from the owned record and completed OAuth authorization provenance. A fresh consent changes that identifier; old grants and approvals fail current-connection checks. Token refresh within the same consent retains it. Configured legacy/API-key records without that provenance remain visible for recovery but are unavailable for employee execution. A connection is not executable merely because it is stored.

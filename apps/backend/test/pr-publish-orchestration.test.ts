@@ -14,6 +14,7 @@ vi.mock("../src/pr-publish-approval.js", async (importOriginal) => ({
 }));
 vi.mock("@cloudflare/think", () => ({ Think: class {
   messages?: UIMessage[];
+  ctx?: { waitUntil(promise: Promise<unknown>): void };
   async addMessages(messages: UIMessage[], options?: { mode?: string }) {
     await mocks.contextAppend(messages, options);
     const ids = new Set(messages.map((message) => message.id));
@@ -26,7 +27,11 @@ vi.mock("@cloudflare/think", () => ({ Think: class {
   onStart() {}
   getTools() { return {}; }
   onRequest() { return new Response(null, { status: 404 }); }
-  keepAliveWhile(fn: () => Promise<unknown>) { return fn(); }
+  keepAliveWhile(fn: () => Promise<unknown>) {
+    const pending = fn();
+    this.ctx?.waitUntil(pending);
+    return pending;
+  }
   schedule() { return Promise.resolve({}); }
 } }));
 vi.mock("agents/agent-tools", () => ({ agentTool: (cls: { name: string }) => ({ execute: cls.name === "ReviewerAgent" ? mocks.specialist : mocks.child }) }));
@@ -91,6 +96,17 @@ function publication(instance: CodingOrchestrator): PendingApproval | undefined 
   return instance.state.pendingApprovals?.find((approval) => approval.kind === "pr_publish");
 }
 
+async function drainHeldWork(held: Promise<unknown>[]): Promise<void> {
+  // Dispatch may register more lifecycle work as it settles. Observe that work
+  // before resetting the next test's mocks instead of racing a polling timer.
+  let cursor = 0;
+  while (cursor < held.length) {
+    const batch = held.slice(cursor);
+    cursor = held.length;
+    await Promise.all(batch);
+  }
+}
+
 function decide(instance: CodingOrchestrator, record: PendingApproval, decidedBy = REVIEWER, principal?: string) {
   return instance.onRequest(post("/api/approvals", {
     threadKey: record.threadKey, approvalId: record.approvalId, approved: true, decidedBy,
@@ -129,9 +145,10 @@ async function completeRun(
   expect(mocks.publish).not.toHaveBeenCalled();
   expect((await decide(context.instance, initial)).status).toBe(200);
   const runId = `agent-tool:${approvalId}`;
-  await vi.waitFor(() => expect(context.instance.state.runs.find((run) => run.runId === runId)?.status).toMatch(/completed|error|cancelled|unknown/));
+  await drainHeldWork(context.held);
+  expect(context.instance.state.runs.find((run) => run.runId === runId)?.status).toMatch(/completed|error|cancelled|unknown/);
   await (context.instance as unknown as { reviewPublication(runId: string): Promise<void> }).reviewPublication(runId);
-  await Promise.all(context.held);
+  await drainHeldWork(context.held);
   if (!capturedInput || !createdProposal) throw new Error("Expected an isolated child result and a publication proposal.");
   return { ...context, runId, input: capturedInput, proposal: createdProposal };
 }
