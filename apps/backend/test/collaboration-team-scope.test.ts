@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleCollaboration } from "../src/collaboration-routes.js";
+import { queueCollaborationRun } from "../src/runs-routes.js";
 import {
   addCollaborationMember,
   collaborationEmployeeOrgId,
@@ -129,6 +130,23 @@ async function requestEmployee(
 }
 
 describe("explicit team collaboration scope", () => {
+  it("does not treat deployment operator pairing as a team local artifact grant", async () => {
+    const f = await fixture();
+    const roomId = await f.createRoom();
+    const profile = await addEmployee(f, roomId);
+    vi.mocked(queueCollaborationRun).mockClear();
+    const response = await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+      handoffId: "team-local-artifact", taskId: "team-artifact",
+      recipientActorId: `agent:${profile.id}`, task: "Draft a local brief.",
+      runtime: "local", targetMachineId: "operator-computer",
+      executionTarget: { kind: "artifact-workspace", expectedDeliverables: ["brief.md"] },
+    });
+    expect(response?.status).toBe(403);
+    expect(await body(response)).toMatchObject({ error: expect.stringContaining("Operator pairing does not authorize") });
+    expect(queueCollaborationRun).not.toHaveBeenCalled();
+    expect((await getCollaborationHandoff(f.env, f.scope, "team-local-artifact"))?.status).toBe("cancelled");
+  });
+
   it("keeps personal rooms separate while two current workspace members share attributed messages and notes", async () => {
     const f = await fixture();
     const roomId = await f.createRoom();
