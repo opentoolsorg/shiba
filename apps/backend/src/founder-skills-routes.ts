@@ -3,7 +3,8 @@ import {
   listFounderSkillLibrary,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
-import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
+import { skillTeamGrant, withCurrentSkillAuthority } from "./team-skill-authority.js";
 import { resolveUserId } from "./request-auth.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import { methodNotAllowed } from "./route-utils.js";
@@ -15,18 +16,23 @@ import { founderSkillSetup, FOUNDER_SKILL_LIBRARY_VERSION } from "./founder-skil
 const automationsPath = /^\/api\/founder-skills(?:\/([^/]+)(?:\/(install|deploy|setup))?)?\/?$/;
 
 export async function handleFounderSkills(request: Request, env: Env): Promise<Response | null> {
+  if (!new URL(request.url).pathname.startsWith("/api/founder-skills")) return null;
+  const auth = await resolveOrgForApiRequest(request, env);
+  if (auth instanceof Response) return auth;
+  return withCurrentSkillAuthority(request, env, auth, () => handleFounderRoutes(request, env, auth));
+}
+
+async function handleFounderRoutes(request: Request, env: Env, auth: ResolvedOrgAuth): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/founder-skills")) return null;
   const match = url.pathname.match(automationsPath);
   if (!match) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
 
-  const auth = await resolveOrgForApiRequest(request, env);
-  if (auth instanceof Response) return auth;
   const isRead = request.method === "GET";
   if (auth.principal) {
     if (isRead ? !requireV1Read(auth.principal) : !requireV1Write(auth.principal)) return v1Forbidden();
   }
-  const ownerId = auth.principal?.principal ?? await resolveUserId(request, env);
+  const ownerId = auth.workspace?.userId ?? auth.principal?.principal ?? await resolveUserId(request, env);
   if (!ownerId) return Response.json({ ok: false, error: "authentication_required" }, { status: 401 });
 
   let skillId: string | null;
@@ -70,7 +76,7 @@ export async function handleFounderSkills(request: Request, env: Env): Promise<R
       name: entry.name,
       instructions: entry.instructions,
       sourceUrl: entry.sourceUrl,
-    });
+    }, { teamGrant: skillTeamGrant(auth) });
     const skill = await getSkill(env, auth.orgId, ownerId, result.skillId);
     if (!skill) return Response.json({ ok: false, error: "skill_install_conflict" }, { status: 409 });
     return Response.json({

@@ -1,5 +1,6 @@
 import type { AuditEnv } from "./audit.js";
 import { initAudit } from "./audit.js";
+import { teamSkillWriteGuard, type SkillMutationOptions } from "./team-skill-grant.js";
 
 export interface SkillInstallRow {
   orgId: string;
@@ -71,25 +72,28 @@ export async function recordSkillInstall(
   env: AuditEnv,
   row: SkillInstallRow,
   previousSkillId?: string,
+  options: SkillMutationOptions = {},
 ): Promise<boolean> {
   await ensureTables(env);
+  const guard = teamSkillWriteGuard(row.orgId, row.installedBy, options.teamGrant);
   const result = previousSkillId === undefined
     ? await env.AGENT_AUDIT.prepare(
       `INSERT INTO skill_installs (org_id, library_slug, library_version, skill_id, installed_by, installed_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+       SELECT ?, ?, ?, ?, ?, ? WHERE 1 = 1${guard.sql}
        ON CONFLICT(org_id, installed_by, library_slug) DO NOTHING`,
-    ).bind(row.orgId, row.librarySlug, row.libraryVersion, row.skillId, row.installedBy, row.installedAt).run()
+    ).bind(row.orgId, row.librarySlug, row.libraryVersion, row.skillId, row.installedBy, row.installedAt, ...guard.values).run()
     : await env.AGENT_AUDIT.prepare(
       `UPDATE skill_installs SET library_version = ?, skill_id = ?, installed_at = ?
-       WHERE org_id = ? AND installed_by = ? AND library_slug = ? AND skill_id = ?`,
-    ).bind(row.libraryVersion, row.skillId, row.installedAt, row.orgId, row.installedBy, row.librarySlug, previousSkillId).run();
+       WHERE org_id = ? AND installed_by = ? AND library_slug = ? AND skill_id = ?${guard.sql}`,
+    ).bind(row.libraryVersion, row.skillId, row.installedAt, row.orgId, row.installedBy, row.librarySlug, previousSkillId, ...guard.values).run();
   return result.meta.changes === 1;
 }
 
-export async function deleteSkillInstall(env: AuditEnv, orgId: string, ownerId: string, slug: string): Promise<boolean> {
+export async function deleteSkillInstall(env: AuditEnv, orgId: string, ownerId: string, slug: string, options: SkillMutationOptions = {}): Promise<boolean> {
   await ensureTables(env);
+  const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
   const result = await env.AGENT_AUDIT.prepare(
-    "DELETE FROM skill_installs WHERE org_id = ? AND installed_by = ? AND library_slug = ?",
-  ).bind(orgId, ownerId, slug).run();
+    `DELETE FROM skill_installs WHERE org_id = ? AND installed_by = ? AND library_slug = ?${guard.sql}`,
+  ).bind(orgId, ownerId, slug, ...guard.values).run();
   return result.meta.changes === 1;
 }

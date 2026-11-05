@@ -1,7 +1,7 @@
 /** Authenticated, versioned skill library. Source URLs are provenance only. */
 import { useEffect, useEffectEvent, useRef, useState, type JSX } from "react";
 import { teamWorkspaceHeaders, TeamWorkspaceRequestError } from "../team-workspaces-client";
-import type { SavedSkill } from "../saved";
+import type { LibrarySkillCard, SavedSkill } from "../saved";
 import { SkillLibraryCards } from "./SkillLibraryCards";
 import {
   activateSkill,
@@ -21,10 +21,15 @@ import { ExtensionSkillsView } from "./ExtensionSkillsView";
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors";
 
-export function SkillsView({ embedded = false, workspaceId, actorId }: { embedded?: boolean; workspaceId?: string; actorId?: string | null } = {}): JSX.Element {
+export function SkillsView({ embedded = false, workspaceId, actorId, workspaceRole }: { embedded?: boolean; workspaceId?: string; actorId?: string | null; workspaceRole?: "owner" | "admin" | "member" } = {}): JSX.Element {
   const scope = `${actorId ?? ""}\0${workspaceId ?? ""}`;
   const current = useRef(scope); current.current = scope;
-  return workspaceId ? <TeamSkillReview key={scope} workspaceId={workspaceId} isCurrent={() => current.current === scope} /> : <PersonalSkillsView key={scope} embedded={embedded} />;
+  return workspaceId ? <TeamSkillsSurface key={scope} workspaceId={workspaceId} isCurrent={() => current.current === scope} canManage={workspaceRole === "owner" || workspaceRole === "admin"} /> : <PersonalSkillsView key={scope} embedded={embedded} />;
+}
+
+function TeamSkillsSurface({ workspaceId, isCurrent, canManage }: { workspaceId: string; isCurrent: () => boolean; canManage: boolean }): JSX.Element {
+  const [surface, setSurface] = useState<"run" | "extensions">("run");
+  return <div className="flex h-full min-h-0 flex-1 flex-col"><nav aria-label="Team skill types" className="flex flex-wrap gap-2 border-b border-[var(--line)] p-3"><button type="button" aria-pressed={surface === "run"} className={TEAM_CONTROL} onClick={() => setSurface("run")}>Run-attached skills</button><button type="button" aria-pressed={surface === "extensions"} className={TEAM_CONTROL} onClick={() => setSurface("extensions")}>Team instruction skills</button></nav>{surface === "run" ? <TeamSkillReview workspaceId={workspaceId} isCurrent={isCurrent} canManage={canManage} /> : <ExtensionSkillsView workspaceId={workspaceId} canManage={canManage} />}</div>;
 }
 
 function PersonalSkillsView({ embedded }: { embedded: boolean }): JSX.Element {
@@ -43,7 +48,7 @@ const TEAM_CONTROL = "min-h-11 border border-[var(--line)] bg-[var(--card)] px-3
 const TEAM_FIELD = "min-h-11 w-full border border-[var(--input-line)] bg-[var(--paper)] px-3 py-2 text-sm text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]";
 
 /** Team drafts never enter the legacy module-global personal skill cache. */
-function TeamSkillReview({ workspaceId, isCurrent }: { workspaceId: string; isCurrent: () => boolean }): JSX.Element {
+function TeamSkillReview({ workspaceId, isCurrent, canManage }: { workspaceId: string; isCurrent: () => boolean; canManage: boolean }): JSX.Element {
   const [skills, setSkills] = useState<SavedSkill[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +58,8 @@ function TeamSkillReview({ workspaceId, isCurrent }: { workspaceId: string; isCu
   const pending = useRef(false);
   const [name, setName] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [editing, setEditing] = useState<SavedSkill | null>(null);
+  const [library, setLibrary] = useState<LibrarySkillCard[] | null>(null);
   const draftRevision = useRef(0);
   const [history, setHistory] = useState<{ id: string; versions: TeamSkillVersion[] } | null>(null);
   const historyEpoch = useRef(0);
@@ -99,13 +106,13 @@ function TeamSkillReview({ workspaceId, isCurrent }: { workspaceId: string; isCu
     catch (cause) {
       if (active()) {
         setHistory(null);
-        if (cause instanceof TeamWorkspaceRequestError && [401, 403, 404].includes(cause.status)) { setSkills([]); setCursor(null); setName(""); setInstructions(""); }
+        if (cause instanceof TeamWorkspaceRequestError && [401, 403, 404].includes(cause.status)) { setSkills([]); setCursor(null); setLibrary(null); setEditing(null); setName(""); setInstructions(""); }
         setError(cause instanceof Error ? cause.message : "Skill update failed.");
       }
     } finally { if (active()) { pending.current = false; setBusy(false); setLoading(false); } }
   };
   const changeStatus = (skill: SavedSkill, action: "review" | "activate" | "disable") => {
-    if (!skill.owned) return;
+    if (!canManage || !skill.owned) return;
     void perform(async () => {
       const body = await request<{ skill?: SavedSkill }>(`/api/skills/${encodeURIComponent(skill.id)}/${action}`, "POST", action === "disable" ? undefined : { version: skill.version, reviewedInstructions: skill.instructions });
       if (!active()) return;
@@ -115,17 +122,32 @@ function TeamSkillReview({ workspaceId, isCurrent }: { workspaceId: string; isCu
     });
   };
   const save = () => {
-    if (!name.trim() || !instructions.trim()) return;
+    if (!canManage || !name.trim() || !instructions.trim()) return;
     const revision = draftRevision.current;
     void perform(async () => {
-      const body = await request<{ skill: SavedSkill }>("/api/skills", "POST", { name: name.trim(), instructions: instructions.trim() });
+      const body = await request<{ skill: SavedSkill }>(editing ? `/api/skills/${encodeURIComponent(editing.id)}` : "/api/skills", editing ? "PATCH" : "POST", {
+        name: name.trim(), instructions: instructions.trim(),
+        ...(editing ? { expectedVersion: editing.version, ...(editing.sourceUrl ? { sourceUrl: editing.sourceUrl } : {}) } : {}),
+      });
       if (!active()) return;
       if (!body.skill?.id || body.skill.status !== "draft") throw new Error("A draft skill could not be verified. Refresh before continuing.");
-      setSkills((previous) => [...previous, body.skill]);
-      if (revision === draftRevision.current) { setName(""); setInstructions(""); }
+      setSkills((previous) => editing ? previous.map((skill) => skill.id === body.skill.id ? body.skill : skill) : [...previous, body.skill]);
+      if (revision === draftRevision.current) { setEditing(null); setName(""); setInstructions(""); }
       setNotice("Draft saved in this workspace. Review its instructions before activation.");
     });
   };
+  const browseLibrary = () => { void perform(async () => {
+    const body = await request<{ skills: LibrarySkillCard[] }>("/api/skills/library");
+    if (!Array.isArray(body.skills)) throw new Error("Skill library unavailable.");
+    if (active()) setLibrary(body.skills);
+  }); };
+  const installTemplate = (slug: string) => { void perform(async () => {
+    const body = await request<{ skill?: { status: string } }>(`/api/skills/library/${encodeURIComponent(slug)}/install`, "POST");
+    if (body.skill?.status !== "draft") throw new Error("The installed skill must be reviewed in Saved skills before use.");
+    await load();
+    const refreshed = await request<{ skills: LibrarySkillCard[] }>("/api/skills/library");
+    if (active()) { setLibrary(refreshed.skills); setNotice("Template installed as a team draft. Review and activate it separately."); }
+  }); };
   const versions = (skill: SavedSkill) => {
     if (pending.current) return;
     if (history?.id === skill.id) { historyEpoch.current++; setHistory(null); return; }
@@ -142,11 +164,12 @@ function TeamSkillReview({ workspaceId, isCurrent }: { workspaceId: string; isCu
     <header className="border-b border-[var(--line)] p-4 sm:px-7"><p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-2)]">Workspace instructions · deliberate activation</p><h2 className="mt-1 text-xl">Team run-attached skills</h2><p className="mt-2 max-w-3xl text-sm text-[var(--ink-2)]">Review imported employee bundle drafts here. These records stay in the selected team workspace; they are not your personal skill library. Only the skill owner can review, activate or disable it. Activation grants no app access and starts no work.</p></header>
     <div className="mx-auto grid w-full max-w-4xl gap-4 p-4 sm:p-7">
       {error && <p role="alert" className="border border-[var(--danger)] p-3 text-sm text-[var(--danger)]">{error}</p>}{notice && <p role="status" className="border border-[var(--line)] p-3 text-sm">{notice}</p>}
-      <div className="border border-[var(--line)] bg-[var(--card)] p-4"><h3 className="text-lg">Add a team draft</h3><label className="mt-3 block text-xs">Skill name<input className={`${TEAM_FIELD} mt-1`} value={name} maxLength={100} onChange={(event) => { draftRevision.current++; setName(event.target.value); }} /></label><label className="mt-3 block text-xs">Skill instructions<textarea className={`${TEAM_FIELD} mt-1 min-h-28`} value={instructions} maxLength={16000} onChange={(event) => { draftRevision.current++; setInstructions(event.target.value); }} /></label><button type="button" className={`${TEAM_CONTROL} mt-3`} disabled={busy || !name.trim() || !instructions.trim()} onClick={save}>Save draft</button></div>
+      <div className="border border-[var(--line)] bg-[var(--card)] p-4"><h3 className="text-lg">{editing ? `Edit version ${editing.version}` : "Add a team draft"}</h3><label className="mt-3 block text-xs">Skill name<input className={`${TEAM_FIELD} mt-1`} value={name} maxLength={100} onChange={(event) => { draftRevision.current++; setName(event.target.value); }} /></label><label className="mt-3 block text-xs">Skill instructions<textarea className={`${TEAM_FIELD} mt-1 min-h-28`} value={instructions} maxLength={16000} onChange={(event) => { draftRevision.current++; setInstructions(event.target.value); }} /></label><button type="button" className={`${TEAM_CONTROL} mt-3`} disabled={!canManage || busy || !name.trim() || !instructions.trim()} onClick={save}>{editing ? "Save new draft version" : "Save draft"}</button>{editing && <button type="button" className={`${TEAM_CONTROL} mt-3 ml-2`} disabled={busy} onClick={() => { draftRevision.current++; setEditing(null); setName(""); setInstructions(""); }}>Cancel edit</button>}</div>
+      <section aria-label="Team skill templates" className="border border-[var(--line)] bg-[var(--card)] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-lg">Curated templates</h3><button type="button" className={TEAM_CONTROL} disabled={busy} onClick={browseLibrary}>Browse team skill templates</button></div><p className="mt-2 text-xs text-[var(--ink-2)]">Install a draft in this workspace. Templates grant no tools or access and require separate review and activation.</p>{library && <ul className="mt-3 grid gap-3 sm:grid-cols-2">{library.map((entry) => <li key={entry.slug} className="border border-[var(--line)] p-3"><h4 className="text-sm font-semibold">{entry.name}</h4><p className="mt-1 text-xs text-[var(--ink-2)]">{entry.summary}</p><p className="mt-1 font-mono text-[10px]">Template v{entry.version}</p><button type="button" className={`${TEAM_CONTROL} mt-2`} disabled={!canManage || busy || entry.installed} onClick={() => installTemplate(entry.slug)}>{entry.installed ? `Installed · ${entry.installedStatus ?? "draft"}` : "Install team draft"}</button></li>)}</ul>}</section>
       <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-lg">Saved skills</h3><button type="button" className={TEAM_CONTROL} disabled={busy || loading} onClick={() => { setHistory(null); void load(); }}>Refresh skills</button></div>
-      {loading && skills.length === 0 ? <p role="status">Loading workspace skills…</p> : skills.length === 0 ? <p className="border border-dashed border-[var(--line)] p-5 text-sm text-[var(--ink-2)]">No skills available in this workspace. Import an employee bundle or save a draft above.</p> : <ul className="grid gap-3">{skills.map((skill) => <li key={skill.id} className="min-w-0 border border-[var(--line)] bg-[var(--card)] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-sm font-semibold">{skill.name}</h4><p className="mt-1 font-mono text-[10px] text-[var(--ink-2)]">{skill.status} · v{skill.version}{!skill.owned ? " · shared active version" : " · owned by you"}</p></div><div className="flex flex-wrap gap-2"><button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => versions(skill)}>{history?.id === skill.id ? "Hide history" : "Versions"}</button>{skill.owned && skill.status === "draft" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "review")}>Mark reviewed</button>}{skill.owned && skill.status === "review" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "activate")}>Activate reviewed version</button>}{skill.owned && skill.status !== "disabled" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "disable")}>Disable</button>}</div></div><pre className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--ink-2)]">{skill.instructions}</pre>{history?.id === skill.id && <ol className="mt-3 grid gap-2 border-t border-[var(--line)] pt-3">{history.versions.map((version) => <li key={version.version}><p className="font-mono text-[10px]">v{version.version} · {version.name}</p><pre className="mt-1 whitespace-pre-wrap break-words text-xs text-[var(--ink-2)]">{version.instructions}</pre></li>)}</ol>}</li>)}</ul>}
+      {loading && skills.length === 0 ? <p role="status">Loading workspace skills…</p> : skills.length === 0 ? <p className="border border-dashed border-[var(--line)] p-5 text-sm text-[var(--ink-2)]">No skills available in this workspace. Import an employee bundle or save a draft above.</p> : <ul className="grid gap-3">{skills.map((skill) => <li key={skill.id} className="min-w-0 border border-[var(--line)] bg-[var(--card)] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-sm font-semibold">{skill.name}</h4><p className="mt-1 font-mono text-[10px] text-[var(--ink-2)]">{skill.status} · v{skill.version}{!skill.owned ? " · shared active version" : " · owned by you"}</p></div><div className="flex flex-wrap gap-2">{canManage && skill.owned && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => { draftRevision.current++; setEditing(skill); setName(skill.name); setInstructions(skill.instructions); setHistory(null); setNotice("Saving creates a new draft version. Review and activation are required again."); }}>Edit version</button>}<button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => versions(skill)}>{history?.id === skill.id ? "Hide history" : "Versions"}</button>{canManage && skill.owned && skill.status === "draft" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "review")}>Mark reviewed</button>}{canManage && skill.owned && skill.status === "review" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "activate")}>Activate reviewed version</button>}{canManage && skill.owned && skill.status !== "disabled" && <button type="button" className={TEAM_CONTROL} disabled={busy} onClick={() => changeStatus(skill, "disable")}>Disable</button>}</div></div><pre className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--ink-2)]">{skill.instructions}</pre>{history?.id === skill.id && <ol className="mt-3 grid gap-2 border-t border-[var(--line)] pt-3">{history.versions.map((version) => <li key={version.version}><p className="font-mono text-[10px]">v{version.version} · {version.name}</p><pre className="mt-1 whitespace-pre-wrap break-words text-xs text-[var(--ink-2)]">{version.instructions}</pre></li>)}</ol>}</li>)}</ul>}
       {cursor && <button type="button" className={TEAM_CONTROL} disabled={busy || loading} onClick={() => { void load(cursor); }}>Load more skills</button>}
-      <p className="text-xs text-[var(--ink-2)]">Personal extension skills and public library installers remain in the personal workspace. They are not automatically copied or enabled here. Team draft editing and provider setup remain separate from activation.</p>
+      <p className="text-xs text-[var(--ink-2)]">Templates and edited instructions remain workspace-scoped drafts until explicitly reviewed and activated. Personal instructions are not copied here. Provider setup is separate from skill activation.</p>
     </div>
   </section>;
 }
