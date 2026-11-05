@@ -25,8 +25,6 @@ export function describeTaskRoute(input: {
     blockedReason = "Native cloud Claude login is unavailable: per-user persistent auth volumes are not implemented. Choose the API route or paired local Claude Code explicitly.";
   } else if (input.workType === "connected-app") {
     blockedReason = "Connected-app execution is unavailable on CLI routes. Use the separate granted app-tools work target.";
-  } else if (local && input.workType === "artifact-workspace") {
-    blockedReason = "Repository-free artifacts require Cloud (Sandbox). Choose Cloud explicitly or select a repository for Local.";
   } else if (local && !["opencode", "claude-code", "codex"].includes(input.harness)) {
     blockedReason = "This harness cannot run on a paired computer. Choose a supported local harness or Cloud explicitly.";
   } else if (!local && input.connectionId && !connection) {
@@ -56,7 +54,7 @@ export function describeTaskRoute(input: {
       : legacyClaude ? "Legacy setup-token account; requires deployment opt-in."
       : "Provider API or gateway account selected by the approved route.",
     note: local
-      ? "CLI presence does not verify account access or quota. This task does not reuse a cloud credential."
+      ? "CLI presence does not verify account access or quota. Claude Code uses only its existing local login, not cloud subscription access. No cloud credential or automatic cloud/provider fallback is used. Human approval is required before execution."
       : legacyClaude
         ? "Legacy cloud Claude token support is deployment-gated. Prefer Claude Code on a paired computer or the API credential route."
         : "Provider access, model support and quota are validated when used. Starting work still requires human approval.",
@@ -70,9 +68,9 @@ export function describeProviderRoute(card: AcpProviderCard) {
   if (card.id === "claude" && connection.signInKind === "claude-daemon") {
     return {
       harness: "claude-code",
-      runtime: "Paired local computer · repository work",
+      runtime: "Paired local computer · repositories and explicit artifacts",
       account: "Selected computer's CLI account; identity and billing are not reported.",
-      note: "Select Local and Claude Code on the task. CLI presence does not verify login or quota. Repository-free artifacts require a sandbox API route.",
+      note: "Select Local and Claude Code on the task. Uses the existing local CLI login only, not cloud subscription access. CLI presence does not verify login or quota. Artifacts require explicit UTF-8 output paths; no Git/clone or cloud fallback.",
     };
   }
   if (card.id === "claude" && connection.signInKind === "claude-setup-token") {
