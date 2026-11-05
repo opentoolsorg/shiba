@@ -17,6 +17,8 @@ function fixture() {
   let failDelete = false;
   let afterPut = () => {};
   let afterGet = () => {};
+  let beforePut: () => Promise<void> = async () => {};
+  let onAuthorize: (action: string) => Promise<void> = async () => {};
   const records = new Map<string, unknown>();
   const objects = new Map<string, string>();
   const tx = {
@@ -31,6 +33,7 @@ function fixture() {
   } };
   const bucket = {
     async put(key: string, text: string) {
+      await beforePut();
       if (failPut) { objects.set(key, text.slice(0, 25)); throw new Error("interrupted upload"); }
       objects.set(key, text); afterPut();
     },
@@ -41,10 +44,12 @@ function fixture() {
     },
     async delete(key: string) { if (failDelete) throw new Error("delete unavailable"); objects.delete(key); },
   };
-  const store = new RunFileCheckpointStore(storage, bucket, async () => { if (!allowed) throw new Error("authority revoked"); }, () => now);
+  const store = new RunFileCheckpointStore(storage, bucket, async (_policy, action) => { await onAuthorize(action); if (!allowed) throw new Error("authority revoked"); }, () => now);
   return { store, records, objects, storage, bucket,
     clock: (value: number) => { now = value; }, deny: () => { allowed = false; },
     failPut: (value: boolean) => { failPut = value; }, failDelete: () => { failDelete = true; },
+    beforePut: (callback: () => Promise<void>) => { beforePut = callback; },
+    onAuthorize: (callback: (action: string) => Promise<void>) => { onAuthorize = callback; },
     onPut: (callback: () => void) => { afterPut = callback; }, onGet: (callback: () => void) => { afterGet = callback; } };
 }
 
@@ -129,6 +134,46 @@ describe("private opt-in approved file checkpoint", () => {
 
   it("rechecks authority after object read", async () => {
     const f = fixture(); await f.store.capture(policy, files); f.onGet(f.deny);
+    await expect(f.store.read(policy)).rejects.toThrow("revoked");
+  });
+
+  it("rejects local revocation during final external authorization", async () => {
+    const f = fixture(); await f.store.capture(policy, files);
+    let resume!: () => void;
+    let arrived!: () => void;
+    const blocked = new Promise<void>((resolve) => { resume = resolve; });
+    const waiting = new Promise<void>((resolve) => { arrived = resolve; });
+    let reads = 0;
+    f.onAuthorize(async (action) => {
+      if (action === "read" && ++reads === 2) { arrived(); await blocked; }
+    });
+    const result = f.store.read(policy);
+    const rejected = expect(result).rejects.toThrow("revoked");
+    await waiting; await f.store.revoke(policy); resume(); await rejected;
+  });
+
+  it("reconciles an upload that completes after revocation deleted its object", async () => {
+    const f = fixture();
+    let resume!: () => void;
+    let arrived!: () => void;
+    const blocked = new Promise<void>((resolve) => { resume = resolve; });
+    const waiting = new Promise<void>((resolve) => { arrived = resolve; });
+    f.beforePut(async () => { arrived(); await blocked; });
+    const result = f.store.capture(policy, files);
+    const rejected = expect(result).rejects.toThrow("claim changed");
+    await waiting; await f.store.revoke(policy); resume(); await rejected;
+    expect(f.objects.size).toBe(0);
+    expect([...f.records.values()][0]).toMatchObject({ state: "revoked" });
+    await expect(f.store.read(policy)).rejects.toThrow("revoked");
+  });
+
+  it("reconciles uncertain late storage effects without reopening a retired receipt", async () => {
+    const f = fixture(); await f.store.capture(policy, files);
+    const [key, text] = [...f.objects.entries()][0]!;
+    await f.store.revoke(policy);
+    f.objects.set(key, text);
+    await f.store.cleanupRetired();
+    expect(f.objects.size).toBe(0);
     await expect(f.store.read(policy)).rejects.toThrow("revoked");
   });
 

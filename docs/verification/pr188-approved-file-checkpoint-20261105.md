@@ -30,7 +30,11 @@ partial, corrupt, expired, mismatched or revoked snapshots cannot release restor
 payloads. Only explicit identical-content upload retries are allowed; a changed
 attempt cannot replace the committed checkpoint. Revocation writes a sticky
 transactional tombstone before deleting the object. Expiry cleanup can run after
-session expiry, including retry after uncertain deletion. A pending or revoked
+session expiry, including retry after uncertain deletion. An in-flight upload can
+finish after deletion; capture reconciles a retired object on settlement, and
+`cleanupRetired` must run from alarms to reconcile late or uncertain storage
+effects. Physical deletion is not an atomic cross-service revocation guarantee;
+the sticky receipt blocks reads while bytes await reconciliation. A pending or revoked
 claim is never interpreted as permission to execute anything.
 
 The mandatory caller authorization callback is rechecked around storage awaits.
@@ -61,7 +65,7 @@ does not change their shared schemas or duplicate their filesystem helpers:
 2. Instantiate only with a run-isolated transactional Durable Object receipt,
    private `ARTIFACTS`, and the real current authorization/source/lease verifier.
    No direct client-provided policy may become authority. Wire alarms to
-   `purgeExpired` and source/session revocation to sticky retirement.
+   `purgeExpired`/`cleanupRetired` and source/session revocation to sticky retirement.
 3. Use the execution owner's descriptor-anchored exporter. Reject symlinks in
    every ancestor and leaf, hard links, special files and changed-file races.
    This store takes strings and cannot independently inspect filesystem identity.

@@ -108,21 +108,27 @@ export class RunFileCheckpointStore {
       } else await tx.put(KEY, receipt);
     });
     await this.authorize(policy, "capture");
-    await this.bucket.put(this.objectKey(receipt), text);
-    await this.authorize(policy, "capture");
-    // Receipt commits last. Interrupted uploads cannot become readable checkpoints.
-    await this.storage.transaction(async (tx) => {
-      const record = receiptSchema.parse(await tx.get(KEY));
-      if (record.state === "revoked" || record.policyHash !== policyHash || record.objectHash !== objectHash) {
-        throw new Error("File checkpoint claim changed.");
-      }
-      await tx.put(KEY, { ...record, state: "committed" });
-    });
-    await this.authorize(policy, "capture");
-    await this.required(policyHash);
-    this.checkClock(policy);
-    return { kind: "approved-files" as const, checkpointHash: objectHash, fileCount: files.length,
-      bytes: files.reduce((sum, file) => sum + file.bytes, 0), expiresAt: policy.expiresAt };
+    try {
+      await this.bucket.put(this.objectKey(receipt), text);
+      await this.authorize(policy, "capture");
+      // Receipt commits last. Interrupted uploads cannot become readable checkpoints.
+      await this.storage.transaction(async (tx) => {
+        const record = receiptSchema.parse(await tx.get(KEY));
+        if (record.state === "revoked" || record.policyHash !== policyHash || record.objectHash !== objectHash) {
+          throw new Error("File checkpoint claim changed.");
+        }
+        await tx.put(KEY, { ...record, state: "committed" });
+      });
+      await this.authorize(policy, "capture");
+      await this.required(policyHash);
+      this.checkClock(policy);
+      return { kind: "approved-files" as const, checkpointHash: objectHash, fileCount: files.length,
+        bytes: files.reduce((sum, file) => sum + file.bytes, 0), expiresAt: policy.expiresAt };
+    } catch (error) {
+      // A late upload can finish after revocation deleted its object.
+      await this.cleanupRetired();
+      throw error;
+    }
   }
 
   /** Returns a verified restore payload, not process memory, an output ACK or permission to exec. */
@@ -153,6 +159,14 @@ export class RunFileCheckpointStore {
   async revoke(value: FileCheckpointPolicy): Promise<void> {
     const policy = await this.authorize(value, "revoke");
     await this.retire(await runtimeIdentity(policy));
+  }
+
+  /** Reconcile late/uncertain uploads, including before the original lease expires. */
+  async cleanupRetired(): Promise<void> {
+    const raw = await this.storage.get(KEY);
+    if (raw === undefined) return;
+    const record = receiptSchema.parse(raw);
+    if (record.state === "revoked") await this.bucket.delete(this.objectKey(record));
   }
 
   /** Alarm cleanup remains possible after authorization expires. Tombstone is never removed. */
