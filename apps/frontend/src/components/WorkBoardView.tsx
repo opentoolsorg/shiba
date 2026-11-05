@@ -342,7 +342,7 @@ export function WorkBoardView({
                           </p>
 
                           {task.error ? (
-                            <p className="text-[11px] text-rose-500 dark:text-rose-400 line-clamp-1 mt-1">
+                            <p className="text-[11px] text-[var(--destructive-fg)] line-clamp-1 mt-1">
                               {task.error}
                             </p>
                           ) : null}

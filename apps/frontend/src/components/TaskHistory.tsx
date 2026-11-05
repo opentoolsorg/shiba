@@ -141,7 +141,7 @@ export function TaskHistory({
       {error ? (
         <div
           role="alert"
-          className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-400"
+          className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-[var(--destructive-fg)] dark:border-rose-900/50 dark:bg-rose-950/20"
         >
           {error}
         </div>
@@ -222,7 +222,7 @@ export function TaskHistory({
                       <button
                         type="button"
                         onClick={() => onCancel(task.taskId, latest.attempt)}
-                        className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                        className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-[var(--destructive-fg)] hover:bg-rose-50 dark:hover:bg-rose-950/30"
                       >
                         <Square size={12} aria-hidden="true" /> Cancel
                       </button>
@@ -241,14 +241,14 @@ export function TaskHistory({
                 </div>
 
                 {latest.status === "unknown" ? (
-                  <p className="flex items-center gap-1 px-2.5 pb-2 pt-0.5 text-xs text-amber-600 dark:text-amber-400">
+                  <p className="flex items-center gap-1 px-2.5 pb-2 pt-0.5 text-xs text-[var(--warning-fg)]">
                     <TriangleAlert size={12} aria-hidden="true" /> Outcome uncertain;
                     inspect before retrying.
                   </p>
                 ) : null}
 
                 {latest.error ? (
-                  <p className="line-clamp-2 px-2.5 pb-2 pt-0.5 text-xs text-rose-600 dark:text-rose-400">
+                  <p className="line-clamp-2 px-2.5 pb-2 pt-0.5 text-xs text-[var(--destructive-fg)]">
                     {latest.error}
                   </p>
                 ) : null}

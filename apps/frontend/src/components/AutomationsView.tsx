@@ -195,6 +195,8 @@ export interface AutomationsViewProps {
   onToggleSidebar?: () => void;
   selectedAutomationId?: string | null;
   onSelectAutomation?: (id: string) => void;
+  /** Reports the loaded list so the context panel can show the same automations. */
+  onAutomationsChange?: (automations: AutomationRecord[]) => void;
   className?: string;
 }
 
@@ -204,10 +206,14 @@ export function AutomationsView({
   onToggleSidebar,
   selectedAutomationId = null,
   onSelectAutomation,
+  onAutomationsChange,
   className = "",
 }: AutomationsViewProps): JSX.Element {
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
   const [automations, setAutomations] = useState<AutomationRecord[] | null>(null);
+  useEffect(() => {
+    if (automations) onAutomationsChange?.(automations);
+  }, [automations, onAutomationsChange]);
   const [repoUrl, setRepoUrl] = useState("");
   const [customAgentId, setCustomAgentId] = useState("");
   const { agents: customAgents } = useCustomAgentOptions();

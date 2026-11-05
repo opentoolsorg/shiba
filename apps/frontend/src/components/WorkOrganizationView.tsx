@@ -137,7 +137,7 @@ export function WorkOrganizationView({
             </div>
 
             <div className="text-right shrink-0">
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-800/40">
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--success-fg)] bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-800/40">
                 <CheckCircle2 className="size-3" />
                 Active
               </span>

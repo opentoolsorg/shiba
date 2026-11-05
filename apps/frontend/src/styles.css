@@ -1,7 +1,7 @@
 /* Neutral theme tokens — design tokens for Shiba app shell.
    Page bg #fafafa, text #0a0a0a, muted #71717a, border zinc-200 (#e4e4e7),
    card white, secondary/hover grays (#f4f4f5/#e4e4e7), radii (6/8/12px), Geist font. */
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap');
+/* ponytail: no remote font fetch in a self-hosted app; Geist renders if installed, else system-ui. Self-host the font files if exact type matters. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -52,7 +52,7 @@
   --primary-soft-hover: rgba(10, 10, 10, 0.1);
   --primary-text: #ffffff;
   --ring: #0a0a0a;
-  --destructive: #ef4444;
+  --destructive: #b91c1c;
   --destructive-fg: #b91c1c;
   --destructive-soft: rgba(239, 68, 68, 0.1);
   --destructive-soft-hover: rgba(239, 68, 68, 0.16);
@@ -60,11 +60,11 @@
   --warning: #f59e0b;
   --warning-fg: #b45309;
   --warning-subtle: rgba(245, 158, 11, 0.1);
-  --success: #10b981;
+  --success: #047857;
   --success-fg: #047857;
   --info: var(--navy);
   --complete: #8b5cf6;
-  --attention: #f59e0b;
+  --attention: #b45309;
   --progress: #f59e0b;
   --purple: oklch(60% .21 292);
   --pink: oklch(63% .2 355);

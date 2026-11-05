@@ -79,7 +79,7 @@ import { ExtensionsPanel } from "./components/ExtensionsPanel";
 import { MailboxPanel, type MailboxCounts, type MailboxPanelItem } from "./components/MailboxPanel";
 import { MemoryPanel, type MemoryCounts } from "./components/MemoryPanel";
 import { InsightsPanel } from "./components/InsightsPanel";
-import { AutomationsPanel } from "./components/AutomationsView";
+import { AutomationsPanel, type AutomationRecord } from "./components/AutomationsView";
 import { TaskComposer } from "./components/TaskComposer";
 import { TaskHistory, type TaskHistoryItem } from "./components/TaskHistory";
 import { PullRequestCard } from "./components/PullRequestCard";
@@ -518,6 +518,7 @@ export function App(): React.JSX.Element {
   const [mailboxCounts, setMailboxCounts] = useState<Partial<MailboxCounts>>({});
   const [mailboxes, setMailboxes] = useState<MailboxPanelItem[]>([]);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
+  const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
   const [settingsSection, setSettingsSection] = useState<string>(() =>
     typeof window === "undefined" ? "account" : new URLSearchParams(window.location.search).get("section") || "account");
@@ -2622,7 +2623,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   } else if (["dashboard", "analytics", "activity", "diff", "approvals"].includes(mainView)) {
     destinationPanel = <InsightsPanel {...panelProps} active={mainView} onSelect={(id) => { if (isNavId(id)) openView(id); }} pendingApprovalsCount={teamWorkspaceId ? 0 : pendingApprovals.length + visibleStoredApprovals.length} />;
   } else if (mainView === "automations") {
-    destinationPanel = <AutomationsPanel {...panelProps} active={selectedAutomationId ?? ""} onSelect={setSelectedAutomationId} />;
+    destinationPanel = <AutomationsPanel {...panelProps} automations={privateDataEnabled && scope === "personal" ? automationList : []} active={selectedAutomationId ?? ""} onSelect={setSelectedAutomationId} />;
   } else if (mainView === "settings") {
     destinationPanel = <SettingsPanel {...panelProps} active={settingsSection} onSelect={setSettingsSection} onBack={closeSettings} />;
   }
@@ -3585,7 +3586,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onCountsChange={(counts) => setMemoryCounts((current) => ({ ...current, ...counts }))}
             />
           ) : mainView === "automations" ? (
-            <AutomationsView scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} />
+            <AutomationsView scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} onAutomationsChange={setAutomationList} />
           ) : mainView === "swarm" ? (
             <SwarmDeskView
               runs={retainedRuns}
