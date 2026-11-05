@@ -23,7 +23,7 @@
 | **Ceiling** | `standard-4` (4 vCPU / 12 GiB / 20 GB) is Cloudflare's max. Some hosted agents go to 16 vCPU / 128 GB. Heavy builds are out of reach — say so in the README. |
 | **Effort** | P0 ≈ 3h · P1 ≈ 5h · P2 ≈ 5h · P3 ≈ 14h · P4 ≈ 10h · **P5 ≈ 14h** · P6 ≈ 4h → **~55h** |
 | **Rev 4 status** | All of the above is **done except T10** — the live run is now verified locally via `wrangler dev` up to the model call (AI Gateway credential needed); the cloud deploy itself is still blocked on GOAL.md. See §2.0. |
-| **Rev 9 status** | §17 (P7, Roomote parity): **W0 done 2026-09-27** (T27 spec amended, T28 audit clean — see §2.0). ~80% of Roomote's spine already ships; the remaining delta is OAuth MCP, web chat + steering, and screenshot/preview. Recommended scope W1–W3 + T37–T39 ≈ 43h. |
+| **Rev 9 status** | §17 (P7, reference-agent parity): **W0 done 2026-09-27** (T27 spec amended, T28 audit clean — see §2.0). ~80% of the reference agent's spine already ships; the remaining delta is OAuth MCP, web chat + steering, and screenshot/preview. Recommended scope W1–W3 + T37–T39 ≈ 43h. |
 
 ---
 
@@ -57,7 +57,7 @@
 
 ### 2.0 Status as of rev 11 (2026-09-27)
 
-**Rev 11 (this document):** §18 (Phase P8) added — the t3code/Roomote architecture-import plan (T40–T51 plus carried-over T29). **Plan only; no code written.** §18.0 records where the as-built tree disagreed with the brief's file/state map (reality won): `orchestrator.ts`/`opencode-agent.ts` live under `src/agents/`, the run machine is `pending|running|completed|error|aborted|cancelled|unknown` rather than the sketched states, approvals already carry partial idempotency (`resolvePendingApproval` refuses decided records; `agent-tool:<approvalId>` run reservation exists), and W2/T30–T32 + the screenshot half of T33 have already merged (PRs #22/#23). Also noted: no `AGENTS.md` exists in this repo — CLAUDE.md + ARCHITECTURE.md + spec/GOAL.md are authoritative.
+**Rev 11 (this document):** §18 (Phase P8) added — the t3code architecture-import plan (T40–T51 plus carried-over T29). **Plan only; no code written.** §18.0 records where the as-built tree disagreed with the brief's file/state map (reality won): `orchestrator.ts`/`opencode-agent.ts` live under `src/agents/`, the run machine is `pending|running|completed|error|aborted|cancelled|unknown` rather than the sketched states, approvals already carry partial idempotency (`resolvePendingApproval` refuses decided records; `agent-tool:<approvalId>` run reservation exists), and W2/T30–T32 + the screenshot half of T33 have already merged (PRs #22/#23). Also noted: no `AGENTS.md` exists in this repo — CLAUDE.md + ARCHITECTURE.md + spec/GOAL.md are authoritative.
 
 | Task | State |
 |---|---|
@@ -209,8 +209,6 @@ The fix is deletion, not wiring (T4).
 | [cloudflare/vibesdk](https://github.com/cloudflare/vibesdk) | 5,365 | 9 days | Same stack incl. AI Gateway + Containers; proves the pattern | Generates new apps, not repo fixes |
 | [jonesphillip/weft](https://github.com/jonesphillip/weft) | 510 | **7 months** | Closest shape (task → agent → done) | **Stale.** Read its issues before assuming the niche is free |
 | [nkzw-tech/cloudsail](https://github.com/nkzw-tech/cloudsail) | 161 | 4 months | Sandbox substrate | No approval gate, no PR publishing |
-| [devarshishimpi/codra](https://github.com/devarshishimpi/codra) | 111 | **5 days** | Self-hosted PR review, actively developed | **Watch this one**: "review a PR" → "fix a PR" is one feature, and review is now out of scope (§4) |
-| [acoyfellow/cloudbox](https://github.com/acoyfellow/cloudbox) | 53 | 2 months | **Receipts** (append-only evidence log) — a better answer to B8 than T8. Live run stop/resume/fork. Instance type as a deploy-time var | Bring-your-own-agent model; D1+R2+KV+Queues sprawl |
 | [leo-ars/cloudflare-sandbox-coding-agent](https://github.com/leo-ars/cloudflare-sandbox-coding-agent) | 0 | 2 months | Per-run opaque token; PR-as-user so GitHub blocks self-approval | KV token store, OAuth impersonation |
 
 ### The SaaS this replaces
@@ -249,10 +247,10 @@ Tempting — §8 shows tokens are ~40× compute, so a subscription would make th
 
 Noted so the next reader knows these were considered rather than missed. None of them are on the critical path; none are scheduled.
 
-- **PR review agent** (~9h). A `review_pull_request` tool: clone at the PR head so the agent reads surrounding code rather than diff context alone, emit `{path, line, severity, comment}` findings, publish via `POST /repos/{o}/{r}/pulls/{n}/reviews` as `COMMENT` — never `APPROVE`, an agent must not approve. Reuses the whole pipeline with a different prompt and a different endpoint, so it stays cheap whenever it returns. Competitive cost, stated plainly: [Codra](https://github.com/devarshishimpi/codra) exists solely to be this, and closed SaaS agents ship one.
+- **PR review agent** (~9h). A `review_pull_request` tool: clone at the PR head so the agent reads surrounding code rather than diff context alone, emit `{path, line, severity, comment}` findings, publish via `POST /repos/{o}/{r}/pulls/{n}/reviews` as `COMMENT` — never `APPROVE`, an agent must not approve. Reuses the whole pipeline with a different prompt and a different endpoint, so it stays cheap whenever it returns. Competitive cost, stated plainly: a self-hosted review tool exists solely to be this, and closed SaaS agents ship one.
 - **PR feedback loop** (~4h, needs the review agent). Extend `/api/github/webhook` to `pull_request_review_comment`; a comment mentioning the bot on an shiba PR starts a run against that PR's branch and replies on the same thread.
 - **Live preview URLs.** **Shipped in rev 8** — `index.ts:1093-1099` proxies to the sandbox. Screenshot capture remains open; see §17.5 (T33).
-- **Resumable runs.** Stop/resume/fork, the way Cloudbox does it, for work exceeding `OPENCODE_TIMEOUT_MS`. A real architecture change, not a tuning knob (§16).
+- **Resumable runs.** Stop/resume/fork, the way other agents do it, for work exceeding `OPENCODE_TIMEOUT_MS`. A real architecture change, not a tuning knob (§16).
 
 **Slack was cut in rev 1 and restored in rev 2.** The rev-1 reasoning was right about the spec and wrong about the product: what was cut was a slash command duplicating the dashboard; what is now built is the place work starts and finishes. `spec/GOAL.md` is consequently stale — its 11-step contract is dashboard-only and anticipates no second inbound surface. **T17 updates it.** Leaving it means the next reader cuts Slack again.
 
@@ -293,7 +291,7 @@ Unset → `lite` → 256 MiB. A Node coding CLI plus a git tree does not fit.
 
 Raise `MAX_CONCURRENT_RUNS` in `src/runs.ts:29` to 5 to match (**B10**). Cloudflare's own default is 20, so 5 is purely your policy.
 
-**Measure before settling on `standard-1`.** §8 shows memory is the billing constraint: `basic` (1 GiB) yields **4× the free-tier runs** of `standard-1`. If OpenCode fits in 1 GiB, take it. Confirm during T10, and make the size a var — Cloudbox does this and it is right, since a large monorepo needs `standard-2`.
+**Measure before settling on `standard-1`.** §8 shows memory is the billing constraint: `basic` (1 GiB) yields **4× the free-tier runs** of `standard-1`. If OpenCode fits in 1 GiB, take it. Confirm during T10, and make the size a var — other agents do this and it is right, since a large monorepo needs `standard-2`.
 
 ### T3 · Replace the dead model default
 
@@ -416,7 +414,7 @@ finish(parsed?.status === "error" ? "error" : "completed", {
 
 Add `parseAgentResult` beside `formatAgentResult`, reusing `codingTaskResultSchema`.
 
-*Worth knowing:* Cloudbox's **receipts** — an append-only evidence log (`init`/`read`/`write`/`submit`/`grade`) — is a structurally better answer than parsing a final envelope. T8 is the cheap version. If run trust becomes a recurring problem, adopt receipts rather than hardening the parser.
+*Worth knowing:* an append-only **receipts** log — an append-only evidence log (`init`/`read`/`write`/`submit`/`grade`) — is a structurally better answer than parsing a final envelope. T8 is the cheap version. If run trust becomes a recurring problem, adopt receipts rather than hardening the parser.
 
 **Tests:** an `error` envelope → `error`; `completed` → `completed`; malformed/absent → `error`, never silent success.
 
@@ -824,26 +822,26 @@ T5–T8 are independent of each other. Within P3, T12 gates everything; T13/T14 
 | PRs must open as the requesting human | Needs GitHub OAuth impersonation. Worth wanting: a PR opened as the requester makes GitHub's own "no self-approval" rule enforce independent review. With one shared `GITHUB_TOKEN` every PR has the same author and that protection is absent — a branch-protection rule is the weaker substitute. |
 | Model costs become the complaint | They already are (§8: 20–40× compute). **B11** is the answer. Prompt caching is the second lever. |
 | A provider retires a model | B3 will recur. T26's pinning list and T3's startup assertion are the mitigation. |
-| Runs regularly exceed `OPENCODE_TIMEOUT_MS` (15 min) | One-shot delegation is the wrong shape; you need resumable runs — Workflows or checkpointing, a genuine architecture change. Cloudbox already solved this with stop/resume/fork. Slack makes it more likely, because an on-call request arrives with less scoping than a dashboard one. |
+| Runs regularly exceed `OPENCODE_TIMEOUT_MS` (15 min) | One-shot delegation is the wrong shape; you need resumable runs — Workflows or checkpointing, a genuine architecture change. Other agents already solved this with stop/resume/fork. Slack makes it more likely, because an on-call request arrives with less scoping than a dashboard one. |
 | A harness changes its JSON stream format | `parseEvent` breaks silently for that harness only — the run appears to hang rather than fail. Pin every harness CLI version (T26) and treat format changes as breaking. This risk multiplies with each harness added, which is the real ongoing cost of P5. |
 | Users need machines bigger than `standard-4` | Platform ceiling. No workaround on Cloudflare. This is the honest limit of the whole approach. |
-| Codra adds "fix" to "review" | Your closest active competitor lands directly on this product with a year's head start. Dropping the review agent (§4) widens the gap on that flank; the answer is shipping P3 and P5, where closed SaaS agents cannot follow. |
+| A self-hosted review tool adds "fix" to "review" | A peer lands directly on this product with a year's head start. Dropping the review agent (§4) widens the gap on that flank; the answer is shipping P3 and P5, where closed SaaS agents cannot follow. |
 
 **Standing risk:** mocked tests cannot establish any of this works in the cloud. 111 green tests and a clean dry run are necessary, not sufficient. Until T10 and the P3–P5 acceptance lists are dated in `VERIFICATION.md`, the honest status stays "local prototype" — exactly as `readiness.md` already says.
 
 ---
 
-## 17. Phase P7 — Roomote Parity (rev 9)
+## 17. Phase P7 — Reference-agent parity (rev 9)
 
-**Added:** 2026-09-27. **Benchmark:** [Roomote](https://github.com/RooCodeInc/Roomote) — a self-hostable cloud coding agent (Slack/Teams/Telegram/Discord/Web → ephemeral sandbox → clone → code → test → screenshot → PR). Source-available, FCL-1.0.
+**Added:** 2026-09-27. **Benchmark:** a reference cloud agent — a self-hostable cloud coding agent (Slack/Teams/Telegram/Discord/Web → ephemeral sandbox → clone → code → test → screenshot → PR). Source-available, FCL-1.0.
 
-**One correction before anything else:** Roomote is **not** a VS Code remote-control extension. That is Roo Code's Cline extension. Roomote is a *server-side* cloud agent — the same category as the SaaS agents §3 already benchmarks. The port is therefore a feature exercise against a peer, not an integration of a plugin.
+**One correction before anything else:** the benchmark is **not** an editor extension. It is a *server-side* cloud agent — the same category as the SaaS agents §3 already benchmarks. The port is therefore a feature exercise against a peer, not an integration of a plugin.
 
-**What this phase is not:** a rewrite. As of rev 8 the repo already implements the large majority of Roomote's spine. The work below is the honest delta.
+**What this phase is not:** a rewrite. As of rev 8 the repo already implements the large majority of the reference agent's spine. The work below is the honest delta.
 
 ### 17.1 Parity baseline — what already exists
 
-| Roomote capability | ai-intern status | Evidence |
+| Reference capability | ai-intern status | Evidence |
 |---|---|---|
 | Task from Slack / Telegram / Discord / email | **Done** | `slack-routes.ts`, `telegram.ts`, `chat-lane.ts` (Discord), `email-handler.ts` |
 | Web dashboard | **Ahead** | `apps/frontend/src/components/` — Approvals, Agents, Missions, Automations, Memory, Inbox, Audit, Gates, VMInspector |
@@ -878,7 +876,7 @@ So T28 is not a fix, it is a **re-audit**: walk the whole G1–G11 table, re-run
 
 ### 17.3 W1 — OAuth MCP (~8h) · *the unblocking one*
 
-**T29 · OAuth 2.1 authorization server on `/mcp`.** Today `mcp-gateway.ts` + `index.ts:76` accept only a static bearer `agent-token`, and `index.ts:90` states it explicitly. Roomote's headline capability is *"connect to Claude Code, Codex, or Cursor through its OAuth MCP server."* Without this, no third-party MCP client can connect.
+**T29 · OAuth 2.1 authorization server on `/mcp`.** Today `mcp-gateway.ts` + `index.ts:76` accept only a static bearer `agent-token`, and `index.ts:90` states it explicitly. The reference agent's headline capability is *"connect an external coding agent through its OAuth MCP server."* Without this, no third-party MCP client can connect.
 
 - Discovery: `/.well-known/oauth-authorization-server` + `/.well-known/oauth-protected-resource`.
 - Authorization Code + PKCE (S256), public clients, no client secret.
@@ -890,7 +888,7 @@ So T28 is not a fix, it is a **re-audit**: walk the whole G1–G11 table, re-run
 
 ### 17.4 W2 — Web chat + live steering (~14h) · *the real UX delta*
 
-**T30 · Chat route + session conversation.** `apps/frontend/src/routes/` contains only `__root.tsx` and `app.tsx` — there is no chat surface. Roomote's core loop is conversational: send a follow-up into a *live* run and watch it steer.
+**T30 · Chat route + session conversation.** `apps/frontend/src/routes/` contains only `__root.tsx` and `app.tsx` — there is no chat surface. the reference agent's core loop is conversational: send a follow-up into a *live* run and watch it steer.
 
 - New `/chat` route over the existing `ai-chat` stream; reuse `CodingOrchestrator` rather than a parallel agent.
 - Follow-up turns append to the same conversation; `chat-lane.ts` already establishes the "one conversation per chat/channel" naming pattern — mirror it for web sessions.
@@ -963,7 +961,7 @@ same account-side prerequisites as T10. They are not blocked on more code.
 
 ### 17.7 W5 — Multi-user accounts (~12h) · *product decision, not just code*
 
-**T35 · Registration, per-user repos, ownership.** §4 cut multi-tenancy citing `GOAL.md`: *"Each installation is single-tenant and account-owned."* Roomote supports 10 users self-hosted and sells licensing above that. `waitlist-do.ts` gives a partial user model to build on.
+**T35 · Registration, per-user repos, ownership.** §4 cut multi-tenancy citing `GOAL.md`: *"Each installation is single-tenant and account-owned."* The reference agent supports 10 users self-hosted and sells licensing above that. `waitlist-do.ts` gives a partial user model to build on.
 
 **This is a spec change, not a feature.** It reverses an explicit §4 cut and a `GOAL.md` line, and it is the item most likely to be *cut again* by a future reader. Whatever the decision, it belongs in `PLAN.md` §4 and `GOAL.md` **before** code — the same lesson §4 already records about Slack.
 
@@ -989,7 +987,7 @@ W1/W2 and can be pulled forward. T34 is deferred (§17.6); T37–T39 need a toke
 and a repository, not code.
 
 **Recommended scope: W0–W3 + the GitHub proof (T37–T39), ~45h.** With W4
-deferred, that is the honest "Roomote parity" for a Cloudflare-native,
+deferred, that is the honest "reference-agent parity" for a Cloudflare-native,
 single-tenant, **GitHub-only** deployment. W5 is a product decision that changes
 who your customer is; W6 is a channel.
 
@@ -1013,7 +1011,7 @@ not code.
 
 ## 18. Phase P8 — Architecture Imports (rev 11)
 
-**Added:** 2026-09-27. **Sources:** [t3code](https://github.com/pingdotgg/t3code) (internals docs + `apps/server/src/orchestration/`, `apps/server/src/provider/`, `packages/contracts/`) and [Roomote](https://github.com/RooCodeInc/Roomote) (`apps/worker/src/run-task/`, `apps/worker/src/sandbox-server/`), both observed 2026-09-27.
+**Added:** 2026-09-27. **Sources:** [t3code](https://github.com/pingdotgg/t3code) (internals docs + `apps/server/src/orchestration/`, `apps/server/src/provider/`, `packages/contracts/`) and a reference cloud agent (`apps/worker/src/run-task/`, `apps/worker/src/sandbox-server/`), both observed 2026-09-27.
 
 **What this phase is not:** not event sourcing, not a rewrite, not a restructure. Runs are not a financial ledger; the receipt log plus a pure decider plus command receipts get the properties that matter at a fraction of the cost. The five security invariants (ARCHITECTURE.md §5) and the five working rules (CLAUDE.md) are unchanged and binding on every task below. Phases 1–8 are infrastructure and ship regardless; Phases 9–13 are the subscription credential path and are each **dark by default** — inert without a per-provider acknowledgement env var.
 
@@ -1148,7 +1146,7 @@ This is §17.3's T29, the highest-value remaining parity item (~8h). It does not
 
 ### 18.8 T46 · Proof attachment — the "no fake success" gate (~4h)
 
-Roomote's differentiator is a reviewer verifies without reading the diff line by line. As-built (§18.0): `screenshot.ts` captures to R2 and `opencode-agent.ts:297` already links it in the PR body; the preview proxy (`index.ts` `proxyToSandbox`) exists. What remains is the *gate* and the tail:
+The reference agent's differentiator is a reviewer verifies without reading the diff line by line. As-built (§18.0): `screenshot.ts` captures to R2 and `opencode-agent.ts:297` already links it in the PR body; the preview proxy (`index.ts` `proxyToSandbox`) exists. What remains is the *gate* and the tail:
 
 - **PR body gains:** the test-output tail (from T45's exec receipts — the last N lines of the verification command) and a live preview URL where the project serves one (the existing preview route, durable enough to outlive the sandbox window where the platform allows; where it cannot, the screenshot is the proof and the body says so).
 - **The gate:** a run with no proof *and* no diff must not report `completed`. T43's `verify` produces the verdict; T46 applies it at settle — `verify.failed` ⇒ `error` with the real reason, and "exit 0 with empty diff and no proof" is a failure mode, not a success. This is the CLAUDE.md no-fake-success rule applied to the case that currently slips through.
@@ -1564,7 +1562,7 @@ Browser speech API first; a pluggable speech-to-text endpoint later.
 
 **t3code** (observed 2026-09-27) — [pingdotgg/t3code](https://github.com/pingdotgg/t3code) · internals docs `docs/internals/{overview,providers,connection-runtime,environment-auth}.md` · provider guides `docs/user/providers-{claude,codex,antigravity}.md` · `orchestration/decider.ts` + `OrchestrationEventStore.ts` (command/event/receipt atomicity) · `provider/ProviderDriver.ts` (record-per-instance SPI, continuationIdentity) · `provider/ProviderAuthFlow.ts` (owner-scoped auth state machine) · `Drivers/{ClaudeHome,CodexHomeLayout}.ts` (config-dir isolation, shadow-home overlay, continuation-vs-account keys) · `antigravityCallback.ts` + `antigravityAuthSupport.ts` (callback validation, `removedEnvironmentKeys`).
 
-**Roomote** (observed 2026-09-27) — [RooCodeInc/Roomote](https://github.com/RooCodeInc/Roomote) · [docs.roomote.dev](https://docs.roomote.dev) · [MCP integration guide](https://docs.roomote.dev/integrations/roomote-mcp) · [SELF_HOSTING.md](https://github.com/RooCodeInc/Roomote/blob/main/SELF_HOSTING.md). Parity claims above are from the public README; sandboxes/providers/channels are README-advertised, not independently verified against a running deployment. Roomote is FCL-1.0 (free ≤10 users, licensed above) — **read the license before copying any implementation.**
+**Reference cloud coding agent** (observed 2026-09-27) — parity claims above are from its public README; sandboxes, providers and channels are README-advertised, not independently verified against a running deployment. It is source-available under a licence with a user cap — **read the licence before copying any implementation.**
 
 **Cloudflare** — [Sandbox outbound traffic](https://developers.cloudflare.com/sandbox/guides/outbound-traffic/) · [credential injection changelog](https://developers.cloudflare.com/changelog/post/2026-04-13-sandbox-outbound-workers-tls-auth/) · [Sandbox get-started](https://developers.cloudflare.com/sandbox/get-started/) · [Sandbox options](https://developers.cloudflare.com/sandbox/configuration/sandbox-options/) · [Containers limits](https://developers.cloudflare.com/containers/platform/limits/) · [Containers pricing](https://developers.cloudflare.com/containers/pricing/) · [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [Wrangler config](https://developers.cloudflare.com/workers/wrangler/configuration/) · [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) · [Think tools and approval](https://developers.cloudflare.com/agents/harnesses/think/tools/) · [AI Gateway BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)
 
@@ -1572,6 +1570,6 @@ Browser speech API first; a pluggable speech-to-text endpoint later.
 
 **Models** — [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) (2.0 Flash **shut down 2026-06-01**; 3.8 Flash rates **double 2027-01-01**) · [Claude Code legal](https://code.claude.com/docs/en/legal-and-compliance) (no third-party routing of Pro/Max credentials)
 
-**Competitors** — [vibesdk](https://github.com/cloudflare/vibesdk) · [weft](https://github.com/jonesphillip/weft) · [cloudsail](https://github.com/nkzw-tech/cloudsail) · [codra](https://github.com/devarshishimpi/codra) · [cloudbox](https://cloudbox.coey.dev/docs) · [leo-ars/cloudflare-sandbox-coding-agent](https://github.com/leo-ars/cloudflare-sandbox-coding-agent) · [awesome-cloudflare-selfhosted](https://github.com/theoephraim/awesome-cloudflare-selfhosted)
+**Competitors** — [vibesdk](https://github.com/cloudflare/vibesdk) · [weft](https://github.com/jonesphillip/weft) · [cloudsail](https://github.com/nkzw-tech/cloudsail) · [leo-ars/cloudflare-sandbox-coding-agent](https://github.com/leo-ars/cloudflare-sandbox-coding-agent) · [awesome-cloudflare-selfhosted](https://github.com/theoephraim/awesome-cloudflare-selfhosted)
 
 **Local** — `spec/GOAL.md` (**stale as of rev 2 — T17**) · `apps/web/src/content/docs/docs/readiness.md`

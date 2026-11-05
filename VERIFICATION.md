@@ -1,6 +1,6 @@
 # Verification Results
 
-**2026-10-31 — PR #166 External MCP coworker + skills library + Spaces (branch `cursor/viktor-skills-spaces-scaffold-13c5`).**
+**2026-10-31 — PR #166 External MCP coworker + skills library + Spaces.**
 
 *Code-proven locally:*
 - **Spaces index:** `spaces_index.updated_at` uses `MAX(updated_at, ?)` on rename/touch; create inserts the D1 row before DO `init` and rolls the index back when init or template application fails; item routes refuse writes after index delete (`spaces-index-store.test.ts`, `spaces-routes.test.ts`).
@@ -249,7 +249,7 @@ Multi-agent pass closing VERIFICATION_PLAN.md §3 gaps and finishing the Inter +
 
 **2026-09-19 (missions + quality gates surfaces — 407 tests)**
 
-Factory/Droid-parity surfaces, verified live on `wrangler dev` (:8788):
+Agent-parity surfaces, verified live on `wrangler dev` (:8788):
 
 - **Missions** (`dashboard/src/components/MissionsView.tsx`): standing goals as `mission: true` automations — a scheduled trigger carries a `run_when` gate ("does this goal still have unfinished work?") plus a manual check-in trigger. `Automation.mission` added to the record, `CreateAutomationInput`, and create path (`src/automations.ts`); `publicAutomation` serializes it. Live-verified: `POST /api/automations` with `mission:true` → stored, listed, serialized; `POST /api/automations/{id}/run` fired the check-in and the queue refused (400 — automations request `publishPullRequest`, no `GITHUB_TOKEN` locally: fail-closed as designed). Honest scope: recurring gated check-ins, not checkpointed multi-day processes — no resumable agent memory between runs.
 - **Quality Gates** (`dashboard/src/components/GatesView.tsx`): Code Review / QA / Security Review cards that build typed task prompts and queue through the same `POST /api/runs` approval path. Live-verified: security gate prompt → `200`, `approvalId` issued, pending approval persisted. No bypass — a human still approves before a container starts.

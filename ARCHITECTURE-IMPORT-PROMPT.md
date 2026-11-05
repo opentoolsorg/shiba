@@ -1,4 +1,4 @@
-# Architecture import prompt: t3code + Roomote patterns for `oss/ai-intern`
+# Architecture import prompt: t3code patterns for `oss/ai-intern`
 
 Target: `/Users/princepal/oss/ai-intern` (aka shiba), `princepal9120/ai-intern`, main
 Reads first: `CLAUDE.md`, `AGENTS.md`, `ARCHITECTURE.md`, `spec/GOAL.md`, `PLAN.md` §17
@@ -17,7 +17,7 @@ I approve the plan.
 === ORIENTATION: THIS IS NOT A GREENFIELD BUILD ===
 
 This is a mature, deployed system. Do not restructure it. Per PLAN.md §17, roughly
-80% of Roomote's feature spine already ships. You are importing architectural
+80% of the reference agent's feature spine already ships. You are importing architectural
 *patterns* from two reference repositories, not rebuilding the product.
 
 What already exists and must not be disturbed:
@@ -157,7 +157,6 @@ t3code: github.com/pingdotgg/t3code
   apps/server/src/provider/{ProviderDriver,Services/ProviderAdapter}.ts
   packages/contracts/src/{rpc,orchestration}.ts
 
-Roomote: github.com/RooCodeInc/Roomote
   AGENTS.md, README.md
   apps/worker/src/run-task/, apps/worker/src/sandbox-server/
 
@@ -237,7 +236,7 @@ The AgentHarness interface is already the right seam. Two additions, both cheap:
      hardcoding a name check.
 
   2. `verify(result): Promise<VerificationOutcome>` — did this run actually
-     produce a verified change? Roomote's whole value is proof attached to the PR.
+     produce a verified change? the reference agent's whole value is proof attached to the PR.
      Today a run that exits 0 with an empty diff is `completed`. It should not be.
      Verification should be harness-declared where possible: did it edit files,
      did it run the project's test command, did it exit non-zero.
@@ -292,7 +291,7 @@ Hard requirements from CLAUDE.md and §17.3:
 
 --- PHASE 8: PROOF ATTACHMENT --- ---
 
-Roomote's differentiator is a reviewer can verify without reading the diff line
+the reference agent's differentiator is a reviewer can verify without reading the diff line
 by line. This repo has screenshot capture in flight (commit 041947d, #23) and
 preview plumbing. Finish it: attach the screenshot, the test output tail, and a
 live preview URL where the project can serve one, into the PR body and the run

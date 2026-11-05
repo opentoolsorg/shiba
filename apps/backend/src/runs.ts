@@ -3,7 +3,7 @@ import { onboardingRunFields, type OnboardingRunFields } from "@shiba/shared";
  * Durable run registry helpers. The orchestrator keeps these records in
  * Durable Object state; the Worker gates drill-in routes on them.
  *
- * Cloudbox-style: a run is an append-only receipt log. completed/error/
+ * A run is an append-only receipt log. completed/error/
  * cancelled/aborted are terminal. A restart re-dispatches only while the
  * checkpoint is still `queued` or `dispatching` and no sandbox signal has
  * landed; later checkpoints become `unknown` instead of a second publish.
