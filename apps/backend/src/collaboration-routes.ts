@@ -1234,9 +1234,13 @@ export async function handleCollaboration(
           return invalidBody("Connected-app room work is not supported yet.");
         }
         const runtime = personalExecution || body.runtime === "local" ? "local" : "sandbox";
-        if (requestedTarget?.kind === "artifact-workspace" && runtime === "local") {
+        if (requestedTarget?.kind === "artifact-workspace" && personalExecution) {
           await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
-          return invalidBody("Artifact-workspace employee work currently requires the cloud sandbox.");
+          return invalidBody("Personal account grants currently authorize repository work only. Choose a paired local API route for artifact work.");
+        }
+        if (requestedTarget?.kind === "artifact-workspace" && runtime === "local" && requestedTarget.expectedDeliverables.length === 0) {
+          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          return invalidBody("Local artifact work requires explicit output file paths; automatic ZIP collection is cloud-only.");
         }
         const repoUrl = personalExecution ? personalExecution.repoUrl : requestedTarget?.kind === "artifact-workspace"
           ? ""

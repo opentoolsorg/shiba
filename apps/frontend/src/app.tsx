@@ -548,7 +548,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   // Only these harnesses run locally; anything else would show as a
   // deployment pin the backend then refuses.
   useEffect(() => {
-    if (executionTargetKind === "artifact-workspace" && runTarget === "local") setRunTarget("sandbox");
     if (runTarget === "local" && executionTargetKind === "repository" && !customAgentId && !["opencode", "claude-code", "codex"].includes(harness))
       setHarness("opencode");
   }, [runTarget, harness, customAgentId, executionTargetKind]);
@@ -1455,7 +1454,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setNotice("Repository URL must be a GitHub URL like https://github.com/owner/repo.");
         return;
       }
-      const parsedArtifactDeliverables = parseArtifactDeliverables(artifactDeliverables);
+      const parsedArtifactDeliverables = parseArtifactDeliverables(artifactDeliverables, runTarget);
       if (executionTargetKind === "artifact-workspace" && !parsedArtifactDeliverables.success) {
         setNotice("Use 1–8 safe relative .md, .txt, .json, or .csv output paths.");
         return;
@@ -3326,7 +3325,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     onExecutionTargetKindChange={(value) => {
                       setExecutionTargetKind(value);
                       if (value === "artifact-workspace") {
-                        setRunTarget("sandbox");
                         setPublishPullRequest(false);
                         setRunSetup(false);
                       }

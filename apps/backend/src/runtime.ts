@@ -1031,6 +1031,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
         try {
           if (artifact && (result.diff !== "" || result.baseRevision !== undefined ||
             result.changedFiles.length !== artifact.expectedDeliverables.length ||
+            new Set(result.changedFiles).size !== result.changedFiles.length ||
             result.changedFiles.some((file) => !artifact.expectedDeliverables.includes(file)) ||
             result.files.length !== artifact.expectedDeliverables.length ||
             result.files.some((file) => !artifact.expectedDeliverables.includes(file.path)))) {
