@@ -187,7 +187,7 @@ async function approveInUi(pointer){
     const frozen=card.getByRole('list',{name:'Frozen required deliverables',exact:true});
     for(const file of marketingFiles)await frozen.getByText(file.path,{exact:true}).waitFor();
   }
-  const [response]=await Promise.all([page.waitForResponse(response=>new URL(response.url()).pathname==='/api/approvals'&&response.request().method()==='POST'),card.getByRole('button',{name:'Approve',exact:true}).click()]);assert(response.ok(),'Approval status '+response.status());
+  const [response]=await Promise.all([page.waitForResponse(response=>{if(new URL(response.url()).pathname!=='/api/approvals'||response.request().method()!=='POST')return false;const decision=response.request().postDataJSON();return decision.approvalId===pointer.approvalId&&decision.threadKey===pointer.threadKey&&decision.approved===true}),card.getByRole('button',{name:'Approve',exact:true}).click()]);assert(response.ok(),'Approval status '+response.status());assert.equal((await response.json()).result,'approved','The exact human decision must be accepted');
   passed('Human approval uses the real dashboard button');
 }
 const p=await queue('EDIT_FIXTURE');
@@ -293,6 +293,9 @@ if(checkMissingDeliverable){
   const missingActive=await poll(async()=>{const run=(await api('/api/runs/'+encodeURIComponent(missingDeliverableRunId)+sessionQuery)).data.run;if(!run?.sandboxId)return false;return (await api('/api/computers/harness')).data.runs?.find(row=>row.sandboxId===run.sandboxId&&row.approvals?.some(approval=>approval.requestId==='write-fixture'&&approval.decision===undefined))},'missing deliverable tool approval');
   await page.getByRole('region',{name:'Live agent session',exact:true}).filter({has:page.getByText(missingActive.sandboxId,{exact:true})}).getByRole('button',{name:'Allow',exact:true}).click();
   const failed=await poll(async()=>{const run=(await api('/api/runs/'+encodeURIComponent(missingDeliverableRunId)+sessionQuery)).data.run;assert.notEqual(run?.status,'completed','Missing required file must never produce a completed run');return run?.status==='error'&&run},'missing required marketing file fails closed');
+  const missingReason=failed.error??failed.summary??'';
+  assert.match(missingReason,/Expected deliverable marketing\/campaign\.md could not be captured/,'Missing-file acceptance must not mask an unrelated execution or cleanup failure');
+  assert.doesNotMatch(missingReason,/termination unconfirmed/);
   assert.deepEqual(failed.expectedDeliverables,marketingFiles.map(file=>file.path));
   assert.equal(failed.deliverables?.length??0,0);assert.equal(Object.hasOwn(failed,'resultArtifacts'),false);
   const missingWork=path.join(daemonRoot,'runs',missingActive.sandboxId,'work');
@@ -312,7 +315,7 @@ if(checkMissingDeliverable){
 }
 const cancelledPointer=await queue('CANCEL_FIXTURE');await approveInUi(cancelledPointer);
 const cancelRunId='agent-tool:'+cancelledPointer.approvalId;
-const running=await poll(async()=>{const r=(await api('/api/runs/'+encodeURIComponent(cancelRunId)+sessionQuery)).data.run;if(!r?.sandboxId)return false;try{await readFile(path.join(daemonRoot,'runs',r.sandboxId,'work','.git/fake-cli-proof.json'));return r}catch{return false}},'cancel fixture CLI starts');
+const running=await poll(async()=>{assert.equal(daemon.exitCode,null,'Daemon exited before cancellation fixture dispatch: '+output.slice(-4000));assert.equal(daemon.signalCode,null,'Daemon was signaled before cancellation fixture dispatch');const r=(await api('/api/runs/'+encodeURIComponent(cancelRunId)+sessionQuery)).data.run;assert(!['error','unknown','aborted','cancelled'].includes(r?.status),'Cancellation fixture did not reach its CLI: '+JSON.stringify(r));if(!r?.sandboxId)return false;try{await readFile(path.join(daemonRoot,'runs',r.sandboxId,'work','.git/fake-cli-proof.json'));return r}catch{return false}},'cancel fixture CLI starts');
 const cancelled=(await api('/api/runs/'+encodeURIComponent(cancelRunId)+sessionQuery,undefined,'DELETE')).data.run; assert.equal(cancelled.status,'cancelled');
 await poll(async()=>{try{return await readFile(path.join(daemonRoot,'runs',running.sandboxId,'work','.git/fake-cli-cancelled'),'utf8')}catch{return false}},'cancel reaches actual CLI',10000);
 assert.equal((await api('/api/runs/'+encodeURIComponent(cancelRunId)+sessionQuery)).data.run.status,'cancelled');

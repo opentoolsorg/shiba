@@ -61,6 +61,60 @@ describe("bounded specialist dispatch", () => {
     await expect(withinSpecialistDeadline(operation, Date.now() - 1)).rejects.toThrow(/deadline/);
     expect(operation).not.toHaveBeenCalled();
   });
+
+  it("observes cancellation raised synchronously while child work starts", async () => {
+    vi.useFakeTimers();
+    const parent = new AbortController();
+    let childSignal: AbortSignal | undefined;
+    const settled = vi.fn();
+    const pending = withinSpecialistDeadline(async (signal) => {
+      childSignal = signal;
+      parent.abort();
+      return new Promise<never>(() => {});
+    }, Date.now() + 60_000, parent.signal).then(
+      () => settled("completed"),
+      (error: Error) => settled(error.message),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    const immediateResult = settled.mock.calls[0]?.[0];
+    // Drain the old deadline too so a failed ordering regression leaves no work.
+    await vi.advanceTimersByTimeAsync(60_000);
+    await pending;
+    expect(childSignal?.aborted).toBe(true);
+    expect(immediateResult).toMatch(/cancelled/);
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it("never starts already-cancelled work or accepts a result after cancellation", async () => {
+    vi.useFakeTimers();
+    const cancelled = new AbortController();
+    cancelled.abort(new Error("Stop requested."));
+    const notStarted = vi.fn();
+    await expect(withinSpecialistDeadline(notStarted, Date.now() + 60_000, cancelled.signal))
+      .rejects.toThrow("Stop requested.");
+    expect(notStarted).not.toHaveBeenCalled();
+
+    const parent = new AbortController();
+    let resolveChild!: (value: string) => void;
+    let childSignal: AbortSignal | undefined;
+    const settled = vi.fn();
+    const pending = withinSpecialistDeadline((signal) => {
+      childSignal = signal;
+      return new Promise<string>((resolve) => { resolveChild = resolve; });
+    }, Date.now() + 60_000, parent.signal).then(
+      (value) => settled(value),
+      (error: Error) => settled(error.message),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    parent.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(childSignal?.aborted).toBe(true);
+    expect(settled).toHaveBeenCalledWith(expect.stringMatching(/cancelled/));
+    resolveChild("late completed result");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await pending;
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("child sandbox boundary", () => {

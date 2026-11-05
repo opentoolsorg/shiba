@@ -17,6 +17,8 @@ import {
 import { AGENT_HARNESS_SOURCE } from "../src/harness/agent-harness-source.js";
 import { claudeCodeHarness } from "../src/harness/claude-code.js";
 import { parseCodexEvent } from "../src/harness/codex.js";
+import { codexSubscriptionHarness, CodexUsageLimitError } from "../src/harness/codex-subscription.js";
+import { claudeSubscriptionHarness, ClaudeUsageLimitError } from "../src/harness/claude-subscription.js";
 import { resolveHarness } from "../src/harness/index.js";
 import { DUMMY_PROVIDER_KEY } from "../src/provider-gateway.js";
 import {
@@ -208,9 +210,11 @@ describe("codex app-server adapter", () => {
     const dir = await scratch();
     const script = path.join(dir, "fake-codex-long.mjs");
     const log = path.join(dir, "seen.jsonl");
+    const secret = "approvedValue987654321-private-tail";
+    let approvalCalls = 0;
     const longFake = CODEX_FAKE.replace(
       'params: { command: "ls", reason: "list the tree"',
-      `params: { command: ${JSON.stringify("x".repeat(2500))}, reason: "list the tree"`,
+      `params: { command: ${JSON.stringify(`${"x".repeat(185)}${secret}${"y".repeat(2300)}`)}, reason: "list the tree"`,
     );
     await writeFile(script, longFake);
     const result = await runSessionJob({
@@ -224,10 +228,13 @@ describe("codex app-server adapter", () => {
       binArgs: [script],
       checkpoints: false,
       emitStdout: false,
-      onApproval: async () => "allow",
+      onApproval: async () => { approvalCalls++; return "allow"; },
       env: childEnv({ FAKE_MODE: "approve", FAKE_LOG: log }),
     });
     expect(result.status).toBe("completed");
+    expect(result.events).toContainEqual(expect.objectContaining({ type: "approval.requested", title: "[Output exceeded 200 characters.]" }));
+    expect(approvalCalls).toBe(0);
+    expect(JSON.stringify(result.events)).not.toContain("approvedValue987");
     const seen = await readFile(log, "utf8");
     expect(seen).toContain('"decision":"decline"');
     expect(
@@ -255,6 +262,35 @@ describe("codex app-server adapter", () => {
     expect(denyLog).toContain('"decision":"decline"');
   });
 
+  it("binds full native permission arguments before projection with canonical hashes", async () => {
+    const hashes: string[] = [];
+    for (const injected of [{ alpha: "one", beta: "two" }, { beta: "two", alpha: "one" }, { alpha: "changed", beta: "two" }]) {
+      const dir = await scratch(), script = path.join(dir, "full-permission.mjs");
+      await writeFile(script, CODEX_FAKE.replace('params: { command: "ls", reason: "list the tree"', `params: { env: ${JSON.stringify(injected)}, command: "ls", reason: "list the tree"`));
+      let observed: { actionHash: string; detail: string } | undefined;
+      const result = await codexJob(dir, "approve", { binArgs: [script], exactApprovalReview: true, validateApprovalReview: async () => true,
+        onApproval: async (request: { actionHash: string; detail: string }) => { observed = request; return "deny"; } });
+      expect(result.status).toBe("completed");
+      expect(observed?.actionHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(JSON.parse(observed?.detail ?? "{}").payload.params.env).toEqual(injected);
+      hashes.push(observed?.actionHash ?? "");
+    }
+    expect(hashes[0]).toBe(hashes[1]); expect(hashes[0]).not.toBe(hashes[2]);
+  });
+
+  it.each(["sensitive", "oversized"])("denies %s exact permissions before raw event/log/callback exposure", async (kind) => {
+    const dir = await scratch(), script = path.join(dir, "unsafe-permission.mjs");
+    const secret = "fakePrivatePermissionToken987";
+    await writeFile(script, CODEX_FAKE.replace('params: { command: "ls", reason: "list the tree"', `params: { command: ${JSON.stringify(kind === "oversized" ? `${"x".repeat(2100)}${secret}` : secret)}, reason: "list the tree"`));
+    let called = 0;
+    const result = await codexJob(dir, "approve", { binArgs: [script], exactApprovalReview: true,
+      validateApprovalReview: async () => false, onApproval: async () => { called++; return "allow"; } });
+    expect(called).toBe(0); expect(result.status).toBe("completed");
+    expect(JSON.stringify(result.events)).not.toContain(secret);
+    expect(await readFile(result.logPath, "utf8")).not.toContain(secret);
+    expect(result.events).toContainEqual(expect.objectContaining({ type: "approval.resolved", decision: "deny" }));
+  });
+
   it("interrupts the in-flight turn", async () => {
     const dir = await scratch();
     let armed = false;
@@ -268,6 +304,26 @@ describe("codex app-server adapter", () => {
     expect(result.status).toBe("interrupted");
     const log = await readFile(path.join(dir, "seen.jsonl"), "utf8");
     expect(log).toContain("turn/interrupt");
+  });
+
+  it.each([false, true])("settles a pending turn exactly once after owned process loss (cancelled=%s)", async (cancelled) => {
+    const dir = await scratch();
+    const controller = new AbortController();
+    let child: { kill(signal: string): boolean } | undefined;
+    const result = await codexJob(dir, "interrupt", {
+      signal: controller.signal,
+      onChild(value: { kill(signal: string): boolean }) { child = value; },
+      onEvent(event: { type: string }) {
+        if (event.type !== "turn.started") return;
+        if (cancelled) controller.abort();
+        child?.kill("SIGTERM");
+      },
+    });
+    expect(result.status).toBe(cancelled ? "interrupted" : "failed");
+    expect(result.exitCode).toBe(1);
+    expect(result.summary).toBe("Codex session process closed.");
+    expect(result.events.filter(event => event.type === "turn.completed")).toHaveLength(1);
+    expect(result.events.filter(event => event.type === "turn.completed")[0]?.usageLimited).toBe(false);
   });
 
   it("resumes a thread instead of starting one", async () => {
@@ -380,6 +436,66 @@ describe("claude stream-json adapter", () => {
     expect(log).toContain('"behavior":"allow"');
     expect(log).toContain('"behavior":"deny"');
     await expect(readFile(path.join(dir, "greeting.txt"), "utf8")).rejects.toThrow();
+  });
+});
+
+describe("bounded native display transport", () => {
+  it.each(["codex", "claude"] as const)("%s keeps failed terminal quota classification after replacing an oversized summary", async (provider) => {
+    const dir = await scratch();
+    const script = path.join(dir, "fake-failed-display.mjs");
+    const secret = "approvedValue987654321-private-tail";
+    const content = `quota exceeded ${"x".repeat(3980)}${secret}${"y".repeat(50)}`;
+    const fake = provider === "claude"
+      ? CLAUDE_FAKE.replace('send({ type: "result", result: "done", session_id: "sess_1" });', `send(${JSON.stringify({ type: "result", is_error: true, result: content, session_id: "sess_1" })});`)
+      : CODEX_FAKE.replace('if (mode === "interrupt") return;', `send(${JSON.stringify({ method: "turn/completed", params: { turn: { id: "turn_1", status: "failed", error: { message: content } } } })}); return;`);
+    await writeFile(script, fake);
+    const result = await runSessionJob({ provider, model: "fixture-model", cwd: dir, logDir: dir,
+      prompt: "Inspect fixture terminal error", permissionMode: "approval-required", checkpoints: false,
+      bin: process.execPath, binArgs: [script], emitStdout: false, env: childEnv({}),
+    });
+    const event = result.events.find((entry) => entry.type === "turn.completed") as unknown as Record<string, unknown> | undefined;
+    expect(event).toMatchObject({ status: "failed", usageLimited: true, summary: "[Output exceeded 4000 characters.]" });
+    expect(JSON.stringify(event)).not.toContain("approvedValue");
+    const line = JSON.stringify({ type: "shiba.event", event, text: event?.summary });
+    if (provider === "claude") expect(() => claudeSubscriptionHarness.parseEvent(line)).toThrow(ClaudeUsageLimitError);
+    else expect(() => codexSubscriptionHarness.parseEvent(line)).toThrow(CodexUsageLimitError);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it.each([
+    ["codex", "tool.started", "name", 200],
+    ["codex", "error", "message", 500],
+    ["codex", "turn.completed", "summary", 4000],
+    ["claude", "message.completed", "text", 4000],
+  ] as const)("%s %s replaces oversized display content instead of exposing a secret prefix", async (provider, type, field, limit) => {
+    const dir = await scratch();
+    const script = path.join(dir, "fake-display.mjs");
+    const secret = "approvedValue987654321-private-tail";
+    const content = `${field === "message" ? "quota exceeded " : ""}${"x".repeat(limit - 15)}${secret}${"y".repeat(50)}`;
+    let fake: string;
+    if (provider === "claude") {
+      fake = CLAUDE_FAKE.replace('text: "working"', `text: ${JSON.stringify(content)}`);
+    } else {
+      const notification = type === "tool.started"
+        ? { method: "item/started", params: { item: { command: content } } }
+        : type === "error" ? { method: "error", params: { message: content } }
+        : { method: "turn/completed", params: { turn: { id: "turn_1", status: "failed", error: { message: content } } } };
+      const finish = type === "tool.started" ? 'send({ method: "turn/completed", params: { turn: { id: "turn_1", status: "completed" } } });' : "";
+      fake = CODEX_FAKE.replace('if (mode === "interrupt") return;', `send(${JSON.stringify(notification)}); ${finish} return;`);
+    }
+    await writeFile(script, fake);
+    const result = await runSessionJob({ provider, model: "fixture-model", cwd: dir, logDir: dir,
+      prompt: "Inspect fixture display", permissionMode: "approval-required", checkpoints: false,
+      bin: process.execPath, binArgs: [script], emitStdout: false, env: childEnv({}),
+    });
+    const event = result.events.find((entry) => entry.type === type) as unknown as Record<string, unknown> | undefined;
+    expect(event?.[field]).toBe(`[Output exceeded ${limit} characters.]`);
+    expect(JSON.stringify(event)).not.toContain("approvedValue");
+    if (type === "error") {
+      expect(event?.usageLimited).toBe(true);
+      expect(() => codexSubscriptionHarness.parseEvent(JSON.stringify({ type: "shiba.event", event }))).toThrow(CodexUsageLimitError);
+    }
+    expect(result.status).toBe(type === "error" || type === "turn.completed" ? "failed" : "completed");
   });
 });
 

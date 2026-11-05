@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { APPROVAL_TTL_MS, type PendingApproval } from "@shiba/shared";
 import { RoomApprovalReview } from "./RoomApprovalReview";
+import { personalFixture } from "../personal-execution-fixtures";
 
 const workspaceId = `ws_${"a".repeat(24)}`,
   otherWorkspace = `ws_${"b".repeat(24)}`;
@@ -51,6 +52,37 @@ afterEach(() => {
 });
 
 describe("requester-only shared run approval", () => {
+  it("shows the frozen own-account route before an explicit human decision", async () => {
+    const personal = { ...personalFixture().grant.snapshot, actorId: props.actorId, workspaceId };
+    const response = { ...card(), approval: { ...approval(), runtime: "local", targetMachineId: personal.machineId,
+      repoUrl: personal.repoUrl, publishPullRequest: false, route: undefined, personalExecution: personal } };
+    const fetcher = vi.fn(async () => Response.json(response)); vi.stubGlobal("fetch", fetcher);
+    render(<RoomApprovalReview {...props} />);
+    const button = await screen.findByRole("button", { name: "Approve run" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Fingerprint a{12} · billing native-subscription/)).toBeTruthy();
+    expect(screen.getByText(/machine-personal · revision 3/)).toBeTruthy();
+    expect(screen.getByText(/plex_c+ · v1 · expires/)).toBeTruthy();
+    expect(screen.getByText(/Public repository https:\/\/github.com\/owner\/public-repo · exact model openai\/fixture-model/)).toBeTruthy();
+    expect(screen.getByText(/Local repository task only/)).toBeTruthy();
+    expect(screen.getByText(/A fresh configuration home is not an OS sandbox/)).toBeTruthy();
+    expect(screen.queryByText(/connection deployment default/)).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each(["foreign-workspace", "foreign-account", "machine-change", "expired-grant", "publication"])("blocks a %s personal route before review", async (variant) => {
+    const personal = { ...personalFixture().grant.snapshot, actorId: props.actorId, workspaceId };
+    const record = { ...approval(), runtime: "local" as const, targetMachineId: personal.machineId, repoUrl: personal.repoUrl,
+      publishPullRequest: false, route: undefined, personalExecution: personal };
+    if (variant === "foreign-workspace") personal.workspaceId = otherWorkspace;
+    if (variant === "foreign-account") personal.actorId = "another@example.test";
+    if (variant === "machine-change") record.targetMachineId = "another-machine";
+    if (variant === "expired-grant") personal.expiresAt = Date.now() - 1;
+    if (variant === "publication") record.publishPullRequest = true;
+    const fetcher = vi.fn(async () => Response.json({ ...card(), approval: record })); vi.stubGlobal("fetch", fetcher);
+    render(<RoomApprovalReview {...props} />);
+    await screen.findByRole("alert"); expect(screen.queryByRole("button", { name: "Approve run" })).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it("shows the complete frozen scope without deciding until explicit review and approval", async () => {
     const fetcher = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) =>
       Response.json(

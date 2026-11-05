@@ -27,6 +27,10 @@ import {
 } from "../src/collaboration-store.js";
 import { mintCollaborationExecutor } from "../src/collaboration-executor.js";
 import * as collaborationRunScope from "../src/collaboration-run-scope.js";
+import * as personalExecutionStore from "../src/personal-execution-store.js";
+import { personalExecutionContextDigest, type PersonalExecutionSnapshot, type PersonalExecutionClaim } from "@shiba/shared";
+import { personalClaimPrincipal } from "../src/personal-execution-claim.js";
+import { signInternalRequest } from "../src/edge-identity.js";
 import { createTeamWorkspace } from "../src/team-workspaces-store.js";
 import { initiatorUserIdFromOrchestratorName } from "../src/subscription-routing.js";
 import {
@@ -1699,6 +1703,129 @@ describe("isolated team execution ownership", () => {
     expect(f.instance.state.runs).toEqual([]);
   });
 
+  async function personal() {
+    const f = await isolated("owner@example.test");
+    const revalidate = vi.spyOn(personalExecutionStore, "revalidatePersonalExecutionSnapshot").mockResolvedValue(true);
+    const deploymentRead = vi.fn(() => { throw new Error("Deployment provider access must never be used."); });
+    Object.assign(f.instance.env, { SHIBA_LOCAL_RUNTIME: "1", SHIBA_PERSONAL_LOCAL_EXECUTION: "1", GITHUB_TOKEN: undefined,
+      AI_GATEWAY_TOKEN: undefined, TYPESAFE_API_KEY: "fixture-must-not-be-called", ModelConfig: { idFromName: deploymentRead }, AI: { run: deploymentRead } });
+    const snapshot: PersonalExecutionSnapshot = { version: 1, grantId: `plex_${"a".repeat(32)}`, grantVersion: 1,
+      ownerAccountId: "native-owner-uuid", actorId: f.owner, workspaceId: f.scope.workspaceId, membershipVersion: 1,
+      machineId: "personal-machine", machineRevision: 1, harness: "claude-code", billingMode: "native-subscription",
+      accountFingerprint: "a".repeat(64), authVersion: "b".repeat(64), codingModel: "anthropic/claude-sonnet-4-6",
+      repoUrl: "https://github.com/o/r", expiresAt: Date.now() + 60_000, allowedPhases: ["local_repository_task"] };
+    const queue = (changes: Record<string, unknown> = {}) => f.queue({ runtime: "local", targetMachineId: snapshot.machineId, personalExecution: snapshot, ...changes });
+    const approve = async () => {
+      const response = await queue();
+      expect(response.status).toBe(200);
+      const receipt = await response.json() as { approvalId: string; approvalInputHash: string };
+      expect(await f.link(receipt.approvalId)).toBe(true);
+      expect((await f.decide(receipt.approvalId, receipt.approvalInputHash)).status).toBe(200);
+      return receipt;
+    };
+    return { ...f, snapshot, queue, approve, revalidate, deploymentRead };
+  }
+
+  it("queues and approves personal native work without deployment model access or any work before approval", async () => {
+    const f = await personal();
+    try {
+      const queued = await f.queue();
+      expect(queued.status).toBe(200);
+      const receipt = await queued.json() as { approvalId: string; approvalInputHash: string };
+      expect(f.instance.state.personalExecutionOnly).toBe(true);
+      expect(f.instance.state.pendingApprovals?.[0]).toMatchObject({ personalExecution: f.snapshot, runtime: "local",
+        route: { connectionId: null, harness: "claude-code", modelId: f.snapshot.codingModel } });
+      expect(f.instance.state.runs).toEqual([]);
+      expect(f.dispatch).not.toHaveBeenCalled();
+      expect(f.instance.getTools()).toEqual({});
+      expect(() => f.instance.getModel()).toThrow("deployment model inference");
+      expect(await f.link(receipt.approvalId)).toBe(true);
+      expect((await f.decide(receipt.approvalId, receipt.approvalInputHash)).status).toBe(200);
+      expect(f.instance.state.runs[0]).toMatchObject({ personalExecution: f.snapshot, approval: { inputHash: receipt.approvalInputHash } });
+      expect(f.deploymentRead).not.toHaveBeenCalled();
+      expect(mocks.triage).not.toHaveBeenCalled();
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it("seals the complete personal child input without deployment inference, grading or substitution", async () => {
+    const f = await personal();
+    try {
+      const receipt = await f.approve();
+      f.instance.env.INTERNAL_SIGNING_KEY = "s".repeat(32);
+      mocks.execute.mockResolvedValue(formatAgentResult({ status: "completed", summary: "Fixture local result", exitCode: 0,
+        stderrTail: "", changedFiles: [], diff: "", files: [] }));
+      const delegate = (f.instance as unknown as { approvedRunDelegate(): { execute(input: unknown, options: unknown): Promise<unknown> } }).approvedRunDelegate();
+      await delegate.execute({ runtime: "local" }, { toolCallId: receipt.approvalId });
+      expect(mocks.execute).toHaveBeenCalledOnce();
+      const raw = mocks.execute.mock.calls[0]![0] as string;
+      const actual = parseAgentToolInput([{ role: "user", text: raw }]);
+      expect(actual).toMatchObject({ personalExecution: f.snapshot, targetMachineId: f.snapshot.machineId, harness: "claude-code",
+        codingModel: f.snapshot.codingModel, publishPullRequest: false, personalExecutionClaim: { inputHash: receipt.approvalInputHash, approvalId: receipt.approvalId, executionOwner: f.executor } });
+      expect(actual.personalExecutionClaim?.contextDigest).toBe(personalExecutionContextDigest({ ...f.instance.state.runs[0]!, handoffId: f.input.collaborationHandoffId }));
+      expect(f.deploymentRead).not.toHaveBeenCalled();
+      expect(mocks.triage).not.toHaveBeenCalled(); expect(mocks.quality).not.toHaveBeenCalled();
+      expect(f.instance.state.runs[0]?.status).toBe("completed");
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it.each(["revoked", "machine", "model", "actor", "publish", "setup", "cloud"])("refuses personal %s changes without a deployment fallback", async (change) => {
+    const f = await personal();
+    try {
+      if (change === "revoked") f.revalidate.mockResolvedValue(false);
+      const override = change === "machine" ? { targetMachineId: "other-machine" } : change === "model" ? { personalExecution: { ...f.snapshot, codingModel: "openai/wrong" } }
+        : change === "actor" ? { personalExecution: { ...f.snapshot, actorId: "other@example.test" } } : change === "publish" ? { publishPullRequest: true }
+          : change === "setup" ? { runSetup: true } : change === "cloud" ? { runtime: "sandbox" } : {};
+      expect((await f.queue(override)).ok).toBe(false);
+      expect(f.instance.state.runs).toEqual([]); expect(f.instance.state.pendingApprovals ?? []).toEqual([]);
+      expect(f.deploymentRead).not.toHaveBeenCalled(); expect(mocks.execute).not.toHaveBeenCalled();
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it("checks exact signed parent claim authority and denies changed task, generation, cancellation and revocation", async () => {
+    const f = await personal();
+    try {
+      const receipt = await f.approve(), run = f.instance.state.runs[0]!;
+      f.instance.env.INTERNAL_SIGNING_KEY = "s".repeat(32);
+      const proof: PersonalExecutionClaim = { snapshot: f.snapshot, approvalId: receipt.approvalId, inputHash: receipt.approvalInputHash,
+        generation: run.generation, executionOwner: f.executor, handoffId: f.input.collaborationHandoffId,
+        contextDigest: personalExecutionContextDigest({ ...run, handoffId: f.input.collaborationHandoffId }), approvedUntil: Date.now() + 20_000 };
+      const authority = async (candidate: PersonalExecutionClaim, signed = true) => {
+        const request = new Request("https://internal/internal/personal-execution/claim-authority", { method: "POST",
+          headers: { "content-type": "application/json", "X-Agent-Principal": personalClaimPrincipal(candidate) }, body: JSON.stringify(candidate) });
+        if (signed) await signInternalRequest(request, f.instance.env);
+        return f.instance.onRequest(request);
+      };
+      expect((await authority(proof)).status).toBe(200);
+      expect((await authority(proof, false)).ok).toBe(false);
+      const signedOriginal = new Request("https://internal/internal/personal-execution/claim-authority", { method: "POST",
+        headers: { "content-type": "application/json", "X-Agent-Principal": personalClaimPrincipal(proof) }, body: JSON.stringify(proof) });
+      await signInternalRequest(signedOriginal, f.instance.env);
+      const changedBody = new Request(signedOriginal.url, { method: "POST", headers: signedOriginal.headers,
+        body: JSON.stringify({ ...proof, approvedUntil: proof.approvedUntil + 1 }) });
+      expect((await f.instance.onRequest(changedBody)).status).toBe(403);
+      for (const candidate of [{ ...proof, generation: proof.generation + 1 }, { ...proof, inputHash: "f".repeat(64) },
+        { ...proof, approvedUntil: Date.now() - 1 }, { ...proof, snapshot: { ...f.snapshot, codingModel: "anthropic/other" } },
+        { ...proof, contextDigest: "f".repeat(64) }]) expect((await authority(candidate)).ok).toBe(false);
+      f.revalidate.mockResolvedValue(false); expect((await authority(proof)).ok).toBe(false);
+      f.revalidate.mockResolvedValue(true); run.task += " changed after review"; expect((await authority(proof)).ok).toBe(false);
+      run.task = f.instance.state.pendingApprovals![0]!.task;
+      run.status = "cancelled"; expect((await authority(proof)).ok).toBe(false);
+      expect(f.deploymentRead).not.toHaveBeenCalled();
+    } finally { f.revalidate.mockRestore(); }
+  });
+
+  it("denies fork, nested child, steering and publication APIs on an isolated personal host", async () => {
+    const f = await personal();
+    try {
+      await f.approve();
+      for (const path of ["/api/runs/anything/fork", "/api/runs/anything/subagents", "/api/runs/anything/steer", "/internal/pr-lifecycle"])
+        expect((await f.instance.onRequest(new Request(`https://internal${path}`, { method: "POST", body: "{}" }))).status).toBe(403);
+      f.revalidate.mockResolvedValue(false);
+      const response = await f.queue(); expect(response.ok).toBe(false);
+      expect(f.deploymentRead).not.toHaveBeenCalled(); expect(mocks.execute).not.toHaveBeenCalled();
+    } finally { f.revalidate.mockRestore(); }
+  });
+
   it("keeps the exact-case rule for ordinary private sessions", async () => {
     const instance = agent();
     Object.assign(instance, { name: "web:Owner@Example.Test:11111111-1111-4111-8111-111111111111" });
@@ -2180,14 +2307,14 @@ describe("agent facet routing", () => {
     Object.assign(instance, { hasAgentToolRun });
     const response = await instance.onBeforeSubAgent(new Request("https://internal/sub/guessed"), { className, name: "guessed" });
     expect(response?.status).toBe(404);
-    expect(hasAgentToolRun).toHaveBeenCalledWith(className, "guessed");
+    expect(hasAgentToolRun).not.toHaveBeenCalled();
   });
 
-  it("allows a retained approved class while refusing unknown facet classes", async () => {
+  it("refuses external access even to retained runs and unknown facet classes", async () => {
     const instance = agent();
     Object.assign(instance, { hasAgentToolRun: () => true });
     const request = new Request("https://internal/sub/retained");
-    expect(await instance.onBeforeSubAgent(request, { className: "ExplorerAgent", name: "retained" })).toBeUndefined();
+    expect((await instance.onBeforeSubAgent(request, { className: "ExplorerAgent", name: "retained" }))?.status).toBe(404);
     expect((await instance.onBeforeSubAgent(request, { className: "UnknownAgent", name: "retained" }))?.status).toBe(404);
   });
 });

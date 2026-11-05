@@ -5,7 +5,9 @@ import type {
   IntegrationProviderHealth,
 } from "@shiba/shared";
 import { z } from "zod";
+import { isTeamWorkspaceId, integrationActionOperationTypeSchema } from "@shiba/shared";
 import type { Env } from "../env.js";
+import { assertActionArgumentsAllowed, assertActionInputAllowed, IntegrationActionInputPolicyError, requiresProtectedActionInput } from "./action-input-policy.js";
 import type {
   FetchImpl,
   IntegrationActionQuery,
@@ -57,6 +59,16 @@ export async function openConnectorConnectionName(userId: string): Promise<strin
   return `u_${Array.from(new Uint8Array(digest)).slice(0, 8).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** Sharing requires a separate server-derived namespace, never a personal account alias. */
+export async function openConnectorWorkspaceConnectionName(workspaceId: string): Promise<string> {
+  if (!isTeamWorkspaceId(workspaceId)) throw new OpenConnectorIntegrationProviderError("Workspace scope is invalid.");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(["shiba:workspace-app:v1", workspaceId])));
+  return `w_${Array.from(new Uint8Array(digest)).slice(0, 16).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+function scopedConnectionName(userId: string, workspaceId?: string) {
+  return workspaceId === undefined ? openConnectorConnectionName(userId) : openConnectorWorkspaceConnectionName(workspaceId);
+}
+
 export class OpenConnectorIntegrationProvider implements IntegrationProvider {
   readonly id = "openconnector" as const;
   private readonly env: Env;
@@ -84,7 +96,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     return url.href.replace(/\/$/, "");
   }
 
-  private async request(path: string, auth: "admin" | "runtime" | null, init: RequestInit = {}): Promise<unknown> {
+  private async request(path: string, auth: "admin" | "runtime" | null, init: RequestInit = {}, beforeFetch?: () => void): Promise<unknown> {
     const base = this.base();
     const token = auth === "admin" ? this.env.OPEN_CONNECTOR_ADMIN_TOKEN?.trim() : auth === "runtime" ? this.env.OPEN_CONNECTOR_RUNTIME_TOKEN?.trim() : undefined;
     if (auth && !token) throw new OpenConnectorIntegrationProviderError(`Set OPEN_CONNECTOR_${auth.toUpperCase()}_TOKEN to enable OpenConnector ${auth} requests.`);
@@ -94,13 +106,16 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     let response: Response;
     try {
       const fetcher = this.env.OPEN_CONNECTOR ? this.env.OPEN_CONNECTOR.fetch.bind(this.env.OPEN_CONNECTOR) : this.fetchImpl;
-      response = await fetcher(`${base}${path}`, {
+      const requestInit: RequestInit = {
         ...init,
         headers,
         redirect: "manual",
-        signal: AbortSignal.timeout(35_000),
-      });
-    } catch {
+        signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(35_000)]) : AbortSignal.timeout(35_000),
+      };
+      beforeFetch?.();
+      response = await fetcher(`${base}${path}`, requestInit);
+    } catch (error) {
+      if (error instanceof OpenConnectorIntegrationProviderError) throw error;
       throw new OpenConnectorIntegrationProviderError("Could not reach OpenConnector.");
     }
     // Never include upstream error bodies: they may contain credentials or tool output.
@@ -155,14 +170,14 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
     }
   }
 
-  private async ownedConnectionRows(userId: string) {
-    const connectionName = await openConnectorConnectionName(userId);
+  private async ownedConnectionRows(userId: string, workspaceId?: string) {
+    const connectionName = await scopedConnectionName(userId, workspaceId);
     const rows = this.parse(connectionsSchema, await this.request("/api/connections", "admin"));
     return rows.filter((row) => row.connectionName === connectionName);
   }
 
-  async listConnections(args: { userId: string; includeUnavailable?: boolean }): Promise<IntegrationProviderConnection[]> {
-    const rows = (await this.ownedConnectionRows(args.userId)).filter((row) => !row.virtual);
+  async listConnections(args: { userId: string; includeUnavailable?: boolean; workspaceId?: string }): Promise<IntegrationProviderConnection[]> {
+    const rows = (await this.ownedConnectionRows(args.userId, args.workspaceId)).filter((row) => !row.virtual);
     return Promise.all(rows.filter((row) => args.includeUnavailable || (row.configured && Boolean(row.oauthAuthorizationId) && (row.status === undefined || row.status === "active"))).map(async (row) => {
       const active = row.configured && (row.status === undefined || row.status === "active");
       const consent = row.oauthAuthorizationId;
@@ -182,7 +197,7 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
 
   async listCatalog(query: IntegrationCatalogQuery): Promise<IntegrationCatalogPage> {
     const providers = this.parse(providersSchema, await this.request("/api/providers", "admin"));
-    const connected = new Map((await this.listConnections({ userId: query.userId })).map((row) => [row.providerKey, row]));
+    const connected = new Map((await this.listConnections({ userId: query.userId, ...(query.workspaceId !== undefined ? { workspaceId: query.workspaceId } : {}) })).map((row) => [row.providerKey, row]));
     const search = query.query?.trim().toLowerCase() ?? "";
     const rows = providers.filter((row) => `${row.service} ${row.displayName} ${row.description ?? ""}`.toLowerCase().includes(search));
     const offset = query.cursor && /^\d+$/.test(query.cursor) ? Number(query.cursor) : 0;
@@ -214,18 +229,18 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
   async beginConnect(context: IntegrationConnectContext): Promise<IntegrationProviderBeginConnectResponse> {
     try {
       if (!SERVICE.test(context.providerKey)) return { ok: false, provider: this.id, error: "Unsupported provider identifier." };
-      if ((await this.ownedConnectionRows(context.userId)).some((row) => row.service === context.providerKey && !row.virtual)) return { ok: false, provider: this.id, error: "Disconnect the existing owned account before starting a new connection. Existing consent cannot confirm a new sign-in." };
+      if ((await this.ownedConnectionRows(context.userId, context.workspaceId)).some((row) => row.service === context.providerKey && !row.virtual)) return { ok: false, provider: this.id, error: "Disconnect the existing owned account before starting a new connection. Existing consent cannot confirm a new sign-in." };
       const setup = await this.oauthSetup(context.providerKey);
       if (setup !== "ready") return { ok: false, provider: this.id, error: setup === "needs_configuration" ? "Configure this provider's OAuth application in OpenConnector before connecting an account." : setup === "unsupported" ? "This provider has no supported OAuth sign-in path. Configure its credentials with the OpenConnector operator." : "Provider OAuth setup could not be verified. Refresh readiness before connecting." };
       // The /v1 creation endpoint generates a random alias; the local OAuth API accepts ours.
       const result = this.parse(authorizationSchema, await this.request("/api/oauth/authorizations", "admin", {
         method: "POST",
-        body: JSON.stringify({ service: context.providerKey, connectionName: await openConnectorConnectionName(context.userId) }),
+        body: JSON.stringify({ service: context.providerKey, connectionName: await scopedConnectionName(context.userId, context.workspaceId) }),
       }));
       const url = new URL(result.authorizationUrl);
       const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
       if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) || url.username || url.password) throw new OpenConnectorIntegrationProviderError("OpenConnector returned an invalid authorization URL.");
-      return { ok: true, provider: this.id, redirectUrl: url.href, authorizationFingerprint: await fingerprint([await openConnectorConnectionName(context.userId), context.providerKey, result.state]) };
+      return { ok: true, provider: this.id, redirectUrl: url.href, authorizationFingerprint: await fingerprint([await scopedConnectionName(context.userId, context.workspaceId), context.providerKey, result.state]) };
     } catch (error) {
       return { ok: false, provider: this.id, error: error instanceof OpenConnectorIntegrationProviderError ? error.message : "OpenConnector connection failed." };
     }
@@ -234,27 +249,46 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
   async disconnect(context: IntegrationConnectContext): Promise<void> {
     await this.request(`/api/connections/${encodeURIComponent(context.providerKey)}`, "admin", {
       method: "DELETE",
-      body: JSON.stringify({ connectionName: await openConnectorConnectionName(context.userId) }),
+      body: JSON.stringify({ connectionName: await scopedConnectionName(context.userId, context.workspaceId) }),
     });
   }
 
   async searchActions(query: IntegrationActionQuery): Promise<IntegrationAction[]> {
     const params = new URLSearchParams({ q: query.actionId ?? (query.query?.trim() || query.toolkitSlug), service: query.toolkitSlug, limit: String(Math.max(1, Math.min(50, Math.floor(query.limit)))) });
-    const headers = { "x-oo-connector-alias": await openConnectorConnectionName(query.userId) };
+    const headers = { "x-oo-connector-alias": await scopedConnectionName(query.userId, query.workspaceId) };
     const actionSchema = z.object({
       id: z.string().min(1), service: z.string().min(1), name: z.string(), description: z.string().optional(),
       inputSchema: z.record(z.string(), z.unknown()).optional(),
+      // Metadata is advisory even when the provider calls an action a read.
+      operationType: integrationActionOperationTypeSchema.catch("unclassified"),
     });
     const actions = query.actionId
       ? [this.parse(z.object({ success: z.literal(true), data: actionSchema }), await this.request(`/v1/actions/${encodeURIComponent(query.actionId)}`, "runtime", { headers })).data]
       : this.parse(z.object({ success: z.literal(true), data: z.array(actionSchema) }), await this.request(`/v1/actions/search?${params}`, "runtime", { headers })).data;
-    return actions.filter((action) => action.service === query.toolkitSlug && (!query.actionId || action.id === query.actionId));
+    const selected = actions.filter((action) => action.service === query.toolkitSlug && (!query.actionId || action.id === query.actionId));
+    if (query.actionId) selected.forEach((action) => assertActionInputAllowed(action));
+    // Never expose a schema that asks a person or model to paste a developer credential.
+    return selected.filter((action) => !requiresProtectedActionInput(action));
   }
 
   async executeTool(context: IntegrationExecuteContext): Promise<IntegrationProviderExecuteResponse> {
     try {
+      const assertSendCurrent = () => {
+        context.signal?.throwIfAborted();
+        if (context.approvedUntil !== undefined && (!Number.isSafeInteger(context.approvedUntil) || Date.now() >= context.approvedUntil)) {
+          throw new OpenConnectorIntegrationProviderError("App action consent expired. Request a new human approval before retrying.");
+        }
+      };
+      assertSendCurrent();
+      assertActionArgumentsAllowed(context.toolkitSlug ?? "", context.arguments, context.toolSlug);
       if (!context.toolkitSlug || !context.approvedConnectionId) return { ok: false, status: "failed", error: "A current employee-approved app connection is required." };
-      const rows = await this.ownedConnectionRows(context.userId);
+      if (context.toolSlug.startsWith("googleads.") && context.toolkitSlug !== "googleads") return { ok: false, status: "failed", error: "The requested action does not belong to the approved integration." };
+      if (context.toolkitSlug === "googleads") {
+        const actions = await this.searchActions({ userId: context.userId, workspaceId: context.workspaceId, toolkitSlug: context.toolkitSlug, actionId: context.toolSlug, limit: 1 });
+        if (actions.length !== 1) return { ok: false, status: "failed", error: "The requested Google Ads action is unavailable." };
+        assertActionInputAllowed(actions[0]!, context.arguments);
+      }
+      const rows = await this.ownedConnectionRows(context.userId, context.workspaceId);
       let selected: (typeof rows)[number] | undefined;
       for (const row of rows) {
         if (row.service !== context.toolkitSlug || !row.configured || row.virtual || (row.status !== undefined && row.status !== "active") || !row.oauthAuthorizationId) continue;
@@ -262,16 +296,21 @@ export class OpenConnectorIntegrationProvider implements IntegrationProvider {
         if (id === context.approvedConnectionId) selected = row;
       }
       if (!selected) return { ok: false, status: "failed", error: "The approved app consent generation is unavailable or changed. Review the current connection and employee grant again." };
+      const alias = await scopedConnectionName(context.userId, context.workspaceId);
+      const body = JSON.stringify({ input: context.arguments });
+      await context.beforeDispatch?.();
+      assertSendCurrent();
       // Ignore caller-supplied account/session selectors; only the server-derived alias is trusted.
       const result = this.parse(executionSchema, await this.request(`/v1/actions/${encodeURIComponent(context.toolSlug)}`, "runtime", {
         method: "POST",
-        headers: { "x-oo-connector-alias": await openConnectorConnectionName(context.userId), "x-oo-connector-app-id": selected.id },
-        body: JSON.stringify({ input: context.arguments }),
-      }));
+        headers: { "x-oo-connector-alias": alias, "x-oo-connector-app-id": selected.id },
+        body,
+        ...(context.signal ? { signal: context.signal } : {}),
+      }, assertSendCurrent));
       if (!result.success) return { ok: false, status: "failed", error: "OpenConnector action failed." };
       return { ok: true, status: "completed", output: result.data };
     } catch (error) {
-      return { ok: false, status: "failed", error: error instanceof OpenConnectorIntegrationProviderError ? error.message : "OpenConnector action failed." };
+      return { ok: false, status: "failed", error: error instanceof OpenConnectorIntegrationProviderError || error instanceof IntegrationActionInputPolicyError ? error.message : "OpenConnector action failed." };
     }
   }
 }

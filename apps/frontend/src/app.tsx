@@ -30,7 +30,7 @@ import { AgentDetailsPanel, AgentPageHeader, EmployeeOnboarding, ONBOARDING_DISM
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { useProjectContexts } from "./project-contexts";
-import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables } from "./execution-target-input";
+import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables, type DashboardExecutionTargetFields } from "./execution-target-input";
 import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
 import type { EmployeeTemplate } from "./employee-templates";
 import { RemoteAccessView } from "./components/RemoteAccessView";
@@ -51,6 +51,7 @@ import { OnboardingModal, detectSetupSteps } from "./components/OnboardingModal"
 import { FirstRunWizard, type FirstRunProgressSnapshot, type FirstRunStepId } from "./components/FirstRunWizard";
 import { OnboardingProgressClient, type FirstRunProgressUpdate } from "./onboarding-progress-client";
 import { ConversationalOnboarding } from "./components/ConversationalOnboarding";
+import { TeamOnboardingDraft } from "./components/TeamOnboardingDraft";
 import type { OnboardingDraftRef, SelectedOnboardingDraft } from "./onboarding-draft";
 import { SessionsSidebar, type SessionItem } from "./components/SessionsSidebar";
 import { ConversationWorkspaceHeading } from "./components/ConversationWorkspaceHeading";
@@ -666,7 +667,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const submitFailed = useRef(false);
   const submitInFlight = useRef(false);
   // Same request body => same commandId, so a retried POST dedupes server-side.
-  const runCommand = useRef<{ key: string; id: string } | null>(null);
+  const runCommand = useRef<{ key: string; id: string; executionTarget: DashboardExecutionTargetFields["executionTarget"] } | null>(null);
   const clearInFlight = useRef(false);
   const [decisions, setDecisions] = useState<Record<string, boolean>>({});
   const [approvalAnnouncement, setApprovalAnnouncement] = useState("");
@@ -1560,16 +1561,21 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ...(selectedCustomAgentId ? { customAgentId: selectedCustomAgentId } : {}),
           ...(projectContextId ? { projectContextId } : {}),
         };
+        // A retry retains its command ID across daemon re-pairing, but a
+        // different owner, conversation or runtime is a distinct command.
+        // The automatic workspace ID is generated state, not changed intent.
+        const keyTarget = fields.executionTarget.kind === "artifact-workspace" && fields.executionTarget.expectedDeliverables.length === 0
+          ? { ...fields.executionTarget, workspaceId: undefined }
+          : fields.executionTarget;
+        const key = JSON.stringify({ ...fields, executionTarget: keyTarget, owner: orchestratorName, runtime: runTarget, session: selectedSessionId });
+        if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID(), executionTarget: fields.executionTarget };
+        const commandId = runCommand.current.id;
         const body = {
           ...fields,
+          executionTarget: runCommand.current.executionTarget,
           runtime: runTarget,
           ...(runTarget === "local" ? { targetMachineId: selectedLocalMachineId } : {}),
         };
-        // A retry retains its command ID across daemon re-pairing, but a
-        // different conversation or runtime is a distinct command.
-        const key = JSON.stringify({ ...fields, runtime: runTarget, session: selectedSessionId });
-        if (runCommand.current?.key !== key) runCommand.current = { key, id: crypto.randomUUID() };
-        const commandId = runCommand.current.id;
         const draft = task;
         const draftSession = composerScope;
         setTask("");
@@ -2846,7 +2852,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               />
             </div>
           ) : null}
-{showFirstRun && privateDataEnabled ? (
+{showFirstRun && teamWorkspaceId ? (
+            <TeamOnboardingDraft key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} onConfigureEmployee={teamWorkspace && ["owner", "admin"].includes(teamWorkspace.membership.role) ? (templateId) => { setInitialEmployeeTemplateId(templateId); setShowFirstRun(false); openView("custom-agents"); } : undefined} onClose={() => setShowFirstRun(false)} onOpenRooms={() => { setShowFirstRun(false); openView("threads"); }} />
+          ) : showFirstRun && privateDataEnabled ? (
             <ConversationalOnboarding key={orchestratorName ?? "pending"} progress={firstRunProgress}
               onUpdate={updateFirstRunProgress} onResume={resumeFirstRunProgress} onRefresh={refreshFirstRunProgress}
               onDismiss={dismissOutcomeSetup} onClose={() => setShowFirstRun(false)} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }}
@@ -2859,7 +2867,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <TeamWorkspaceView actorId={orchestratorName?.trim().toLowerCase() ?? null} invitationToken={invitationToken}
               onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
               onSelectWorkspace={(id) => { void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }} />
-          ) : teamWorkspaceId && !["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers"].includes(mainView) ? (
+          ) : teamWorkspaceId && !["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations"].includes(mainView) ? (
             <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal workspace feature"><h1 className="text-xl font-medium">Open this feature in your personal workspace</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">This view uses personal or deployment settings. Team messages, context and results stay in the selected team’s shared chat and Work views.</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => teamDirectory.selectWorkspace("")}>Switch to personal workspace</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => openView("threads")}>Open team chat</button></section>
           ) : mainView === "inbox" ? null : mainView === "work" ? (
             <div className="flex min-h-0 flex-1 p-2 gap-2 bg-[var(--bg)] overflow-hidden">
@@ -2893,6 +2901,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 </div>
               ) : null}
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {teamWorkspaceId ? <aside className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--card)] px-4 py-3 text-xs"><p>Plan your first team task with optional role and employee choices. Saved drafts start no work.</p><button type="button" disabled={authMode !== "better-auth"} className="min-h-11 border border-[var(--line)] px-3 disabled:opacity-50" onClick={() => setShowFirstRun(true)}>{authMode === "better-auth" ? "Set up a team task" : "Saved setup requires email sign-in"}</button></aside> : null}
                 {showEmployeeOnboarding ? <EmployeeOnboarding onSelect={setupEmployee} onSkip={dismissEmployeeOnboarding} /> : null}
                 <WorkView
                   view={workViewMode}
@@ -3632,7 +3641,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "providers" ? (
             restrictedTeamMember ? <section className="m-4 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal provider setup unavailable"><h1 className="text-xl font-medium">Personal provider setup needs an explicit account grant</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your invitation gives you team collaboration access. Connecting Claude or Codex and launching employee execution are unavailable for invited accounts until an owned provider and its billing permissions are verified. A deployment operator can request approved work and share its results in your team room.</p><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your account will not fall back to a deployment credential. You can continue using shared chat, selected context, workspace membership and permitted employee recipes.</p></section> : <ProvidersView />
           ) : mainView === "skills" ? (
-            <SkillsView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} actorId={orchestratorName ?? undefined} />
+            <SkillsView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} actorId={orchestratorName ?? undefined} workspaceRole={teamWorkspace?.membership.role} />
           ) : mainView === "spaces" ? (
             <SpacesView />
           ) : mainView === "custom-agents" ? (
@@ -3661,7 +3670,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
-            <IntegrationsView onNavigate={openView} actorId={orchestratorName ?? undefined} />
+            <IntegrationsView onNavigate={openView} actorId={orchestratorName ?? undefined} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
           ) : mainView === "settings" ? (

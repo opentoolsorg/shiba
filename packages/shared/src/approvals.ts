@@ -1,3 +1,4 @@
+import type { PersonalExecutionSnapshot } from "./personal-execution.js";
 import { onboardingRunFields, type OnboardingRunFields } from "./onboarding.js";
 /**
  * Durable pending-approval records: the wire shape `/api/approvals` serves
@@ -118,6 +119,8 @@ export interface PendingApproval extends OnboardingRunFields {
   runtime?: RuntimeSelection;
   /** T51: the machine a local run is pinned to ("Run on: This computer"); hashed. */
   targetMachineId?: string;
+  /** Server-resolved personal account and machine consent, included in approval hashing. */
+  personalExecution?: PersonalExecutionSnapshot;
   /** The test command the human approved, as argv. */
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
@@ -203,6 +206,8 @@ export interface CreateApprovalInput extends OnboardingRunFields {
   authAccount?: string;
   runtime?: RuntimeSelection;
   targetMachineId?: string;
+  /** Server-resolved personal account and machine consent, included in approval hashing. */
+  personalExecution?: PersonalExecutionSnapshot;
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
   expectedDeliverables?: string[];
@@ -260,6 +265,7 @@ export function createPendingApproval(
       ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
       ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
       ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
+      ...(input.personalExecution !== undefined ? { personalExecution: structuredClone(input.personalExecution) } : {}),
       ...(input.testCommand !== undefined ? { testCommand: input.testCommand } : {}),
       ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: [...input.expectedDeliverables] } : {}),
       ...(input.forkedFrom !== undefined ? { forkedFrom: input.forkedFrom } : {}),
@@ -418,6 +424,8 @@ export interface RunInputFields extends OnboardingRunFields {
   runtime?: RuntimeSelection;
   /** T51: which machine a local run may be claimed by — part of what the human approved. */
   targetMachineId?: string;
+  /** Server-resolved personal account and machine consent, included in approval hashing. */
+  personalExecution?: PersonalExecutionSnapshot;
   /** The test command — part of what the human approved. */
   testCommand?: string[];
   /** Exact workspace outputs required by this approval. */
@@ -547,6 +555,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.authAccount !== undefined ? { authAccount: input.authAccount } : {}),
     ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
     ...(input.targetMachineId !== undefined ? { targetMachineId: input.targetMachineId } : {}),
+    ...(input.personalExecution !== undefined ? { personalExecution: input.personalExecution as unknown as JsonValue } : {}),
     ...(tc !== undefined && tc.length > 0 ? { testCommand: tc } : {}),
     ...(input.expectedDeliverables !== undefined ? { expectedDeliverables: input.expectedDeliverables } : {}),
     ...(input.forkedFrom !== undefined

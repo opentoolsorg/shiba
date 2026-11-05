@@ -15,7 +15,7 @@
  */
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import {
   assertSupportedModel,
   PROVIDER_HOSTS,
@@ -48,14 +48,14 @@ export class GrokEventError extends Error {}
  * types throw so a rejected model or aborted turn fails the run honestly
  * instead of reporting success.
  */
-export function parseGrokEvent(line: string): HarnessEvent | null {
+export function parseGrokEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   let event: unknown;
   try {
     event = JSON.parse(trimmed);
   } catch {
-    throw new GrokEventError(`Unparseable Grok event: ${boundTail(trimmed, 200)}`);
+    throw new GrokEventError("Unparseable Grok event.");
   }
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
     throw new GrokEventError("Grok event is not an object.");
@@ -69,7 +69,7 @@ export function parseGrokEvent(line: string): HarnessEvent | null {
         : typeof record.error === "string"
           ? record.error
           : JSON.stringify(record);
-      throw new GrokErrorEvent(boundTail(detail, 500));
+      throw new GrokErrorEvent(sanitizedEventText(detail, sanitize));
     }
     case "max_turns_reached":
       throw new GrokErrorEvent("Grok hit its turn cap without finishing.");
@@ -77,14 +77,14 @@ export function parseGrokEvent(line: string): HarnessEvent | null {
       // Refusal, token/turn limits, and cancellation all mean the task did not finish.
       const reason = typeof record.stopReason === "string" ? record.stopReason : "";
       if (reason.replace(/_/g, "").toLowerCase() !== "endturn") {
-        throw new GrokErrorEvent(`Grok stopped before finishing: ${reason}.`);
+        throw new GrokErrorEvent(sanitizedEventText(`Grok stopped before finishing: ${reason}.`, sanitize));
       }
       return null;
     }
     case "text":
     case "thought": {
       const data = record.data;
-      return typeof data === "string" && data.trim() ? { kind: "text", text: boundTail(data, 500) } : null;
+      return typeof data === "string" && data.trim() ? { kind: "text", text: sanitizedEventText(data, sanitize) } : null;
     }
     case "tool_call": {
       const title = typeof record.title === "string" && record.title
@@ -92,7 +92,7 @@ export function parseGrokEvent(line: string): HarnessEvent | null {
         : typeof record.toolName === "string" && record.toolName
           ? record.toolName
           : "tool";
-      return { kind: "tool", name: title, text: `tool: ${title}` };
+      return { kind: "tool", name: sanitizedEventText(title, sanitize), text: sanitizedEventText(`tool: ${title}`, sanitize) };
     }
     default:
       // available_commands, tool_call_update, plan, usage, session bootstrap —
@@ -162,8 +162,8 @@ export class GrokHarness implements AgentHarness {
     ];
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseGrokEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseGrokEvent(line, sanitize);
   }
   /** T43 declared capabilities — the gates read this, not the name. */
   capabilities(_model?: string): HarnessCapabilities {

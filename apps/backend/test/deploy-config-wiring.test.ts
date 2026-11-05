@@ -1,10 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { CURATED_MCP_VENDORS } from "@shiba/shared";
+import { deploymentOAuthClientEnvKey } from "../src/external-mcp-oauth.js";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const WRANGLER = read("../wrangler.jsonc");
 const ALCHEMY = read("../../../alchemy.run.ts");
 const SCHEMA = read("../../../.env.schema");
+const ENV_EXAMPLE = read("../../../.env.example");
+const ENV_TYPES = read("../src/env.ts");
 const WORKER_SECRETS = JSON.parse(read("../worker-secrets.json")) as { secrets: string[] };
 
 function block(source: string, start: string): string {
@@ -37,6 +41,23 @@ describe("deploy config wiring", () => {
     if (!inner) throw new Error("secrets([...]) block not found in alchemy.run.ts");
     const fromAlchemy = [...inner.matchAll(/"([A-Z][A-Z0-9_]*)"/g)].map((x) => x[1]);
     expect([...WORKER_SECRETS.secrets].sort()).toEqual([...new Set(fromAlchemy)].sort());
+  });
+
+  it("wires an optional operator OAuth client ID for every curated MCP preset", () => {
+    const configured = new Set(WORKER_SECRETS.secrets);
+    const secretBlock = block(ALCHEMY, "...secrets([");
+    expect(WRANGLER).toContain("MCP_OAUTH_CLIENT_*");
+    expect(CURATED_MCP_VENDORS.map((vendor) => vendor.catalogId).sort()).toEqual([
+      "figma", "jira-atlassian", "notion", "posthog", "sentry", "stripe",
+    ]);
+    for (const { catalogId } of CURATED_MCP_VENDORS) {
+      const key = deploymentOAuthClientEnvKey(catalogId);
+      expect(secretBlock, `${key} must be bound by Alchemy`).toContain(`"${key}"`);
+      expect(configured, `${key} must be available to Wrangler operators`).toContain(key);
+      expect(ENV_TYPES, `${key} must be typed on Worker Env`).toMatch(new RegExp(`\\b${key}\\?: string;`));
+      expect(SCHEMA, `${key} must be declared in .env.schema`).toMatch(new RegExp(`^${key}=$`, "m"));
+      expect(ENV_EXAMPLE, `${key} must be documented in .env.example`).toMatch(new RegExp(`^${key}=$`, "m"));
+    }
   });
 
   // P7 #6: flags missing from wrangler vars are wiped on every wrangler deploy.

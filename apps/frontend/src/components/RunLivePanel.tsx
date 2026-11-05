@@ -9,13 +9,21 @@ const ignoreMessage = () => {};
 const MAX_TERMINAL_CHARS = 250_000;
 const MAX_DIFF_CHARS = 500_000;
 
-export function RunLivePanel({ runId, sessionId = "default", showDiff = true, roomUrl }: {
+interface RunLivePanelProps {
   runId: string;
   sessionId?: string;
   showDiff?: boolean;
   roomUrl?: string;
-}) {
-  const [terminal, setTerminal] = useState("");
+}
+
+export function RunLivePanel(props: RunLivePanelProps) {
+  const key = JSON.stringify([props.runId, props.sessionId ?? "default", props.roomUrl ?? null]);
+  return <ScopedRunLivePanel key={key} {...props} />;
+}
+
+function ScopedRunLivePanel({ runId, sessionId = "default", showDiff = true, roomUrl }: RunLivePanelProps) {
+  const [terminal, setTerminal] = useState({ text: "", totalChars: 0, epoch: 0 });
+  const lastSequence = useRef(0);
   const [diff, setDiff] = useState("");
   const pendingDiff = useRef<string | null>(null);
   const [diffNotice, setDiffNotice] = useState("");
@@ -24,6 +32,13 @@ export function RunLivePanel({ runId, sessionId = "default", showDiff = true, ro
   const [children, setChildren] = useState<Record<string, string>>({});
   const [sessionChildren, setSessionChildren] = useState<Record<string, string>>({});
   const onRunEvent = useCallback((frame: ConversationRunFrame) => {
+    if (frame.sequence < lastSequence.current) {
+      // The room hook permits a rewind only after the durable source resets.
+      setTerminal((current) => ({ text: "", totalChars: 0, epoch: current.epoch === Number.MAX_SAFE_INTEGER ? 0 : current.epoch + 1 }));
+      pendingDiff.current = null;
+      setDiff(""); setDiffNotice(""); setChildren({}); setSessionChildren({}); setRunStatus(""); setStreamGap(true);
+    }
+    lastSequence.current = frame.sequence;
     const event = frame.event;
     if (frame.runId !== runId) {
       if (frame.runId.startsWith("specialist:") && event.kind === "child" && typeof event.childId === "string" && typeof event.status === "string") {
@@ -34,7 +49,14 @@ export function RunLivePanel({ runId, sessionId = "default", showDiff = true, ro
       return;
     }
     if (event.kind === "terminal" && typeof event.data === "string") {
-      setTerminal((current) => `${current}${event.data}`.slice(-MAX_TERMINAL_CHARS));
+      const data = event.data;
+      if (!data) return;
+      setTerminal((current) => {
+        const text = `${current.text}${data}`.slice(-MAX_TERMINAL_CHARS);
+        const totalChars = current.totalChars + data.length;
+        return Number.isSafeInteger(totalChars) ? { ...current, text, totalChars }
+          : { text, totalChars: text.length, epoch: current.epoch === Number.MAX_SAFE_INTEGER ? 0 : current.epoch + 1 };
+      });
     } else if (event.kind === "diff" && typeof event.data === "string") {
       if (event.reset === true) pendingDiff.current = "";
       if (pendingDiff.current === null) return;
@@ -108,7 +130,7 @@ export function RunLivePanel({ runId, sessionId = "default", showDiff = true, ro
             {Object.entries(sessionChildren).map(([id, status]) => <li key={id}>{id}: {status.replaceAll("_", " ")}</li>)}
           </ul>
         </div> : null}
-        <TerminalView text={terminal} />
+        <TerminalView text={terminal.text} totalChars={terminal.totalChars} epoch={terminal.epoch} />
         {showDiff && diffNotice ? <p role="status" className="text-xs text-[var(--ink-2)]">{diffNotice}</p> : null}
         {showDiff && diff ? <DiffViewer diff={diff} runId={runId} /> : null}
       </div>

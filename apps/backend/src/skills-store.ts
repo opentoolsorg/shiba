@@ -1,6 +1,7 @@
 import { randomHex } from "./mailbox-store.js";
 import type { AuditEnv } from "./audit.js";
 import { initAudit } from "./audit.js";
+import { teamSkillWriteGuard, type SkillMutationOptions } from "./team-skill-grant.js";
 
 export type SkillStatus = "draft" | "review" | "active" | "disabled";
 
@@ -194,19 +195,22 @@ export async function createSkill(
   ownerId: string,
   input: { name: string; instructions: string; sourceUrl?: string },
   now = Date.now(),
+  options: SkillMutationOptions = {},
 ): Promise<SkillRecord> {
   await ensureTables(env);
   const id = `skill-${randomHex(12)}`;
-  await env.AGENT_AUDIT.batch([
+  const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
+  const changes = await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare(
       `INSERT INTO skills (id, org_id, owner_id, version, status, created_at, updated_at)
-       VALUES (?, ?, ?, 1, 'draft', ?, ?)`,
-    ).bind(id, orgId, ownerId, now, now),
+       SELECT ?, ?, ?, 1, 'draft', ?, ? WHERE 1 = 1${guard.sql}`,
+    ).bind(id, orgId, ownerId, now, now, ...guard.values),
     env.AGENT_AUDIT.prepare(
       `INSERT INTO skill_versions (skill_id, org_id, owner_id, version, name, instructions, source_url, created_at)
-       VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, 1, ?, ?, ?, ? WHERE changes() = 1`,
     ).bind(id, orgId, ownerId, input.name, input.instructions, input.sourceUrl ?? null, now),
   ]);
+  if (changes[0]?.meta.changes !== 1) throw new Error("workspace_authority_changed");
   const skill = await getSkill(env, orgId, ownerId, id);
   if (!skill) throw new Error("Skill create failed.");
   return skill;
@@ -220,18 +224,20 @@ export async function updateSkill(
   expectedVersion: number,
   input: { name: string; instructions: string; sourceUrl?: string },
   now = Date.now(),
+  options: SkillMutationOptions = {},
 ): Promise<SkillRecord | null> {
   await ensureTables(env);
   const current = await getSkill(env, orgId, ownerId, id);
   if (!current) return null;
   if (current.version !== expectedVersion) throw new Error("version_conflict");
   const next = current.version + 1;
+  const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
   const changes = await env.AGENT_AUDIT.batch([
     env.AGENT_AUDIT.prepare(
       `UPDATE skills SET version = ?, status = 'draft', reviewed_version = NULL,
        reviewed_instructions = NULL, updated_at = ?
-       WHERE id = ? AND org_id = ? AND owner_id = ? AND version = ?`,
-    ).bind(next, now, id, orgId, ownerId, current.version),
+       WHERE id = ? AND org_id = ? AND owner_id = ? AND version = ?${guard.sql}`,
+    ).bind(next, now, id, orgId, ownerId, current.version, ...guard.values),
     env.AGENT_AUDIT.prepare(
       `INSERT INTO skill_versions (skill_id, org_id, owner_id, version, name, instructions, source_url, created_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE changes() = 1`,
@@ -249,16 +255,19 @@ export async function reviewSkill(
   version: number,
   reviewedInstructions: string,
   now = Date.now(),
+  options: SkillMutationOptions = {},
 ): Promise<SkillRecord | null> {
   const current = await getSkill(env, orgId, ownerId, id);
   if (!current) return null;
   if (current.version !== version || current.content.instructions !== reviewedInstructions || !reviewedInstructions.trim()) {
     throw new Error("review_mismatch");
   }
-  await env.AGENT_AUDIT.prepare(
+  const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
+  const result = await env.AGENT_AUDIT.prepare(
     `UPDATE skills SET status = 'review', reviewed_version = ?, reviewed_instructions = ?, updated_at = ?
-     WHERE id = ? AND org_id = ? AND owner_id = ? AND version = ?`,
-  ).bind(version, reviewedInstructions, now, id, orgId, ownerId, version).run();
+     WHERE id = ? AND org_id = ? AND owner_id = ? AND version = ? AND status = ? AND reviewed_version IS ?${guard.sql}`,
+  ).bind(version, reviewedInstructions, now, id, orgId, ownerId, version, current.status, current.reviewedVersion ?? null, ...guard.values).run();
+  if (result.meta.changes !== 1) throw new Error("review_mismatch");
   return getSkill(env, orgId, ownerId, id);
 }
 
@@ -270,6 +279,7 @@ export async function activateSkill(
   version: number,
   reviewedInstructions: string,
   now = Date.now(),
+  options: SkillMutationOptions = {},
 ): Promise<SkillRecord | null> {
   const current = await getSkill(env, orgId, ownerId, id);
   if (!current) return null;
@@ -277,10 +287,12 @@ export async function activateSkill(
     current.status !== "review" || current.version !== version || current.reviewedVersion !== version ||
     current.reviewedInstructions !== reviewedInstructions || current.content.instructions !== reviewedInstructions
   ) throw new Error("review_required");
-  await env.AGENT_AUDIT.prepare(
+  const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
+  const result = await env.AGENT_AUDIT.prepare(
     `UPDATE skills SET status = 'active', active_version = ?, updated_at = ?
-     WHERE id = ? AND org_id = ? AND owner_id = ? AND status = 'review' AND reviewed_version = ? AND version = ?`,
-  ).bind(version, now, id, orgId, ownerId, version, version).run();
+     WHERE id = ? AND org_id = ? AND owner_id = ? AND status = 'review' AND reviewed_version = ? AND version = ?${guard.sql}`,
+  ).bind(version, now, id, orgId, ownerId, version, version, ...guard.values).run();
+  if (result.meta.changes !== 1) throw new Error("review_required");
   return getSkill(env, orgId, ownerId, id);
 }
 
@@ -290,12 +302,14 @@ export async function disableSkill(
   ownerId: string,
   id: string,
   now = Date.now(),
+  options: SkillMutationOptions = {},
 ): Promise<SkillRecord | null> {
   await ensureTables(env);
+  const guard = teamSkillWriteGuard(orgId, ownerId, options.teamGrant);
   const result = await env.AGENT_AUDIT.prepare(
     `UPDATE skills SET status = 'disabled', active_version = NULL, updated_at = ?
-     WHERE id = ? AND org_id = ? AND owner_id = ?`,
-  ).bind(now, id, orgId, ownerId).run();
+     WHERE id = ? AND org_id = ? AND owner_id = ?${guard.sql}`,
+  ).bind(now, id, orgId, ownerId, ...guard.values).run();
   if (result.meta.changes !== 1) return null;
   return getSkill(env, orgId, ownerId, id);
 }

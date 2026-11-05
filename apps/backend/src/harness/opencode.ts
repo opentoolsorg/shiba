@@ -9,7 +9,7 @@
  */
 import type { CodingTaskInput, CodingTaskResult } from "../opencode-input.js";
 import { DUMMY_PROVIDER_KEY } from "../provider-gateway.js";
-import { boundTail } from "../security.js";
+import { sanitizedEventText, type HarnessTextSanitizer } from "./event-sanitizer.js";
 import {
   assertSupportedModel,
   describeUsage,
@@ -45,14 +45,14 @@ export class OpenCodeErrorEvent extends Error {
  * newline-delimited JSON; anything else is surfaced as an honest error.
  * Error events throw OpenCodeErrorEvent so callers can propagate them.
  */
-export function parseOpencodeEvent(line: string): HarnessEvent | null {
+export function parseOpencodeEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   let event: unknown;
   try {
     event = JSON.parse(trimmed);
   } catch {
-    throw new OpenCodeEventError(`Unparseable OpenCode event: ${boundTail(trimmed, 200)}`);
+    throw new OpenCodeEventError("Unparseable OpenCode event.");
   }
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
     throw new OpenCodeEventError("OpenCode event is not an object.");
@@ -60,7 +60,7 @@ export function parseOpencodeEvent(line: string): HarnessEvent | null {
   const record = event as Record<string, unknown>;
   if (record.type === "error") {
     const detail = typeof record.message === "string" ? record.message : JSON.stringify(record);
-    throw new OpenCodeErrorEvent(boundTail(detail, 500));
+    throw new OpenCodeErrorEvent(sanitizedEventText(detail, sanitize));
   }
   const part = record.part ?? record.parts;
   if (record.type === "step_finish" && typeof part === "object" && part !== null) {
@@ -70,9 +70,9 @@ export function parseOpencodeEvent(line: string): HarnessEvent | null {
     }
   }
   if (typeof part === "string" && part.trim()) {
-    return { kind: "text", text: boundTail(part.trim(), 500) };
+    return { kind: "text", text: sanitizedEventText(part, sanitize, 500, true) };
   }
-  return { kind: "progress", text: boundTail(summarizeUnknown(record), 500) };
+  return { kind: "progress", text: sanitizedEventText(summarizeUnknown(record), sanitize) };
 }
 
 /**
@@ -189,8 +189,8 @@ export class OpenCodeHarness implements AgentHarness {
     return buildOpencodeArgv(input, workdir);
   }
 
-  parseEvent(line: string): HarnessEvent | null {
-    return parseOpencodeEvent(line);
+  parseEvent(line: string, sanitize?: HarnessTextSanitizer): HarnessEvent | null {
+    return parseOpencodeEvent(line, sanitize);
   }
   /** T43 declared capabilities — the gates read this, not the name. */
   capabilities(_model?: string): HarnessCapabilities {

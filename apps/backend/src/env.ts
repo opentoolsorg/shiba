@@ -9,6 +9,8 @@ import type { Sandbox } from "./sandbox.js";
 import type { ConversationRoom } from "./conversation-room-do.js";
 
 export interface Env {
+  /** Cloudflare-provided immutable version metadata, never supplied by a caller. */
+  CF_VERSION_METADATA?: { id: string; tag: string; timestamp: string };
   AI: Ai;
   /**
    * Dynamic Worker Loader for Code Mode (`worker_loaders` in wrangler.jsonc)
@@ -21,6 +23,10 @@ export interface Env {
   ConversationRoom: DurableObjectNamespace<ConversationRoom>;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;
+  /** Optional separate offline desktop; never the coding container. */
+  ComputerSession?: DurableObjectNamespace<import("./computer-session.js").ComputerSession>;
+  SHIBA_SHARED_COMPUTER?: string;
+  SHIBA_SHARED_COMPUTER_IMAGE?: string;
   /** Bound to the Automations Durable Object class in wrangler.jsonc. */
   Automations: DurableObjectNamespace;
   /**
@@ -97,6 +103,13 @@ export interface Env {
   MCP_RATE_LIMIT?: RateLimit;
   /** Comma-separated exact HTTPS destination hostnames trusted for outbound MCP. Empty means disabled. */
   MCP_TRUSTED_HOSTS?: string;
+  /** Optional vendor-registered client IDs for curated remote MCP OAuth. */
+  MCP_OAUTH_CLIENT_STRIPE?: string;
+  MCP_OAUTH_CLIENT_NOTION?: string;
+  MCP_OAUTH_CLIENT_SENTRY?: string;
+  MCP_OAUTH_CLIENT_POSTHOG?: string;
+  MCP_OAUTH_CLIENT_FIGMA?: string;
+  MCP_OAUTH_CLIENT_JIRA_ATLASSIAN?: string;
   /**
    * Optional. Workers Browser Rendering endpoint (wrangler `browser` binding,
    * megaplan T33). `puppeteer.launch()` accepts the Fetcher shape directly;
@@ -187,6 +200,12 @@ export interface Env {
    * local-runtime request refuses 403 before any approval exists.
    */
   SHIBA_LOCAL_RUNTIME?: string;
+  /** Opt-in owner-bound personal machines; no deployment provider or account fallback. */
+  SHIBA_PERSONAL_LOCAL_EXECUTION?: string;
+  /** Explicit operator-funded, bounded native team text turns. Default off. */
+  SHIBA_TEAM_MODEL_SESSIONS?: string;
+  /** Exact supported Workers AI model; changes invalidate prior funding grants. */
+  SHIBA_TEAM_MODEL_MODEL?: string;
   /** Reason Network local companion dispatch is explicitly disabled unless set to "1". */
   REASON_NETWORK_ENABLED?: string;
   /** verify-shiba: "1" runs deterministic publish/review without containers. */
@@ -262,8 +281,23 @@ export interface Env {
   SLACK_SIGNING_SECRET?: string;
   /** Optional. Comma-separated Slack user ids allowed to approve; unset = nobody. */
   SLACK_APPROVERS?: string;
-  /** Optional. Bot token used only to post approval cards (chat.postMessage). */
+  /** Optional. Worker-only bot token for verified Slack replies, cards and opt-in session status. */
   SLACK_BOT_TOKEN?: string;
+  /** Opt-in managed installations; encrypted bot credentials stay in Worker storage. */
+  SLACK_INSTALLATIONS_ENABLED?: string;
+  SLACK_OAUTH_APP_ID?: string;
+  SLACK_OAUTH_CLIENT_ID?: string;
+  SLACK_OAUTH_REDIRECT_URI?: string;
+  SLACK_OAUTH_PKCE_ENABLED?: string;
+  SLACK_OAUTH_QUERY_REDACTION_VERIFIED?: string;
+  SLACK_LEGACY_MODE_ENABLED?: string;
+  SLACK_LEGACY_TEAM_ID?: string;
+  SLACK_LEGACY_APP_ID?: string;
+  SLACK_INSTALLATION_KEYRING?: string;
+  /** Native agent sessions are dark unless exactly `true`; requires an agent-enabled Slack installation. */
+  SLACK_AGENT_SESSIONS_ENABLED?: string;
+  /** Exact single Slack workspace allowed for optional native session status. */
+  SLACK_AGENT_SESSIONS_TEAM_ID?: string;
   /**
    * Optional. Channel id email-kind approval cards post to. Run approvals
    * mint inside a Slack thread and post their card there; email approvals

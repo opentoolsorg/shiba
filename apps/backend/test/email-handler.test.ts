@@ -401,6 +401,53 @@ describe("handleInboundEmail", () => {
     expect(inboundEmailStats().unregisteredDrops).toBe(0);
   });
 
+  it.each([
+    {
+      label: "quoted token JSON",
+      error: 'Upstream "failure"\n{"access_token":"abcdefgh"}',
+      redacted: 'Upstream "failure"\n{[redacted]}',
+    },
+    {
+      label: "credential at the end of a string",
+      error: 'Upstream "failure"\napi_key: abcdefgh',
+      redacted: 'Upstream "failure"\n[redacted]',
+    },
+  ])("redacts $label before encoding structured email warnings", async ({ error, redacted }) => {
+    resetInboundEmailStats();
+    const env = makeEnv();
+    env.stubs.set(MAILBOX_DIRECTORY_NAME, { fetch: async () => { throw new Error(error); } });
+    const { message, rejectReason } = makeMessage(rfc822({ Subject: "x" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(handleInboundEmail(message, env)).rejects.toThrow("Mailbox directory lookup failed");
+      expect(warn).toHaveBeenCalledOnce();
+      const logged = String(warn.mock.calls[0]?.[0]);
+      const event = "inbound_email_directory_lookup_failed ";
+      expect(logged).toMatch(/^inbound_email_directory_lookup_failed /);
+      expect(logged).not.toContain("abcdefgh");
+      expect(JSON.parse(logged.slice(event.length))).toEqual({ to: REGISTERED, error: redacted });
+      expect(rejectReason()).toBeUndefined();
+      expect(inboundEmailStats()).toMatchObject({ stored: 0, directoryErrors: 1, unregisteredDrops: 0 });
+      expect(env.r2.size).toBe(0);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps numeric warning metadata structured when an email directory lookup fails", async () => {
+    const env = makeEnv();
+    env.stubs.set(MAILBOX_DIRECTORY_NAME, { fetch: async () => new Response("unavailable", { status: 503 }) });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(handleInboundEmail(makeMessage(rfc822({ Subject: "x" })).message, env)).rejects.toThrow("Mailbox directory lookup failed");
+      expect(warn).toHaveBeenCalledOnce();
+      const event = "inbound_email_directory_lookup_failed ";
+      expect(JSON.parse(String(warn.mock.calls[0]?.[0]).slice(event.length))).toEqual({ to: REGISTERED, status: 503 });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("flags and stores unparseable mail with the raw subject, never crashing", async () => {
     resetInboundEmailStats();
     const env = makeEnv();

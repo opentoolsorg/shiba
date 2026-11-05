@@ -1,0 +1,49 @@
+{
+  "startedAt": "2026-11-04T19:27:48.125Z",
+  "status": "passed",
+  "scope": "Native Chromium Web Locks and real user-click window.open sessionStorage cloning. Actual helper only, TypeScript-transpiled without application/SDK imports. No Worker/auth/accounts/providers/user data.",
+  "sourceSha256AtStart": "44c5410c2a7dc031617eec4a8a7007c26f343616705712b1ab69b06f24ec16c1",
+  "checks": [
+    {
+      "name": "Legacy unleased nonce is preserved but never reused; native lock owns the new versioned viewer nonce.",
+      "viewerId": "28a2a7a7-e4ff-46f5-9dc4-c1fe75f96fd7",
+      "legacy": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    },
+    {
+      "name": "Real window.open copies the original sessionStorage, but the live child acquires a distinct nonce before ready.",
+      "copiedNonce": "28a2a7a7-e4ff-46f5-9dc4-c1fe75f96fd7",
+      "childNonce": "0c922a50-1f1b-40f6-8bd3-f0988e8755e0"
+    },
+    {
+      "name": "Both native exclusive viewer locks are held concurrently."
+    },
+    {
+      "name": "Actual original-document reload releases/reclaims its nonce while the duplicated child remains distinct.",
+      "reloadedNonce": "28a2a7a7-e4ff-46f5-9dc4-c1fe75f96fd7",
+      "childNonce": "0c922a50-1f1b-40f6-8bd3-f0988e8755e0"
+    },
+    {
+      "name": "Releasing both actual helper consumers leaves no native viewer locks or queued requests."
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "requests": [
+    "/",
+    "/room-tab-identity.js"
+  ],
+  "origin": "http://127.0.0.1:36481",
+  "browserVersion": "154.0.8037.57",
+  "sourceSha256AtEnd": "44c5410c2a7dc031617eec4a8a7007c26f343616705712b1ab69b06f24ec16c1",
+  "finishedAt": "2026-11-04T19:27:54.243Z",
+  "cleanup": {
+    "browserClosed": true,
+    "profileRemoved": true,
+    "serverClosed": true,
+    "compiledTemporaryModuleRemoved": true
+  },
+  "artifacts": [
+    "native-tab-parent-20261104.png",
+    "native-tab-child-20261104.png"
+  ]
+}
