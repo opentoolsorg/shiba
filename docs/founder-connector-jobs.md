@@ -69,10 +69,28 @@ call provider endpoints directly.
 
 ## Why autonomous reads remain unavailable
 
-The pinned upstream source has operation-type metadata, but Shiba currently
-drops it. There is no audited manifest binding exact action IDs, schemas and
-executors to read-only behavior, nor authenticated proof of the active sibling
-deployment revision. A checked-out source pin is not deployment attestation.
+Shiba preserves the provider-declared `operationType` as advisory `read`, `write`
+or `destructive` metadata. Missing or unknown upstream values become
+`unclassified`; older Shiba wire responses may omit the field, which also means
+unclassified. This classification never removes exact-action human approval,
+changes grants or authorizes a scheduled call.
+
+The pinned upstream illustrates why that boundary matters. Linear's
+[`run_query` declaration](https://github.com/oomol-lab/open-connector/blob/d89dc9f24f5a057bb500272d7dbf333837c77c68/src/providers/linear/actions.ts#L381)
+calls it a read, while its
+[`executor`](https://github.com/oomol-lab/open-connector/blob/d89dc9f24f5a057bb500272d7dbf333837c77c68/src/providers/linear/executors.ts#L1160)
+forwards the supplied GraphQL document without rejecting mutations. The common
+transport posts that document to Linear. With sufficient upstream credentials,
+the label alone therefore cannot establish read-only behavior. This is source
+inspection, not a live mutation test. A fixture regression proves Shiba still
+requests human approval when a read-labelled action receives mutation text.
+
+There is no audited manifest binding exact action IDs, argument restrictions,
+schemas and executors to read-only behavior, nor authenticated proof of the
+active sibling deployment revision. Upstream action policy checks action IDs;
+its declaration is not an enforcement boundary for arbitrary query bodies.
+A checked-out source pin and successful metadata health check do not attest to
+the live deployment's code or configuration.
 
 There is also no scheduler-attributed standing read grant with exact source
 scope, expiry, revocation, funding authority and call budget. A connected app

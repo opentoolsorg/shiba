@@ -209,6 +209,10 @@ its scheduled handler/cron, and the minified deploy script.
 
 `integrations.search_actions` discovers action IDs and input schemas for one
 connected service. `integrations.execute` executes an action after human review.
+Discovery also preserves advisory provider-reported `operationType` metadata.
+Missing or unknown upstream values are `unclassified`. A `read` label is not an
+audited read-only guarantee: arbitrary query actions can forward mutation text.
+It does not change approvals, grants, execution policy or scheduled authority.
 Both use the existing employee tool policy: grant
 `mcp:shiba:integrations.search_actions` and/or `mcp:shiba:integrations.execute`
 with the exact upstream service ID (for example `github`) as the resource.
