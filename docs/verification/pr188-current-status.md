@@ -4,6 +4,8 @@ This is the current scope index; older dated reports retain their historical
 results. The code checkpoint for the Meta/key-routing addition is `ce341d6`.
 Preview work is paused. No production deployment, merge, real provider request,
 Slack send, paid inference or credential creation is included in this evidence.
+All remaining isolated work is preserved in a [clearly unfinished source
+snapshot](../unfinished/README.md); it is not applied to the runtime.
 
 | Requested work | Implemented and tested boundary | Remaining acceptance or product gap |
 | --- | --- | --- |

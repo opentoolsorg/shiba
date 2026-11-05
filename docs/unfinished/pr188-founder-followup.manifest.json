@@ -1,0 +1,163 @@
+{
+  "format": "shiba.unfinished-work-snapshot.v1",
+  "baseCommit": "5d2396047d0e63254a6c111f1e0936f8404f7989",
+  "appliedToRuntime": false,
+  "notice": "Unfinished and unavailable product work. Synthetic authority is not live HubSpot compatibility. Stripe Slack routes/UI/integration/security acceptance are incomplete. Do not apply to a deployment.",
+  "patch": {
+    "path": "pr188-founder-followup.patch.txt",
+    "bytes": 170061,
+    "sha256": "9e0d2a8471377edac7e937604d342df810d600e8bbf9c7f92c81ab8cdf6a59ff"
+  },
+  "files": [
+    {
+      "path": "apps/backend/migrations/0030_founder_reconciliation.sql",
+      "bytes": 710,
+      "sha256": "32ccd77f32c3ada171106e06cc215201e24855ab4cea99268d16bd9be59c9649"
+    },
+    {
+      "path": "apps/backend/migrations/0031_founder_slack_sources.sql",
+      "bytes": 4108,
+      "sha256": "fe7d71740b9dd6c15c0fe0311db86c76ef55aab943f288e45d46009c423b28b3"
+    },
+    {
+      "path": "apps/backend/src/founder-automatic-slack-stripe-source.ts",
+      "bytes": 7478,
+      "sha256": "cbd6a815994949c0d88c5df14271e4d6e44071453f0c96a9fdc5846304a93926"
+    },
+    {
+      "path": "apps/backend/src/founder-automatic-slack-stripe-store.ts",
+      "bytes": 14575,
+      "sha256": "dee8eb56db13b5bc3824e0f985b658b66f61956664a8b4432e5b4c411f170160"
+    },
+    {
+      "path": "apps/backend/src/founder-automatic-slack-stripe-tick.ts",
+      "bytes": 8959,
+      "sha256": "2299c34ab1058b603b6ba242f1159304fcf8decd1c0fee7eedda8c0ee39c1ba1"
+    },
+    {
+      "path": "apps/backend/src/founder-reconciliation-compute.ts",
+      "bytes": 5353,
+      "sha256": "127e223073a98cd96ba8b5db9469465b0375cec702a96a1589c862c391ce309f"
+    },
+    {
+      "path": "apps/backend/src/founder-reconciliation-generated.ts",
+      "bytes": 217,
+      "sha256": "c2a784f7b2c36c336899f9bd984e6203eb610ee8ad738f182c3a9dc6f6cfc455"
+    },
+    {
+      "path": "apps/backend/src/founder-reconciliation-manifest.mjs",
+      "bytes": 1009,
+      "sha256": "689d5e6681c311fd8b38bde4aa09393db0428f2786ecff3543f42814a631d95c"
+    },
+    {
+      "path": "apps/backend/src/founder-reconciliation-routes.ts",
+      "bytes": 6480,
+      "sha256": "41b1290b5157bd48190f0e5cf6506dfc98a1ef93f18853e252ffbd8202931b4e"
+    },
+    {
+      "path": "apps/backend/src/founder-reconciliation-session.ts",
+      "bytes": 1608,
+      "sha256": "a73e678b9cf9e81f36b1a976be2cd343910edc9a070e812ccf721b5e1242b26c"
+    },
+    {
+      "path": "apps/backend/src/founder-reconciliation-sources.ts",
+      "bytes": 9732,
+      "sha256": "09b1199ac7e70d840a15e230474d3996b2487a224d79e6aff866209310138530"
+    },
+    {
+      "path": "apps/backend/src/founder-reconciliation-store.ts",
+      "bytes": 10598,
+      "sha256": "4d957c649a5aeb2ebd296bb1b4c4b44ae77bdd4ad5de99704f980733aec18b16"
+    },
+    {
+      "path": "apps/backend/test/founder-reconciliation-compute.test.ts",
+      "bytes": 3485,
+      "sha256": "67afe6c4df56735edf5d034c1acad5cb2144d79ac3154ac7bedf23a87685283d"
+    },
+    {
+      "path": "apps/backend/test/founder-reconciliation-limits.test.ts",
+      "bytes": 1778,
+      "sha256": "67f7fd36ef4e9c44007b53ae3b9a3b7bb9ea4aaa6d6ec6a4f2c06968258639cf"
+    },
+    {
+      "path": "apps/backend/test/founder-reconciliation-routes.test.ts",
+      "bytes": 4101,
+      "sha256": "489c7dbdd52fc13cd5bdea3c82ce8a879d73f09a1ebc62c2c102c462bd5c2553"
+    },
+    {
+      "path": "apps/backend/test/founder-reconciliation-source.security-v4.test.ts",
+      "bytes": 10476,
+      "sha256": "e4b662794789240392ebfc2556bdf638ec6d30c5c894ae2c3cc9eaac3eb737ec"
+    },
+    {
+      "path": "apps/backend/test/founder-reconciliation-sources.test.ts",
+      "bytes": 5107,
+      "sha256": "facbc8b534bea1f595b4eeab82e5649be91c8510b0d552f40ebb2ef9fb76f066"
+    },
+    {
+      "path": "apps/backend/test/founder-reconciliation-store.test.ts",
+      "bytes": 8752,
+      "sha256": "f753ea02990411dc253746561a905abef89704c4ffee97bd129d47e2e6c3abaa"
+    },
+    {
+      "path": "apps/backend/test/founder-reconciliation.security-v4.test.ts",
+      "bytes": 3393,
+      "sha256": "8add526724d6a2c3feff571873a1152fb13ef5af28bb61f6f5fe041c5cb35270"
+    },
+    {
+      "path": "apps/frontend/src/components/FounderReconciliation.test.tsx",
+      "bytes": 3536,
+      "sha256": "1ea48e34990596e736d0068c937c5378c06928d2a5113323338081f75abd79ba"
+    },
+    {
+      "path": "apps/frontend/src/components/FounderReconciliation.tsx",
+      "bytes": 15400,
+      "sha256": "f3547a1f7daace5d24627990e0808d9494a47476fd1010152ce65d3507e8f687"
+    },
+    {
+      "path": "apps/frontend/src/founder-reconciliation-client.test.ts",
+      "bytes": 3319,
+      "sha256": "323562131575d1e477f11ef7c44200f1b5a248b13f81f1a6891e3bd33abaae04"
+    },
+    {
+      "path": "apps/frontend/src/founder-reconciliation-client.ts",
+      "bytes": 9475,
+      "sha256": "703866107c0e4f9baf3df8a56411dabf0d55ac5c8ba6557d1efad5e46663b8f4"
+    },
+    {
+      "path": "apps/frontend/src/founder-reconciliation-fixtures.ts",
+      "bytes": 1331,
+      "sha256": "8db609de8a8499f7c6e194050f3c36cce3120eed9939f9c589878140ac0af3d9"
+    },
+    {
+      "path": "docs/founder-reconciliation-design.md",
+      "bytes": 3405,
+      "sha256": "019bb6d65be209911d0eba8dc0c8524260932d2c9c32ffee6ad8dd59e00b89a0"
+    },
+    {
+      "path": "docs/verification/four-priorities-security-v4.md",
+      "bytes": 6629,
+      "sha256": "c3d1c019d1588ffdb1b009e709c96fae285289e17dcc9c979032b92f7d725ba2"
+    },
+    {
+      "path": "packages/openconnector-read-gateway/src/hubspot-snapshot.ts",
+      "bytes": 3277,
+      "sha256": "b92f59db45d24702c7c9105d95dcfc14617762c6c94348a2aa9ecbcd6f651c1e"
+    },
+    {
+      "path": "packages/openconnector-read-gateway/test/hubspot-snapshot.test.ts",
+      "bytes": 1444,
+      "sha256": "5edf91f49c69ad9933c5fdd2b4553bdf054d725bdeba45a111694a6bec908b6f"
+    },
+    {
+      "path": "packages/shared/src/founder-reconciliation.ts",
+      "bytes": 3630,
+      "sha256": "84e3d3ffc5dc3ac53cec77010f8422fd6f9117124162a8969f1e88f686a5171a"
+    },
+    {
+      "path": "packages/shared/src/index.ts",
+      "bytes": 2738,
+      "sha256": "37165441f6b347952c362c545ee99cee8bfab7cb40d09d65104a4494414f05e6"
+    }
+  ]
+}
