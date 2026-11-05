@@ -7,6 +7,15 @@ afterEach(()=>{cleanup();vi.restoreAllMocks();});
 const draft={id:'sd_'+ 'a'.repeat(32),text:'My Slack task',teamId:'T1',channelId:'C1',threadTs:'123.000001',messageTs:'123.000002',slackUserId:'U1',eventId:'E1'};
 const state={bindings:[],challenges:[],grants:[],executionAvailable:false};
 describe('Slack coworker native scope',()=>{
+ it('stages the exact source draft for fenced submission without consuming or copying it',async()=>{
+  const onAdopt=vi.fn(),fetcher=vi.fn(async(url:RequestInfo|URL)=>Response.json(String(url).endsWith('/drafts')?{drafts:[draft]}:state));
+  const ws='ws_'+'a'.repeat(24),actor='member@example.test';
+  render(<SlackCoworkerPanel workspaceId={ws} actorId={actor} onAdoptTask={onAdopt} client={new SlackCoworkerClient(ws,actor,fetcher)}/>);
+  await screen.findByText('My Slack task');
+  fireEvent.click(screen.getByRole('button',{name:'Review source-fenced submission'}));
+  expect(onAdopt).toHaveBeenCalledWith(draft.text,draft.id);
+  expect(fetcher.mock.calls.some(([url])=>String(url).endsWith('/drafts/adopt')||String(url).endsWith('/drafts/submit'))).toBe(false);
+ });
  it('does not adopt a late result or display a secret after the native actor changes',async()=>{
   const ws='ws_'+ 'a'.repeat(24),oldActor='a@example.test',nextActor='b@example.test',onAdopt=vi.fn();
   let release!:(r:Response)=>void;const held=new Promise<Response>(resolve=>{release=resolve;});
