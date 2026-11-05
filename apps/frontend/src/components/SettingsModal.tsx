@@ -1,5 +1,5 @@
 /**
- * SettingsModal — Kosuke-style settings popup: a grouped left nav
+ * SettingsModal — settings popup: a grouped left nav
  * (YOUR ACCOUNT / WORKSPACE / FEATURES) beside a scrollable content pane that mounts
  * the REAL section bodies from settings-sections — no duplicated internals.
  * Closes on Esc, backdrop click, or the ✕ button.
@@ -169,7 +169,7 @@ export function SettingsModal({
         aria-describedby={descriptionId}
         className="relative z-10 m-auto flex h-[82dvh] max-h-[780px] w-full max-w-4xl flex-col overflow-hidden rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-overlay)] animate-enter"
       >
-        {/* Header — title + close, like Kosuke's dialog chrome. */}
+        {/* Header — title + close, dialog chrome. */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-3">
           <div>
             <h2 id={titleId} className="text-base font-semibold text-[var(--fg)]">

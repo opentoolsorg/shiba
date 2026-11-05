@@ -1,11 +1,10 @@
 # Agent lifecycle comparison and acceptance
 
-Inspected on 2026-10-28. Reference: `LayerNorm/overlay-web` commit
-`49146167572130e171db8d566edc0bf2f176aa73`. This focused review responds to the
-request for agents working end to end, beyond storing a bot definition or
-opening an empty conversation. It records source contracts and missing
-acceptance; subsequent implementation results belong in the final audit report.
-No Overlay application or real provider execution was performed by this review.
+Inspected on 2026-10-28. This focused review responds to the request for
+agents working end to end, beyond storing a bot definition or opening an empty
+conversation. It records lifecycle contracts and missing acceptance; subsequent
+implementation results belong in the final audit report. No real provider
+execution was performed by this review.
 
 ## Implemented lifecycle and executed acceptance
 
@@ -59,37 +58,21 @@ local-daemon journey also passes actual file edits/diffs and cancellation in
 web and Electron with a fixture model CLI; see [Bot acceptance](bots-e2e.md).
 No live model inference,
 real sandbox/provider run, real PR mutation, unrelated-tenant runtime isolation,
-or full Overlay feature equality is claimed. Creator/workspace sharing roles,
+or full reference-product feature equality is claimed. Creator/workspace sharing roles,
 granular tool grants, and canonical public multi-run conversations remain
 separate requirements.
 
-## Which reference agent functionality is relevant
+## Relevant agent functionality
 
-Overlay's enabled native agent is a workspace-owned identity with instructions,
-a model, tool grants and visibility. A user opens a persistent conversation with
-that identity; runs are executions inside the conversation. Its native turn
-pipeline resolves the agent grant, prepares allowed tooling and persists run
-state/messages through the workflow. The relevant source is:
-
-- `src/features/agents/components/NewAgentDialog.tsx` and
-  `use-agent-editor-actions.ts`: creation, save, error recovery and opening the
-  saved identity.
-- `src/server/agents/WorkspaceAgentService.ts`: workspace membership, creation
-  policy, runtime/config validation, visibility and editor/archive permissions.
-- `src/server/agents/agent-tooling.ts` and `workspace-agent-durable.ts`:
-  server-owned tool grants carried into the native turn pipeline.
-- `convex/agents/agentThreads.ts`: separately persisted user/agent conversations.
-
-`src/shared/config/defaultOverlayRuntimeConfig.ts` leaves `externalAgents`,
-`connectedAgentControlPlane`, `remoteAgentRuns`, `overlayCloudEnvironments`,
-connected artifacts/drive and legacy managed harness agents **disabled by
-default**. Their presence is not evidence of working hosted Codex/Claude agents.
-Native computer support also requires a configured provider; its enabled flag
-does not establish a provisioned machine.
+The target is a workspace-owned agent identity with instructions, a model, tool
+grants and visibility. A user opens a persistent conversation with that
+identity; runs are executions inside the conversation. A native turn pipeline
+resolves the agent grant, prepares allowed tooling and persists run
+state/messages through the workflow.
 
 ## Lifecycle contracts
 
-| Step | Overlay native-agent source contract | Shiba implementation at inspection | Required parity or acceptance |
+| Step | Product requirement | Shiba implementation at inspection | Required parity or acceptance |
 | --- | --- | --- | --- |
 | Create identity | Name/instructions/model required; runtime/model validation; workspace creation policy; optional avatar and visibility. | `CustomAgentsView.tsx` → `/api/custom-agents` → Effect schema/harness validation → org-scoped D1 profile. Instructions, harness, optional model/connection/provider/repository are stored. | Keep one clear path from form to saved identity and meaningful validation errors. Saving a profile is not a successful run. Per-profile readiness should explain unusable model/connection/provider settings before a task vanishes into setup failure. |
 | Edit safely | Editor policy checked server-side; changed effective harness/model configuration is revalidated. | `expectedVersion` is accepted, but `custom-agents-store.ts:updateCustomAgent` checks a read value and then updates without a version predicate; configuration and version-history writes are separate. | Use a real atomic compare-and-swap and consistent version history. A simultaneous edit must return a conflict without overwriting the winner; test with actual SQL/storage behavior, not only a sequential fake. |
@@ -148,5 +131,5 @@ IDs.
 **P2:** add creator/workspace visibility, team management, richer tool grants,
 main-thread policies or dedicated computers only with explicit authorization,
 storage/cost and lifecycle contracts. Preserve Shiba's existing Worker/DO/D1
-architecture and identity instead of copying Overlay's vendor stack or dormant
+architecture and identity instead of copying a reference product's vendor stack or dormant
 external-agent control plane.

@@ -254,7 +254,7 @@ export function TasksHomeView({
 
   return (
     <main className="min-h-0 flex-1 overflow-y-auto bg-[var(--paper)]">
-      {/* Top Header Bar matching OpenBot TasksPage header */}
+      {/* Top Header Bar */}
       <header className="sticky top-0 z-20 flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-1)] bg-[var(--chrome)]/90 px-4 backdrop-blur sm:px-6">
         <div className="flex items-center gap-2.5">
           {onToggleAgents ? (

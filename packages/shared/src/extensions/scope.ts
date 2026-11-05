@@ -82,7 +82,7 @@ function canEdit(row: ExtensionScopedRow, actor: ExtensionScopeActor): boolean {
   return row.userId === actor.userId || (extensionRowScope(row) === "workspace" && isManager(actor));
 }
 
-/** Pure equivalent of Overlay's extension scope move planner. */
+/** Pure extension scope move planner. */
 export function setScope(
   row: ExtensionScopedRow | null,
   to: ExtensionScope,
@@ -102,7 +102,7 @@ export function setScope(
   return { ok: true, patch: { scope: to } };
 }
 
-/** Pure equivalent of Overlay's extension archive planner. */
+/** Pure extension archive planner. */
 export function archive<Extra extends object = object>(
   row: ExtensionScopedRow | null,
   actor: ExtensionScopeActor,
@@ -123,7 +123,7 @@ export function archive<Extra extends object = object>(
   };
 }
 
-/** Pure equivalent of Overlay's extension restore planner. */
+/** Pure extension restore planner. */
 export function restore(
   row: ExtensionScopedRow | null,
   actor: ExtensionScopeActor,
@@ -147,5 +147,5 @@ export function restore(
   };
 }
 
-/** Named together to mirror Overlay's table-bound scopeMutations helper. */
+/** Named together as the table-bound scopeMutations helper. */
 export const scopeMutations = { setScope, archive, restore };
