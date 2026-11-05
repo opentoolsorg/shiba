@@ -1,8 +1,6 @@
 name: Deploy worker (alchemy)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       stage:
@@ -18,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-worker
+  group: deploy-worker-${{ inputs.stage || 'live' }}
   cancel-in-progress: false
 
 jobs:
